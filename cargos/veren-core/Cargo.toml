@@ -1,0 +1,7 @@
+[package]
+name = "veren-core"
+version.workspace = true
+edition.workspace = true
+description = "Core Veren library; depend on it when a Rust crate needs Veren's shared core logic, not for app-specific code."
+
+[dependencies]

@@ -1,0 +1,18 @@
+{
+  "name": "@veren/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Project-level metadata CLI for AI agents and developers: use it to discover workspace units (npm packages and Rust crates) by name/description/dir and to read a unit's bilingual README docs. Run as `pnpm cli <command>` from the repo root.",
+  "main": "./src/cli.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "tsc --noEmit"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

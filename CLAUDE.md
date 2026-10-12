@@ -1,0 +1,1 @@
+please read agents markdown file: ./AGENTS.md

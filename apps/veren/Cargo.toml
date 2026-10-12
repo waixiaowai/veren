@@ -1,0 +1,8 @@
+[package]
+name = "veren"
+version.workspace = true
+edition.workspace = true
+description = "User-facing Veren command-line application; run or ship it to use the product, and depend on the library crates such as veren-core instead when you only need reusable logic."
+
+[dependencies]
+veren-core.workspace = true

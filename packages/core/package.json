@@ -1,0 +1,23 @@
+{
+  "name": "@veren/core",
+  "displayName": "Veren Core",
+  "version": "0.1.0",
+  "description": "Use when several packages must share typed services through one Cordis context: it is the dependency-injection foundation of the @veren TypeScript toolchain and the base of every other @veren package.",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.4"
+  }
+}

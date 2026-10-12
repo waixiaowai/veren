@@ -1,0 +1,11 @@
+[workspace]
+members = ["cargos/*", "apps/veren"]
+default-members = ["apps/veren"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+veren-core = { path = "cargos/veren-core" }

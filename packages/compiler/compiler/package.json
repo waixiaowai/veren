@@ -1,0 +1,30 @@
+{
+  "name": "@veren/compiler-compiler",
+  "version": "0.1.0",
+  "description": "Use when you want the assembled compiler pipeline — a wired Compiler instance whose stages resolve against context services — instead of composing the individual providers yourself.",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "typescript": "^5.9.3",
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@veren/core": "workspace:*",
+    "@veren/compiler-type-checker": "workspace:*",
+    "@veren/compiler-options": "workspace:*",
+    "@veren/compiler-program": "workspace:*"
+  },
+  "devDependencies": {
+    "@veren/compiler-host": "workspace:*"
+  }
+}

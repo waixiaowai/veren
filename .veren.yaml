@@ -1,0 +1,16 @@
+# veren CLI 配置 / veren CLI configuration
+# 由 @veren/cli（apps/cli）读取；CLI 从当前目录向上查找本文件以定位项目根。
+# Read by @veren/cli (apps/cli); the CLI walks up from the working directory
+# until this file is found, and treats its directory as the project root.
+
+# scan: 参与单元扫描的根目录（相对本文件所在目录）。
+#       每个根目录递归扫描（有深度上限），目录内含 package.json 视为 npm 单元，
+#       含 Cargo.toml 视为 Rust 单元；两者并存时以 package.json 为准。
+# scan: scan roots for unit discovery (relative to this file's directory).
+#       Each root is scanned recursively (depth-capped); a directory containing
+#       package.json is an npm unit, one containing Cargo.toml a Rust unit;
+#       if both exist, package.json wins.
+scan:
+  - apps
+  - packages
+  - cargos

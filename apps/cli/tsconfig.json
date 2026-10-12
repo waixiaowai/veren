@@ -1,0 +1,13 @@
+{
+  /**
+   * 继承根配置；本包只做类型检查（noEmit），运行交给 Node 24 的原生 TS 类型擦除。
+   * Extends the base config; this package is type-check only (noEmit) —
+   * execution relies on Node 24's native TS type stripping.
+   */
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["src"]
+}
