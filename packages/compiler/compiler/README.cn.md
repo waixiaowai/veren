@@ -60,7 +60,7 @@ const compiler = get(ctx, Compiler.name)!    // DefaultCompiler
 | `DefaultCompiler` | `class DefaultCompiler extends Compiler` | 接线好的编译器：getter 与各阶段都从上下文服务取值。 |
 | `apply(ctx)` | `(ctx: Context) => Disposable` | provide `new DefaultCompiler(ctx)`；返回的 disposer 用于移除该服务。 |
 
-继承自抽象类 `Compiler`（`src/types.ts`）的成员：
+继承自抽象类 `Compiler`（`src/compiler.ts`）的成员：
 
 | 成员 | 类型 | 说明 |
 | --- | --- | --- |
@@ -139,4 +139,4 @@ pnpm --filter @veren/compiler-compiler test
 - **查询前置条件。** 成功 compile 之前调用 `getMetadata` 会抛出 `Compiler: parse 尚未完成，请先调用 compile()`；未知文件返回 `[]`。`hasErrors()` 只统计 `ts.DiagnosticCategory.Error`。
 - **同一 Context 只能有一份服务。** cordis 对同名令牌的第二次注册会抛 `service already registered`；要在同一 `Context` 上重新 provide，需先调用 `apply`（或 `provide`）返回的 disposer。
 - **同步写法。** 调用方若自行管理激活，可以同步直调 `Compiler.apply(ctx)`，而不使用 `await ctx.plugin(Compiler)`；链上其他 Provider 同理。
-- **当前的导出面。** 包的 `exports` 只映射 `"."`，对外暴露 `name`、`inject`、`DefaultCompiler` 与 `apply`。抽象类 `Compiler` 与元数据类型（`CompileInput`、`SourceSpan`、`TypeMetadata`、`TypeMetadataKind`、`EmitResult`）位于 `src/types.ts`，尚未从包根再导出，因此上面的扩展示例写成包内源文件。
+- **当前的导出面。** 包的 `exports` 只映射 `"."`，对外暴露 `name`、`inject`、`DefaultCompiler` 与 `apply`。抽象类 `Compiler` 位于 `src/compiler.ts`，元数据类型（`CompileInput`、`SourceSpan`、`TypeMetadata`、`TypeMetadataKind`、`EmitResult`）位于 `src/types.ts`，二者均尚未从包根再导出，因此上面的扩展示例写成包内源文件。

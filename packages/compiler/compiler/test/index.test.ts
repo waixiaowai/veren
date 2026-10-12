@@ -5,7 +5,8 @@ import { apply as applyOptions, name as CompilerOptionsToken } from '@veren/comp
 import { apply as applyHost, name as CompilerHostToken } from '@veren/compiler-host'
 import { apply as applyProgram, name as ProgramToken } from '@veren/compiler-program'
 import { apply as applyChecker, name as TypeCheckerToken } from '@veren/compiler-type-checker'
-import { Compiler, type CompileInput, type EmitResult, type TypeMetadata, type TypeMetadataKind } from '../src/types'
+import { Compiler } from '../src/compiler'
+import type { CompileInput, EmitResult, TypeMetadata, TypeMetadataKind } from '../src/types'
 import { DefaultCompiler, apply as applyCompiler, inject, name } from '../src/index'
 
 /**

@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import * as ts from 'typescript'
 import { Context } from '@deepseek-ai/cordis'
 import { defineToken, getOrThrow, provide } from '@veren/core'
-import { Compiler, type CompileInput, type EmitResult, type TypeMetadata, type TypeMetadataKind } from '../src/types'
+import { Compiler } from '../src/compiler'
+import type { CompileInput, EmitResult, TypeMetadata, TypeMetadataKind } from '../src/types'
 
 /**
  * 每个用例各自创建的 Context 所产生的 disposer，统一在 afterEach 清理。

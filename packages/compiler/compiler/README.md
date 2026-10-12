@@ -60,7 +60,7 @@ const compiler = get(ctx, Compiler.name)!    // DefaultCompiler
 | `DefaultCompiler` | `class DefaultCompiler extends Compiler` | The wired compiler: getters and stages read the context services. |
 | `apply(ctx)` | `(ctx: Context) => Disposable` | Provides `new DefaultCompiler(ctx)`; the returned disposer removes the service. |
 
-Surface inherited from the abstract `Compiler` (`src/types.ts`):
+Surface inherited from the abstract `Compiler` (`src/compiler.ts`):
 
 | Member | Type | Description |
 | --- | --- | --- |
@@ -139,4 +139,4 @@ Tests live in `test/*.test.ts`: `test/index.test.ts` (12 cases) covers the token
 - **Query preconditions.** `getMetadata` before a successful compile throws `Compiler: parse 尚未完成，请先调用 compile()`; unknown files return `[]`. `hasErrors()` counts only `ts.DiagnosticCategory.Error`.
 - **One service per context.** cordis rejects a second registration of the same token with `service already registered`; call the disposer returned by `apply` (or `provide`) before providing again on the same `Context`.
 - **Synchronous alternative.** `Compiler.apply(ctx)` can be called directly instead of `await ctx.plugin(Compiler)`, when the caller manages activation itself. The same holds for every provider in the chain.
-- **Exported surface today.** The package `exports` maps only `"."`, exposing `name`, `inject`, `DefaultCompiler` and `apply`. The abstract `Compiler` class and the metadata types (`CompileInput`, `SourceSpan`, `TypeMetadata`, `TypeMetadataKind`, `EmitResult`) live in `src/types.ts` and are not re-exported from the root yet, which is why the extension example above is an in-package file.
+- **Exported surface today.** The package `exports` maps only `"."`, exposing `name`, `inject`, `DefaultCompiler` and `apply`. The abstract `Compiler` class lives in `src/compiler.ts` and the metadata types (`CompileInput`, `SourceSpan`, `TypeMetadata`, `TypeMetadataKind`, `EmitResult`) in `src/types.ts`; neither is re-exported from the root yet, which is why the extension example above is an in-package file.

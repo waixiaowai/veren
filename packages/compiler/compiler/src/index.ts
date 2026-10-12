@@ -1,7 +1,8 @@
 import * as ts from 'typescript';
 import { defineToken, getOrThrow, provide } from '@veren/core';
 import type { Context } from '@deepseek-ai/cordis';
-import { Compiler, type CompileInput, type EmitResult } from './types.js';
+import { Compiler } from './compiler.js';
+import type { CompileInput, EmitResult } from './types.js';
 import { name as CompilerOptionsToken } from '@veren/compiler-options';
 import { name as ProgramToken } from '@veren/compiler-program';
 import { name as TypeCheckerToken } from '@veren/compiler-type-checker';

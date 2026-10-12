@@ -7,7 +7,7 @@
   "main": "./src/cli.ts",
   "scripts": {
     "build": "tsc --noEmit",
-    "test": "tsc --noEmit"
+    "test": "vitest run"
   },
   "dependencies": {
     "yaml": "^2.8.1"
