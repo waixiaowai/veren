@@ -17,9 +17,8 @@
 import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 import { Service } from '@deepseek-ai/cordis';
+import type { FileSystem } from '@deepseek-ai/dsh-fs';
 import type { ProjectInfo } from '@veren/commander-project';
-import type { NodeFs } from '@veren/node-fs';
-import type { NodePath } from '@veren/node-path';
 import { discoverUnits, MAX_SCAN_DEPTH } from './discovery.js';
 import type { Unit } from './discovery.js';
 
@@ -76,8 +75,7 @@ export class DiscoveryService extends Service {
   constructor(
     ctx: Context,
     private readonly _project: ProjectInfo,
-    private readonly _fs: NodeFs,
-    private readonly _path: NodePath,
+    private readonly _fs: FileSystem,
     /** 本实例的归一化配置 / the normalized config of this instance */
     readonly config: Config = { maxDepth: MAX_SCAN_DEPTH, skip: [] },
   ) {
@@ -86,7 +84,7 @@ export class DiscoveryService extends Service {
 
   /** 全部单元，按 dir 排序（输出稳定）/ every unit sorted by dir (stable output) */
   list(): Promise<Unit[]> {
-    return discoverUnits(this._fs, this._path, this._project.root, this._project.config, this.config);
+    return discoverUnits(this._fs, this._project.root, this._project.config, this.config);
   }
 
   /** 按名查找单元；未命中返回 undefined / find one unit by name; undefined on a miss */

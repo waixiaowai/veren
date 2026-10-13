@@ -2,35 +2,32 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
-import * as NodeFs from '@veren/node-fs';
-import * as NodePath from '@veren/node-path';
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local';
 import * as YamlParser from '@veren/yaml-parser';
 import { beforeAll, afterEach, describe, expect, it } from 'vitest';
 import { CONFIG_FILE, findProjectRoot, loadConfig } from '../src/index';
-import type { NodeFs as NodeFsService } from '@veren/node-fs';
-import type { NodePath as NodePathService } from '@veren/node-path';
+import type { FileSystem } from '@deepseek-ai/dsh-fs';
 import type { YamlParser as YamlParserService } from '@veren/yaml-parser';
 
 /**
- * 全文件共享的运行时上下文：装载 YAML 解析、文件系统与路径插件，
- * 与组装入口 createRuntime 的装配方式一致；三个服务取出后供各用例注入。
+ * 全文件共享的运行时上下文：装载 YAML 解析插件并构造 dsh-fs 本地后端
+ * （ctx.fs），与组装入口 createRuntime 的装配方式一致；两个服务取出后供
+ * 各用例注入。
  *
- * A file-shared runtime context: installs the YAML parser, fs and path
- * plugins, mirroring how the assembler's createRuntime wires them; the three
- * services are taken out and injected by each case.
+ * A file-shared runtime context: installs the YAML parser plugin and builds
+ * the dsh-fs local backend (ctx.fs), mirroring how the assembler's
+ * createRuntime wires them; the two services are taken out and injected by
+ * each case.
  */
 let ctx: Context;
-let fs: NodeFsService;
-let path: NodePathService;
+let fs: FileSystem;
 let parser: YamlParserService;
 
 beforeAll(async () => {
   ctx = new Context();
   await ctx.plugin(YamlParser);
-  await ctx.plugin(NodeFs);
-  await ctx.plugin(NodePath);
-  fs = ctx.get(NodeFs.name)!;
-  path = ctx.get(NodePath.name)!;
+  new LocalFileSystem(ctx, LocalFileSystem.Config({}));
+  fs = ctx.fs;
   parser = ctx.get(YamlParser.name)!;
 });
 
@@ -57,7 +54,7 @@ describe('findProjectRoot', () => {
     const dir = makeRoot('scan: [apps]\n');
     const nested = join(dir, 'a', 'b');
     mkdirSync(nested, { recursive: true });
-    expect(await findProjectRoot(fs, path, nested)).toBe(dir);
+    expect(await findProjectRoot(fs, nested)).toBe(dir);
   });
 
   it('找不到配置时抛出 CliError / throws a CliError when no config exists', async () => {
@@ -67,7 +64,7 @@ describe('findProjectRoot', () => {
     try {
       const nested = join(dir, 'x', 'y');
       mkdirSync(nested, { recursive: true });
-      await expect(findProjectRoot(fs, path, nested)).rejects.toThrowError(/\.veren\.yaml/);
+      await expect(findProjectRoot(fs, nested)).rejects.toThrowError(/\.veren\.yaml/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -78,7 +75,7 @@ describe('loadConfig', () => {
   it('scan 缺省时回退内置默认根 / falls back to the built-in default roots', async () => {
     const dir = makeRoot('');
     for (const name of ['apps', 'packages', 'cargos']) mkdirSync(join(dir, name));
-    expect(await loadConfig(dir, parser, fs, path)).toEqual({
+    expect(await loadConfig(dir, parser, fs)).toEqual({
       scanRoots: ['apps', 'packages', 'cargos'].map((name) => join(dir, name)),
     });
   });
@@ -87,7 +84,7 @@ describe('loadConfig', () => {
     const dir = makeRoot('scan:\n  - apps\n  - packages\n');
     mkdirSync(join(dir, 'apps'));
     mkdirSync(join(dir, 'packages'));
-    expect((await loadConfig(dir, parser, fs, path)).scanRoots).toEqual([
+    expect((await loadConfig(dir, parser, fs)).scanRoots).toEqual([
       join(dir, 'apps'),
       join(dir, 'packages'),
     ]);
@@ -95,11 +92,11 @@ describe('loadConfig', () => {
 
   it('scan 类型不合法时抛出 CliError / throws a CliError on a non-string-array scan', async () => {
     const dir = makeRoot('scan: 42\n');
-    await expect(loadConfig(dir, parser, fs, path)).rejects.toThrowError(/string array/);
+    await expect(loadConfig(dir, parser, fs)).rejects.toThrowError(/string array/);
   });
 
   it('scan 根目录不存在时抛出 CliError / throws a CliError when a scan root is missing', async () => {
     const dir = makeRoot('scan: [no-such-dir]\n');
-    await expect(loadConfig(dir, parser, fs, path)).rejects.toThrowError(/no-such-dir/);
+    await expect(loadConfig(dir, parser, fs)).rejects.toThrowError(/no-such-dir/);
   });
 });

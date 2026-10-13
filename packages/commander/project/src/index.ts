@@ -14,29 +14,28 @@
  *   - apply   装配函数：定位根、加载配置并提供服务 / locates the root, loads
  *             the config and provides the service
  *
- * 文件、路径与 YAML 解析能力全部来自注入的服务（一切皆插件）：
- * File, path and YAML parsing capabilities all come from injected services
- * ("everything is a plugin"):
- *   @veren/node-fs + @veren/node-path + @veren/yaml-parser。
+ * 文件能力复用 @deepseek-ai/dsh-fs 的 ctx.fs 服务，YAML 解析来自
+ * @veren/yaml-parser（一切皆插件）：
+ * File capabilities reuse the ctx.fs service from @deepseek-ai/dsh-fs and YAML
+ * parsing comes from @veren/yaml-parser ("everything is a plugin").
  */
 
 import type { Context } from '@deepseek-ai/cordis';
 import { getOrThrow, provide } from '@veren/core';
-import { name as FsToken } from '@veren/node-fs';
-import { name as PathToken } from '@veren/node-path';
+import { Fs } from '@veren/commander-core';
 import { name as YamlParserToken } from '@veren/yaml-parser';
-import { loadConfig } from './config.js';
-import { findProjectRoot } from './root.js';
+import { DEFAULT_SCAN_ROOTS, loadConfig } from './config.js';
+import { CONFIG_FILE, findProjectRoot } from './root.js';
 import { Project } from './tokens.js';
 import type { Config, ProjectInfo } from './tokens.js';
 
 export { DEFAULT_SCAN_ROOTS, loadConfig } from './config.js';
-export { CONFIG_FILE, findProjectRoot } from './root.js';
+export { CONFIG_FILE, findProjectRoot, pathExists } from './root.js';
 export type { Config, ProjectInfo };
 export { Project as name, Project };
 
-/** 依赖的服务：YAML 解析、文件系统与路径 / requires the YAML parser, fs and path services */
-export const inject = [YamlParserToken, FsToken, PathToken];
+/** 依赖的服务：YAML 解析与 dsh-fs 的 ctx.fs / requires the YAML parser and the dsh-fs ctx.fs services */
+export const inject = [YamlParserToken, Fs];
 
 /**
  * 项目服务 Provider：定位项目根、加载配置，并以 Project 提供到上下文。
@@ -47,10 +46,9 @@ export const inject = [YamlParserToken, FsToken, PathToken];
  * await.
  */
 export const apply = async (ctx: Context): Promise<() => unknown> => {
-  const fs = getOrThrow(ctx, FsToken);
-  const path = getOrThrow(ctx, PathToken);
+  const fs = getOrThrow(ctx, Fs);
   const parser = getOrThrow(ctx, YamlParserToken);
-  const root = await findProjectRoot(fs, path);
-  const config = await loadConfig(root, parser, fs, path);
+  const root = await findProjectRoot(fs);
+  const config = await loadConfig(root, parser, fs);
   return provide(ctx, Project, { root, config } satisfies ProjectInfo);
 };

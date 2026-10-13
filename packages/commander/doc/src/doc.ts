@@ -3,19 +3,19 @@
  * The doc command implementation: prints a unit's bilingual README verbatim.
  *
  * 实现只依赖最小结构化类型 UnitSource（Discovery 服务的 find/list/root 视图）
- * 与 @veren/node-fs、@veren/node-path 注入的服务，不感知 Cordis ——
- * 插件装配见 ./index.ts 的 apply。
+ * 与 @deepseek-ai/dsh-fs 注入的 ctx.fs 服务，不感知 Cordis ——
+ * 插件装配见 ./index.ts 的 apply；路径拼接为纯函数，直接使用 node:path。
  * The implementation only depends on the minimal structural type UnitSource
- * (a find/list/root view of the Discovery service) plus the services injected
- * from @veren/node-fs and @veren/node-path, and knows nothing about Cordis —
- * plugin assembly lives in ./index.ts's apply.
+ * (a find/list/root view of the Discovery service) plus the ctx.fs service
+ * injected from @deepseek-ai/dsh-fs, and knows nothing about Cordis — plugin
+ * assembly lives in ./index.ts's apply; path joining uses node:path directly.
  */
 
+import { join } from 'node:path';
 import z from '@deepseek-ai/schemastery';
+import type { FileSystem } from '@deepseek-ai/dsh-fs';
 import { CliError } from '@veren/commander-core';
 import type { DiscoveryService, Unit } from '@veren/commander-discovery';
-import type { NodeFs } from '@veren/node-fs';
-import type { NodePath } from '@veren/node-path';
 
 /** doc 命令所需的最小单元源 / the minimal unit source the doc command needs */
 export type UnitSource = Pick<DiscoveryService, 'find' | 'list' | 'root'>;
@@ -56,8 +56,7 @@ export async function cmdDoc(
   source: UnitSource,
   config: Config,
   args: readonly string[],
-  fs: NodeFs,
-  path: NodePath,
+  fs: FileSystem,
 ): Promise<void> {
   const preferCn = args.some((arg) => config.cnFlags.includes(arg));
   const name = args.find((arg) => !config.cnFlags.includes(arg));
@@ -67,10 +66,11 @@ export async function cmdDoc(
   const unit = await locateUnit(source, name);
   const candidates = preferCn ? [README_FILES.cn, README_FILES.en] : [README_FILES.en, README_FILES.cn];
   for (const file of candidates) {
-    const readme = path.join(source.root, unit.dir, file);
-    if (await fs.exists(readme)) {
+    const readme = join(source.root, unit.dir, file);
+    // lstat 有值即存在 / a defined lstat means the file exists
+    if ((await fs.lstat(readme)) !== undefined) {
       // 原样输出，不添加任何修饰 / verbatim output, no decorations
-      process.stdout.write(await fs.readFile(readme));
+      process.stdout.write(await fs.readText(await fs.resolve(readme)));
       return;
     }
   }

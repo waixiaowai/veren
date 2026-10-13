@@ -18,6 +18,16 @@
  */
 
 import { defineToken } from '@veren/core';
+import type { FileSystem } from '@deepseek-ai/dsh-fs';
+
+/**
+ * dsh-fs 的文件系统服务令牌：值即 dsh-fs 注册的 'fs'（ctx.fs）。
+ * 复用 @deepseek-ai/dsh-fs 的能力缝，veren 不再自建文件系统插件。
+ * The dsh-fs filesystem service token: the literal 'fs' (ctx.fs) that dsh-fs
+ * registers. Reuses the @deepseek-ai/dsh-fs capability seam instead of a
+ * home-grown veren filesystem plugin.
+ */
+export const Fs = defineToken<FileSystem>('fs');
 
 /** 一个命令的定义（结构化最小视图）/ the definition of one command (a minimal structural view) */
 export interface CommandDefView {

@@ -14,13 +14,15 @@
  *   - 清单存在但无法解析时向 stderr 告警并跳过，单个坏文件不中断整个扫描。
  *     A manifest that exists but cannot be parsed is warned about on stderr and
  *     skipped; one bad file never aborts the whole scan.
- *   - 文件与路径能力由 @veren/node-fs 与 @veren/node-path 的服务注入（一切皆插件）。
- *     File and path capabilities are injected as the @veren/node-fs and
- *     @veren/node-path services ("everything is a plugin").
+ *   - 文件能力复用 @deepseek-ai/dsh-fs 的 ctx.fs 服务（一切皆插件）；
+ *     路径拼接为纯函数，直接使用 node:path。
+ *     File capabilities reuse the ctx.fs service from @deepseek-ai/dsh-fs
+ *     ("everything is a plugin"); path joining is a pure function, so
+ *     node:path is used directly.
  */
 
-import type { NodeFs } from '@veren/node-fs';
-import type { NodePath } from '@veren/node-path';
+import { join, relative } from 'node:path';
+import type { FileSystem } from '@deepseek-ai/dsh-fs';
 
 /**
  * 扫描深度上限缺省值（相对每个 scan 根的目录层数），防止误入深层生成物目录。
@@ -68,12 +70,13 @@ export interface Unit {
 
 /**
  * 扫描全部 scan 根，按目录序返回所有单元（稳定输出，便于 AI 比对 diff）。
+ * fs 为注入的 ctx.fs 文件系统服务。
  * Scan all scan roots and return every unit sorted by dir (stable output,
- * which makes AI-side diffs easy to compare).
+ * which makes AI-side diffs easy to compare). fs is the injected ctx.fs
+ * filesystem service.
  */
 export async function discoverUnits(
-  fs: NodeFs,
-  path: NodePath,
+  fs: FileSystem,
   root: string,
   config: ScanConfig,
   options: ScanOptions = {},
@@ -84,15 +87,14 @@ export async function discoverUnits(
   };
   const units: Unit[] = [];
   for (const scanRoot of config.scanRoots) {
-    await walkDir(fs, path, root, scanRoot, 0, units, effective);
+    await walkDir(fs, root, scanRoot, 0, units, effective);
   }
   return units.sort((a, b) => (a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : 0));
 }
 
 /** 递归遍历一个 scan 根（有深度上限与跳过名单）/ recursively walk one scan root */
 async function walkDir(
-  fs: NodeFs,
-  path: NodePath,
+  fs: FileSystem,
   root: string,
   dir: string,
   depth: number,
@@ -102,7 +104,7 @@ async function walkDir(
   if (depth > options.maxDepth) return;
 
   // 同一目录中 package.json 优先，Cargo.toml 兜底 / package.json first, Cargo.toml as fallback
-  const unit = (await readNpmUnit(fs, path, dir, root)) ?? (await readCargoUnit(fs, path, dir, root));
+  const unit = (await readNpmUnit(fs, dir, root)) ?? (await readCargoUnit(fs, dir, root));
   if (unit) {
     units.push(unit);
     // 命中单元后不再向其子目录下钻：单元即最小分发边界。
@@ -113,14 +115,16 @@ async function walkDir(
   for (const entry of await readdirSafe(fs, dir)) {
     // 跳过依赖/构建产物/隐藏目录 / skip deps, build outputs and hidden dirs
     if (entry.startsWith('.') || options.skip.has(entry)) continue;
-    await walkDir(fs, path, root, path.join(dir, entry), depth + 1, units, options);
+    await walkDir(fs, root, join(dir, entry), depth + 1, units, options);
   }
 }
 
 /** 读取目录项；目录不可读时返回空数组而不中断扫描 / list entries, or [] if unreadable */
-async function readdirSafe(fs: NodeFs, dir: string): Promise<string[]> {
+async function readdirSafe(fs: FileSystem, dir: string): Promise<string[]> {
   try {
-    return await fs.readdir(dir);
+    // listDir 返回稳定排序的直接子项 / listDir returns stably sorted direct children
+    const entries = await fs.listDir(await fs.resolve(dir));
+    return entries.map((entry) => entry.name);
   } catch {
     return [];
   }
@@ -136,18 +140,23 @@ function warnUnreadableManifest(file: string, error: unknown): void {
   process.stderr.write(`warning: 跳过无法解析的清单 / skipping unparseable manifest: ${file} (${message})\n`);
 }
 
+/** 路径存在性：lstat 非空即存在 / path existence: a defined lstat means present */
+async function exists(fs: FileSystem, path: string): Promise<boolean> {
+  return (await fs.lstat(path)) !== undefined;
+}
+
+/** 整体读取 UTF-8 文本 / read the whole UTF-8 text */
+async function readText(fs: FileSystem, path: string): Promise<string> {
+  return fs.readText(await fs.resolve(path));
+}
+
 /** 从 package.json 读取 npm 单元；缺 name 或清单损坏时视为非单元 / read an npm unit from package.json */
-export async function readNpmUnit(
-  fs: NodeFs,
-  path: NodePath,
-  dir: string,
-  root: string,
-): Promise<Unit | null> {
-  const file = path.join(dir, 'package.json');
-  if (!(await fs.exists(file))) return null;
+export async function readNpmUnit(fs: FileSystem, dir: string, root: string): Promise<Unit | null> {
+  const file = join(dir, 'package.json');
+  if (!(await exists(fs, file))) return null;
   let json: Record<string, unknown>;
   try {
-    json = JSON.parse(await fs.readFile(file)) as Record<string, unknown>;
+    json = JSON.parse(await readText(fs, file)) as Record<string, unknown>;
   } catch (error) {
     // 清单损坏：告警并跳过该目录，不让单个坏文件中断整个扫描。
     // Corrupted manifest: warn and skip so one bad file cannot abort the whole scan.
@@ -159,25 +168,20 @@ export async function readNpmUnit(
     name: json.name,
     description: typeof json.description === 'string' ? json.description : '',
     // Windows 反斜杠统一成 /，输出跨平台稳定 / normalize separators for stable output
-    dir: path.relative(root, dir).replace(/\\/g, '/'),
+    dir: relative(root, dir).replace(/\\/g, '/'),
   };
 }
 
 /** 从 Cargo.toml 读取 Rust 单元；缺 [package] name 视为非单元 / read a Rust unit from Cargo.toml */
-export async function readCargoUnit(
-  fs: NodeFs,
-  path: NodePath,
-  dir: string,
-  root: string,
-): Promise<Unit | null> {
-  const file = path.join(dir, 'Cargo.toml');
-  if (!(await fs.exists(file))) return null;
-  const fields = parseCargoPackageFields(await fs.readFile(file));
+export async function readCargoUnit(fs: FileSystem, dir: string, root: string): Promise<Unit | null> {
+  const file = join(dir, 'Cargo.toml');
+  if (!(await exists(fs, file))) return null;
+  const fields = parseCargoPackageFields(await readText(fs, file));
   if (!fields.name) return null;
   return {
     name: fields.name,
     description: fields.description ?? '',
-    dir: path.relative(root, dir).replace(/\\/g, '/'),
+    dir: relative(root, dir).replace(/\\/g, '/'),
   };
 }
 

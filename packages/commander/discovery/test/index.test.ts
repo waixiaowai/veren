@@ -3,26 +3,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
 import type { Fiber } from '@deepseek-ai/cordis';
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { MAX_SCAN_DEPTH, discoverUnits, parseCargoPackageFields, readCargoUnit, readNpmUnit } from '../src/discovery';
 import type { ScanConfig } from '../src/discovery';
 import { Discovery } from '../src/service';
 import * as DiscoveryPlugin from '../src/index';
 import { Project } from '@veren/commander-project';
-import { name as FsToken } from '@veren/node-fs';
-import { createNodeFs } from '@veren/node-fs/service';
-import { name as PathToken } from '@veren/node-path';
-import { createNodePath } from '@veren/node-path/service';
-import type { NodeFs } from '@veren/node-fs';
-import type { NodePath } from '@veren/node-path';
+import type { FileSystem } from '@deepseek-ai/dsh-fs';
 
-/** 注入的文件系统与路径服务（路径风格跟随宿主操作系统）/ the injected fs/path services (path flavor follows the host OS) */
-let fs: NodeFs;
-let path: NodePath;
+/** 注入的 ctx.fs 文件系统服务（dsh-fs 本地后端）/ the injected ctx.fs filesystem service (the dsh-fs local backend) */
+let fs: FileSystem;
 
 beforeAll(() => {
-  fs = createNodeFs({ encoding: 'utf8' });
-  path = createNodePath({ platform: process.platform === 'win32' ? 'win32' : 'posix' });
+  fs = new LocalFileSystem(new Context(), LocalFileSystem.Config({}));
 });
 
 /**
@@ -74,28 +68,28 @@ describe('readNpmUnit / readCargoUnit', () => {
     const dir = join(makeRoot(), 'pkg-a');
     mkdirSync(dir);
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: '@x/pkg-a', description: 'demo' }));
-    expect(await readNpmUnit(fs, path, dir, root)).toEqual({ name: '@x/pkg-a', description: 'demo', dir: 'pkg-a' });
+    expect(await readNpmUnit(fs, dir, root)).toEqual({ name: '@x/pkg-a', description: 'demo', dir: 'pkg-a' });
   });
 
   it('package.json 缺 name 时视为非单元 / treats a package.json without a name as a non-unit', async () => {
     const dir = join(makeRoot(), 'anon');
     mkdirSync(dir);
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ version: '0.0.0' }));
-    expect(await readNpmUnit(fs, path, dir, root)).toBeNull();
+    expect(await readNpmUnit(fs, dir, root)).toBeNull();
   });
 
   it('读取 Rust 单元 / reads a Rust unit', async () => {
     const dir = join(makeRoot(), 'apps', 'web');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'Cargo.toml'), '[package]\nname = "x-web"\ndescription = "web app"\n');
-    expect(await readCargoUnit(fs, path, dir, root)).toEqual({ name: 'x-web', description: 'web app', dir: 'apps/web' });
+    expect(await readCargoUnit(fs, dir, root)).toEqual({ name: 'x-web', description: 'web app', dir: 'apps/web' });
   });
 
   it('没有清单文件时返回 null / returns null without any manifest', async () => {
     const dir = join(makeRoot(), 'empty');
     mkdirSync(dir);
-    expect(await readNpmUnit(fs, path, dir, root)).toBeNull();
-    expect(await readCargoUnit(fs, path, dir, root)).toBeNull();
+    expect(await readNpmUnit(fs, dir, root)).toBeNull();
+    expect(await readCargoUnit(fs, dir, root)).toBeNull();
   });
 
   it('package.json 损坏时向 stderr 告警并返回 null / warns on stderr and returns null for a corrupted package.json', async () => {
@@ -109,7 +103,7 @@ describe('readNpmUnit / readCargoUnit', () => {
       return true;
     }) as typeof process.stderr.write;
     try {
-      expect(await readNpmUnit(fs, path, dir, root)).toBeNull();
+      expect(await readNpmUnit(fs, dir, root)).toBeNull();
     } finally {
       process.stderr.write = original;
     }
@@ -138,7 +132,7 @@ describe('discoverUnits', () => {
     mkdirSync(skipped, { recursive: true });
     writeFileSync(join(skipped, 'package.json'), JSON.stringify({ name: '@x/junk' }));
 
-    const units = await discoverUnits(fs, path, root, configFor('apps', 'cargos'));
+    const units = await discoverUnits(fs, root, configFor('apps', 'cargos'));
     expect(units).toEqual([
       { name: '@x/both', description: '', dir: 'apps/both' },
       { name: 'x-core', description: 'core', dir: 'cargos/core' },
@@ -158,7 +152,7 @@ describe('discoverUnits', () => {
     mkdirSync(shallow, { recursive: true });
     writeFileSync(join(shallow, 'package.json'), JSON.stringify({ name: '@x/near' }));
 
-    const units = await discoverUnits(fs, path, root, configFor('apps'));
+    const units = await discoverUnits(fs, root, configFor('apps'));
     expect(units).toEqual([{ name: '@x/near', description: '', dir: 'apps/near' }]);
   });
 
@@ -177,7 +171,7 @@ describe('discoverUnits', () => {
     process.stderr.write = () => true;
     let units: Awaited<ReturnType<typeof discoverUnits>>;
     try {
-      units = await discoverUnits(fs, path, root, configFor('apps'));
+      units = await discoverUnits(fs, root, configFor('apps'));
     } finally {
       process.stderr.write = original;
     }
@@ -186,14 +180,14 @@ describe('discoverUnits', () => {
 });
 
 /**
- * DiscoveryService 插件用例：先提供 Project、NodeFs 与 NodePath 服务，
+ * DiscoveryService 插件用例：先提供 Project 服务与 ctx.fs 后端，
  * 再经 ctx.plugin 装载插件模块（Config schema 自动校验补全），
  * fiber 统一收进 fibers 清理。
  *
- * The DiscoveryService plugin cases: provide the Project, NodeFs and NodePath
- * services first, then install the plugin module via ctx.plugin (its Config
- * schema is validated and default-filled automatically); fibers are collected
- * into fibers for cleanup.
+ * The DiscoveryService plugin cases: provide the Project service and the
+ * ctx.fs backend first, then install the plugin module via ctx.plugin (its
+ * Config schema is validated and default-filled automatically); fibers are
+ * collected into fibers for cleanup.
  */
 const fibers: Array<Fiber> = [];
 
@@ -206,8 +200,7 @@ afterEach(async () => {
 async function install(config?: Parameters<typeof DiscoveryPlugin.apply>[1]) {
   const ctx = new Context();
   ctx.provide(Project, { root, config: { scanRoots: configFor('apps', 'cargos').scanRoots } });
-  ctx.provide(FsToken, fs);
-  ctx.provide(PathToken, path);
+  new LocalFileSystem(ctx, LocalFileSystem.Config({})); // 注册 ctx.fs / registers ctx.fs
   const fiber = ctx.plugin(DiscoveryPlugin, config);
   await fiber;
   fibers.push(fiber);

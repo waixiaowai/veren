@@ -22,8 +22,9 @@
     "@deepseek-ai/schemastery": "^3.18.4",
     "@veren/commander-core": "workspace:*",
     "@veren/commander-discovery": "workspace:*",
-    "@veren/core": "workspace:*",
-    "@veren/node-fs": "workspace:*",
-    "@veren/node-path": "workspace:*"
+    "@veren/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-fs-local": "0.2.0-rc.2"
   }
 }

@@ -32,7 +32,7 @@ export { CliError, CommandService, Config, DEFAULT_HELP_FLAGS } from './commands
 // independent ./tokens.ts; platform-agnostic consumers (such as the browser)
 // may import them alone from the `@veren/commander-core/tokens` subpath,
 // keeping Cordis out of their bundles.
-export { Commands } from './tokens.js';
+export { Commands, Fs } from './tokens.js';
 export type { CommandRegistry } from './tokens.js';
 
 /** 服务令牌：同时作为插件显示名 / the service token, doubling as the plugin display name */

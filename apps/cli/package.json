@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-fs": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-fs-local": "0.2.0-rc.2",
     "@veren/commander-core": "workspace:*",
     "@veren/commander-discovery": "workspace:*",
     "@veren/commander-doc": "workspace:*",
@@ -18,8 +20,6 @@
     "@veren/commander-list": "workspace:*",
     "@veren/commander-project": "workspace:*",
     "@veren/core": "workspace:*",
-    "@veren/node-fs": "workspace:*",
-    "@veren/node-path": "workspace:*",
     "@veren/yaml-parser": "workspace:*"
   },
   "devDependencies": {

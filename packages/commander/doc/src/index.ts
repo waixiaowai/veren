@@ -16,10 +16,8 @@
 
 import type { Context } from '@deepseek-ai/cordis';
 import { getOrThrow } from '@veren/core';
-import { Commands } from '@veren/commander-core';
+import { Commands, Fs } from '@veren/commander-core';
 import { Discovery } from '@veren/commander-discovery';
-import { name as FsToken } from '@veren/node-fs';
-import { name as PathToken } from '@veren/node-path';
 import { Config } from './doc.js';
 import { cmdDoc } from './doc.js';
 
@@ -38,25 +36,24 @@ export { CN_FLAGS } from './tokens.js';
 /** 插件显示名 / the plugin display name */
 export const name = 'verenCliDocCommand';
 
-/** 依赖的服务：命令注册表、Discovery、文件系统与路径 / requires the registry, Discovery, fs and path services */
-export const inject = [Commands, Discovery, FsToken, PathToken];
+/** 依赖的服务：命令注册表、Discovery 与 dsh-fs 的 ctx.fs / requires the registry, Discovery and the dsh-fs ctx.fs */
+export const inject = [Commands, Discovery, Fs];
 
 /**
- * 插件装配：从上下文读取 Discovery、文件系统、路径服务与命令注册表，注册
- * doc 命令，并把注册 disposer 交还 fiber —— 插件卸载时命令自动注销。
- * Plugin assembly: reads the Discovery, fs and path services plus the command
+ * 插件装配：从上下文读取 Discovery、ctx.fs 服务与命令注册表，注册 doc 命令，
+ * 并把注册 disposer 交还 fiber —— 插件卸载时命令自动注销。
+ * Plugin assembly: reads the Discovery and ctx.fs services plus the command
  * registry from the context, registers the doc command, and hands the
  * registration disposer back to the fiber — the command disappears when the
  * plugin unloads.
  */
 export const apply = (ctx: Context, config: Config) => {
   const source = getOrThrow(ctx, Discovery);
-  const fs = getOrThrow(ctx, FsToken);
-  const path = getOrThrow(ctx, PathToken);
+  const fs = getOrThrow(ctx, Fs);
   return getOrThrow(ctx, Commands).register({
     name: 'doc',
     usage: 'doc <name> [--cn]',
     summary: '输出 README 原文（--cn 中文优先）/ print a README verbatim (--cn prefers Chinese)',
-    run: (args) => cmdDoc(source, config, args, fs, path),
+    run: (args) => cmdDoc(source, config, args, fs),
   });
 };

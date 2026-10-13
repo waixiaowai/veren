@@ -15,14 +15,13 @@
  */
 
 import { Context } from '@deepseek-ai/cordis';
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local';
 import * as CliCommands from '@veren/commander-core';
 import * as Discovery from '@veren/commander-discovery';
 import * as DocCommand from '@veren/commander-doc';
 import * as HelpCommand from '@veren/commander-help';
 import * as ListCommand from '@veren/commander-list';
 import * as Project from '@veren/commander-project';
-import * as NodeFs from '@veren/node-fs';
-import * as NodePath from '@veren/node-path';
 import * as YamlParser from '@veren/yaml-parser';
 
 /**
@@ -34,8 +33,7 @@ export async function createRuntime(): Promise<Context> {
 
   // 能力插件 / capability plugins
   await ctx.plugin(YamlParser); // YAML 解析服务（.veren.yaml）/ the YAML parsing service (.veren.yaml)
-  await ctx.plugin(NodeFs); // 文件系统服务 / the filesystem service
-  await ctx.plugin(NodePath); // 路径服务 / the path service
+  new LocalFileSystem(ctx, LocalFileSystem.Config({})); // dsh-fs 本地后端：注册 ctx.fs / the dsh-fs local backend: registers ctx.fs
   await ctx.plugin(CliCommands); // 命令注册表 / the command registry
   await ctx.plugin(Project); // 项目根与配置 / project root + config
   await ctx.plugin(Discovery); // 单元清单服务（list/find）/ the unit inventory service (list/find)

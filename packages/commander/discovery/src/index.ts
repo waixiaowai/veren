@@ -17,9 +17,8 @@
 
 import type { Context } from '@deepseek-ai/cordis';
 import { getOrThrow } from '@veren/core';
+import { Fs } from '@veren/commander-core';
 import { Project } from '@veren/commander-project';
-import { name as FsToken } from '@veren/node-fs';
-import { name as PathToken } from '@veren/node-path';
 import { Config, DiscoveryService } from './service.js';
 import { Discovery } from './tokens.js';
 
@@ -49,8 +48,8 @@ export type { UnitInventory } from './tokens.js';
 /** 服务令牌：同时作为插件显示名 / the service token, doubling as the plugin display name */
 export { Discovery as name };
 
-/** 依赖的服务：Project（项目根与 scan 配置）、文件系统与路径 / requires Project (root + scan config), fs and path services */
-export const inject = [Project, FsToken, PathToken];
+/** 依赖的服务：Project（项目根与 scan 配置）与 dsh-fs 的 ctx.fs / requires Project (root + scan config) and the dsh-fs ctx.fs */
+export const inject = [Project, Fs];
 
 /**
  * 插件装配：从上下文读取 Project 服务，创建 Discovery 服务。Service 构造时
@@ -63,5 +62,5 @@ export const inject = [Project, FsToken, PathToken];
  * effect disposer).
  */
 export const apply = (ctx: Context, config: Config) => {
-  new DiscoveryService(ctx, getOrThrow(ctx, Project), getOrThrow(ctx, FsToken), getOrThrow(ctx, PathToken), config);
+  new DiscoveryService(ctx, getOrThrow(ctx, Project), getOrThrow(ctx, Fs), config);
 };
