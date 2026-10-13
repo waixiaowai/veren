@@ -20,13 +20,164 @@ importers:
 
   apps/cli:
     dependencies:
-      yaml:
-        specifier: ^2.8.1
-        version: 2.9.1
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.4
+        version: 4.0.4
+      '@veren/commander-core':
+        specifier: workspace:*
+        version: link:../../packages/commander/core
+      '@veren/commander-discovery':
+        specifier: workspace:*
+        version: link:../../packages/commander/discovery
+      '@veren/commander-doc':
+        specifier: workspace:*
+        version: link:../../packages/commander/doc
+      '@veren/commander-help':
+        specifier: workspace:*
+        version: link:../../packages/commander/help
+      '@veren/commander-list':
+        specifier: workspace:*
+        version: link:../../packages/commander/list
+      '@veren/commander-project':
+        specifier: workspace:*
+        version: link:../../packages/commander/project
+      '@veren/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@veren/node-fs':
+        specifier: workspace:*
+        version: link:../../packages/node/fs
+      '@veren/node-path':
+        specifier: workspace:*
+        version: link:../../packages/node/path
+      '@veren/yaml-parser':
+        specifier: workspace:*
+        version: link:../../packages/yaml-parser
     devDependencies:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+
+  packages/commander/core:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.4
+        version: 4.0.4
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.4
+        version: 3.18.4
+      '@veren/core':
+        specifier: workspace:*
+        version: link:../../core
+
+  packages/commander/discovery:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.4
+        version: 4.0.4
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.4
+        version: 3.18.4
+      '@veren/commander-project':
+        specifier: workspace:*
+        version: link:../project
+      '@veren/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@veren/node-fs':
+        specifier: workspace:*
+        version: link:../../node/fs
+      '@veren/node-path':
+        specifier: workspace:*
+        version: link:../../node/path
+
+  packages/commander/doc:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.4
+        version: 4.0.4
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.4
+        version: 3.18.4
+      '@veren/commander-core':
+        specifier: workspace:*
+        version: link:../core
+      '@veren/commander-discovery':
+        specifier: workspace:*
+        version: link:../discovery
+      '@veren/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@veren/node-fs':
+        specifier: workspace:*
+        version: link:../../node/fs
+      '@veren/node-path':
+        specifier: workspace:*
+        version: link:../../node/path
+
+  packages/commander/help:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.4
+        version: 4.0.4
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.4
+        version: 3.18.4
+      '@veren/commander-core':
+        specifier: workspace:*
+        version: link:../core
+      '@veren/core':
+        specifier: workspace:*
+        version: link:../../core
+
+  packages/commander/list:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.4
+        version: 4.0.4
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.4
+        version: 3.18.4
+      '@veren/commander-core':
+        specifier: workspace:*
+        version: link:../core
+      '@veren/commander-discovery':
+        specifier: workspace:*
+        version: link:../discovery
+      '@veren/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@veren/node-fs':
+        specifier: workspace:*
+        version: link:../../node/fs
+      '@veren/node-path':
+        specifier: workspace:*
+        version: link:../../node/path
+
+  packages/commander/project:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.4
+        version: 4.0.4
+      '@veren/commander-core':
+        specifier: workspace:*
+        version: link:../core
+      '@veren/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@veren/node-fs':
+        specifier: workspace:*
+        version: link:../../node/fs
+      '@veren/node-path':
+        specifier: workspace:*
+        version: link:../../node/path
+      '@veren/yaml-parser':
+        specifier: workspace:*
+        version: link:../../yaml-parser
+    devDependencies:
+      '@types/node':
+        specifier: ^22.13.10
+        version: 22.20.5
 
   packages/compiler/compiler:
     dependencies:
@@ -124,6 +275,53 @@ importers:
       '@deepseek-ai/cordis':
         specifier: ^4.0.4
         version: 4.0.4
+
+  packages/node/fs:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.4
+        version: 4.0.4
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.4
+        version: 3.18.4
+      '@veren/core':
+        specifier: workspace:*
+        version: link:../../core
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.5
+        version: 26.6.5
+
+  packages/node/path:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.4
+        version: 4.0.4
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.4
+        version: 3.18.4
+      '@veren/core':
+        specifier: workspace:*
+        version: link:../../core
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.5
+        version: 26.6.5
+
+  packages/yaml-parser:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.4
+        version: 4.0.4
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.4
+        version: 3.18.4
+      '@veren/core':
+        specifier: workspace:*
+        version: link:../core
+      yaml:
+        specifier: ^2.8.1
+        version: 2.9.1
 
 packages:
 
@@ -268,6 +466,9 @@ packages:
 
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
+
+  '@types/node@22.20.5':
+    resolution: {integrity: sha512-U2+DNr+wSjpsTS/wZGYHq7GcwfuSmKiKvoPvK22zwTlRhU91yOniN4qRR5KhIjvif7ysw/dz/hKmfDH0Ris4aA==}
 
   '@types/node@26.6.5':
     resolution: {integrity: sha512-uMzsv9stDdofIZBx4UGh4Z9ZgXnGC9seRDscilBcTHAeOFk67MZg/k9bWVfO+bk4qZmG+l52hRnLwUiH2LnJTg==}
@@ -447,6 +648,9 @@ packages:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
     engines: {node: '>=14.17'}
     hasBin: true
+
+  undici-types@6.21.0:
+    resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
 
   undici-types@8.9.0:
     resolution: {integrity: sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==}
@@ -628,6 +832,10 @@ snapshots:
 
   '@types/estree@1.0.9': {}
 
+  '@types/node@22.20.5':
+    dependencies:
+      undici-types: 6.21.0
+
   '@types/node@26.6.5':
     dependencies:
       undici-types: 8.9.0
@@ -766,6 +974,8 @@ snapshots:
       picomatch: 4.0.7
 
   typescript@5.9.3: {}
+
+  undici-types@6.21.0: {}
 
   undici-types@8.9.0: {}
 

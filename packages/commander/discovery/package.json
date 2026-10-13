@@ -1,0 +1,32 @@
+{
+  "name": "@veren/commander-discovery",
+  "displayName": "Veren Commander Discovery",
+  "version": "0.1.0",
+  "description": "Use when a Cordis plugin needs the veren workspace's units (npm packages and Rust crates) as structured data: it provides the DiscoveryService plugin (inject Project, then list/find units) with file-convention discovery, depth cap and skip list, plus the pure discoverUnits functions; skip it when you scan workspaces with other tooling.",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./tokens": {
+      "types": "./dist/tokens.d.ts",
+      "default": "./dist/tokens.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/commander-project": "workspace:*",
+    "@veren/core": "workspace:*",
+    "@veren/node-fs": "workspace:*",
+    "@veren/node-path": "workspace:*"
+  }
+}

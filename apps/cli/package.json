@@ -3,14 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Project-level metadata CLI for AI agents and developers: use it to discover workspace units (npm packages and Rust crates) by name/description/dir and to read a unit's bilingual README docs. Run as `pnpm cli <command>` from the repo root.",
+  "description": "Use when you want to run the veren CLI (`pnpm cli <command>`): it is the executable shell that assembles the plugin manifest (YAML parsing, the command registry, the project service, the discovery service, list/doc/help) and dispatches argv through the registry service; depend on @veren/commander-core and the individual plugin packages instead when you compose your own runtime.",
   "main": "./src/cli.ts",
   "scripts": {
     "build": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "yaml": "^2.8.1"
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@veren/commander-core": "workspace:*",
+    "@veren/commander-discovery": "workspace:*",
+    "@veren/commander-doc": "workspace:*",
+    "@veren/commander-help": "workspace:*",
+    "@veren/commander-list": "workspace:*",
+    "@veren/commander-project": "workspace:*",
+    "@veren/core": "workspace:*",
+    "@veren/node-fs": "workspace:*",
+    "@veren/node-path": "workspace:*",
+    "@veren/yaml-parser": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

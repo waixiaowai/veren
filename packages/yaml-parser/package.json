@@ -1,0 +1,30 @@
+{
+  "name": "@veren/yaml-parser",
+  "displayName": "Veren YAML Parser",
+  "version": "0.1.0",
+  "description": "Use when a Cordis-based app or pipeline must read YAML documents (config files, manifests) as plain JS values through a context service instead of importing a YAML library directly.",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./tokens": {
+      "types": "./dist/tokens.d.ts",
+      "default": "./dist/tokens.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/core": "workspace:*",
+    "yaml": "^2.8.1"
+  }
+}

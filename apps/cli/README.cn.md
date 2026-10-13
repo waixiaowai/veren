@@ -2,76 +2,84 @@
 
 [English](./README.md)
 
-veren 工作区的项目级元信息 CLI：发现工作区内的全部单元（npm 包或 Rust crate），把它们的
-名称、描述与双语文档以命令行方式交给 AI 代理和开发者。
+veren CLI 可执行入口：薄壳 + 组装层。它持有插件清单 —— 决定哪些能力与命令插件
+运行 —— 而所有能力本身都在 `packages/commander/*` 插件包内（`@veren/commander-core`
+框架、`@veren/commander-project` 项目服务、`@veren/commander-discovery` 单元发现，
+以及 `list`/`doc`/`help` 命令插件）。
 
 ## 何时使用
 
-- 你（或 AI 代理）需要工作区单元清单 —— `{ name, description, dir }` —— 而不想手工维护列表。
-- 你想在脚本或代理循环中原样读取某个单元的文档，并用参数选择中文或英文。
-- 你在外部工具链中需要根据单元名定位其目录。
+- 你想运行 CLI：在仓库根目录执行 `pnpm cli <command>`。
+- 你想为 veren CLI 增删或替换命令：编辑 `src/runtime.ts` 中的清单。
+- 你（或 AI 代理）需要工作区单元清单 —— `{ name, description, dir }` —— 或想原样读取
+  某个单元的双语 README。
 
-如果需要的是构建/测试编排，请直接使用 `pnpm build` / `pnpm test` 或 `cargo`，不要用本 CLI。
+如果你要组装自己的运行时，请跳过本包：直接依赖 `@veren/commander-core` 与单个
+`@veren/commander-*` 包。
 
 ## 用法
 
-在仓库内任意位置通过根 `cli` 脚本运行：
+在仓库内任意位置通过根 `cli` 脚本运行（先 `pnpm build`，`@veren/commander-*` 包经
+dist 产物解析）：
 
 ```bash
 pnpm cli list                # 全部单元（JSON）/ all units as JSON
 pnpm cli doc <name>          # 原文输出 README.md / print README.md verbatim
 pnpm cli doc <name> --cn     # 原文输出 README.cn.md / print README.cn.md verbatim
-pnpm cli help                # 双语用法说明 / bilingual usage text
+pnpm cli help                # 注册表生成的双语用法 / bilingual usage from the registry
 ```
 
 `list` 独占 stdout：除 JSON 数组 `[{ name, description, dir }, ...]` 外不输出任何内容，
-按 `dir` 排序，方便代理直接解析。`doc` 原样输出 README —— 不加任何修饰 —— 首选语言文件
-缺失时回退另一语言。错误信息为双语，走 stderr，退出码非 0。
+按 `dir` 排序，方便代理直接解析。`doc` 原样输出 README，首选语言缺失时回退另一语言。
+错误信息为双语，走 stderr，退出码非 0。
 
-## 配置
+配置、命令行为与框架见 `packages/commander/*` 各包文档：项目根的 `.veren.yaml` 驱动
+单元发现；命令是注册进命令服务的 Cordis 插件。
 
-项目根目录的 `.veren.yaml` 驱动单元发现：
+## 组装层
 
-```yaml
-scan:            # 扫描根目录（相对本文件）/ scan roots, relative to this file
-  - apps
-  - packages
-  - cargos
+`src/runtime.ts` 就是插件清单 —— 命令增减时唯一需要改动的地方：
+
+```ts
+export async function createRuntime(): Promise<Context> {
+  const ctx = new Context()
+  // 能力插件 / capability plugins
+  await ctx.plugin(YamlParser)      // YAML 解析（@veren/yaml-parser）
+  await ctx.plugin(CliCommands)     // 命令注册表（@veren/commander-core）
+  await ctx.plugin(ProjectPlugin)   // 项目信息（@veren/commander-project）
+  // 命令插件 / command plugins
+  await ctx.plugin(ListCommand)     // @veren/commander-list
+  await ctx.plugin(DocCommand)      // @veren/commander-doc
+  await ctx.plugin(HelpCommand)     // @veren/commander-help
+  return ctx
+}
 ```
 
-CLI 从当前目录逐级向上查找 `.veren.yaml`，其所在目录即项目根。每个扫描根递归扫描，
-深度上限 4 层；`node_modules`、`dist`、`target` 与隐藏目录被跳过。目录内含
-`package.json` 视为 npm 单元，含 `Cargo.toml` 视为 Rust 单元；两者并存时以 `package.json`
-为准。命中单元后不再向其子目录下钻 —— 单元即最小分发边界。
+`src/cli.ts` 组合运行时、经 `@veren/commander-core` 的 `dispatch` 分发 argv，出错时以
+退出码 1 结束 —— 这就是外壳的全部。
 
-## 设计说明
-
-- `dir` 始终是相对项目根、以 `/` 分隔的路径，保证跨平台输出稳定。
-- Cargo.toml 字段由一个零依赖的小型提取器解析，只支持本仓库用到的 `name`/`description`
-  基础字符串写法（支持转义与行尾注释）—— 不引入 TOML 依赖。
-- CLI 通过 Node 原生类型擦除直接运行 TS 源码，因此相对导入使用显式 `.ts` 扩展名
-  （`allowImportingTsExtensions`）。
+新增命令 = 按 `@veren/commander-core` 契约写一个插件（最小示例见
+`@veren/commander-help`），并在清单中加一行。
 
 ## 开发
 
 ```bash
-pnpm --filter @veren/cli build   # 仅类型检查（noEmit）/ type-check only
-pnpm --filter @veren/cli test    # vitest 单测 / vitest unit tests
+pnpm build                      # 构建工作区包（pnpm cli 的前置条件）
+pnpm --filter @veren/cli build  # 仅类型检查（noEmit）/ type-check only
+pnpm --filter @veren/cli test   # vitest 单测 / vitest unit tests
 ```
 
 ```
 apps/cli
-├── README.md              # 英文文档
-├── README.cn.md           # 中文文档
+├── README.md             # 英文文档
+├── README.cn.md          # 中文文档
 ├── package.json
 ├── src/
-│   ├── cli.ts             # 入口：命令分发与错误出口 / entry: command dispatch + error exit
-│   ├── config.ts          # 项目根定位与配置加载 / project root discovery + config loading
-│   └── discovery.ts       # 单元发现：npm / Rust 约定 / unit scanning conventions
+│   ├── cli.ts            # 入口：组合、分发与错误出口 / entry: compose + dispatch + error exit
+│   └── runtime.ts        # 组装层：插件清单 / assembly layer: the plugin manifest
 └── test/
-    ├── config.test.ts     # 6 个用例
-    └── discovery.test.ts  # 9 个用例
+    └── runtime.test.ts   # 4 个用例（分发与清单集成 / dispatch + manifest integration）
 ```
 
-测试基于临时目录树，覆盖配置加载与单元发现逻辑（Cargo 字段提取、npm/Rust 单元读取、
-深度上限、跳过名单、npm 优先于 Rust）。
+测试装载真实清单，覆盖分发路由（未知命令、help 别名、`list` JSON 输出）—— 框架与
+命令本身由 `packages/commander/*` 各套件覆盖（37 个用例）。

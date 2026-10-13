@@ -1,5 +1,7 @@
 packages:
   - "packages/*"
   - "packages/compiler/*"
+  - "packages/commander/*"
+  - "packages/node/*"
   - "apps/*"
   - "!apps/veren"
