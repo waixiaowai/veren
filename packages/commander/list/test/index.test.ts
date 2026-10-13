@@ -7,10 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as RegistryPlugin from '@veren/commander-core';
 import { Commands } from '@veren/commander-core';
 import { DiscoveryService } from '@veren/commander-discovery';
-import { name as FsToken } from '@veren/node-fs';
-import { createNodeFs } from '@veren/node-fs/service';
-import { name as PathToken } from '@veren/node-path';
-import { createNodePath } from '@veren/node-path/service';
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local';
 import * as ListPlugin from '../src/index';
 import { cmdList } from '../src/list';
 
@@ -60,14 +57,11 @@ function makeUnits(): string {
   return units;
 }
 
-/** 注册表 + Discovery 服务，再装载 list 插件；Discovery 经注入的 fs/path 服务扫描 / registry + Discovery service, then install list; Discovery scans via the injected fs/path services */
-const fs = createNodeFs({ encoding: 'utf8' });
-const path = createNodePath({ platform: process.platform === 'win32' ? 'win32' : 'posix' });
+/** 注册表 + ctx.fs 后端 + Discovery 服务，再装载 list 插件 / registry + ctx.fs backend + Discovery service, then install list */
+const fs = new LocalFileSystem(new Context(), LocalFileSystem.Config({}));
 
 async function install(config?: Parameters<typeof ListPlugin.apply>[1]) {
-  ctx.provide(FsToken, fs);
-  ctx.provide(PathToken, path);
-  new DiscoveryService(ctx, { root, config: { scanRoots: [makeUnits()] } }, fs, path);
+  new DiscoveryService(ctx, { root, config: { scanRoots: [makeUnits()] } }, fs);
   const registryFiber = ctx.plugin(RegistryPlugin);
   await registryFiber;
   fibers.push(registryFiber);
