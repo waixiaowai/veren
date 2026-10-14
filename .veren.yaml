@@ -14,3 +14,4 @@ scan:
   - apps
   - packages
   - cargos
+  - plugins

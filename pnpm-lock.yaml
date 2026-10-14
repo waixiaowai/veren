@@ -300,6 +300,25 @@ importers:
         specifier: ^2.8.1
         version: 2.9.1
 
+  plugins/cms-bridge:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.4
+        version: 4.0.4
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.4
+        version: 3.18.4
+      '@veren/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      ws:
+        specifier: ^8.18.0
+        version: 8.22.0
+    devDependencies:
+      '@types/ws':
+        specifier: ^8.5.10
+        version: 8.18.2
+
 packages:
 
   '@deepseek-ai/cordis@4.0.4':
@@ -750,6 +769,9 @@ packages:
   '@types/node@26.6.5':
     resolution: {integrity: sha512-uMzsv9stDdofIZBx4UGh4Z9ZgXnGC9seRDscilBcTHAeOFk67MZg/k9bWVfO+bk4qZmG+l52hRnLwUiH2LnJTg==}
 
+  '@types/ws@8.18.2':
+    resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
+
   '@vitest/mocker@5.0.4':
     resolution: {integrity: sha512-tqAlrYWce4iUxhr3ncNohejtCTOcHeE8XWrSNZY3OhPoDn01yeGv+gnaBy64ATp7o6pb03eIbBAjzmibpc9vIQ==}
     peerDependencies:
@@ -1036,6 +1058,18 @@ packages:
     resolution: {integrity: sha512-Tb2FUhB4vUsGQlfSquQLYkApkuPAFQXGFzxWKHHumVz2dK+X1RUm/HnID4+TfIGYJ1kTcwOaCk/buYCEJr6YjQ==}
     engines: {node: '>=20.11'}
     hasBin: true
+
+  ws@8.22.0:
+    resolution: {integrity: sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
 
   yaml@2.9.1:
     resolution: {integrity: sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw==}
@@ -1332,6 +1366,10 @@ snapshots:
     dependencies:
       undici-types: 8.9.0
 
+  '@types/ws@8.18.2':
+    dependencies:
+      '@types/node': 26.6.5
+
   '@vitest/mocker@5.0.4(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(yaml@2.9.1))':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
@@ -1560,6 +1598,8 @@ snapshots:
       - msw
 
   why-is-node-running@3.2.1: {}
+
+  ws@8.22.0: {}
 
   yaml@2.9.1: {}
 

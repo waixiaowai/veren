@@ -1,0 +1,29 @@
+{
+  "name": "@veren/cms-bridge",
+  "displayName": "Veren CMS Bridge",
+  "version": "0.1.0",
+  "description": "Use when a Node-side Cordis host must keep a long-lived WebSocket link to a CMS server: it maintains the connection with auto-reconnect and credential-failure parking, dispatches server commands to locally registered action handlers (DSH Services) with per-command timeouts, reports plugin events with offline queueing and ordered replay, and exposes connection status for observability; skip it when you only need a one-shot HTTP call to a CMS.",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/core": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.10"
+  }
+}
