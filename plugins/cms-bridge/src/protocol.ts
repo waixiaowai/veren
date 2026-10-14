@@ -174,4 +174,6 @@ export interface BridgeStatus {
   pendingEvents: number;
   /** 正在执行的指令数 / the number of commands in flight */
   inflightCommands: number;
+  /** 节点身份(名称/简介/图标/uuid)/ the node identity (name/description/icon/uuid) */
+  node: { nodeId: string; nodeName: string; nodeDescription: string; nodeIcon: string };
 }

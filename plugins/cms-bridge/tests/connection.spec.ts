@@ -94,11 +94,11 @@ describe('ConnectionManager', () => {
     const { manager, sockets, dispatcher } = makeManager();
     dispatcher.register('ping', { handler: () => 'pong' });
     manager.start();
-    sockets[0].open();
+    sockets[0].open(); // onOpen 同时上报节点身份,断言时过滤身份帧
     sockets[0].message(JSON.stringify({ type: 'command', id: 'c1', action: 'ping' }));
     await vi.advanceTimersByTimeAsync(1); // 冲刷微任务让回执落地 / flush microtasks so the result lands
-    expect(sockets[0].sent).toHaveLength(1);
-    expect(JSON.parse(sockets[0].sent[0])).toEqual({ type: 'result', id: 'c1', ok: true, result: 'pong' });
+    const frames = sockets[0].sent.map((t) => JSON.parse(t) as { type: string; id: string });
+    expect(frames.find((f) => f.type === 'result')).toEqual({ type: 'result', id: 'c1', ok: true, result: 'pong' });
     manager.dispose();
   });
 
@@ -175,8 +175,11 @@ describe('ConnectionManager', () => {
     sockets[sockets.length - 1].open();
     expect(manager.status().state).toBe('connected');
     expect(manager.status().pendingEvents).toBe(0);
-    const names = sockets[sockets.length - 1].sent.map((t) => (JSON.parse(t) as { name?: string }).name);
-    expect(names.filter(Boolean)).toEqual(['a', 'b', 'c']);
+    const names = sockets[sockets.length - 1].sent
+      .map((t) => JSON.parse(t) as { name?: string })
+      .filter((f) => f.name !== undefined && f.name !== 'node.identity') // 过滤连接身份上报 / skip the identity announcement
+      .map((f) => f.name);
+    expect(names).toEqual(['a', 'b', 'c']);
     manager.dispose();
   });
 

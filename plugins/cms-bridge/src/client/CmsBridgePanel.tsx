@@ -12,6 +12,7 @@ import { useSyncExternalStore } from 'react';
 import type { StatusStore } from './bridge.ts';
 import type { Translate } from './i18n.ts';
 import { ApiKeyForm } from './ApiKeyForm.tsx';
+import { IdentityCard } from './IdentityCard.tsx';
 import { StatusCard } from './StatusCard.tsx';
 import styles from './panel.module.css';
 
@@ -28,6 +29,7 @@ export function CmsBridgePanel({ store, rotate, t }: {
     <div className={styles.panel}>
       <StatusCard status={snapshot.status} error={snapshot.error} t={t} />
       <ApiKeyForm rotate={rotate} t={t} />
+      <IdentityCard savedAt={snapshot.status?.connectedAt ?? 0} t={t} />
     </div>
   );
 }

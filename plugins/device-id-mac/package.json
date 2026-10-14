@@ -1,0 +1,19 @@
+﻿{
+  "name": "@veren/device-id-mac",
+  "displayName": "Veren Device ID (macOS)",
+  "version": "0.1.0",
+  "description": "Use on macOS only as the platform plugin for @veren/device-id: it collects the stable-tier hardware fingerprint from IOPlatformUUID via ioreg (firmware-level, survives an OS reinstall) and keeps a best-effort anchor file in ~/Library/Application Support/veren; skip it on non-macOS hosts.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }, "./package.json": "./package.json" },
+  "files": ["dist", "README.md", "README.cn.md"],
+  "scripts": { "build": "tsc", "test": "vitest run" },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/core": "workspace:*",
+    "@veren/device-id": "workspace:*"
+  },
+  "devDependencies": { "@types/node": "^26.6.5" }
+}

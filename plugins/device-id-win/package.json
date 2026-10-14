@@ -1,0 +1,19 @@
+﻿{
+  "name": "@veren/device-id-win",
+  "displayName": "Veren Device ID (Windows)",
+  "version": "0.1.0",
+  "description": "Use on Windows only as the platform plugin for @veren/device-id: it collects the stable-tier hardware fingerprint (SMBIOS UUID + baseboard serial via PowerShell CIM) and anchors the id in the HKCU registry (Software\\Veren\\DeviceId) as the out-of-band recovery tier; skip it on non-Windows hosts.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }, "./package.json": "./package.json" },
+  "files": ["dist", "README.md", "README.cn.md"],
+  "scripts": { "build": "tsc", "test": "vitest run" },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/core": "workspace:*",
+    "@veren/device-id": "workspace:*"
+  },
+  "devDependencies": { "@types/node": "^26.6.5" }
+}

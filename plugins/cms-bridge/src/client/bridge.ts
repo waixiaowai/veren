@@ -20,6 +20,60 @@ export interface BridgeStatus {
   connectedAt: number | null;
   pendingEvents: number;
   inflightCommands: number;
+  node: NodeIdentity;
+}
+
+/** 节点身份(名称/简介/图标/uuid)/ the node identity (name/description/icon/uuid) */
+export interface NodeIdentity {
+  nodeId: string;
+  nodeName: string;
+  nodeDescription: string;
+  nodeIcon: string;
+}
+
+/** 读取节点身份(GET;POST 同路由)/ fetch the node identity (GET; POST shares the route) */
+export async function fetchIdentity(): Promise<NodeIdentity> {
+  const res = await fetch('/cms-bridge/api/identity');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const body = (await res.json()) as { identity?: NodeIdentity };
+  if (!body.identity) throw new Error('no identity in response');
+  return body.identity;
+}
+
+/** 保存节点身份 / save the node identity */
+export async function saveIdentity(identity: NodeIdentity): Promise<void> {
+  const res = await fetch('/cms-bridge/api/identity', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(identity),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? `HTTP ${res.status}`);
+  }
+}
+
+/**
+ * 上传图标图片:经节点代理转到 cms /v1/files(is_public),返回公开 CAS URL。
+ * Uploads the icon image: the node proxy forwards it to cms /v1/files
+ * (is_public) and returns the public CAS URL.
+ */
+export async function uploadIconImage(file: File): Promise<string> {
+  const form = new FormData();
+  // purpose 必须是 cms 的 8 值注册表之一(icons 归 user_data);is_public 换永久 CAS URL
+  // purpose must be one of cms's 8 registry values (icons fall under user_data);
+  // is_public exchanges for the permanent CAS URL.
+  form.append('purpose', 'user_data');
+  form.append('is_public', 'true');
+  form.append('file', file);
+  const res = await fetch('/cms-bridge/api/icon', { method: 'POST', body: form });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? `HTTP ${res.status}`);
+  }
+  const body = (await res.json()) as { url?: string };
+  if (typeof body.url !== 'string' || body.url === '') throw new Error('no url in response');
+  return body.url;
 }
 
 /** 轮询快照:状态或拉取错误 / the polled snapshot: status or fetch error */

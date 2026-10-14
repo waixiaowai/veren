@@ -36,8 +36,18 @@ declare module '@deepseek-ai/cordis' {
         'cms-bridge/status': (status: BridgeStatus) => void;
     }
 }
+/** 节点身份:随连接上报给 cms,可在 Web UI 自定义 / the node identity: reported to cms on connect, editable in the Web UI */
+export interface NodeIdentity {
+  /** 稳定 uuid;首次启动自动生成 / stable uuid; auto-generated on first boot */
+  nodeId: string;
+  nodeName: string;
+  nodeDescription: string;
+  /** 图标:emoji 或短字符 / icon: an emoji or a short glyph */
+  nodeIcon: string;
+}
+
 /** 连接层配置（归一化后）/ the normalized connection-layer config */
-export interface ConnectionConfig {
+export interface ConnectionConfig extends NodeIdentity {
   url: string;
   token: string;
   commandTimeoutMs: number;
@@ -45,6 +55,9 @@ export interface ConnectionConfig {
   /** 视为凭证失效的 close code / close codes treated as credential failures */
   credentialCloseCodes: number[];
 }
+
+/** 身份上报事件名 / the identity report event name */
+export const IDENTITY_EVENT = 'node.identity';
 
 /** 连接管理器：收发、重连、凭证失效停试、状态快照 / owns send/receive, reconnection, credential parking and status */
 export class ConnectionManager {
@@ -73,7 +86,7 @@ export class ConnectionManager {
     this.open('connecting');
   }
 
-  /** 当前状态快照（可观测）/ the current status snapshot (observability) */
+  /** 当前状态快照（可观测）；node 携带身份供 Web UI 展示 / the status snapshot; `node` carries the identity for the Web UI */
   status(): BridgeStatus {
     return {
       state: this.state,
@@ -83,7 +96,30 @@ export class ConnectionManager {
       connectedAt: this.connectedAt,
       pendingEvents: this.reporter.pending,
       inflightCommands: this.dispatcher.inflight,
+      node: this.identity(),
     };
+  }
+
+  /** 当前身份 / the current identity */
+  identity(): NodeIdentity {
+    const { nodeId, nodeName, nodeDescription, nodeIcon } = this.config;
+    return { nodeId, nodeName, nodeDescription, nodeIcon };
+  }
+
+  /** 只读配置视图(url/token 供上传代理取源与凭证)/ a readonly config view (url/token for the upload proxy) */
+  get connectionConfig(): Readonly<ConnectionConfig> {
+    return this.config;
+  }
+
+  /**
+   * 更新身份：改内存配置；连接中立即重新上报一次（离线时入队自动补报）。
+   * Updates the identity in memory; while connected it re-reports at once
+   * (queued automatically when offline).
+   */
+  setIdentity(identity: NodeIdentity): void {
+    this.config = { ...this.config, ...identity };
+    this.log('info', `identity updated: ${identity.nodeName} (${identity.nodeId})`);
+    if (this.state === 'connected') this.reporter.report(IDENTITY_EVENT, { ...identity });
   }
 
   /**
@@ -143,6 +179,10 @@ export class ConnectionManager {
     this.setState('connected');
     this.log('info', 'connected');
     this.reporter.setConnected(socket);
+    // 每次连接成功都上报一次节点身份(离线期间产生的上报会按序自动补报)
+    // Announce the node identity on every successful connect (reports made
+    // while offline replay in order automatically).
+    this.reporter.report(IDENTITY_EVENT, { ...this.identity() });
   }
 
   /**
@@ -232,18 +272,13 @@ export class ConnectionManager {
   }
 
   /**
-   * 纯文本日志出口。
-   *
-   * 实现要点：dispose() 会在 fiber 卸载（disposer）阶段被调用，此时 context
-   * 代理可能已部分失效；因此这里显式绕过 context 代理，只读取已存在的 logger
-   * 服务（拿不到就退化为 console），保证 dispose 路径上不产生任何 ctx.effect。
-   *
-   * The plain-text log sink.
-   *
-   * Implementation note: dispose() runs during fiber unload (the disposer), by
-   * which point the context proxy may be partially torn down; so this
-   * deliberately bypasses the proxy and reads the existing logger service (or
-   * falls back to console) so the dispose path never allocates a ctx.effect.
+   * 纯文本日志出口。dispose() 在 fiber 卸载（disposer）阶段运行,此时 context
+   * 代理可能已部分失效;因此绕过代理直读已存在的 logger 服务（缺失退化为
+   * console）,保证 dispose 路径不产生任何 ctx.effect。
+   * The plain-text log sink. dispose() runs during fiber unload (the
+   * disposer), where the context proxy may be partially torn down; read the
+   * existing logger service directly (console fallback) so this path never
+   * allocates a ctx.effect.
    */
   private log(type: 'info' | 'warn' | 'error' | 'debug', message: string): void {
     const logger = (this.ctx as unknown as Record<string, unknown>)['logger'] as
@@ -293,5 +328,20 @@ export class CmsBridgeService extends Service {
   /** 更换凭证（等待重配置状态下会自动恢复连接）/ applies a new credential (auto-resumes from the parked state) */
   setCredential(token: string): void {
     this.manager.setCredential(token);
+  }
+
+  /** 当前节点身份 / the current node identity */
+  identity(): NodeIdentity {
+    return this.manager.identity();
+  }
+
+  /** 更新节点身份（连接中立即重新上报）/ updates the node identity (re-reports immediately while connected) */
+  setIdentity(identity: NodeIdentity): void {
+    this.manager.setIdentity(identity);
+  }
+
+  /** 只读配置视图 / the readonly config view */
+  connectionConfig(): Readonly<ConnectionConfig> {
+    return this.manager.connectionConfig;
   }
 }

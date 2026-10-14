@@ -28,6 +28,9 @@ const BADGE_TONE: Record<BridgeStatus['state'], TagTone> = {
 };
 
 /** 在线时长文案 / uptime label */
+function isUrl(value: string): boolean {
+  return value.startsWith('http://') || value.startsWith('https://') || value.startsWith('data:');
+}
 function uptime(connectedAt: number | null): string {
   if (!connectedAt) return '-';
   const s = Math.max(0, Math.floor((Date.now() - connectedAt) / 1000));
@@ -46,7 +49,18 @@ export function StatusCard({ status, error, t }: {
     <div className={styles.card}>
       {/* 悬浮角标:跨压卡片上边缘 / floating badge straddling the card's top edge */}
       <Tag tone={BADGE_TONE[state]} className={styles.badge}>{t(`state.${state}`)}</Tag>
-      <div className={styles.cardTitle}>{t('statusTitle')}</div>
+      <div className={styles.cardTitle}>
+        {status
+          ? (
+              <>
+                {isUrl(status.node.nodeIcon)
+                  ? <img className={styles.iconImgSmall} src={status.node.nodeIcon} alt="" />
+                  : <span aria-hidden="true">{status.node.nodeIcon}</span>}
+                <span>{status.node.nodeName}</span>
+              </>
+            )
+          : t('statusTitle')}
+      </div>
       {error !== null ? (
         <div className={styles.errorText}>{t('apiUnreachable', { error })}</div>
       ) : (

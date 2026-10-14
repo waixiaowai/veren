@@ -15,11 +15,12 @@
  *             layer and provides the CmsBridge service
  */
 
+import { randomUUID } from 'node:crypto';
 import type { Context } from '@deepseek-ai/cordis';
 import WebSocket from 'ws';
 import z from '@deepseek-ai/schemastery';
 import { ConnectionManager, CmsBridgeService } from './connection.js';
-import type { ConnectionConfig } from './connection.js';
+import type { ConnectionConfig, NodeIdentity } from './connection.js';
 import { Dispatcher } from './dispatcher.js';
 import { EventReporter } from './reporter.js';
 import type { BridgeStatus, SocketFactory } from './protocol.js';
@@ -28,6 +29,8 @@ import { CmsBridge } from './protocol.js';
 export type { BridgeState, BridgeStatus, ActionEntry, ActionHandler, SocketLike } from './protocol.js';
 export { CmsBridge, CREDENTIAL_INVALID, UNKNOWN_ACTION, TIMEOUT, INVALID_PAYLOAD, HANDLER_ERROR, BAD_FRAME } from './protocol.js';
 export { CmsBridgeService } from './connection.js';
+export type { NodeIdentity } from './connection.js';
+export { IDENTITY_EVENT } from './connection.js';
 export { Dispatcher } from './dispatcher.js';
 export { EventReporter } from './reporter.js';
 
@@ -53,6 +56,10 @@ export interface Config extends Omit<ConnectionConfig, 'credentialCloseCodes'> {
 export const Config: z<Config> = z.object({
   url: z.string().required(),
   token: z.string().role('secret').default(''),
+  nodeId: z.string().default(''),
+  nodeName: z.string().default('CMS Bridge Node'),
+  nodeDescription: z.string().default(''),
+  nodeIcon: z.string().default('🛰️'),
   commandTimeoutMs: z.number().default(30_000),
   reconnect: z.object({
     initialDelayMs: z.number().min(1).default(1_000),
@@ -83,6 +90,10 @@ export const wsSocketFactory: SocketFactory = (url, headers) => {
  * mounts /cms-bridge/api/* for the Web UI; cleanup runs in reverse order.
  */
 export const apply = (ctx: Context, config: Config): void => {
+  // nodeId 留空 = 首次启动自动生成稳定 uuid(进程内生效;保存节点信息时持久化)
+  // An empty nodeId = a stable uuid is generated on first boot (in-memory;
+  // persisted when the identity card is saved).
+  if (!config.nodeId) config.nodeId = randomUUID();
   const service = wire(ctx, config, wsSocketFactory);
   registerWebApi(ctx, service);
 };
@@ -137,35 +148,178 @@ export function registerWebApi(ctx: Context, service: CmsBridgeService): void {
       }
     },
   }), 'cms-bridge/api-credential');
+  ctx.effect(() => webServer.register({
+    kind: 'exact',
+    path: '/cms-bridge/api/identity',
+    handler: async (req, res) => {
+      try {
+        if ((req as { method?: string }).method === 'POST') {
+          const identity = await readBodyIdentity(req);
+          await persistIdentity(ctx, service, identity);
+          ctx.logger.info('cms-bridge: identity updated via web UI: %s (%s)', identity.nodeName, identity.nodeId);
+        }
+        json(res, 200, { ok: true, identity: service.identity(), status: service.status() });
+      } catch (error) {
+        json(res, 400, { ok: false, message: error instanceof Error ? error.message : String(error) });
+      }
+    },
+  }), 'cms-bridge/api-identity');
+  // 图标上传代理:浏览器没有 cms 凭证,由节点持 token 把 multipart 原样转发到
+  // cms /v1/files(purpose=node.icon, is_public=true),再换公开 CAS URL。
+  // The icon upload proxy: the browser holds no cms credential, so the node
+  // forwards the multipart body verbatim to cms /v1/files (purpose=node.icon,
+  // is_public=true) and exchanges it for the public CAS URL.
+  ctx.effect(() => webServer.register({
+    kind: 'exact',
+    path: '/cms-bridge/api/icon',
+    handler: async (req, res) => {
+      try {
+        const url = await uploadIcon(service, req);
+        json(res, 200, { ok: true, url });
+      } catch (error) {
+        json(res, 502, { ok: false, message: error instanceof Error ? error.message : String(error) });
+      }
+    },
+  }), 'cms-bridge/api-icon');
+}
+
+/** 从 ws/wss URL 推导 cms 的 http(s) 源 / derives the cms http(s) origin from the ws/wss URL */
+function cmsOrigin(wsUrl: string): string {
+  return wsUrl.replace(/^ws/, 'http').replace(/\/v1\/ws.*$/, '');
+}
+
+/** 图标大小上限(2MB)/ the icon size cap (2MB) */
+const ICON_MAX_BYTES = 2 * 1024 * 1024;
+
+/**
+ * 转发图标到 cms 并返回公开 URL:multipart 原样字节转发(带浏览器生成的
+ * boundary 头),上传后经 /v1/files/{id}/url 换 /f/ 永久地址。
+ * Forwards the icon to cms and returns the public URL: the multipart bytes go
+ * through verbatim (with the browser-built boundary header), then
+ * /v1/files/{id}/url exchanges the id for the permanent /f/ address.
+ */
+async function uploadIcon(service: CmsBridgeService, req: unknown): Promise<string> {
+  const cfg = service.connectionConfig();
+  const origin = cmsOrigin(cfg.url);
+  const headers = (req as { headers?: Record<string, string | string[] | undefined> }).headers ?? {};
+  const contentType = headers['content-type'];
+  if (typeof contentType !== 'string' || !contentType.includes('multipart/form-data')) {
+    throw new Error('expected multipart/form-data');
+  }
+  const body = Buffer.concat(await readRawBody(req, ICON_MAX_BYTES));
+  if (body.length === 0) throw new Error('empty body');
+  const auth = { authorization: `Bearer ${cfg.token}` };
+  const upload = await fetch(`${origin}/v1/files`, {
+    method: 'POST',
+    headers: { ...auth, 'content-type': contentType },
+    body: new Uint8Array(body),
+  });
+  if (!upload.ok) throw new Error(`cms upload HTTP ${upload.status}: ${(await upload.text()).slice(0, 200)}`);
+  const file = (await upload.json()) as { id?: string };
+  if (typeof file.id !== 'string') throw new Error('cms upload returned no id');
+  const urlRes = await fetch(`${origin}/v1/files/${encodeURIComponent(file.id)}/url`, { headers: auth });
+  if (!urlRes.ok) throw new Error(`cms url HTTP ${urlRes.status}`);
+  const { url } = (await urlRes.json()) as { url?: string };
+  if (typeof url !== 'string' || url === '') throw new Error('cms url endpoint returned no url');
+  return url.startsWith('/') ? origin + url : url;
+}
+
+/** 读原始请求体(带上限)/ reads the raw request body (with a cap) */
+async function readRawBody(req: unknown, cap: number): Promise<Buffer[]> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of (req as AsyncIterable<Buffer>)) {
+    total += chunk.length;
+    if (total > cap) throw new Error('body too large');
+    chunks.push(chunk);
+  }
+  return chunks;
+}
+
+/** 读 JSON body / reads a JSON body */
+async function readJsonBody(req: unknown, cap: number): Promise<Record<string, unknown>> {
+  return JSON.parse(Buffer.concat(await readRawBody(req, cap)).toString('utf8')) as Record<string, unknown>;
+}
+
+/** 读取并校验 POST body 里的节点身份 / reads and validates the identity from a POST body */
+async function readBodyIdentity(req: unknown): Promise<NodeIdentity> {
+  const body = await readJsonBody(req, 16_384);
+  const str = (v: unknown, label: string): string => {
+    if (typeof v !== 'string') throw new Error(`${label} must be a string`);
+    return v;
+  };
+  return {
+    nodeId: str(body.nodeId, 'nodeId'),
+    nodeName: str(body.nodeName, 'nodeName'),
+    nodeDescription: typeof body.nodeDescription === 'string' ? body.nodeDescription : '',
+    nodeIcon: typeof body.nodeIcon === 'string' && body.nodeIcon !== '' ? body.nodeIcon : '🛰️',
+  };
+}
+
+/** configEditor 非严格探测 / a non-strict configEditor probe */
+function findConfigEditor(ctx: Context): ConfigEditorLike | undefined {
+  return (ctx as unknown as { reflect: { get(name: string, strict: boolean): unknown } })
+    .reflect.get('configEditor', false) as ConfigEditorLike | undefined;
+}
+
+/** configEditor 最小结构面 / the minimal configEditor surface */
+interface ConfigEditorLike {
+  entries(): Array<Record<string, unknown>>;
+  edit(entry: Record<string, unknown>, change: (current: Record<string, unknown>) => Record<string, unknown>): Promise<void>;
+}
+
+/**
+ * 找本插件在 profile patch 里的行。Entry 是类实例:id 为 getter、包名在
+ * options.name;个别条目可能是 Context 代理(JSON.stringify 会触发 without
+ * inject 抛错),因此 stringify 只作末位兜底并容错。
+ * Finds this plugin's row in the profile patch. An Entry is a class instance
+ * (id is a getter, the package name lives in options.name); some entries can
+ * be Context proxies where JSON.stringify throws "without inject", so the
+ * stringify probe comes last and is failure-tolerant.
+ */
+function findOwnEntry(editor: ConfigEditorLike): Record<string, unknown> | undefined {
+  return editor.entries().find((e) => {
+    if (e.id === 'cms-bridge' || e.name === '@veren/cms-bridge') return true;
+    const options = e.options as { name?: unknown } | undefined;
+    if (options && options.name === '@veren/cms-bridge') return true;
+    try {
+      return JSON.stringify(e).includes('@veren/cms-bridge');
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * 持久化身份：configEditor 可用则写 profile patch（Loader 热更后仍是新值）,
+ * 再把内存配置同步为最新（无 configEditor 的宿主上至少进程内生效）。
+ * Persists the identity: via configEditor into the profile patch when
+ * available (the Loader hot-reload keeps it), then syncs the in-memory config
+ * so hosts without configEditor still take effect for this run.
+ */
+async function persistIdentity(ctx: Context, service: CmsBridgeService, identity: NodeIdentity): Promise<void> {
+  const editor = findConfigEditor(ctx);
+  const entry = editor && findOwnEntry(editor);
+  if (editor && entry) await editor.edit(entry, (current) => ({ ...current, ...identity }));
+  service.setIdentity(identity);
 }
 
 /** 读取并校验 POST body 里的 { token } / reads and validates { token } from the POST body */
 async function readBodyToken(req: unknown): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of (req as AsyncIterable<Buffer>)) {
-    chunks.push(chunk);
-    if (chunks.reduce((n, c) => n + c.length, 0) > 4096) throw new Error('body too large');
-  }
-  const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { token?: unknown };
+  const body = await readJsonBody(req, 4096);
   if (typeof body.token !== 'string' || body.token.length === 0) throw new Error('token required');
   return body.token;
 }
 
 /** 持久化换凭证：configEditor 可用则写 profile patch，否则仅本进程生效 / persists the rotation: profile patch via configEditor, else run-scoped */
 async function persistCredential(ctx: Context, service: CmsBridgeService, token: string): Promise<void> {
-  const editor = (ctx as unknown as { reflect: { get(name: string, strict: boolean): unknown } })
-    .reflect.get('configEditor', false) as
-    | {
-        entries(): Array<Record<string, unknown>>;
-        edit(entry: Record<string, unknown>, change: (current: Record<string, unknown>) => Record<string, unknown>): Promise<void>;
-      }
-    | undefined;
-  const entry = editor?.entries().find((e) => e.name === '@veren/cms-bridge' || e.id === 'cms-bridge');
-  if (!editor || !entry) {
-    service.setCredential(token);
+  const editor = findConfigEditor(ctx);
+  const entry = editor && findOwnEntry(editor);
+  if (editor && entry) {
+    await editor.edit(entry, (current) => ({ ...current, token }));
     return;
   }
-  await editor.edit(entry, (current) => ({ ...current, token }));
+  service.setCredential(token);
 }
 
 

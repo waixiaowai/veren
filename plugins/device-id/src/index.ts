@@ -1,48 +1,67 @@
 ﻿/**
- * @veren/device-id - the stable device-id plugin module.
- * @veren/device-id - 稳定设备 ID 插件模块。
+ * @veren/device-id - the platform-agnostic device-id core plugin module.
+ * @veren/device-id - 平台无关的设备 ID 核心插件模块。
  *
- * 插件约定（同 @veren/commander-*）：
- * Plugin convention (same as @veren/commander-*):
- *   - name    服务令牌（兼作插件显示名）/ the service token (doubling as the display name)
- *   - inject  依赖的服务令牌（无）/ required service tokens (none)
- *   - Config  schemastery 配置 schema / the config schema
- *   - apply   装配并提供 DeviceId 服务 / wires and provides the DeviceId service
+ * Other plugins depend on THIS package (the service token and contracts); the
+ * per-OS packages (@veren/device-id-win/-mac/-linux) only supply the platform
+ * capability. The host must install the matching platform plugin and mount the
+ * dsh storage domain facility.
+ * 其他插件只依赖本包（服务令牌与契约）；各操作系统包仅提供平台能力。宿主需
+ * 安装匹配的平台插件并挂载 dsh storage domain 设施。
  */
 
+import { getOrThrow } from '@veren/core';
 import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
-import { DeviceIdService } from './service.js';
-import type { DeviceIdOptions } from './service.js';
-import { DeviceIdToken, DeviceId } from './protocol.js';
-import type { DeviceIdSource } from './protocol.js';
-import { defaultStoreFile } from './store.js';
+import { deviceIdDomain } from './domain.js';
+import { resolveDeviceId, DeviceIdService } from './service.js';
+import { DeviceIdToken, DeviceIdPlatformToken, DeviceId } from './protocol.js';
+import type { DeviceIdRecord, DeviceIdSource } from './protocol.js';
+import type { DomainGlobal } from '@deepseek-ai/dsh-storage-domain';
 
-export { DeviceIdToken, DeviceId } from './protocol.js';
-export type { DeviceIdSource } from './protocol.js';
-export { DeviceIdService } from './service.js';
-export { hashToUuid } from './service.js';
-export { computeFingerprint } from './fingerprint.js';
+export { DeviceIdToken, DeviceIdPlatformToken, DeviceId } from './protocol.js';
+export type { DeviceIdSource, DeviceIdRecord, DeviceIdPlatform } from './protocol.js';
+export { resolveDeviceId, DeviceIdService } from './service.js';
+export { deviceIdDomain } from './domain.js';
+export { normalizeId, hashFingerprint, hashToUuid } from './hash.js';
 
 /** 服务令牌：兼作插件显示名。 The service token, doubling as the display name. */
 export { DeviceIdToken as name };
 
-/** 本插件不依赖其他能力。 This plugin injects nothing. */
-export const inject = [] as const;
+/**
+ * 依赖：dsh storage domain 设施 + 当前平台的平台插件。
+ * Dependencies: the dsh storage domain facility + the current OS platform plugin.
+ */
+export const inject = ['storageDomain', DeviceIdPlatformToken] as const;
 
 /** 本插件提供 DeviceId 服务。 This plugin provides the DeviceId service. */
 export const provide = [DeviceIdToken] as const;
 
 /** 归一化配置。 The normalized plugin config. */
-export interface Config extends DeviceIdOptions {}
+export interface Config {}
 
-/** 配置 schema：ctx.plugin 装载时自动校验并补全缺省值。 Validated and default-filled by ctx.plugin. */
-export const Config: z<Config> = z.object({
-  storeFile: z.string().default(defaultStoreFile()),
-});
+/** 配置 schema。 The config schema. */
+export const Config: z<Config> = z.object({});
 
-/** 装配函数：实例化并提供 DeviceId 服务。 The apply function: instantiate and provide the service. */
-export const apply = (ctx: Context, config: Config): void => {
-  ctx.plugin(DeviceIdService, config);
+/**
+ * 装配：打开 domain -> 解析 -> 持久写回 -> 提供服务。
+ * Apply: open the domain -> resolve -> durable write-back -> provide the service.
+ */
+export const apply = async (ctx: Context, _config: Config): Promise<void> => {
+  const domain = await ctx.storageDomain.open(deviceIdDomain);
+  // rc.1 的类型面未发布，这里把 global 槽窄化为我们的记录类型。
+  // the rc.1 type surface is unpublished; narrow the global slot to our record type.
+  const globalStore = domain.global as unknown as DomainGlobal<DeviceIdRecord>;
+  const platform = getOrThrow(ctx, DeviceIdPlatformToken);
+  const resolved = resolveDeviceId({ stored: globalStore.get(), platform, now: Date.now() });
+  const service = new DeviceIdService(ctx, resolved.id, resolved.source, globalStore, platform);
+  await service.persist(resolved.record);
+  // 卸载时关闭 domain（幂等）。 Close the domain on unload (idempotent).
+  ctx.effect(() => async () => { await domain.close(); }, 'device-id/domain');
 };
+
+
+
+
+
 

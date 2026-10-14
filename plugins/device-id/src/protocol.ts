@@ -1,42 +1,67 @@
 ﻿/**
- * @veren/device-id - the stable device identity: the service token and the
- * type contracts.
- * @veren/device-id - 稳定设备标识：服务令牌与类型契约。
+ * @veren/device-id - the platform-agnostic device identity contracts.
+ * @veren/device-id - 平台无关的设备身份契约。
+ *
+ * The core plugin owns the resolution policy; each OS ships its own platform
+ * plugin (@veren/device-id-win/-mac/-linux) that supplies fingerprints and
+ * out-of-band anchors.
+ * 核心插件只负责解析策略；各操作系统由对应平台插件提供指纹与带外锚点。
  */
 
 import { defineToken } from '@veren/core';
 
 /** The stable device-id service facade. 稳定设备 ID 服务门面。 */
 export abstract class DeviceId {
-  /** Returns the device id, cached per process. 取设备 ID：进程内缓存，同机稳定。 */
-  abstract getId(): string;
-  /** How the id was resolved most recently (for diagnostics). 最近一次解析来源（诊断用）。 */
+  /** The stable device id, valid for the service lifetime. 稳定设备 ID，服务存活期内不变。 */
+  abstract get id(): string;
+  /** How the id was resolved (for diagnostics). ID 的解析来源（诊断用）。 */
   abstract get source(): DeviceIdSource;
 }
 
-/** The service token; the name doubles as the label. 服务令牌：名字兼作标签。 */
+/** The service token of the core service. 核心服务的服务令牌。 */
 export const DeviceIdToken = defineToken<DeviceId>('device-id');
+
+/** One OS-specific platform plugin. 平台插件提供的平台能力。 */
+export interface DeviceIdPlatform {
+  /**
+   * Current stable-tier hardware fingerprint (normalized hex), or null when
+   * nothing could be collected. 当前稳定级硬件指纹；采集不到为 null。
+   */
+  stableFingerprint(): string | null;
+  /**
+   * Recover a previously anchored id from OS-specific out-of-band storage
+   * (e.g. the Windows registry), or null. 从平台带外存储回收历史 ID；无则 null。
+   */
+  recoverAnchoredId(): string | null;
+  /**
+   * Best-effort anchor the id into OS-specific out-of-band storage.
+   * 尽力而为地把 ID 写入平台带外存储。
+   */
+  anchor(id: string): void;
+}
+
+/** The service token platform plugins provide. 平台插件提供的服务令牌。 */
+export const DeviceIdPlatformToken = defineToken<DeviceIdPlatform>('device-id-platform');
 
 /** Where the current id came from. 当前 ID 的解析来源。 */
 export type DeviceIdSource =
-  /** The anchored store file hit. 稳定存储文件命中。 */
-  | 'store-file'
-  /** The registry mirror hit. 注册表镜像命中。 */
-  | 'registry'
-  /** The hardware fingerprint matched a historical id. 硬件指纹匹配命中（回收旧 ID）。 */
+  /** The dsh domain store hit. dsh domain 存储命中。 */
+  | 'domain-store'
+  /** The platform anchor hit (e.g. registry). 平台锚点命中（如注册表）。 */
+  | 'platform-anchor'
+  /** The hardware fingerprint derived the id. 硬件指纹派生。 */
   | 'fingerprint'
   /** Nothing hit; a fresh random id was minted. 全部未命中，新生成随机 ID。 */
   | 'fresh';
 
-/** The on-disk record of the stable store. 稳定存储文件的数据结构。 */
+/** The durable domain-store record. domain 存储的持久化记录。 */
 export interface DeviceIdRecord {
-  /** The current device id. 当前设备 ID。 */
+  /** The device id ('' = never written). 设备 ID（'' = 从未写入）。 */
   id: string;
-  /** Historical hardware fingerprints. 历史硬件指纹（重装系统后回收 ID）。 */
+  /** Historical hardware fingerprints (capped roll). 历史硬件指纹（滚动截断）。 */
   fingerprints: string[];
   /** Epoch ms of first creation. 首次创建时间。 */
   createdAt: number;
   /** Epoch ms of the latest write. 最近一次更新时间。 */
   updatedAt: number;
 }
-

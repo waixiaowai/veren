@@ -52,6 +52,18 @@
 .cardTitle {
   font-weight: 600;
   font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 标题内的小图标 / the small icon inside the card title */
+.iconImgSmall {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  object-fit: cover;
+  display: block;
 }
 
 .hint {
@@ -94,6 +106,48 @@
   gap: 8px;
   align-items: center;
   width: 100%;
+}
+
+/* 表单字段行:固定宽标签 + 自适应控件 / a form field row: fixed label + fluid control */
+.fieldRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.fieldLabel {
+  color: var(--dsw-alias-label-secondary);
+  width: 96px;
+  flex-shrink: 0;
+}
+
+/* 图标字段:预览 + 上传按钮 / the icon field: preview + upload button */
+.iconRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.iconInput {
+  max-width: 120px;
+  text-align: center;
+}
+
+.iconPreview {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.iconImg {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid var(--dsw-alias-border-l1);
+  display: block;
 }
 
 /* flex:1 + min-width:0:输入框吃满剩余宽度且可被按钮压缩 */
