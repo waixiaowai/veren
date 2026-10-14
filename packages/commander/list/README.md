@@ -1,8 +1,8 @@
-﻿# @veren/commander-list
+# @veren/commander-list
 
-[涓枃鏂囨。](./README.cn.md)
+[中文文档](./README.cn.md)
 
-The veren CLI's `list` command as a standard Cordis plugin module: it injects the command registry and the Discovery service, registers the `list` command that prints every workspace unit 鈥?`{ name, description, dir }` 鈥?as JSON sorted by `dir`; the JSON indentation comes from the schemastery `Config` schema (`indent`).
+The veren CLI's `list` command as a standard Cordis plugin module: it injects the command registry and the Discovery service, registers the `list` command that prints every workspace unit — `{ name, description, dir }` — as JSON sorted by `dir`; the JSON indentation comes from the schemastery `Config` schema (`indent`).
 
 ## When to use
 
@@ -43,7 +43,7 @@ Config flows through `ctx.plugin(ListCommand, { indent: 4 })`.
 
 ## Tokens subpath (platform-agnostic)
 
-`./tokens` exports only the `INDENT` token (the `indent` config field name) 鈥?no Cordis and no Node built-ins 鈥?so config panels or other platform-agnostic consumers can reference the field without importing the plugin:
+`./tokens` exports only the `INDENT` token (the `indent` config field name) — no Cordis and no Node built-ins — so config panels or other platform-agnostic consumers can reference the field without importing the plugin:
 
 ```ts
 import { INDENT } from '@veren/commander-list/tokens' // token only; no Cordis pulled in
@@ -51,35 +51,40 @@ import { INDENT } from '@veren/commander-list/tokens' // token only; no Cordis p
 
 ## API
 
-The module is the plugin 鈥?install it as a namespace import (`ctx.plugin(...)`):
+The module is the plugin — install it as a namespace import (`ctx.plugin(...)`):
 
 | Export | Kind | Description |
 | --- | --- | --- |
 | `name` | string (`'verenCliListCommand'`) | Plugin display name. |
 | `inject` | `[Commands, Discovery]` | Requires the command registry and the Discovery service. |
-| `Config` | schemastery schema | `{ indent: number }` 鈥?the JSON indentation spaces (default `2`, range `0..10`). |
+| `Config` | schemastery schema | `{ indent: number }` — the JSON indentation spaces (default `2`, range `0..10`). |
 | `apply(ctx, config)` | plugin function | Registers the `list` command; the registration disposer is handed back to the fiber, so the command disappears when the plugin unloads. |
-| `cmdList(source, config, args)` | async function | The implementation: rejects arguments, then prints `JSON.stringify(source.list(), null, config.indent)` to stdout. |
-| `UnitSource` | type | `Pick<DiscoveryService, 'list'>` 鈥?the minimal structural view the implementation needs. |
+| `cmdList(source, config, args)` | async function | The implementation: with no argument prints every unit; with one `<name>` prints that sub-package's `dependencies` resolved to units (workspace entries plus third-party packages from `node_modules`) as the same JSON shape (`CliError` with code `UNIT_NOT_FOUND` on an unknown name; `CliError` on more than one argument). |
+| `UnitSource` | type | `Pick<DiscoveryService, 'list' \| 'listDependencies' \| 'find'>` — the minimal structural view the implementation needs. |
 | `DEFAULT_INDENT` | number ( `2` ) | The `indent` default shared by the schema and direct calls. |
+
+### list &lt;name&gt; / sub-package dependency lookup
+
+- `pnpm cli list <name>` prints the sub-package's own `package.json` `dependencies` in manifest order: workspace hits reuse the inventory entries, third-party dependencies read `name`/`description` from their own `package.json` in `node_modules` (empty description as fallback); a `CliError` is thrown on an unknown name or more than one argument.
 
 ## Development
 
 ```bash
 pnpm --filter @veren/commander-list build
-pnpm --filter @veren/commander-list test   # 4 cases / 4 涓敤渚?```
+pnpm --filter @veren/commander-list test   # 6 cases / 6 个用例
+```
 
 ```
 packages/commander/list
-鈹溾攢鈹€ src/
-鈹?  鈹溾攢鈹€ list.ts        # Config schema + UnitSource + cmdList / 閰嶇疆 schema銆佹渶灏忚鍥句笌瀹炵幇
-鈹?  鈹溾攢鈹€ tokens.ts      # platform-agnostic INDENT token / 骞冲彴鏃犲叧鐨?INDENT 浠ょ墝
-鈹?  鈹斺攢鈹€ index.ts       # plugin module: name/inject/Config/apply + re-exports / 鎻掍欢妯″潡涓庡啀瀵煎嚭
-鈹斺攢鈹€ test/index.test.ts
+├── src/
+│   ├── list.ts        # Config schema + UnitSource + cmdList / 配置 schema、最小视图与实现
+│   ├── tokens.ts      # platform-agnostic INDENT token / 平台无关的 INDENT 令牌
+│   └── index.ts       # plugin module: name/inject/Config/apply + re-exports / 插件模块与再导出
+└── test/index.test.ts
 ```
 
 ## Notes & constraints
 
 - `list` owns stdout exclusively (pure JSON) so AI agents can parse it trivially.
+- `pnpm cli list <name>` keeps manifest order: workspace hits reuse the inventory entries, third-party dependencies get `name`/`description` from their own `package.json` in `node_modules` (empty description as fallback), so every dependency always appears.
 - The unit inventory comes from `@veren/commander-discovery`'s `Discovery` service; npm units win over Rust crates in the same directory.
-

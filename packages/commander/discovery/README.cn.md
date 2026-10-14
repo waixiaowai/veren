@@ -1,15 +1,20 @@
-﻿# @veren/commander-discovery
+# @veren/commander-discovery
 
 [English](./README.md)
 
-veren 宸ヤ綔鍖哄崟鍏冨彂鐜?鈥斺€?鏍囧噯 Cordis 鎻掍欢妯″潡锛歚DiscoveryService`锛堢户鎵?`Service`锛屾彁渚?`list`/`find`锛夋寜鏂囦欢绾﹀畾锛坄package.json` 浼樺厛浜?`Cargo.toml`锛夎瘑鍒伐浣滃尯鍗曞厓 `{ name, description, dir }`锛屽甫娣卞害涓婇檺銆佹寜
-`dir` 鎺掑簭锛涚函鎵弿鍑芥暟鍚屾椂淇濈暀銆?
-## 浣曟椂浣跨敤
+veren 工作区单元发现 —— 标准 Cordis 插件模块：`DiscoveryService`（继承 `Service`，提供 `list`/`find`）按文件约定（`package.json` 优先于 `Cargo.toml`）识别工作区单元 `{ name, description, dir }`，带深度上限、按
+`dir` 排序；纯扫描函数同时保留。
 
-- 鏌愪釜 Cordis 鎻掍欢闇€瑕佹妸宸ヤ綔鍖哄崟鍏冧綔涓虹粨鏋勫寲鏁版嵁锛坴eren CLI 鐨?`list`/`doc`
-  鍛戒护鍗虫敞鍏ユ湰鏈嶅姟锛夈€?- 浣犲笇鏈?npm 浼樺厛浜?Rust銆佹繁搴︿笂闄愩€佽烦杩囧悕鍗曪紙`node_modules`銆乣dist`銆?  `target`銆侀殣钘忕洰褰曪級杩欎簺绾﹀畾琚竴鑷村湴搴旂敤锛屽苟鍙€氳繃鎻掍欢閰嶇疆寰皟銆?
-濡傛灉浣跨敤鍏朵粬宸ュ叿鎵弿宸ヤ綔鍖猴紝璇疯烦杩囨湰鍖呫€?
-## 瀹夎
+## 何时使用
+
+- 某个 Cordis 插件需要把工作区单元作为结构化数据（veren CLI 的 `list`/`doc`
+  命令即注入本服务）。
+- 你希望 npm 优先于 Rust、深度上限、跳过名单（`node_modules`、`dist`、
+  `target`、隐藏目录）这些约定被一致地应用，并可通过插件配置微调。
+
+如果使用其他工具扫描工作区，请跳过本包。
+
+## 安装
 
 ```json
 {
@@ -19,7 +24,7 @@ veren 宸ヤ綔鍖哄崟鍏冨彂鐜?鈥斺€?鏍囧噯 Cordis 鎻掍欢妯″�
 }
 ```
 
-## 蹇€熷紑濮?
+## 快速开始
 ```ts
 import { Context } from '@deepseek-ai/cordis'
 import { getOrThrow } from '@veren/core'
@@ -29,14 +34,14 @@ import * as DiscoveryPlugin from '@veren/commander-discovery'
 
 const ctx = new Context()
 ctx.provide(Project, { root: '/path/to/project', config: { scanRoots: ['/path/to/project/apps'] } })
-await ctx.plugin(DiscoveryPlugin) // inject = [Project]锛汣onfig锛歿 maxDepth, skip }
+await ctx.plugin(DiscoveryPlugin) // inject = [Project]；Config：{ maxDepth, skip }
 
 const units = await getOrThrow(ctx, Discovery).list()
-// [{ name: '@x/pkg', description: '鈥?, dir: 'apps/pkg' }, 鈥
-await getOrThrow(ctx, Discovery).find('@x/pkg') // 鈫?鍗曞厓 | undefined
+// [{ name: '@x/pkg', description: '…', dir: 'apps/pkg' }, …]
+await getOrThrow(ctx, Discovery).find('@x/pkg') // 单元 | undefined
 ```
 
-闈炴彃浠惰皟鐢ㄦ柟涔熷彲浠ョ洿鎺ョ敤绾嚱鏁帮細
+非插件调用方也可以直接用纯函数：
 
 ```ts
 import { discoverUnits } from '@veren/commander-discovery'
@@ -44,49 +49,70 @@ import { discoverUnits } from '@veren/commander-discovery'
 const units = await discoverUnits(fs, path, '/path/to/project', { scanRoots: ['/path/to/project/apps'] })
 ```
 
-## 浠ょ墝瀛愯矾寰勶紙骞冲彴鏃犲叧锛?
-`./tokens` 鍙鍑?`Discovery` 浠ょ墝鍙婂叾缁撴瀯鍖栬鍥?`UnitInventory` / `Unit` 鈥斺€?涓嶅惈 Cordis銆佷笉鍚?Node 鍐呯疆妯″潡 鈥斺€?鍙共鍑€鍦版墦杩涙祻瑙堝櫒鎴栧叾浠栧彧闇€瑕佸紩鐢ㄦ湇鍔″悕
-鐨勭幆澧冿細
+## 令牌子路径（平台无关）
+`./tokens` 只导出 `Discovery` 令牌及其结构化视图 `UnitInventory` / `Unit` —— 不含 Cordis、不含 Node 内置模块 —— 可干净地打进浏览器或其他只需要引用服务名
+的环境：
 
 ```ts
-import { Discovery } from '@veren/commander-discovery/tokens' // 鍙湁浠ょ墝锛屼笉鎷栧叆 Cordis
+import { Discovery } from '@veren/commander-discovery/tokens' // 只有令牌，不拖入 Cordis
 ```
 
-## 鎺ュ彛
+## 接口
 
-妯″潡鍗虫彃浠?鈥斺€?浠ュ懡鍚嶇┖闂村鍏ヨ杞斤紙`ctx.plugin(...)`锛夛細
+模块即插件 —— 以命名空间导入装载（`ctx.plugin(...)`）：
 
-| 瀵煎嚭 | 绫诲瀷 | 璇存槑 |
+| 导出 | 类型 | 说明 |
 | --- | --- | --- |
-| `name` | 瀛楃涓诧紙`'verenCliDiscovery'`锛?| 鏈嶅姟浠ょ墝锛? `Discovery`锛夊吋鎻掍欢鏄剧ず鍚嶃€?|
-| `inject` | `[Project]` | 渚濊禆椤圭洰鏈嶅姟锛堥」鐩牴涓庢壂鎻忔牴锛夈€?|
-| `Config` | schemastery schema | `{ maxDepth: number, skip: string[] }` 鈥斺€?鎵弿娣卞害涓婇檺锛堢己鐪?`4`锛変笌鍦?`SKIP_DIRS` 涔嬪杩藉姞璺宠繃鐨勭洰褰曞悕锛堢己鐪?`[]`锛夈€?|
-| `apply(ctx, config)` | 鎻掍欢鍑芥暟 | 浠庝笂涓嬫枃鐨?`Project` 鍒涘缓 `DiscoveryService`銆?|
-| `Discovery` | 浠ょ墝锛屽瓧绗︿覆 `'verenCliDiscovery'` | `DiscoveryService` 鐨勬彁渚涗护鐗屻€?|
-| `DiscoveryService` | 缁ф壙 `Service` 鐨勭被 | `list()`锛堟寜 `dir` 鎺掑簭鐨勫崟鍏冿紝姣忔璋冪敤閲嶆柊鎵弿锛夈€乣find(name)`銆乣root`锛堥」鐩牴锛夈€乣config`锛堝綊涓€鍖栭厤缃級銆?|
-| `UnitInventory` | 鎺ュ彛 | 浠ょ墝绾х粨鏋勮鍥撅紙鏉ヨ嚜 `./tokens`锛夛細`root`/`list`/`find`锛屾棤 Cordis 渚濊禆銆?|
-| `discoverUnits(root, config, options?)` | 鍑芥暟 | 绾壂鎻忥細閫掑綊鎵弿姣忎釜鎵弿鏍癸紝鎸?`dir` 鎺掑簭锛沗options` = `{ maxDepth?, skip? }`銆?|
-| `ScanConfig` | 鎺ュ彛 | `{ scanRoots: string[] }` 鈥斺€?鏈€灏忔壂鎻忓舰鐘讹紙涓?`@veren/commander-project` 鐨?`Config` 缁撴瀯鍏煎锛夈€?|
-| `ScanOptions` | 鎺ュ彛 | `{ maxDepth?, skip? }` 鈥斺€?鍙€夌殑鍗曟鎵弿瑕嗙洊椤广€?|
-| `Unit` | 鎺ュ彛 | `{ name, description, dir }`锛沗dir` 涓虹浉瀵规牴銆佷互姝ｆ枩鏉犲垎闅旂殑璺緞銆?|
-| `readNpmUnit` / `readCargoUnit` | 鍑芥暟 | 浠?`package.json` / `Cargo.toml` 璇诲彇鍗曚釜鍗曞厓锛涢潪鍗曞厓杩斿洖 `null`锛堝潖娓呭崟鍚?stderr 鍛婅锛夈€?|
-| `parseCargoPackageFields` | 鍑芥暟 | 闆朵緷璧栨彁鍙?`[package]` 鐨?`name`/`description`锛堝弻寮曞彿杞箟銆佸崟寮曞彿瀛楅潰閲忋€佽灏炬敞閲婏級銆?|
-| `MAX_SCAN_DEPTH` / `SKIP_DIRS` | 甯搁噺 | 娣卞害涓婇檺缂虹渷鍊硷紙4锛変笌鍐呯疆璺宠繃鍚嶅崟锛坄node_modules`銆乣dist`銆乣target`銆乣.git`锛夈€?|
+| `name` | 字符串（`'verenCliDiscovery'`） | 服务令牌（即 `Discovery`）兼插件显示名。 |
+| `inject` | `[Project]` | 依赖项目服务（项目根与扫描根）。 |
+| `Config` | schemastery schema | `{ maxDepth: number, skip: string[] }` —— 扫描深度上限（缺省 `4`）与在 `SKIP_DIRS` 之外追加跳过的目录名（缺省 `[]`）。 |
+| `apply(ctx, config)` | 插件函数 | 从上下文的 `Project` 创建 `DiscoveryService`。 |
+| `Discovery` | 令牌，字符串 `'verenCliDiscovery'` | `DiscoveryService` 的提供令牌。 |
+| `DiscoveryService` | 继承 `Service` 的类 | `list()`（按 `dir` 排序的单元，每次调用重新扫描）、`find(name)`、`listDependencies(name)`（子包 `dependencies` 解析出的单元：工作区条目 + 来自 `node_modules` 的第三方包）、`root`（项目根）、`config`（归一化配置）。 |
+| `UnitInventory` | 接口 | 令牌级结构视图（来自 `./tokens`）：`root`/`list`/`find`/`listDependencies`，无 Cordis 依赖。 |
+| `discoverUnits(fs, path, root, config, options?)` | 函数 | 纯扫描：递归扫描每个扫描根，按 `dir` 排序；`options` = `{ maxDepth?, skip? }`。 |
+| `ScanConfig` | 接口 | `{ scanRoots: string[] }` —— 最小扫描形状（与 `@veren/commander-project` 的 `Config` 结构兼容）。 |
+| `ScanOptions` | 接口 | `{ maxDepth?, skip? }` —— 可选的单次扫描覆盖项。 |
+| `Unit` | 接口 | `{ name, description, dir }`；`dir` 为相对根、以正斜杠分隔的路径。 |
+| `readNpmUnit` / `readCargoUnit` | 函数 | 从 `package.json` / `Cargo.toml` 读取单个单元；非单元返回 `null`（坏清单向 stderr 告警）。 |
+| `parseCargoPackageFields` | 函数 | 零依赖提取 `[package]` 的 `name`/`description`（双引号转义、单引号字面量、行尾注释）。 |
+| `parseNpmDependencyNames` / `readUnitDependencyNames` | 函数 | 从子包自身 `package.json` 的 `dependencies` 读取依赖名（去重）；读取函数接受单元目录（绝对路径），无 `package.json` 时返回 `[]`。 |
+| `MAX_SCAN_DEPTH` / `SKIP_DIRS` | 常量 | 深度上限缺省值（4）与内置跳过名单（`node_modules`、`dist`、`target`、`.git`）。 |
 
-## 寮€鍙?
+## 开发
 ```bash
 pnpm --filter @veren/commander-discovery build
-pnpm --filter @veren/commander-discovery test   # 15 涓敤渚?```
+pnpm --filter @veren/commander-discovery test   # 19 个用例
+```
 
 ```
 packages/commander/discovery
-鈹溾攢鈹€ src/
-鈹?  鈹溾攢鈹€ discovery.ts   # 绾壂鎻忎笌娓呭崟璇诲彇 / pure scanning + manifest readers
-鈹?  鈹溾攢鈹€ service.ts     # Config schema + DiscoveryService / 閰嶇疆 schema 涓庢湇鍔?鈹?  鈹溾攢鈹€ tokens.ts      # 骞冲彴鏃犲叧鐨?Discovery 浠ょ墝 + UnitInventory/Unit / platform-agnostic token + views
-鈹?  鈹斺攢鈹€ index.ts       # 鎻掍欢妯″潡 name/inject/Config/apply 涓庡啀瀵煎嚭 / plugin module + re-exports
-鈹斺攢鈹€ test/index.test.ts
+├── src/
+│   ├── discovery.ts   # 纯扫描与清单读取 / pure scanning + manifest readers
+│   ├── deps.ts        # 子包依赖名提取 / sub-package dependency-name extraction
+│   ├── service.ts     # Config schema + DiscoveryService / 配置 schema 与服务
+│   ├── tokens.ts      # 平台无关的 Discovery 令牌 + UnitInventory/Unit / platform-agnostic token + views
+│   └── index.ts       # 插件模块 name/inject/Config/apply 与再导出 / plugin module + re-exports
+└── test/index.test.ts
 ```
 
-## 娉ㄦ剰浜嬮」涓庣害鏉?
-- 鍛戒腑鍗曞厓鍚庝笉鍐嶅悜鍏跺瓙鐩綍涓嬮捇锛氬崟鍏冨嵆鏈€灏忓垎鍙戣竟鐣屻€?- 鍗曚釜鍧忔竻鍗曚笉浼氫腑鏂壂鎻?鈥斺€?鍚?stderr 鍛婅骞惰烦杩囷紝stdout 淇濇寔骞插噣渚?JSON 娑堣垂鏂硅В鏋愩€?- `list()` 姣忔璋冪敤閲嶆柊鎵弿锛欳LI 杩涚▼鐢熷懡鍛ㄦ湡鐭紝鏂伴矞搴︿紭鍏堜簬缂撳瓨锛涙湇鍔￠殢 fiber
-  鍗歌浇銆?
+## 注意事项与约束
+- 命中单元后不再向其子目录下钻：单元即最小分发边界。
+- 单个坏清单不会中断扫描 —— 向 stderr 告警并跳过，stdout 保持干净供 JSON 消费方解析。
+- `list()` 每次调用重新扫描：CLI 进程生命周期短，新鲜度优先于缓存；服务随 fiber
+  卸载。
+
+## 子包依赖查询 / Sub-package dependency lookup
+
+- `DiscoveryService.listDependencies(name)`：读取该子包自身 `package.json` 的 `dependencies`，
+  返回与 `list()` 同构的 `[{ name, description, dir }]`；工作区命中的直接取清单，
+  第三方依赖从子包（或项目根）`node_modules` 内的 `package.json` 读取 `name`/`description`，
+  `dir` 指向 `node_modules` 内路径（元数据缺失时 description 为空兜底，该 `dir` 为
+  约定路径、不保证存在）；未知名或无 `package.json` 时返回空数组。
+  Reads the sub-package's own `package.json` `dependencies`, intersects by name with the
+  workspace units, and returns `[{ name, description, dir }]` shaped like `list()`; an empty
+  array on an unknown name or when `package.json` is absent.
+- 纯函数 `parseNpmDependencyNames(manifest)` / `readUnitDependencyNames(fs, dir)`（`./deps`）
+  只读 `dependencies`（不含 devDependencies 与 Cargo `[dependencies]`），供测试与自定义消费方复用。
+  The pure functions read only `dependencies` (no devDependencies, no Cargo `[dependencies]`),
+  reusable by tests and custom consumers.

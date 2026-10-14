@@ -1,5 +1,5 @@
 import * as ts from 'typescript';
-import { defineToken, getOrThrow, provide } from '@veren/core';
+import { defineToken, getOrThrow, provideValue } from '@veren/core';
 import type { Context } from '@deepseek-ai/cordis';
 import { Compiler } from './compiler.js';
 import type { CompileInput, EmitResult } from './types.js';
@@ -115,5 +115,5 @@ export class DefaultCompiler extends Compiler {
 
 /** 把接线好的默认编译器 provide 到上下文 / Provide the wired default compiler to the context */
 export const apply = (ctx: Context) => {
-    return provide(ctx, name, new DefaultCompiler(ctx))
+    return provideValue(ctx, name, new DefaultCompiler(ctx))
 }

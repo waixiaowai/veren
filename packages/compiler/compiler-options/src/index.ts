@@ -1,5 +1,5 @@
 import type * as ts from "typescript";
-import { defineToken, provide } from "@veren/core";
+import { defineToken, provideValue } from "@veren/core";
 import type { Context } from "@deepseek-ai/cordis";
 
 /**
@@ -28,5 +28,5 @@ export const inject = []
  * object do not affect the provided value.
  */
 export const apply = (ctx: Context, config: ts.CompilerOptions = {}) => {
-    return provide(ctx, name, { ...config })
+    return provideValue(ctx, name, { ...config })
 }

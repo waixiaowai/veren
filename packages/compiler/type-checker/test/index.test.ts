@@ -4,7 +4,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import { get, provide } from '@veren/core'
+import { get, provideValue } from '@veren/core'
 import { name as ProgramToken } from '@veren/compiler-program'
 import { apply, inject, name } from '../src/index'
 
@@ -71,7 +71,7 @@ const setupRealProgram = (ctx: Context) => {
     const options: ts.CompilerOptions = { target: ts.ScriptTarget.ES2022 }
     const host = ts.createCompilerHost(options, /* setParentNodes */ true)
     const program = ts.createProgram([fileName], options, host)
-    track(provide(ctx, ProgramToken, program))
+    track(provideValue(ctx, ProgramToken, program))
 
     return { program, fileName }
 }
@@ -100,7 +100,7 @@ describe('apply', () => {
         const ctx = createContext()
         const sentinel = { __stub: true } as unknown as ts.TypeChecker
 
-        track(provide(ctx, ProgramToken, stubProgram(sentinel)))
+        track(provideValue(ctx, ProgramToken, stubProgram(sentinel)))
         track(apply(ctx))
 
         expect(get(ctx, name)).toBe(sentinel)
@@ -110,7 +110,7 @@ describe('apply', () => {
         const ctx = createContext()
         const sentinel = { __stub: true } as unknown as ts.TypeChecker
 
-        track(provide(ctx, ProgramToken, stubProgram(sentinel)))
+        track(provideValue(ctx, ProgramToken, stubProgram(sentinel)))
 
         const firstDispose = track(apply(ctx))
         expect(get(ctx, name)).toBe(sentinel)
@@ -127,7 +127,7 @@ describe('apply', () => {
         const ctx = createContext()
         const sentinel = { __stub: true } as unknown as ts.TypeChecker
 
-        track(provide(ctx, ProgramToken, stubProgram(sentinel)))
+        track(provideValue(ctx, ProgramToken, stubProgram(sentinel)))
 
         const dispose = track(apply(ctx))
         expect(get(ctx, name)).toBe(sentinel)

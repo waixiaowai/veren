@@ -21,7 +21,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis';
-import { getOrThrow, provide } from '@veren/core';
+import { getOrThrow, provideValue } from '@veren/core';
 import { Fs } from '@veren/commander-core';
 import { name as YamlParserToken } from '@veren/yaml-parser';
 import { DEFAULT_SCAN_ROOTS, loadConfig } from './config.js';
@@ -50,5 +50,5 @@ export const apply = async (ctx: Context): Promise<() => unknown> => {
   const parser = getOrThrow(ctx, YamlParserToken);
   const root = await findProjectRoot(fs);
   const config = await loadConfig(root, parser, fs);
-  return provide(ctx, Project, { root, config } satisfies ProjectInfo);
+  return provideValue(ctx, Project, { root, config } satisfies ProjectInfo);
 };

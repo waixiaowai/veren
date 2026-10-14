@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import * as ts from 'typescript'
 import { Context } from '@deepseek-ai/cordis'
-import { defineToken, getOrThrow, provide } from '@veren/core'
+import { defineToken, getOrThrow, provideValue } from '@veren/core'
 import { Compiler } from '../src/compiler'
 import type { CompileInput, EmitResult, TypeMetadata, TypeMetadataKind } from '../src/types'
 
@@ -122,9 +122,9 @@ const setup = (): TestCompiler => {
     const ctx = new Context()
     const options: ts.CompilerOptions = {}
     const program = ts.createProgram([], options)
-    disposers.push(provide(ctx, OptionsToken, options))
-    disposers.push(provide(ctx, ProgramToken, program))
-    disposers.push(provide(ctx, CheckerToken, program.getTypeChecker()))
+    disposers.push(provideValue(ctx, OptionsToken, options))
+    disposers.push(provideValue(ctx, ProgramToken, program))
+    disposers.push(provideValue(ctx, CheckerToken, program.getTypeChecker()))
     return new TestCompiler(ctx)
 }
 

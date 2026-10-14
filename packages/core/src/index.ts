@@ -1,14 +1,14 @@
 /**
  * @veren/core - 轻量级令牌式依赖注入模块
  * 基于 @deepseek-ai/cordis 实现,提供类型安全的注入令牌(Token)定义、
- * 提供(provide)/设置(set)/获取(get, getOrThrow)工具函数,以及全局的 InjectorService 服务。
+ * 提供(provideValue)/设置(set)/获取(get, getOrThrow)工具函数,以及全局的 InjectorService 服务。
  *
  * @veren/core - Lightweight token-based dependency injection module.
  * Built on @deepseek-ai/cordis; provides type-safe token definitions,
- * provide/set/get/getOrThrow utilities, and a global InjectorService.
+ * provideValue/set/get/getOrThrow utilities, and a global InjectorService.
  */
 
-import { Context, Service } from '@deepseek-ai/cordis';
+import { Context, Service, type Tracker } from '@deepseek-ai/cordis';
 const TOKEN = Symbol.for('@veren/core/token')
 export type Token<T> = string & { readonly [TOKEN]?: T }
 export const defineToken = <T>(desc: string): Token<T> => {
@@ -18,13 +18,19 @@ export const defineToken = <T>(desc: string): Token<T> => {
  * 提供一个值到上下文。
  * Provides a value to the context.
  *
+ * 命名说明：曾叫 provide；为让出插件契约导出 `provide`（数组，声明本插件提供
+ * 哪些服务），现更名为 provideValue。语义不变。
+ * Naming note: this was named provide; it is now provideValue so the plugin
+ * contract export `provide` (an array declaring which services this plugin
+ * provides) stays free. Semantics unchanged.
+ *
  * @param ctx 目标上下文 / target context
  * @param token 注入令牌 / injection token
  * @param value 要提供的值 / value to provide
  * @returns 取消提供的 disposer，可重复调用且幂等
  *          a disposer that unregisters the value; idempotent and safe to call repeatedly
  */
-export const provide = <T>(ctx: Context, token: Token<T>, value: T) => {
+export const provideValue = <T>(ctx: Context, token: Token<T>, value: T) => {
     return ctx.effect(() => ctx.provide(token, value), token)
 }
 /**
@@ -96,11 +102,20 @@ declare module '@deepseek-ai/cordis' {
  * instance methods simply forward to the helpers above on its own context.
  */
 export class InjectorService extends Service {
+    /**
+     * cordis 约定：constructor 未显式传服务名时取静态 provide 字段作为服务名，
+     * 因此这里固定为 Injector 令牌（'injector'），构造函数可省略显式传名。
+     * The cordis convention: when the constructor gets no explicit service name,
+     * the static provide field is used, so pinning it to the Injector token
+     * ('injector') lets the constructor omit the name.
+     */
+    static provide = Injector;
+
     constructor(ctx: Context) {
         super(ctx, Injector)
     }
     provide<T>(token: Token<T>, value: T) {
-        return provide(this.ctx, token, value)
+        return provideValue(this.ctx, token, value)
     }
     get<T>(token: Token<T>) {
         return get(this.ctx, token)
@@ -108,5 +123,39 @@ export class InjectorService extends Service {
     getOrThrow<T>(token: Token<T>) {
         return getOrThrow(this.ctx, token)
     }
+    /**
+     * 读取 cordis 挂在实例上的 tracker 元数据（调试用）。
+     * misconfiguration fails loud：缺失时抛带稳定 code 的结构化错误，而不是
+     * 把 undefined 伪装成 Tracker 传出去。
+     *
+     * Reads the tracker metadata cordis attaches to the instance (for debugging).
+     * Misconfiguration fails loud: a missing tracker throws a structured error
+     * with a stable code instead of leaking an undefined as a Tracker.
+     */
+    tracker(): Tracker {
+        const tracker = Reflect.get(this, Service.tracker) as Tracker | undefined;
+        if (tracker === undefined) {
+            throw Object.assign(
+                new Error(`InjectorService(${this.name}) has no tracker metadata / 没有 tracker 元数据`),
+                { code: 'TRACKER_UNAVAILABLE', service: this.name },
+            );
+        }
+        return tracker;
+    }
 }
-export default InjectorService;
+
+/** core 注入插件的插件名，即 Injector 服务名 / the core injection plugin's name; the Injector service name */
+export const name = Injector
+/** 本插件不依赖其他能力 / this plugin injects nothing */
+export const inject = []
+/** 本插件提供 Injector 服务 / this plugin provides the Injector service */
+export const provide = [Injector]
+
+/**
+ * 插件入口：装载即注册全局 InjectorService，随 fiber 卸载自动清理。
+ * The plugin entry: installing registers the global InjectorService, which
+ * unloads automatically with its fiber.
+ */
+export const apply = (ctx: Context) => {
+    new InjectorService(ctx)
+}

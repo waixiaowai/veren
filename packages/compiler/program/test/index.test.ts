@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import * as ts from 'typescript'
 import { Context } from '@deepseek-ai/cordis'
-import { get, provide } from '@veren/core'
+import { get, provideValue } from '@veren/core'
 import { apply as applyOptions, name as CompilerOptionsToken } from '@veren/compiler-options'
 import { name as CompilerHostToken } from '@veren/compiler-host'
 import { apply, Config, inject, name, ProgramToken } from '../src/index'
@@ -109,7 +109,7 @@ describe('apply', () => {
         const ctx = new Context()
         const { host } = createInMemoryHost()
         disposers.push(applyOptions(ctx, OPTIONS))
-        disposers.push(provide(ctx, CompilerHostToken, host))
+        disposers.push(provideValue(ctx, CompilerHostToken, host))
 
         const disposer = apply(ctx)
         disposers.push(disposer)
@@ -126,7 +126,7 @@ describe('apply', () => {
         const ctx = new Context()
         const { host, source } = createInMemoryHost()
         disposers.push(applyOptions(ctx, OPTIONS))
-        disposers.push(provide(ctx, CompilerHostToken, host))
+        disposers.push(provideValue(ctx, CompilerHostToken, host))
 
         const disposer = apply(ctx, { rootNames: [VIRTUAL_FILE] })
         disposers.push(disposer)
@@ -141,7 +141,7 @@ describe('apply', () => {
         const ctx = new Context()
         const { host } = createInMemoryHost()
         disposers.push(applyOptions(ctx, OPTIONS))
-        disposers.push(provide(ctx, CompilerHostToken, host))
+        disposers.push(provideValue(ctx, CompilerHostToken, host))
         disposers.push(apply(ctx, { rootNames: [VIRTUAL_FILE] }))
 
         const program = get(ctx, name)!
@@ -153,7 +153,7 @@ describe('apply', () => {
         const ctx = new Context()
         const { host } = createInMemoryHost()
         disposers.push(applyOptions(ctx, OPTIONS))
-        disposers.push(provide(ctx, CompilerHostToken, host))
+        disposers.push(provideValue(ctx, CompilerHostToken, host))
 
         const disposer = apply(ctx, { rootNames: [VIRTUAL_FILE] })
         disposers.push(disposer)
@@ -167,7 +167,7 @@ describe('apply', () => {
         const ctx = new Context()
         const { host } = createInMemoryHost()
         disposers.push(applyOptions(ctx, OPTIONS))
-        disposers.push(provide(ctx, CompilerHostToken, host))
+        disposers.push(provideValue(ctx, CompilerHostToken, host))
 
         const first = apply(ctx, { rootNames: [VIRTUAL_FILE] })
         disposers.push(first)

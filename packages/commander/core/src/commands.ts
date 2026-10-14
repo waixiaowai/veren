@@ -23,10 +23,30 @@ import { Service } from '@deepseek-ai/cordis';
 import { Commands } from './tokens.js';
 export { Commands } from './tokens.js';
 
-/** 命令框架统一错误：双语消息，经 main 走 stderr 并以非零码退出。
- *  The commander's unified error: a bilingual message that main prints on
- *  stderr with a non-zero exit code. */
-export class CliError extends Error { }
+/**
+ * 命令框架统一错误：双语消息，经 main 走 stderr 并以非零码退出。
+ * 错误结构化：携带稳定 code 与机器可读 details，便于程序化消费。
+ *
+ * The commander's unified error: a bilingual message that main prints on
+ * stderr with a non-zero exit code. Structured: it carries a stable code and
+ * machine-readable details for programmatic consumption.
+ */
+export class CliError extends Error {
+  /** 稳定错误码，如 'UNIT_NOT_FOUND' / a stable code such as 'UNIT_NOT_FOUND' */
+  readonly code: string;
+  /** 机器可读的上下文字段 / machine-readable context fields */
+  readonly details: Readonly<Record<string, unknown>>;
+
+  constructor(
+    message: string,
+    options: { code?: string; details?: Record<string, unknown> } = {},
+  ) {
+    super(message);
+    this.name = 'CliError';
+    this.code = options.code ?? 'CLI_ERROR';
+    this.details = options.details ?? {};
+  }
+}
 
 /** 一个命令的定义 / the definition of one command */
 export interface CommandDef {
@@ -71,7 +91,7 @@ export const DEFAULT_HELP_FLAGS: readonly string[] = ['--help', '-h'];
  * read by dispatch from the registry instance's normalized value. Installing
  * via ctx.plugin validates it and fills defaults automatically.
  */
-export const Config = z.object({
+export const Config: z<Config> = z.object({
   helpFlags: z.array(z.string()).default([...DEFAULT_HELP_FLAGS]),
 });
 

@@ -24,6 +24,7 @@ dist 产物解析）：
 
 ```bash
 pnpm cli list                # 全部单元（JSON）/ all units as JSON
+pnpm cli list <name>         # 子包 dependencies 解析出的单元（工作区 + 第三方）/ a sub-package's dependencies resolved to units (workspace + third-party)
 pnpm cli doc <name>          # 原文输出 README.md / print README.md verbatim
 pnpm cli doc <name> --cn     # 原文输出 README.cn.md / print README.cn.md verbatim
 pnpm cli help                # 注册表生成的双语用法 / bilingual usage from the registry

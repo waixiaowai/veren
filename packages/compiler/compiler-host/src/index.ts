@@ -1,6 +1,6 @@
 import * as ts from 'typescript';
 import z from '@deepseek-ai/schemastery';
-import { defineToken, getOrThrow, provide } from '@veren/core';
+import { defineToken, getOrThrow, provideValue } from '@veren/core';
 import type { Context } from '@deepseek-ai/cordis';
 import { name as CompilerOptionsToken } from '@veren/compiler-options';
 
@@ -29,5 +29,5 @@ export const inject = [CompilerOptionsToken]
 export const apply = (ctx: Context, config: Config) => {
     const options = getOrThrow(ctx, CompilerOptionsToken)
     const host = ts.createCompilerHost(options, config.setParentNodes)
-    return provide(ctx, name, host)
+    return provideValue(ctx, name, host)
 }

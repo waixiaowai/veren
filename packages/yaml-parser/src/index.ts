@@ -15,7 +15,7 @@
 
 import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
-import { defineToken, provide } from '@veren/core';
+import { defineToken, provideValue } from '@veren/core';
 import { createYamlParser } from './parser.js';
 import type { YamlParser } from './tokens.js';
 import { name } from './tokens.js';
@@ -75,5 +75,5 @@ export interface Config {
  * (automatic via ctx.plugin; call Config(config) for direct invocation).
  */
 export const apply = (ctx: Context, config: Config) => {
-  return provide(ctx, name, createYamlParser(config));
+  return provideValue(ctx, name, createYamlParser(config));
 };

@@ -50,7 +50,10 @@ function makeUnits(): string {
   const units = join(root, 'units');
   const alpha = join(units, 'alpha');
   mkdirSync(alpha, { recursive: true });
-  writeFileSync(join(alpha, 'package.json'), JSON.stringify({ name: '@t/alpha', description: 'alpha unit' }));
+  writeFileSync(
+    join(alpha, 'package.json'),
+    JSON.stringify({ name: '@t/alpha', description: 'alpha unit', dependencies: { '@t/alpha': 'workspace:*', 'external-only': '^1.0.0' } }),
+  );
   const beta = join(units, 'beta');
   mkdirSync(beta, { recursive: true });
   writeFileSync(join(beta, 'Cargo.toml'), '[package]\nname = "beta"\ndescription = "beta unit"\n');
@@ -81,8 +84,29 @@ describe('list 命令插件 / the list command plugin', () => {
     expect(parsed[0]).toMatchObject({ name: '@t/alpha', description: 'alpha unit', dir: 'units/alpha' });
   });
 
-  it('接受参数时报错 / rejects arguments', async () => {
-    await expect(cmdList({ list: () => [] }, { indent: 2 }, ['x'])).rejects.toThrowError(/takes no arguments/);
+  it('超过一个参数时报错 / rejects more than one argument', async () => {
+    await expect(cmdList({ list: () => [], listDependencies: async () => [] }, { indent: 2 }, ['a', 'b'])).rejects.toThrowError(
+      /at most one package name/,
+    );
+  });
+
+  it('list <name> 输出该子包 dependencies：工作区单元 + 第三方依赖 / list <name> prints the sub-package\'s dependencies: workspace units + third-party', async () => {
+    await install();
+
+    stdoutWrites.length = 0;
+    await ctx.get(Commands)!.get('list')!.run(['@t/alpha']);
+    const parsed = JSON.parse(stdoutWrites.join('')) as Array<{ name: string; description: string; dir: string }>;
+    // 工作区命中直接取清单；第三方 external-only 兜底返回（临时目录无其元数据）
+    // Workspace hits come from the inventory; the third-party external-only falls back (no metadata in the temp tree)
+    expect(parsed).toEqual([
+      { name: '@t/alpha', description: 'alpha unit', dir: 'units/alpha' },
+      { name: 'external-only', description: '', dir: 'node_modules/external-only' },
+    ]);
+  });
+
+  it('list <未知名> 报错 / list <unknown name> fails', async () => {
+    await install();
+    await expect(ctx.get(Commands)!.get('list')!.run(['nope'])).rejects.toThrowError(/unit not found/);
   });
 
   it('配置 indent 替换 JSON 缩进 / the indent config replaces the JSON indentation', async () => {

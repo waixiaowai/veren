@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "typescript": "^5.9.3",
+    "@deepseek-ai/schemastery": "^3.18.4",
     "@deepseek-ai/cordis": "^4.0.4",
     "@veren/core": "workspace:*",
     "@veren/compiler-program": "workspace:*"

@@ -37,7 +37,7 @@ import {
   defineToken,
   get,
   getOrThrow,
-  provide,
+  provideValue,
   set,
 } from '@veren/core'
 
@@ -47,8 +47,8 @@ const ctx = new Context()
 // The `veren` prefix keeps service names from colliding across packages.
 const PortToken = defineToken<number>('veren/port')
 
-// provide() registers a typed service and returns a disposer.
-const disposePort = provide(ctx, PortToken, 8080)
+// provideValue() registers a typed service and returns a disposer.
+const disposePort = provideValue(ctx, PortToken, 8080)
 console.log(get(ctx, PortToken))        // 8080
 console.log(getOrThrow(ctx, PortToken)) // 8080
 
@@ -59,7 +59,7 @@ console.log(get(ctx, PortToken))        // 9090
 // The disposer is idempotent: the service is unregistered and can be provided again.
 await disposePort()
 console.log(get(ctx, PortToken))        // undefined
-provide(ctx, PortToken, 3000)           // keep its disposer to release it later
+provideValue(ctx, PortToken, 3000)           // keep its disposer to release it later
 console.log(getOrThrow(ctx, PortToken)) // 3000
 
 // `new InjectorService(ctx)` registers the 'injector' service itself.
@@ -77,12 +77,12 @@ console.log(injector.getOrThrow(NameToken)) // veren
 | --- | --- | --- |
 | `Token<T>` | 类型 | 字符串令牌，通过 `T` 携带类型信息；运行时就是普通字符串。 |
 | `defineToken<T>(desc)` | `(desc: string) => Token<T>` | 直接返回 `desc` 本身并转换为 `Token<T>`，不创建任何运行时对象。 |
-| `provide(ctx, token, value)` | `(ctx: Context, token: Token<T>, value: T) => Disposable<Promise<void>>` | 用 `ctx.effect(...)` 包裹 `ctx.provide`，返回幂等的 disposer。 |
+| `provideValue(ctx, token, value)` | `(ctx: Context, token: Token<T>, value: T) => Disposable<Promise<void>>` | 用 `ctx.effect(...)` 包裹 `ctx.provide`，返回幂等的 disposer。 |
 | `set(ctx, token, value)` | `(ctx: Context, token: Token<T>, value: T) => void` | 覆盖同一 fiber 中已 provide 的值；否则抛出 `cannot set property "X" without provide`。 |
 | `get(ctx, token)` | `(ctx: Context, token: Token<T>) => T \| undefined` | 读取值；令牌缺失时返回 `undefined`。 |
 | `getOrThrow(ctx, token)` | `(ctx: Context, token: Token<T>) => NonNullable<T>` | 读取值；缺失或值为 falsy 时抛出 `Value for token <token> not found in context`。 |
 | `Injector` | `Token<InjectorService>` | 注入服务的令牌，其字符串值为 `'injector'`，不带 `veren` 前缀。 |
-| `InjectorService` | 类，同时也是默认导出 | `new InjectorService(ctx)` 会注册 `'injector'` 服务；`provide`/`get`/`getOrThrow` 转发到上下文。 |
+| `InjectorService` | 类 | `new InjectorService(ctx)` 会注册 `'injector'` 服务；`provide`/`get`/`getOrThrow` 转发到上下文。无默认导出（规范约定）。 |
 
 `Disposable<Promise<void>>` 来自 `@deepseek-ai/cordis`。
 
@@ -109,6 +109,6 @@ packages/core
 - 服务令牌都是普通字符串；`@veren` 各包用 `veren` 前缀避免跨包重名。`Injector` 是例外：它的值是 `'injector'`。
 - 消费 provider 模块有两种方式：`await ctx.plugin(Module, config)`，以 fiber 异步激活，`await` 之后服务才就绪；或者单元测试直接使用的低层同步方式 `Module.apply(ctx, config)`。
 - 同一个 `Context` 上重复 provide 同名服务会抛 `service already registered`；需要先 dispose 再重新 provide。
-- `provide()` 通过 `ctx.effect(...)` 把服务生命周期绑定到当前 fiber，fiber 卸载时服务会自动释放。
+- `provideValue()` 通过 `ctx.effect(...)` 把服务生命周期绑定到当前 fiber，fiber 卸载时服务会自动释放。
 - `getOrThrow` 会把 falsy 值（`0`、`''`、`false`、`null`）视为缺失，即使令牌确实存在；若 falsy 是合法值，请改用 `get` 加显式的 `undefined` 判断。
 - `ctx.injector` 每次访问都返回新的扩展视图：引用相等（`===`）为 false，但 `instanceof InjectorService` 成立，且结构相等。

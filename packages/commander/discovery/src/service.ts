@@ -14,6 +14,7 @@
  * units without touching filesystem details.
  */
 
+import { join } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 import { Service } from '@deepseek-ai/cordis';
@@ -21,6 +22,7 @@ import type { FileSystem } from '@deepseek-ai/dsh-fs';
 import type { ProjectInfo } from '@veren/commander-project';
 import { discoverUnits, MAX_SCAN_DEPTH } from './discovery.js';
 import type { Unit } from './discovery.js';
+import { readDependencyUnit, readUnitDependencyNames } from './deps.js';
 
 // Discovery 令牌定义在平台无关的 ./tokens.ts（浏览器等环境可单独导入），
 // 这里本地使用并再导出以保持包 API 稳定。
@@ -90,5 +92,37 @@ export class DiscoveryService extends Service {
   /** 按名查找单元；未命中返回 undefined / find one unit by name; undefined on a miss */
   async find(name: string): Promise<Unit | undefined> {
     return (await this.list()).find((unit) => unit.name === name);
+  }
+
+  /**
+   * 一个子包的依赖（dependencies）映射为单元列表：工作区命中的直接取清单，
+   * 第三方依赖从其 node_modules 的 package.json 读 name/description（dir 指向
+   * node_modules 内路径）；未知名或没有 package.json 时返回空数组。
+   * Maps a sub-package's dependencies (dependencies) to a unit list: workspace
+   * hits come straight from the inventory, third-party dependencies get their
+   * name/description from the package.json in node_modules (dir points into
+   * node_modules and is conventional, not guaranteed to exist); an empty array
+   * on an unknown name or when package.json is absent.
+   */
+  async listDependencies(name: string): Promise<Unit[]> {
+    const units = await this.list();
+    const unit = units.find((candidate) => candidate.name === name);
+    if (!unit) return [];
+    // dir 是相对项目根路径，转回绝对路径读取清单 / dir is root-relative; convert back to read the manifest
+    const unitDir = join(this._project.root, unit.dir);
+    const depNames = await readUnitDependencyNames(this._fs, unitDir);
+    // 名字 -> 单元索引，避免循环内反复线性查找 / name -> unit index; avoids repeated linear scans in the loop
+    const byName = new Map(units.map((candidate) => [candidate.name, candidate]));
+    const resolved: Unit[] = [];
+    const seen = new Set<string>();
+    for (const depName of depNames) {
+      if (seen.has(depName)) continue;
+      seen.add(depName);
+      const hit = byName.get(depName);
+      resolved.push(
+        hit ?? await readDependencyUnit(this._fs, this._project.root, [unitDir, this._project.root], depName),
+      );
+    }
+    return resolved;
   }
 }

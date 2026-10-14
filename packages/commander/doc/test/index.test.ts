@@ -62,10 +62,19 @@ function makeUnits(): string {
   return units;
 }
 
-/** 注册表 + ctx.fs 后端 + Discovery 服务，再装载 doc 插件 / registry + ctx.fs backend + Discovery service, then install doc */
-const fs = new LocalFileSystem(new Context(), LocalFileSystem.Config({}));
+/**
+ * 注册表 + ctx.fs 后端 + Discovery 服务，再装载 doc 插件 / registry + ctx.fs backend + Discovery service, then install doc
+ *
+ * 注意：LocalFileSystem 必须建在测试 ctx 上 —— doc 插件 inject 了 Fs（'fs'），
+ * 建在别的 Context 上会导致 inject 永不就绪、插件不激活。
+ * Note: the LocalFileSystem must be built on the test ctx — the doc plugin
+ * injects Fs ('fs'); building it on another Context would leave the inject
+ * unsatisfied and the plugin would never activate.
+ */
+let fs: InstanceType<typeof LocalFileSystem>;
 
 async function install(config?: Parameters<typeof DocPlugin.apply>[1]) {
+  fs = new LocalFileSystem(ctx, LocalFileSystem.Config({}));
   new DiscoveryService(ctx, { root, config: { scanRoots: [join(root, 'units')] } }, fs);
   const registryFiber = ctx.plugin(RegistryPlugin);
   await registryFiber;

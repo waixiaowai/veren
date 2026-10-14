@@ -18,6 +18,7 @@ Run from anywhere inside the repository through the root `cli` script (after `pn
 
 ```bash
 pnpm cli list                # all units as JSON / 全部单元（JSON）
+pnpm cli list <name>         # a sub-package's dependencies resolved to units (workspace + third-party) / 子包 dependencies 解析出的单元（工作区 + 第三方）
 pnpm cli doc <name>          # print README.md verbatim / 原文输出 README.md
 pnpm cli doc <name> --cn     # print README.cn.md verbatim / 原文输出 README.cn.md
 pnpm cli help                # bilingual usage from the registry / 注册表生成的双语用法

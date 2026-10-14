@@ -34,6 +34,16 @@ export interface UnitInventory {
   list(): Promise<Unit[]>;
   /** 按名查找单元；未命中返回 undefined / find one unit by name; undefined on a miss */
   find(name: string): Promise<Unit | undefined>;
+  /**
+   * 一个子包 dependencies 解析出的单元列表：工作区命中共用清单条目，第三方依赖
+   * 从其 node_modules 的 package.json 读取（元数据缺失时 description 为空、dir
+   * 指向 node_modules 内约定路径，不保证存在）；未知名返回空数组。
+   * A sub-package's dependencies resolved to units: workspace hits reuse the
+   * inventory entries, third-party dependencies read their package.json in
+   * node_modules (empty description and a conventional, possibly nonexistent
+   * node_modules dir when metadata is absent); an empty array on an unknown name.
+   */
+  listDependencies(name: string): Promise<Unit[]>;
 }
 
 /** Discovery 服务令牌，值为 'verenCliDiscovery' / the discovery token; its value is 'verenCliDiscovery' */

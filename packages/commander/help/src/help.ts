@@ -31,7 +31,7 @@ export interface Config {
  * The plugin config schema: program is the program name shown on usage rows.
  * Installing via ctx.plugin validates it and fills defaults automatically.
  */
-export const Config = z.object({
+export const Config: z<Config> = z.object({
   program: z.string().default(DEFAULT_PROGRAM),
 });
 

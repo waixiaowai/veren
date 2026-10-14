@@ -32,6 +32,8 @@ export {
   readNpmUnit,
 } from './discovery.js';
 export { DiscoveryService } from './service.js';
+export { parseNpmDependencyNames, readUnitDependencyNames, readDependencyUnit } from './deps.js';
+export type { DependencyUnit } from './deps.js';
 // Config 值导出同时携带同名接口的类型含义，供消费方在类型位置使用。
 // The Config value export also carries the same-named interface's type
 // meaning, so consumers can use it in type positions.

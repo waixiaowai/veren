@@ -14,4 +14,3 @@ scan:
   - apps
   - packages
   - cargos
-  - vendor

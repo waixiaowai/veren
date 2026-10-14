@@ -1,6 +1,6 @@
 import * as ts from 'typescript';
 import z from '@deepseek-ai/schemastery';
-import { defineToken, getOrThrow, provide } from '@veren/core';
+import { defineToken, getOrThrow, provideValue } from '@veren/core';
 import type { Context } from '@deepseek-ai/cordis';
 import { name as CompilerOptionsToken } from '@veren/compiler-options';
 import { name as CompilerHostToken } from '@veren/compiler-host';
@@ -32,5 +32,5 @@ export const apply = (ctx: Context, config?: Config) => {
     const options = getOrThrow(ctx, CompilerOptionsToken)
     const host = getOrThrow(ctx, CompilerHostToken)
     const program = ts.createProgram(config?.rootNames ?? [], options, host)
-    return provide(ctx, ProgramToken, program)
+    return provideValue(ctx, ProgramToken, program)
 }

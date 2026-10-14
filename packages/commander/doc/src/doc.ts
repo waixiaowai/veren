@@ -35,7 +35,7 @@ export interface Config {
  * The plugin config schema: cnFlags are the argv flags that prefer Chinese.
  * Installing via ctx.plugin validates it and fills defaults automatically.
  */
-export const Config = z.object({
+export const Config: z<Config> = z.object({
   cnFlags: z.array(z.string()).default([...DEFAULT_CN_FLAGS]),
 });
 

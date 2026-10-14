@@ -1,15 +1,19 @@
-﻿# @veren/commander-list
+# @veren/commander-list
 
 [English](./README.md)
 
-veren CLI 鐨?`list` 鍛戒护 鈥斺€?鏍囧噯 Cordis 鎻掍欢妯″潡锛氭敞鍏ュ懡浠ゆ敞鍐岃〃涓?Discovery
-鏈嶅姟锛屾敞鍐?`list` 鍛戒护锛屾妸鍏ㄩ儴宸ヤ綔鍖哄崟鍏?`{ name, description, dir }` 浠?JSON 杈撳嚭骞舵寜 `dir` 鎺掑簭锛汮SON 缂╄繘鏉ヨ嚜 schemastery 瀹氫箟鐨?`Config`
-schema锛坄indent`锛夈€?
-## 浣曟椂浣跨敤
+veren CLI 的 `list` 命令 —— 标准 Cordis 插件模块：注入命令注册表与 Discovery
+服务，注册 `list` 命令，把全部工作区单元 `{ name, description, dir }` 以 JSON 输出并按 `dir` 排序；JSON 缩进来自 schemastery 定义的 `Config`
+schema（`indent`）。
 
-- 浣犵粍瑁?veren CLI 杩愯鏃讹紙`apps/cli` 宸插寘鍚湰鎻掍欢锛夛紝闇€瑕佸崟鍏冩竻鍗曞懡浠ゃ€?- 浣犺鍦ㄨ嚜宸辩殑 commander 宸ュ叿閲岃幏寰楀悓鏍风殑 JSON 娓呭崟杈撳嚭銆?
-鐩存帴娑堣垂 `@veren/commander-discovery` 骞惰嚜宸辨覆鏌撴椂璇疯烦杩囨湰鍖呫€?
-## 瀹夎
+## 何时使用
+
+- 你组装 veren CLI 运行时（`apps/cli` 已包含本插件），需要单元清单命令。
+- 你要在自己的 commander 工具里获得同样的 JSON 清单输出。
+
+直接消费 `@veren/commander-discovery` 并自己渲染时请跳过本包。
+
+## 安装
 
 ```json
 {
@@ -19,7 +23,7 @@ schema锛坄indent`锛夈€?
 }
 ```
 
-## 蹇€熷紑濮?
+## 快速开始
 ```ts
 import { Context } from '@deepseek-ai/cordis'
 import * as YamlParser from '@veren/yaml-parser'
@@ -30,44 +34,61 @@ import * as ListCommand from '@veren/commander-list'
 
 const ctx = new Context()
 await ctx.plugin(YamlParser)
-await ctx.plugin(CommandsHost) // 鍛戒护娉ㄥ唽琛?await ctx.plugin(Project)
-await ctx.plugin(Discovery)    // 鍗曞厓娓呭崟鏈嶅姟锛坕nject = [Project]锛?await ctx.plugin(ListCommand)  // 娉ㄥ唽 `list`锛坕nject = [Commands, Discovery]锛?```
-
-閰嶇疆缁?`ctx.plugin(ListCommand, { indent: 4 })` 浼犲叆銆?
-## 浠ょ墝瀛愯矾寰勶紙骞冲彴鏃犲叧锛?
-`./tokens` 鍙鍑?`INDENT` 浠ょ墝锛坄indent` 閰嶇疆瀛楁鍚嶏級鈥斺€?涓嶅惈 Cordis銆?涓嶅惈 Node 鍐呯疆妯″潡 鈥斺€?閰嶇疆闈㈡澘绛夊钩鍙版棤鍏虫秷璐规柟寮曠敤璇ュ瓧娈垫椂鏃犻渶瀵煎叆鎻掍欢鏈綋锛?
-```ts
-import { INDENT } from '@veren/commander-list/tokens' // 鍙湁浠ょ墝锛屼笉鎷栧叆 Cordis
+await ctx.plugin(CommandsHost) // 命令注册表
+await ctx.plugin(Project)
+await ctx.plugin(Discovery)    // 单元清单服务（inject = [Project]）
+await ctx.plugin(ListCommand)  // 注册 `list`（inject = [Commands, Discovery]）
 ```
 
-## 鎺ュ彛
+配置以 `ctx.plugin(ListCommand, { indent: 4 })` 传入。
 
-妯″潡鍗虫彃浠?鈥斺€?浠ュ懡鍚嶇┖闂村鍏ヨ杞斤紙`ctx.plugin(...)`锛夛細
+## 令牌子路径（平台无关）
+`./tokens` 只导出 `INDENT` 令牌（`indent` 配置字段名）—— 不含 Cordis、不含 Node 内置模块 —— 配置面板等平台无关消费方引用该字段时无需导入插件本体。
+```ts
+import { INDENT } from '@veren/commander-list/tokens' // 只有令牌，不拖入 Cordis
+```
 
-| 瀵煎嚭 | 绫诲瀷 | 璇存槑 |
+## 接口
+
+模块即插件 —— 以命名空间导入装载（`ctx.plugin(...)`）：
+
+| 导出 | 类型 | 说明 |
 | --- | --- | --- |
-| `name` | 瀛楃涓诧紙`'verenCliListCommand'`锛?| 鎻掍欢鏄剧ず鍚嶃€?|
-| `inject` | `[Commands, Discovery]` | 渚濊禆鍛戒护娉ㄥ唽琛ㄤ笌 Discovery 鏈嶅姟銆?|
-| `Config` | schemastery schema | `{ indent: number }` 鈥斺€?JSON 缂╄繘绌烘牸鏁帮紙缂虹渷 `2`锛岃寖鍥?`0..10`锛夈€?|
-| `apply(ctx, config)` | 鎻掍欢鍑芥暟 | 娉ㄥ唽 `list` 鍛戒护锛涙敞鍐?disposer 浜よ繕 fiber锛屾彃浠跺嵏杞芥椂鍛戒护鑷姩娉ㄩ攢銆?|
-| `cmdList(source, config, args)` | 鍑芥暟 | 瀹炵幇锛氭嫆缁濅换浣曞弬鏁帮紝鐒跺悗鎶?`JSON.stringify(source.list(), null, config.indent)` 鍐欏埌 stdout銆?|
-| `UnitSource` | 绫诲瀷 | `Pick<DiscoveryService, 'list'>` 鈥斺€?瀹炵幇鎵€闇€鐨勬渶灏忕粨鏋勮鍥俱€?|
-| `DEFAULT_INDENT` | 鏁板瓧锛?`2` 锛?| `indent` 鐨勭己鐪佸€硷紝schema 涓庣洿鎺ヨ皟鐢ㄥ叡鐢ㄣ€?|
+| `name` | 字符串（`'verenCliListCommand'`） | 插件显示名。 |
+| `inject` | `[Commands, Discovery]` | 依赖命令注册表与 Discovery 服务。 |
+| `Config` | schemastery schema | `{ indent: number }` —— JSON 缩进空格数（缺省 `2`，范围 `0..10`）。 |
+| `apply(ctx, config)` | 插件函数 | 注册 `list` 命令；注册 disposer 交还 fiber，插件卸载时命令自动注销。 |
+| `cmdList(source, config, args)` | 函数 | 实现：无参数输出全部单元；带一个 `<name>` 输出该子包 `dependencies` 解析出的单元（工作区条目 + 第三方依赖），同一 JSON 形状（未知名抛 code 为 `UNIT_NOT_FOUND` 的 `CliError`；多于一个参数抛 `CliError`）。 |
+| `UnitSource` | 类型 | `Pick<DiscoveryService, 'list' \| 'listDependencies' \| 'find'>` —— 实现所需的最小结构视图。 |
+| `DEFAULT_INDENT` | 数字（`2`） | `indent` 的缺省值，schema 与直接调用共用。 |
 
-## 寮€鍙?
+### list <name> / 子包依赖查询
+
+- `pnpm cli list <name>`：输出该子包自身 `package.json` `dependencies` 的全部依赖，
+  按清单顺序返回；工作区命中的直接复用 `list` 条目，第三方依赖从其 `node_modules`
+  内的 `package.json` 读取 `name`/`description`（缺失元数据时 description 为空兜底）；
+  未知包名或参数多于一个时抛 `CliError`。
+  Prints the sub-package's `dependencies` resolved to units (workspace entries plus third-party
+  packages from `node_modules`) in the same JSON shape; a `CliError` is thrown on an unknown name
+  or more than one argument.
+
+## 开发
 ```bash
 pnpm --filter @veren/commander-list build
-pnpm --filter @veren/commander-list test   # 4 涓敤渚?```
+pnpm --filter @veren/commander-list test   # 6 个用例
+```
 
 ```
 packages/commander/list
-鈹溾攢鈹€ src/
-鈹?  鈹溾攢鈹€ list.ts        # Config schema + UnitSource + cmdList / 閰嶇疆 schema銆佹渶灏忚鍥句笌瀹炵幇
-鈹?  鈹溾攢鈹€ tokens.ts      # 骞冲彴鏃犲叧鐨?INDENT 浠ょ墝 / platform-agnostic INDENT token
-鈹?  鈹斺攢鈹€ index.ts       # 鎻掍欢妯″潡 name/inject/Config/apply 涓庡啀瀵煎嚭 / plugin module + re-exports
-鈹斺攢鈹€ test/index.test.ts
+├── src/
+│   ├── list.ts        # Config schema + UnitSource + cmdList / 配置 schema、最小视图与实现
+│   ├── tokens.ts      # 平台无关的 INDENT 令牌 / platform-agnostic INDENT token
+│   └── index.ts       # 插件模块 name/inject/Config/apply 与再导出 / plugin module + re-exports
+└── test/index.test.ts
 ```
 
-## 娉ㄦ剰浜嬮」涓庣害鏉?
-- `list` 鐙崰 stdout锛堢函 JSON锛夛紝AI 娑堣垂鏂瑰彲浠ョ洿鎺ヨВ鏋愩€?- 鍗曞厓娓呭崟鏉ヨ嚜 `@veren/commander-discovery` 鐨?`Discovery` 鏈嶅姟锛涘悓鐩綍涓?npm
-  鍗曞厓浼樺厛浜?Rust crate銆?
+## 注意事项与约束
+- `list` 独占 stdout（纯 JSON），AI 消费方可以直接解析。
+- `pnpm cli list <name>` 保持清单顺序：工作区命中复用清单条目，第三方依赖从 `node_modules` 内自身的 `package.json` 读取 `name`/`description`（description 为空兜底），因此每个依赖都会出现。
+- 单元清单来自 `@veren/commander-discovery` 的 `Discovery` 服务；同目录下 npm
+  单元优先于 Rust crate。

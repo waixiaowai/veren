@@ -44,8 +44,10 @@ export const apply = (ctx: Context, config: Config) => {
   const source = getOrThrow(ctx, Discovery);
   return getOrThrow(ctx, Commands).register({
     name: 'list',
-    usage: 'list',
-    summary: '列出全部单元（JSON）/ list all units (JSON)',
+    usage: 'list [name]',
+    // summary 单行较长但 help 生成器按整行渲染，故不拆行。
+    // The summary is long but the help generator renders it as one line, so it is not split.
+    summary: '列出全部单元（JSON）；带 name 时输出该子包 dependencies 解析出的单元（工作区 + 第三方） / list all units (JSON); with a name, print the sub-package\'s dependencies resolved to units (workspace + third-party)',
     run: (args) => cmdList(source, config, args),
   });
 };

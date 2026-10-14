@@ -7,6 +7,7 @@ import LocalFileSystem from '@deepseek-ai/dsh-fs-local';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { MAX_SCAN_DEPTH, discoverUnits, parseCargoPackageFields, readCargoUnit, readNpmUnit } from '../src/discovery';
 import type { ScanConfig } from '../src/discovery';
+import { parseNpmDependencyNames, readDependencyUnit, readUnitDependencyNames } from '../src/deps';
 import { Discovery } from '../src/service';
 import * as DiscoveryPlugin from '../src/index';
 import { Project } from '@veren/commander-project';
@@ -206,6 +207,55 @@ async function install(config?: Parameters<typeof DiscoveryPlugin.apply>[1]) {
   fibers.push(fiber);
   return ctx.get(Discovery)!;
 }
+
+describe('parseNpmDependencyNames / readUnitDependencyNames', () => {
+  it('提取 dependencies 的依赖名并去重 / extracts dependency names of dependencies, deduplicated', () => {
+    expect(parseNpmDependencyNames(JSON.stringify({ dependencies: { a: '^1', b: 'workspace:*' } }))).toEqual(['a', 'b']);
+  });
+
+  it('无 dependencies 字段时返回空数组 / returns an empty array without a dependencies field', () => {
+    expect(parseNpmDependencyNames(JSON.stringify({ name: 'x' }))).toEqual([]);
+  });
+
+  it('读取子包目录的依赖名；无 package.json 返回空数组 / reads sub-package deps; empty array without package.json', async () => {
+    makeRoot();
+    const dir = join(root, 'pkg');
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: { '@x/core': 'workspace:*' } }));
+    expect(await readUnitDependencyNames(fs, dir)).toEqual(['@x/core']);
+    const empty = join(root, 'empty');
+    mkdirSync(empty);
+    expect(await readUnitDependencyNames(fs, empty)).toEqual([]);
+  });
+
+  it('readDependencyUnit：优先子包自身 node_modules，缺失时兜底 / prefers the sub-package node_modules, falls back when absent', async () => {
+    makeRoot();
+    const unitDir = join(root, 'pkg');
+    mkdirSync(join(unitDir, 'node_modules', 'yaml'), { recursive: true });
+    writeFileSync(join(unitDir, 'node_modules', 'yaml', 'package.json'), JSON.stringify({ name: 'yaml', description: 'YAML parser' }));
+    expect(await readDependencyUnit(fs, root, [unitDir, root], 'yaml')).toEqual({
+      name: 'yaml',
+      description: 'YAML parser',
+      dir: 'pkg/node_modules/yaml',
+    });
+
+    // 子包内没有：回退项目根 node_modules / not in the sub-package: fall back to the root node_modules
+    mkdirSync(join(root, 'node_modules', 'zod'), { recursive: true });
+    writeFileSync(join(root, 'node_modules', 'zod', 'package.json'), JSON.stringify({ name: 'zod', description: 'Schema validation' }));
+    expect(await readDependencyUnit(fs, root, [unitDir, root], 'zod')).toEqual({
+      name: 'zod',
+      description: 'Schema validation',
+      dir: 'node_modules/zod',
+    });
+
+    // 两处都没有元数据：空 description 兜底 / no metadata anywhere: empty-description fallback
+    expect(await readDependencyUnit(fs, root, [unitDir, root], 'missing')).toEqual({
+      name: 'missing',
+      description: '',
+      dir: 'node_modules/missing',
+    });
+  });
+});
 
 describe('DiscoveryService 单元清单服务 / the DiscoveryService inventory', () => {
   it('插件模块经 ctx.plugin 装载：list 按 dir 排序、find 按名查找 / installed via ctx.plugin: list is sorted by dir, find looks up by name', async () => {
