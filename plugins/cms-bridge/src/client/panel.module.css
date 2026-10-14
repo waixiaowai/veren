@@ -1,0 +1,134 @@
+/*
+ * cms-bridge Web UI 共享样式(CSS Module)。
+ * The cms-bridge Web UI shared stylesheet (CSS Module).
+ *
+ * 颜色/边框全部走主题 token,浅深色主题自动适配;类名由构建脚本哈希改写。
+ * Colors and borders use theme tokens only (light/dark adapt automatically);
+ * class names are hashed and rewritten by the build script.
+ *
+ * 宽度策略:面板与卡片均为 100% 自适应(随详情页栏宽伸缩),box-sizing 保证
+ * 内边距不计入外宽;表单行的输入框用 min-width:0 允许被按钮压缩。
+ * Width policy: panel and cards are 100% fluid (they stretch with the detail
+ * column); box-sizing keeps padding out of the outer width, and the form-row
+ * input uses min-width:0 so the button may compress it.
+ */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.card {
+  position: relative;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/*
+ * 悬浮状态角标:骑压卡片上边缘居右;Tag 自带色底,悬浮感由位移与投影给出。
+ * The floating state badge: rides the card's top edge at the right; the Tag
+ * brings its own tinted fill, and the offset plus shadow give the float.
+ */
+.badge {
+  position: absolute;
+  top: 0;
+  right: 12px;
+  transform: translateY(-50%);
+  z-index: 1;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 12%);
+  pointer-events: none;
+}
+
+.cardTitle {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.stateLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stateLabel {
+  font-size: 13px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  gap: 12px;
+}
+
+.rowLabel {
+  color: var(--dsw-alias-label-secondary);
+  flex-shrink: 0;
+}
+
+.rowValue {
+  font-family: monospace;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.formRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+/* flex:1 + min-width:0:输入框吃满剩余宽度且可被按钮压缩 */
+/* flex:1 + min-width:0: the input fills the remaining width and can shrink */
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+/* 眼睛切换按钮:固定方形,图标居中 / the eye toggle: fixed square, centered icon */
+.eyeToggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.eyeIcon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.saved {
+  font-size: 12px;
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.errorText {
+  font-size: 12px;
+  color: var(--dsw-alias-state-error-primary);
+  overflow-wrap: anywhere;
+}

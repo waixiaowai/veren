@@ -73,6 +73,15 @@ bridge.setCredential('new-long-lived-token');
 | Credential failure parks the bridge (no infinite retry) until reconfiguration (P3) | `src/connection.ts` |
 | Key nodes logged + `cms-bridge/status` event broadcast (P9) | `src/connection.ts` |
 
+## Web UI
+
+The bundle ships a Client module that mounts on the plugin's detail page (Plugins → Veren CMS Bridge) with two sections:
+
+- **Connection status card** — live state (`connected / connecting / reconnecting / awaiting-credential / …`) with a color dot, credential fingerprint, uptime, reconnect attempts, pending-event and in-flight counters, and the last error. Polls `GET /cms-bridge/api/status` every 3s (same-origin, no extra auth).
+- **API Key configuration** — a secret input that persists through `configEditor` into the profile patch (`POST /cms-bridge/api/credential`); the Loader hot-reloads the plugin, which reconnects with the new credential. The raw value is never rendered back; only the fingerprint.
+
+Both APIs are mounted only when the host provides a `webServer` (the DSH web/desktop profiles do); on plain CLI hosts the plugin logs a warning and runs without them.
+
 ## Development
 
 ```bash

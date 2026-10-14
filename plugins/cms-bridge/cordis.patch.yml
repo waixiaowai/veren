@@ -1,0 +1,21 @@
+# cms-bridge bundle 层:默认插入一条插件行(不带密钥)。
+# 真实凭证请在部署方(如 DSH profile 的 cordis.patch.yml)以同 id 覆写 config,
+# 覆写按「同 id 替换整个 config」语义生效,密钥永远不进发布包。
+#
+# cms-bridge bundle layer: inserts one default plugin row (no secrets).
+# Deployments override the config by the same id (a matching override replaces
+# the whole config), so credentials never ship inside the published package.
+- insert:
+    - id: cms-bridge
+      name: '@veren/cms-bridge'
+      config:
+        url: wss://veren.top/v1/ws
+        token: ''
+        commandTimeoutMs: 30000
+        reconnect:
+          initialDelayMs: 1000
+          maxDelayMs: 30000
+          factor: 2
+        credentialCloseCodes:
+          - 4001
+          - 4401

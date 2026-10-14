@@ -76,15 +76,98 @@ export const wsSocketFactory: SocketFactory = (url, headers) => {
 };
 
 /**
- * 插件装配：创建分发器/上报器/连接管理器，提供 CmsBridge 服务；卸载时逆序
- * 清理（先停连接层定时器与 socket，服务随 fiber 自动注销）。
+ * 插件装配：创建分发器/上报器/连接管理器，提供 CmsBridge 服务；宿主有
+ * webServer 时另挂 /cms-bridge/api/* 供 Web UI 使用；卸载时逆序清理。
  * Plugin assembly: creates the dispatcher, reporter and connection manager,
- * provides the CmsBridge service; on unload everything is cleaned in reverse
- * order (timers and socket first; the service unregisters with the fiber).
+ * provides the CmsBridge service; when the host exposes a webServer, also
+ * mounts /cms-bridge/api/* for the Web UI; cleanup runs in reverse order.
  */
 export const apply = (ctx: Context, config: Config): void => {
-  wire(ctx, config, wsSocketFactory);
+  const service = wire(ctx, config, wsSocketFactory);
+  registerWebApi(ctx, service);
 };
+
+/**
+ * Web UI 的宿主侧 API：GET /cms-bridge/api/status 返回运行状态快照；
+ * POST /cms-bridge/api/credential 更新 API Key —— 走 configEditor 持久化到
+ * profile patch（经 Loader 热更，插件自动用新凭证重连）；configEditor 不可用
+ * 时退化为仅本次运行的 setCredential。宿主无 webServer（如纯 CLI 装配）时
+ * 静默跳过。
+ * The Web UI's host-side API: GET /cms-bridge/api/status returns the runtime
+ * status snapshot; POST /cms-bridge/api/credential rotates the API key —
+ * persisted through configEditor into the profile patch (hot-reloaded via the
+ * Loader, so the plugin reconnects with the new credential); when configEditor
+ * is unavailable it degrades to a run-scoped setCredential. Skips silently on
+ * hosts without a webServer (e.g. a plain CLI assembly).
+ */
+export function registerWebApi(ctx: Context, service: CmsBridgeService): void {
+  // 非严格探测:宿主没挂 webServer 时返回 undefined 而不是抛「without inject」,
+  // 让插件在纯 CLI 等无 Web 宿主上也能装载(fails soft here, logs loud below)。
+  // Non-strict probe: hosts without a webServer yield undefined instead of the
+  // "without inject" throw, so the plugin still loads on plain CLI hosts.
+  const webServer = (ctx as unknown as { reflect: { get(name: string, strict: boolean): unknown } })
+    .reflect.get('webServer', false) as
+    | { register(route: { kind: 'exact'; path: string; handler: (req: unknown, res: unknown) => void | Promise<void> }): () => void }
+    | undefined;
+  if (!webServer) {
+    ctx.logger.warn('cms-bridge: no webServer on this host; web UI API skipped');
+    return;
+  }
+  const json = (res: unknown, code: number, body: unknown): void => {
+    const r = res as { writeHead(c: number, h: Record<string, string>): unknown; end(b: string): unknown };
+    r.writeHead(code, { 'content-type': 'application/json' });
+    r.end(JSON.stringify(body));
+  };
+  ctx.effect(() => webServer.register({
+    kind: 'exact',
+    path: '/cms-bridge/api/status',
+    handler: (_req, res) => json(res, 200, service.status()),
+  }), 'cms-bridge/api-status');
+  ctx.effect(() => webServer.register({
+    kind: 'exact',
+    path: '/cms-bridge/api/credential',
+    handler: async (req, res) => {
+      try {
+        const token = await readBodyToken(req);
+        await persistCredential(ctx, service, token);
+        ctx.logger.info('cms-bridge: credential rotated via web UI');
+        json(res, 200, { ok: true, status: service.status() });
+      } catch (error) {
+        json(res, 400, { ok: false, message: error instanceof Error ? error.message : String(error) });
+      }
+    },
+  }), 'cms-bridge/api-credential');
+}
+
+/** 读取并校验 POST body 里的 { token } / reads and validates { token } from the POST body */
+async function readBodyToken(req: unknown): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of (req as AsyncIterable<Buffer>)) {
+    chunks.push(chunk);
+    if (chunks.reduce((n, c) => n + c.length, 0) > 4096) throw new Error('body too large');
+  }
+  const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { token?: unknown };
+  if (typeof body.token !== 'string' || body.token.length === 0) throw new Error('token required');
+  return body.token;
+}
+
+/** 持久化换凭证：configEditor 可用则写 profile patch，否则仅本进程生效 / persists the rotation: profile patch via configEditor, else run-scoped */
+async function persistCredential(ctx: Context, service: CmsBridgeService, token: string): Promise<void> {
+  const editor = (ctx as unknown as { reflect: { get(name: string, strict: boolean): unknown } })
+    .reflect.get('configEditor', false) as
+    | {
+        entries(): Array<Record<string, unknown>>;
+        edit(entry: Record<string, unknown>, change: (current: Record<string, unknown>) => Record<string, unknown>): Promise<void>;
+      }
+    | undefined;
+  const entry = editor?.entries().find((e) => e.name === '@veren/cms-bridge' || e.id === 'cms-bridge');
+  if (!editor || !entry) {
+    service.setCredential(token);
+    return;
+  }
+  await editor.edit(entry, (current) => ({ ...current, token }));
+}
+
 
 /**
  * 可注入传输的装配内部实现（测试用假 socket 走这里）。

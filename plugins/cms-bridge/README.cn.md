@@ -73,6 +73,15 @@ bridge.setCredential('new-long-lived-token');
 | 凭证失效即停靠(不无限重试),等待重新配置(P3) | `src/connection.ts` |
 | 关键节点写日志 + 广播 `cms-bridge/status` 事件(P9) | `src/connection.ts` |
 
+## Web UI
+
+bundle 自带 Client 模块,挂载在插件详情页(Plugins → Veren CMS Bridge),两个区块:
+
+- **连接状态卡片** —— 实时状态(`connected / connecting / reconnecting / awaiting-credential / …`)带状态灯、凭证指纹、在线时长、重连次数、待补报与执行中计数、最近错误;每 3 秒轮询同源 `GET /cms-bridge/api/status`,无需额外鉴权。
+- **API Key 配置** —— 密钥输入框,经 `configEditor` 持久化到 profile patch(`POST /cms-bridge/api/credential`);Loader 热更后插件自动以新凭证重连。原文绝不回显,只显示指纹。
+
+两个 API 仅在宿主提供 `webServer` 时挂载(DSH web/desktop profile 均有);纯 CLI 宿主上插件会打警告并跳过,不影响连接功能。
+
 ## 开发
 
 ```bash

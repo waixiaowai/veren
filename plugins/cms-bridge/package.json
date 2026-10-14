@@ -1,9 +1,8 @@
 {
   "name": "@veren/cms-bridge",
   "displayName": "Veren CMS Bridge",
-  "version": "0.1.0",
-  "description": "Use when a Node-side Cordis host must keep a long-lived WebSocket link to a CMS server: it maintains the connection with auto-reconnect and credential-failure parking, dispatches server commands to locally registered action handlers (DSH Services) with per-command timeouts, reports plugin events with offline queueing and ordered replay, and exposes connection status for observability; skip it when you only need a one-shot HTTP call to a CMS.",
-  "private": true,
+  "version": "0.3.5",
+  "description": "Use when a Node-side Cordis host must keep a long-lived WebSocket link to a CMS server: it maintains the connection with auto-reconnect and credential-failure parking, dispatches server commands to locally registered action handlers (DSH Services) with per-command timeouts, reports plugin events with offline queueing and ordered replay, exposes connection status for observability, and ships a React+TSX Web UI (status card, API Key configuration, zh/en locale) on its plugin page; skip it when you only need a one-shot HTTP call to a CMS.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -11,10 +10,31 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.cn.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ]
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && tsc -p tsconfig.client.json && tsdown",
     "test": "vitest run"
   },
   "dependencies": {
@@ -24,6 +44,13 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@types/ws": "^8.5.10"
+    "@deepseek-ai/dsh-client-locale": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.0-rc.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/ws": "^8.5.10",
+    "lightningcss": "^1.28.0",
+    "tsdown": "^0.14.0"
   }
 }

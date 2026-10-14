@@ -57,3 +57,40 @@ export const apply = (ctx: Context) => {
     // todo
 }
 ```
+
+- 推荐client 插件写法，使用react + tsx + css module + 组件化 + 多主题 + 多语言 + 复用基础设施 如: Toast/Dialog等，放在插件目录下的 src/client/目录中
+1. 复用dsh组件库
+2. 复用dsh客户端Service
+3. 复用dsh 钩子如： useWorkspaces等
+4. 复用dsh 多主题
+5. 复用dsh 多语言 ctx.effect(() => ctx.locale.register(NS, { zh, en }), '...')
+6. 铁律一：往别人的 slot 注册，必须用 ctx.slots.inject(name, () => ctx.slots.register(...))
+7. 铁律二：children = 声明 + 授权。你渲染哪些子 slot，注册项的 children 就必须恰好声明哪些（kind: 'single'|'list'|'keyed' + scope）
+8. 组件 props 全部是派生共享，禁止手写：PropsRuntime（owner 数据）、PropsRenderSlots（children）、PropsStore、PropsHooks（inject 的 hooks 面）、PropsLocale。这些类型别名都从 @deepseek-ai/dsh-client-ui-slots 取
+9. inject 工厂只返回普通数据和回调（apply 闭包里的东西）——禁止手造钩子、禁止返回 ReactNode、禁止返回整个 Service 对象。动态事实必须包成 HostObservable（{ getSnapshot, subscribe }，且源对象与快照引用保持稳定）放进 hooks。
+10. ctx 只属于 apply 世界：组件永不接触 ctx、不 import Service 类、不读 React context。组件要新东西 = 从 owner site / store / inject face 穿一根 prop 下来。
+11. 业务数据活在对象层（Session/Workspace Controller），store 只放查看/交互状态（选中、草稿、面板宽度）。
+12. 派生数据是框架钩子数据上的纯函数（derive/useMemo），不自己订阅。
+```ts
+// 类型-only import：只为拉取各 Service 的 declaration merge（ctx.slots、ctx.locale 等）
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+// 服务级注入：cordis fiber 等待这些**服务**，这才是真正的激活顺序
+export const inject = ['slots', 'sessions', 'workspaces', 'locale', ...]
+export function apply(ctx: Context): void { ... }
+```
+
+- 稳定测试节点，所有已稳定运行的插件安装到这里
+目录: DSH_HOME=~/.dsh_test_1 密钥从~/.dsh/.credentials.yaml拷贝
+
+- 一次性测试节点，测试结束后清理，用于e2e自动化测试
+目录：DSH_HOME=~/.dsh_test/编号，密钥从~/.dsh/.credentials.yaml拷贝
+
+## 注意
+- 跨包共享用 import type，行为走注入的 Cordis 服务，UI 走 slots
+- 跨平台最佳实践示例
+```ts
+0. plugins\device-id 其他插件依赖这个 不依赖具体平台 
+1. plugins\device-id-win win平台按装
+2. plugins\device-id-mac mac平台安装
+3. plugins\device-id-linux Linux平台安装使用
+```
