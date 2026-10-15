@@ -1,0 +1,54 @@
+{
+  "name": "@veren/person-agent-preset",
+  "displayName": "Person Agent Preset",
+  "version": "0.1.4",
+  "description": "Use when a DSH deployment needs a human-facing agent preset: it registers the \"person-agent\" preset through ctx.agentPresets at runtime, composing a persona that reports in plain, beginner-readable language with tables, diagrams and presentable visual deliverables; skip it when every session consumer is a developer reading raw tool output.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml",
+    "README.md",
+    "README.cn.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
+  },
+  "dependencies": {
+    "@veren/person-agent-dynamic-context": "workspace:^",
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-agent-preset-registry": ">=0.2.0-rc.2",
+    "@deepseek-ai/dsh-scope": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-workspace": ">=0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.0",
+    "@vitest/utils": "3.2.7",
+    "vitest": "^3.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-agent-preset-registry": ">=0.2.0-rc.2",
+    "@veren/person-agent-dynamic-context": "*"
+  }
+}

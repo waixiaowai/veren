@@ -4,6 +4,7 @@ dist
 *.tsbuildinfo
 /deepseek
 deepseek/
+.pnpm-store
 
 # 打包产物不入库 / Build artifacts must never be committed
 *.tgz

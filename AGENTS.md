@@ -15,7 +15,15 @@
 - 创建带附加元数据的子 context: ctx.extend(meta); 为服务名开辟独立作用域: ctx.isolate(name, label?); 为子树注入服务配置覆盖: ctx.intercept(name, config)
 - src/types.ts 只放类型，测试放包级 tests/
 - vitest.config.ts *.spec.ts 单测 | vitest.e2e.config.ts *.e2e.ts 真实 API、花 token，无凭据自跳过，retry: 2
-- 规范："单独跑才过的 spec 是缺陷”（必须并发安全）；registry 贡献必须带 dispose/HMR 安全测试；插件要有走真实 Loader 的 composition 测试
+- 规范："单独跑才过的 spec 是缺陷"（必须并发安全）；registry 贡献必须带 dispose/HMR 安全测试；插件要有走真实 Loader 的 composition 测试
+- 可复用的测试基建（Reusable test-support packages，优先复用，不要重复造轮子）位于 deepseek\deepseek-harness\packages\test-support\：
+  - `agent-loop-testkit` – agent 循环测试工具 / agent loop test toolkit
+  - `client-runtime` – 客户端运行时测试支持 / client runtime test support
+  - `llm-mock-server` – LLM mock 服务器 / mock LLM server
+  - `llm-replay` – LLM 录制回放 / LLM record & replay
+  - `loader-smoke` – Loader 冒烟测试 / loader smoke tests
+  - `remote-mock` – 远端 mock / remote endpoint mock
+  - `session-snapshot` – 会话快照 / session snapshot utilities
 - waterfall 监听器必须调 next()，否则短路整条链（事件契约的强制面）
 - 事件类型走 declaration merging，JSDoc 必须标注 @mode（emit/bail/...）
 - 跨边界 id 用 brand（Branded<B> = string & {...}，零运行时开销）；闭集 union 用 assertNever 收尾
@@ -79,12 +87,63 @@ export const inject = ['slots', 'sessions', 'workspaces', 'locale', ...]
 export function apply(ctx: Context): void { ... }
 ```
 
-- 稳定测试节点，所有已稳定运行的插件安装到这里
-目录: DSH_HOME=~/.dsh_test_1 密钥从~/.dsh/.credentials.yaml拷贝 地址：http://127.0.0.1:3080/
-邮箱：admin@dsh.local 密码: dsh-test-admin
+- 稳定测试节点
+目录: DSH_HOME=~/.dsh_test_2 密钥从~/.dsh/.credentials.yaml拷贝
+启动: `$env:DSH_HOME='C:\Users\imeep\.dsh_test_2'; pnpm --dir deepseek\deepseek-harness dsh web --port 3080 --no-open`（`dsh web` 默认就是 web profile，不要再传 `--profile`，会报 "select a profile only once"；启动报核心行被兼容检查禁用时，按日志对每个包执行 `dsh plugin --profile web allow-version <pkg>@<ver> --dsh-version <runtime> --accept-risk`）
+- dsh_test_1 已弃用：禁止对它执行任何 pnpm 操作
 
 - 一次性测试节点，测试结束后清理，用于e2e自动化测试
 目录：DSH_HOME=~/.dsh_test/编号，密钥从~/.dsh/.credentials.yaml拷贝
+
+## 新建/安装测试节点（必须按此顺序，顺序不能反）
+
+1. 先写 profile `.npmrc`，四行缺一不可：
+```ini
+store-dir=<节点目录>\.pnpm-store
+package-import-method=copy
+@veren:registry=https://npm.veren.top/
+//npm.veren.top/:_authToken=<从 ~/.dsh_test_2/profiles/web/.npmrc 复制>
+```
+2. 再初始化 profile（`dsh plugin --profile web version-exemptions` 即可完成初始化，不跑 pnpm）
+3. 再安装（`dsh plugin --profile web add <tarball>`）
+4. 插件要作为 profile 层加载，`package.json` 必须声明：
+```json
+"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+```
+patch 文件是 loader 行数组（见 plugins\auth\cordis.patch.yml、plugins\person-agent-preset\cordis.patch.yml）；缺此声明 = 只装成普通依赖，宿主不加载
+5. 装完两项校验：
+```powershell
+# a. bundle 选择列表必须含本插件
+Get-Content <节点目录>\profiles\web\package.json | Select-String 'bundles' -Context 0,5
+# b. 与 ~/.dsh 零共享 inode（不得出现 \.dsh\profiles\desktop 路径）
+fsutil hardlink list "<节点目录>\profiles\web\node_modules\@deepseek-ai\dsh-client-modules\lib\client.js"
+```
+
+## DSH profile 操作规范（防桌面白屏）
+
+原理（一句话）：桌面按 `(mtime, ctime, size)` 算 client bundle 的 rev 寻址加载；pnpm 的硬链接让 ctime 成为 **inode 级共享**——任何 profile 上的安装/重链/删除/回滚都会改掉共享文件的 ctime → 桌面 rev 失效 → 白屏。因此以下全是强制规定：
+
+1. **agent 会话跑在桌面端进程里，崩溃 = 自杀**。对任何 profile（含测试节点）执行 pnpm 前，先 `fsutil hardlink list <目标文件>` 确认与 `~/.dsh` 无共享 inode
+2. **禁止修改 `~/.dsh` 下任何文件**；所有插件禁止安装到 `~/.dsh`；执行 `dsh plugin` 前必须核对 `DSH_HOME` 指向测试节点目录并打印确认
+3. 每个测试节点/一次性节点必须使用**自己的专用 store**（`store-dir`）+ `package-import-method=copy`，禁止使用全局 `AppData\Local\pnpm\store`；禁止把节点重链进与桌面相同的 store
+4. 桌面端在跑 → 禁止对 `DSH_HOME=~/.dsh` 做任何写操作（`dsh plugin add|remove`、GUI 插件管理器、`pnpm install|add|rebuild`、改 `dsh.profile.bundles`）
+5. 必须改 `~/.dsh` → 先完全退出桌面端（含托盘），改完冷启动；启动后 3~5 秒内不写 profile
+6. 任何 profile 写入之后 → 立刻 Ctrl+R 重载窗口
+7. 白屏 ≠ 损坏 → Ctrl+R / 重开窗口即恢复；禁止重装、禁止 pnpm reinstall
+8. `DSH_HOME` 每命令显式指定，不设全局；命令前打印实际 HOME 核对
+9. 不用 npx 形态运行 dsh；不在桌面运行期间做任何 pnpm relink（v10/v11 store 混用会 `ERR_PNPM_UNEXPECTED_STORE` 并触发强制重链）
+10. 备份/同步只允许"复制出去"，禁止回灌覆盖 profile 目录
+11. 开发自己的客户端插件：改完主动 Ctrl+R；看到白屏先重载，不要怀疑代码写坏了
+
+## 白屏现场处置（只读）
+
+```powershell
+# 1) 磁盘当前 rev（与崩溃日志里的 rev 比对；不一致 = 过期代）
+node -e "const crypto=require('crypto'),fs=require('fs');const p=process.env.USERPROFILE+'/.dsh/profiles/desktop/node_modules/@deepseek-ai/dsh-client-modules/lib/client.js';const s=fs.statSync(p);console.log(crypto.createHash('sha1').update('plugin-artifact\0'+JSON.stringify([s.mtimeMs,s.ctimeMs,s.size])).digest('hex').slice(0,12),new Date(s.ctimeMs).toISOString())"
+# 2) 崩溃日志（含失败 rev）
+Get-ChildItem "$env:APPDATA\@deepseek-ai\dsh-desktop\logs" -Filter "crash-*-web-boot.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 3
+```
+处置：完全退出桌面 → 重新打开（过期代可能叠多层，Ctrl+R 不行就冷启动）；禁止重装
 
 ## 注意
 - 跨包共享用 import type，行为走注入的 Cordis 服务，UI 走 slots
@@ -104,44 +163,3 @@ import type { } from '@deepseek-ai/dsh-tools';
 
 - 特别注意：优先使用完整的类型面，不要创建别名，别名层只会增加漂移风险
 - 特别注意：禁止任何修改~/.dsh 目录下的任何文件，所有的插件不能安装到~/.dsh目录切记，特别是执行 dsh plugin 命令时，一定要确保 DSH_HOME 对不对，一旦搞错，会彻底崩溃，因为你在dsh desktop下工作，崩溃等于自杀
-
-## 桌面端白屏 = client bundle 的 rev 被 relink 打废（2026-10-15 复盘，必读）
-
-- 结论：白屏**不是插件文件损坏**，而是客户端 bundle 的 rev 过期导致 bootstrap 脚本 404
-  - 宿主按 `(插件id, rev)` 精确寻址：`/plugins/??<pkg>/client.js&rev=<rev>`
-  - rev **只由文件元数据**决定：`rev = sha1("plugin-artifact"\0, [mtimeMs, ctimeMs, size])` 取前 12 位十六进制 —— 内容哈希不参与
-  - 单行 row URL 只在"当前这一代"注册（上一代只保留 batch URL）→ 旧 rev 立刻 404，没有回退
-  - `@deepseek-ai/dsh-client-modules` 是**唯一 bootstrap 行**（`PARSER_PRELOAD_IDS`），它 404 → `__DSH_BOOT_READY__` 被 reject → `window.__ModuleLoader__` 永不安装 → 所有客户端插件都不装载 → 白屏
-- 关键陷阱：**硬链接重建只改 ctime，不改内容**。pnpm relink / 包投影 / 复制覆盖恢复，都会让**内容 1 字节没变、rev 整代变化**
-
-### 铁律（桌面端运行期间，`~/.dsh` 只读）
-
-1. 桌面端在跑 → 禁止对 `DSH_HOME=~/.dsh` 做任何写操作：`dsh plugin add|remove`、GUI 插件管理器安装/修复/更新、`pnpm install|add|install --force|rebuild`、启用或禁用 bundle（改 `dsh.profile.bundles`）
-2. 必须改 → **先完全退出桌面端**（含托盘/后台），改完再启动（冷启动一次定型）；启动后 3~5 秒内不要再写 profile（这是 boot 窗口期）
-3. 任何一次写入之后 → **立刻 Ctrl+R 重载窗口**，不要直接继续用
-4. 白屏 ≠ 损坏 → `Ctrl+R` / 重开窗口即恢复；**禁止重装、禁止 pnpm reinstall**
-5. `DSH_HOME` 每命令显式指定，**不设全局**（全局会把从同一 shell 启动的桌面端一起带偏）；命令前打印实际 HOME 做核对
-6. 不用 `npx` 形态运行 dsh（会在 `~/.dsh/profiles/node_modules` 建指向 npx 哈希目录的 junction，解析锚点漂移）；固定 pnpm 版本与 store（v10/v11 混用会 `ERR_PNPM_UNEXPECTED_STORE` 并触发强制重链）
-7. 备份/同步只允许"复制出去"，**禁止回灌覆盖** profile 目录（robocopy、解压、网盘同步都会让全量 ctime 变化）
-8. 开发自己的客户端插件：改完主动 `Ctrl+R`，别指望 live 自动重载恰好落在安全时机；看到白屏先重载，不要怀疑代码写坏了
-
-### 自查（只读，不改任何东西）
-
-```powershell
-# 1) bootstrap 行的元数据：ctime 晚于窗口启动时间 = 已被 relink（看 mtime 是看不出来的）
-#    bootstrap row metadata: a ctime newer than the window start means it was relinked
-node -e "const s=require('fs').statSync(process.env.USERPROFILE+'/.dsh/profiles/desktop/node_modules/@deepseek-ai/dsh-client-modules/lib/client.js');console.log('mtime',new Date(s.mtimeMs).toISOString(),'ctime',new Date(s.ctimeMs).toISOString(),'size',s.size)"
-
-# 2) 谁重链的：目标落在 pnpm store v10/v11 就是哪套 pnpm 干的
-#    who relinked it: the store path tells which pnpm did it
-fsutil hardlink list "$env:USERPROFILE\.dsh\profiles\desktop\node_modules\@deepseek-ai\dsh-client-modules\lib\client.js"
-
-# 3) 桌面端崩溃日志（白屏现场，含失败 URL 与 rev）
-#    crash logs of the desktop window (failed URL + rev)
-Get-ChildItem "$env:APPDATA\@deepseek-ai\dsh-desktop\logs" -Filter "crash-*-web-boot.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 3 Name,LastWriteTime
-```
-
-- 崩因判读：日志里 `desktop web: failed to load plugins/??@deepseek-ai/dsh-client-modules/client.js&rev=<X>`，且 X 与磁盘上任何副本算出的 rev 都不相等 → 该行用的是**过期一代**的 rev
-- 已知坏账（别假设 profile 是干净的）：`~/.dsh/profiles/node_modules` 的 **617 个 junction 全部悬空**，指向已删除的旧安装 `%LOCALAPPDATA%\Programs\DSH Desktop\resources\app.asar.unpacked` 与失效的 npx 缓存 → 解析锚点可能漂移
-- 事故记录：2026-10-15 15:16:51 与 16:12:02 两次白屏，失败行 rev 分别为 `fd31d33c4cd8` / `f2f47ba3a70a`，磁盘上均无对应副本；同一次 boot 的其它行（locale / cordis-client-runner / sidebar-right）rev 与磁盘完全一致 → 只有 bootstrap 行错代
-- 别白费力气：`package.json` 里的 `"patchReload": "live"` 在桌面端 0.2.0-rc.2 的 `app.asar` 内**没有任何读取代码**（正向对照：`profile.bundles`、`OPTIONAL_BUNDLES` 都能搜到，`patchReload` 搜不到）→ 不要拿它当开关
