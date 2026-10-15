@@ -13,7 +13,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { ColdHeader, SessionInfo } from './session-info.js'
-import { deriveFallbackTitle, selectedPreset } from './session-events.js'
+import { deriveFallbackTitle, lastRequestRoute, selectedPreset } from './session-events.js'
 
 /** The optional session-title capability, derived from the context declaration.
  * 可选的 session-title 能力，直接从上下文声明推导（不再另立结构面）。 */
@@ -42,7 +42,11 @@ export function createSessionInfoResolver(
   ctx: Context,
   coldHeaders: ReadonlyMap<string, ColdHeader>,
 ): (id: string) => SessionInfo | undefined {
-  const titleService: TitleService = ctx.get('sessionTitle')
+  // sessionTitle 是可选能力：ctx.get 返回带 undefined 的类型，titleOf 的参数
+  // 同步放宽为可缺省。
+  // sessionTitle is an optional capability: ctx.get returns a type that
+  // includes undefined, so titleOf's parameter widens to optional.
+  const titleService = ctx.get('sessionTitle')
   const defaultSelection: DefaultSelection | undefined = ctx.get('agentDefaultModel')?.currentSelection()
   return (id: string): SessionInfo | undefined => {
     const session: Session | undefined = ctx.sessions.get(id as never)
@@ -82,16 +86,19 @@ export function createSessionInfoResolver(
  * human message; undefined when neither source has text.
  * 会话已接纳的标题，或由首条合格人类消息派生的标题；两者都没有时 undefined。
  */
-function titleOf(titleService: TitleService, session: Session): string | undefined {
+function titleOf(titleService: TitleService | undefined, session: Session): string | undefined {
   return titleService?.get(session)?.title ?? deriveFallbackTitle(session)
 }
 
 /**
  * The model route the latest recorded request actually used, or undefined when
- * the session is not attached or never recorded a request.
+ * the session is not attached or never recorded a request. Read from the
+ * session log's newest `request/header` — the same source the Web client's
+ * model-selection fold consumes.
  * 最近一次已记录请求实际使用的模型路由；会话未挂载或从未记录请求时 undefined。
+ * 读取会话日志最新的 `request/header` —— 与 Web 端模型选择折叠同一数据源。
  */
 function lastUsedRoute(ctx: Context, session: Session | undefined): { provider: string, model: string } | undefined {
   if (session === undefined) return undefined
-  return ctx.sessionProjections.stateOf(session, 'modelSelection')?.lastUsed ?? undefined
+  return lastRequestRoute(session)
 }

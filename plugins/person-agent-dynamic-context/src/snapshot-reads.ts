@@ -14,6 +14,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { AgentPreset } from '@deepseek-ai/dsh-agent-preset-registry'
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
+// 类型-only import：拉取 sessionQuery 服务的 Context 声明合并（持久化会话头）。
+// Type-only import: pulls the sessionQuery service Context declaration merging
+// (persisted session headers).
+import type {} from '@deepseek-ai/dsh-session-query'
 import type { ColdHeader } from './session-info.js'
 
 /** 冷会话（已持久化未挂载）的持久化头。Persisted header of a cold (persisted, not attached) session.
@@ -31,10 +35,10 @@ export const snapshotWarning = (error: unknown): string =>
  * 经可选的 sessionQuery 服务读取持久化会话头：服务缺失就当没有会话，读取失败只
  * 告警并降级为空表。
  */
-async function listPersistedHeaders(ctx: Context): Promise<readonly ColdHeaderRecord[]> {
+async function listPersistedHeaders(ctx: Context): Promise<readonly SessionHeader[]> {
   const query: Context['sessionQuery'] | undefined = ctx.get('sessionQuery')
   if (query === undefined) return []
-  return query.listSessions()
+  return (await query.listSessions()).map(record => record.header)
 }
 
 /**
@@ -61,8 +65,8 @@ export async function readPresetRoster(ctx: Context): Promise<AgentPreset[]> {
 export async function readColdHeaders(ctx: Context): Promise<Map<string, ColdHeader>> {
   const coldHeaders = new Map<string, ColdHeader>()
   try {
-    for (const record of await listPersistedHeaders(ctx)) {
-      coldHeaders.set(record.header.id, record.header)
+    for (const header of await listPersistedHeaders(ctx)) {
+      coldHeaders.set(header.id, header)
     }
   } catch (error) {
     ctx.logger.warn(`person-agent dynamic context: sessionQuery read failed: ${error instanceof Error ? error.message : String(error)}`)

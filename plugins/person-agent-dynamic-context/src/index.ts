@@ -80,7 +80,7 @@ export const Config: z<Config> = z
 // session store (resolves SessionId to session objects) plus both list
 // sources. sessionTitle is optional and read through ctx.get (titles fall
 // back to an id fragment when it is not mounted).
-export const inject = ['agents', 'sessions', 'agentPresets', 'workspaceRegistry']
+export const inject = ['agents', 'sessions', 'agentPresets', 'workspaceRegistry', 'sessionTitle']
 export const provide = []
 
 // 配置形状的类型别名：`Config` 这个标识符在本文件里同时是「接口类型」和「schema 值」，

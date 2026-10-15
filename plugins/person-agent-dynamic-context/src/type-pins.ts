@@ -11,6 +11,7 @@
 // session type cannot appear at a call site.
 import type { Context } from '@deepseek-ai/cordis'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
+import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import type { AgentPreset } from '@deepseek-ai/dsh-agent-preset-registry'
 import type { Session, SessionHeader, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
@@ -27,8 +28,10 @@ import { formatCreated, idFragment } from './text-time.js'
 
 /** 断言 A 可赋给 B（A 比 B 窄或同宽即通过）。Assert that A is assignable to B. */
 type Pins<A extends B, B> = [A, B]
-/** 断言两个类型完全同型（双向可赋）。Assert two types are identical both ways. */
-type Same<A, B> = [Pins<A, B>, Pins<B, A>]
+/** 断言两个类型完全同型（双向可赋）：交叉类型同时满足两侧约束。
+ * Assert two types are identical both ways: the intersection satisfies both
+ * constraint sides. */
+type Same<A, B> = [Pins<A & B, A>, Pins<A & B, B>]
 /** 只读放宽：可变数组可传给只读参数（单向，两者并不同型）。
  * Readonly widening: a mutable array may pass to a readonly parameter (one way). */
 type Widens<A extends B, B> = Pins<A, B>
@@ -101,7 +104,7 @@ type PreStepPins = [
   // not. Pinning both keeps our branch test and return body from inventing a
   // discriminant value (a real mistake: treating 'continue' as the success case).
   Same<PreStepDecision['kind'], 'reject' | 'enter'>,
-  Pins<PreStepDecision, { kind: 'reject' } | { kind: 'enter', messages: [] }>,
+  Pins<PreStepDecision, { kind: 'reject' } | { kind: 'enter', messages: UserMessage[] }>,
 ]
 type ContextPins = Same<Parameters<typeof createSessionInfoResolver>[0], Context>
 
