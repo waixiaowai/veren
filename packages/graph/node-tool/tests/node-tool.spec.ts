@@ -1,10 +1,10 @@
 /**
- * tool 节点测试：单元面（slot 摊平 / 错误码 / signal 转发）+ 走真实 Loader
- * 的组合面（内核 + 引擎 + tool 插件，mock 工具调用面）。
+ * tool 节点测试：handler 面（成功原样返回 / 失败带稳定 code / signal 转发）
+ * + 走真实 Loader 的组合面（内核 + 引擎 + tool 插件，mock 工具调用面）。
  *
- * Tool node tests: unit surface (slot spreading / error codes / signal
- * forwarding) plus a real-Loader composition (kernel + engine + the tool
- * plugin against a mocked tool invoker).
+ * Tool node tests: the handler surface (verbatim success / stable failure
+ * codes / signal forwarding) plus a real-Loader composition (kernel + engine
+ * + the tool plugin against a mocked tool invoker).
  */
 
 import { describe, expect, it } from 'vitest';
@@ -15,7 +15,7 @@ import { NodeRegistryToken, registerNodeHandler } from '@veren/graph-flow-api';
 import type { FlowDefinition, NodeExecuteContext } from '@veren/graph-flow-api';
 import { apply as enginePlugin, FlowEngineToken, NodeRegistryImpl } from '@veren/graph-flow-engine';
 import * as nodeTool from '../src/index.js';
-import { createToolHandler, invokeTool, valueToSlots } from '../src/index.js';
+import { createToolHandler } from '../src/index.js';
 import type { ToolExecutionInput, ToolExecutionResult, ToolInvoker } from '../src/index.js';
 
 /** 成功结果构造（补齐必填 content）/ build a success result (content required) */
@@ -39,23 +39,18 @@ function mockInvoker(impl: (call: ToolExecutionInput) => Promise<ToolExecutionRe
     return invoker;
 }
 
-/** 'tools' 服务名（与 node-tool 的 inject 对应）/ the 'tools' service name (matches the node's inject) */
-const TOOLS = 'tools';
+/** 节点作用域（config 预解析）/ a node scope with a pre-parsed config */
+const nctxWith = (config: unknown, signal: AbortSignal): NodeExecuteContext =>
+    ({ config, signal, attempt: 1 }) as NodeExecuteContext;
 
-describe('tool node unit surface', () => {
-    it('spreads object values and wraps scalars into the out slot', () => {
-        expect(valueToSlots({ a: 1 })).toEqual({ a: 1 });
-        expect(valueToSlots('text')).toEqual({ out: 'text' });
-        expect(valueToSlots([1, 2])).toEqual({ out: [1, 2] });
-        expect(valueToSlots(null)).toEqual({ out: null });
-    });
-
-    it('forwards name, arguments and the node signal to the invoker', async () => {
+describe('tool node handler', () => {
+    it('returns the canonical value verbatim (the engine normalizes slots)', async () => {
         const invoker = mockInvoker(async () => success({ ok: true }));
+        const handler = createToolHandler(invoker);
         const controller = new AbortController();
-        const nctx = { signal: controller.signal, attempt: 1 } as NodeExecuteContext;
-        const slots = await invokeTool(invoker, { tool: 'bash' }, { command: 'ls' }, nctx);
-        expect(slots).toEqual({ ok: true });
+        const result = await handler.execute({ command: 'ls' }, nctxWith({ tool: 'bash' }, controller.signal));
+        // 非对象 value 原样返回，`out` 包装由引擎统一做 / non-object values pass through; `out` wrapping is the engine's job
+        expect(result).toEqual({ ok: true });
         expect(invoker.calls.length).toBe(1);
         expect(invoker.calls[0]!.name).toBe('bash');
         expect(invoker.calls[0]!.arguments).toEqual({ command: 'ls' });
@@ -65,17 +60,25 @@ describe('tool node unit surface', () => {
 
     it('throws with the tool-reported stable code on failure', async () => {
         const invoker = mockInvoker(async () => failure('boom', 'SANDBOX_DENIED'));
-        const promise = invokeTool(invoker, { tool: 'bash' }, {}, { signal: new AbortController().signal } as NodeExecuteContext);
-        await expect(promise).rejects.toMatchObject({ code: 'SANDBOX_DENIED' });
+        const handler = createToolHandler(invoker);
+        await expect(handler.execute({}, nctxWith({ tool: 'bash' }, new AbortController().signal)))
+            .rejects.toMatchObject({ code: 'SANDBOX_DENIED' });
     });
 
-    it('creates a handler bound to the given invoker', async () => {
+    it('falls back to TOOL_FAILED when the tool reports no code', async () => {
+        const invoker = mockInvoker(async () => failure('boom'));
+        const handler = createToolHandler(invoker);
+        await expect(handler.execute({}, nctxWith({ tool: 'bash' }, new AbortController().signal)))
+            .rejects.toMatchObject({ code: 'TOOL_FAILED' });
+    });
+
+    it('binds the config-declared tool name per call', async () => {
         const invoker = mockInvoker(async () => success(42));
         const handler = createToolHandler(invoker);
-        expect(handler.type).toBe('tool');
         const config = (handler.config as unknown as (data: unknown) => unknown)({ tool: 'calc' });
-        const result = await handler.execute({}, { config, signal: new AbortController().signal } as NodeExecuteContext);
-        expect(result).toEqual({ out: 42 });
+        const result = await handler.execute({}, nctxWith(config, new AbortController().signal));
+        // 标量由引擎归一化进 out / scalars are normalized into `out` by the engine
+        expect(result).toBe(42);
         expect(invoker.calls[0]!.name).toBe('calc');
     });
 });
@@ -84,7 +87,7 @@ describe('tool node unit surface', () => {
 async function makeStack(invoker: ToolInvoker) {
     const ctx = new Context();
     // 能力先于节点插件提供：inject ['tools'] 等待其可用 / provide the capability first; inject ['tools'] waits for it
-    provideValue(ctx, TOOLS as never, { execute: invoker } as never);
+    provideValue(ctx, 'tools' as never, { execute: invoker } as never);
     await ctx.plugin(kernelPlugin);
     await ctx.plugin(enginePlugin as never, { nodeTimeoutMs: 5000 });
     // 命名空间对象保留 inject / the namespace object preserves the inject declaration
@@ -143,7 +146,7 @@ describe('tool node composition (real Loader)', () => {
         const ctx = new Context();
         const invoker = mockInvoker(async () => success(1));
         const registry = new NodeRegistryImpl();
-        provideValue(ctx, TOOLS as never, { execute: invoker } as never);
+        provideValue(ctx, 'tools' as never, { execute: invoker } as never);
         provideValue(ctx, NodeRegistryToken, registry);
         const plugin = {
             inject: [NodeRegistryToken] as const,
