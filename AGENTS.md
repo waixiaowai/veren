@@ -98,7 +98,8 @@ export function apply(ctx: Context): void { ... }
 - 系统服务正确写法，类型安全
 ```ts
 import type { } from '@deepseek-ai/dsh-tools';
-ctx.tools
+// ctx.tools
 ```
 
 - 特别注意：优先使用完整的类型面，不要创建别名，别名层只会增加漂移风险
+- 特别注意：禁止任何修改~/.dsh 目录下的任何文件，所有的插件不能安装到~/.dsh目录切记，特别是执行 dsh plugin 命令时，一定要确保 DSH_HOME 对不对，一旦搞错，会彻底崩溃，因为你在dsh desktop下工作，崩溃等于自杀
