@@ -1,0 +1,26 @@
+# Veren graph 插件族：Host 级服务（内核 / flow 引擎 / 存储 / 通用 tool 节点）。
+# The Veren graph plugin family: Host-level services (kernel / flow engine /
+# storage / the generic tool node).
+#
+# 依赖说明 / dependency notes:
+# - graph-flow-engine 经 ctx.tools（dsh-tools Host 服务）被 node-tool 使用；
+#   Host 配置里 dsh-tools 已随工具链装载。
+#   graph-flow-engine is consumed by node-tool through ctx.tools (the dsh-tools
+#   Host service), which the Host configuration already mounts with the tool chain.
+# - graph-flow-storage inject 'storageDomain'（dsh-storage-domain Host 服务）。
+#   graph-flow-storage injects 'storageDomain' (the dsh-storage-domain Host service).
+# - 装载顺序由 inject 声明驱动，行序仅表意图 / activation is inject-driven; row order is intent only.
+- id: graph-kernel
+  name: "@veren/graph-core"
+  config:
+    concurrency: 4
+- id: graph-flow-engine
+  name: "@veren/graph-flow-engine"
+  config:
+    nodeTimeoutMs: 30000
+- id: graph-flow-node-tool
+  name: "@veren/graph-node-tool"
+- id: graph-flow-storage
+  name: "@veren/graph-flow-storage"
+  config:
+    restoreFlows: false

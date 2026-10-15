@@ -22,16 +22,18 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-storage": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-storage-domain": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-storage-json": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-system-prompt": "0.2.0-rc.2",
     "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
     "@deepseek-ai/schemastery": "^3.18.4",
     "@veren/core": "workspace:*",
     "@veren/graph-core": "workspace:*",
     "@veren/graph-flow-api": "workspace:*",
-    "@veren/graph-flow-engine": "workspace:*",
+    "@veren/graph-flow-engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-storage": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-storage-domain": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-storage-json": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.2.0-rc.2",
     "@veren/graph-flow-storage": "workspace:*",
     "@veren/graph-flow-yaml": "workspace:*",
     "@veren/yaml-parser": "workspace:*"
