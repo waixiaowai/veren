@@ -1,0 +1,42 @@
+{
+  "name": "@veren/web-login-gate",
+  "displayName": "Veren Web Login Gate",
+  "version": "0.1.0",
+  "description": "Use when the dsh Web GUI must require a named user login before any page or API access: it mounts Better Auth (username/email + password) over a dsh storage domain, gates the SPA entry and every /api request behind a valid Better Auth session, and only then lets the official launch-token exchange mint its browser cookies; skip it when the anonymous per-process launch-token gate is enough.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.cn.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@better-auth/kysely-adapter": "1.7.8",
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-credentials": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-storage": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-storage-domain": "0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/kysely-dsh-dialect": "workspace:*",
+    "better-auth": "^1.7.8",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-client-connection": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-host-webserver": "0.2.0-rc.2",
+    "@types/node": "^26.6.5",
+    "vitest": "^5.0.4"
+  }
+}

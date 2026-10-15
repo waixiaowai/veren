@@ -1,0 +1,53 @@
+# Example profile overlay for the Better Auth login gate.
+# Better Auth 登录门禁的 profile overlay 示例。
+#
+# Apply on top of the web profile:  dsh web --patch plugins/auth/cordis.patch.yml
+# 在 web profile 之上叠加：        dsh web --patch plugins/auth/cordis.patch.yml
+#
+# The patch replaces a targeted row's whole `config`, so the storage-domain row
+# restates its base keys (`backend`) and adds the route for this plugin's
+# domain. Switching `web_login_gate` between `json` and `sqlite` (and
+# restarting) must keep users and sessions usable — that proves the plugin
+# never bypasses the domain to touch a backend directly.
+# patch 会整体替换目标行的 `config`，因此 storage-domain 行需重述基础键
+# （`backend`）并加上本插件 domain 的路由。把 `web_login_gate` 在 json/sqlite
+# 之间切换并重启后，用户与会话仍应可用——这证明插件从未绕过 domain 直连后端。
+
+# Route the login-gate domain explicitly (optional; the default backend serves
+# it when the route is absent).
+# 显式路由登录门禁 domain（可选；缺省时由默认后端承载）。
+- id: storage-domain
+  config:
+    backend: json
+    routes:
+      web_login_gate: json
+
+# The gate itself. `distIndex` is workspace knowledge of the composing
+# application, exactly like the `frontend-static` row's anchor — supply it via
+# `!!js`, never a hardcoded deployment path.
+# 门禁本体。`distIndex` 是组合应用的工作区知识，与 `frontend-static` 行的锚点
+# 一致——用 `!!js` 提供，绝不硬编码部署路径。
+- insert:
+    - id: web-login-gate
+      name: '@veren/web-login-gate'
+      config:
+        distIndex: !!js "require('node:path').join(process.env.DSH_WEB_DIST ?? '.', 'index.html')"
+        sessionDays: 7
+        rateLimit:
+          window: 60
+          max: 10
+        # First-run administrator seed. Consumed once: only the password hash is
+        # stored, so this block can be removed after the first boot.
+        # 首次运行管理员种子。只消费一次：落库的只有密码哈希，首次启动后即可
+        # 删除本段。
+        admin:
+          email: admin@example.com
+          password: change-me-please
+          name: Administrator
+        # Storage routing intent: every name must be a registered backend or the
+        # plugin load fails loud.
+        # 存储路由意向：每个名字都必须是已注册后端，否则插件加载显式失败。
+        storage:
+          backend: json
+          routes:
+            web_login_gate: json
