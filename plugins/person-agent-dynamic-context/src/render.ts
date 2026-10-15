@@ -16,32 +16,36 @@ export const renderAgentPreset = (preset: AgentPreset): string =>
 export const renderWorkspace = (item: Workspace): string =>
   `- ${item.title}(${item.id}):${item.path}`
 
+/** One session-table header row, shared by every workspace block. 会话表头行，各工作区块共用。 */
+const SESSION_TABLE_HEADER = [
+  '  | id | title | preset | provider | model | created at |',
+  '  | --- | --- | --- | --- | --- | --- |',
+]
+
 /**
- * Render one non-archived session as a numbered line. The four facts render
- * unconditionally (`unknown` as the fallback for missing data), with a running
- * mark appended; a missing title falls back to the id fragment without the
- * useless `session-` prefix, so the column never reads as a wall of
- * "session-".
- * 把一条未归档会话渲染成带编号的一行。四个字段无条件全部显示（缺数据用
- * unknown 占位），运行中追加标记；标题缺省回退到去掉 `session-` 前缀的 id
- * 片段，避免整列都读成 "session-"。
+ * Render one non-archived session as a table row. The four facts render
+ * unconditionally (`unknown` as the fallback for missing data); a missing title
+ * falls back to the id fragment without the useless `session-` prefix, so the
+ * column never reads as a wall of "session-".
+ * 把一条未归档会话渲染成表格行。四个字段无条件全部显示（缺数据用 unknown 占位）；
+ * 标题缺省回退到去掉 `session-` 前缀的 id 片段，避免整列都读成 "session-"。
  */
-export function renderSessionLine(index: number, id: string, info: SessionInfo | undefined, now: number): string {
+export function renderSessionLine(id: string, info: SessionInfo | undefined, now: number): string {
   const title = info?.title ?? idFragment(id)
   const preset = info?.preset ?? UNKNOWN
   const provider = info?.provider ?? UNKNOWN
   const model = info?.model ?? UNKNOWN
   const runningMark = info?.running === true ? ' · running' : ''
   const day = info?.createdAt === undefined ? UNKNOWN_TIME : formatCreated(info.createdAt, now)
-  return `  ${index + 1}. ${title} · preset ${preset} · ${provider}/${model} · created ${day}${runningMark}`
+  return `  | ${id} | ${title} | ${preset} | ${provider} | ${model} | ${day}${runningMark} |`
 }
 
 /**
  * Render one workspace block: the workspace line, then its non-archived
- * sessions as a numbered list (`sessions: none` when the archive filter ate
+ * sessions as a table (the `sessions: none` note when the archive filter ate
  * them all). Archived sessions are filtered out via the registry's
  * `archivedSessionIds`.
- * 渲染一个工作区块：先工作区行，其下未归档会话以编号列出（全被归档过滤后显示
+ * 渲染一个工作区块：先工作区行，其下未归档会话渲染成表格（全被归档过滤后显示
  * `sessions: none`）。已归档会话经注册表的 `archivedSessionIds` 过滤。
  */
 export function renderWorkspaceBlock(
@@ -54,7 +58,8 @@ export function renderWorkspaceBlock(
   if (sessions.length === 0) return [renderWorkspace(item), '  sessions: none']
   return [
     renderWorkspace(item),
-    ...sessions.map((id, index) => renderSessionLine(index, id, resolve(id), now)),
+    ...SESSION_TABLE_HEADER,
+    ...sessions.map((id) => renderSessionLine(id, resolve(id), now)),
   ]
 }
 

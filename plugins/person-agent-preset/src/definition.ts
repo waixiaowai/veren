@@ -103,7 +103,7 @@ export function buildPersonAgentPreset(options: PresetOptions): PresetDefinition
   return {
     id: options.presetId,
     name: 'Person Agent',
-    description: '面向人类的工作汇报 Agent：小白可读、图表优先、成果可交付。/ Human-facing reporting agent: plain language, visuals first, deliverable artifacts.',
+    description: 'Human-facing reporting agent: plain language, visuals first, deliverable artifacts.',
     order: options.order,
     plugins: [
       {
@@ -112,11 +112,6 @@ export function buildPersonAgentPreset(options: PresetOptions): PresetDefinition
         config: { prefix: PERSONA_PREFIX, suffix: PERSONA_SUFFIX },
       },
       {
-        // 工作记忆：启用独立插件（兄弟包，私有仓库发布）。被组合即生效
-        //（会话创建时注入名单），不组合即不存在。行名 = 包名。
-        // Working memory: enables the standalone sibling plugin (published to
-        // the private registry). Composed = active (lists injected at session
-        // creation); not composed = absent. Row name = package name.
         id: 'dynamic-context',
         name: dynamicContextRowName,
       },

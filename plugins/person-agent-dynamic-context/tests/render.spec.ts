@@ -81,8 +81,8 @@ describe('renderWorkspace', () => {
 })
 
 describe('renderSessionLine', () => {
-  it('四个字段齐全时按固定格式渲染', () => {
-    const line = renderSessionLine(2, 'session-abcdefghijklmnop', {
+  it('四个字段齐全时按表格行渲染', () => {
+    const line = renderSessionLine('session-abcdefghijklmnop', {
       title: '问候语',
       preset: 'person-agent',
       provider: 'deepseek-account',
@@ -90,17 +90,17 @@ describe('renderSessionLine', () => {
       createdAt: NOW - 5 * 60_000,
       running: false,
     }, NOW)
-    expect(line).toBe('  3. 问候语 · preset person-agent · deepseek-account/deepseek-flash · created 5m ago')
+    expect(line).toBe('  | session-abcdefghijklmnop | 问候语 | person-agent | deepseek-account | deepseek-flash | 5m ago |')
   })
 
   it('缺数据时四项占位 unknown，标题回退 id 片段', () => {
-    const line = renderSessionLine(0, 'session-abcdefghijklmnop', undefined, NOW)
-    expect(line).toBe('  1. abcdefghijkl · preset unknown · unknown/unknown · created unknown-time')
+    const line = renderSessionLine('session-abcdefghijklmnop', undefined, NOW)
+    expect(line).toBe('  | session-abcdefghijklmnop | abcdefghijkl | unknown | unknown | unknown | unknown-time |')
   })
 
   it('运行中追加标记', () => {
-    const line = renderSessionLine(0, 'session-x', { title: 'T', running: true }, NOW)
-    expect(line).toBe('  1. T · preset unknown · unknown/unknown · created unknown-time · running')
+    const line = renderSessionLine('session-x', { title: 'T', running: true }, NOW)
+    expect(line).toBe('  | session-x | T | unknown | unknown | unknown | unknown-time · running |')
   })
 })
 
@@ -121,8 +121,10 @@ describe('renderWorkspaceList', () => {
     )
     expect(lines).toEqual([
       '- 默认工作区(w1):C:\\work',
-      '  1. 标题-session-a · preset unknown · unknown/unknown · created unknown-time',
-      '  2. 标题-session-c · preset unknown · unknown/unknown · created unknown-time',
+      '  | id | title | preset | provider | model | created at |',
+      '  | --- | --- | --- | --- | --- | --- |',
+      '  | session-a | 标题-session-a | unknown | unknown | unknown | unknown-time |',
+      '  | session-c | 标题-session-c | unknown | unknown | unknown | unknown-time |',
     ])
   })
 

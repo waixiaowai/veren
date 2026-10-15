@@ -16,7 +16,7 @@ import type { LogSeq, LoggedMessage } from './support.js'
 type PreStepListener = (input: { agent: Agent, signal: AbortSignal }, next: () => Promise<PreStepDecision>) => Promise<PreStepDecision>
 
 /** One fake host context wiring the pre-step listener to fake services. 把 pre-step 监听器接到假服务的假宿主 context。 */
-function fakeCtx(options: { presets?: unknown[], workspaces?: unknown[], failList?: boolean } = {}): {
+function fakeCtx(options: { presets?: unknown[], workspaces?: unknown[], failList?: boolean, failModelCatalog?: boolean } = {}): {
   ctx: Parameters<typeof apply>[0]
   step: (history: LoggedMessage[], sessionId?: string) => Promise<void>
   logger: { warn: ReturnType<typeof vi.fn> }
@@ -60,10 +60,11 @@ function fakeCtx(options: { presets?: unknown[], workspaces?: unknown[], failLis
     },
     sessions,
     sessionProjections: {
-      // modelSelection 投影假实现：lastUsed 为空 → 回退部署默认模型。
-      // modelSelection projection fake: empty lastUsed → deployment default
-      // model fallback.
-      stateOf: () => ({ lastUsed: null }),
+      // 投影假实现：modelSelection 的 lastUsed 为空 → 回退部署默认模型；
+      // agentPreset 未选中 → undefined 走创建头兜底。
+      // Projection fake: empty modelSelection lastUsed → deployment default
+      // model fallback; no agentPreset selection → creation header fallback.
+      stateOf: (_session: unknown, key: string) => key === 'modelSelection' ? { lastUsed: null } : undefined,
     },
     agentPresets: {
       list: async () => {
@@ -77,6 +78,19 @@ function fakeCtx(options: { presets?: unknown[], workspaces?: unknown[], failLis
       get archivedSessionIds(): string[] {
         return archivedSessionIds
       },
+    },
+    // LLM 注册表假实现：一个 provider、一个纯文本模型（带上下文窗口）。
+    // Fake LLM registry: one provider, one text-only model with a context window.
+    llm: {
+      listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
+      listModels: async () => {
+        if (options.failModelCatalog === true) throw new Error('catalog boom')
+        return [{ provider: 'deepseek', id: 'deepseek-chat', name: 'DeepSeek-V4' }]
+      },
+      resolveModelInfo: async () => ({
+        provider: 'deepseek', id: 'deepseek-chat', name: 'DeepSeek-V4',
+        inputModalities: ['text'], context: { contextWindow: 65536 },
+      }),
     },
     // 可选服务面：sessionTitle 提供标题；agentDefaultModel 提供默认路由。
     // Optional service faces: sessionTitle supplies titles; agentDefaultModel
@@ -179,8 +193,12 @@ describe('personAgentDynamicContext', () => {
     expect(texts[0]).toContain('- Standard(standard):default mode')
     expect(texts[0]).toContain('## Workspace List')
     expect(texts[0]).toContain('- Demo(ws-1):C:/demo')
-    expect(texts[0]).toContain('1. Greeting · preset person-agent · deepseek/deepseek-chat · created 2026-10-15')
-    expect(texts[0]).toContain('2. Greeting · preset person-agent · deepseek/deepseek-chat · created 2026-10-15')
+    // 表格头 + 每会话一行：id / title / preset / provider / model / created at。
+    // Table header plus one row per session: id / title / preset / provider /
+    // model / created at.
+    expect(texts[0]).toContain('| id | title | preset | provider | model | created at |')
+    expect(texts[0]).toContain('| sess-1 | Greeting | person-agent | deepseek | deepseek-chat | 2026-10-15 |')
+    expect(texts[0]).toContain('| sess-2 | Greeting | person-agent | deepseek | deepseek-chat | 2026-10-15 |')
     expect(texts[0]).not.toContain('sess-archived')
   })
 
@@ -223,7 +241,7 @@ describe('personAgentDynamicContext', () => {
     const history: LoggedMessage[] = []
     setRunning('sess-1', true)
     await step(history, 'sess-1')
-    expect(snapshotTexts(history)[0]).toContain('created 2026-10-15 · running')
+    expect(snapshotTexts(history)[0]).toContain('2026-10-15 · running |')
     setRunning('sess-1', false)
     await step(history, 'sess-1')
     expect(snapshotTexts(history)[1]).not.toContain('· running')
@@ -260,6 +278,42 @@ describe('personAgentDynamicContext', () => {
     expect(texts[0]).not.toContain('## Workspace List')
   })
 
+  it('appends the model catalog with modality and context window', async () => {
+    // 模型目录：provider 分组、多模态输入（text-only）与上下文窗口逐模型一行。
+    // Model catalog: provider groups, modality (text-only) and context window,
+    // one line per model.
+    const { ctx, step } = fakeCtx()
+    apply(ctx, resolveConfig())
+    const history: LoggedMessage[] = []
+    await step(history)
+    const texts = snapshotTexts(history)
+    expect(texts[0]).toContain('## Model Catalog')
+    expect(texts[0]).toContain('- DeepSeek(deepseek)')
+    expect(texts[0]).toContain('- DeepSeek-V4(deepseek-chat): input text · context 65536 tokens')
+  })
+
+  it('omits the model catalog when includeModelCatalog is false', async () => {
+    const { ctx, step } = fakeCtx()
+    apply(ctx, resolveConfig({ includeModelCatalog: false }))
+    const history: LoggedMessage[] = []
+    await step(history)
+    expect(snapshotTexts(history)[0]).not.toContain('## Model Catalog')
+  })
+
+  it('keeps working when the model catalog read fails', async () => {
+    // 目录读取失败只告警并剔除该 provider 组，快照其余区块不受影响。
+    // A failed catalog read warns and drops the provider group; the other
+    // snapshot sections are unaffected.
+    const { ctx, step, logger } = fakeCtx({ failModelCatalog: true })
+    apply(ctx, resolveConfig())
+    const history: LoggedMessage[] = []
+    await step(history)
+    expect(logger.warn).toHaveBeenCalled()
+    const texts = snapshotTexts(history)
+    expect(texts[0]).not.toContain('## Model Catalog')
+    expect(texts[0]).toContain('## Workspace List')
+  })
+
   it('derives the title from the first human message when no accepted title exists', async () => {
     // 三级标题来源：已接纳标题 → 第一条人类消息前导词 → id 片段。
     // Title, three sources: accepted title → first human message's leading
@@ -277,7 +331,7 @@ describe('personAgentDynamicContext', () => {
       { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '帮我总结这个仓库的构建流程并给出改进建议' }] } },
     ]
     await step(history)
-    expect(snapshotTexts(history)[0]).toContain('1. 帮我总结这个仓库的构建流程并给出改进建议')
+    expect(snapshotTexts(history)[0]).toContain('帮我总结这个仓库的构建流程并给出改进建议')
   })
 
   it('prefers the latest agent-preset/selected event over the creation header', async () => {
@@ -308,10 +362,10 @@ describe('personAgentDynamicContext', () => {
       } as never
     }
     await step(history, 'sess-1')
-    expect(snapshotTexts(history)[0]).toContain('preset standard')
+    expect(snapshotTexts(history)[0]).toContain('| standard |')
     selected = 'person-agent'
     await step(history, 'sess-1')
-    expect(snapshotTexts(history)[1]).toContain('preset person-agent')
+    expect(snapshotTexts(history)[1]).toContain('| person-agent |')
   })
 
   it('unregisters the listener through the ctx.on disposer', async () => {

@@ -80,7 +80,7 @@ type OwnSignaturePins = [
   Same<Parameters<typeof formatCreated>, [number | undefined, number]>,
   Same<ReturnType<typeof formatCreated>, string>,
   Same<ReturnType<typeof idFragment>, string>,
-  Same<Parameters<typeof renderSessionLine>, [number, string, SessionInfo | undefined, number]>,
+  Same<Parameters<typeof renderSessionLine>, [string, SessionInfo | undefined, number]>,
   Same<ReturnType<typeof renderSessionLine>, string>,
   Same<ReturnType<typeof withHeading>, string[]>,
   Same<ReturnType<typeof renderWorkspaceList>, string[]>,
@@ -118,10 +118,10 @@ type ContextPins = Same<Parameters<typeof createSessionInfoResolver>[0], Context
 // complete Config — the assertion had drifted from behaviour, so Config({}) failed
 // to compile. Now only two true things are asserted: the call result is a Config,
 // and the pure type alias ConfigShape matches the interface.
-const resolvedConfig: Config = Config({ includePresetRoster: true, includeWorkspaceList: true })
+const resolvedConfig: Config = Config({ includePresetRoster: true, includeWorkspaceList: true, includeModelCatalog: true })
 type ConfigPins = [
   Pins<typeof resolvedConfig, Config>,
-  Same<ConfigShape, { includePresetRoster: boolean, includeWorkspaceList: boolean }>,
+  Same<ConfigShape, { includePresetRoster: boolean, includeWorkspaceList: boolean, includeModelCatalog: boolean }>,
 ]
 
 // 引用一次，避免「未使用」告警；纯类型，不产生任何运行时语句。

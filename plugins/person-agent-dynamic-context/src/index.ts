@@ -58,30 +58,34 @@ export interface Config {
   includePresetRoster: boolean
   /** Include the workspace/session list in the snapshot. 是否注入工作区与会话列表。 */
   includeWorkspaceList: boolean
+  /** Include the model catalog (providers, multimodal support, context window) in the snapshot. 是否注入模型目录（provider、多模态支持与上下文窗口）。 */
+  includeModelCatalog: boolean
 }
 
 // 类型事实（由编译器的报错确认）：本 schema 的调用签名要求传入完整的 Config，
-// 缺键会报 ts(2345)。因此调用方（测试与宿主）必须显式给出两个开关；测试里用一个
+// 缺键会报 ts(2345)。因此调用方（测试与宿主）必须显式给出三个开关；测试里用一个
 // 合并辅助函数保证「语义不变、类型完整」。z<Config> 这一公共签名保持不变。
 // Type fact, confirmed by the compiler: this schema's call signature requires a
 // complete Config — a missing key raises ts(2345). Callers (tests and host) must
-// therefore supply both toggles; tests use a merge helper so the semantics stay
-// identical while the type stays complete. The public z<Config> signature is kept.
+// therefore supply all three toggles; tests use a merge helper so the semantics
+// stay identical while the type stays complete. The public z<Config> signature
+// is kept.
 export const Config: z<Config> = z
   .object({
     includePresetRoster: z.boolean().default(true).description('Inject the agent preset roster into the working-memory snapshot.'),
     includeWorkspaceList: z.boolean().default(true).description('Inject the per-workspace session lists into the working-memory snapshot.'),
+    includeModelCatalog: z.boolean().default(true).description('Inject the available model catalog (providers, multimodal input support, context window) into the working-memory snapshot.'),
   })
-  .description('Use when a Person Agent session needs working memory: appends a sourced snapshot message at each step preparation with the awaited preset roster and the per-workspace session lists (titles, model routes, relative times, archived filtered), adding to the session only when the values change.')
+  .description('Use when a Person Agent session needs working memory: appends a sourced snapshot message at each step preparation with the awaited preset roster, the available model catalog (providers, multimodal input support, context window), and the per-workspace session lists (titles, model routes, relative times, archived filtered), adding to the session only when the values change.')
 
 // 注入的是能力（Service）：agent 注册表（pre-step 事件）、会话存储（按
-// SessionId 解析会话对象）+ 两个名单来源。sessionTitle 为可选能力，经
-// ctx.get 读取（未挂载时标题回退到 id 片段）。
+// SessionId 解析会话对象）、LLM 注册表（模型目录）+ 两个名单来源。sessionTitle
+// 为可选能力，经 ctx.get 读取（未挂载时标题回退到 id 片段）。
 // Injection targets capabilities: the agent registry (pre-step event), the
-// session store (resolves SessionId to session objects) plus both list
-// sources. sessionTitle is optional and read through ctx.get (titles fall
-// back to an id fragment when it is not mounted).
-export const inject = ['agents', 'sessions', 'agentPresets', 'workspaceRegistry', 'sessionTitle']
+// session store (resolves SessionId to session objects), the LLM registry
+// (model catalog) plus both list sources. sessionTitle is optional and read
+// through ctx.get (titles fall back to an id fragment when it is not mounted).
+export const inject = ['agents', 'sessions', 'agentPresets', 'workspaceRegistry', 'sessionTitle', 'llm']
 export const provide = []
 
 // 配置形状的类型别名：`Config` 这个标识符在本文件里同时是「接口类型」和「schema 值」，
@@ -95,6 +99,8 @@ export type ConfigShape = Config
 // The public surface is unchanged: these symbols used to live in this file and
 // now sit in focused modules.
 export { renderAgentPreset, renderSessionLine, renderWorkspace, renderWorkspaceBlock, renderWorkspaceList, withHeading } from './render.js'
+export { readModelCatalogSection, renderModelCatalogGroup, renderModelCatalogModel } from './model-catalog.js'
+export type { ModelCatalogGroup, ModelContextWindows } from './model-catalog.js'
 export { deriveFallbackTitle, lastSnapshotText, logEvents, selectedPreset } from './session-events.js'
 export type { LogEventData, SessionLogView, SnapshotEvent } from './session-events.js'
 export { createSessionInfoResolver } from './session-facts.js'
@@ -155,6 +161,7 @@ async function appendSnapshot(
     ctx,
     includePresetRoster: config.includePresetRoster,
     includeWorkspaceList: config.includeWorkspaceList,
+    includeModelCatalog: config.includeModelCatalog,
     now: Date.now,
     coldFacts,
   })

@@ -61,17 +61,22 @@ export function createSessionInfoResolver(
     // route the latest request actually used); sessions that never requested
     // fall back to the deployment default model.
     const lastUsed = lastUsedRoute(ctx, session)
+    // preset 四级来源：agentPreset 投影（前端徽章同源，随切换实时更新）→
+    // 日志最新一条 agent-preset/selected → 创建头 → 名册默认。
+    // preset, four sources: the agentPreset projection (same source as the
+    // client's badge, updated on every switch) → the log's latest
+    // agent-preset/selected → the creation header → the roster default.
+    const projectedPreset = session === undefined
+      ? undefined
+      : ctx.sessionProjections.stateOf(session, 'agentPreset') as string | undefined
     return {
       id,
       // 标题三级来源：已接纳标题 → 第一条人类消息派生 → 无（渲染层回退 id 片段）。
       // Title, three sources: accepted title → first human message → none (the
       // renderer falls back to an id fragment).
       title: session === undefined ? undefined : titleOf(titleService, session),
-      // preset：日志最新一条 agent-preset/selected（latest-wins）优先于创建头，
-      // 名册默认兜底。
-      // preset: the log's latest agent-preset/selected (latest-wins) overrides
-      // the creation header, with the roster default as fallback.
-      preset: (session === undefined ? undefined : selectedPreset(session))
+      preset: projectedPreset
+        ?? (session === undefined ? undefined : selectedPreset(session))
         ?? header.agentPreset ?? ctx.agentPresets.defaultId,
       provider: lastUsed?.provider ?? defaultSelection?.provider,
       model: lastUsed?.model ?? defaultSelection?.model,

@@ -44,7 +44,9 @@ async function install(config: Partial<ConfigShape> = {}) {
     }),
   })
   ctx.provide('sessionProjections', {
-    stateOf: () => ({ lastUsed: { provider: 'deepseek', model: 'deepseek-chat' } }),
+    stateOf: (_session: unknown, key: string) => key === 'modelSelection'
+      ? { lastUsed: { provider: 'deepseek', model: 'deepseek-chat' } }
+      : undefined,
   })
   ctx.provide('agentPresets', {
     list: async () => [{ id: 'standard', name: 'Standard', description: 'default mode' }],
@@ -61,6 +63,16 @@ async function install(config: Partial<ConfigShape> = {}) {
   })
   ctx.provide('sessionTitle', {
     get: () => ({ title: 'Greeting' }),
+  })
+  // LLM 注册表假实现：一个 provider、一个纯文本模型（带上下文窗口）。
+  // Fake LLM registry: one provider, one text-only model with a context window.
+  ctx.provide('llm', {
+    listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
+    listModels: async () => [{ provider: 'deepseek', id: 'deepseek-chat', name: 'DeepSeek-V4' }],
+    resolveModelInfo: async () => ({
+      provider: 'deepseek', id: 'deepseek-chat', name: 'DeepSeek-V4',
+      inputModalities: ['text'], context: { contextWindow: 65536 },
+    }),
   })
   const fiber: Fiber = ctx.plugin({ name, inject, apply }, resolveConfig(config))
   await fiber
@@ -109,7 +121,7 @@ describe('personAgentDynamicContext composition（真实装配路径 / real asse
     expect(texts).toHaveLength(1)
     expect(texts[0]).toContain('## Agent Preset List')
     expect(texts[0]).toContain('## Workspace List')
-    expect(texts[0]).toContain('1. Greeting · preset person-agent · deepseek/deepseek-chat · created 2026-10-15')
+    expect(texts[0]).toContain('| sess-1 | Greeting | person-agent | deepseek | deepseek-chat | 2026-10-15 |')
   })
 
   it('removes the listener when the fiber unloads', async () => {
@@ -143,6 +155,6 @@ describe('personAgentDynamicContext composition（真实装配路径 / real asse
     const texts = snapshotTexts(history)
     expect(texts).toHaveLength(2)
     expect(texts[1]).toContain('- Fresh(ws-2):C:/fresh')
-    expect(texts[1]).toContain('1. Greeting')
+    expect(texts[1]).toContain('| sess-2 | Greeting')
   })
 })

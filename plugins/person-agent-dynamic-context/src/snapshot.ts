@@ -7,6 +7,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { renderAgentPreset, renderWorkspaceList, withHeading } from './render.js'
 import type { SessionInfo } from './session-info.js'
 import { createSessionInfoResolver, readColdSessionFacts } from './session-facts.js'
+import { readModelCatalogSection } from './model-catalog.js'
 import { readPresetRoster } from './snapshot-reads.js'
 
 /**
@@ -23,6 +24,8 @@ export interface SnapshotInputs {
   includePresetRoster: boolean
   /** Include the workspace/session list. 是否注入工作区与会话列表。 */
   includeWorkspaceList: boolean
+  /** Include the model catalog (providers, multimodal, context window). 是否注入模型目录（provider、多模态与上下文窗口）。 */
+  includeModelCatalog: boolean
   /** Current instant source, epoch milliseconds. 当前时刻来源（epoch 毫秒）。 */
   now: () => number
   /** Memo of cold-session facts, owned by the plugin activation. 冷会话事实 memo，由插件激活期持有。 */
@@ -66,9 +69,10 @@ function workspaceSection(
  * 不是缓存。两个区块都被关闭或都为空时返回 ''，调用方据此判定「无需追加」。
  */
 export async function buildSnapshotText(inputs: SnapshotInputs): Promise<string> {
-  const { ctx, includePresetRoster, includeWorkspaceList, coldFacts } = inputs
+  const { ctx, includePresetRoster, includeWorkspaceList, includeModelCatalog, coldFacts } = inputs
   const sections: string[] = []
   if (includePresetRoster) sections.push(...await presetSection(ctx))
+  if (includeModelCatalog) sections.push(...await readModelCatalogSection(ctx))
   // 冷会话事实只在需要工作区列表时才读：每个冷会话每进程读一次（memo），
   // 经 sessionQuery 的 readTitle/readSession 拿标题、preset 与模型路由。
   // Cold-session facts are read only when the workspace list is wanted: once

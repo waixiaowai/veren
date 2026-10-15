@@ -6,14 +6,14 @@
 import { Config } from '../src/index.js'
 import type { ConfigShape, SessionLogView } from '../src/index.js'
 
-/** 两个开关都打开的默认配置，语义等价于原测试里的 Config({})。
- * Both toggles on — semantically identical to the old Config({}). */
-export const DEFAULT_CONFIG: ConfigShape = { includePresetRoster: true, includeWorkspaceList: true }
+/** 三个开关都打开的默认配置，语义等价于原测试里的 Config({})。
+ * All three toggles on — semantically identical to the old Config({}). */
+export const DEFAULT_CONFIG: ConfigShape = { includePresetRoster: true, includeWorkspaceList: true, includeModelCatalog: true }
 
 /**
- * 解析一份完整配置：schema 的调用签名要求两个键齐全（缺键会 ts(2345)），因此这里显式
+ * 解析一份完整配置：schema 的调用签名要求三个键齐全（缺键会 ts(2345)），因此这里显式
  * 用默认值补齐，测试里只需写想覆盖的那一项。
- * Resolves a complete config: the schema's call signature requires both keys (a
+ * Resolves a complete config: the schema's call signature requires all three keys (a
  * missing key raises ts(2345)), so defaults are filled in here and a test only
  * writes the toggle it means to override.
  */
