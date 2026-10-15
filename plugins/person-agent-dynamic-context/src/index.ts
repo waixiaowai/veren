@@ -39,6 +39,7 @@ import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-workspace'
 import z from '@deepseek-ai/schemastery'
 import { lastSnapshotText } from './session-events.js'
+import type { SessionInfo } from './session-info.js'
 import { buildSnapshotText } from './snapshot.js'
 
 /** 快照消息的来源标识。The snapshot message's source kind. */
@@ -119,11 +120,15 @@ export const apply = (ctx: Context, config: Config): void => {
 /** The real activation body, separated so apply can fail loud with context. 真正的激活体，分离出来让 apply 带上下文显性失败。 */
 function applyInner(ctx: Context, config: Config): void {
   // 运行状态直接读活跃 agent 注册表（ctx.agents.get(id)?.status），无需自维护
-  // 跟踪集合；pre-step 快照仅在变化时追加（time-context 同款）。
+  // 跟踪集合；pre-step 快照仅在变化时追加（time-context 同款）。冷会话事实的
+  // memo 由激活期持有：每个冷会话每进程只经 sessionQuery 读一次。
   // Running state reads the live agent registry directly
   // (ctx.agents.get(id)?.status) — no self-maintained tracking set; the
-  // pre-step snapshot appends only on change (the time-context pattern).
-  ctx.on('agent/pre-step', ({ agent, signal }, next) => appendSnapshot(ctx, config, agent, signal, next), { prepend: true })
+  // pre-step snapshot appends only on change (the time-context pattern). The
+  // cold-session facts memo is owned by this activation: every cold session is
+  // read through sessionQuery once per process.
+  const coldFacts = new Map<string, SessionInfo>()
+  ctx.on('agent/pre-step', ({ agent, signal }, next) => appendSnapshot(ctx, config, agent, signal, next, coldFacts), { prepend: true })
 }
 
 /**
@@ -139,6 +144,7 @@ async function appendSnapshot(
   agent: Agent,
   signal: AbortSignal,
   next: () => Promise<PreStepDecision>,
+  coldFacts: Map<string, SessionInfo>,
 ): Promise<PreStepDecision> {
   const decision = await next()
   // 只放行「进入本步」的决策：拒绝与已取消都原样返回，不改写宿主的决定。
@@ -150,6 +156,7 @@ async function appendSnapshot(
     includePresetRoster: config.includePresetRoster,
     includeWorkspaceList: config.includeWorkspaceList,
     now: Date.now,
+    coldFacts,
   })
   if (text === '' || text === lastSnapshotText(agent.session, agent.session.seq, SOURCE)) return decision
   // 判空早已排除「拒绝」分支；这里再声明一次目标分支的形状，且不跨 await 取属性，

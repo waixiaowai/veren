@@ -6,13 +6,15 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { renderAgentPreset, renderWorkspaceList, withHeading } from './render.js'
 import type { SessionInfo } from './session-info.js'
-import { createSessionInfoResolver } from './session-facts.js'
-import { readColdHeaders, readPresetRoster } from './snapshot-reads.js'
+import { createSessionInfoResolver, readColdSessionFacts } from './session-facts.js'
+import { readPresetRoster } from './snapshot-reads.js'
 
 /**
  * What one snapshot assembly needs from the host: the context plus the two
- * section toggles and the instant to compare times against.
- * 组装一次快照所需的外部输入：上下文、两个区块开关、用于比较时间的当前时刻。
+ * section toggles, the instant to compare times against, and the process-level
+ * memo of cold-session facts (cold reads happen once per session per process).
+ * 组装一次快照所需的外部输入：上下文、两个区块开关、用于比较时间的当前时刻，
+ * 以及冷会话事实的进程级 memo（每个冷会话每进程只读一次）。
  */
 export interface SnapshotInputs {
   /** Host context carrying every injected capability. 携带全部注入能力的宿主上下文。 */
@@ -23,6 +25,8 @@ export interface SnapshotInputs {
   includeWorkspaceList: boolean
   /** Current instant source, epoch milliseconds. 当前时刻来源（epoch 毫秒）。 */
   now: () => number
+  /** Memo of cold-session facts, owned by the plugin activation. 冷会话事实 memo，由插件激活期持有。 */
+  coldFacts: Map<string, SessionInfo>
 }
 
 /**
@@ -62,15 +66,33 @@ function workspaceSection(
  * 不是缓存。两个区块都被关闭或都为空时返回 ''，调用方据此判定「无需追加」。
  */
 export async function buildSnapshotText(inputs: SnapshotInputs): Promise<string> {
-  const { ctx, includePresetRoster, includeWorkspaceList } = inputs
+  const { ctx, includePresetRoster, includeWorkspaceList, coldFacts } = inputs
   const sections: string[] = []
   if (includePresetRoster) sections.push(...await presetSection(ctx))
-  // 冷会话头只在需要工作区列表时才读，省掉一次无用的持久化查询。
-  // Cold headers are read only when the workspace list is wanted, skipping a
-  // pointless persistence query.
+  // 冷会话事实只在需要工作区列表时才读：每个冷会话每进程读一次（memo），
+  // 经 sessionQuery 的 readTitle/readSession 拿标题、preset 与模型路由。
+  // Cold-session facts are read only when the workspace list is wanted: once
+  // per cold session per process (memoized), via sessionQuery's
+  // readTitle/readSession for title, preset and model route.
   if (includeWorkspaceList) {
-    const coldHeaders = await readColdHeaders(ctx)
-    sections.push(...workspaceSection(ctx, createSessionInfoResolver(ctx, coldHeaders), inputs.now()))
+    const archived = new Set<string>(ctx.workspaceRegistry.archivedSessionIds)
+    const liveResolver = createSessionInfoResolver(ctx, new Map())
+    for (const item of ctx.workspaceRegistry.list()) {
+      for (const id of item.sessionIds) {
+        // 挂载中的会话走活跃事实；冷会话每进程读一次（memo）。已归档跳过。
+        // Attached sessions use live facts; cold sessions are read once per
+        // process (memoized). Archived sessions are skipped.
+        if (ctx.sessions.get(id as never) !== undefined || archived.has(id) || coldFacts.has(id)) continue
+        const facts = await readColdSessionFacts(ctx, id).catch((error: unknown) => {
+          ctx.logger.warn(`person-agent dynamic context: cold session read failed: ${error instanceof Error ? error.message : String(error)}`)
+          return undefined
+        })
+        if (facts !== undefined) coldFacts.set(id, facts)
+      }
+    }
+    const resolve = (id: string): SessionInfo | undefined =>
+      ctx.sessions.get(id as never) !== undefined ? liveResolver(id) : coldFacts.get(id)
+    sections.push(...workspaceSection(ctx, resolve, inputs.now()))
   }
   return sections.join('\n')
 }

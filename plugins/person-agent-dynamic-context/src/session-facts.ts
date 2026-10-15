@@ -102,3 +102,44 @@ function lastUsedRoute(ctx: Context, session: Session | undefined): { provider: 
   if (session === undefined) return undefined
   return lastRequestRoute(session)
 }
+
+/**
+ * Read one cold (persisted, not attached) session's facts through the
+ * optional sessionQuery service: the folded title, the preset from the log's
+ * latest `agent-preset/selected`, the model route from the latest
+ * `request/header`, and the creation time. Undefined when the service is not
+ * mounted or the session cannot be read.
+ * 经可选的 sessionQuery 服务读取一个冷会话（已持久化未挂载）的事实：折叠
+ * 标题、日志最新 `agent-preset/selected` 的 preset、最新 `request/header`
+ * 的模型路由与创建时间。服务缺失或读取失败时 undefined。
+ */
+export async function readColdSessionFacts(ctx: Context, id: string): Promise<SessionInfo | undefined> {
+  const query = ctx.get('sessionQuery')
+  if (query === undefined) return undefined
+  const [log, title] = await Promise.all([
+    query.readSession(id as never),
+    // 冷会话的折叠标题与活跃会话的 sessionTitle.get 同源（latest-wins）。
+    // The cold session's folded title shares its source with sessionTitle.get
+    // for attached sessions (latest-wins).
+    query.readTitle(id as never).catch(() => undefined),
+  ])
+  // 与活跃会话同源的字段读取：标题折叠、最新 preset 选择、最新模型路由。
+  // The same field reads as attached sessions: folded title, latest preset
+  // selection, latest model route.
+  let preset = log.session.agentPreset
+  let provider: string | undefined
+  let model: string | undefined
+  for (let index = log.events.length - 1; index >= 0; index -= 1) {
+    const event = log.events[index]
+    if (preset === undefined && event.type === 'agent-preset/selected') {
+      preset = (event.data as { agentPreset?: string }).agentPreset
+    }
+    if (event.type === 'request/header') {
+      const config = (event.data as { header?: { config?: { provider?: string, model?: string } } }).header?.config
+      provider = config?.provider
+      model = config?.model
+    }
+    if (preset !== undefined && provider !== undefined) break
+  }
+  return { id, title: title?.title, preset, provider, model, createdAt: log.session.createdAt }
+}

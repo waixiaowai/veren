@@ -1,7 +1,7 @@
 {
   "name": "@veren/person-agent-dynamic-context",
   "displayName": "Person Agent Dynamic Context",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "Use when a Person Agent preset's sessions need working memory: it appends a sourced snapshot message at each step preparation with the awaited preset roster and per-workspace session facts (title, preset, provider/model, running state; archived filtered), adding to the session only when the values change; skip it when sessions should not see the roster or workspaces.",
   "type": "module",
   "main": "./dist/index.js",
