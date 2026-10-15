@@ -1,0 +1,36 @@
+{
+  "name": "@veren/graph-flow-yaml",
+  "displayName": "Veren Graph Flow YAML",
+  "version": "0.1.0",
+  "description": "Use when flow definitions live in YAML files and should be loaded into the flow engine at plugin startup: it maps YAML documents to FlowDefinitions (id, nodes, edges, output slot references), validates the shape loudly, registers each flow through ctx.effect for reverse-order unregistration, and reloads on config change; skip it when flows are built in code or stored by @veren/graph-flow-storage.",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "default": "./dist/types.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/core": "workspace:*",
+    "@veren/graph-core": "workspace:*",
+    "@veren/graph-flow-api": "workspace:*",
+    "@veren/graph-flow-engine": "workspace:*",
+    "@veren/yaml-parser": "workspace:*"
+  }
+}

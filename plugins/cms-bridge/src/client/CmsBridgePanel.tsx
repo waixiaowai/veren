@@ -29,7 +29,7 @@ export function CmsBridgePanel({ store, rotate, t }: {
     <div className={styles.panel}>
       <StatusCard status={snapshot.status} error={snapshot.error} t={t} />
       <ApiKeyForm rotate={rotate} t={t} />
-      <IdentityCard savedAt={snapshot.status?.connectedAt ?? 0} t={t} />
+      <IdentityCard deviceId={snapshot.status?.deviceId ?? ''} savedAt={snapshot.status?.connectedAt ?? 0} t={t} />
     </div>
   );
 }

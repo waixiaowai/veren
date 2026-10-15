@@ -14,6 +14,8 @@
 /** 运行状态快照(与宿主 /cms-bridge/api/status 同形)/ the runtime status snapshot (same shape as the host endpoint) */
 export interface BridgeStatus {
   state: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'awaiting-credential' | 'disposed';
+  /** 稳定设备 ID(设备 ID 插件解析;未就绪为 '')/ the stable device id (resolved by the device-id plugin; '' until ready) */
+  deviceId: string;
   credentialFingerprint: string | null;
   reconnectAttempts: number;
   lastError: string | null;
@@ -100,17 +102,19 @@ async function fetchStatus(signal?: AbortSignal): Promise<StatusSnapshot> {
 }
 
 /**
- * 创建 3s 轮询的状态可观察对象;返回句柄含 stop(),由 apply 世界登记清理。
- * Creates the 3s-polling status observable; the handle carries stop() so the
- * apply world registers its cleanup.
+ * 创建基于 SSE 事件推送的状态可观察对象;返回句柄含 start/stop,由 apply
+ * 世界登记清理。start 即取一次快照,之后由 /cms-bridge/api/events 实时推送;
+ * EventSource 断线自动重连。
+ * Creates the SSE-push status observable; the handle carries start/stop for
+ * the apply world to register. start takes one snapshot, then
+ * /cms-bridge/api/events pushes updates; EventSource reconnects itself.
  */
-export function createStatusStore(intervalMs = 3000): StatusStore & { start(): void; stop(): void } {
+export function createStatusStore(): StatusStore & { start(): void; stop(): void } {
   let snapshot: StatusSnapshot = { status: null, error: null };
   const listeners = new Set<() => void>();
-  let timer: ReturnType<typeof setInterval> | null = null;
+  let source: EventSource | null = null;
   const emit = (): void => { for (const fn of listeners) fn(); };
-  const poll = async (): Promise<void> => {
-    const next = await fetchStatus();
+  const applySnapshot = (next: StatusSnapshot): void => {
     snapshot = next;
     emit();
   };
@@ -121,13 +125,17 @@ export function createStatusStore(intervalMs = 3000): StatusStore & { start(): v
       return () => listeners.delete(listener);
     },
     start() {
-      if (timer) return;
-      void poll();
-      timer = setInterval(() => void poll(), intervalMs);
+      if (source) return;
+      // 先取一次快照(SSE 建连前即时显示),再切到事件流实时推送
+      // One snapshot fetch for instant display, then the event stream takes over.
+      void fetchStatus().then(applySnapshot);
+      source = new EventSource('/cms-bridge/api/events');
+      source.onmessage = (e) => applySnapshot({ status: JSON.parse(e.data) as BridgeStatus, error: null });
+      source.onerror = () => applySnapshot({ ...snapshot, error: 'event stream interrupted; retrying' });
     },
     stop() {
-      if (timer) clearInterval(timer);
-      timer = null;
+      source?.close();
+      source = null;
     },
   };
 }

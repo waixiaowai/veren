@@ -150,6 +150,17 @@
   display: block;
 }
 
+/* 只读设备 ID:等宽字体,可选中复制 / the read-only device id: monospace and selectable */
+.deviceId {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mono {
+  font-family: monospace;
+}
+
 /* flex:1 + min-width:0:输入框吃满剩余宽度且可被按钮压缩 */
 /* flex:1 + min-width:0: the input fills the remaining width and can shrink */
 .input {

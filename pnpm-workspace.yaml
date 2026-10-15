@@ -2,6 +2,7 @@ packages:
   - "packages/*"
   - "packages/compiler/*"
   - "packages/commander/*"
+  - "packages/graph/*"
   - "plugins/*"
   - "apps/*"
   - "!apps/veren"

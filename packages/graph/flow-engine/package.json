@@ -1,0 +1,34 @@
+{
+  "name": "@veren/graph-flow-engine",
+  "displayName": "Veren Graph Flow Engine",
+  "version": "0.1.0",
+  "description": "Use when you want flow semantics on top of the DAG kernel: it compiles FlowDefinitions into kernel graphs (schema-validated node configs, explicit input mappings, a per-run blackboard), provides the FlowEngine service (registerFlow/unregisterFlow/run/RunHandle/listRuns), the node-type registry with noop/fail/echo starter handlers and a subflow type, node-level retry/timeout/onError policies and mocks; skip it when you only need the neutral kernel (@veren/graph-core) or type-only declarations (@veren/graph-flow-api).",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "default": "./dist/types.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/core": "workspace:*",
+    "@veren/graph-core": "workspace:*",
+    "@veren/graph-flow-api": "workspace:*"
+  }
+}

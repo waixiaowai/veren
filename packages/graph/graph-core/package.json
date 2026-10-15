@@ -1,0 +1,32 @@
+{
+  "name": "@veren/graph-core",
+  "displayName": "Veren Graph Core",
+  "version": "0.1.0",
+  "description": "Use when you need a business-agnostic directed-acyclic-graph execution kernel: it validates a neutral Node/Edge/Graph model, schedules nodes topologically with a concurrency cap, drives a per-node status machine, emits graph lifecycle events over the Cordis event bus, and applies a replaceable failure-propagation strategy; skip it when you want flow semantics (typed nodes, blackboard data) — those live in @veren/graph-flow-* on top of this kernel.",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "default": "./dist/types.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/core": "workspace:*"
+  }
+}

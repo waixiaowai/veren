@@ -17,7 +17,9 @@ import styles from './panel.module.css';
 /** 组件返回类型:React 元素 / component return type: a React element */
 type Jsx = import('react').ReactElement;
 
-export function IdentityCard({ savedAt, t }: {
+export function IdentityCard({ deviceId, savedAt, t }: {
+  /** 稳定设备 ID(device-id 插件解析;只读展示)/ the stable device id (resolved by the device-id plugin; shown read-only) */
+  deviceId: string;
   /** 上次保存时间(变化触发重载)/ when the identity was last saved (a change reloads) */
   savedAt: number;
   t: Translate;
@@ -123,6 +125,9 @@ export function IdentityCard({ savedAt, t }: {
           spellCheck={false}
           onChange={(e) => patch('nodeId', e.target.value)}
         />
+      </Field>
+      <Field label={t('deviceId')}>
+        <span className={`${styles.deviceId} ${styles.mono}`}>{deviceId !== '' ? deviceId : t('loading')}</span>
       </Field>
       <div className={styles.formRow}>
         <Button

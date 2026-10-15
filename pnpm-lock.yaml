@@ -354,12 +354,18 @@ importers:
       '@deepseek-ai/dsh-storage-domain':
         specifier: 0.2.0-rc.2
         version: 0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-invariants@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4))(@deepseek-ai/dsh-storage@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4))
+      '@deepseek-ai/dsh-storage-json':
+        specifier: 0.2.0-rc.2
+        version: 0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-storage@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4))
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
         version: 3.18.4
       '@veren/core':
         specifier: workspace:*
         version: link:../../core
+      '@veren/graph-core':
+        specifier: workspace:*
+        version: link:../graph-core
       '@veren/graph-flow-api':
         specifier: workspace:*
         version: link:../flow-api
@@ -381,6 +387,9 @@ importers:
       '@veren/core':
         specifier: workspace:*
         version: link:../../core
+      '@veren/graph-core':
+        specifier: workspace:*
+        version: link:../graph-core
       '@veren/graph-flow-api':
         specifier: workspace:*
         version: link:../flow-api
@@ -1112,6 +1121,12 @@ packages:
     resolution: {integrity: sha512-lTQOzHuBIooh3jIr5XINQkjPGEuGy+Dsy0meXDr6Sjty0b99kYgGh4uBC/8mJX1T0kC8d6S0aPP1Y+bHkh6aBw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
+    os: [darwin]
+
+  '@rolldown/binding-darwin-x64@1.2.14':
+    resolution: {integrity: sha512-hyMKEGatjmBYCs/Q4sbIcL/GqpFEqsX3wc+HYVQ/85A4rxc1o7rPm4DUI4GV4k/h0ITddwFSGpqQunI14GXjTA==}
+    engines: {node: ^20.19.0 || >=22.12.0}
+    cpu: [x64]
     os: [darwin]
 
   '@rolldown/binding-freebsd-x64@1.2.14':
@@ -2163,6 +2178,9 @@ snapshots:
   '@rolldown/binding-darwin-arm64@1.2.14':
     optional: true
 
+  '@rolldown/binding-darwin-x64@1.2.14':
+    optional: true
+
   '@rolldown/binding-freebsd-x64@1.2.14':
     optional: true
 
@@ -2528,6 +2546,7 @@ snapshots:
       '@rolldown/binding-android-arm-eabi': 1.2.14
       '@rolldown/binding-android-arm64': 1.2.14
       '@rolldown/binding-darwin-arm64': 1.2.14
+      '@rolldown/binding-darwin-x64': 1.2.14
       '@rolldown/binding-freebsd-x64': 1.2.14
       '@rolldown/binding-linux-arm-gnueabihf': 1.2.14
       '@rolldown/binding-linux-arm64-gnu': 1.2.14

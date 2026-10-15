@@ -165,6 +165,8 @@ export type BridgeState = 'idle' | 'connecting' | 'connected' | 'reconnecting' |
 /** 运行状态快照（可观测性出口）/ an observability snapshot of the runtime state */
 export interface BridgeStatus {
   state: BridgeState;
+  /** 稳定设备 ID(@veren/device-id 解析;未就绪为 '')/ the stable device id (resolved by @veren/device-id; '' until ready) */
+  deviceId: string;
   /** 当前凭证指纹（前 4 位 + 长度，绝不泄漏原文）/ a credential fingerprint (never the raw token) */
   credentialFingerprint: string | null;
   reconnectAttempts: number;

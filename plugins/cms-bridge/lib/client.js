@@ -67,22 +67,25 @@ window.__ModuleLoader__.load({
 			}
 		}
 		/**
-		* 创建 3s 轮询的状态可观察对象;返回句柄含 stop(),由 apply 世界登记清理。
-		* Creates the 3s-polling status observable; the handle carries stop() so the
-		* apply world registers its cleanup.
+		* 创建基于 SSE 事件推送的状态可观察对象;返回句柄含 start/stop,由 apply
+		* 世界登记清理。start 即取一次快照,之后由 /cms-bridge/api/events 实时推送;
+		* EventSource 断线自动重连。
+		* Creates the SSE-push status observable; the handle carries start/stop for
+		* the apply world to register. start takes one snapshot, then
+		* /cms-bridge/api/events pushes updates; EventSource reconnects itself.
 		*/
-		function createStatusStore(intervalMs = 3e3) {
+		function createStatusStore() {
 			let snapshot = {
 				status: null,
 				error: null
 			};
 			const listeners = /* @__PURE__ */ new Set();
-			let timer = null;
+			let source = null;
 			const emit = () => {
 				for (const fn of listeners) fn();
 			};
-			const poll = async () => {
-				snapshot = await fetchStatus();
+			const applySnapshot = (next) => {
+				snapshot = next;
 				emit();
 			};
 			return {
@@ -92,13 +95,21 @@ window.__ModuleLoader__.load({
 					return () => listeners.delete(listener);
 				},
 				start() {
-					if (timer) return;
-					poll();
-					timer = setInterval(() => void poll(), intervalMs);
+					if (source) return;
+					fetchStatus().then(applySnapshot);
+					source = new EventSource("/cms-bridge/api/events");
+					source.onmessage = (e) => applySnapshot({
+						status: JSON.parse(e.data),
+						error: null
+					});
+					source.onerror = () => applySnapshot({
+						...snapshot,
+						error: "event stream interrupted; retrying"
+					});
 				},
 				stop() {
-					if (timer) clearInterval(timer);
-					timer = null;
+					source?.close();
+					source = null;
 				}
 			};
 		}
@@ -116,7 +127,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0cms-css:C:\Users\imeep\Documents\cursour\plugins\cms-bridge\src\client\panel.module.css.mjs
-		const css = "._6Q-w6W_panel{flex-direction:column;gap:12px;width:100%;display:flex}._6Q-w6W_card{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);box-sizing:border-box;border-radius:8px;flex-direction:column;gap:6px;width:100%;padding:10px 12px;display:flex;position:relative}._6Q-w6W_badge{z-index:1;pointer-events:none;position:absolute;top:0;right:12px;transform:translateY(-50%);box-shadow:0 1px 4px #0000001f}._6Q-w6W_cardTitle{align-items:center;gap:6px;font-size:13px;font-weight:600;display:flex}._6Q-w6W_iconImgSmall{object-fit:cover;border-radius:4px;width:16px;height:16px;display:block}._6Q-w6W_hint{color:var(--dsw-alias-label-secondary);font-size:11px}._6Q-w6W_stateLine{align-items:center;gap:8px;display:flex}._6Q-w6W_stateLabel{font-size:13px}._6Q-w6W_row{justify-content:space-between;gap:12px;font-size:12px;display:flex}._6Q-w6W_rowLabel{color:var(--dsw-alias-label-secondary);flex-shrink:0}._6Q-w6W_rowValue{text-align:right;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;overflow:hidden}._6Q-w6W_formRow{align-items:center;gap:8px;width:100%;display:flex}._6Q-w6W_fieldRow{align-items:center;gap:10px;font-size:12px;display:flex}._6Q-w6W_fieldLabel{color:var(--dsw-alias-label-secondary);flex-shrink:0;width:96px}._6Q-w6W_iconRow{flex:auto;align-items:center;gap:8px;min-width:0;display:flex}._6Q-w6W_iconInput{text-align:center;max-width:120px}._6Q-w6W_iconPreview{font-size:20px;line-height:1}._6Q-w6W_iconImg{object-fit:cover;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;width:32px;height:32px;display:block}._6Q-w6W_input{flex:auto;min-width:0;font-family:monospace;font-size:12px}._6Q-w6W_eyeToggle{flex-shrink:0;justify-content:center;align-items:center;width:28px;height:28px;padding:0;display:inline-flex}._6Q-w6W_eyeIcon{width:16px;height:16px;display:block}._6Q-w6W_saved{color:var(--dsw-alias-state-success-primary);font-size:12px}._6Q-w6W_errorText{color:var(--dsw-alias-state-error-primary);overflow-wrap:anywhere;font-size:12px}";
+		const css = "._6Q-w6W_panel{flex-direction:column;gap:12px;width:100%;display:flex}._6Q-w6W_card{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);box-sizing:border-box;border-radius:8px;flex-direction:column;gap:6px;width:100%;padding:10px 12px;display:flex;position:relative}._6Q-w6W_badge{z-index:1;pointer-events:none;position:absolute;top:0;right:12px;transform:translateY(-50%);box-shadow:0 1px 4px #0000001f}._6Q-w6W_cardTitle{align-items:center;gap:6px;font-size:13px;font-weight:600;display:flex}._6Q-w6W_iconImgSmall{object-fit:cover;border-radius:4px;width:16px;height:16px;display:block}._6Q-w6W_hint{color:var(--dsw-alias-label-secondary);font-size:11px}._6Q-w6W_stateLine{align-items:center;gap:8px;display:flex}._6Q-w6W_stateLabel{font-size:13px}._6Q-w6W_row{justify-content:space-between;gap:12px;font-size:12px;display:flex}._6Q-w6W_rowLabel{color:var(--dsw-alias-label-secondary);flex-shrink:0}._6Q-w6W_rowValue{text-align:right;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;overflow:hidden}._6Q-w6W_formRow{align-items:center;gap:8px;width:100%;display:flex}._6Q-w6W_fieldRow{align-items:center;gap:10px;font-size:12px;display:flex}._6Q-w6W_fieldLabel{color:var(--dsw-alias-label-secondary);flex-shrink:0;width:96px}._6Q-w6W_iconRow{flex:auto;align-items:center;gap:8px;min-width:0;display:flex}._6Q-w6W_iconInput{text-align:center;max-width:120px}._6Q-w6W_iconPreview{font-size:20px;line-height:1}._6Q-w6W_iconImg{object-fit:cover;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;width:32px;height:32px;display:block}._6Q-w6W_deviceId{overflow-wrap:anywhere;flex:auto;min-width:0}._6Q-w6W_mono{font-family:monospace}._6Q-w6W_input{flex:auto;min-width:0;font-family:monospace;font-size:12px}._6Q-w6W_eyeToggle{flex-shrink:0;justify-content:center;align-items:center;width:28px;height:28px;padding:0;display:inline-flex}._6Q-w6W_eyeIcon{width:16px;height:16px;display:block}._6Q-w6W_saved{color:var(--dsw-alias-state-success-primary);font-size:12px}._6Q-w6W_errorText{color:var(--dsw-alias-state-error-primary);overflow-wrap:anywhere;font-size:12px}";
 		const tagId = "@veren/cms-bridge/panel.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -129,6 +140,7 @@ window.__ModuleLoader__.load({
 			"badge": "_6Q-w6W_badge",
 			"card": "_6Q-w6W_card",
 			"cardTitle": "_6Q-w6W_cardTitle",
+			"deviceId": "_6Q-w6W_deviceId",
 			"errorText": "_6Q-w6W_errorText",
 			"eyeIcon": "_6Q-w6W_eyeIcon",
 			"eyeToggle": "_6Q-w6W_eyeToggle",
@@ -142,6 +154,7 @@ window.__ModuleLoader__.load({
 			"iconPreview": "_6Q-w6W_iconPreview",
 			"iconRow": "_6Q-w6W_iconRow",
 			"input": "_6Q-w6W_input",
+			"mono": "_6Q-w6W_mono",
 			"panel": "_6Q-w6W_panel",
 			"row": "_6Q-w6W_row",
 			"rowLabel": "_6Q-w6W_rowLabel",
@@ -289,7 +302,7 @@ window.__ModuleLoader__.load({
 		* Load/save behaviors are injected from the owner site (rule 10); the icon
 		* field renders a live emoji preview.
 		*/
-		function IdentityCard({ savedAt, t }) {
+		function IdentityCard({ deviceId, savedAt, t }) {
 			const [identity, setIdentity] = (0, react.useState)(null);
 			const [phase, setPhase] = (0, react.useState)("idle");
 			const [uploading, setUploading] = (0, react.useState)(false);
@@ -410,6 +423,13 @@ window.__ModuleLoader__.load({
 							value: identity.nodeId,
 							spellCheck: false,
 							onChange: (e) => patch("nodeId", e.target.value)
+						})
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Field, {
+						label: t("deviceId"),
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: `${panel_module_css_default.deviceId} ${panel_module_css_default.mono}`,
+							children: deviceId !== "" ? deviceId : t("loading")
 						})
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
@@ -593,6 +613,7 @@ window.__ModuleLoader__.load({
 						t
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IdentityCard, {
+						deviceId: snapshot.status?.deviceId ?? "",
 						savedAt: snapshot.status?.connectedAt ?? 0,
 						t
 					})
@@ -620,7 +641,8 @@ window.__ModuleLoader__.load({
 			nodeDescriptionPlaceholder: "一句话描述这个节点(可选)",
 			nodeIcon: "图标",
 			nodeId: "节点 ID",
-			identityHint: "保存后经 Loader 热更,并在下次连接时上报给 cms;ID 为稳定 uuid,修改后服务端将视为新节点。",
+			deviceId: "设备 ID",
+			identityHint: "保存后经 Loader 热更,并在下次连接时上报给 cms;ID 为稳定 uuid,修改后服务端将视为新节点。设备 ID 由 device-id 插件从本机硬件解析,只读。",
 			loading: "加载中…",
 			credential: "凭证",
 			notSet: "未配置",
@@ -629,7 +651,7 @@ window.__ModuleLoader__.load({
 			pending: "待补报",
 			inflight: "执行中",
 			lastError: "最近错误",
-			refreshHint: "每 3 秒自动刷新",
+			refreshHint: "状态实时推送",
 			apiUnreachable: "API 不可达:{error}",
 			"state.connected": "已连接",
 			"state.connecting": "连接中",
@@ -656,7 +678,8 @@ window.__ModuleLoader__.load({
 			nodeDescriptionPlaceholder: "One line about this node (optional)",
 			nodeIcon: "Icon",
 			nodeId: "Node ID",
-			identityHint: "Saved through the Loader hot path and reported to cms on the next connect; the ID is a stable uuid — changing it makes the server treat this as a new node.",
+			deviceId: "Device ID",
+			identityHint: "Saved through the Loader hot path and reported to cms on the next connect; the ID is a stable uuid — changing it makes the server treat this as a new node. The Device ID is resolved from this machine by the device-id plugin and is read-only.",
 			loading: "Loading…",
 			credential: "Credential",
 			notSet: "not set",
@@ -665,7 +688,7 @@ window.__ModuleLoader__.load({
 			pending: "Pending events",
 			inflight: "In-flight",
 			lastError: "Last error",
-			refreshHint: "Auto-refreshes every 3s",
+			refreshHint: "Realtime status updates",
 			apiUnreachable: "API unreachable: {error}",
 			"state.connected": "Connected",
 			"state.connecting": "Connecting",

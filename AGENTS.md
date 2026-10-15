@@ -80,7 +80,7 @@ export function apply(ctx: Context): void { ... }
 ```
 
 - 稳定测试节点，所有已稳定运行的插件安装到这里
-目录: DSH_HOME=~/.dsh_test_1 密钥从~/.dsh/.credentials.yaml拷贝
+目录: DSH_HOME=~/.dsh_test_1 密钥从~/.dsh/.credentials.yaml拷贝 地址：http://127.0.0.1:3080/
 
 - 一次性测试节点，测试结束后清理，用于e2e自动化测试
 目录：DSH_HOME=~/.dsh_test/编号，密钥从~/.dsh/.credentials.yaml拷贝

@@ -15,3 +15,4 @@ scan:
   - packages
   - cargos
   - plugins
+  - deepseek/deepseek-harness/packages
