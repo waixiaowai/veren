@@ -4,7 +4,8 @@ The flow semantic-layer engine on top of the DAG kernel. Use it when you want fl
 
 ## What it provides
 
-- **`FlowEngine` service** (`graphFlowEngine`): `registerFlow` / `unregisterFlow` / `hasFlow` / `run` / `listRuns`.
+- **`FlowEngine` service** (`graphFlowEngine`): `registerFlow` / `unregisterFlow` / `hasFlow` / `listFlows` / `run` / `listRuns` / `getRun`.
+- **Registry and run reads**: `listFlows()` returns each registered flow's id, node/edge counts and declared output names (sorted by id); `getRun(runId)` returns one run's status and, once it finished, the full result (`FlowRunDetail.result`). `@veren/graph-tools` is the model-facing projection of this read surface.
 - **Registration-time compilation, fails loud**: `NODE_TYPE_NOT_FOUND`, `NODE_CONFIG_INVALID`, `FLOW_CYCLE_DETECTED`, `FLOW_REFERENCE_CYCLE` (mutual subflow references), `GRAPH_DANGLING_EDGE` passthrough.
 - **`run()` → `FlowRunHandle`**: `status()`, cooperative `cancel()`, `awaitCompletion()`; `FlowRunResult` carries resolved output variables plus per-node records (`{ status, skipReason?, startedAt, endedAt, error? }`).
 - **Node executor wrapper**: explicit input mapping (`${nodeId.slot}` or literals), retry (`{ tries, backoffMs }`), node-level or engine-level timeout (`NODE_TIMEOUT`), `mocks` (pinned outputs, execution skipped), `onError` policies — `failFast` (default), `fallback` (declarative value keeps the flow running), `errorBranch` (failure continues along the named `error` port; the default port closes instead).

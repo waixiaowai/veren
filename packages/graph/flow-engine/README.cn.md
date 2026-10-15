@@ -4,7 +4,8 @@ DAG 内核之上的 flow 语义层引擎。当你需要 flow 语义——带 sch
 
 ## 提供什么
 
-- **`FlowEngine` 服务**（`graphFlowEngine`）：`registerFlow` / `unregisterFlow` / `hasFlow` / `run` / `listRuns`。
+- **`FlowEngine` 服务**（`graphFlowEngine`）：`registerFlow` / `unregisterFlow` / `hasFlow` / `listFlows` / `run` / `listRuns` / `getRun`。
+- **注册表与运行读取面**：`listFlows()` 返回每个已注册 flow 的 id、节点数、边数与声明的输出变量名（按 id 升序）；`getRun(runId)` 返回单次运行的状态，完成后带上完整结果（`FlowRunDetail.result`）。`@veren/graph-tools` 就是把这套读取面暴露成模型可见工具。
 - **注册期编译，fails loud**：`NODE_TYPE_NOT_FOUND`、`NODE_CONFIG_INVALID`、`FLOW_CYCLE_DETECTED`、`FLOW_REFERENCE_CYCLE`（subflow 互引用）、`GRAPH_DANGLING_EDGE` 透传。
 - **`run()` → `FlowRunHandle`**：`status()`、协作式 `cancel()`、`awaitCompletion()`；`FlowRunResult` 携带解析后的输出变量与逐节点记录（`{ status, skipReason?, startedAt, endedAt, error? }`）。
 - **节点执行器包裹**：显式输入映射（`${nodeId.slot}` 或字面量）、重试（`{ tries, backoffMs }`）、节点级/引擎级超时（`NODE_TIMEOUT`）、`mocks`（固定产出，跳过执行）、`onError` 策略 —— `failFast`（默认）、`fallback`（声明式兜底值继续跑）、`errorBranch`（失败沿名为 `error` 的输出端口继续，默认端口改为关闭）。

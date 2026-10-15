@@ -15,7 +15,7 @@ import type { FlowBlackboard, FlowDefinition, FlowId, NodeExecuteContext, NodeId
 import { createBuiltinHandlers, NodeRegistryImpl } from './registry.js';
 import { compileFlow, createBlackboard, createRunner, flowError, resolveInputValue, toSlots } from './runtime.js';
 import type { OutcomePorts } from './runtime.js';
-import type { CompiledFlow, FlowNodeDefMap, FlowNodeRecord, FlowRunHandle, FlowRunOptions, FlowRunResult, FlowRunStatus, FlowRunSummary, FlowStorage, RunEntry } from './types.js';
+import type { CompiledFlow, FlowNodeDefMap, FlowNodeRecord, FlowRunDetail, FlowRunHandle, FlowRunOptions, FlowRunResult, FlowRunStatus, FlowRunSummary, FlowStorage, FlowSummary, RunEntry } from './types.js';
 
 /** 引擎服务令牌 / the engine service token */
 export const FlowEngineToken = defineToken<FlowEngineService>('graphFlowEngine');
@@ -92,6 +92,25 @@ export class FlowEngineService extends Service {
 
     hasFlow(flowId: FlowId): boolean {
         return this.flows.has(flowId);
+    }
+
+    /** 已注册 flow 摘要，按 id 升序（清单面稳定，便于模型/UI 消费）/ registered-flow summaries sorted by id */
+    listFlows(): FlowSummary[] {
+        return [...this.flows.values()]
+            .map((compiled) => ({
+                id: compiled.definition.id,
+                nodes: compiled.definition.nodes.length,
+                edges: compiled.definition.edges.length,
+                outputs: Object.keys(compiled.definition.output ?? {}),
+            }))
+            .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    }
+
+    /** 按 runId 查运行详情；运行中只有状态，完成后带结果 / one run by id: status while running, result once finished */
+    getRun(runId: RunId): FlowRunDetail | undefined {
+        const entry = this.runs.get(runId);
+        if (entry === undefined) return undefined;
+        return { flowId: entry.flowId, runId: entry.runId, status: entry.status, startedAt: entry.startedAt, result: entry.result };
     }
 
     /** flow 引用图 DFS 找环 / find reference cycles in the flow reference graph */
@@ -253,6 +272,9 @@ export class FlowEngineService extends Service {
             error: failure ? { code: failure.error!.code, message: failure.error!.message } : undefined,
         };
         entry.status = status;
+        // 结果回写运行条目（getRun 面）：内存随运行清单一起增长，与 listRuns 同生命周期
+        // Write the result back onto the run entry (the getRun surface); it lives as long as the run list.
+        entry.result = result;
         this.ctx.emit('flow/run-end', { flowId: entry.flowId, runId: entry.runId, status, output, blackboard: blackboard.snapshot() });
         try {
             await this.storage?.saveRun(result);

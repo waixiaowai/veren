@@ -1,6 +1,8 @@
-# Veren graph 插件族：Host 级服务（内核 / flow 引擎 / 存储 / 通用 tool 节点）。
+# Veren graph 插件族：Host 级服务（内核 / flow 引擎 / YAML 装载 / 存储 / 通用 tool 节点）
+# 以及它们的模型可见工具面。
 # The Veren graph plugin family: Host-level services (kernel / flow engine /
-# storage / the generic tool node).
+# YAML loading / storage / the generic tool node), the YAML parser provider that
+# the flow-YAML loader injects, and the model-facing graph tools.
 #
 # 依赖说明 / dependency notes:
 # - graph-flow-engine 经 ctx.tools（dsh-tools Host 服务）被 node-tool 使用；
@@ -9,18 +11,52 @@
 #   Host service), which the Host configuration already mounts with the tool chain.
 # - graph-flow-storage inject 'storageDomain'（dsh-storage-domain Host 服务）。
 #   graph-flow-storage injects 'storageDomain' (the dsh-storage-domain Host service).
+# - graph-flow-yaml inject FlowEngine 与 yaml-parser 能力，装载 Config.files 列出的 YAML flow；
+#   默认空列表表示只提供 FlowYamlLoader 能力，不预载任何 flow。
+#   graph-flow-yaml injects the FlowEngine and the yaml-parser capability and loads the
+#   YAML flows named by Config.files; the default empty list provides only the
+#   FlowYamlLoader capability and preloads no flow.
 # - 装载顺序由 inject 声明驱动，行序仅表意图 / activation is inject-driven; row order is intent only.
-- id: graph-kernel
-  name: "@veren/graph-core"
-  config:
-    concurrency: 4
-- id: graph-flow-engine
-  name: "@veren/graph-flow-engine"
-  config:
-    nodeTimeoutMs: 30000
-- id: graph-flow-node-tool
-  name: "@veren/graph-node-tool"
-- id: graph-flow-storage
-  name: "@veren/graph-flow-storage"
-  config:
-    restoreFlows: false
+#
+# 这些行在 profile 的空入口列表上新增，因此本层必须用 insert；裸 id 行是覆写语义，
+# 只在被覆写的行已存在时可用。后续 bundle 层与用户 profile patch 再按 id 覆写它们。
+# These rows are added over the profile's empty entry list, so this layer must use
+# `insert`; a bare id row overrides an existing row. Later bundle layers and the
+# user's profile patch address these rows by id.
+- insert:
+    # yaml-parser 是能力 Provider：graph-flow-yaml 注入它的服务令牌（verenYamlParser），
+    # 因此这一行必须先被挂载，否则 flow-yaml 一直 pending。
+    # yaml-parser is the capability provider: graph-flow-yaml injects its service
+    # token (verenYamlParser), so this row must be mounted for that injection to
+    # resolve; without it flow-yaml stays pending.
+    - id: veren-yaml-parser
+      name: "@veren/yaml-parser"
+    - id: graph-kernel
+      name: "@veren/graph-core"
+      config:
+        concurrency: 4
+    - id: graph-flow-engine
+      name: "@veren/graph-flow-engine"
+      config:
+        nodeTimeoutMs: 30000
+    - id: graph-flow-node-tool
+      name: "@veren/graph-node-tool"
+    - id: graph-flow-yaml
+      name: "@veren/graph-flow-yaml"
+      config:
+        files: []
+    - id: graph-flow-storage
+      name: "@veren/graph-flow-storage"
+      config:
+        restoreFlows: false
+    # graph-tools 把引擎的"列 / 跑 / 查"读取面暴露成模型可见工具（graph_list /
+    # graph_run / graph_status）；它 inject 'tools'（dsh-tools 已随工具链装载）
+    # 与 FlowEngine 服务，不碰存储与内核。
+    # graph-tools projects the engine's list/run/read surface as model-facing
+    # tools (graph_list / graph_run / graph_status); it injects 'tools' (already
+    # mounted with the tool chain) and the FlowEngine service, and touches neither
+    # storage nor the kernel.
+    - id: graph-tools
+      name: "@veren/graph-tools"
+      config:
+        runTimeoutMs: 60000

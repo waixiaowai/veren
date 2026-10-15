@@ -81,6 +81,7 @@ export function apply(ctx: Context): void { ... }
 
 - 稳定测试节点，所有已稳定运行的插件安装到这里
 目录: DSH_HOME=~/.dsh_test_1 密钥从~/.dsh/.credentials.yaml拷贝 地址：http://127.0.0.1:3080/
+邮箱：admin@dsh.local 密码: dsh-test-admin
 
 - 一次性测试节点，测试结束后清理，用于e2e自动化测试
 目录：DSH_HOME=~/.dsh_test/编号，密钥从~/.dsh/.credentials.yaml拷贝
@@ -103,3 +104,44 @@ import type { } from '@deepseek-ai/dsh-tools';
 
 - 特别注意：优先使用完整的类型面，不要创建别名，别名层只会增加漂移风险
 - 特别注意：禁止任何修改~/.dsh 目录下的任何文件，所有的插件不能安装到~/.dsh目录切记，特别是执行 dsh plugin 命令时，一定要确保 DSH_HOME 对不对，一旦搞错，会彻底崩溃，因为你在dsh desktop下工作，崩溃等于自杀
+
+## 桌面端白屏 = client bundle 的 rev 被 relink 打废（2026-10-15 复盘，必读）
+
+- 结论：白屏**不是插件文件损坏**，而是客户端 bundle 的 rev 过期导致 bootstrap 脚本 404
+  - 宿主按 `(插件id, rev)` 精确寻址：`/plugins/??<pkg>/client.js&rev=<rev>`
+  - rev **只由文件元数据**决定：`rev = sha1("plugin-artifact"\0, [mtimeMs, ctimeMs, size])` 取前 12 位十六进制 —— 内容哈希不参与
+  - 单行 row URL 只在"当前这一代"注册（上一代只保留 batch URL）→ 旧 rev 立刻 404，没有回退
+  - `@deepseek-ai/dsh-client-modules` 是**唯一 bootstrap 行**（`PARSER_PRELOAD_IDS`），它 404 → `__DSH_BOOT_READY__` 被 reject → `window.__ModuleLoader__` 永不安装 → 所有客户端插件都不装载 → 白屏
+- 关键陷阱：**硬链接重建只改 ctime，不改内容**。pnpm relink / 包投影 / 复制覆盖恢复，都会让**内容 1 字节没变、rev 整代变化**
+
+### 铁律（桌面端运行期间，`~/.dsh` 只读）
+
+1. 桌面端在跑 → 禁止对 `DSH_HOME=~/.dsh` 做任何写操作：`dsh plugin add|remove`、GUI 插件管理器安装/修复/更新、`pnpm install|add|install --force|rebuild`、启用或禁用 bundle（改 `dsh.profile.bundles`）
+2. 必须改 → **先完全退出桌面端**（含托盘/后台），改完再启动（冷启动一次定型）；启动后 3~5 秒内不要再写 profile（这是 boot 窗口期）
+3. 任何一次写入之后 → **立刻 Ctrl+R 重载窗口**，不要直接继续用
+4. 白屏 ≠ 损坏 → `Ctrl+R` / 重开窗口即恢复；**禁止重装、禁止 pnpm reinstall**
+5. `DSH_HOME` 每命令显式指定，**不设全局**（全局会把从同一 shell 启动的桌面端一起带偏）；命令前打印实际 HOME 做核对
+6. 不用 `npx` 形态运行 dsh（会在 `~/.dsh/profiles/node_modules` 建指向 npx 哈希目录的 junction，解析锚点漂移）；固定 pnpm 版本与 store（v10/v11 混用会 `ERR_PNPM_UNEXPECTED_STORE` 并触发强制重链）
+7. 备份/同步只允许"复制出去"，**禁止回灌覆盖** profile 目录（robocopy、解压、网盘同步都会让全量 ctime 变化）
+8. 开发自己的客户端插件：改完主动 `Ctrl+R`，别指望 live 自动重载恰好落在安全时机；看到白屏先重载，不要怀疑代码写坏了
+
+### 自查（只读，不改任何东西）
+
+```powershell
+# 1) bootstrap 行的元数据：ctime 晚于窗口启动时间 = 已被 relink（看 mtime 是看不出来的）
+#    bootstrap row metadata: a ctime newer than the window start means it was relinked
+node -e "const s=require('fs').statSync(process.env.USERPROFILE+'/.dsh/profiles/desktop/node_modules/@deepseek-ai/dsh-client-modules/lib/client.js');console.log('mtime',new Date(s.mtimeMs).toISOString(),'ctime',new Date(s.ctimeMs).toISOString(),'size',s.size)"
+
+# 2) 谁重链的：目标落在 pnpm store v10/v11 就是哪套 pnpm 干的
+#    who relinked it: the store path tells which pnpm did it
+fsutil hardlink list "$env:USERPROFILE\.dsh\profiles\desktop\node_modules\@deepseek-ai\dsh-client-modules\lib\client.js"
+
+# 3) 桌面端崩溃日志（白屏现场，含失败 URL 与 rev）
+#    crash logs of the desktop window (failed URL + rev)
+Get-ChildItem "$env:APPDATA\@deepseek-ai\dsh-desktop\logs" -Filter "crash-*-web-boot.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 3 Name,LastWriteTime
+```
+
+- 崩因判读：日志里 `desktop web: failed to load plugins/??@deepseek-ai/dsh-client-modules/client.js&rev=<X>`，且 X 与磁盘上任何副本算出的 rev 都不相等 → 该行用的是**过期一代**的 rev
+- 已知坏账（别假设 profile 是干净的）：`~/.dsh/profiles/node_modules` 的 **617 个 junction 全部悬空**，指向已删除的旧安装 `%LOCALAPPDATA%\Programs\DSH Desktop\resources\app.asar.unpacked` 与失效的 npx 缓存 → 解析锚点可能漂移
+- 事故记录：2026-10-15 15:16:51 与 16:12:02 两次白屏，失败行 rev 分别为 `fd31d33c4cd8` / `f2f47ba3a70a`，磁盘上均无对应副本；同一次 boot 的其它行（locale / cordis-client-runner / sidebar-right）rev 与磁盘完全一致 → 只有 bootstrap 行错代
+- 别白费力气：`package.json` 里的 `"patchReload": "live"` 在桌面端 0.2.0-rc.2 的 `app.asar` 内**没有任何读取代码**（正向对照：`profile.bundles`、`OPTIONAL_BUNDLES` 都能搜到，`patchReload` 搜不到）→ 不要拿它当开关

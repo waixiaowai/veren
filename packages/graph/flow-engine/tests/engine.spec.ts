@@ -307,3 +307,45 @@ describe('subflow and events', () => {
         expect(flowError('FLOW_NOT_FOUND', 'x')).toBeInstanceOf(FlowError);
     });
 });
+
+describe('flow list and run detail', () => {
+    it('lists registered flows sorted by id with their shape', async () => {
+        const { engine } = makeEngine();
+        await engine.registerFlow({ id: 'zeta', nodes: [{ id: 'a', type: 'noop' }], edges: [] });
+        await engine.registerFlow({
+            id: 'alpha',
+            nodes: [{ id: 'a', type: 'echo', config: { message: 'hi' } }, { id: 'b', type: 'noop' }],
+            edges: [{ from: 'a', to: 'b' }],
+            output: { said: '${a.message}' },
+        });
+        expect(engine.listFlows()).toEqual([
+            { id: 'alpha', nodes: 2, edges: 1, outputs: ['said'] },
+            { id: 'zeta', nodes: 1, edges: 0, outputs: [] },
+        ]);
+        await engine.unregisterFlow('alpha');
+        expect(engine.listFlows().map((flow) => flow.id)).toEqual(['zeta']);
+    });
+
+    it('reports one run by id: status while running, result once finished', async () => {
+        const { engine, registry } = makeEngine();
+        registry.register({
+            type: 'hold',
+            version: 1,
+            config: z.object({}) as NodeHandler['config'],
+            execute: (_input, nctx) => new Promise((resolve) => {
+                nctx.signal.addEventListener('abort', () => resolve('done'), { once: true });
+            }),
+        });
+        await engine.registerFlow({ id: 'tracked', nodes: [{ id: 'a', type: 'hold' }], edges: [], output: { out: '${a.out}' } });
+        expect(engine.getRun('unknown-run' as never)).toBeUndefined();
+        const handle = engine.run('tracked');
+        const live = engine.getRun(handle.runId)!;
+        expect(live).toMatchObject({ flowId: 'tracked', runId: handle.runId, status: 'running' });
+        expect(live.result).toBeUndefined();
+        handle.cancel();
+        await handle.awaitCompletion();
+        const done = engine.getRun(handle.runId)!;
+        expect(done.status).toBe('cancelled');
+        expect(done.result?.runId).toBe(handle.runId);
+    });
+});

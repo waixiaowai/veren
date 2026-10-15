@@ -47,6 +47,7 @@ export type {
     FlowEngine,
     FlowNodeDefMap,
     FlowNodeRecord,
+    FlowRunDetail,
     FlowRunEndPayload,
     FlowRunEventPayload,
     FlowRunHandle,
@@ -55,6 +56,7 @@ export type {
     FlowRunStatus,
     FlowRunSummary,
     FlowStorage,
+    FlowSummary,
 } from './types.js';
 
 /** 插件名（即 FlowEngine 服务令牌）/ the plugin name (the FlowEngine service token) */

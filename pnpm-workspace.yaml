@@ -3,6 +3,14 @@ packages:
   - "packages/compiler/*"
   - "packages/commander/*"
   - "packages/graph/*"
+  # graph-bundle 是安装件而非可安装单元：它自带 tarballs/，其内部依赖是
+  # `pnpm pack` 改写出的裸版本号，只有目标 profile 的 overrides 才能解析；
+  # 留在工作区内会让根 `pnpm install` 去 registry 找 @veren/*（404）。
+  # graph-bundle is a shipping artifact, not an installable unit: it carries its
+  # own tarballs/ whose inner dependencies are the bare versions `pnpm pack`
+  # rewrites, resolvable only by the target profile's overrides; keeping it in
+  # the workspace makes a root `pnpm install` hit the registry for @veren/*.
+  - "!packages/graph/bundle"
   - "plugins/*"
   - "apps/*"
   - "!apps/veren"

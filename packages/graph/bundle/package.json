@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Bundle that mounts the Veren graph plugin family (DAG kernel, flow engine, storage persistence, and the generic tool node) as Host plugins.",
+  "description": "Bundle that mounts the Veren graph plugin family (DAG kernel, flow engine, YAML flow loading, storage persistence, the generic tool node, and the model-facing graph tools) as Host plugins.",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -16,6 +16,9 @@
     "@veren/graph-flow-api": "file:./tarballs/veren-graph-flow-api-0.1.0.tgz",
     "@veren/graph-flow-engine": "file:./tarballs/veren-graph-flow-engine-0.1.0.tgz",
     "@veren/graph-node-tool": "file:./tarballs/veren-graph-node-tool-0.1.0.tgz",
-    "@veren/graph-flow-storage": "file:./tarballs/veren-graph-flow-storage-0.1.0.tgz"
+    "@veren/graph-flow-storage": "file:./tarballs/veren-graph-flow-storage-0.1.0.tgz",
+    "@veren/graph-flow-yaml": "file:./tarballs/veren-graph-flow-yaml-0.1.0.tgz",
+    "@veren/graph-tools": "file:./tarballs/veren-graph-tools-0.1.0.tgz",
+    "@veren/yaml-parser": "file:./tarballs/veren-yaml-parser-0.1.0.tgz"
   }
 }

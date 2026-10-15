@@ -49,6 +49,31 @@ export interface FlowRunSummary {
     startedAt: number;
 }
 
+/** 已注册 flow 的摘要（listFlows 面）/ summary of one registered flow (the listFlows surface) */
+export interface FlowSummary {
+    id: FlowId;
+    /** 节点数 / node count */
+    nodes: number;
+    /** 边数 / edge count */
+    edges: number;
+    /** 声明的输出变量名 / declared output variable names */
+    outputs: string[];
+}
+
+/**
+ * 一次运行的详情（getRun 面）：运行中只有状态，完成后带结果。
+ * Detail of one run (the getRun surface): status while running, the result
+ * once finished.
+ */
+export interface FlowRunDetail {
+    flowId: FlowId;
+    runId: RunId;
+    status: FlowRunStatus;
+    startedAt: number;
+    /** 完成后存在的运行结果 / the run result, present once the run finished */
+    result?: FlowRunResult;
+}
+
 /** run 选项：mock 试跑（被 mock 的节点跳过执行直接产出）/ run options: pinned mocks skip execution */
 export interface FlowRunOptions {
     input?: Record<string, unknown>;
@@ -62,9 +87,13 @@ export interface FlowEngine {
     registerFlow(definition: FlowDefinition): Promise<void>;
     unregisterFlow(flowId: FlowId): Promise<void>;
     hasFlow(flowId: FlowId): boolean;
+    /** 已注册 flow 摘要（按 id 升序）/ registered-flow summaries, sorted by id */
+    listFlows(): FlowSummary[];
     /** 启动一次运行（非阻塞，返回句柄）/ start one run (non-blocking; returns a handle) */
     run(flowId: FlowId, options?: FlowRunOptions): FlowRunHandle;
     listRuns(): FlowRunSummary[];
+    /** 按 runId 查详情；未知 runId 返回 undefined / one run by id; undefined for an unknown id */
+    getRun(runId: RunId): FlowRunDetail | undefined;
 }
 
 /** 编译产物：校验后的节点载荷，按 run 组装内核 Graph / compiled artifacts: validated payloads per run */
@@ -86,6 +115,8 @@ export interface RunEntry {
     startedAt: number;
     /** 该 run 的黑板（waterfall 改写同步用）/ the run's blackboard (waterfall rewrite sync) */
     blackboard?: FlowBlackboard;
+    /** 完成后写入的结果（getRun 面）/ the result written back once finished (the getRun surface) */
+    result?: FlowRunResult;
 }
 
 /** 供引擎内部使用的节点定义映射 / node-definition map used by engine internals */
