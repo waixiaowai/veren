@@ -11,10 +11,10 @@
 // only conversion needed is SessionSeq, the host's branded sequence number.
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
-import { renderAgentPreset, renderSessionLine, renderWorkspace, renderWorkspaceList, withHeading } from '../../src/render.js'
-import { deriveFallbackTitle, lastSnapshotText, selectedPreset } from '../../src/session-events.js'
-import type { SessionLogView, SnapshotEvent } from '../../src/session-events.js'
-import { formatCreated, idFragment } from '../../src/text-time.js'
+import { renderAgentPreset, renderSessionLine, renderWorkspace, renderWorkspaceList, withHeading } from '../src/render.ts'
+import { deriveFallbackTitle, lastSnapshotText, selectedPreset } from '../src/session-events.ts'
+import type { SessionLogView, SnapshotEvent } from '../src/session-events.ts'
+import { formatCreated, idFragment } from '../src/text-time.ts'
 
 const NOW = 1_700_000_000_000
 
