@@ -1,14 +1,18 @@
-// 单测：独立插件以 pre-step 追加快照消息——会话信息四字段（title / preset /
-// provider+model / running）与 web 端会话列表同源、仅变化追加、配置可裁剪。
-// Unit tests: the standalone plugin appends snapshot messages at pre-step -
-// the four session facts (title / preset / provider+model / running) share the
-// Web client's sources, additions happen only on change, config can trim the
-// snapshot.
+// 单测：独立插件以 pre-step 追加快照消息——工作记忆拆成三条具名小消息
+// （Agent Preset List / Model Catalog / Workspace List），逐块变化检测：只有
+// 变化的区块才追加；会话信息四字段（title / preset / provider+model / running）
+// 与 web 端会话列表同源；配置可裁剪。
+// Unit tests: the standalone plugin appends snapshot messages at pre-step. The
+// working memory is split into three named small messages (Agent Preset List /
+// Model Catalog / Workspace List) with per-section change detection: only
+// changed sections are appended. The four session facts (title / preset /
+// provider+model / running) share the Web client's sources; config can trim
+// the snapshot.
 import { describe, expect, it, vi } from 'vitest'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { apply, renderAgentPreset, renderWorkspace } from '../src/index.js'
 import type { SessionLogView } from '../src/index.js'
-import { resolveConfig, snapshotTexts } from './support.js'
+import { resolveConfig, latestSectionText, snapshotTexts } from './support.js'
 import type { LogSeq, LoggedMessage } from './support.js'
 
 /** 监听器在测试里被调用的形态（与宿主 agent/pre-step 声明一致）。
@@ -179,33 +183,37 @@ describe('renderAgentPreset / renderWorkspace', () => {
 })
 
 describe('personAgentDynamicContext', () => {
-  it('appends one snapshot with the roster and the four session facts', async () => {
-    // 四字段一行不缺：title / preset / provider+model / created。
-    // All four facts render on one line: title / preset / provider+model /
-    // created.
+  it('appends three small messages: roster, model catalog, workspace list', async () => {
+    // 首步三条消息各一个区块；四字段一行不缺：title / preset / provider+model /
+    // created。
+    // The first step appends three messages, one section each; all four facts
+    // render on one line: title / preset / provider+model / created.
     const { ctx, step } = fakeCtx()
     apply(ctx, resolveConfig())
     const history: LoggedMessage[] = []
     await step(history)
     const texts = snapshotTexts(history)
-    expect(texts).toHaveLength(1)
+    expect(texts).toHaveLength(3)
+    expect(texts[0]).toBe(latestSectionText(history, 'Agent Preset List'))
     expect(texts[0]).toContain('## Agent Preset List')
     expect(texts[0]).toContain('- Standard(standard):default mode')
-    expect(texts[0]).toContain('## Workspace List')
-    expect(texts[0]).toContain('- Demo(ws-1):C:/demo')
+    expect(texts[1]).toContain('## Model Catalog')
+    expect(texts[2]).toBe(latestSectionText(history, 'Workspace List'))
+    expect(texts[2]).toContain('## Workspace List')
+    expect(texts[2]).toContain('- Demo(ws-1):C:/demo')
     // 表格头 + 每会话一行：id / title / preset / provider / model / created at。
     // Table header plus one row per session: id / title / preset / provider /
     // model / created at.
-    expect(texts[0]).toContain('| id | title | preset | provider | model | created at |')
-    expect(texts[0]).toContain('| sess-1 | Greeting | person-agent | deepseek | deepseek-chat | 2026-10-15 |')
-    expect(texts[0]).toContain('| sess-2 | Greeting | person-agent | deepseek | deepseek-chat | 2026-10-15 |')
-    expect(texts[0]).not.toContain('sess-archived')
+    expect(texts[2]).toContain('| id | title | preset | provider | model | created at |')
+    expect(texts[2]).toContain('| sess-1 | Greeting | person-agent | deepseek | deepseek-chat | 2026-10-15 |')
+    expect(texts[2]).toContain('| sess-2 | Greeting | person-agent | deepseek | deepseek-chat | 2026-10-15 |')
+    expect(texts[2]).not.toContain('sess-archived')
   })
 
-  it('appends a fresh snapshot when a registry changes between steps', async () => {
-    // 精确新鲜度：await 读取让变化后的第一次步骤就拿到新值，不经过缓存。
-    // Exact freshness: the awaited read lets the first step after a change see
-    // the new values with no cache in between.
+  it('appends only the sections that changed between steps', async () => {
+    // 按块变化检测：模型目录没变 → 不追加；名单与工作区都变了 → 各补一条。
+    // Per-section change detection: the unchanged model catalog appends
+    // nothing; the changed roster and workspace each append one message.
     const { ctx, step, setLists } = fakeCtx()
     apply(ctx, resolveConfig())
     const history: LoggedMessage[] = []
@@ -216,35 +224,50 @@ describe('personAgentDynamicContext', () => {
     })
     await step(history)
     const texts = snapshotTexts(history)
-    expect(texts).toHaveLength(2)
-    expect(texts[1]).toContain('- Reporter(reporter):new mode')
-    expect(texts[1]).toContain('- Fresh(ws-2):C:/fresh')
+    expect(texts).toHaveLength(5)
+    // 名单与工作区拿到新值；模型目录仍指向首步的旧文本（未追加）。
+    // Roster and workspace picked up the new values; the model catalog still
+    // points at the first step's text (nothing appended).
+    expect(latestSectionText(history, 'Agent Preset List')).toContain('- Reporter(reporter):new mode')
+    expect(latestSectionText(history, 'Model Catalog')).toContain('## Model Catalog')
+    expect(latestSectionText(history, 'Workspace List')).toContain('- Fresh(ws-2):C:/fresh')
+    expect(texts[3]).toContain('## Agent Preset List')
+    expect(texts[4]).toContain('## Workspace List')
   })
 
   it('appends nothing while the values are unchanged', async () => {
-    // 变更检测：名单不变则不追加，会话历史零噪音。
-    // Change detection: unchanged lists add nothing, keeping history clean.
+    // 变更检测：三个区块都不变则不追加，会话历史零噪音。
+    // Change detection: unchanged sections append nothing, keeping history
+    // clean.
     const { ctx, step } = fakeCtx()
     apply(ctx, resolveConfig())
     const history: LoggedMessage[] = []
     await step(history)
     await step(history)
     await step(history)
-    expect(snapshotTexts(history)).toHaveLength(1)
+    expect(snapshotTexts(history)).toHaveLength(3)
   })
 
-  it('marks running sessions from the live agent registry', async () => {
-    // 运行状态来自活跃 agent 注册表（ctx.agents.get(id)?.status）。
-    // Running state reads the live agent registry (ctx.agents.get(id)?.status).
+  it('re-appends the workspace section when the running state changes', async () => {
+    // 运行状态来自活跃 agent 注册表（ctx.agents.get(id)?.status），按需求保留：
+    // 会话能看到哪些会话正在运行；running 变化 = 工作区块变化 → 重新追加。
+    // Running state reads the live agent registry (ctx.agents.get(id)?.status)
+    // and stays a requirement: sessions see which sessions are running. A
+    // running flip changes the workspace section, so it re-appends.
     const { ctx, step, setRunning } = fakeCtx()
     apply(ctx, resolveConfig())
-    const history: LoggedMessage[] = []
     setRunning('sess-1', true)
+    const history: LoggedMessage[] = []
     await step(history, 'sess-1')
-    expect(snapshotTexts(history)[0]).toContain('2026-10-15 · running |')
+    expect(latestSectionText(history, 'Workspace List')).toContain('2026-10-15 · running |')
     setRunning('sess-1', false)
     await step(history, 'sess-1')
-    expect(snapshotTexts(history)[1]).not.toContain('· running')
+    const texts = snapshotTexts(history)
+    // 只追加了工作区一条：名单与模型目录未变。
+    // Only the workspace appended: roster and model catalog are unchanged.
+    expect(texts).toHaveLength(4)
+    expect(texts[3]).toContain('## Workspace List')
+    expect(texts[3]).not.toContain('· running')
   })
 
   it('keeps working when the roster read fails', async () => {
@@ -254,8 +277,9 @@ describe('personAgentDynamicContext', () => {
     await step(history)
     expect(logger.warn).toHaveBeenCalled()
     const texts = snapshotTexts(history)
+    expect(texts).toHaveLength(2)
     expect(texts[0]).not.toContain('## Agent Preset List')
-    expect(texts[0]).toContain('## Workspace List')
+    expect(texts[1]).toContain('## Workspace List')
   })
 
   it('omits the roster when includePresetRoster is false', async () => {
@@ -264,8 +288,9 @@ describe('personAgentDynamicContext', () => {
     const history: LoggedMessage[] = []
     await step(history)
     const texts = snapshotTexts(history)
+    expect(texts).toHaveLength(2)
     expect(texts[0]).not.toContain('## Agent Preset List')
-    expect(texts[0]).toContain('## Workspace List')
+    expect(texts[1]).toContain('## Workspace List')
   })
 
   it('omits the workspace list when includeWorkspaceList is false', async () => {
@@ -274,8 +299,9 @@ describe('personAgentDynamicContext', () => {
     const history: LoggedMessage[] = []
     await step(history)
     const texts = snapshotTexts(history)
+    expect(texts).toHaveLength(2)
     expect(texts[0]).toContain('## Agent Preset List')
-    expect(texts[0]).not.toContain('## Workspace List')
+    expect(latestSectionText(history, 'Workspace List')).toBeUndefined()
   })
 
   it('appends the model catalog with modality and context window', async () => {
@@ -286,10 +312,10 @@ describe('personAgentDynamicContext', () => {
     apply(ctx, resolveConfig())
     const history: LoggedMessage[] = []
     await step(history)
-    const texts = snapshotTexts(history)
-    expect(texts[0]).toContain('## Model Catalog')
-    expect(texts[0]).toContain('- DeepSeek(deepseek)')
-    expect(texts[0]).toContain('- DeepSeek-V4(deepseek-chat): input text · context 65536 tokens')
+    const catalog = latestSectionText(history, 'Model Catalog')
+    expect(catalog).toContain('## Model Catalog')
+    expect(catalog).toContain('- DeepSeek(deepseek)')
+    expect(catalog).toContain('- DeepSeek-V4(deepseek-chat): input text · context 65536 tokens')
   })
 
   it('omits the model catalog when includeModelCatalog is false', async () => {
@@ -297,21 +323,24 @@ describe('personAgentDynamicContext', () => {
     apply(ctx, resolveConfig({ includeModelCatalog: false }))
     const history: LoggedMessage[] = []
     await step(history)
-    expect(snapshotTexts(history)[0]).not.toContain('## Model Catalog')
+    expect(snapshotTexts(history)).toHaveLength(2)
+    expect(latestSectionText(history, 'Model Catalog')).toBeUndefined()
   })
 
   it('keeps working when the model catalog read fails', async () => {
-    // 目录读取失败只告警并剔除该 provider 组，快照其余区块不受影响。
-    // A failed catalog read warns and drops the provider group; the other
-    // snapshot sections are unaffected.
+    // 目录读取失败只告警并剔除该区块，其余两个区块不受影响。
+    // A failed catalog read warns and drops that section; the other two are
+    // unaffected.
     const { ctx, step, logger } = fakeCtx({ failModelCatalog: true })
     apply(ctx, resolveConfig())
     const history: LoggedMessage[] = []
     await step(history)
     expect(logger.warn).toHaveBeenCalled()
     const texts = snapshotTexts(history)
-    expect(texts[0]).not.toContain('## Model Catalog')
-    expect(texts[0]).toContain('## Workspace List')
+    expect(texts).toHaveLength(2)
+    expect(texts[0]).toContain('## Agent Preset List')
+    expect(latestSectionText(history, 'Model Catalog')).toBeUndefined()
+    expect(texts[1]).toContain('## Workspace List')
   })
 
   it('derives the title from the first human message when no accepted title exists', async () => {
@@ -331,7 +360,7 @@ describe('personAgentDynamicContext', () => {
       { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '帮我总结这个仓库的构建流程并给出改进建议' }] } },
     ]
     await step(history)
-    expect(snapshotTexts(history)[0]).toContain('帮我总结这个仓库的构建流程并给出改进建议')
+    expect(latestSectionText(history, 'Workspace List')).toContain('帮我总结这个仓库的构建流程并给出改进建议')
   })
 
   it('prefers the latest agent-preset/selected event over the creation header', async () => {
@@ -342,7 +371,6 @@ describe('personAgentDynamicContext', () => {
     // person-agent instead.
     const { ctx, step } = fakeCtx()
     apply(ctx, resolveConfig())
-    const history: LoggedMessage[] = []
     // 直接向 sessions 假实现注入创建头与切换事件（真实宿主里由 registry.select
     // 追加事件）。
     // Inject the creation header and the selection event into the fake store
@@ -361,11 +389,16 @@ describe('personAgentDynamicContext', () => {
           : [{ type: 'agent-preset/selected', data: { agentPreset: selected } }, ...events]),
       } as never
     }
-    await step(history, 'sess-1')
-    expect(snapshotTexts(history)[0]).toContain('| standard |')
+    // 两次渲染分别用独立的会话日志，各自拿到当刻的 preset（工作区表格渲染 preset）。
+    // Each render uses its own session log and gets the preset as of that
+    // moment (the workspace table renders the preset).
+    const first: LoggedMessage[] = []
+    await step(first, 'sess-1')
+    expect(latestSectionText(first, 'Workspace List')).toContain('| standard |')
     selected = 'person-agent'
-    await step(history, 'sess-1')
-    expect(snapshotTexts(history)[1]).toContain('| person-agent |')
+    const second: LoggedMessage[] = []
+    await step(second, 'sess-1')
+    expect(latestSectionText(second, 'Workspace List')).toContain('| person-agent |')
   })
 
   it('unregisters the listener through the ctx.on disposer', async () => {

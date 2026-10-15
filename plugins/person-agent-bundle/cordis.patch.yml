@@ -1,0 +1,49 @@
+# Person Agent bundle: composes the whole stack in one profile layer.
+# Person Agent 组合包：用一个 profile 层装好整栈。
+#
+# The bundle carries zero runtime code. Each `insert` row resolves by package
+# name from the bundle's own dependencies (pnpm installs them into the profile
+# alongside this bundle), so the four @veren plugins travel together as one
+# installable unit and can be toggled as one from the plugin manager.
+# 组合包零运行时代码。每条 `insert` 行按包名从组合包自身的 dependencies 解析
+# （pnpm 会把它们和组合包一起装进 profile），四个 @veren 插件因此作为一个可
+# 安装单元随行，并在插件管理页作为一个开关整体启停。
+#
+# Tool policy - DEFAULT OFF, per-preset opt-in:
+# The preset plugin exposes withWorkspaceTools / withSessionTools toggles.
+# This bundle inserts TWO rows of the SAME preset plugin with different
+# identities and configs, so the choice lives in the preset a session picks:
+# - `person-agent`          (default): no maintenance tools. The assistant can
+#   read/report but cannot create/rename/archive sessions or workspaces.
+# - `person-agent-manager` (opt-in): both tool families on. Pick this preset
+#   only when you want the agent to manage sessions/workspaces itself.
+# 工具策略 - 默认关闭，按 preset 显式开启：
+# preset 插件暴露 withWorkspaceTools / withSessionTools 开关。本组合包用
+# 同一插件插两行、不同身份与配置，把选择权交给会话选中的 preset：
+# - `person-agent`（默认）：不带维护工具，只能阅读与汇报；
+# - `person-agent-manager`（显式开启）：两类维护工具齐全，只有选它才允许
+#   代理自行管理会话/工作区。
+
+- insert:
+    # Default persona: read-only reporting, all maintenance tools off.
+    # 默认人设：只读汇报，全部维护工具关闭。
+    - id: person-agent-preset
+      name: '@veren/person-agent-preset'
+      config:
+        presetId: person-agent
+        order: 5
+        withWeb: true
+        withWorkspaceTools: false
+        withSessionTools: false
+
+    # Manager persona: same persona, maintenance tools on. Off until a session
+    # explicitly selects this preset.
+    # 管理员人设：同一人设，维护工具开启。会话不选它就不生效。
+    - id: person-agent-manager-preset
+      name: '@veren/person-agent-preset'
+      config:
+        presetId: person-agent-manager
+        order: 6
+        withWeb: true
+        withWorkspaceTools: true
+        withSessionTools: true

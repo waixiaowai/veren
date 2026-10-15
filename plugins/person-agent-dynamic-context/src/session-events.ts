@@ -127,6 +127,37 @@ export function lastSnapshotText(session: SessionLogView, seq: SessionLogOffset,
 }
 
 /**
+ * Scan the session backwards for the latest snapshot message of `source` that
+ * carries `section` in its recorded sections, and return that section's text.
+ * This is the per-section change detection read: a section is appended only
+ * when its newly rendered text differs from what this returns.
+ * 从会话末尾向前扫描 `source` 最近一条记录了 `section` 区块的快照消息，返回该
+ * 区块的文本。这是按块变化检测的读取端：仅当新渲染的文本与返回值不同时才追加
+ * 该区块。
+ */
+export function lastSnapshotSectionText(
+  session: SessionLogView,
+  seq: SessionLogOffset,
+  source: string,
+  section: string,
+): string | undefined {
+  for (let index = Number(seq) - 1; index >= 0; index -= 1) {
+    const event = session.eventAt(SessionSeq(index))
+    if (event?.type !== 'user/message' || event.data.source.kind !== source) continue
+    // source 的区块列表按消息来源联合的公共形状防御性读取：所有来源都可选携带
+    // sections，缺失即「该消息不含此区块」，继续向前扫描。
+    // The section list is read defensively against the common shape of the
+    // message-source union: every source may carry optional sections; absence
+    // means "this message does not hold the section", keep scanning.
+    const recorded = (event.data.source as { sections?: readonly { name: string, text: string }[] }).sections
+      ?? []
+    const match = recorded.find((part) => part.name === section)
+    if (match !== undefined) return match.text
+  }
+  return undefined
+}
+
+/**
  * The provider/model route the session's latest recorded request actually
  * used, read from the newest `request/header` event; undefined when the log
  * holds no request header (the caller falls back to the deployment default).

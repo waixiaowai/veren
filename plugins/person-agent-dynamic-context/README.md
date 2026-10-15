@@ -5,11 +5,11 @@ Person Agent working memory: injects the agent preset roster, the available mode
 ## How it works
 
 - Composed into a preset's `plugins` list = active; absent = no effect. Nothing is registered globally.
-- The lists are injected as a **sourced user-role snapshot message** (the `time-context` pattern): a prepended `agent/pre-step` listener awaits the preset roster read, reads the model catalog and workspace list live, compares the rendered text with the session's previous snapshot, and appends only on change.
+- The working memory is split into **three named small messages**: `Agent Preset List`, `Model Catalog`, and `Workspace List`. A prepended `agent/pre-step` listener awaits the roster read and reads the model catalog and workspace list live, then compares each section's text against the latest text of that same section recorded in the session log — **only changed sections are appended**; a step where nothing changed adds nothing.
 - The model catalog reads the live LLM registry (`listProviders` → `listModels` → `resolveModelInfo`) — the same source as the GUI model selector — and renders one row per model with its input modalities and context window.
-- Sessions render as a table (`id | title | preset | provider | model | created at`) under each workspace.
-- Because the read is awaited inside the listener, a registry change is reflected **exactly** at the session's next step - no cache, no polling, no one-assembly lag.
-- The contribution's source kind is `person-agent-context`; while values are unchanged nothing is added to history.
+- Sessions render as a table (`id | title | preset | provider | model | created at`) under each workspace, including the live `· running` mark from the agent registry — a running-state flip therefore re-appends the workspace section (append-on-change is the intended behavior).
+- The change detection scans the session log, so it stays true across restarts with no in-memory state.
+- Each message's source records its section name (`person-agent-context` with `sections`), which is what the per-section comparison reads back.
 
 ## Config
 

@@ -8,23 +8,16 @@ export const UNKNOWN_TIME = 'unknown-time'
 /** 渲染层四要素缺失数据时的占位文本。Fallback text the renderer uses for missing facts. */
 export const UNKNOWN = 'unknown'
 
-/** 一小时的毫秒数。One hour in milliseconds. */
-export const ONE_HOUR_MS = 60 * 60 * 1000
-
-/** 一分钟的毫秒数。One minute in milliseconds. */
-const ONE_MINUTE_MS = 60 * 1000
-
 /**
- * Compact creation time: relative within an hour, otherwise the date.
- * 紧凑创建时间：一小时内用相对值，否则用日期。
+ * Creation time as a stable absolute date (ISO `YYYY-MM-DD`). No relative
+ * times ("3m ago"): `createdAt` is fixed while "now" drifts, so a relative
+ * rendering would change the text every step without any real fact changing.
+ * 创建时间渲染为稳定的绝对日期（ISO `YYYY-MM-DD`）。不做相对时间（"3m ago"）：
+ * `createdAt` 是固定的，而"当前时刻"一直在漂移——相对渲染会让文本每步都变，
+ * 即使没有任何真实事实变化。
  */
-export function formatCreated(createdAt: number | undefined, now: number): string {
+export function formatCreated(createdAt: number | undefined): string {
   if (createdAt === undefined) return UNKNOWN_TIME
-  const elapsedMs = now - createdAt
-  if (elapsedMs < ONE_HOUR_MS) {
-    const minutes = Math.floor(elapsedMs / ONE_MINUTE_MS)
-    return minutes < 1 ? 'just now' : `${minutes}m ago`
-  }
   return new Date(createdAt).toISOString().slice(0, 10)
 }
 

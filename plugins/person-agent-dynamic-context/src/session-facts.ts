@@ -26,17 +26,18 @@ type DefaultSelection = ReturnType<Context['agentDefaultModel']['currentSelectio
 /**
  * Resolve one SessionId into renderable session facts, reading the same Host
  * sources as the Web client's session list (`session-controller/list.ts`):
- * running state from the live agent registry (`ctx.agents.get(id)?.status`),
  * title from the session-title service (falling back to the first human
  * message), model route from the durable `modelSelection` projection with the
  * deployment default as fallback, and the preset from the session header (or
  * the cold-session header from sessionQuery) with the roster default as
- * fallback.
+ * fallback. Running state comes from the live agent registry
+ * (`ctx.agents.get(id)?.status`) — kept by requirement: the consumer needs to
+ * know which sessions are running.
  * 把一个 SessionId 解析为可渲染的会话信息，读取与 Web 端会话列表相同的宿主
- * 数据源（`session-controller/list.ts`）：运行状态来自活跃 agent 注册表
- * （`ctx.agents.get(id)?.status`），标题来自 session-title 服务（回退到第一
- * 条人类消息），模型路由来自持久化 `modelSelection` 投影（部署默认兜底），
- * preset 取会话头（冷会话取 sessionQuery 持久化头，名册默认兜底）。
+ * 数据源（`session-controller/list.ts`）：标题来自 session-title 服务（回退到
+ * 第一条人类消息），模型路由来自持久化 `modelSelection` 投影（部署默认兜底），
+ * preset 取会话头（冷会话取 sessionQuery 持久化头，名册默认兜底）。运行状态
+ * 来自活跃 agent 注册表——按需求保留：使用者需要知道哪些会话正在运行。
  */
 export function createSessionInfoResolver(
   ctx: Context,

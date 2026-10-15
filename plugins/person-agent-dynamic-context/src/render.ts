@@ -4,7 +4,7 @@
 import type { AgentPreset } from '@deepseek-ai/dsh-agent-preset-registry'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
 import type { SessionInfo } from './session-info.js'
-import { formatCreated, idFragment, UNKNOWN, UNKNOWN_TIME } from './text-time.js'
+import { formatCreated, idFragment, UNKNOWN } from './text-time.js'
 
 /** Render one roster entry as a human-readable line. 把一个预设渲染成一行可读文本。 */
 export const renderAgentPreset = (preset: AgentPreset): string =>
@@ -29,14 +29,25 @@ const SESSION_TABLE_HEADER = [
  * column never reads as a wall of "session-".
  * 把一条未归档会话渲染成表格行。四个字段无条件全部显示（缺数据用 unknown 占位）；
  * 标题缺省回退到去掉 `session-` 前缀的 id 片段，避免整列都读成 "session-"。
+ *
+ * 【易变字段只剩 running】`created at` 渲染为固定的绝对日期（`createdAt` 不随
+ * 时间漂移）；`running` 标记按需求保留——使用者需要知道哪些会话正在运行。
+ * 代价是运行状态翻转会使工作区块重新追加（变化即追加，可接受）；其余两个区块
+ * （名单/模型目录）不受影响，仍只在真实变化时追加。
+ * The only volatile field left is the `running` mark, kept by requirement: the
+ * consumer needs to know which sessions are running. `created at` renders as a
+ * fixed absolute date (`createdAt` does not drift with time). The trade-off is
+ * that a running flip re-appends the workspace section (append-on-change is
+ * acceptable); the other two sections (roster / model catalog) still append
+ * only on real change.
  */
-export function renderSessionLine(id: string, info: SessionInfo | undefined, now: number): string {
+export function renderSessionLine(id: string, info: SessionInfo | undefined): string {
   const title = info?.title ?? idFragment(id)
   const preset = info?.preset ?? UNKNOWN
   const provider = info?.provider ?? UNKNOWN
   const model = info?.model ?? UNKNOWN
   const runningMark = info?.running === true ? ' · running' : ''
-  const day = info?.createdAt === undefined ? UNKNOWN_TIME : formatCreated(info.createdAt, now)
+  const day = formatCreated(info?.createdAt)
   return `  | ${id} | ${title} | ${preset} | ${provider} | ${model} | ${day}${runningMark} |`
 }
 
@@ -52,14 +63,13 @@ export function renderWorkspaceBlock(
   item: Workspace,
   archived: ReadonlySet<string>,
   resolve: (id: string) => SessionInfo | undefined,
-  now: number,
 ): string[] {
   const sessions = item.sessionIds.filter((id) => !archived.has(id))
   if (sessions.length === 0) return [renderWorkspace(item), '  sessions: none']
   return [
     renderWorkspace(item),
     ...SESSION_TABLE_HEADER,
-    ...sessions.map((id) => renderSessionLine(id, resolve(id), now)),
+    ...sessions.map((id) => renderSessionLine(id, resolve(id))),
   ]
 }
 
@@ -73,10 +83,9 @@ export const renderWorkspaceList = (
   workspaces: readonly Workspace[],
   archivedSessionIds: readonly string[],
   resolve: (id: string) => SessionInfo | undefined,
-  now: number,
 ): string[] => {
   const archived = new Set<string>(archivedSessionIds)
-  return workspaces.flatMap((item) => renderWorkspaceBlock(item, archived, resolve, now))
+  return workspaces.flatMap((item) => renderWorkspaceBlock(item, archived, resolve))
 }
 
 /** Prepend a heading to a non-empty line block; empty stays empty. 非空时给行块加标题；空即空。 */

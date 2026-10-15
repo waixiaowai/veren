@@ -1,0 +1,45 @@
+{
+  "name": "@veren/person-agent-tool-session",
+  "displayName": "Person Agent Tool Session",
+  "version": "0.1.0",
+  "description": "Use when a Person Agent session must maintain sibling sessions: model-facing session_create/session_rename/session_fork tools over ctx.sessionController and session_archive/session_unarchive/session_pin/session_unpin over ctx.workspaceRegistry; skip it when sessions must never create or reorganize other sessions.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.cn.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-session": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-tools": ">=0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-api-session-controller": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-workspace": ">=0.2.0-rc.2",
+    "@types/node": "^26.6.0",
+    "@vitest/utils": "3.2.7",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  }
+}

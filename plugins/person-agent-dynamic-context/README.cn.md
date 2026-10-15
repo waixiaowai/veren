@@ -5,11 +5,11 @@ Person Agent 的工作记忆：把预设名单、可用模型目录（provider�
 ## 工作方式
 
 - 被组合进预设的 `plugins` 列表 = 生效；不组合 = 不存在。不注册任何全局内容。
-- 名单以**带来源的 user 快照消息**注入（`time-context` 同一模式）：前置的 `agent/pre-step` 监听器 await 预设名单读取、现读模型目录与工作区列表，与会话上一条快照比较，仅变化时追加。
+- 工作记忆拆成**三条具名小消息**：`Agent Preset List`、`Model Catalog`、`Workspace List`。前置的 `agent/pre-step` 监听器 await 预设名单读取、现读模型目录与工作区列表，然后逐块把区块文本与会话日志里该区块最近一次的记录比较——**只有变化的区块才追加**；没有变化的步骤零追加。
 - 模型目录读取活跃 LLM 注册表（`listProviders` → `listModels` → `resolveModelInfo`）——与 GUI 模型选择器同源——每个模型一行渲染输入模态与上下文窗口。
-- 会话以表格渲染（`id | title | preset | provider | model | created at`），挂在各工作区之下。
-- 因为读取在监听器内被 await，注册表变化在会话的**下一次步骤精确可见**——无缓存、无轮询、无一次组装的滞后。
-- 贡献的来源标识为 `person-agent-context`；值未变化时不向历史追加任何内容。
+- 会话以表格渲染（`id | title | preset | provider | model | created at`），挂在各工作区之下，并带来自 agent 注册表的实时 `· running` 标记——运行状态翻转会使工作区区块重新追加（变化即追加，是预期行为）。
+- 变化检测扫描会话日志，进程重启后依然成立，无需内存状态。
+- 每条消息的来源里记录了区块名（`person-agent-context` 携带 `sections`），按块比较读的正是它。
 
 ## 配置
 

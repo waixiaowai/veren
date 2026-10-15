@@ -5,7 +5,13 @@ import { entryListProblem } from '@deepseek-ai/dsh-agent-preset-registry'
 import { buildPersonAgentPreset } from '../src/definition.ts'
 import { apply, Config } from '../src/index.ts'
 
-const OPTIONS = { presetId: 'person-agent', order: 5, withWeb: true }
+const OPTIONS = {
+  presetId: 'person-agent',
+  order: 5,
+  withWeb: true,
+  withWorkspaceTools: true,
+  withSessionTools: true,
+}
 
 describe('buildPersonAgentPreset', () => {
   it('produces an entry list the registry validator accepts', () => {
@@ -44,6 +50,27 @@ describe('buildPersonAgentPreset', () => {
   it('omits the web tool when withWeb is false', () => {
     const definition = buildPersonAgentPreset({ ...OPTIONS, withWeb: false })
     expect(definition.plugins.some((row) => row.id === 'tool-web')).toBe(false)
+  })
+
+  it('composes the workspace and session maintenance tool rows by package name', () => {
+    // 自助维护工具按包名组合：行名 = package.json 的 name，由加载器解析。
+    // Self-service maintenance tools compose by package name: row name = the
+    // package.json name, resolved by the loader.
+    const definition = buildPersonAgentPreset(OPTIONS)
+    const workspace = definition.plugins.find((row) => row.id === 'tool-workspace')
+    const session = definition.plugins.find((row) => row.id === 'tool-session')
+    expect(String(workspace?.name)).toBe('@veren/person-agent-tool-workspace')
+    expect(String(session?.name)).toBe('@veren/person-agent-tool-session')
+    // 部署默认收紧：工具不允许擅自递归建目录。
+    // Tight deployment default: the tool may not create directories on its own.
+    expect(workspace?.config).toMatchObject({ allowCreate: true, allowCreateDirectory: false })
+    expect(session?.config).toMatchObject({ allowCreate: true, allowFork: true, allowArchive: true, allowPin: true })
+  })
+
+  it('omits the maintenance tool rows when their toggles are false', () => {
+    const definition = buildPersonAgentPreset({ ...OPTIONS, withWorkspaceTools: false, withSessionTools: false })
+    expect(definition.plugins.some((row) => row.id === 'tool-workspace')).toBe(false)
+    expect(definition.plugins.some((row) => row.id === 'tool-session')).toBe(false)
   })
 })
 

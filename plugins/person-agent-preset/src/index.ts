@@ -17,6 +17,10 @@ export interface Config {
   /** Whether the preset includes the web search tool. */
   /// 预设是否包含联网搜索工具。
   withWeb: boolean
+  /** Whether the preset includes the workspace maintenance tools. 是否包含工作区维护工具。 */
+  withWorkspaceTools: boolean
+  /** Whether the preset includes the session maintenance tools. 是否包含会话维护工具。 */
+  withSessionTools: boolean
 }
 
 export const Config: z<Config> = z
@@ -24,6 +28,8 @@ export const Config: z<Config> = z
     presetId: z.string().default('person-agent'),
     order: z.number().default(5),
     withWeb: z.boolean().default(true),
+    withWorkspaceTools: z.boolean().default(true).description('Include the workspace maintenance tools (create/rename).'),
+    withSessionTools: z.boolean().default(true).description('Include the session maintenance tools (create/rename/fork/archive/pin).'),
   })
   .description('Person Agent preset identity and tool toggles.')
 
@@ -54,6 +60,8 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
       presetId: config.presetId,
       order: config.order,
       withWeb: config.withWeb,
+      withWorkspaceTools: config.withWorkspaceTools,
+      withSessionTools: config.withSessionTools,
     }),
   )
   // effect 的 execute 返回卸载函数本身，cordis 会在卸载时自动逆序调用。

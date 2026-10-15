@@ -1,11 +1,15 @@
 // 会话事实的契约：字段全部由宿主的 SessionHeader 组合得出，只保留渲染真正需要
 // 的列，不额外发明重复字段。这是「一个类型来源」在数据层的体现——标题/preset/
 // 模型/运行状态这些本插件自己拼出来的信息另列，宿主已有的列一律复用。
+// 【running 是需求】运行状态按需求保留：使用者需要知道哪些会话正在运行；工作
+// 区块随其变化而重新追加是可接受的代价。
 // The session-facts contract: every field is composed from the host's
 // SessionHeader, keeping only the columns the renderer needs. This is the "single
 // type source" idea applied to data: fields the host already owns are reused
 // as-is, and only the plugin-derived ones (title, preset, model route, running)
-// are declared here.
+// are declared here. `running` stays by requirement: the consumer needs to know
+// which sessions are running; the workspace section re-appending on change is
+// an accepted trade-off.
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
 
 /**

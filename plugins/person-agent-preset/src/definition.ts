@@ -17,6 +17,10 @@ export interface PresetOptions {
   presetId: string
   order: number
   withWeb: boolean
+  /** Whether the preset includes the workspace maintenance tools. 是否包含工作区维护工具。 */
+  withWorkspaceTools: boolean
+  /** Whether the preset includes the session maintenance tools. 是否包含会话维护工具。 */
+  withSessionTools: boolean
 }
 
 /**
@@ -99,6 +103,23 @@ export function buildPersonAgentPreset(options: PresetOptions): PresetDefinition
   ]
   if (options.withWeb) {
     tools.push({ id: 'tool-web', name: '@deepseek-ai/dsh-tool-web' })
+  }
+  // 自助维护工具：个人助理要能自己开工作区/会话，而不是只能请用户动手。
+  // Self-service maintenance tools: a personal assistant should be able to
+  // open workspaces/sessions itself instead of only asking the user.
+  if (options.withWorkspaceTools) {
+    tools.push({
+      id: 'tool-workspace',
+      name: '@veren/person-agent-tool-workspace',
+      config: { allowCreate: true, allowCreateDirectory: false },
+    })
+  }
+  if (options.withSessionTools) {
+    tools.push({
+      id: 'tool-session',
+      name: '@veren/person-agent-tool-session',
+      config: { allowCreate: true, allowFork: true, allowArchive: true, allowPin: true },
+    })
   }
   return {
     id: options.presetId,

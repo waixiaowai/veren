@@ -48,13 +48,14 @@ function logView(events: readonly SnapshotEvent[]): SessionLogView {
 
 describe('formatCreated', () => {
   it('reports 缺少创建时间', () => {
-    expect(formatCreated(undefined, NOW)).toBe('unknown-time')
+    expect(formatCreated(undefined)).toBe('unknown-time')
   })
 
-  it('reports 刚刚 / 分钟数 / 日期三种粒度', () => {
-    expect(formatCreated(NOW, NOW)).toBe('just now')
-    expect(formatCreated(NOW - 5 * 60_000, NOW)).toBe('5m ago')
-    expect(formatCreated(NOW - 2 * 60 * 60_000, NOW)).toBe('2023-11-14')
+  it('渲染为固定的绝对日期（不随当前时刻漂移）', () => {
+    // createdAt 固定 → 输出只由 createdAt 决定，与"现在"无关。
+    // createdAt is fixed → the output depends on createdAt alone, never on "now".
+    expect(formatCreated(NOW)).toBe('2023-11-14')
+    expect(formatCreated(NOW - 5 * 60_000)).toBe('2023-11-14')
   })
 })
 
@@ -89,17 +90,17 @@ describe('renderSessionLine', () => {
       model: 'deepseek-flash',
       createdAt: NOW - 5 * 60_000,
       running: false,
-    }, NOW)
-    expect(line).toBe('  | session-abcdefghijklmnop | 问候语 | person-agent | deepseek-account | deepseek-flash | 5m ago |')
+    })
+    expect(line).toBe('  | session-abcdefghijklmnop | 问候语 | person-agent | deepseek-account | deepseek-flash | 2023-11-14 |')
   })
 
   it('缺数据时四项占位 unknown，标题回退 id 片段', () => {
-    const line = renderSessionLine('session-abcdefghijklmnop', undefined, NOW)
+    const line = renderSessionLine('session-abcdefghijklmnop', undefined)
     expect(line).toBe('  | session-abcdefghijklmnop | abcdefghijkl | unknown | unknown | unknown | unknown-time |')
   })
 
   it('运行中追加标记', () => {
-    const line = renderSessionLine('session-x', { title: 'T', running: true }, NOW)
+    const line = renderSessionLine('session-x', { title: 'T', running: true })
     expect(line).toBe('  | session-x | T | unknown | unknown | unknown | unknown-time · running |')
   })
 })
@@ -117,7 +118,6 @@ describe('renderWorkspaceList', () => {
       [workspace as never],
       ['session-b'],
       (id) => ({ title: `标题-${id}` }),
-      NOW,
     )
     expect(lines).toEqual([
       '- 默认工作区(w1):C:\\work',
@@ -129,12 +129,12 @@ describe('renderWorkspaceList', () => {
   })
 
   it('全部归档时只留一句 sessions: none', () => {
-    expect(renderWorkspaceList([workspace as never], ['session-a', 'session-b', 'session-c'], () => undefined, NOW))
+    expect(renderWorkspaceList([workspace as never], ['session-a', 'session-b', 'session-c'], () => undefined))
       .toEqual(['- 默认工作区(w1):C:\\work', '  sessions: none'])
   })
 
   it('关掉工作区列表（空注册表）时没有任何行', () => {
-    expect(renderWorkspaceList([], [], () => undefined, NOW)).toEqual([])
+    expect(renderWorkspaceList([], [], () => undefined)).toEqual([])
   })
 })
 

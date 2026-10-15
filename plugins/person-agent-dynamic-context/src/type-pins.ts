@@ -18,12 +18,12 @@ import type { Workspace } from '@deepseek-ai/dsh-workspace'
 import { apply, Config } from './index.js'
 import type { ConfigShape } from './index.js'
 import { renderAgentPreset, renderSessionLine, renderWorkspace, renderWorkspaceList, withHeading } from './render.js'
-import { deriveFallbackTitle, lastSnapshotText, logEvents, selectedPreset } from './session-events.js'
+import { deriveFallbackTitle, lastSnapshotSectionText, lastSnapshotText, logEvents, selectedPreset } from './session-events.js'
 import type { LogEventData, SessionLogView, SnapshotEvent } from './session-events.js'
 import { createSessionInfoResolver } from './session-facts.js'
 import type { ColdHeader, SessionInfo } from './session-info.js'
 import { readColdHeaders, readPresetRoster } from './snapshot-reads.js'
-import { buildSnapshotText } from './snapshot.js'
+import { buildSnapshotSections } from './snapshot.js'
 import { formatCreated, idFragment } from './text-time.js'
 
 /** 断言 A 可赋给 B（A 比 B 窄或同宽即通过）。Assert that A is assignable to B. */
@@ -54,6 +54,8 @@ type ViewProjectionPins = [
 // Single type source: these take the host's own types, so no call site can drift.
 type OneSourcePins = [
   Same<Parameters<typeof lastSnapshotText>, [SessionLogView, SessionSeq, string]>,
+  Same<Parameters<typeof lastSnapshotSectionText>, [SessionLogView, SessionSeq, string, string]>,
+  Same<ReturnType<typeof lastSnapshotSectionText>, string | undefined>,
   Same<Parameters<typeof deriveFallbackTitle>, [SessionLogView]>,
   Same<Parameters<typeof selectedPreset>, [SessionLogView]>,
   Same<ColdHeader, SessionHeader>,
@@ -77,15 +79,15 @@ type HostColumnPins = [
 // 3) 插件自身签名：参数与返回值逐一对齐。
 // The plugin's own signatures: parameters and returns, one by one.
 type OwnSignaturePins = [
-  Same<Parameters<typeof formatCreated>, [number | undefined, number]>,
+  Same<Parameters<typeof formatCreated>, [number | undefined]>,
   Same<ReturnType<typeof formatCreated>, string>,
   Same<ReturnType<typeof idFragment>, string>,
-  Same<Parameters<typeof renderSessionLine>, [string, SessionInfo | undefined, number]>,
+  Same<Parameters<typeof renderSessionLine>, [string, SessionInfo | undefined]>,
   Same<ReturnType<typeof renderSessionLine>, string>,
   Same<ReturnType<typeof withHeading>, string[]>,
   Same<ReturnType<typeof renderWorkspaceList>, string[]>,
   Same<ReturnType<typeof createSessionInfoResolver>, (id: string) => SessionInfo | undefined>,
-  Same<Awaited<ReturnType<typeof buildSnapshotText>>, string>,
+  Same<Awaited<ReturnType<typeof buildSnapshotSections>>, import('./snapshot.js').SnapshotSection[]>,
   Same<ReturnType<typeof lastSnapshotText>, string | undefined>,
   Same<ReturnType<typeof deriveFallbackTitle>, string | undefined>,
   Same<ReturnType<typeof selectedPreset>, string | undefined>,
@@ -97,7 +99,7 @@ type OwnSignaturePins = [
 type PreStepPins = [
   Same<Parameters<typeof apply>, [Context, Config]>,
   Same<ReturnType<typeof apply>, void>,
-  Same<Parameters<typeof buildSnapshotText>[0]['ctx'], Context>,
+  Same<Parameters<typeof buildSnapshotSections>[0]['ctx'], Context>,
   // 决策只有两个分支，且「进入」携带消息、「拒绝」不携带：断死这两条，分支判断与
   // 返回体就不会再写错判别值（曾把 'continue' 当成成功分支）。
   // A decision has exactly two branches — "enter" carries messages, "reject" does

@@ -1,7 +1,7 @@
 {
   "name": "@veren/person-agent-preset",
   "displayName": "Person Agent Preset",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Use when a DSH deployment needs a human-facing agent preset: it registers the \"person-agent\" preset through ctx.agentPresets at runtime, composing a persona that reports in plain, beginner-readable language with tables, diagrams and presentable visual deliverables; skip it when every session consumer is a developer reading raw tool output.",
   "type": "module",
   "main": "./dist/index.js",

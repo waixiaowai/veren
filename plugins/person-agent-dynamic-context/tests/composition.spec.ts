@@ -1,17 +1,18 @@
 // 组合测试：走真实 cordis Context——真实 inject 解析、真实 waterfall 事件
-// 派发与逆序清理，仅以假实现提供被注入的服务面；并锁定四字段会话信息与
-// "仅变化追加"的语义。
+// 派发与逆序清理，仅以假实现提供被注入的服务面；并锁定三条具名小消息与
+// "按块变化检测"的语义。
 // Composition test: goes through a real cordis Context - real inject
 // resolution, real waterfall dispatch and reverse-order disposal - with only
-// the injected service faces swapped for fakes; also locks the four-fact
-// session line and append-on-change semantics.
+// the injected service faces swapped for fakes; also locks the three named
+// small messages and per-section change-detection semantics.
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { apply, inject, name } from '../src/index.js'
 import type { ConfigShape } from '../src/index.js'
-import { resolveConfig, snapshotTexts } from './support.js'
+import { SessionId, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
+import { resolveConfig, fakeAgent, latestSectionText, snapshotTexts } from './support.js'
 import type { LogSeq, LoggedMessage } from './support.js'
 
 /** One workspace as the renderer consumes it (host Workspace's read-only slice).
@@ -82,27 +83,40 @@ async function install(config: Partial<ConfigShape> = {}) {
     history,
     /** Fire one real waterfall pre-step dispatch; committed messages land in history. 触发一次真实 waterfall pre-step 派发；追加的消息落账到历史。 */
     step: async (): Promise<void> => {
-      const agent = {
-        session: {
-          id: 'sess-1',
-          // 宿主的 seq 是品牌号；历史长度就是下一步的序号。
-          // The host's seq is branded; the history length is the next sequence.
-          seq: history.length as never,
-          eventAt: (seq: LogSeq) => history[Number(seq)],
-          snapshotEvents: (_fromSeq?: number, _toSeqExclusive?: number) => history,
-        },
-      }
+      // 载荷要求完整 Agent 面；插件只读 session，其余成员由 fakeAgent 的不可达桩补齐。
+      // The payload requires the full Agent face; the plugin reads only session,
+      // so fakeAgent's unreachable stubs cover the rest.
+      const agent = fakeAgent({
+        id: SessionId('sess-1'),
+        // 宿主的 seq 是品牌号（SessionLogOffset）；历史长度就是下一步的序号。
+        // The host's seq is branded (SessionLogOffset); the history length is
+        // the next sequence.
+        seq: SessionLogOffset(history.length),
+        eventAt: (seq: LogSeq) => history[Number(seq)],
+        snapshotEvents: (_fromSeq?: number, _toSeqExclusive?: number) => history,
+      })
       // 用宿主的真实决策类型收窄，再取 messages：与插件侧同一套写法，不在联合
-      // 类型上直接取属性。
+      // 类型上直接取属性。载荷的 turn/step/messages 由假环境给出固定值。
       // Narrow with the host's real decision type before reading messages, mirroring
-      // the plugin side: the property is never taken off a union.
-      const decision = await ctx.waterfall('agent/pre-step', { agent, signal: new AbortController().signal }, async () =>
-        ({ kind: 'enter', messages: [] })) as PreStepDecision
+      // the plugin side: the property is never taken off a union. The payload's
+      // turn/step/messages come from the fake environment as fixed values.
+      const decision = await ctx.waterfall(
+        'agent/pre-step',
+        { agent, messages: [], turn: 1, step: history.length + 1, signal: new AbortController().signal },
+        async () => ({ kind: 'enter', messages: [] }),
+      ) as PreStepDecision
       if (decision.kind === 'reject') return
       for (const message of decision.messages) {
+        // 直接入账宿主形状的事件：seq 是品牌号、表层事件必须携带 surfaceOp，
+        // data 就是决策返回的 UserMessage。
+        // Commit host-shaped events directly: seq is branded, surface events
+        // must carry surfaceOp, and data is the UserMessage the decision returned.
         history.push({
           type: 'user/message',
-          data: { source: message.source as { kind: string }, content: message.content as readonly { type: string, text?: string }[] },
+          seq: SessionSeq(history.length),
+          time: Date.UTC(2026, 9, 15),
+          surfaceOp: 'append',
+          data: message,
         })
       }
     },
@@ -114,14 +128,18 @@ async function install(config: Partial<ConfigShape> = {}) {
 }
 
 describe('personAgentDynamicContext composition（真实装配路径 / real assembly path）', () => {
-  it('resolves inject through cordis and appends the four-fact session line', async () => {
+  it('resolves inject through cordis and appends the three named sections', async () => {
+    // 首步三条消息各一个区块；四字段会话行落在工作区区块里。
+    // The first step appends three messages, one section each; the four-fact
+    // session line lands in the workspace section.
     const { step, history } = await install()
     await step()
     const texts = snapshotTexts(history)
-    expect(texts).toHaveLength(1)
+    expect(texts).toHaveLength(3)
     expect(texts[0]).toContain('## Agent Preset List')
-    expect(texts[0]).toContain('## Workspace List')
-    expect(texts[0]).toContain('| sess-1 | Greeting | person-agent | deepseek | deepseek-chat | 2026-10-15 |')
+    expect(texts[1]).toContain('## Model Catalog')
+    expect(texts[2]).toContain('## Workspace List')
+    expect(texts[2]).toContain('| sess-1 | Greeting | person-agent | deepseek | deepseek-chat |')
   })
 
   it('removes the listener when the fiber unloads', async () => {
@@ -130,31 +148,34 @@ describe('personAgentDynamicContext composition（真实装配路径 / real asse
     // leak: emit no longer appends after unload).
     const { fiber, step, history } = await install()
     await step()
-    expect(snapshotTexts(history)).toHaveLength(1)
+    expect(snapshotTexts(history)).toHaveLength(3)
     await fiber.dispose()
     await step()
-    expect(snapshotTexts(history)).toHaveLength(1)
+    expect(snapshotTexts(history)).toHaveLength(3)
   })
 
   it('honors config toggles through the real config path', async () => {
     const { step, history } = await install({ includePresetRoster: false })
     await step()
     const texts = snapshotTexts(history)
+    expect(texts).toHaveLength(2)
     expect(texts[0]).not.toContain('## Agent Preset List')
-    expect(texts[0]).toContain('## Workspace List')
+    expect(texts[1]).toContain('## Workspace List')
   })
 
-  it('appends a fresh snapshot when a registry changes between steps', async () => {
-    // 真实事件分发下的精确新鲜度：变化后的第一次 emit 就拿到新值。
-    // Exact freshness on the real dispatch path: the first emit after a
-    // change already reads the new values.
+  it('appends only the sections that changed between steps', async () => {
+    // 真实事件分发下的按块变化检测：名单/目录未变不追加；工作区变了只补一条。
+    // Per-section change detection on the real dispatch path: unchanged
+    // roster/catalog append nothing; the changed workspace appends one message.
     const { step, history, setWorkspaces } = await install()
     await step()
     setWorkspaces([{ id: 'ws-2', title: 'Fresh', path: 'C:/fresh', sessionIds: ['sess-2'] }])
     await step()
     const texts = snapshotTexts(history)
-    expect(texts).toHaveLength(2)
-    expect(texts[1]).toContain('- Fresh(ws-2):C:/fresh')
-    expect(texts[1]).toContain('| sess-2 | Greeting')
+    expect(texts).toHaveLength(4)
+    expect(texts[3]).toContain('## Workspace List')
+    expect(texts[3]).toContain('- Fresh(ws-2):C:/fresh')
+    expect(texts[3]).toContain('| sess-2 | Greeting')
+    expect(latestSectionText(history, 'Agent Preset List')).toContain('- Standard(standard):default mode')
   })
 })

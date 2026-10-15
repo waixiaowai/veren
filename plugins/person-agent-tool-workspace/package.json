@@ -1,0 +1,49 @@
+{
+  "name": "@veren/person-agent-tool-workspace",
+  "displayName": "Person Agent Tool Workspace",
+  "version": "0.1.0",
+  "description": "Use when a Person Agent session must maintain or inspect workspaces: model-facing workspace_create, workspace_rename and workspace_session_list tools over ctx.workspaceRegistry, so the assistant can register a directory as a new workspace, retitle an existing one, or search a workspace's accounted sessions by preset, provider/model and archive state; skip it when sessions must never touch the workspace registry.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.cn.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-session": "0.2.1-alpha.4",
+    "@deepseek-ai/dsh-tools": "0.2.1-alpha.4",
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-agent": "0.2.1-alpha.4",
+    "@deepseek-ai/dsh-api-session-controller": "0.2.1-alpha.4",
+    "@deepseek-ai/dsh-session-projection": "0.2.1-alpha.4",
+    "@deepseek-ai/dsh-session-query": "0.2.1-alpha.4",
+    "@deepseek-ai/dsh-session-title": "0.2.1-alpha.4",
+    "@deepseek-ai/dsh-workspace": "0.2.1-alpha.4",
+    "@types/node": "^26.6.0",
+    "@vitest/utils": "3.2.7",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  }
+}
