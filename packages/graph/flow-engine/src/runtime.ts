@@ -10,7 +10,7 @@ import { GraphNodeError, validateGraph } from '@veren/graph-core';
 import type { GExecutor, GraphRunContext } from '@veren/graph-core';
 import type { CompiledFlow, FlowNodeDefMap } from './types.js';
 
-/** flow 层稳定错误码 / stable flow-layer error codes */
+/** flow 层稳定错误码（开放字符串便于透传工具自带 code）/ stable flow-layer error codes (open string so tool codes pass through) */
 export type FlowErrorCode =
     | 'FLOW_NOT_FOUND'
     | 'FLOW_CYCLE_DETECTED'
@@ -19,7 +19,8 @@ export type FlowErrorCode =
     | 'NODE_TYPE_NOT_FOUND'
     | 'NODE_CONFIG_INVALID'
     | 'NODE_FAILED'
-    | 'NODE_TIMEOUT';
+    | 'NODE_TIMEOUT'
+    | (string & {});
 
 /** flow 错误字段 / the flow error fields */
 export interface FlowErrorFields {
@@ -54,10 +55,14 @@ export function flowError(code: FlowErrorCode, message: string, fields: FlowErro
     return new FlowError(code, message, fields);
 }
 
-/** 归一化任意抛出值为 FlowError / normalize any thrown value into a FlowError */
+/** 归一化任意抛出值为 FlowError；已带稳定 code 的错误原样保留 code /
+    normalize any thrown value into a FlowError; values already carrying a stable code keep it */
 export function toFlowError(cause: unknown, fields: { flowId: string; runId: string; nodeId: string }): FlowError {
     if (cause instanceof FlowError) return cause;
-    return flowError('NODE_FAILED', cause instanceof Error ? cause.message : String(cause), { ...fields, cause });
+    const code = typeof (cause as { code?: unknown } | null | undefined)?.code === 'string'
+        ? (cause as { code: string }).code
+        : 'NODE_FAILED';
+    return flowError(code, cause instanceof Error ? cause.message : String(cause), { ...fields, cause });
 }
 
 /** 内存黑板：`${nodeId}.${slot}` 命名空间 / in-memory blackboard keyed by `${nodeId}.${slot}` */

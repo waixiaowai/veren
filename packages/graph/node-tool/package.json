@@ -1,0 +1,36 @@
+{
+  "name": "@veren/graph-node-tool",
+  "displayName": "Veren Graph Node Tool",
+  "version": "0.1.0",
+  "description": "Use when a flow must invoke a tool already registered in the DSH tool registry (ctx.tools, e.g. bash/fs/web) as a flow node: it adapts resolved flow inputs into tool arguments, runs the call through the full tools pipeline (sandbox, policies, timeout), and projects the canonical JSON value into blackboard slots; skip it when the flow only needs the built-in noop/fail/echo/subflow fixtures of @veren/graph-flow-engine.",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "default": "./dist/types.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/core": "workspace:*",
+    "@veren/graph-core": "workspace:*",
+    "@veren/graph-flow-api": "workspace:*",
+    "@veren/graph-flow-engine": "workspace:*"
+  }
+}
