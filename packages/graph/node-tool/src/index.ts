@@ -19,22 +19,16 @@ import type { Context } from '@deepseek-ai/cordis';
 // 类型-only import：只为拉取 dsh-tools 的 declaration merge（ctx.tools 类型面）
 // Type-only import: pulls in the dsh-tools declaration merge (the ctx.tools type surface).
 import type { } from '@deepseek-ai/dsh-tools';
+import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools';
+import type { JsonValue } from '@deepseek-ai/dsh-util-values';
 import z from '@deepseek-ai/schemastery';
-import { defineToken } from '@veren/core';
 import { registerNodeHandler } from '@veren/graph-flow-api';
 import type { NodeExecuteContext, NodeHandler } from '@veren/graph-flow-api';
-import type { JsonValue, ToolInvokeCapability } from './types.js';
 
-export type { JsonValue, ToolCallInput, ToolFailureInfo, ToolInvokeCapability, ToolInvokeResult } from './types.js';
+export type { ToolExecutionInput, ToolExecutionResult };
 
-/**
- * 工具调用能力令牌：服务名与 DSH 的 `ctx.tools` 一致（'tools'）。测试或轻量
- * 装配方可用它提供一个满足契约的替身；生产装配直接装载 dsh-tools。
- * The tool invocation token: the service name matches DSH's `ctx.tools`
- * ('tools'). Tests or light assemblies may provide a stand-in under it; real
- * assemblies simply load dsh-tools.
- */
-export const ToolsToken = defineToken<ToolInvokeCapability>('tools');
+/** 工具调用面：ctx.tools.execute 的函数形状 / the calling surface: the shape of ctx.tools.execute */
+export type ToolInvoker = (call: ToolExecutionInput) => Promise<ToolExecutionResult>;
 
 /** tool 节点的 config / the tool node's config */
 export interface ToolNodeConfig {
@@ -54,9 +48,9 @@ export function valueToSlots(value: JsonValue): Record<string, unknown> {
 }
 
 /** 执行一次工具调用 / run one tool invocation */
-export async function invokeTool(capability: ToolInvokeCapability, config: ToolNodeConfig, input: Record<string, unknown>, nctx: NodeExecuteContext): Promise<Record<string, unknown>> {
-    const result = await capability.execute({
-        callId: randomUUID(),
+export async function invokeTool(execute: ToolInvoker, config: ToolNodeConfig, input: Record<string, unknown>, nctx: NodeExecuteContext): Promise<Record<string, unknown>> {
+    const result = await execute({
+        callId: randomUUID() as ToolExecutionInput['callId'],
         name: config.tool,
         arguments: input,
         signal: nctx.signal,
@@ -68,14 +62,14 @@ export async function invokeTool(capability: ToolInvokeCapability, config: ToolN
     throw error;
 }
 
-/** tool 节点 handler（能力经 apply 闭包注入）/ the tool node handler (capability injected via the apply closure) */
-export function createToolHandler(capability: ToolInvokeCapability): NodeHandler {
+/** tool 节点 handler（调用面经 apply 闭包注入）/ the tool node handler (the invoker injected via the apply closure) */
+export function createToolHandler(execute: ToolInvoker): NodeHandler {
     return {
         type: 'tool',
         version: 1,
         // schemastery schema 宽化到 NodeHandler.config 槽位 / widen the schema into the NodeHandler.config slot
         config: toolNodeConfigSchema as unknown as NodeHandler['config'],
-        execute: (input, nctx) => invokeTool(capability, nctx.config as ToolNodeConfig, input, nctx),
+        execute: (input, nctx) => invokeTool(execute, nctx.config as ToolNodeConfig, input, nctx),
     };
 }
 
@@ -87,5 +81,5 @@ export const inject = ['tools'] as const;
 export const provide = [] as const;
 
 export const apply = (ctx: Context): void => {
-    registerNodeHandler(ctx, createToolHandler(ctx.tools));
+    registerNodeHandler(ctx, createToolHandler((call) => ctx.tools.execute(call)));
 };

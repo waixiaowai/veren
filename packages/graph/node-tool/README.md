@@ -8,7 +8,7 @@ The generic **tool node**: every tool already registered in the DSH tool registr
 - **Full tools pipeline reuse** — calls run through `ctx.tools.execute(...)`: `tools/pre-execute` → guards → around-dispatch (timeout wrappers) → tool body → `tools/post-execute`. Sandbox confinement and cross-platform behavior come from the loaded DSH tool/sandbox backend plugins, not from this package.
 - **Cancellation** — the node's `AbortSignal` is forwarded as the call's signal; engine-level cancel propagates into the running tool.
 - **Structured results** — a success's canonical JSON `value` is spread into blackboard slots (objects key-by-key; scalars/arrays land in `out`); failures throw with the tool's stable `info.code` (fallback `TOOL_FAILED`), which flows through `retry`/`onError` and surfaces in `FlowRunResult.error.code`.
-- **`ToolsToken`** — the `'tools'` service name as a token, so tests and light assemblies can provide a stand-in capability; real assemblies simply load `@deepseek-ai/dsh-tools` plus the tool plugins they need.
+- **`ToolsToken`** — removed by design: the node reads `ctx.tools` directly (type-safe via the dsh-tools declaration merge); tests provide a stand-in under the same `'tools'` service name.
 
 ## Usage
 

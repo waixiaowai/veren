@@ -8,7 +8,7 @@
 - **复用完整 tools 管线** —— 调用经 `ctx.tools.execute(...)`：`tools/pre-execute` → guards → around-dispatch（超时包装）→ 工具体 → `tools/post-execute`。沙箱约束与跨平台行为来自已装载的 DSH 工具/沙箱后端插件，本包不实现。
 - **取消传播** —— 节点的 `AbortSignal` 作为调用的 signal 转发；引擎级取消会传入正在运行的工具。
 - **结构化结果** —— 成功的 canonical JSON `value` 摊平写入黑板 slot（对象按键摊平；标量/数组落在 `out`）；失败以工具的稳定 `info.code` 抛出（兜底 `TOOL_FAILED`），贯穿 `retry`/`onError` 并体现在 `FlowRunResult.error.code`。
-- **`ToolsToken`** —— 即 `'tools'` 服务名的令牌：测试或轻量装配方可用它提供满足契约的替身；生产装配直接装载 `@deepseek-ai/dsh-tools` 与所需工具插件。
+- **无令牌封装** —— 节点直接读取 `ctx.tools`（经 dsh-tools 的 declaration merge 获得类型面）；测试在同名 `'tools'` 服务下提供替身。
 
 ## 用法
 
