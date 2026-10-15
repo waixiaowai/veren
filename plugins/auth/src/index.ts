@@ -22,7 +22,7 @@ import { bootstrapAdmin, buildBetterAuth, loadAuthSecret } from './auth.js'
 import type { AdminSeed } from './auth.js'
 import { LOGIN_GATE_DOMAIN_NAME, loginGateDomain } from './domain.js'
 import type { LoginGateDomain } from './domain.js'
-import { installGate } from './gate.js'
+import { installGate, resolveListenerFacts } from './gate.js'
 import type { GateWebServer } from './gate.js'
 
 /** Service token, doubling as the plugin display name. 服务令牌，兼作插件显示名。 */
@@ -47,6 +47,15 @@ export interface Config {
    * 相同，通常由 profile patch 的 `!!js` 表达式提供。
    */
   distIndex: string
+  /**
+   * Explicit listener origin override for host builds without
+   * `webServer.getOrigin()`/`protocol` (e.g. 0.2.0-rc.2). When absent on such
+   * a build, a plain-HTTP origin is derived from the port/host getters.
+   * 针对 lacks `webServer.getOrigin()`/`protocol` 的宿主构建（如 0.2.0-rc.2）
+   * 的显式 origin 覆盖。此类构建上缺省时，将从 port/host getter 推导纯 HTTP
+   * origin。
+   */
+  publicOrigin?: string
   /** Browser session lifetime in days. @default 7 浏览器会话时长（天）。 */
   sessionDays?: number
   /**
@@ -160,16 +169,18 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   // 运行中宿主的 WebServer 具备 getOrigin()/protocol（源码级面）；已发布的
   // rc.2 类型包尚未声明，因此用这一次向下转型指称服务真正暴露的事实。
   const webServer = ctx.webServer as GateWebServer
-  const origin = webServer.getOrigin()
+  const { origin, secure } = resolveListenerFacts(webServer, config.publicOrigin, message => {
+    ctx.logger.warn(new Error(message))
+  })
   const auth = buildBetterAuth({
     domain,
     secret,
     origin,
-    // The listener's own protocol is the only input to the cookie Secure
-    // flag — never publicUrl or forwarded headers.
-    // 监听器自身的协议是 Cookie Secure 标志的唯一依据——绝不使用 publicUrl
+    // When the host exposes its protocol, it is the only input to the cookie
+    // Secure flag — never publicUrl or forwarded headers.
+    // 宿主暴露协议时，它是 Cookie Secure 标志的唯一依据——绝不使用 publicUrl
     // 或转发头。
-    secure: webServer.protocol === 'https:',
+    secure,
     expiresInDays: config.sessionDays ?? 7,
     rateLimit: config.rateLimit ?? undefined,
   })

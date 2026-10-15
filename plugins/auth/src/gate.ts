@@ -29,18 +29,58 @@ export const LOGIN_PATH = '/login'
 const NO_STORE = { 'cache-control': 'no-store' }
 
 /**
- * The WebServer service plus the origin/protocol facts the running host's
- * source-level surface carries (the last published rc.2 type bundle does not
- * declare them yet). A structural intersection keeps this a local type — no
- * module augmentation, no runtime difference.
- * WebServer 服务加上运行中宿主源码级面携带的 origin/protocol 事实（已发布的
- * rc.2 类型包尚未声明）。结构化交叉类型保持局部性——不做模块增强，运行时无差异。
+ * The WebServer service plus the origin/protocol facts newer host builds
+ * carry. Both members are optional: host 0.2.0-rc.2 exposes neither, and
+ * {@link resolveListenerFacts} falls back to the port/host getters then.
+ * WebServer 服务加上较新宿主构建携带的 origin/protocol 事实。两个成员均可选：
+ * 0.2.0-rc.2 宿主两者皆无，此时由 {@link resolveListenerFacts} 回退到
+ * port/host getter。
  */
 export type GateWebServer = WebServer & {
   /** Root URL of the bound listener, e.g. `http://127.0.0.1:3080`. 监听器根 URL。 */
-  getOrigin(): string
+  getOrigin?: () => string
   /** The protocol the listener speaks, from TLS config only. 监听器协议，仅由 TLS 配置决定。 */
-  readonly protocol: 'http:' | 'https:'
+  readonly protocol?: 'http:' | 'https:'
+  /** Listening port (present on every host build). 监听端口（所有宿主构建都有）。 */
+  readonly port?: number
+  /** Configured bind address (present on every host build). 配置的绑定地址（所有宿主构建都有）。 */
+  readonly host?: string
+}
+
+/**
+ * Resolve the listener origin and TLS fact across host builds. Newer hosts
+ * expose `getOrigin()`/`protocol`; rc.2 exposes neither, so the caller's
+ * explicit `publicOrigin` config wins there, and the last resort derives a
+ * plain-HTTP origin from the port/host getters.
+ * 跨宿主构建解析监听器 origin 与 TLS 事实。较新宿主暴露 `getOrigin()`/
+ * `protocol`；rc.2 两者皆无，此时调用方显式的 `publicOrigin` 配置优先，
+ * 最后手段是从 port/host getter 推导纯 HTTP origin。
+ * @param webServer - The web carrier service.
+ * @param publicOrigin - Explicit origin override from config, or undefined.
+ * @param warn - Diagnostic sink for the fallback derivation.
+ * @returns the origin and whether cookies must carry `Secure`.
+ */
+export function resolveListenerFacts(
+  webServer: GateWebServer,
+  publicOrigin: string | undefined,
+  warn: (message: string) => void,
+): { origin: string, secure: boolean } {
+  if (typeof webServer.getOrigin === 'function') {
+    return { origin: webServer.getOrigin(), secure: webServer.protocol === 'https:' }
+  }
+  if (publicOrigin !== undefined && publicOrigin !== '') {
+    return { origin: publicOrigin, secure: publicOrigin.startsWith('https:') }
+  }
+  if (webServer.port === undefined || webServer.host === undefined) {
+    throw new Error(
+      'web-login-gate: this host build exposes neither webServer.getOrigin()/protocol nor port/host — '
+      + 'set the plugin config publicOrigin explicitly',
+    )
+  }
+  warn('web-login-gate: this host build has no webServer.getOrigin()/protocol; '
+    + `deriving plain-HTTP origin from host/port (${webServer.host}:${String(webServer.port)}) — `
+    + 'set config publicOrigin for HTTPS deployments')
+  return { origin: `http://${webServer.host}:${String(webServer.port)}`, secure: false }
 }
 
 /** Services the gate closes over. 门禁闭包持有的服务。 */
@@ -121,7 +161,7 @@ export async function handleAuth(services: GateServices, req: IncomingMessage, r
 /** Serve the public login page. 提供公开登录页。 */
 export function handleLoginPage(res: ServerResponse, origin: string): void {
   res.writeHead(200, { ...NO_STORE, 'content-type': HTML_TYPE })
-  res.end(renderLoginPage(origin))
+  res.end(renderLoginPage())
 }
 
 /** Serve the rendered SPA index after Connection authorized it. 在 Connection 授权后提供渲染好的 SPA 入口。 */
@@ -130,6 +170,34 @@ async function serveIndex(services: GateServices, res: ServerResponse): Promise<
   const body = html.replace(/<head(?:\s[^>]*)?>/i, (open: string) => `${open}<base href="./">`)
   res.writeHead(200, { ...NO_STORE, 'content-type': HTML_TYPE })
   res.end(body)
+}
+
+/**
+ * Build the tokenized exchange URL on the authority the browser is actually
+ * browsing. The session cookie is host-scoped, so redirecting to
+ * `authenticatedUrl`'s configured origin (e.g. `127.0.0.1`) from a `localhost`
+ * visit would drop the cookie and bounce the user back to the login page —
+ * the request's own Host header names the authority that carries it.
+ * 以浏览器实际访问的 authority 构造带 token 的兑换 URL。会话 Cookie 按
+ * 主机隔离：若从 `localhost` 访问却重定向到 `authenticatedUrl` 配置的 origin
+ * （如 `127.0.0.1`），Cookie 不会被携带，用户会被弹回登录页——请求自身的
+ * Host 头指明了应保留的 authority。
+ * @param services - The gate services.
+ * @param req - The incoming entry request.
+ * @param origin - The configured listener origin (protocol + fallback authority).
+ * @returns an absolute tokenized URL on the request's own authority.
+ */
+export function sameAuthorityTokenUrl(services: GateServices, req: IncomingMessage, origin: string): string {
+  // `authenticatedUrl` requires an absolute base (`new URL(baseUrl)`).
+  // `authenticatedUrl` 要求绝对地址作为 base（内部 `new URL(baseUrl)`）。
+  const tokenized = new URL(services.connection.authenticatedUrl(`${origin}/`))
+  const configured = new URL(origin)
+  const host = req.headers.host
+  if (typeof host === 'string' && host.length > 0) {
+    tokenized.protocol = configured.protocol
+    tokenized.host = host
+  }
+  return tokenized.toString()
 }
 
 /**
@@ -163,9 +231,11 @@ export async function handleIndex(services: GateServices, req: IncomingMessage, 
   // 兑换；有 token 时铸造响应归 Connection。
   const exchanged = String(req.headers.cookie ?? '').includes('dsh-auth-')
   if (!url.searchParams.has('token') && !exchanged) {
-    // The token exchange needs an absolute URL; a relative base is invalid.
-    // token 兑换需要绝对 URL；相对地址是非法的。
-    redirect(res, services.connection.authenticatedUrl(origin))
+    // The exchange URL keeps the request's own authority so the session
+    // cookie travels with the redirect (host-scoped cookies).
+    // 兑换 URL 保持请求自身的 authority，会话 Cookie 才能随跳转携带
+    // （Cookie 按主机隔离）。
+    redirect(res, sameAuthorityTokenUrl(services, req, origin))
     return
   }
   if (!services.connection.authorizeIndex(req, res)) return

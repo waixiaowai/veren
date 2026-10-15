@@ -124,6 +124,20 @@ describe('entry gate | 入口门禁', () => {
     expect(String(record.headers['location'])).toContain('token=LAUNCH')
   })
 
+  it('keeps the token redirect on the requesting authority | token 跳转保留请求方 authority', async () => {
+    // A session cookie is host-scoped: signing in via `localhost` must not
+    // redirect to `127.0.0.1`, or the cookie drops and the user is bounced
+    // back to the login page.
+    // 会话 Cookie 按主机隔离：经 `localhost` 登录后不得重定向到 `127.0.0.1`，
+    // 否则 Cookie 丢失、用户被弹回登录页。
+    const { services, auth } = await makeServices()
+    const cookie = await signIn(auth, 'admin@example.com', 'correct-horse-1')
+    const { res, record } = fakeResponse()
+    await handleIndex(services, fakeRequest('/', { cookie, host: 'localhost:3080' }), res, ORIGIN)
+    expect(record.status).toBe(303)
+    expect(String(record.headers['location'])).toMatch(/^http:\/\/localhost:3080\/\?token=/)
+  })
+
   it('authorizes through Connection and serves the rendered index | 经 Connection 授权后提供渲染的入口页', async () => {
     const { services, auth } = await makeServices()
     const cookie = await signIn(auth, 'admin@example.com', 'correct-horse-1')

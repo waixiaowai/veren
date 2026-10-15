@@ -81,6 +81,36 @@ export interface BetterAuthInputs {
 export type LoginGateAuth = ReturnType<typeof betterAuth<BetterAuthOptions>>
 
 /**
+ * Expand a loopback origin with its sibling loopback spellings (`127.0.0.1`
+ * vs `localhost`): users reach the same listener through either host, and
+ * Better Auth's origin check must admit both. Non-loopback origins keep
+ * their exact spelling only.
+ * 为 loopback origin 补齐孪生写法（`127.0.0.1` 与 `localhost`）：用户会经任意
+ * 一种主机名访问同一监听器，Better Auth 的 origin 检查必须同时接受。非
+ * loopback origin 保持原样。
+ * @param origin - The listener origin, e.g. `http://127.0.0.1:3080`.
+ * @returns the accepted origin list.
+ */
+export function loopbackOriginAliases(origin: string): string[] {
+  let url: URL
+  try {
+    url = new URL(origin)
+  } catch {
+    return [origin]
+  }
+  const loopback = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
+  if (!loopback.has(url.hostname)) return [origin]
+  const list = [origin.replace(/\/$/, '')]
+  for (const host of ['127.0.0.1', 'localhost']) {
+    const alias = new URL(origin)
+    alias.hostname = host
+    const text = alias.toString().replace(/\/$/, '')
+    if (!list.includes(text)) list.push(text)
+  }
+  return list
+}
+
+/**
  * Build the Better Auth server instance: email+password sign-in, strict
  * same-site cookies, a memory rate limiter as brute-force protection, and
  * the domain-storage adapter as its database.
@@ -101,7 +131,7 @@ export function buildBetterAuth(inputs: BetterAuthInputs): LoginGateAuth {
     // 插件把 Better Auth 挂在空闲的 `/auth` 前缀路由下。
     basePath: '/auth',
     baseURL: inputs.origin,
-    trustedOrigins: [inputs.origin],
+    trustedOrigins: loopbackOriginAliases(inputs.origin),
     secret: inputs.secret,
     database: kyselyAdapter(db, { type: 'sqlite', transaction: false }),
     emailAndPassword: { enabled: true, minPasswordLength: 8 },
