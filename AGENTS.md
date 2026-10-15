@@ -94,3 +94,11 @@ export function apply(ctx: Context): void { ... }
 2. plugins\device-id-mac mac平台安装
 3. plugins\device-id-linux Linux平台安装使用
 ```
+
+- 系统服务正确写法，类型安全
+```ts
+import type { } from '@deepseek-ai/dsh-tools';
+ctx.tools
+```
+
+- 特别注意：优先使用完整的类型面，不要创建别名，别名层只会增加漂移风险
