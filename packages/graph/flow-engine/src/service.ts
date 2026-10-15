@@ -1,13 +1,9 @@
 /**
- * flow 引擎服务：注册/注销 FlowDefinition、启动运行（RunHandle）、运行清单。
- * 引擎不直接碰存储——通过可选注入的 FlowStorage 能力持久化；子流程递归由
- * 运行期活跃引用集合防护（FLOW_REFERENCE_CYCLE）。
- *
- * The flow engine service: register/unregister FlowDefinitions, start runs
- * (RunHandle), list runs. The engine never touches storage directly — it
- * persists through the optionally injected FlowStorage capability; runtime
- * subflow recursion is guarded by an active-reference set
- * (FLOW_REFERENCE_CYCLE).
+ * flow 引擎服务：注册/注销 FlowDefinition、启动运行（RunHandle）、运行清单；
+ * 存储经可选注入的 FlowStorage 能力；子流程递归运行期防护。
+ * The flow engine service: register/unregister flows, start runs (RunHandle),
+ * list runs; storage via the optional FlowStorage capability; runtime subflow
+ * recursion guarded (FLOW_REFERENCE_CYCLE).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -19,17 +15,7 @@ import type { FlowBlackboard, FlowDefinition, FlowId, NodeExecuteContext, NodeId
 import { createBuiltinHandlers, NodeRegistryImpl } from './registry.js';
 import { compileFlow, createBlackboard, createRunner, flowError, resolveInputValue, toSlots } from './runtime.js';
 import type { OutcomePorts } from './runtime.js';
-import type {
-    CompiledFlow,
-    FlowNodeDefMap,
-    FlowNodeRecord,
-    FlowRunHandle,
-    FlowRunOptions,
-    FlowRunResult,
-    FlowRunStatus,
-    FlowRunSummary,
-    FlowStorage,
-} from './types.js';
+import type { CompiledFlow, FlowNodeDefMap, FlowNodeRecord, FlowRunHandle, FlowRunOptions, FlowRunResult, FlowRunStatus, FlowRunSummary, FlowStorage, RunEntry } from './types.js';
 
 /** 引擎服务令牌 / the engine service token */
 export const FlowEngineToken = defineToken<FlowEngineService>('graphFlowEngine');
@@ -43,18 +29,16 @@ export interface FlowEngineConfig {
 }
 
 /** 插件配置 schema / the plugin config schema */
-export const Config: z<FlowEngineConfig> = z.object({
-    nodeTimeoutMs: z.number().min(0).default(30_000),
-});
+export const Config: z<FlowEngineConfig> = z.object({ nodeTimeoutMs: z.number().min(0).default(30_000) });
 
-/** 引擎内存中的运行条目 / the in-memory run entry */
-interface RunEntry {
-    flowId: FlowId;
-    runId: RunId;
-    status: FlowRunStatus;
-    startedAt: number;
-    /** 该 run 的黑板（waterfall 改写同步用）/ the run's blackboard (waterfall rewrite sync) */
-    blackboard?: FlowBlackboard;
+/** 运行主体的环境依赖 / environment for the run body */
+interface DriveEnv {
+    input: Record<string, unknown>;
+    mocks?: Record<NodeId, unknown>;
+    blackboard: FlowBlackboard;
+    outcomePorts: OutcomePorts;
+    isCancelled: () => boolean;
+    setCancel: (cancel: () => void) => void;
 }
 
 export class FlowEngineService extends Service {
@@ -80,16 +64,13 @@ export class FlowEngineService extends Service {
             'flow-builtin-nodes',
         );
         // waterfall 改写同步：引擎监听器位于链最外层，next() 返回（全部加工
-        // 完成后）再把最终产出覆盖黑板 slot。
-        // Waterfall rewrite sync: the engine listener is the outermost link; after
-        // next() returns (all rewrites applied) it writes the final output back.
+        // 完成后）再把最终产出覆盖黑板 slot。/ The engine listener is the
+        // outermost link; after next() returns it writes the final output back.
         ctx.on('graph/node-post-execute', (meta, envelope, next) => {
             const final = next();
             const entry = this.runs.get(meta.runId as RunId);
             if (entry?.blackboard && meta.nodeId !== undefined) {
-                for (const [slot, value] of Object.entries(toSlots(final ?? envelope.output))) {
-                    entry.blackboard.write(meta.nodeId, slot, value);
-                }
+                for (const [slot, value] of Object.entries(toSlots(final ?? envelope.output))) entry.blackboard.write(meta.nodeId, slot, value);
             }
             return final;
         });
@@ -126,9 +107,7 @@ export class FlowEngineService extends Service {
         const visit = (id: FlowId): void => {
             if (visiting.has(id)) {
                 const start = Math.max(0, stack.indexOf(id));
-                throw flowError('FLOW_REFERENCE_CYCLE', `flow reference cycle: ${[...stack.slice(start), id].join(' -> ')}`, {
-                    flowId: id,
-                });
+                throw flowError('FLOW_REFERENCE_CYCLE', `flow reference cycle: ${[...stack.slice(start), id].join(' -> ')}`, { flowId: id });
             }
             if (done.has(id)) return;
             visiting.add(id);
@@ -141,20 +120,25 @@ export class FlowEngineService extends Service {
         for (const id of graph.keys()) visit(id);
     }
 
-    /** 启动一次运行（非阻塞）/ start one run (non-blocking) */
+    /** 启动一次运行（非阻塞）；入参经 Start 签名校验 / start one run (non-blocking); input validated via the Start signature */
     run(flowId: FlowId, options: FlowRunOptions = {}): FlowRunHandle {
         const compiled = this.flows.get(flowId);
         if (!compiled) throw flowError('FLOW_NOT_FOUND', `flow "${flowId}" is not registered`, { flowId });
-        const input = this.validateInput(compiled, options.input ?? {});
+        let input = options.input ?? {};
+        if (compiled.definition.input) {
+            try {
+                input = compiled.definition.input(input) as Record<string, unknown>;
+            } catch (cause) {
+                throw flowError('NODE_CONFIG_INVALID', `flow "${flowId}" input validation failed`, { flowId, cause });
+            }
+        }
         const runId = randomUUID() as RunId;
-        const entry: RunEntry = { flowId, runId, status: 'running', startedAt: Date.now() };
-        this.runs.set(runId, entry);
         const blackboard = createBlackboard();
-        entry.blackboard = blackboard;
+        const entry: RunEntry = { flowId, runId, status: 'running', startedAt: Date.now(), blackboard };
+        this.runs.set(runId, entry);
         const outcomePorts: OutcomePorts = new Map();
         let kernelCancel: (() => void) | undefined;
-        // cancel 可能先于内核启动到达：先记意愿，内核启动后再转发 signal
-        // cancel may arrive before the kernel starts: record the intent first, forward the signal once started
+        // cancel 可能先于内核启动到达：先记意愿，内核启动后转发 signal / cancel may arrive before the kernel starts
         let cancelRequested = false;
         const promise = this.drive(compiled, entry, {
             input,
@@ -179,55 +163,22 @@ export class FlowEngineService extends Service {
         };
     }
 
-    /** 入参校验（Start 签名）/ validate the run input (the Start signature) */
-    private validateInput(compiled: CompiledFlow, input: Record<string, unknown>): Record<string, unknown> {
-        const schema = compiled.definition.input;
-        if (!schema) return input;
-        try {
-            return schema(input) as Record<string, unknown>;
-        } catch (cause) {
-            throw flowError('NODE_CONFIG_INVALID', `flow "${compiled.definition.id}" input validation failed`, {
-                flowId: compiled.definition.id,
-                cause,
-            });
-        }
-    }
-
     /** 运行主体：flow 拦截 → 内核调度 → 落盘与事件 / the run body: flow intercept → kernel scheduling → persistence and events */
-    private async drive(
-        compiled: CompiledFlow,
-        entry: RunEntry,
-        env: {
-            input: Record<string, unknown>;
-            mocks?: Record<NodeId, unknown>;
-            blackboard: FlowBlackboard;
-            outcomePorts: OutcomePorts;
-            isCancelled: () => boolean;
-            setCancel: (cancel: () => void) => void;
-        },
-    ): Promise<FlowRunResult> {
+    private async drive(compiled: CompiledFlow, entry: RunEntry, env: DriveEnv): Promise<FlowRunResult> {
         const { flowId, runId } = entry;
         const payload = { flowId, runId, input: env.input };
-        const nodesCancelled = (): GraphRunResult => ({
+        // 全部节点统一置位（取消/拒绝共用）/ set every node at once (shared by cancel and refusal)
+        const allNodes = (status: 'cancelled', skipReason: 'upstream-cancel' | 'run-rejected'): GraphRunResult => ({
             graphId: flowId,
             runId,
-            status: 'cancelled',
-            nodes: Object.fromEntries(
-                compiled.definition.nodes.map((node) => [node.id, { id: node.id, status: 'cancelled', skipReason: 'upstream-cancel' }]),
-            ),
+            status,
+            nodes: Object.fromEntries(compiled.definition.nodes.map((node) => [node.id, { id: node.id, status: 'skipped', skipReason }])),
         });
-        if (env.isCancelled()) return this.finalize(compiled, entry, env.blackboard, nodesCancelled());
+        if (env.isCancelled()) return this.finalize(compiled, entry, env.blackboard, allNodes('cancelled', 'upstream-cancel'));
         if (await this.ctx.serial('flow/run-starting', payload)) {
-            return this.finalize(compiled, entry, env.blackboard, {
-                graphId: flowId,
-                runId,
-                status: 'cancelled',
-                nodes: Object.fromEntries(
-                    compiled.definition.nodes.map((node) => [node.id, { id: node.id, status: 'skipped', skipReason: 'run-rejected' }]),
-                ),
-            });
+            return this.finalize(compiled, entry, env.blackboard, allNodes('cancelled', 'run-rejected'));
         }
-        if (env.isCancelled()) return this.finalize(compiled, entry, env.blackboard, nodesCancelled());
+        if (env.isCancelled()) return this.finalize(compiled, entry, env.blackboard, allNodes('cancelled', 'upstream-cancel'));
         this.ctx.emit('flow/run-start', payload);
         const graph = this.toKernelGraph(compiled, env.blackboard, env.outcomePorts);
         const handle = this.kernel.run(graph, createRunner(this.runnerDeps(compiled, entry, env)), { runId });
@@ -244,10 +195,11 @@ export class FlowEngineService extends Service {
             edges: definition.edges.map((edge) => ({
                 from: edge.from,
                 to: edge.to,
+                // 边条件 = 命名端口结论 ∧ 声明谓词；error 端口激活时默认输出关闭
+                // edge condition = outcome port ∧ declared predicate; the default output closes once 'error' activates
                 when: (kctx: GraphRunContext) => {
                     const ports = outcomePorts.get(edge.from);
                     if (edge.port) return ports?.has(edge.port) ?? false;
-                    // 默认输出在 error 端口被激活时关闭 / the default output closes once the error port activates
                     if (ports?.has('error')) return false;
                     return edge.when ? edge.when(blackboard, kctx) : true;
                 },
@@ -256,11 +208,7 @@ export class FlowEngineService extends Service {
     }
 
     /** 组装执行器依赖 / assemble the runner dependencies */
-    private runnerDeps(
-        compiled: CompiledFlow,
-        entry: RunEntry,
-        env: { mocks?: Record<NodeId, unknown>; blackboard: FlowBlackboard; outcomePorts: OutcomePorts },
-    ) {
+    private runnerDeps(compiled: CompiledFlow, entry: RunEntry, env: DriveEnv) {
         const nodeDefs: FlowNodeDefMap = new Map(compiled.definition.nodes.map((node) => [node.id, node]));
         return {
             flowId: entry.flowId,
@@ -282,20 +230,18 @@ export class FlowEngineService extends Service {
         blackboard: FlowBlackboard,
         kernelResult: GraphRunResult,
     ): Promise<FlowRunResult> {
-        const nodes: Record<string, FlowNodeRecord> = Object.fromEntries(
-            Object.entries(kernelResult.nodes).map(([id, record]) => [id, {
-                status: record.status,
-                skipReason: record.skipReason,
-                startedAt: record.startedAt,
-                endedAt: record.endedAt,
-                error: record.error ? { code: record.error.code, message: record.error.message } : undefined,
-                output: record.output,
-            }]),
+        const toFlowRecord = ([id, record]: [string, GraphRunResult['nodes'][string]]): [string, FlowNodeRecord] => [id, {
+            status: record.status,
+            skipReason: record.skipReason,
+            startedAt: record.startedAt,
+            endedAt: record.endedAt,
+            error: record.error ? { code: record.error.code, message: record.error.message } : undefined,
+            output: record.output,
+        }];
+        const nodes = Object.fromEntries(Object.entries(kernelResult.nodes).map(toFlowRecord));
+        const output = Object.fromEntries(
+            Object.entries(compiled.definition.output ?? {}).map(([name, ref]) => [name, resolveInputValue(ref, blackboard)]),
         );
-        const output: Record<string, unknown> = {};
-        for (const [name, ref] of Object.entries(compiled.definition.output ?? {})) {
-            output[name] = resolveInputValue(ref, blackboard);
-        }
         const failure = Object.values(kernelResult.nodes).find((record) => record.error);
         const status = kernelResult.status;
         const result: FlowRunResult = {
@@ -307,13 +253,7 @@ export class FlowEngineService extends Service {
             error: failure ? { code: failure.error!.code, message: failure.error!.message } : undefined,
         };
         entry.status = status;
-        this.ctx.emit('flow/run-end', {
-            flowId: entry.flowId,
-            runId: entry.runId,
-            status,
-            output,
-            blackboard: blackboard.snapshot(),
-        });
+        this.ctx.emit('flow/run-end', { flowId: entry.flowId, runId: entry.runId, status, output, blackboard: blackboard.snapshot() });
         try {
             await this.storage?.saveRun(result);
         } catch (cause) {
@@ -331,10 +271,7 @@ export class FlowEngineService extends Service {
     /** subflow 回调：递归防护 + 父级取消传播 / the subflow callback: recursion guard + parent cancel propagation */
     private runSubflow = async (flowId: FlowId, input: Record<string, unknown>, nctx: NodeExecuteContext): Promise<unknown> => {
         if (this.activeRefs.has(flowId)) {
-            throw flowError('FLOW_REFERENCE_CYCLE', `recursive subflow reference to "${flowId}" at runtime`, {
-                flowId,
-                nodeId: nctx.nodeId,
-            });
+            throw flowError('FLOW_REFERENCE_CYCLE', `recursive subflow reference to "${flowId}" at runtime`, { flowId, nodeId: nctx.nodeId });
         }
         this.activeRefs.add(flowId);
         try {
@@ -345,9 +282,7 @@ export class FlowEngineService extends Service {
                 const result = await handle.awaitCompletion();
                 if (result.status !== 'completed') {
                     throw flowError('NODE_FAILED', `subflow "${flowId}" ended with status ${result.status}`, {
-                        flowId,
-                        runId: nctx.runId,
-                        nodeId: nctx.nodeId,
+                        flowId, runId: nctx.runId, nodeId: nctx.nodeId,
                     });
                 }
                 return result;

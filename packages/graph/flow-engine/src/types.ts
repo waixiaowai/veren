@@ -5,7 +5,7 @@
  * records and the storage capability contract.
  */
 
-import type { FlowDefinition, FlowId, FlowNodeDef, NodeHandler, NodeId, RunId, SlotRef } from '@veren/graph-flow-api';
+import type { FlowBlackboard, FlowDefinition, FlowId, FlowNodeDef, NodeHandler, NodeId, RunId, SlotRef } from '@veren/graph-flow-api';
 
 /** 一次 flow 运行的状态（running 为运行中快照）/ status of one flow run ('running' = live snapshot) */
 export type FlowRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
@@ -76,6 +76,16 @@ export interface CompiledFlow {
     configs: Map<NodeId, unknown>;
     /** subflow 引用（引用环检测用）/ subflow references (for reference-cycle checks) */
     references: FlowId[];
+}
+
+/** 引擎内存中的运行条目 / the in-memory run entry */
+export interface RunEntry {
+    flowId: FlowId;
+    runId: RunId;
+    status: FlowRunStatus;
+    startedAt: number;
+    /** 该 run 的黑板（waterfall 改写同步用）/ the run's blackboard (waterfall rewrite sync) */
+    blackboard?: FlowBlackboard;
 }
 
 /** 供引擎内部使用的节点定义映射 / node-definition map used by engine internals */

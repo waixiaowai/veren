@@ -1,15 +1,9 @@
 /**
  * 拓扑调度器：就绪集并发调度 + 节点状态机 + 生命周期事件 + 失败传播。
- *
  * The topological scheduler: ready-set scheduling with a concurrency cap, the
- * per-node status machine, lifecycle events and failure propagation.
- *
- * 内核不做数据传递、不校验节点类型：数据语义（黑板、输入映射）由上层在
- * GExecutor 中适配；条件谓词 when 也由上层在构造边时注入，内核只负责求值时机。
- * The kernel passes no data and checks no node types: data semantics
- * (blackboard, input mapping) are adapted by the upper layer inside its
- * GExecutor; edge conditions are injected at edge-construction time — the
- * kernel only owns *when* they are evaluated.
+ * per-node status machine, lifecycle events and failure propagation. The
+ * kernel passes no data and checks no node types: data semantics belong to the
+ * upper layer's GExecutor; edge `when` predicates are injected at build time.
  */
 
 import { randomUUID } from 'node:crypto';

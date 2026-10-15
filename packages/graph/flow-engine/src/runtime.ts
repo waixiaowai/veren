@@ -1,23 +1,11 @@
 /**
- * flow 运行时：结构化错误、黑板、FlowDefinition → 内核图校验、
- * 节点执行器包裹（输入映射 / 重试 / 超时 / onError / mock）。
- *
+ * flow 运行时：结构化错误、黑板、FlowDefinition → 内核图校验、节点执行器
+ * 包裹（输入映射 / 重试 / 超时 / onError / mock）。
  * The flow runtime: structured errors, the blackboard, FlowDefinition →
- * kernel-graph validation, and the node executor wrapper (input mapping,
- * retry, timeout, onError, mocks).
+ * kernel-graph validation, and the node executor wrapper.
  */
 
-import type {
-    FlowBlackboard,
-    FlowDefinition,
-    FlowId,
-    FlowNodeDef,
-    NodeExecuteContext,
-    NodeHandler,
-    NodeId,
-    NodeRegistry,
-    RunId,
-} from '@veren/graph-flow-api';
+import type { FlowBlackboard, FlowDefinition, FlowId, FlowNodeDef, NodeExecuteContext, NodeHandler, NodeId, NodeRegistry, RunId } from '@veren/graph-flow-api';
 import { GraphNodeError, validateGraph } from '@veren/graph-core';
 import type { GExecutor, GraphRunContext } from '@veren/graph-core';
 import type { CompiledFlow, FlowNodeDefMap } from './types.js';
@@ -33,6 +21,15 @@ export type FlowErrorCode =
     | 'NODE_FAILED'
     | 'NODE_TIMEOUT';
 
+/** flow 错误字段 / the flow error fields */
+export interface FlowErrorFields {
+    flowId?: string;
+    runId?: string;
+    nodeId?: string;
+    detail?: string;
+    cause?: unknown;
+}
+
 /** flow 结构化错误 / the structured flow error */
 export class FlowError extends Error {
     readonly code: FlowErrorCode;
@@ -40,11 +37,7 @@ export class FlowError extends Error {
     readonly runId?: string;
     readonly nodeId?: string;
     readonly detail?: string;
-    constructor(
-        code: FlowErrorCode,
-        message: string,
-        fields: { flowId?: string; runId?: string; nodeId?: string; detail?: string; cause?: unknown } = {},
-    ) {
+    constructor(code: FlowErrorCode, message: string, fields: FlowErrorFields = {}) {
         super(message);
         this.name = 'FlowError';
         this.code = code;
@@ -57,11 +50,7 @@ export class FlowError extends Error {
 }
 
 /** 构造 flow 错误 / build a flow error */
-export function flowError(
-    code: FlowErrorCode,
-    message: string,
-    fields: ConstructorParameters<typeof FlowError>[2] = {},
-): FlowError {
+export function flowError(code: FlowErrorCode, message: string, fields: FlowErrorFields = {}): FlowError {
     return new FlowError(code, message, fields);
 }
 
@@ -238,15 +227,10 @@ async function runOnce(
     attempt: number,
 ): Promise<unknown> {
     const entry = deps.compiled.handlers.get(nodeId)!;
-    // 运行期重解析：节点类型被卸载时得到 NODE_TYPE_NOT_FOUND
-    // Re-resolve at run time: an uninstalled node type surfaces NODE_TYPE_NOT_FOUND.
+    // 运行期重解析：节点类型被卸载时得到 NODE_TYPE_NOT_FOUND / re-resolve at run time
     const handler = deps.registry.get(entry.type, entry.version);
     if (!handler) {
-        throw flowError('NODE_TYPE_NOT_FOUND', `node "${nodeId}" references unregistered type "${entry.type}@${entry.version}"`, {
-            flowId: deps.flowId,
-            runId: deps.runId,
-            nodeId,
-        });
+        throw flowError('NODE_TYPE_NOT_FOUND', `node "${nodeId}" references unregistered type "${entry.type}@${entry.version}"`, runRef(deps, nodeId));
     }
     const nctx: NodeExecuteContext = {
         ctx: kctx,
@@ -258,8 +242,7 @@ async function runOnce(
         blackboard: deps.blackboard,
         signal,
     };
-    const timeout = defNode.timeout ?? deps.defaultTimeoutMs;
-    return withTimeout(Promise.resolve(handler.execute(input, nctx)), timeout, nodeId, deps.flowId, signal);
+    return withTimeout(Promise.resolve(handler.execute(input, nctx)), defNode.timeout ?? deps.defaultTimeoutMs, nodeId, deps.flowId, signal);
 }
 
 /** 成功落定：写黑板并记录端口结论 / settle success: write the blackboard and record outcome ports */
@@ -271,12 +254,7 @@ function settle(deps: RunnerDeps, nodeId: NodeId, output: unknown): Record<strin
 }
 
 /** 失败落定：按 onError 策略 / settle failure according to the onError policy */
-function settleFailure(
-    deps: RunnerDeps,
-    nodeId: NodeId,
-    defNode: FlowNodeDef,
-    cause: unknown,
-): Record<string, unknown> {
+function settleFailure(deps: RunnerDeps, nodeId: NodeId, defNode: FlowNodeDef, cause: unknown): Record<string, unknown> {
     const policy = defNode.onError ?? 'failFast';
     if (policy === 'fallback') return settle(deps, nodeId, defNode.fallbackValue);
     const error = toFlowError(cause, runRef(deps, nodeId));
@@ -305,20 +283,17 @@ async function retrySleep(ms: number, signal: AbortSignal): Promise<void> {
 function withTimeout<T>(work: Promise<T>, timeoutMs: number, nodeId: NodeId, flowId: string, signal: AbortSignal): Promise<T> {
     return new Promise<T>((resolve, reject) => {
         const timer = timeoutMs > 0
-            ? setTimeout(
-                  () => reject(flowError('NODE_TIMEOUT', `node "${nodeId}" timed out after ${timeoutMs}ms`, { flowId, nodeId })),
-                  timeoutMs,
-              )
+            ? setTimeout(() => reject(flowError('NODE_TIMEOUT', `node "${nodeId}" timed out after ${timeoutMs}ms`, { flowId, nodeId })), timeoutMs)
             : undefined;
         const onAbort = () => reject(flowError('FLOW_CANCELLED', 'cancelled', { flowId, nodeId }));
         signal.addEventListener('abort', onAbort, { once: true });
+        const cleanup = (): void => {
+            if (timer !== undefined) clearTimeout(timer);
+            signal.removeEventListener('abort', onAbort);
+        };
         work.then(
             (value) => { cleanup(); resolve(value); },
             (cause) => { cleanup(); reject(cause); },
         );
-        function cleanup(): void {
-            if (timer !== undefined) clearTimeout(timer);
-            signal.removeEventListener('abort', onAbort);
-        }
     });
 }
