@@ -1,47 +1,56 @@
 // 插件入口：Person Agent 的会话维护工具（创建/改名/分叉/归档/取消归档/置顶/
 // 取消置顶/派活）。
 // Plugin entry: Person Agent session maintenance tools (create / rename /
-// fork / archive / unarchive / pin / unpin / prompt).
+// fork / archive / unarchive / pin / unpin / dispatch).
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-// 类型-only import：拉取 tools、sessionController 与 workspaceRegistry 的
-// Context 声明合并。
-// Type-only imports: pull the tools, sessionController, and workspaceRegistry
-// Context declaration merging.
+// 类型-only import：拉取 tools、agents、sessions、sessionController 与
+// workspaceRegistry 的 Context 声明合并。
+// Type-only imports: pull the tools, agents, sessions, sessionController, and
+// workspaceRegistry Context declaration merging.
 import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { registerSessionCreate, registerSessionFork, registerSessionRename } from './tools-management.js'
-import { registerSessionPrompt } from './tools-prompt.js'
+import { registerSessionDispatch } from './tools-dispatch.js'
 import {
   registerSessionArchive,
   registerSessionPin,
   registerSessionUnarchive,
   registerSessionUnpin,
 } from './tools-state.js'
+import { createSettlementWatch } from './watch.js'
 
 export const name = 'personAgentToolSession'
 
 export interface Config {
   /** 是否提供 session_create。Whether session_create is offered. */
   allowCreate: boolean
-  /** 是否提供 session_prompt。Whether session_prompt is offered. */
-  allowPrompt: boolean
+  /** 是否提供 session_dispatch。Whether session_dispatch is offered. */
+  allowDispatch: boolean
   /** 是否提供 session_fork。Whether session_fork is offered. */
   allowFork: boolean
   /** 是否提供归档/取消归档。Whether archive/unarchive are offered. */
   allowArchive: boolean
   /** 是否提供置顶/取消置顶。Whether pin/unpin are offered. */
   allowPin: boolean
+  /** 结算通知里收尾输出的长度上限（字符）。Character cap for a settlement notice's closing output. */
+  maxReportChars: number
+  /** 同时挂起的结算看守上限。Cap on concurrently armed settlement watches. */
+  maxConcurrentWatches: number
 }
 
 export const Config: z<Config> = z
   .object({
     allowCreate: z.boolean().default(true).description('Offer the session_create tool.'),
-    allowPrompt: z.boolean().default(true).description('Offer the session_prompt tool (deliver a prompt into a session and wake it).'),
+    allowDispatch: z.boolean().default(true).description('Offer the session_dispatch tool (hand a prompt to a session, return at once, then report its closing output back once it settles).'),
     allowFork: z.boolean().default(true).description('Offer the session_fork tool.'),
     allowArchive: z.boolean().default(true).description('Offer the session_archive and session_unarchive tools.'),
     allowPin: z.boolean().default(true).description('Offer the session_pin and session_unpin tools.'),
+    maxReportChars: z.natural().min(1).default(4000).description('Character cap for a settlement notice\'s closing output; longer text is truncated with an ellipsis.'),
+    maxConcurrentWatches: z.natural().min(1).default(64).description('Cap on concurrently armed settlement watches; further reporting dispatches are rejected once it is reached.'),
   })
   .description('Person Agent session maintenance tool toggles.')
 
@@ -50,11 +59,12 @@ export const Config: z<Config> = z
 // schema value, so tests use this alias to mean the interface.
 export type ConfigShape = Config
 
-// 注入的是能力（Service）：工具注册表、宿主 Session 业务 API、持久化工作区
-// 注册表（归档/置顶集合的 owner）。
-// Injection targets capabilities: the tool registry, the host Session business
-// API, and the durable workspace registry (owner of the archive/pin sets).
-export const inject = ['tools', 'sessionController', 'workspaceRegistry']
+// 注入的是能力（Service）：工具注册表、存活 Agent 注册表、会话存储、宿主 Session
+// 业务 API、持久化工作区注册表（归档/置顶集合的 owner）。
+// Injection targets capabilities: the tool registry, the live Agent registry,
+// the session store, the host Session business API, and the durable workspace
+// registry (owner of the archive/pin sets).
+export const inject = ['tools', 'agents', 'sessions', 'sessionController', 'workspaceRegistry']
 export const provide = []
 
 /**
@@ -62,12 +72,21 @@ export const provide = []
  * Register every enabled tool; each effect body returns the exact disposer,
  * invoked in reverse order on unload, so nothing leaks.
  * @param ctx - 宿主上下文。The host context.
- * @param config - 工具开关。The tool toggles.
+ * @param config - 工具开关与结算回报上限。The tool toggles and settlement-report bounds.
  */
 export const apply = (ctx: Context, config: Config): void => {
   if (config.allowCreate) ctx.effect(() => registerSessionCreate(ctx), 'person-agent-tool-session:create')
   ctx.effect(() => registerSessionRename(ctx), 'person-agent-tool-session:rename')
-  if (config.allowPrompt) ctx.effect(() => registerSessionPrompt(ctx), 'person-agent-tool-session:prompt')
+  if (config.allowDispatch) {
+    // 取消器先注册、工具后注册：卸载时工具先摘除，随后结清所有挂起的看守，
+    // 让正挂在 whenIdle() 上的观察者醒来即返回，不会去碰已失效的 Context。
+    // The canceller registers first and the tool second, so unload removes the
+    // tool before settling every pending watch: an observer parked on whenIdle()
+    // then wakes into `settled` and returns without touching the inactive Context.
+    const watch = createSettlementWatch(ctx, config)
+    ctx.effect(() => () => watch.dispose(), 'person-agent-tool-session:dispatch-watch')
+    ctx.effect(() => registerSessionDispatch(ctx, watch), 'person-agent-tool-session:dispatch')
+  }
   if (config.allowFork) ctx.effect(() => registerSessionFork(ctx), 'person-agent-tool-session:fork')
   if (config.allowArchive) {
     ctx.effect(() => registerSessionArchive(ctx), 'person-agent-tool-session:archive')

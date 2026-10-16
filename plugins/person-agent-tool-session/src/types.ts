@@ -58,33 +58,58 @@ export interface SessionArchiveArgs extends SessionTargetArgs {
   stopActivity?: boolean
 }
 
-/** `session_prompt` 的完整参数。Full arguments of `session_prompt`. */
-export interface SessionPromptArgs extends SessionTargetArgs {
-  /** 发给目标会话的提示文本（原样作为一个 text 块）。The prompt text, sent verbatim as one text block. */
+/** `session_dispatch` 的完整参数。Full arguments of `session_dispatch`. */
+export interface SessionDispatchArgs {
+  /** 已有目标会话 id（与 newSession 二选一）；模型给出的就是字符串。The existing target session id (exclusive with newSession); the model supplies a plain string. */
+  sessionId?: string
+  /** 新建会话的参数（与 sessionId 二选一）。New-session parameters (exclusive with sessionId). */
+  newSession?: NewSessionArgs
+  /** 交付给目标会话的提示文本（原样作为一个 text 块）。The prompt, sent verbatim as one text block. */
   prompt: string
-  /** 是否等目标会话回到空闲再返回（默认 false，只入队即返回）。Wait for the target session to go idle (default false: enqueue and return). */
-  wait?: boolean
+  /** 是否回报结算，默认 true；false 为纯派发。Whether to report settlement (default true; false is fire-and-forget). */
+  report?: boolean
+}
+
+/** 新建目标会话的参数。Parameters for creating the target session. */
+export interface NewSessionArgs {
+  /** 新会话拥有的工作目录。The directory the new session owns. */
+  cwd?: string
+  /** 新会话运行的 Agent 预设。The Agent preset the new session runs. */
+  agentPreset?: string
 }
 
 /**
- * `session_prompt` 的返回值。type 别名（理由同 SessionCreateResult）。
- * The `session_prompt` result value. Type alias (same reason as SessionCreateResult).
+ * `session_dispatch` 的返回值：已接受的派发收据，不含任何等待结果。
+ * type 别名（理由同 SessionCreateResult）。
+ * The `session_dispatch` result: the accepted-dispatch receipt, which carries no
+ * waiting outcome. Type alias (same reason as SessionCreateResult).
  */
-export type SessionPromptResult = {
-  sessionId: SessionId
-  /** 提示已入队。The prompt was accepted into the session's inbox. */
-  accepted: true
-  /** 是否等待了空闲。Whether the call waited for idle. */
-  waited: boolean
+export type SessionDispatchResult = {
+  /** id 在这里就是跨模型边界的字符串，因此不带 brand。Plain ids: they cross the model boundary. */
+  sessionId: string
+  /** 已入队的用户消息身份。Identity of the enqueued user message. */
+  messageId: string
+  /** 看守句柄；纯派发（report=false）时为 null。The watch handle, or null for a fire-and-forget dispatch. */
+  watchId: string | null
+  /** 是否会回报结算。Whether a settlement notice will be sent back. */
+  reporting: boolean
 }
+
+/** 一次派发结算的结束原因。Why one dispatch settlement ended. */
+export type SessionDispatchOutcome = 'settled' | 'target-gone'
 
 /** 工具层稳定错误码。Stable tool-layer error codes. */
 export type SessionToolErrorCode =
   | 'SESSION_TITLE_EMPTY'
   | 'SESSION_CREATE_LOCATION_CONFLICT'
   | 'SESSION_MODEL_SELECTION_INCOMPLETE'
-  | 'SESSION_PROMPT_EMPTY'
-  | 'SESSION_PROMPT_NOT_FOUND'
+  | 'SESSION_DISPATCH_NO_CALLER'
+  | 'SESSION_DISPATCH_PROMPT_EMPTY'
+  | 'SESSION_DISPATCH_TARGET_MISSING'
+  | 'SESSION_DISPATCH_TARGET_CONFLICT'
+  | 'SESSION_DISPATCH_TARGET_NOT_FOUND'
+  | 'SESSION_DISPATCH_CREATE_FAILED'
+  | 'SESSION_DISPATCH_CAPACITY_REACHED'
 
 /** 带稳定 code 与机器可读字段的结构化错误（misconfiguration fails loud）。 */
 /** A structured error with a stable code and machine-readable fields (misconfiguration fails loud). */

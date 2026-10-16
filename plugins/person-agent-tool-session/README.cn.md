@@ -1,10 +1,10 @@
 # @veren/person-agent-tool-session
 
-Person Agent 预设的面向模型会话维护工具：基于 `ctx.sessionController` 的 `session_create`、`session_rename`、`session_fork`、`session_prompt`，以及基于 `ctx.workspaceRegistry` 的 `session_archive`、`session_unarchive`、`session_pin`、`session_unpin`。
+Person Agent 预设的面向模型会话维护工具：基于 `ctx.sessionController` 的 `session_create`、`session_rename`、`session_fork`、`session_dispatch`，以及基于 `ctx.workspaceRegistry` 的 `session_archive`、`session_unarchive`、`session_pin`、`session_unpin`。
 
 ## 什么情况下使用
 
-当 Person Agent 会话需要创建、派活或整理兄弟会话——按预设/模型/标题开新会话、把任务（包括第一句话）交给它、分叉已完成轮次、归档或置顶会话——时使用；当会话不允许改动会话名单时跳过。
+当 Person Agent 会话需要创建、派活或整理兄弟会话——按预设/模型/标题开新会话、把任务（包括第一句话）交给它且不阻塞自己、分叉已完成轮次、归档或置顶会话——时使用；当会话不允许改动会话名单时跳过。
 
 ## 最小配置
 
@@ -15,10 +15,12 @@ Person Agent 预设的面向模型会话维护工具：基于 `ctx.sessionContro
   name: '@veren/person-agent-tool-session'
   config:
     allowCreate: true
-    allowPrompt: true
+    allowDispatch: true
     allowFork: true
     allowArchive: true
     allowPin: true
+    maxReportChars: 4000
+    maxConcurrentWatches: 64
 ```
 
 ## 工具
@@ -26,25 +28,47 @@ Person Agent 预设的面向模型会话维护工具：基于 `ctx.sessionContro
 | 工具 | 参数 | 效果 |
 | --- | --- | --- |
 | `session_create` | `title?`、`presetId?`、`provider?`+`model?`、`workspaceId?` 与 `cwd?` 二选一 | 创建普通会话，然后按「先模型、后标题」的顺序补装。新会话从空白开始；工具只回报新 id，不切换会话。 |
-| `session_prompt` | `sessionId`、`prompt`、`wait?` | 通过宿主标准入队路径（`resolveAgent` → `agent.followup`，`kind: 'user'` 消息）把一段提示投进会话并唤醒它；给 `wait: true` 时等会话回到空闲再返回。桥梁人设把任务交给新建会话（包括第一句话）就靠它。 |
+| `session_dispatch` | `prompt`、`sessionId?` 与 `newSession?` 二选一、`report?` | 通过宿主标准入队路径（`resolveAgent` → `agent.followup`）把一段提示投进会话并**立即返回**，绝不等目标会话。`report: true`（默认）时由看守观察到目标真正静止，再把它的收尾输出作为 follow-up 消息投回**调用方**会话；`report: false` 时什么也不回。桥梁人设把任务交给新建会话（包括第一句话）就靠它。 |
 | `session_rename` | `sessionId`、`title` | 持久修改一个会话的标题。 |
 | `session_fork` | `sessionId`、`atSeq?` | 把精确的已完成轮次前缀复制成新会话。 |
 | `session_archive` | `sessionId`、`stopActivity?` | 把会话放进归档集合；给 `stopActivity` 时停止运行中的工作而不是拒绝。 |
 | `session_unarchive` | `sessionId` | 把归档会话移回原位。 |
 | `session_pin` / `session_unpin` | `sessionId` | 维护 registry-global 置顶集合。 |
 
-错误是结构化的，带稳定 code（`SESSION_TITLE_EMPTY`、`SESSION_CREATE_LOCATION_CONFLICT`、`SESSION_MODEL_SELECTION_INCOMPLETE`、`SESSION_PROMPT_EMPTY`、`SESSION_PROMPT_NOT_FOUND`）与机器可读字段；注册表层级的拒绝（会话仍在运行、归档会话置顶）原样来自宿主接缝。
+错误是结构化的，带稳定 code（`SESSION_TITLE_EMPTY`、`SESSION_CREATE_LOCATION_CONFLICT`、`SESSION_MODEL_SELECTION_INCOMPLETE`、`SESSION_DISPATCH_NO_CALLER`、`SESSION_DISPATCH_PROMPT_EMPTY`、`SESSION_DISPATCH_TARGET_MISSING`、`SESSION_DISPATCH_TARGET_CONFLICT`、`SESSION_DISPATCH_TARGET_NOT_FOUND`、`SESSION_DISPATCH_CREATE_FAILED`、`SESSION_DISPATCH_CAPACITY_REACHED`）与机器可读字段；注册表层级的拒绝（会话仍在运行、归档会话置顶）原样来自宿主接缝。
+
+## 结算回报
+
+`session_dispatch` 取代了旧的 `session_prompt`：后者的 `wait: true` 会阻塞调用方直到目标空闲（本部署实测 16 分钟），而它的 `wait: false` 正是新工具的非阻塞子集——同一个派活动作没有理由存在两个工具。
+
+看守照抄官方子 agent 的结算观察者——`@deepseek-ai/dsh-subagent` 的 `src/manager.ts` 里的 `watchLocalSettlement()` / `settlementState()` / `wake()`。那段代码把**同步通知**与**异步静止**分开，本插件保持同一划分：
+
+- **同步唤醒。** 挂在目标 Agent 自己上下文上的 `agent/inbox/inserted`、`agent/inbox/claimed`、`agent/inbox/discarded`（`agent.ctx.on(...)`）只负责结清并换新观察令牌。`@deepseek-ai/dsh-scope` 按作用域路由这些事件，因此收到的只会是这个 Agent 的通知，插件里不存在任何 `sessionId` 比对。
+- **异步静止。** 常驻协程 `await agent.whenIdle()` 后读令牌：等待期间被换过就是 `retry`；还有输入没跑就是 `wait`（停在"下一次唤醒"上，不空转）；`ready` 才收尾。判据必须用 `whenIdle()`，因为 maintenance 任务运行期间公开状态仍是 `idle`——所以看守不订阅 `agent/status`，也不排任何定时任务。
+
+消息声明了两种来源 kind，刻意分开：`session-dispatch`（`form: 'relay'`）是调用方撰写的内容，`session-dispatch-notice`（`form: 'notice'` + `summary`）是 runtime 对目标下场的陈述。合并两者会让目标被安上它没说过的话。
+
+通知按官方 `sendWaking` 的判据投递：调用方空闲用 `followup`（自成一轮），忙碌用 `steer`（并入最近的 step 边界，忙碌的调用方不会被迫多跑一轮）。调用方 Agent 已不在注册表时（宿主重启过），回退到 `ctx.sessionController.resolveAgent` 恢复它——与 `@deepseek-ai/dsh-schedule` 到期投递同一路线。
 
 ## 实现说明
 
 - `src/index.ts` — 插件身份、开关与 effect 托管的注册（逆序清理，HMR 安全）。
 - `src/tools-management.ts` — 走 `ctx.sessionController` 的创建/改名/分叉。
-- `src/tools-prompt.ts` — 走 `resolveAgent` + `agent.followup` 的派活。
+- `src/tools-dispatch.ts` — 走 `resolveAgent` + 结算看守的 `session_dispatch`。
+- `src/watch.ts` — 结算看守：inbox 唤醒源、观察令牌与收尾输出选取。
+- `src/notice.ts` — 两种消息 kind、结算通知与 `sendWaking` 投递。
 - `src/tools-state.ts` — 走 `ctx.workspaceRegistry` 的归档/置顶动词。
 - `src/types.ts` — 参数/返回值契约与结构化错误类型。
+
+## 已知限制
+
+- 看守不跨插件卸载：它由注册 effect 拥有，卸载即取消挂起的看守，且不补报。
+- 没有等待上限。一个永不静止、也永不被销毁的目标会一直被看守到卸载；`maxConcurrentWatches` 限定这类看守能积累多少个。
+- 收尾输出是投递之后新产生的最后一条非空派生 assistant 消息。官方 `finalAssistantOutput` 读事件后缀并在没有消息时回退到累积的流文本；而 `Session.snapshotEvents` 已被标记弃用（"new calls are prohibited"），所以这里把同一条选取规则套在未弃用的派生历史上，没有流文本回退。
 
 ## 延伸阅读
 
 - 宿主 Session 业务 API：`@deepseek-ai/dsh-api-session-controller`（`ctx.sessionController`）。
 - 归档/置顶语义：`@deepseek-ai/dsh-workspace`（`ctx.workspaceRegistry`）。
 - 工具契约：`@deepseek-ai/dsh-tools`（`defineTool`、`ctx.tools.register`）。
+- 本看守所对照的结算观察者：`@deepseek-ai/dsh-subagent`（`src/manager.ts`、`src/continuation-messages.ts`）。

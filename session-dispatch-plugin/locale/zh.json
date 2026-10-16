@@ -1,6 +1,0 @@
-{
-  "meta": {
-    "title": "会话派发插件",
-    "description": "注册 session_dispatch 工具：把提示派发给另一个会话并立即返回，等该会话真正静止后再把它的收尾输出作为 follow-up 事件回报给调用方。"
-  }
-}

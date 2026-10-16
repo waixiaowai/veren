@@ -1,0 +1,327 @@
+// 结算时序测试：本插件的核心契约——目标真正静止才回报，且恰好一次。
+// Settlement-timing tests: the plugin's core contract - report exactly once, and
+// only when the target is genuinely quiescent.
+import { describe, expect, it } from 'vitest'
+import { createSettlementNotice } from '../src/notice.js'
+import { install, settleAsync } from './settlement-harness.js'
+import type { Env, FakeAgent } from './settlement-harness.js'
+import { SessionId } from '@deepseek-ai/dsh-session'
+
+/** 发起一次带回报的派发。Dispatch once with reporting on. */
+async function dispatchTo(env: Env, caller: FakeAgent, targetId: string): Promise<Record<string, unknown>> {
+  return await env.run(
+    'session_dispatch',
+    { sessionId: targetId, prompt: 'do the work' },
+    { agent: caller },
+  ) as Record<string, unknown>
+}
+
+/** 调用方收到的最后一条通知正文。The last notice body the caller received. */
+function noticeText(caller: FakeAgent): string {
+  const message = caller.received.at(-1) ?? caller.steered.at(-1)
+  if (message === undefined) return ''
+  return message.content.map(block => (block.type === 'text' ? block.text : '')).join('\n')
+}
+
+describe('session_dispatch 结算 / settlement', () => {
+  it('派发立即返回，调用方在目标静止前就拿到收据', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+
+    const receipt = await dispatchTo(env, caller, 'target')
+
+    expect(receipt).toMatchObject({ sessionId: 'target', reporting: true })
+    expect(typeof receipt['messageId']).toBe('string')
+    expect(typeof receipt['watchId']).toBe('string')
+    expect(target.status).toBe('running')
+    expect(caller.received).toHaveLength(0)
+    expect(target.received[0]?.content[0]).toEqual({ type: 'text', text: 'do the work' })
+    // 派发提示带自己的来源 kind，不会被误读成人类用户消息。
+    // The dispatch prompt carries its own source kind, so it is not mistaken for
+    // a human user message.
+    expect(target.received[0]?.source).toMatchObject({ kind: 'session-dispatch', form: 'relay' })
+  })
+
+  it('目标静止后投递一条结算通知', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    await dispatchTo(env, caller, 'target')
+
+    target.say('SUMMARY: three packages changed')
+    target.finish()
+    await settleAsync()
+
+    expect(caller.received).toHaveLength(1)
+    const notice = caller.received[0]
+    expect(notice?.role).toBe('user')
+    // 通知的来源 kind 与提示不同：这是 runtime 对下场的陈述。
+    // The notice's source kind differs from the prompt's: this is the runtime
+    // stating what became of the target.
+    expect(notice?.source).toMatchObject({ kind: 'session-dispatch-notice', form: 'notice' })
+    expect(String((notice?.source as { summary?: string }).summary)).toContain('finished')
+    expect(noticeText(caller)).toContain('Background session target finished')
+    expect(noticeText(caller)).toContain('Its closing message:')
+    expect(noticeText(caller)).toContain('SUMMARY: three packages changed')
+    expect(env.flushes).toEqual(['caller'])
+  })
+
+  it('空闲调用方用 queue（自成一轮）', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    await dispatchTo(env, caller, 'target')
+
+    target.finish()
+    await settleAsync()
+
+    expect(caller.received).toHaveLength(1)
+    expect(caller.steered).toHaveLength(0)
+  })
+
+  it('忙碌调用方用 steer（并入当前轮的下一个 step，不另起一轮）', async () => {
+    // A busy caller is steered at its nearest step boundary instead of being
+    // forced into an extra turn.
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    await dispatchTo(env, caller, 'target')
+
+    caller.wake()
+    target.finish()
+    await settleAsync()
+
+    expect(caller.steered).toHaveLength(1)
+    expect(caller.received).toHaveLength(0)
+  })
+
+  it('先 idle 又复活时不得提前宣布完成', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    await dispatchTo(env, caller, 'target')
+
+    target.say('PASS-ONE')
+    target.finish()
+    // 在判定落地之前复活：inbox 是空的，只有 status 变了。
+    // Revive before the decision lands: the inbox is empty, only status moved.
+    target.wake()
+    await settleAsync()
+
+    expect(target.status).toBe('running')
+    expect(target.inbox.nextTurn).toHaveLength(0)
+    expect(caller.received).toHaveLength(0)
+
+    target.say('PASS-TWO')
+    target.finish()
+    await settleAsync()
+
+    expect(caller.received).toHaveLength(1)
+    expect(noticeText(caller)).toContain('PASS-TWO')
+    expect(noticeText(caller)).not.toContain('PASS-ONE')
+  })
+
+  it('status 已是 idle 但 whenIdle() 未 resolve 时不得回报（maintenance 的坑）', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    await dispatchTo(env, caller, 'target')
+
+    target.say('MAINT-DONE')
+    target.finishWithMaintenance()
+    await settleAsync(8)
+
+    // 公开状态已是 idle——只看 agent/status 就会在这里错报完成。
+    // The public status is already idle - watching agent/status alone would
+    // announce completion right here, wrongly.
+    expect(target.status).toBe('idle')
+    expect(caller.received).toHaveLength(0)
+
+    target.settle()
+    await settleAsync()
+
+    expect(caller.received).toHaveLength(1)
+    expect(noticeText(caller)).toContain('MAINT-DONE')
+  })
+
+  it('inbox 还留着没人认领的输入时进入 wait 分支，不空转也不收尾', async () => {
+    // With input parked in the inbox the observer takes its `wait` branch: it
+    // parks on the next wake instead of spinning or finalizing.
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    await dispatchTo(env, caller, 'target')
+
+    target.park()
+    await settleAsync(8)
+    expect(target.status).toBe('idle')
+    expect(target.inbox.nextTurn).toHaveLength(1)
+    expect(caller.received).toHaveLength(0)
+
+    target.say('CLAIMED-DONE')
+    target.finish()
+    await settleAsync()
+
+    expect(caller.received).toHaveLength(1)
+    expect(noticeText(caller)).toContain('CLAIMED-DONE')
+  })
+
+  it('看守挂在目标 Agent 自己的作用域上：别的 Agent 不会触发它', async () => {
+    // The guard lives on the target Agent's own scope, so another Agent's events
+    // never reach it - the property that makes a sessionId comparison unnecessary.
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    const other = env.addAgent('other')
+    await dispatchTo(env, caller, 'target')
+
+    other.wake()
+    other.finish()
+    await settleAsync()
+    expect(caller.received).toHaveLength(0)
+
+    target.say('ONLY-TARGET')
+    target.finish()
+    await settleAsync()
+    expect(caller.received).toHaveLength(1)
+    // 根上下文上的探针收到了所有 Agent 的事件；看守只收到目标那一个。
+    // The root probe saw every Agent's events; the guard saw only the target's.
+    expect(env.rootStatusEvents).toContain('other')
+    expect(env.rootStatusEvents).toContain('target')
+  })
+
+  it('目标 Agent 消失时以 target-gone 收尾', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    await dispatchTo(env, caller, 'target')
+
+    env.agents.delete('target')
+    target.settle()
+    await settleAsync()
+
+    expect(caller.received).toHaveLength(1)
+    expect(noticeText(caller)).toContain('left the runtime before it was observed settling')
+  })
+
+  it('report=false 时纯派发、永不回报', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+
+    const receipt = await env.run(
+      'session_dispatch', { sessionId: 'target', prompt: 'just do it', report: false }, { agent: caller },
+    )
+    expect(receipt).toMatchObject({ reporting: false, watchId: null })
+
+    target.say('SILENT-DONE')
+    target.finish()
+    await settleAsync()
+    expect(caller.received).toHaveLength(0)
+  })
+
+  it('目标没有收尾文本时报告 "It left no closing message."', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    await dispatchTo(env, caller, 'target')
+
+    target.finish()
+    await settleAsync()
+    expect(noticeText(caller)).toContain('It left no closing message.')
+  })
+
+  it('收尾文本按 maxReportChars 截断', async () => {
+    const env = await install({ maxReportChars: 24 })
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    await dispatchTo(env, caller, 'target')
+
+    target.say(`LONG-${'x'.repeat(400)}`)
+    target.finish()
+    await settleAsync()
+
+    expect(noticeText(caller)).toContain('LONG-')
+    expect(noticeText(caller)).toContain('…')
+    expect(noticeText(caller)).not.toContain('x'.repeat(40))
+  })
+
+  it('回报只看投递之后的新输出，不捡投递前的历史', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    target.say('STALE-HISTORY')
+    await dispatchTo(env, caller, 'target')
+
+    target.finish()
+    await settleAsync()
+
+    expect(caller.received).toHaveLength(1)
+    expect(noticeText(caller)).not.toContain('STALE-HISTORY')
+    expect(noticeText(caller)).toContain('It left no closing message.')
+  })
+
+  it('新建会话后派发', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    env.addAgent('created-1')
+
+    const receipt = await env.run(
+      'session_dispatch',
+      { newSession: { cwd: 'C:/work', agentPreset: 'person-agent' }, prompt: 'start fresh' },
+      { agent: caller },
+    )
+    expect(receipt).toMatchObject({ sessionId: 'created-1', reporting: true })
+    expect(env.created).toEqual([{ cwd: 'C:/work', agentPreset: 'person-agent' }])
+  })
+
+  it('看守容量上限被拒绝', async () => {
+    const env = await install({ maxConcurrentWatches: 1 })
+    const caller = env.addAgent('caller')
+    env.addAgent('target')
+
+    await env.run('session_dispatch', { sessionId: 'target', prompt: 'first' }, { agent: caller })
+    await expect(env.run('session_dispatch', { sessionId: 'target', prompt: 'second' }, { agent: caller }))
+      .rejects.toMatchObject({ code: 'SESSION_DISPATCH_CAPACITY_REACHED' })
+  })
+
+  it('投递失败时撤掉看守，不留下幽灵通知', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    target.followup = () => { throw new Error('inbox is closed') }
+
+    await expect(env.run('session_dispatch', { sessionId: 'target', prompt: 'boom' }, { agent: caller }))
+      .rejects.toThrow('inbox is closed')
+    target.settle()
+    await settleAsync()
+    expect(caller.received).toHaveLength(0)
+  })
+
+  it('卸载取消挂起的看守：不再回报（HMR 安全）', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    await dispatchTo(env, caller, 'target')
+
+    await env.unload()
+    target.say('TOO-LATE')
+    target.finish()
+    await settleAsync()
+
+    expect(caller.received).toHaveLength(0)
+    expect(env.warnings).toEqual([])
+  })
+
+  it('通知构造是纯函数：空收尾文本与超限文本都有确定结果', () => {
+    const notice = createSettlementNotice(SessionId('s-1'), 'settled', [], 4000)
+    expect(notice.content).toEqual([
+      { type: 'text', text: 'Background session s-1 finished and will do no further work unless you send it more.' },
+      { type: 'text', text: 'It left no closing message.' },
+    ])
+    const bounded = createSettlementNotice(SessionId('s-2'), 'settled', [{ type: 'text', text: 'y'.repeat(50) }], 10)
+    expect((bounded.content[2] as { text: string }).text).toHaveLength(10)
+    expect((bounded.content[2] as { text: string }).text.endsWith('…')).toBe(true)
+  })
+})

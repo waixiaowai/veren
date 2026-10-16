@@ -1,6 +1,0 @@
-{
-  "meta": {
-    "title": "Session Dispatch Plugin",
-    "description": "Adds the session_dispatch tool: hand a prompt to another session and return immediately, then receive that session's final output as an event-driven follow-up."
-  }
-}

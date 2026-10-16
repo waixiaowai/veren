@@ -6,10 +6,12 @@ import type { Config } from '../src/index.js'
 /** 默认配置：与 Config schema 的 default 一致。Defaults mirroring the Config schema. */
 export const DEFAULT_CONFIG: Config = {
   allowCreate: true,
-  allowPrompt: true,
+  allowDispatch: true,
   allowFork: true,
   allowArchive: true,
   allowPin: true,
+  maxReportChars: 4000,
+  maxConcurrentWatches: 64,
 }
 
 /**

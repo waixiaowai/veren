@@ -99,15 +99,20 @@ async function install(config: Partial<ConfigShape> = {}) {
   })
   ctx.provide('sessionController', sessionController)
   ctx.provide('workspaceRegistry', workspaceRegistry)
+  // 派活看守需要存活 Agent 与会话存储；本文件只锁非派活工具，所以给最小可用的空实现。
+  // The dispatch guard needs the live-Agent registry and the session store; this
+  // file locks the non-dispatch tools only, so they get minimal empty providers.
+  ctx.provide('agents', { get: () => undefined })
+  ctx.provide('sessions', { get: () => undefined, flush: async () => true })
   const fiber: Fiber = ctx.plugin({ name, inject, apply }, resolveConfig(config))
   await fiber
   return {
     sessionController,
     workspaceRegistry,
-    run: async (tool: string, args: unknown): Promise<unknown> => {
+    run: async (tool: string, args: unknown, exec: unknown = {}): Promise<unknown> => {
       const definition = definitions.get(tool)
       if (definition === undefined) throw new Error(`tool not registered: ${tool}`)
-      return await definition.execute(args, {})
+      return await definition.execute(args, exec)
     },
     registered: (): string[] => [...definitions.keys()].sort(),
     unload: async (): Promise<void> => {
@@ -120,37 +125,22 @@ describe('personAgentToolSession composition（真实装配路径 / real assembl
   it('registers all eight tools by default', async () => {
     const env = await install()
     expect(env.registered()).toEqual([
-      'session_archive', 'session_create', 'session_fork', 'session_pin', 'session_prompt', 'session_rename', 'session_unarchive', 'session_unpin',
+      'session_archive', 'session_create', 'session_dispatch', 'session_fork', 'session_pin', 'session_rename', 'session_unarchive', 'session_unpin',
     ])
-  })
-
-  it('delivers a prompt through the host enqueue path and wakes the session', async () => {
-    // 派活路径锁定：resolveAgent 拿活跃 Agent → followup 入队 kind:'user' 消息。
-    // Locked dispatch path: resolveAgent yields the live Agent → followup
-    // enqueues a kind:'user' message.
-    const env = await install()
-    const agentRecord = { followupCalls: [] as unknown[], whenIdleCalls: 0 }
-    env.sessionController.resolvedAgents.set('sess-9', agentRecord)
-    const result = await env.run('session_prompt', { sessionId: 'sess-9', prompt: ' hello world task ' })
-    expect(result).toMatchObject({ sessionId: 'sess-9', accepted: true, waited: false })
-    expect(agentRecord.followupCalls).toHaveLength(1)
-    expect(agentRecord.whenIdleCalls).toBe(0)
-  })
-
-  it('waits for idle when wait is set', async () => {
-    const env = await install()
-    const agentRecord = { followupCalls: [] as unknown[], whenIdleCalls: 0 }
-    env.sessionController.resolvedAgents.set('sess-9', agentRecord)
-    await env.run('session_prompt', { sessionId: 'sess-9', prompt: 'task', wait: true })
-    expect(agentRecord.whenIdleCalls).toBe(1)
   })
 
   it('fails loud on an empty prompt and an unresolvable session', async () => {
     const env = await install()
-    await expect(env.run('session_prompt', { sessionId: 'sess-9', prompt: '   ' }))
-      .rejects.toMatchObject({ code: 'SESSION_PROMPT_EMPTY' })
-    await expect(env.run('session_prompt', { sessionId: 'sess-missing', prompt: 'task' }))
-      .rejects.toMatchObject({ code: 'SESSION_PROMPT_NOT_FOUND' })
+    await expect(env.run('session_dispatch', { sessionId: 'sess-9', prompt: '   ' }, { agent: {} }))
+      .rejects.toMatchObject({ code: 'SESSION_DISPATCH_PROMPT_EMPTY' })
+    await expect(env.run('session_dispatch', { sessionId: 'sess-missing', prompt: 'task' }, { agent: {} }))
+      .rejects.toMatchObject({ code: 'SESSION_DISPATCH_TARGET_NOT_FOUND' })
+    await expect(env.run('session_dispatch', { sessionId: 'sess-9', newSession: {}, prompt: 'task' }, { agent: {} }))
+      .rejects.toMatchObject({ code: 'SESSION_DISPATCH_TARGET_CONFLICT' })
+    await expect(env.run('session_dispatch', { prompt: 'task' }, { agent: {} }))
+      .rejects.toMatchObject({ code: 'SESSION_DISPATCH_TARGET_MISSING' })
+    await expect(env.run('session_dispatch', { sessionId: 'sess-9', prompt: 'task' }, {}))
+      .rejects.toMatchObject({ code: 'SESSION_DISPATCH_NO_CALLER' })
   })
 
   it('creates a session with preset, model selection, and title in order', async () => {
@@ -200,7 +190,7 @@ describe('personAgentToolSession composition（真实装配路径 / real assembl
   })
 
   it('honors config toggles', async () => {
-    const env = await install({ allowCreate: false, allowPrompt: false, allowFork: false, allowArchive: false, allowPin: false })
+    const env = await install({ allowCreate: false, allowDispatch: false, allowFork: false, allowArchive: false, allowPin: false })
     expect(env.registered()).toEqual(['session_rename'])
   })
 
