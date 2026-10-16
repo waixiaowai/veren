@@ -30,29 +30,19 @@ export interface ModelCatalogGroup {
 export type ModelContextWindows = ReadonlyMap<string, number | undefined>
 
 /**
- * Advisory "when to use" hints for well-known model ids whose host metadata
- * carries no description. Distilled from DeepSeek's official model guidance and
- * community write-ups: Flash is the cheap low-latency default (keep reasoning
- * effort at medium or below), Pro is the quality-first choice for complex
- * reasoning, math, large codebases, and multi-tool agent chains. Only consulted
- * when the host publishes no description — the host stays the primary source.
- * 为宿主元数据缺描述的知名模型 id 提供的「什么时候用」建议，提炼自 DeepSeek
- * 官方选型指引与社区实践：Flash 是低延迟高并发的默认选择（思考档位建议 medium
- * 及以下），Pro 面向复杂推理、数理、大型代码工程与多工具 Agent 链的质量优先
- * 场景。仅在宿主未发布 description 时兜底——宿主仍是第一来源。
+ * Deployment model-selection policy, price-first: flash is the default for all
+ * ordinary work, pro an exception needing a stated reason. Applied to known
+ * model ids regardless of host metadata.
+ * 部署选型政策，价格优先：flash 是所有常规工作的默认，pro 是需说明理由的例外。
+ * 对已知模型 id 生效，无论宿主元数据如何。
  */
 const MODEL_USAGE_HINTS: Readonly<Record<string, string>> = {
-  'deepseek-flash': 'default for routine, latency-sensitive, or high-volume tasks (RAG, batch text work, single-file code); keep reasoning effort at medium or below',
-  'deepseek-v4-pro': 'quality-first choice for complex multi-step reasoning, math, large codebase engineering, and multi-tool agent chains; higher cost, lower concurrency',
+  'deepseek-flash': 'PREFERRED DEFAULT: pick this for essentially all work - coding, fast iteration, grunt work, batch tasks, RAG, everyday questions. Cheapest (about 1/5 of pro). Escalate to pro only with an explicit reason.',
+  'deepseek-v4-pro': 'EXCEPTION ONLY - never the default; costs about 5x flash. Select only for major decisions or genuinely hard reasoning, and say why in your reply.',
 }
 
-/**
- * Resolve one model's usage hint: the host's own description when published,
- * otherwise the advisory id-keyed hint, otherwise nothing.
- * 解析单个模型的使用建议：优先宿主自带的 description，其次按 id 的建议文案，
- * 都没有则为空。
- */
-const usageHint = (model: LlmModelInfo): string => model.description ?? MODEL_USAGE_HINTS[model.id] ?? ''
+/** Policy hint for known ids; otherwise the host description. 已知 id 用政策提示，否则用宿主描述。 */
+const usageHint = (model: LlmModelInfo): string => MODEL_USAGE_HINTS[model.id] ?? model.description ?? ''
 
 /** Render one model line: display name, id, modality, context window, and usage hint. 把一个模型渲染成一行：名称、id、模态、上下文窗口与使用建议。 */
 export const renderModelCatalogModel = (model: LlmModelInfo, contextWindow: number | undefined): string => {

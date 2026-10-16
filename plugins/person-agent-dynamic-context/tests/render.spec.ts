@@ -81,21 +81,32 @@ describe('withHeading', () => {
 })
 
 describe('renderModelCatalogModel', () => {
-  it('宿主自带 description 时原样作为 use when 渲染', () => {
+  it('知名模型 id 的选型政策优先于宿主描述', () => {
+    // 政策是部署级成本规则，必须压过宿主的厂商文案：pro 即使带 description
+    // 也渲染 EXCEPTION ONLY 政策。
+    // The policy is a deployment-level cost rule and outranks vendor copy: pro
+    // renders the EXCEPTION ONLY policy even with a host description.
     const line = renderModelCatalogModel({
       id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro',
       description: 'Stronger agentic coding, knowledge, and difficult reasoning.',
     } as never, 1_000_000)
-    expect(line).toContain('use when: Stronger agentic coding, knowledge, and difficult reasoning.')
+    expect(line).toContain('use when: EXCEPTION ONLY - never the default')
+    expect(line).toContain('5x flash')
+    expect(line).not.toContain('Stronger agentic coding')
   })
 
   it('宿主缺描述时按 id 给出使用建议兜底', () => {
-    // deepseek-flash 官方目录未写描述：兜底文案来自社区/官方选型共识。
+    // deepseek-flash 官方目录未写描述：兜底文案落实部署的选型政策——价格优先，
+    // flash 是默认干活模型，pro 只是例外。
     // deepseek-flash carries no description in the official catalog: the
-    // fallback hint distills the community and official selection consensus.
+    // fallback encodes the deployment's price-first policy - flash is the
+    // default workhorse, pro the exception.
     const line = renderModelCatalogModel({ id: 'deepseek-flash', name: 'DeepSeek-V4.1-Flash' } as never, 1_000_000)
-    expect(line).toContain('use when: default for routine, latency-sensitive, or high-volume tasks')
-    expect(line).toContain('keep reasoning effort at medium or below')
+    expect(line).toContain('use when: PREFERRED DEFAULT: pick this for essentially all work')
+    expect(line).toContain('about 1/5 of pro')
+    const pro = renderModelCatalogModel({ id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' } as never, 1_000_000)
+    expect(pro).toContain('EXCEPTION ONLY')
+    expect(pro).toContain('5x flash')
   })
 
   it('既无描述也无兜底建议时不渲染 use when', () => {
