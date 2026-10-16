@@ -20,7 +20,7 @@
 // Agent's own scope.
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { foldConsumedWork } from '@deepseek-ai/dsh-agent'
+import { emitAgentEvent, foldConsumedWork } from '@deepseek-ai/dsh-agent'
 import { joinAssistantStreamText } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
@@ -198,8 +198,9 @@ export function createSettlementWatch(ctx: Context, config: SettlementWatchConfi
     // 结清也要唤醒：观察者可能正卡在 wait 分支上。
     // Settlement wakes too: the observer may be parked in its `wait` branch.
     wake(record)
+    const closing = closingText(record)
     const message = createSettlementNotice(
-      record.targetSessionId, outcome, closingText(record), config.maxReportChars,
+      record.targetSessionId, outcome, closing, config.maxReportChars,
     )
     try {
       // 目标会话已由调用方在收尾复查里 best-effort flush 过，这里只负责投递。
@@ -209,6 +210,29 @@ export function createSettlementWatch(ctx: Context, config: SettlementWatchConfi
     } catch (error: unknown) {
       ctx.logger.warn(`session-dispatch: notice of watch "${record.watchId}" was not delivered: ${String(error)}`)
     }
+    // 无论通知投递成功与否都广播终局：事件描述的是观察到的事实，不是投递结果。
+    // The terminal event fires whether or not delivery succeeded: it reports what
+    // was observed, not whether the notice landed.
+    emitRunEnd(record, outcome, closing)
+  }
+
+  /**
+   * 广播终局事件；调用方已经不在注册表时静默跳过。
+   * Broadcast the terminal event; a caller no longer in the registry is skipped.
+   * @param record - 看守记录。The watch record.
+   * @param outcome - 终局原因。The terminal outcome.
+   * @param closing - 目标的收尾内容块。The target's closing blocks.
+   */
+  function emitRunEnd(record: WatchRecord, outcome: SessionDispatchOutcome, closing: readonly ContentBlock[]): void {
+    const caller = ctx.agents.get(record.callerSessionId)
+    if (caller === undefined) return
+    emitAgentEvent(ctx, caller, 'session-dispatch/end', {
+      watchId: record.watchId,
+      targetSessionId: record.targetSessionId,
+      callerSessionId: record.callerSessionId,
+      outcome,
+      ...closing.length === 0 ? {} : { lastAssistantMessage: closing },
+    })
   }
 
   /**

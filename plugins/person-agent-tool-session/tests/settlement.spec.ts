@@ -410,8 +410,7 @@ describe('结束原因与失败取代 / stop reasons and failure supersession', 
     expect(env.flushes).toEqual(['target', 'caller'])
   })
 
-  it('收尾复查：flush 期间目标又落了事件就重判，不拿旧结论报告', async () => {
-    // The pre-finalization re-check: an event landing while the flush is in
+  it('收尾复查：flush 期间目标又落了事件就重判，不拿旧结论报告', async () => {    // The pre-finalization re-check: an event landing while the flush is in
     // flight moves the session seq, so the observer decides again instead of
     // reporting the conclusion reached before the flush.
     const env = await install()
@@ -439,5 +438,88 @@ describe('结束原因与失败取代 / stop reasons and failure supersession', 
     expect(env.flushes).toEqual(['target', 'target', 'caller'])
     expect(caller.received).toHaveLength(1)
     expect(noticeText(caller)).toContain('ARRIVED-DURING-FLUSH')
+  })
+})
+
+describe('生命周期事件 / lifecycle events', () => {
+  it('派发与结算各广播一次，按 watchId 配对', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+
+    const receipt = await dispatchTo(env, caller, 'target') as { watchId: string }
+    expect(env.runEvents.map(event => event.name)).toEqual(['start'])
+    expect(env.runEvents[0]?.payload).toMatchObject({
+      watchId: receipt.watchId, targetSessionId: 'target', callerSessionId: 'caller',
+    })
+
+    target.say('CLOSING')
+    target.turnEnd('completed')
+    target.finish()
+    await settleAsync()
+
+    expect(env.runEvents.map(event => event.name)).toEqual(['start', 'end'])
+    const end = env.runEvents[1]?.payload
+    expect(end).toMatchObject({ watchId: receipt.watchId, outcome: 'completed' })
+    // 只序列化收尾块：事件载荷里还带着 agent 本身（含 ctx，是环状的）。
+    // Serialize the closing blocks only: the payload also carries the agent
+    // itself, whose ctx makes it circular.
+    const closing = (end as { lastAssistantMessage?: unknown }).lastAssistantMessage
+    expect(JSON.stringify(closing)).toContain('CLOSING')
+  })
+
+  it('纯派发只广播 start（没有结算可观察）', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+
+    await env.run('session_dispatch', { sessionId: 'target', prompt: 'fire', report: false }, { agent: caller })
+    expect(env.runEvents.map(event => event.name)).toEqual(['start'])
+    expect(env.runEvents[0]?.payload).toMatchObject({ watchId: null })
+
+    target.say('IGNORED')
+    target.finish()
+    await settleAsync()
+    expect(env.runEvents.map(event => event.name)).toEqual(['start'])
+  })
+})
+
+describe('返回指导 / return guidance', () => {
+  /** 取目标收到的第一块提示内容。The first prompt block the target received. */
+  function promptBlocks(target: FakeAgent) {
+    return target.received[0]?.content ?? []
+  }
+
+  it('目标确实能回话（有 send_message 且是调用方的子级）时追加指导', async () => {
+    const env = await install()
+    env.addTool('send_message')
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target', 'caller')
+
+    await dispatchTo(env, caller, 'target')
+
+    const blocks = promptBlocks(target)
+    expect(blocks).toHaveLength(2)
+    const guidance = blocks[1]
+    expect(guidance?.type === 'text' ? guidance.text : '').toContain('send_message({ agent_id: "caller"')
+  })
+
+  it('目标看不到 send_message 时不追加', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target', 'caller')
+
+    await dispatchTo(env, caller, 'target')
+    expect(promptBlocks(target)).toHaveLength(1)
+  })
+
+  it('目标不是调用方的子级时不追加（否则会让它调用必然被拒的工具）', async () => {
+    const env = await install()
+    env.addTool('send_message')
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+
+    await dispatchTo(env, caller, 'target')
+    expect(promptBlocks(target)).toHaveLength(1)
   })
 })

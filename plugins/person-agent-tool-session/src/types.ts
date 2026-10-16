@@ -2,6 +2,9 @@
 // Shared types and structured errors: arguments, results, and stable-code
 // errors for the eight session maintenance tools.
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { Scoped } from '@deepseek-ai/dsh-scope'
 
 /** `session_create` 的模型参数。Model-facing arguments of `session_create`. */
 export interface SessionCreateArgs {
@@ -111,6 +114,69 @@ export type SessionDispatchOutcome =
   | 'refusal'
   | 'error'
   | 'target-gone'
+
+/**
+ * 一次派发的标识信息，随开始事件发出。字段与官方 `SubagentRunInfo` 对齐
+ * （`runId` 在这里是看守句柄），使宿主与界面用同一套词汇观察两种派活。
+ * Identity of one dispatch, carried by the start event. The fields mirror the
+ * official `SubagentRunInfo` (its `runId` is this plugin's watch handle), so a
+ * host or UI observes both delegation routes with the same vocabulary.
+ */
+export interface SessionDispatchRunInfo {
+  /** 看守句柄，也是收据里的 `watchId`；纯派发（report=false）时为 null。The watch handle, also the receipt's `watchId`; null for a fire-and-forget dispatch. */
+  readonly watchId: string | null
+  /** 接收提示的会话。The session that received the prompt. */
+  readonly targetSessionId: SessionId
+  /** 发起派发的会话。The session that dispatched. */
+  readonly callerSessionId: SessionId
+}
+
+/**
+ * 一次派发的终局信息，随结束事件发出；与开始事件按 `watchId` 配对。
+ * 字段与官方 `SubagentRunEndInfo` 对齐。
+ * Terminal detail for one dispatch, carried by the end event and paired with its
+ * start event by `watchId`. The fields mirror the official `SubagentRunEndInfo`.
+ */
+export interface SessionDispatchRunEndInfo extends SessionDispatchRunInfo {
+  /** 看守句柄；结束事件只在有看守时发出，因此这里必定存在。The watch handle; an end event exists only when a watch did. */
+  readonly watchId: string
+  /** 终局原因。The terminal outcome. */
+  readonly outcome: SessionDispatchOutcome
+  /** 目标的收尾输出；没产出时缺省。The target's closing output; absent when it produced none. */
+  readonly lastAssistantMessage?: readonly ContentBlock[]
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * 一次派发被接受。与 `session-dispatch/end` 按 `watchId` 配对，供宿主与界面观察
+     * "已派出、进行中"，而不必读会话日志。
+     * One dispatch was accepted. Paired with `session-dispatch/end` by `watchId`,
+     * so a host or UI can observe "dispatched, in flight" without reading Session logs.
+     * @param payload.watchId - 看守句柄。The watch handle.
+     * @param payload.targetSessionId - 接收提示的会话。The session that received the prompt.
+     * @param payload.callerSessionId - 发起派发的会话。The session that dispatched.
+     * @param payload.agent - 发起派发的 Agent（作用域载体与主体）。The dispatching Agent.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): listeners on the caller receive only its own dispatches.
+     * @mode emit
+     */
+    'session-dispatch/start'(this: Scoped<Agent>, payload: SessionDispatchRunInfo & { agent: Agent }): void
+    /**
+     * 一次派发结算且通知已投递。终局信息与开始事件配对。
+     * One dispatch settled and its notice was delivered. The terminal detail pairs
+     * with its start event.
+     * @param payload.watchId - 看守句柄。The watch handle.
+     * @param payload.targetSessionId - 接收提示的会话。The session that received the prompt.
+     * @param payload.callerSessionId - 发起派发的会话。The session that dispatched.
+     * @param payload.outcome - 终局原因。The terminal outcome.
+     * @param payload.lastAssistantMessage - 目标的收尾输出，没产出时缺省。The target's closing output.
+     * @param payload.agent - 发起派发的 Agent（作用域载体与主体）。The dispatching Agent.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): listeners on the caller receive only its own dispatches.
+     * @mode emit
+     */
+    'session-dispatch/end'(this: Scoped<Agent>, payload: SessionDispatchRunEndInfo & { agent: Agent }): void
+  }
+}
 
 /** 工具层稳定错误码。Stable tool-layer error codes. */
 export type SessionToolErrorCode =

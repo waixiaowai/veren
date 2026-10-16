@@ -47,16 +47,24 @@ declare module '@deepseek-ai/dsh-llm' {
 }
 
 /**
- * 建一条派发提示：调用方选择的内容，原样投给目标会话。
+ * 建一条派发提示：调用方选择的内容，原样投给目标会话；可选的返回指导追加在其后。
  * Build one dispatch prompt: content the caller chose, delivered verbatim to the
- * target session.
+ * target session, with optional return guidance appended after it.
  * @param senderSessionId - 投递方会话 id。The sending session id.
  * @param text - 提示正文。The prompt body.
- * @returns 已标识的用户消息。The identified user message.
+ * @param guidance - 返回指导块，仅当目标确实能回话时给出。The return-guidance block, present only when the target can actually reply.
+ * @returns 已标识的用户消息。The identified user message。
  */
-export function createDispatchPrompt(senderSessionId: SessionId, text: string): UserMessage {
+export function createDispatchPrompt(
+  senderSessionId: SessionId,
+  text: string,
+  guidance?: ContentBlock,
+): UserMessage {
   return createUserMessage({
-    content: [{ type: 'text', text }],
+    content: [
+      { type: 'text' as const, text },
+      ...guidance === undefined ? [] : [guidance],
+    ],
     source: { kind: 'session-dispatch', form: 'relay', senderSessionId },
   })
 }

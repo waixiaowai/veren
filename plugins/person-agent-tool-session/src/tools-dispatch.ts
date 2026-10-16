@@ -14,6 +14,9 @@
 // action has no reason to exist as two tools.
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
+import { emitAgentEvent } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 // 类型-only import：拉取 agents 与 sessionController 的 Context 声明合并。
 // Type-only imports: pull the agents and sessionController Context declaration merging.
@@ -23,6 +26,44 @@ import { createDispatchPrompt } from './notice.js'
 import { SessionToolError } from './types.js'
 import type { NewSessionArgs, SessionDispatchArgs, SessionDispatchResult } from './types.js'
 import type { SettlementWatch } from './watch.js'
+
+/**
+ * 返回指导：只有目标确实能回话时才追加。
+ * Return guidance: appended only when the target can actually reply.
+ *
+ * 为什么必须双重把关：`send_message` 只允许**相邻血统**（发信人是目标的直属可续子级，
+ * 或收信人是发信人的直属父级），而普通的派发目标是一个没有父级血统的普通会话——
+ * 对它说"用 send_message 回报"就是让它去调用一个必然被拒的工具。因此这里确认两件事：
+ * 该工具在目标作用域里可见，且目标的 `parentSession` 正是调用方（只有这种血统才能
+ * 让 `SubagentManager.sendMessage` 认账）。
+ * Why the double gate: `send_message` permits only **adjacent lineage** (the sender
+ * is the target's direct continuable child, or the recipient is the sender's
+ * direct parent), while an ordinary dispatch target is a root session with no
+ * parent lineage - telling it to "report back with send_message" would send it to
+ * a tool that must refuse. So this confirms two things: the tool is visible in the
+ * target's scope, and the target's `parentSession` is exactly the caller (the only
+ * lineage `SubagentManager.sendMessage` honours).
+ *
+ * 文本与官方 `withContinuableReturnGuidance` 一致。
+ * The text matches the official `withContinuableReturnGuidance`.
+ * @param ctx - 宿主上下文。The host context.
+ * @param callerSessionId - 调用方会话 id。The caller session id.
+ * @param target - 目标 Agent。The target Agent.
+ * @returns 指导块，不适用时 undefined。The guidance block, or undefined when it does not apply.
+ */
+function returnGuidance(ctx: Context, callerSessionId: SessionId, target: Agent): ContentBlock | undefined {
+  if (ctx.tools.get('send_message', target) === undefined) return undefined
+  if (target.session.header.parentSession !== callerSessionId) return undefined
+  const encoded = JSON.stringify(callerSessionId)
+  return {
+    type: 'text',
+    text: `Your parent agent id is ${encoded}. Before you finish, send your result to that agent with `
+      + `send_message({ agent_id: ${encoded}, message: "<self-contained result>" }). The parent shares `
+      + 'your workspace but does not automatically receive your transcript, tool output, or reasoning. Send '
+      + 'earlier messages as well when a finding changes what the parent should do next; sending a message '
+      + 'does not end your turn.',
+  }
+}
 
 /**
  * 校验提示文本：去空白后必须非空。Prompt validation: non-empty after trimming.
@@ -175,13 +216,21 @@ export function registerSessionDispatch(ctx: Context, watch: SettlementWatch): (
           { maxConcurrentWatches: true },
         )
       }
-      const message = createDispatchPrompt(caller.id, prompt)
+      const message = createDispatchPrompt(caller.id, prompt, returnGuidance(ctx, caller.id, found.agent))
       const deliver = (): void => { found.agent.followup(message) }
       // 挂看守与投递由注册表定序：先登记唤醒源，再投递，最后启动观察者。
       // Arming and delivery are ordered by the registry: register the wake
       // sources, deliver, then start the observer.
       const watchId = reporting ? watch.arm(found.agent, caller.id, deliver) : null
       if (!reporting) deliver()
+      // 派发已被接受：广播开始事件，让宿主与界面无需读会话日志就能看到"已派出"。
+      // The dispatch was accepted: broadcast the start event, so a host or UI sees
+      // "dispatched" without reading Session logs.
+      emitAgentEvent(ctx, caller, 'session-dispatch/start', {
+        watchId,
+        targetSessionId,
+        callerSessionId: caller.id,
+      })
       return { sessionId: targetSessionId, messageId: message.id, watchId, reporting }
     },
     presentCall: args => ({

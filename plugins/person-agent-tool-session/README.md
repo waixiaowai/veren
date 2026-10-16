@@ -71,6 +71,25 @@ The closing output uses the official `AssistantOutputFold` rule: the last non-em
 
 Before deciding, the guard remembers the target's session seq, best-effort flushes it (the official `flushFinalState` move), and then decides **again**: if the state or the seq moved while the flush was in flight, it goes back around instead of reporting the conclusion it reached before the flush. A flush failure only warns and never blocks the notice.
 
+### Telling the target to report back
+
+When the target can actually reply, the dispatch appends the official `withContinuableReturnGuidance` text after the caller's prompt, so the target itself sends a self-contained result instead of relying on the caller reading its transcript.
+
+The gate is deliberate and narrow: `send_message` permits only **adjacent lineage** — a sender may target its direct parent, and a resident continuable child may target its direct parent — while an ordinary dispatched session is a root session with no parent lineage. The guidance is therefore appended only when the target's `parentSession` is exactly the caller **and** `send_message` is visible in the target's scope. Otherwise nothing is appended, rather than instructing the target to call a tool that must refuse it.
+
+### Observing a dispatch
+
+Every accepted dispatch emits `session-dispatch/start` on the caller's scope; a reporting dispatch emits `session-dispatch/end`, paired by `watchId`, once its notice has been delivered. The end event carries the outcome and the closing output, so a host or UI can show "dispatched, in flight" and then the result without reading Session logs. A fire-and-forget dispatch emits only a start, because it has no settlement to observe.
+
+### Not implemented: durable dispatch records
+
+The official catalog appends a `subagent/catalog` event to the parent's Session so completed children stay discoverable. The harness's equivalent for a plugin is `appendPluginRecord`, which writes an `ignorable` record that readers retain and skip and that survives fork and resume. Two obstacles block it here:
+
+- `appendPluginRecord` does **not exist** in the `@deepseek-ai/dsh-session@0.2.0-rc.2` this plugin resolves at runtime (only in a newer checkout build), so calling it would fail.
+- Appending a private event type through `session.append` instead would be **unsafe**: the persistence read path refuses a log whose event type is outside `KNOWN_SESSION_EVENT_TYPES` unless the event carries `ignorable: true`, and that set is generated from the harness repository — so the caller's Session would refuse to load afterwards.
+
+The dispatch is nevertheless durably recorded already: the harness writes `tool/call` and `tool/result` events for `session_dispatch` itself, and the receipt in that result carries `sessionId`, `messageId`, and `watchId`. Those events survive restart and fork and are readable with the Session log tools.
+
 ### What the official has that this cannot reuse
 
 Two official result capabilities do not apply to a session this plugin merely observes, and copying them would have invented surface with no producer:

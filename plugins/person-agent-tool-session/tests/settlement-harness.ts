@@ -53,7 +53,12 @@ export interface FakeAgent {
   ctx: Context
   status: 'idle' | 'running'
   readonly inbox: { nextTurn: UserMessage[], nextStep: UserMessage[] }
-  readonly session: { readonly id: SessionIdType, readonly seq: number, deriveMessages: () => FakeMessage[] }
+  readonly session: {
+    readonly id: SessionIdType
+    readonly seq: number
+    readonly header: { readonly id: SessionIdType, readonly parentSession?: SessionIdType }
+    deriveMessages: () => FakeMessage[]
+  }
   readonly messages: FakeMessage[]
   readonly received: UserMessage[]
   quiescent: boolean
@@ -118,7 +123,7 @@ function setStatus(agent: FakeAgent, status: 'idle' | 'running'): void {
  * @param id - 会话身份。The session identity.
  * @returns 假 Agent。The fake Agent.
  */
-export function createFakeAgent(root: Context, id: string): FakeAgent {
+export function createFakeAgent(root: Context, id: string, parentSession?: string): FakeAgent {
   const sessionId = SessionId(id)
   // 目标会话的事件序号：foldConsumedWork 与失败取代判断都读它。
   // The target session's event sequence; both foldConsumedWork and failure
@@ -134,6 +139,7 @@ export function createFakeAgent(root: Context, id: string): FakeAgent {
     session: {
       id: sessionId,
       get seq() { return seq },
+      header: { id: sessionId, ...parentSession === undefined ? {} : { parentSession: SessionId(parentSession) } },
       deriveMessages: () => [...agent.messages],
     },
     messages: [],
@@ -247,7 +253,11 @@ export interface Env {
    * landing while the flush is in flight.
    */
   readonly flushHooks: ((sessionId: string) => void)[]
-  addAgent: (id: string) => FakeAgent
+  /** 收到的生命周期事件，按发出顺序。The lifecycle events received, in emission order. */
+  readonly runEvents: { readonly name: string, readonly payload: unknown }[]
+  /** 让 `ctx.tools.get(name)` 能找到一个工具（检查可见性用）。Make `ctx.tools.get(name)` resolve. */
+  readonly addTool: (name: string) => void
+  addAgent: (id: string, parentSession?: string) => FakeAgent
   run: (tool: string, args: unknown, exec: unknown) => Promise<unknown>
   unload: () => Promise<void>
 }
@@ -268,13 +278,14 @@ export async function install(config: Partial<Config> = {}): Promise<Env> {
   const created: Record<string, unknown>[] = []
   const rootStatusEvents: string[] = []
 
-  const addAgent = (id: string): FakeAgent => {
-    const agent = createFakeAgent(ctx, id)
+  const addAgent = (id: string, parentSession?: string): FakeAgent => {
+    const agent = createFakeAgent(ctx, id, parentSession)
     agents.set(id, agent)
     sessions.set(id, agent.session)
     return agent
   }
 
+  const visibleTools = new Set<string>()
   ctx.provide('tools', {
     // 与宿主一致：register 返回精确卸载函数，供 cordis effect 逆序清理。
     // Host contract: register returns the exact disposer for reverse-order cleanup.
@@ -282,6 +293,7 @@ export async function install(config: Partial<Config> = {}): Promise<Env> {
       definitions.set(definition.name, definition)
       return () => definitions.delete(definition.name)
     },
+    get: (name: string) => (visibleTools.has(name) ? {} : undefined),
   })
   ctx.provide('agents', { get: (id: string) => agents.get(id) })
   const flushHooks: ((sessionId: string) => void)[] = []
@@ -314,6 +326,12 @@ export async function install(config: Partial<Config> = {}): Promise<Env> {
   // A probe on the root context: an unscoped listener receives EVERY Agent's
   // events, which is exactly why the plugin avoids global listen + filter.
   ctx.on('agent/status', ({ agent }) => { rootStatusEvents.push(String(agent.id)) })
+  // 未标记作用域的根监听者会收到全部派发事件（dsh-scope 全局接纳未标记监听者）。
+  // An unscoped root listener receives every dispatch event (dsh-scope admits
+  // untagged listeners globally).
+  const runEvents: { readonly name: string, readonly payload: unknown }[] = []
+  ctx.on('session-dispatch/start', payload => { runEvents.push({ name: 'start', payload }) })
+  ctx.on('session-dispatch/end', payload => { runEvents.push({ name: 'end', payload }) })
 
   const fiber: Fiber = ctx.plugin({ name, inject, apply }, resolveConfig(config))
   await fiber
@@ -325,6 +343,8 @@ export async function install(config: Partial<Config> = {}): Promise<Env> {
     created,
     rootStatusEvents,
     flushHooks,
+    runEvents,
+    addTool: (name: string) => { visibleTools.add(name) },
     addAgent,
     run: async (tool, args, exec) => {
       const definition = definitions.get(tool)

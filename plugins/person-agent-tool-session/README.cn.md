@@ -71,6 +71,25 @@ Person Agent 预设的面向模型会话维护工具：基于 `ctx.sessionContro
 
 判定之前，看守会记下目标会话当时的 seq、best-effort 刷一次（官方的 `flushFinalState` 手法），然后**重新**判定：状态或 seq 只要在 flush 期间动过，就回到循环重判，绝不拿着 flush 之前的结论去报告。flush 失败只告警，不阻断通知。
 
+### 让目标自己汇报
+
+当目标确实能回话时，派发会把官方 `withContinuableReturnGuidance` 那段文本追加在调用方提示之后，让目标自己发一条自足的结果，而不是靠调用方去读它的对话记录。
+
+门槛是刻意收窄的：`send_message` 只允许**相邻血统**——发信人只能发给直属父级，驻留的可续子级也只能发给直属父级——而普通的派发目标是一个没有父级血统的根会话。所以只有目标的 `parentSession` 正是调用方、**且** `send_message` 在目标作用域里可见时，才会追加指导；其余情况什么都不追加，而不是让目标去调用一个必然被拒的工具。
+
+### 观察一次派发
+
+每次被接受的派发都会在调用方作用域上广播 `session-dispatch/start`；带回报的派发在通知投递后广播 `session-dispatch/end`，按 `watchId` 配对。结束事件带终局原因与收尾输出，因此宿主与界面不必读会话日志就能显示"已派出、进行中"，随后显示结果。纯派发只广播 start，因为它没有可观察的结算。
+
+### 未实现：派发记录落盘
+
+官方的 catalog 会往父会话追加一条 `subagent/catalog`，让已完成的子级保持可发现。对插件而言，harness 的对应物是 `appendPluginRecord`——它写入一条 `ignorable` 记录，读方保留并跳过，且能随 fork 与 resume 一起留存。这里有两道障碍：
+
+- `appendPluginRecord` 在本插件运行时解析到的 `@deepseek-ai/dsh-session@0.2.0-rc.2` 里**根本不存在**（只有更新的 checkout 构建版有），调用它会直接失败。
+- 改用 `session.append` 写一条私有事件类型是**不安全**的：持久化读路径会拒绝含有 `KNOWN_SESSION_EVENT_TYPES` 之外事件类型的日志，除非该事件带 `ignorable: true`，而这个集合是从 harness 仓库生成的——也就是说调用方会话之后会**拒绝加载**。
+
+不过这次派发其实已经被持久记录了：harness 为 `session_dispatch` 本身写入 `tool/call` 与 `tool/result` 事件，结果里的收据带着 `sessionId`、`messageId`、`watchId`。这些事件随重启与 fork 留存，并可用会话日志工具读取。
+
 ### 官方有、这里不能照搬的两项
 
 官方的两项结果能力对一个「只是被观察」的会话并不适用，照搬等于造没有生产者的接口：
