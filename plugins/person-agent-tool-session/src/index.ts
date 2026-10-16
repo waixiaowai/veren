@@ -1,7 +1,7 @@
 // 插件入口：Person Agent 的会话维护工具（创建/改名/分叉/归档/取消归档/置顶/
-// 取消置顶）。
+// 取消置顶/派活）。
 // Plugin entry: Person Agent session maintenance tools (create / rename /
-// fork / archive / unarchive / pin / unpin).
+// fork / archive / unarchive / pin / unpin / prompt).
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 // 类型-only import：拉取 tools、sessionController 与 workspaceRegistry 的
@@ -12,6 +12,7 @@ import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { registerSessionCreate, registerSessionFork, registerSessionRename } from './tools-management.js'
+import { registerSessionPrompt } from './tools-prompt.js'
 import {
   registerSessionArchive,
   registerSessionPin,
@@ -24,6 +25,8 @@ export const name = 'personAgentToolSession'
 export interface Config {
   /** 是否提供 session_create。Whether session_create is offered. */
   allowCreate: boolean
+  /** 是否提供 session_prompt。Whether session_prompt is offered. */
+  allowPrompt: boolean
   /** 是否提供 session_fork。Whether session_fork is offered. */
   allowFork: boolean
   /** 是否提供归档/取消归档。Whether archive/unarchive are offered. */
@@ -35,6 +38,7 @@ export interface Config {
 export const Config: z<Config> = z
   .object({
     allowCreate: z.boolean().default(true).description('Offer the session_create tool.'),
+    allowPrompt: z.boolean().default(true).description('Offer the session_prompt tool (deliver a prompt into a session and wake it).'),
     allowFork: z.boolean().default(true).description('Offer the session_fork tool.'),
     allowArchive: z.boolean().default(true).description('Offer the session_archive and session_unarchive tools.'),
     allowPin: z.boolean().default(true).description('Offer the session_pin and session_unpin tools.'),
@@ -63,6 +67,7 @@ export const provide = []
 export const apply = (ctx: Context, config: Config): void => {
   if (config.allowCreate) ctx.effect(() => registerSessionCreate(ctx), 'person-agent-tool-session:create')
   ctx.effect(() => registerSessionRename(ctx), 'person-agent-tool-session:rename')
+  if (config.allowPrompt) ctx.effect(() => registerSessionPrompt(ctx), 'person-agent-tool-session:prompt')
   if (config.allowFork) ctx.effect(() => registerSessionFork(ctx), 'person-agent-tool-session:fork')
   if (config.allowArchive) {
     ctx.effect(() => registerSessionArchive(ctx), 'person-agent-tool-session:archive')

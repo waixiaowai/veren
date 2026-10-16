@@ -144,7 +144,10 @@ export function buildPersonAgentPreset(options: PresetOptions): PresetDefinition
   tools.push({
     id: 'tool-session',
     name: '@veren/person-agent-tool-session',
-    config: { allowCreate: true, allowFork: true, allowArchive: true, allowPin: true },
+    // 派活是桥梁人设的关键一步：创建会话之后必须能替它说第一句话。
+    // Prompting is the bridge persona's key step: after creating a session it
+    // must be able to speak the session's first sentence.
+    config: { allowCreate: true, allowPrompt: true, allowFork: true, allowArchive: true, allowPin: true },
   })
   return {
     id: options.presetId,

@@ -29,7 +29,7 @@ describe('buildPersonAgentPreset', () => {
     // 部署默认收紧：工具不允许擅自递归建目录。
     // Tight deployment default: the tool may not create directories on its own.
     expect(workspace?.config).toMatchObject({ allowCreate: true, allowCreateDirectory: false })
-    expect(session?.config).toMatchObject({ allowCreate: true, allowFork: true, allowArchive: true, allowPin: true })
+    expect(session?.config).toMatchObject({ allowCreate: true, allowPrompt: true, allowFork: true, allowArchive: true, allowPin: true })
   })
 
   it('keeps the bridge persona: a character with metacognition, not a handbook', () => {

@@ -1,10 +1,10 @@
 // 组合测试：走真实 cordis Context——真实 inject 解析与真实 effect 逆序清理；
 // sessionController 与 workspaceRegistry 用假实现替换，直接驱动被注册的
-// 工具定义，锁定创建/改名/分叉/归档/置顶的调用路径。
+// 工具定义，锁定创建/改名/分叉/归档/置顶/派活的调用路径。
 // Composition test: real cordis Context - real inject resolution and real
 // effect reverse-order disposal; sessionController and workspaceRegistry are
 // fakes, and the registered tool definitions are driven directly to lock the
-// create/rename/fork/archive/pin call paths.
+// create/rename/fork/archive/pin/prompt call paths.
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
@@ -37,6 +37,27 @@ function fakeSessionController() {
     async fork(request: Record<string, unknown>) {
       this.calls.push(`fork:${JSON.stringify(request)}`)
       return { sessionId: 'sess-forked' as never }
+    },
+    // resolveAgent 假实现：返回带记录能力的假 Agent；未知名返回稳定错误。
+    // resolveAgent fake: a recording fake Agent; unknown names return the
+    // stable error shape.
+    resolvedAgents: new Map<string, { followupCalls: unknown[], whenIdleCalls: number }>(),
+    async resolveAgent(sessionId: string) {
+      const existing = this.resolvedAgents.get(sessionId)
+      if (existing !== undefined) return { agent: fakeAgent(existing) }
+      return { error: new Error(`session "${sessionId}" not found`) }
+    },
+  }
+}
+
+/** 带调用记录的假 Agent。A fake Agent with call recording. */
+function fakeAgent(record: { followupCalls: unknown[], whenIdleCalls: number }) {
+  return {
+    followup(message: unknown) {
+      record.followupCalls.push(message)
+    },
+    async whenIdle() {
+      record.whenIdleCalls += 1
     },
   }
 }
@@ -96,11 +117,40 @@ async function install(config: Partial<ConfigShape> = {}) {
 }
 
 describe('personAgentToolSession composition（真实装配路径 / real assembly path）', () => {
-  it('registers all seven tools by default', async () => {
+  it('registers all eight tools by default', async () => {
     const env = await install()
     expect(env.registered()).toEqual([
-      'session_archive', 'session_create', 'session_fork', 'session_pin', 'session_rename', 'session_unarchive', 'session_unpin',
+      'session_archive', 'session_create', 'session_fork', 'session_pin', 'session_prompt', 'session_rename', 'session_unarchive', 'session_unpin',
     ])
+  })
+
+  it('delivers a prompt through the host enqueue path and wakes the session', async () => {
+    // 派活路径锁定：resolveAgent 拿活跃 Agent → followup 入队 kind:'user' 消息。
+    // Locked dispatch path: resolveAgent yields the live Agent → followup
+    // enqueues a kind:'user' message.
+    const env = await install()
+    const agentRecord = { followupCalls: [] as unknown[], whenIdleCalls: 0 }
+    env.sessionController.resolvedAgents.set('sess-9', agentRecord)
+    const result = await env.run('session_prompt', { sessionId: 'sess-9', prompt: ' hello world task ' })
+    expect(result).toMatchObject({ sessionId: 'sess-9', accepted: true, waited: false })
+    expect(agentRecord.followupCalls).toHaveLength(1)
+    expect(agentRecord.whenIdleCalls).toBe(0)
+  })
+
+  it('waits for idle when wait is set', async () => {
+    const env = await install()
+    const agentRecord = { followupCalls: [] as unknown[], whenIdleCalls: 0 }
+    env.sessionController.resolvedAgents.set('sess-9', agentRecord)
+    await env.run('session_prompt', { sessionId: 'sess-9', prompt: 'task', wait: true })
+    expect(agentRecord.whenIdleCalls).toBe(1)
+  })
+
+  it('fails loud on an empty prompt and an unresolvable session', async () => {
+    const env = await install()
+    await expect(env.run('session_prompt', { sessionId: 'sess-9', prompt: '   ' }))
+      .rejects.toMatchObject({ code: 'SESSION_PROMPT_EMPTY' })
+    await expect(env.run('session_prompt', { sessionId: 'sess-missing', prompt: 'task' }))
+      .rejects.toMatchObject({ code: 'SESSION_PROMPT_NOT_FOUND' })
   })
 
   it('creates a session with preset, model selection, and title in order', async () => {
@@ -150,13 +200,13 @@ describe('personAgentToolSession composition（真实装配路径 / real assembl
   })
 
   it('honors config toggles', async () => {
-    const env = await install({ allowCreate: false, allowFork: false, allowArchive: false, allowPin: false })
+    const env = await install({ allowCreate: false, allowPrompt: false, allowFork: false, allowArchive: false, allowPin: false })
     expect(env.registered()).toEqual(['session_rename'])
   })
 
   it('unregisters every tool on dispose (HMR safety)', async () => {
     const env = await install()
-    expect(env.registered()).toHaveLength(7)
+    expect(env.registered()).toHaveLength(8)
     await env.unload()
     expect(env.registered()).toHaveLength(0)
   })

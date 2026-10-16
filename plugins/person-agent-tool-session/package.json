@@ -1,7 +1,7 @@
 {
   "name": "@veren/person-agent-tool-session",
   "displayName": "Person Agent Tool Session",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Use when a Person Agent session must maintain sibling sessions: model-facing session_create/session_rename/session_fork tools over ctx.sessionController and session_archive/session_unarchive/session_pin/session_unpin over ctx.workspaceRegistry; skip it when sessions must never create or reorganize other sessions.",
   "type": "module",
   "main": "./dist/index.js",

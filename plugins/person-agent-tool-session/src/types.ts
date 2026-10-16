@@ -1,6 +1,6 @@
-// 共享类型与结构化错误：七个会话维护工具的参数、返回值和带稳定 code 的错误。
+// 共享类型与结构化错误：八个会话维护工具的参数、返回值和带稳定 code 的错误。
 // Shared types and structured errors: arguments, results, and stable-code
-// errors for the seven session maintenance tools.
+// errors for the eight session maintenance tools.
 import type { SessionId } from '@deepseek-ai/dsh-session'
 
 /** `session_create` 的模型参数。Model-facing arguments of `session_create`. */
@@ -58,11 +58,33 @@ export interface SessionArchiveArgs extends SessionTargetArgs {
   stopActivity?: boolean
 }
 
+/** `session_prompt` 的完整参数。Full arguments of `session_prompt`. */
+export interface SessionPromptArgs extends SessionTargetArgs {
+  /** 发给目标会话的提示文本（原样作为一个 text 块）。The prompt text, sent verbatim as one text block. */
+  prompt: string
+  /** 是否等目标会话回到空闲再返回（默认 false，只入队即返回）。Wait for the target session to go idle (default false: enqueue and return). */
+  wait?: boolean
+}
+
+/**
+ * `session_prompt` 的返回值。type 别名（理由同 SessionCreateResult）。
+ * The `session_prompt` result value. Type alias (same reason as SessionCreateResult).
+ */
+export type SessionPromptResult = {
+  sessionId: SessionId
+  /** 提示已入队。The prompt was accepted into the session's inbox. */
+  accepted: true
+  /** 是否等待了空闲。Whether the call waited for idle. */
+  waited: boolean
+}
+
 /** 工具层稳定错误码。Stable tool-layer error codes. */
 export type SessionToolErrorCode =
   | 'SESSION_TITLE_EMPTY'
   | 'SESSION_CREATE_LOCATION_CONFLICT'
   | 'SESSION_MODEL_SELECTION_INCOMPLETE'
+  | 'SESSION_PROMPT_EMPTY'
+  | 'SESSION_PROMPT_NOT_FOUND'
 
 /** 带稳定 code 与机器可读字段的结构化错误（misconfiguration fails loud）。 */
 /** A structured error with a stable code and machine-readable fields (misconfiguration fails loud). */
