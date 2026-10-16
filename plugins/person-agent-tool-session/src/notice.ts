@@ -63,7 +63,14 @@ export function createDispatchPrompt(senderSessionId: SessionId, text: string): 
 
 /**
  * 一行陈述目标会话的下场，用调用方自己的任务词汇。
- * One line stating the target session's outcome in the caller's own task vocabulary.
+ * 分支与官方 continuation-messages.ts 的 settlementSummary 一致，包括两条必须区分的语义：
+ * `refusal` 意味着被认领的输入被 pre-step 拒绝丢弃，调用方**不能**当作任务已完成；
+ * 无法命名的下场按「可能没做完」汇报，而不是当成成功。
+ * One line stating the target session's outcome in the caller's own task
+ * vocabulary. The arms match the official settlementSummary, including two
+ * semantics that must not be collapsed: `refusal` means a pre-step rejection
+ * discarded claimed input, so the caller must not treat the task as done, and an
+ * unnameable outcome is reported as possibly unfinished rather than as success.
  * @param targetSessionId - 目标会话 id。The target session id.
  * @param outcome - 下场。The outcome.
  * @returns 面向模型的开场句。The model-facing opening line.
@@ -71,15 +78,23 @@ export function createDispatchPrompt(senderSessionId: SessionId, text: string): 
 function settlementSummary(targetSessionId: SessionId, outcome: SessionDispatchOutcome): string {
   const subject = `Background session ${targetSessionId}`
   switch (outcome) {
-    case 'settled':
+    case 'completed':
       return `${subject} finished and will do no further work unless you send it more.`
+    case 'aborted':
+      return `${subject} was stopped before it finished.`
+    case 'max-tokens':
+      return `${subject} ran out of room before it finished.`
+    case 'refusal':
+      return `${subject} declined the task.`
+    case 'error':
+      return `${subject} failed before it finished.`
     case 'target-gone':
       return `${subject} left the runtime before it was observed settling; its work may be incomplete.`
     default:
       // 下场集合是可扩展的：无法命名的下场按「可能没做完」汇报，而不是当成成功。
       // Merge-extensible union: an unnameable outcome is reported as possibly
       // unfinished rather than silently as success.
-      return `${subject} ended abnormally (${String(outcome)}) before it settled.`
+      return `${subject} ended abnormally (${String(outcome)}) before it finished.`
   }
 }
 

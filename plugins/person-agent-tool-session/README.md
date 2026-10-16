@@ -48,6 +48,36 @@ The guard is modelled on the official subagent settlement observer, `watchLocalS
 
 Two message kinds are declared, deliberately distinct: `session-dispatch` (`form: 'relay'`) for the prompt the caller wrote, and `session-dispatch-notice` (`form: 'notice'` + `summary`) for the runtime's own account of the target's outcome. Merging them would credit the target with words it never produced.
 
+### Why the target stopped
+
+The notice states *why*, using the official `SubagentStopReason` vocabulary so the model reads the same words across both delegation routes:
+
+| Outcome | Notice line |
+| --- | --- |
+| `completed` | "finished and will do no further work unless you send it more." |
+| `aborted` | "was stopped before it finished." |
+| `max-tokens` | "ran out of room before it finished." |
+| `refusal` | "declined the task." |
+| `error` | "failed before it finished." |
+| `target-gone` | "left the runtime before it was observed settling; its work may be incomplete." |
+
+The accounting reuses the official `foldConsumedWork` from `@deepseek-ai/dsh-agent`, because turn boundaries alone cannot answer this: a turn that stops before its first step has exactly the shape of a balanced no-op turn, so reading turns in isolation either credits cut-short work as finished or convicts every no-op. The switch over its result mirrors the official `epochStopReason`. A recorded failure wins over a cancellation, and a failure superseded by a later committed turn stops deciding the outcome (the official `observeLocalFailure` rule). Two semantics are never collapsed: `refusal` means a pre-step rejection discarded claimed input, so the caller must not treat the task as done, and an unnameable outcome is reported as a failure rather than as success.
+
+### What is folded, and from where
+
+The guard subscribes to `session/event` on the target's own scope and folds three things from that suffix: the official `foldConsumedWork` accounting, the closing output, and failure supersession. `session/event` records without waking — only the three inbox events and `agent/error` wake the observer, exactly as the official observer does.
+
+The closing output uses the official `AssistantOutputFold` rule: the last non-empty assistant message, where an empty-content (usage-only) message never replaces earlier output, falling back to the accumulated stream text. The official class lives in `@deepseek-ai/dsh-subagent`, which is not resolvable in this workspace, so its semantics are implemented in `watch.ts` reusing the official `joinAssistantStreamText`.
+
+Before deciding, the guard remembers the target's session seq, best-effort flushes it (the official `flushFinalState` move), and then decides **again**: if the state or the seq moved while the flush was in flight, it goes back around instead of reporting the conclusion it reached before the flush. A flush failure only warns and never blocks the notice.
+
+### What the official has that this cannot reuse
+
+Two official result capabilities do not apply to a session this plugin merely observes, and copying them would have invented surface with no producer:
+
+- **`structured` (`outputSchema`)** is a *provider request* field, not a parameter of the model-facing `subagent` tool. The manager attaches it by injecting a structured-submission runtime into the **child's own context** (`attachStructuredRuntime(childCtx, …)` in `manager.ts`), and `out-of-process.ts` marks external providers as not supporting it. Offering it here would mean injecting a submission tool and a terminal guard into a session that belongs to the user.
+- **`diagnostic`** is produced only by external providers; it is bounded by `MAX_SUBAGENT_DIAGNOSTIC_BYTES` in `out-of-process.ts`. A local activation's `captureLocalResult` never sets it, so a plugin watching a local session has no producer to read from.
+
 A notice is delivered with the official `sendWaking` rule: `followup` when the caller is idle (its own turn), `steer` when the caller is running (joined at its nearest step boundary, so a busy caller is not forced into an extra turn). When the caller Agent is no longer registered — after a Host restart — delivery falls back to `ctx.sessionController.resolveAgent`, the route `@deepseek-ai/dsh-schedule` uses.
 
 ## Understand the implementation
@@ -64,7 +94,10 @@ A notice is delivered with the official `sendWaking` rule: `followup` when the c
 
 - A watch does not survive plugin unload: the guard is owned by the registration effect, so unloading cancels pending watches without reporting.
 - There is no wait deadline. A target that never becomes quiescent and is never disposed stays watched until unload; `maxConcurrentWatches` bounds how many such watches accumulate.
-- The closing output is the last non-empty derived assistant message produced after the delivery. The official `finalAssistantOutput` reads an event suffix and falls back to the accumulated stream text; `Session.snapshotEvents` is deprecated ("new calls are prohibited"), so this applies the same selection rule to the non-deprecated derived history and has no stream fallback.
+- The guard buffers the target's session events for the watch's lifetime. Events are shared frozen values, so this is an array of references rather than a copy, but a very long-running target still grows it until it settles.
+- The guard is an outside observer: it re-checks the session seq before finalizing, but it cannot close the target's input admission the way the official manager closes a child's (`runMaintenance`). A delivery landing after the re-check is reported by the next watch, not by this one.
+- The guard does not park a notice on a closing caller the way the official manager uses `parent.inject` when the parent subtree is shutting down; an undeliverable notice is logged and dropped.
+- Unnameable outcomes and unnameable `turn/end` reasons are reported as `error`, never as success; that arm is reachable only through a merge-extensible extension.
 
 ## Further exploration
 

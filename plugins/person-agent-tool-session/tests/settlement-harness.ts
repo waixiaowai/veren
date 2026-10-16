@@ -53,7 +53,7 @@ export interface FakeAgent {
   ctx: Context
   status: 'idle' | 'running'
   readonly inbox: { nextTurn: UserMessage[], nextStep: UserMessage[] }
-  readonly session: { readonly id: SessionIdType, deriveMessages: () => FakeMessage[] }
+  readonly session: { readonly id: SessionIdType, readonly seq: number, deriveMessages: () => FakeMessage[] }
   readonly messages: FakeMessage[]
   readonly received: UserMessage[]
   quiescent: boolean
@@ -64,6 +64,10 @@ export interface FakeAgent {
   readonly steer: (message: UserMessage) => void
   readonly wake: () => void
   readonly say: (text: string) => void
+  /** 结束一个已进入 step 的轮次并广播 turn/end。Ends a stepped turn and emits `turn/end`. */
+  readonly turnEnd: (reasonKind: string) => void
+  /** 广播 agent/error。Emits `agent/error`. */
+  readonly fail: () => void
   readonly finish: () => void
   readonly finishWithMaintenance: () => void
   readonly park: () => void
@@ -82,6 +86,17 @@ function emit(agent: FakeAgent, name: 'agent/inbox/inserted' | 'agent/inbox/clai
   // The single type assertion: the fake implements only the members exercised
   // paths touch, while the dispatch entry point is typed for the complete Agent.
   emitAgentEvent(agent.ctx, agent as unknown as Agent, name, rest as never)
+}
+
+/**
+ * 广播一次 session/event（会话自己的作用域事件，载荷不是 agent 形式）。
+ * Broadcast one `session/event` (a session-scoped event whose payload is not the
+ * agent form).
+ * @param agent - 会话所属 Agent。The Agent owning the session.
+ * @param event - 会话事件。The session event.
+ */
+function emitSession(agent: FakeAgent, event: unknown): void {
+  agent.ctx.emit('session/event', agent.session as never, event as never)
 }
 
 /**
@@ -105,13 +120,22 @@ function setStatus(agent: FakeAgent, status: 'idle' | 'running'): void {
  */
 export function createFakeAgent(root: Context, id: string): FakeAgent {
   const sessionId = SessionId(id)
+  // 目标会话的事件序号：foldConsumedWork 与失败取代判断都读它。
+  // The target session's event sequence; both foldConsumedWork and failure
+  // supersession read it.
+  let seq = 0
+  let turn = 0
   const agent: FakeAgent = {
     id: sessionId,
     options: {},
     ctx: root,
     status: 'idle',
     inbox: { nextTurn: [], nextStep: [] },
-    session: { id: sessionId, deriveMessages: () => [...agent.messages] },
+    session: {
+      id: sessionId,
+      get seq() { return seq },
+      deriveMessages: () => [...agent.messages],
+    },
     messages: [],
     received: [],
     steered: [],
@@ -138,7 +162,41 @@ export function createFakeAgent(root: Context, id: string): FakeAgent {
       }
       setStatus(agent, 'running')
     },
-    say: (text) => { agent.messages.push({ role: 'assistant', content: [{ type: 'text', text }] }) },
+    say: (text) => {
+      const content = [{ type: 'text', text }]
+      agent.messages.push({ role: 'assistant', content })
+      // 与宿主一致：一条 assistant 输出会作为 assistant/message 会话事件落盘，
+      // 看守折的正是这个事件，而不是派生历史。
+      // Host fidelity: one assistant output lands as an `assistant/message` session
+      // event; the guard folds that event, not the derived history.
+      seq += 1
+      emitSession(agent, {
+        type: 'assistant/message',
+        seq,
+        time: Date.now(),
+        // 真实的 assistant/message 一定带内嵌流记录（可能为空数组）；看守会读它。
+        // A real `assistant/message` always carries its embedded stream records
+        // (possibly an empty array); the guard reads it.
+        data: { message: { role: 'assistant', content }, stream: [] },
+      })
+    },
+    turnEnd: (reasonKind) => {
+      turn += 1
+      const push = (type: string, data: unknown): void => {
+        seq += 1
+        emitSession(agent, { type, seq, time: Date.now(), data })
+      }
+      // 进入过 step 的轮次才会被 foldConsumedWork 记为「计账轮次」。
+      // Only a turn that entered a step counts as an accounting turn.
+      push('turn/start', { turn })
+      push('step/start', { turn, step: 1 })
+      push('turn/end', { turn, reason: { kind: reasonKind } })
+    },
+    fail: () => {
+      emitAgentEvent(agent.ctx, agent as unknown as Agent, 'agent/error', {
+        turn: turn + 1, step: 1, error: new Error('boom'),
+      } as never)
+    },
     finish: () => {
       for (const message of [...agent.inbox.nextTurn, ...agent.inbox.nextStep]) {
         emit(agent, 'agent/inbox/claimed', { message, turn: 1 })
@@ -183,6 +241,12 @@ export interface Env {
   readonly agents: Map<string, FakeAgent>
   readonly created: Record<string, unknown>[]
   readonly rootStatusEvents: string[]
+  /**
+   * flush 前回调，用来注入竞态：例如 flush 期间目标又落了一条事件。
+   * Hooks run before each flush, so a test can inject a race such as an event
+   * landing while the flush is in flight.
+   */
+  readonly flushHooks: ((sessionId: string) => void)[]
   addAgent: (id: string) => FakeAgent
   run: (tool: string, args: unknown, exec: unknown) => Promise<unknown>
   unload: () => Promise<void>
@@ -220,9 +284,14 @@ export async function install(config: Partial<Config> = {}): Promise<Env> {
     },
   })
   ctx.provide('agents', { get: (id: string) => agents.get(id) })
+  const flushHooks: ((sessionId: string) => void)[] = []
   ctx.provide('sessions', {
     get: (id: string) => sessions.get(id),
-    flush: async (session: { id: string }) => { flushes.push(session.id); return true },
+    flush: async (session: { id: string }) => {
+      for (const hook of flushHooks) hook(session.id)
+      flushes.push(session.id)
+      return true
+    },
   })
   ctx.provide('sessionController', {
     resolveAgent: async (id: string) => {
@@ -255,6 +324,7 @@ export async function install(config: Partial<Config> = {}): Promise<Env> {
     agents,
     created,
     rootStatusEvents,
+    flushHooks,
     addAgent,
     run: async (tool, args, exec) => {
       const definition = definitions.get(tool)

@@ -64,7 +64,10 @@ describe('session_dispatch 结算 / settlement', () => {
     expect(noticeText(caller)).toContain('Background session target finished')
     expect(noticeText(caller)).toContain('Its closing message:')
     expect(noticeText(caller)).toContain('SUMMARY: three packages changed')
-    expect(env.flushes).toEqual(['caller'])
+    // 通知前会先 best-effort 刷一次目标会话，再刷调用方（与官方 flushFinalState 同序）。
+    // The notice best-effort flushes the target before the caller, the official
+    // flushFinalState order.
+    expect(env.flushes).toEqual(['target', 'caller'])
   })
 
   it('空闲调用方用 queue（自成一轮）', async () => {
@@ -315,13 +318,126 @@ describe('session_dispatch 结算 / settlement', () => {
   })
 
   it('通知构造是纯函数：空收尾文本与超限文本都有确定结果', () => {
-    const notice = createSettlementNotice(SessionId('s-1'), 'settled', [], 4000)
+    const notice = createSettlementNotice(SessionId('s-1'), 'completed', [], 4000)
     expect(notice.content).toEqual([
       { type: 'text', text: 'Background session s-1 finished and will do no further work unless you send it more.' },
       { type: 'text', text: 'It left no closing message.' },
     ])
-    const bounded = createSettlementNotice(SessionId('s-2'), 'settled', [{ type: 'text', text: 'y'.repeat(50) }], 10)
+    const bounded = createSettlementNotice(SessionId('s-2'), 'completed', [{ type: 'text', text: 'y'.repeat(50) }], 10)
     expect((bounded.content[2] as { text: string }).text).toHaveLength(10)
     expect((bounded.content[2] as { text: string }).text.endsWith('…')).toBe(true)
+  })
+})
+
+describe('结束原因与失败取代 / stop reasons and failure supersession', () => {
+  /** 派发一次，让目标以给定原因结束一个轮次，返回通知正文。 */
+  /** Dispatch once, end one turn with the given reason, and return the notice body. */
+  async function noticeFor(reasonKind: string): Promise<string> {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    await dispatchTo(env, caller, 'target')
+    target.turnEnd(reasonKind)
+    target.finish()
+    await settleAsync()
+    return noticeText(caller)
+  }
+
+  it('completed：干净结束且没有未跑输入', async () => {
+    expect(await noticeFor('completed')).toContain('finished and will do no further work')
+  })
+
+  it('aborted：被停止', async () => {
+    expect(await noticeFor('aborted')).toContain('was stopped before it finished')
+  })
+
+  it('interrupted 也归入 aborted', async () => {
+    expect(await noticeFor('interrupted')).toContain('was stopped before it finished')
+  })
+
+  it('max-tokens：空间不够', async () => {
+    expect(await noticeFor('max-tokens')).toContain('ran out of room before it finished')
+  })
+
+  it('blocked：pre-step 拒绝，是"拒绝"而不是"做完"', async () => {
+    expect(await noticeFor('blocked')).toContain('declined the task')
+  })
+
+  it('error：失败', async () => {
+    expect(await noticeFor('error')).toContain('failed before it finished')
+  })
+
+  it('无法命名的结束原因按失败汇报，绝不报成功', async () => {
+    expect(await noticeFor('something-new')).toContain('failed before it finished')
+  })
+
+  it('agent/error 单独发生时按失败汇报', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    await dispatchTo(env, caller, 'target')
+    target.fail()
+    target.finish()
+    await settleAsync()
+    expect(noticeText(caller)).toContain('failed before it finished')
+  })
+
+  it('后续已提交轮次取代先前的失败', async () => {
+    // A later committed turn supersedes the failure, so the notice reports success.
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    await dispatchTo(env, caller, 'target')
+
+    target.fail()
+    target.turnEnd('completed')
+    target.finish()
+    await settleAsync()
+
+    expect(noticeText(caller)).toContain('finished and will do no further work')
+  })
+
+  it('通知前会 best-effort 刷目标会话（官方 flushFinalState 同序）', async () => {
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    await dispatchTo(env, caller, 'target')
+
+    target.turnEnd('completed')
+    target.finish()
+    await settleAsync()
+
+    expect(env.flushes).toEqual(['target', 'caller'])
+  })
+
+  it('收尾复查：flush 期间目标又落了事件就重判，不拿旧结论报告', async () => {
+    // The pre-finalization re-check: an event landing while the flush is in
+    // flight moves the session seq, so the observer decides again instead of
+    // reporting the conclusion reached before the flush.
+    const env = await install()
+    const caller = env.addAgent('caller')
+    const target = env.addAgent('target')
+    await dispatchTo(env, caller, 'target')
+
+    target.turnEnd('completed')
+    let injected = false
+    env.flushHooks.push((sessionId) => {
+      if (sessionId !== 'target' || injected) return
+      injected = true
+      // 只落事件、不唤醒：故意绕开 poke 令牌，单独验证 seq 这道闸。
+      // Records an event without waking, so this isolates the seq guard from the
+      // poke token.
+      target.say('ARRIVED-DURING-FLUSH')
+    })
+    target.finish()
+    await settleAsync()
+
+    expect(injected).toBe(true)
+    // 目标被刷了两次（复查前后各一次），说明确实回到了循环重判。
+    // The target was flushed twice (before and after the re-decision), proving the
+    // observer went back around.
+    expect(env.flushes).toEqual(['target', 'target', 'caller'])
+    expect(caller.received).toHaveLength(1)
+    expect(noticeText(caller)).toContain('ARRIVED-DURING-FLUSH')
   })
 })

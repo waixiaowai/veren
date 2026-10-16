@@ -95,8 +95,22 @@ export type SessionDispatchResult = {
   reporting: boolean
 }
 
-/** 一次派发结算的结束原因。Why one dispatch settlement ended. */
-export type SessionDispatchOutcome = 'settled' | 'target-gone'
+/**
+ * 一次派发结算的结束原因。词汇与官方 `SubagentStopReason` 一致，便于模型在两种派活
+ * 之间读到同一套说法；`target-gone` 是本插件特有的（被看护的 Agent 离开注册表）。
+ * 一个非 `completed` 的原因意味着收尾输出可能是残缺的。
+ * Why one dispatch settlement ended. The vocabulary matches the official
+ * `SubagentStopReason` so the model reads the same words across both delegation
+ * routes; `target-gone` is specific to this plugin (the watched Agent left the
+ * registry). A non-`completed` reason means the closing output may be partial.
+ */
+export type SessionDispatchOutcome =
+  | 'completed'
+  | 'aborted'
+  | 'max-tokens'
+  | 'refusal'
+  | 'error'
+  | 'target-gone'
 
 /** 工具层稳定错误码。Stable tool-layer error codes. */
 export type SessionToolErrorCode =
