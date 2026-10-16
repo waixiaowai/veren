@@ -14,6 +14,7 @@
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
 import { renderAgentPreset, renderWorkspace, withHeading } from '../src/render.ts'
+import { renderModelCatalogModel } from '../src/model-catalog.ts'
 import { deriveFallbackTitle, lastSnapshotSectionText, lastSnapshotText, selectedPreset } from '../src/session-events.ts'
 import type { SessionLogView, SnapshotEvent } from '../src/session-events.ts'
 
@@ -76,6 +77,31 @@ describe('withHeading', () => {
   it('非空加标题，空保持为空', () => {
     expect(withHeading('## Workspace List', ['a'])).toEqual(['## Workspace List', 'a'])
     expect(withHeading('## Workspace List', [])).toEqual([])
+  })
+})
+
+describe('renderModelCatalogModel', () => {
+  it('宿主自带 description 时原样作为 use when 渲染', () => {
+    const line = renderModelCatalogModel({
+      id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro',
+      description: 'Stronger agentic coding, knowledge, and difficult reasoning.',
+    } as never, 1_000_000)
+    expect(line).toContain('use when: Stronger agentic coding, knowledge, and difficult reasoning.')
+  })
+
+  it('宿主缺描述时按 id 给出使用建议兜底', () => {
+    // deepseek-flash 官方目录未写描述：兜底文案来自社区/官方选型共识。
+    // deepseek-flash carries no description in the official catalog: the
+    // fallback hint distills the community and official selection consensus.
+    const line = renderModelCatalogModel({ id: 'deepseek-flash', name: 'DeepSeek-V4.1-Flash' } as never, 1_000_000)
+    expect(line).toContain('use when: default for routine, latency-sensitive, or high-volume tasks')
+    expect(line).toContain('keep reasoning effort at medium or below')
+  })
+
+  it('既无描述也无兜底建议时不渲染 use when', () => {
+    const line = renderModelCatalogModel({ id: 'custom-model', name: 'Custom' } as never, 65536)
+    expect(line).not.toContain('use when')
+    expect(line).toContain('context 65536 tokens')
   })
 })
 

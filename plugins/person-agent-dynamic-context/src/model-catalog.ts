@@ -29,11 +29,37 @@ export interface ModelCatalogGroup {
 /** Context window per model id, resolved through the exact-route lookup. 逐模型的上下文窗口，来自精确路由查询。 */
 export type ModelContextWindows = ReadonlyMap<string, number | undefined>
 
-/** Render one model line: display name, id, modality, and context window. 把一个模型渲染成一行：名称、id、模态与上下文窗口。 */
+/**
+ * Advisory "when to use" hints for well-known model ids whose host metadata
+ * carries no description. Distilled from DeepSeek's official model guidance and
+ * community write-ups: Flash is the cheap low-latency default (keep reasoning
+ * effort at medium or below), Pro is the quality-first choice for complex
+ * reasoning, math, large codebases, and multi-tool agent chains. Only consulted
+ * when the host publishes no description — the host stays the primary source.
+ * 为宿主元数据缺描述的知名模型 id 提供的「什么时候用」建议，提炼自 DeepSeek
+ * 官方选型指引与社区实践：Flash 是低延迟高并发的默认选择（思考档位建议 medium
+ * 及以下），Pro 面向复杂推理、数理、大型代码工程与多工具 Agent 链的质量优先
+ * 场景。仅在宿主未发布 description 时兜底——宿主仍是第一来源。
+ */
+const MODEL_USAGE_HINTS: Readonly<Record<string, string>> = {
+  'deepseek-flash': 'default for routine, latency-sensitive, or high-volume tasks (RAG, batch text work, single-file code); keep reasoning effort at medium or below',
+  'deepseek-v4-pro': 'quality-first choice for complex multi-step reasoning, math, large codebase engineering, and multi-tool agent chains; higher cost, lower concurrency',
+}
+
+/**
+ * Resolve one model's usage hint: the host's own description when published,
+ * otherwise the advisory id-keyed hint, otherwise nothing.
+ * 解析单个模型的使用建议：优先宿主自带的 description，其次按 id 的建议文案，
+ * 都没有则为空。
+ */
+const usageHint = (model: LlmModelInfo): string => model.description ?? MODEL_USAGE_HINTS[model.id] ?? ''
+
+/** Render one model line: display name, id, modality, context window, and usage hint. 把一个模型渲染成一行：名称、id、模态、上下文窗口与使用建议。 */
 export const renderModelCatalogModel = (model: LlmModelInfo, contextWindow: number | undefined): string => {
   const modality = (model.inputModalities ?? []).includes('image') ? 'text+image' : 'text'
   const context = contextWindow === undefined ? 'context unknown' : `context ${contextWindow} tokens`
-  return `  - ${model.name}(${model.id}): input ${modality} · ${context}`
+  const hint = usageHint(model)
+  return `  - ${model.name}(${model.id}): input ${modality} · ${context}${hint === '' ? '' : ` · use when: ${hint}`}`
 }
 
 /** Render one provider block: the provider line, then its models. 把一个 provider 渲染成块：provider 行加其模型列表。 */
