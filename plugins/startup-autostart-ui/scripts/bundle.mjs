@@ -1,0 +1,108 @@
+/**
+ * Produce both halves of the panel: `dist/index.js` (the Node row) and
+ * `lib/client.js` (the browser module).
+ *
+ * `veren cli build` classifies this package as a frontend plugin — it declares
+ * `dsh.client` — and therefore runs `npm run bundle`, which is this file. The
+ * CLI is a kind-aware dispatcher, not a bundler: it decides *which* script a unit
+ * needs and leaves the artifact to that script, so the two emits below are the
+ * part no CLI can infer.
+ *
+ * The browser artifact must match what the shell's module loader expects:
+ *
+ *     load({ id: <package name>, factory: (require) => module.exports })
+ *
+ * so the module id is the package name, every platform module stays external and
+ * resolves through the shell's frozen module table, and
+ * `@deepseek-ai/dsh-typert-protocol/remote-info` is inlined exactly as the
+ * generated Remote artifacts inline it.
+ *
+ * 产出面板的两半：`dist/index.js`（Node 行）与 `lib/client.js`（浏览器模块）。
+ * `veren cli build` 会把本包判定为前端插件（它声明了 `dsh.client`），因此运行
+ * `npm run bundle`，也就是本文件。CLI 是按类型分派的调度器，不是打包器：它决定一个单元
+ * 需要**哪个**脚本，把产物留给那个脚本，所以下面两次产出是任何 CLI 都无法推断的部分。
+ *
+ * 浏览器产物必须符合外壳模块加载器的约定：模块 id 取包名，所有平台模块保持 external 并
+ * 从外壳冻结的模块表解析，`@deepseek-ai/dsh-typert-protocol/remote-info` 按生成的
+ * Remote 工件的同样方式内联。
+ */
+import { build } from 'esbuild'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+/** Repository root of the DeepSeek Harness checkout this package builds against. */
+const CHECKOUT = 'C:/Users/imeep/Documents/cursour/deepseek/deepseek-harness'
+
+/** Module specifiers the shell shares into its frozen module table. */
+const PLATFORM_MODULES = [
+  'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
+  'zod', '@tanstack/react-virtual',
+  '@deepseek-ai/dsh-client-store',
+  '@deepseek-ai/dsh-client-ui-slots',
+  '@deepseek-ai/dsh-client-ui-primitives',
+  '@deepseek-ai/dsh-client-ui-dockkit',
+]
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const packageName = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).name
+
+/** Indent the bundled body one level so the envelope stays readable. */
+const indent = text => text.split('\n').map(line => line === '' ? line : `    ${line}`).join('\n')
+
+/** Emit the Node half: the empty Loader row the Web application scans. */
+async function emitNodeHalf() {
+  const result = await build({
+    entryPoints: [join(root, 'src/index.ts')],
+    absWorkingDir: root,
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'node',
+    target: 'es2022',
+    logLevel: 'warning',
+    external: ['@deepseek-ai/*'],
+  })
+  mkdirSync(join(root, 'dist'), { recursive: true })
+  writeFileSync(join(root, 'dist/index.js'), result.outputFiles[0].text)
+}
+
+/** Emit the browser half inside the module-loader envelope. */
+async function emitClientHalf() {
+  const result = await build({
+    entryPoints: [join(root, 'src/client/index.ts')],
+    absWorkingDir: root,
+    bundle: true,
+    write: false,
+    format: 'cjs',
+    platform: 'browser',
+    target: 'es2022',
+    jsx: 'automatic',
+    logLevel: 'warning',
+    external: PLATFORM_MODULES,
+    alias: {
+      '@deepseek-ai/dsh-typert-protocol/remote-info': join(CHECKOUT, 'packages/typert/protocol/src/remote-info.ts'),
+    },
+    define: { 'process.env.NODE_ENV': '"production"' },
+  })
+  const envelope = [
+    '/* Built by scripts/bundle.mjs — the browser half of the startup-autostart panel. */',
+    'window.__ModuleLoader__.load({',
+    `  id: ${JSON.stringify(packageName)},`,
+    '  factory: (require) => {',
+    '    var module = { exports: {} };',
+    '    var exports = module.exports;',
+    indent(result.outputFiles[0].text),
+    '    return module.exports;',
+    '  },',
+    '});',
+    '',
+  ].join('\n')
+  mkdirSync(join(root, 'lib'), { recursive: true })
+  writeFileSync(join(root, 'lib/client.js'), envelope)
+  return envelope.length
+}
+
+await emitNodeHalf()
+const clientBytes = await emitClientHalf()
+console.log(`emitted dist/index.js and lib/client.js (${String(clientBytes)} bytes) for ${packageName}`)

@@ -38,8 +38,28 @@ const paths = {}
 for (const [alias, targets] of Object.entries(read.config.compilerOptions.paths ?? {})) {
   paths[alias] = targets.map(target => `${prefix}/${target.replace(/^\.\//, '')}`)
 }
+// The checkout aliases each Client package to its `index.ts`, which leaves the
+// browser half's own entry (`@pkg/client`) unmapped: the repo resolves it
+// through each package's `exports` map, and that map is not part of the alias
+// set. Add the two forms the panel imports, derived from the aliased file's
+// package root, so client sources are checked against the real Harness sources
+// rather than reported as missing modules.
+for (const [alias, targets] of Object.entries({ ...paths })) {
+  const target = targets[0]
+  if (target === undefined || !target.endsWith('/src')) continue
+  paths[`${alias}/client`] = [`${target}/client/index.ts`]
+  paths[`${alias}/*`] = [`${target}/*`]
+}
 // One zod copy for both the plugin and the Harness sources it is checked against.
 paths.zod = [`${prefix}/node_modules/zod`]
+// Same reason as `zod`, for the JSX face: a bare `react` import from this
+// directory resolves to the outer workspace's `@types/react`, while the Client
+// sources are checked against the checkout's copy. Two copies have two
+// unrelated `ReactNode` identities, which makes every component registered into
+// a slot a type error. Pin both entry points to the checkout.
+paths.react = [`${prefix}/node_modules/@types/react/index.d.ts`]
+paths['react/jsx-runtime'] = [`${prefix}/node_modules/@types/react/jsx-runtime.d.ts`]
+paths['react-dom'] = [`${prefix}/node_modules/@types/react-dom/index.d.ts`]
 
 mkdirSync(join(root, 'scripts'), { recursive: true })
 writeFileSync(

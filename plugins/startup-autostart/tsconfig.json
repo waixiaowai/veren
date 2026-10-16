@@ -16,6 +16,8 @@
     "target": "es2024",
     "module": "esnext",
     "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "lib": ["es2024", "dom", "dom.iterable"],
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": false,
     "esModuleInterop": true,
@@ -34,5 +36,5 @@
     "sourceMap": false,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "tests/**/*.tsx"]
 }
