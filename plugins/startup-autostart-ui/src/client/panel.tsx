@@ -16,6 +16,7 @@
 
 import { useMemo, useState } from 'react'
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { StartupChoicesSnapshot } from './choices.ts'
 import type { StartupCatalogSnapshot } from './catalog.ts'
 import { StartupDetail, type StartupDetailActions } from './detail.tsx'
 import type { StartupItemView } from './remote.ts'
@@ -23,7 +24,7 @@ import type { StartupItemView } from './remote.ts'
 /** Catalog, creation entry, and item actions injected into the page. */
 export interface StartupPanelInjected extends StartupDetailActions {
   /** The item catalog observable and its read state. */
-  readonly hooks: { readonly catalog: HostObservable<StartupCatalogSnapshot> }
+  readonly hooks: { readonly catalog: HostObservable<StartupCatalogSnapshot>; readonly choices: HostObservable<StartupChoicesSnapshot> }
   /** Re-read the catalog after a failed read. */
   readonly onRetry: () => void
   /** Open a session where the model registers a new item. */
@@ -96,8 +97,14 @@ function Row(props: {
  * @returns the searchable list beside the selected item's detail.
  */
 export function StartupPanel(props: StartupPanelProps): React.ReactElement {
-  const { useCatalog, onRetry, onNew, onUpdate, onDelete, onRun, t } = props
+  const { useCatalog, useChoices, useWorkspaces, onRetry, onNew, onUpdate, onDelete, onRun, t } = props
   const catalog = useCatalog(snapshot => snapshot)
+  const choices = useChoices(snapshot => snapshot)
+  const workspaces = useWorkspaces(state => state)
+  const workspaceOptions = useMemo(() => workspaces.items.map(workspace => ({
+    value: workspace.workspaceId,
+    label: workspace.title,
+  })), [workspaces.items])
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
@@ -161,6 +168,7 @@ export function StartupPanel(props: StartupPanelProps): React.ReactElement {
           {selected === undefined
             ? <p className="sa-hint">{t('panel.empty')}</p>
             : <StartupDetail key={selected.id} item={selected} t={t}
+              workspaces={workspaceOptions} choices={choices}
               onUpdate={onUpdate} onDelete={onDelete} onRun={onRun} />}
         </div>
       </div>

@@ -14,13 +14,15 @@ One Loader row with a browser half. The Node half is empty; it exists so the Web
 application can discover the browser module (the client module system scans
 active Loader rows for a `dsh.client` manifest).
 
-Install it independently of the Host service and of the tool plugin:
+This package declares no `dsh.bundle.patch`, so installing it alone adds a
+dependency but no Loader row. Install the aggregate bundle, which inserts this
+row together with the Host's and the tools':
 
 ```sh
-plugin_manager  install_bundle  target = @veren/startup-autostart-ui@1.4.0
+plugin_manager  install_bundle  target = @veren/startup-autostart-bundle@1.4.6
 ```
 
-Then reload the page. Removing the bundle removes the sidebar entry and the
+Then reload the page. Removing the aggregate removes the sidebar entry and the
 page; stored items are untouched.
 
 ## Using the page
@@ -63,15 +65,14 @@ mirrors the Host endpoints.
 
 ## Refreshing
 
-Two things re-read the list: a replaced transport generation (a reconnect) and a
-ten-second timer that runs while the page is mounted.
+Two things re-read the list: the Host's `startup-autostart/changed` notification,
+and a replaced transport generation (a reconnect). Nothing polls.
 
-The Host does emit `startup-autostart/changed` after every durable write, but the
-browser never receives it: the Web application forwards an explicit allowlist of
-Host events (`packages/api/remotes/src/remote-events.ts`), and a package outside
-that checkout cannot join it. The timer is the substitute, so an item created by
-the model appears without user action. Making it event-driven needs one line in
-that allowlist.
+The Host emits that notification after every committed write, and the Web
+application forwards it because the event is on the forwarded-event allowlist
+(`packages/api/remotes/src/remote-events.ts`, an `emit` entry beside
+`schedule/changed`). An item the model registers with `startup_create` therefore
+appears without user action.
 
 ## Building
 
@@ -93,8 +94,9 @@ request, so it has no KV-cache effect.
 
 - Creation has no form: a new item starts in a session, as on the automated-tasks
   page.
-- The list refreshes on a timer rather than on the Host's change event, because
-  that event is not forwarded to packages outside the checkout.
+- Live refresh depends on the checkout's forwarded-event allowlist carrying
+  `startup-autostart/changed`. A profile whose DeepSeek Harness checkout predates
+  that entry still renders correctly but only re-reads on reconnect and on mount.
 - The panel styles itself from one injected stylesheet rather than CSS Modules,
   because this package builds outside the Client bundler where `*.module.css` is
   compiled. Colors come only from the shared `--dsw-*` tokens.

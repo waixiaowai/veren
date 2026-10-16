@@ -21,7 +21,33 @@ const STYLE_MARKER = 'data-startup-autostart-panel'
 
 /** The panel's complete stylesheet. */
 export const PANEL_CSS = `
-.sa-page { display: flex; flex-direction: column; gap: 12px; padding: 16px; height: 100%; box-sizing: border-box; overflow: hidden; }
+/* Panel-local token bridge: the sheet keeps its historical vocabulary
+   (--dsw-text-*, --dsw-surface-*, ...) while the actual values come from the
+   current client theme aliases (--dsw-alias-*). Every .sa-* element sits inside
+   .sa-page, so these definitions inherit to the whole panel and the theme
+   switch keeps working. 面板局部 token 桥：样式表沿用自身历史词汇（--dsw-text-*、
+   --dsw-surface-* 等），实际取值映射到当前客户端主题别名（--dsw-alias-*）。所有
+   .sa-* 元素都在 .sa-page 内部，这些定义随之继承到整个面板，主题切换仍然生效。 */
+.sa-page {
+  --dsw-text-primary: var(--dsw-alias-label-primary);
+  --dsw-text-secondary: var(--dsw-alias-label-secondary);
+  --dsw-text-tertiary: var(--dsw-alias-label-tertiary);
+  --dsw-surface-sunken: var(--dsw-alias-bg-layer-1);
+  --dsw-surface-raised: var(--dsw-alias-bg-layer-2);
+  --dsw-border-subtle: var(--dsw-alias-border-l2);
+  --dsw-accent: var(--dsw-alias-state-business-primary);
+  --dsw-text-on-accent: var(--dsw-alias-label-primary-foreground);
+  --dsw-success-text: var(--dsw-alias-state-success-primary);
+  --dsw-danger-text: var(--dsw-alias-state-error-primary);
+  --dsw-danger-border: var(--dsw-alias-state-error-primary);
+}
+/* Border-box for every panel element: rows use width: 100% plus padding and
+   border; under the default content-box each row overflows its column, so the
+   list scrolls sideways and the row's right edge is clipped behind the detail
+   pane. 面板内所有元素统一 border-box：行使用 width:100% 再加内边距与边框，默认
+   content-box 下每行都会溢出所在列，列表出现横向滚动、行右缘被详情面板裁切遮挡。 */
+.sa-page, .sa-page *, .sa-page *::before, .sa-page *::after { box-sizing: border-box; }
+.sa-page { display: flex; flex-direction: column; gap: 12px; padding: 16px; height: 100%; overflow: hidden; }
 .sa-head { display: flex; flex-direction: column; gap: 4px; }
 .sa-title { font-size: 16px; font-weight: 600; color: var(--dsw-text-primary); margin: 0; }
 .sa-subtitle { font-size: 12px; color: var(--dsw-text-tertiary); margin: 0; }
@@ -45,15 +71,25 @@ export const PANEL_CSS = `
 .sa-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .sa-row { display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left;
   padding: 8px 10px; cursor: pointer; border-radius: 8px;
-  background: var(--dsw-surface-sunken); border: 1px solid var(--dsw-border-subtle); }
-.sa-row[aria-current="true"] { border-color: var(--dsw-accent); }
-.sa-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  background: var(--dsw-surface-sunken); border: 1px solid var(--dsw-border-subtle);
+  transition: border-color .15s ease, background-color .15s ease; }
+.sa-row:hover { border-color: var(--dsw-alias-border-l3);
+  background: var(--dsw-alias-interactive-bg-hover); }
+.sa-row[aria-current="true"] { border-color: var(--dsw-accent);
+  background: color-mix(in srgb, var(--dsw-accent) 6%, transparent); }
+.sa-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px;
+  /* button 要素：浏览器默认居中文字且不继承字体，必须显式还原为普通文本流。 */
+  /* button element: the UA centers text and drops inherited fonts; restore a
+     plain text flow explicitly. */
+  text-align: left; font: inherit; color: inherit; padding: 0; border: 0;
+  background: transparent; cursor: pointer; }
 .sa-row-name { font-size: 13px; font-weight: 600; color: var(--dsw-text-primary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sa-row-meta { font-size: 12px; color: var(--dsw-text-tertiary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sa-badge { font-size: 11px; padding: 1px 6px; border-radius: 999px;
-  color: var(--dsw-text-secondary); background: var(--dsw-surface-raised); }
+.sa-badge { display: inline-block; font-size: 11px; line-height: 1.4; padding: 0 6px;
+  border-radius: 999px; vertical-align: 1px;
+  color: var(--dsw-text-secondary); background: var(--dsw-alias-bg-layer-3); }
 .sa-badge-ok { color: var(--dsw-success-text); }
 .sa-badge-bad { color: var(--dsw-danger-text); }
 .sa-switch { flex: 0 0 auto; margin-top: 2px; cursor: pointer; }

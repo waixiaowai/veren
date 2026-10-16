@@ -16,6 +16,7 @@
 
 import { useState } from 'react'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import type { StartupChoicesSnapshot, StartupModelOption } from './choices.ts'
 import type { StartupItemRequest, StartupItemView } from './remote.ts'
 import { STARTUP_ACTIONS } from './remote.ts'
 
@@ -32,7 +33,13 @@ export interface StartupDetailActions {
 /** Props of {@link StartupDetail}. */
 export type StartupDetailProps = StartupDetailActions
   & PropsLocale<'startup.panel'>
-  & { readonly item: StartupItemView }
+  & {
+    readonly item: StartupItemView
+    /** Registered workspaces for the workspace dropdown (`id` + display title). */
+    readonly workspaces: readonly { readonly value: string; readonly label: string }[]
+    /** Preset and model options for the two other dropdowns. */
+    readonly choices: StartupChoicesSnapshot
+  }
 
 /** The editable subset of an item, held as strings so inputs stay controlled. */
 interface Draft {
@@ -44,6 +51,20 @@ interface Draft {
   readonly cwd: string
   readonly workspaceId: string
   readonly preset: string
+  /** Select key of the pinned model route; empty means unset. */
+  readonly modelKey: string
+}
+
+/** The select key that identifies one model route. */
+function modelKeyOf(model: { readonly provider: string; readonly model: string } | undefined): string {
+  return model === undefined ? '' : `${model.provider}\u0000${model.model}`
+}
+
+/** The request target behind one select key, or `undefined` when unset. */
+function modelTargetOf(key: string, models: readonly StartupModelOption[]): StartupItemRequest['model'] {
+  if (key === '') return undefined
+  const found = models.find(option => modelKeyOf(option) === key)
+  return found === undefined ? undefined : { provider: found.provider, model: found.model }
 }
 
 /** Seed a draft from the committed item. */
@@ -57,6 +78,7 @@ function draftOf(item: StartupItemView): Draft {
     cwd: item.cwd ?? '',
     workspaceId: item.workspaceId ?? '',
     preset: item.preset ?? '',
+    modelKey: modelKeyOf(item.model),
   }
 }
 
@@ -70,11 +92,22 @@ function draftOf(item: StartupItemView): Draft {
  * @param draft - current draft values.
  * @returns the update request for `startup/update`.
  */
-function changedFields(item: StartupItemView, draft: Draft): StartupItemRequest & { readonly id: string } {
+function changedFields(
+  item: StartupItemView,
+  draft: Draft,
+  models: readonly StartupModelOption[],
+): StartupItemRequest & { readonly id: string } {
   const committed = draftOf(item)
   /** Spread a field only when the draft actually moved it. */
   const when = <K extends keyof Draft>(key: K): Partial<Pick<Draft, K>> =>
     draft[key] === committed[key] ? {} : { [key]: draft[key] } as Pick<Draft, K>
+  // The Host has no "clear model" verb, so the form only ever sends a route:
+  // the unset entry is not rendered while the item pins one.
+  // 宿主没有"清除模型"动词，因此表单只会提交路由：已设模型时不渲染未设置项。
+  const nextModel = modelTargetOf(draft.modelKey, models) ?? item.model
+  const model = draft.modelKey === committed.modelKey || nextModel === undefined
+    ? {}
+    : { model: nextModel }
   return {
     id: item.id,
     ...when('name'),
@@ -85,6 +118,7 @@ function changedFields(item: StartupItemView, draft: Draft): StartupItemRequest 
     ...when('cwd'),
     ...when('workspaceId'),
     ...when('preset'),
+    ...model,
   }
 }
 
@@ -103,7 +137,7 @@ function Field(props: { readonly label: string; readonly value: string }): React
  * @param props - the selected item, localized copy, and the injected actions.
  * @returns the editable detail form with its run and delete affordances.
  */
-export function StartupDetail({ item, t, onUpdate, onDelete, onRun }: StartupDetailProps): React.ReactElement {
+export function StartupDetail({ item, t, workspaces, choices, onUpdate, onDelete, onRun }: StartupDetailProps): React.ReactElement {
   const [draft, setDraft] = useState<Draft>(() => draftOf(item))
   const [note, setNote] = useState<string | undefined>(undefined)
   const [bad, setBad] = useState(false)
@@ -123,7 +157,7 @@ export function StartupDetail({ item, t, onUpdate, onDelete, onRun }: StartupDet
   const save = async (): Promise<void> => {
     setBusy(true)
     try {
-      report(await onUpdate(changedFields(item, draft)), t('panel.detail.saved'))
+      report(await onUpdate(changedFields(item, draft, choices.models)), t('panel.detail.saved'))
     } finally {
       setBusy(false)
     }
@@ -186,13 +220,31 @@ export function StartupDetail({ item, t, onUpdate, onDelete, onRun }: StartupDet
         </div>
         <div className="sa-field">
           <label className="sa-field-label" htmlFor="sa-ws">{t('panel.detail.field.workspace')}</label>
-          <input id="sa-ws" className="sa-field-input" value={draft.workspaceId}
-            onChange={event => { edit('workspaceId', event.target.value) }} />
+          <select id="sa-ws" className="sa-field-select" value={draft.workspaceId}
+            onChange={event => { edit('workspaceId', event.target.value) }}>
+            <option value="">{t('panel.detail.unset')}</option>
+            {/* A stored id that no longer resolves (deleted workspace) stays selectable until edited. */}
+            {/* 已存的 id 若已无法解析（工作区被删），在编辑前仍保持可选。 */}
+            {draft.workspaceId !== '' && !workspaces.some(workspace => workspace.value === draft.workspaceId)
+              && <option value={draft.workspaceId}>{draft.workspaceId}</option>}
+            {workspaces.map(workspace => (
+              <option key={workspace.value} value={workspace.value}>{workspace.label}</option>
+            ))}
+          </select>
         </div>
         <div className="sa-field">
           <label className="sa-field-label" htmlFor="sa-preset">{t('panel.detail.field.preset')}</label>
-          <input id="sa-preset" className="sa-field-input" value={draft.preset}
-            onChange={event => { edit('preset', event.target.value) }} />
+          <select id="sa-preset" className="sa-field-select" value={draft.preset}
+            onChange={event => { edit('preset', event.target.value) }}>
+            <option value="">{t('panel.detail.unset')}</option>
+            {draft.preset !== '' && !choices.presets.some(preset => preset.value === draft.preset)
+              && <option value={draft.preset}>{draft.preset}</option>}
+            {choices.presets.map(preset => (
+              <option key={preset.value} value={preset.value}>{preset.label}</option>
+            ))}
+          </select>
+          {choices.status === 'loading' && <span className="sa-hint">{t('panel.detail.choicesLoading')}</span>}
+          {choices.status === 'error' && <span className="sa-hint">{t('panel.detail.choicesFailed')}</span>}
         </div>
       </>}
       {draft.action !== 'new_session' && <div className="sa-field">
@@ -205,9 +257,20 @@ export function StartupDetail({ item, t, onUpdate, onDelete, onRun }: StartupDet
         <textarea id="sa-message" className="sa-field-textarea" value={draft.message}
           onChange={event => { edit('message', event.target.value) }} />
       </div>}
-      <Field label={t('panel.detail.field.model')} value={item.model === undefined
-        ? t('panel.detail.unset')
-        : `${item.model.provider} / ${item.model.model}`} />
+      <div className="sa-field">
+        <label className="sa-field-label" htmlFor="sa-model">{t('panel.detail.field.model')}</label>
+        <select id="sa-model" className="sa-field-select" value={draft.modelKey}
+          onChange={event => { edit('modelKey', event.target.value) }}>
+          {item.model === undefined && <option value="">{t('panel.detail.unset')}</option>}
+          {item.model !== undefined
+            && <option value={modelKeyOf(item.model)}>{`${item.model.provider} / ${item.model.model}`}</option>}
+          {choices.models.filter(option => modelKeyOf(option) !== modelKeyOf(item.model)).map(option => (
+            <option key={`${option.provider}\u0000${option.model}`} value={modelKeyOf(option)}>{option.label}</option>
+          ))}
+        </select>
+        {choices.status === 'loading' && <span className="sa-hint">{t('panel.detail.choicesLoading')}</span>}
+        {choices.status === 'error' && <span className="sa-hint">{t('panel.detail.choicesFailed')}</span>}
+      </div>
       <Field label={t('panel.detail.field.createdAt')} value={item.createdAt} />
       <Field label={t('panel.detail.field.updatedAt')} value={item.updatedAt} />
       <Field label={t('panel.detail.field.lastRunAt')} value={item.lastRunAt ?? t('panel.run.never')} />

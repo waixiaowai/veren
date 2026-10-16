@@ -12,13 +12,14 @@
 一行 Loader 行 + 一个浏览器半边。Node 半边是空的，它存在的意义是让 Web 应用能发现浏览器
 模块（客户端模块系统通过扫描活跃 Loader 行的 `dsh.client` 清单来发现）。
 
-它可以**独立于**宿主服务和工具插件安装：
+本包**不声明** `dsh.bundle.patch`，所以单独装它只会多一个依赖、不会多一行 Loader 行。
+要装就装组合包——它把本行连同宿主行、工具行一起插进去：
 
 ```sh
-plugin_manager  install_bundle  target = @veren/startup-autostart-ui@1.4.0
+plugin_manager  install_bundle  target = @veren/startup-autostart-bundle@1.4.6
 ```
 
-装完刷新页面。卸载这个组合包只会去掉侧栏入口和页面，已存储的启动项不受影响。
+装完刷新页面。卸载组合包会整体去掉这三行；已存储的启动项不受影响。
 
 ## 页面怎么用
 
@@ -50,12 +51,12 @@ Remote 装配又只挂载一份固定清单。因此本包用 `createTypertRemot
 
 ## 刷新
 
-两件事会重读列表：连接代被替换（重连），以及页面打开期间的十秒定时器。
+两件事会重读列表：宿主的 `startup-autostart/changed` 通知，以及连接代被替换（重连）。
+**没有任何轮询。**
 
-宿主确实在每次落盘后发 `startup-autostart/changed`，但浏览器收不到：Web 应用转发的是
-一份**写死的**宿主事件白名单（`packages/api/remotes/src/remote-events.ts`），检出仓库之外
-的包进不去。定时器是替代方案，所以模型建的启动项会自己出现。要改成事件驱动，需要在
-那份白名单里加一行。
+宿主在每次落盘后发这条通知，Web 应用会转发它——因为该事件在转发白名单里
+（`packages/api/remotes/src/remote-events.ts`，紧邻 `schedule/changed` 的一条 `emit`）。
+所以模型用 `startup_create` 建的启动项会自己出现，不需要用户操作。
 
 ## 构建
 
@@ -75,6 +76,7 @@ pnpm cli build @veren/startup-autostart-ui
 ## 已知限制与后续工作
 
 - 新建没有表单：新启动项从会话开始，与自动化任务页面一致。
-- 列表靠定时器刷新而不是宿主的变更事件，因为该事件不会转发给检出仓库之外的包。
+- 实时刷新依赖检出仓库的转发白名单里带有 `startup-autostart/changed`。如果某个 profile 用的
+  DeepSeek Harness 检出早于这条白名单，面板仍能正常渲染，但只在重连和挂载时重读。
 - 面板用一份注入的样式表而不是 CSS Module，因为本包在客户端打包器之外构建，没有编译
   `*.module.css` 的管线。颜色只取自共享的 `--dsw-*` token。

@@ -89,6 +89,81 @@ window.__ModuleLoader__.load({
       };
     }
 
+    // src/client/choices.ts
+    function presetOptions(presets) {
+      return presets.filter((preset) => preset.broken === void 0).map((preset) => ({
+        value: preset.id,
+        label: preset.name ?? preset.id,
+        ...preset.description === void 0 ? {} : { hint: preset.description }
+      }));
+    }
+    function modelOptions(groups) {
+      return groups.flatMap((group) => group.models.map((model) => ({
+        provider: group.id,
+        model: model.id,
+        label: `${group.name} / ${model.name}`
+      })));
+    }
+    function createStartupChoices(deps) {
+      let snapshot = { presets: [], models: [], status: "loading" };
+      let disposers = [];
+      let epoch = 0;
+      let inflight;
+      const registry = /* @__PURE__ */ new Set();
+      const publish = (next) => {
+        snapshot = { ...snapshot, ...next };
+        for (const listener of [...registry]) listener();
+      };
+      const read = () => {
+        if (inflight !== void 0) return inflight;
+        const mine = epoch;
+        publish({ status: "loading" });
+        inflight = Promise.all([deps.listPresets(), deps.listModels()]).then(
+          ([presets, models]) => {
+            if (mine !== epoch) return;
+            if (!presets.ok || presets.value === void 0 || !models.ok || models.value === void 0) {
+              publish({ status: "error" });
+              return;
+            }
+            publish({
+              presets: presetOptions(presets.value.presets),
+              models: modelOptions(models.value.groups),
+              status: "ready"
+            });
+          },
+          () => {
+            if (mine === epoch) publish({ status: "error" });
+          }
+        ).finally(() => {
+          if (mine === epoch) inflight = void 0;
+        });
+        return inflight;
+      };
+      return {
+        source: {
+          getSnapshot: () => snapshot,
+          subscribe(listener) {
+            registry.add(listener);
+            if (registry.size === 1) {
+              disposers = [deps.subscribeInvalidate(() => {
+                void read();
+              })];
+              void read();
+            }
+            return () => {
+              registry.delete(listener);
+              if (registry.size !== 0) return;
+              for (const dispose of disposers) dispose();
+              disposers = [];
+              epoch += 1;
+              inflight = void 0;
+              snapshot = { presets: [], models: [], status: "loading" };
+            };
+          }
+        }
+      };
+    }
+
     // src/client/icon.tsx
     var import_jsx_runtime = require("react/jsx-runtime");
     function StartupPanelIcon({ size }) {
@@ -167,6 +242,8 @@ window.__ModuleLoader__.load({
       "panel.detail.field.lastOutcome": "\u4E0A\u6B21\u7ED3\u679C",
       "panel.detail.field.runCount": "\u6267\u884C\u6B21\u6570",
       "panel.detail.unset": "\uFF08\u672A\u8BBE\u7F6E\uFF09",
+      "panel.detail.choicesLoading": "\u6B63\u5728\u52A0\u8F7D\u9009\u9879\u2026",
+      "panel.detail.choicesFailed": "\u9009\u9879\u52A0\u8F7D\u5931\u8D25\uFF1B\u5DF2\u4FDD\u5B58\u7684\u503C\u4ECD\u53EF\u4FDD\u7559\u3002",
       "panel.detail.unsaved": "\u6709\u672A\u4FDD\u5B58\u7684\u4FEE\u6539",
       "panel.detail.save": "\u4FDD\u5B58\u4FEE\u6539",
       "panel.detail.saving": "\u6B63\u5728\u4FDD\u5B58\u2026",
@@ -236,6 +313,8 @@ window.__ModuleLoader__.load({
       "panel.detail.field.lastOutcome": "Last result",
       "panel.detail.field.runCount": "Runs",
       "panel.detail.unset": "(not set)",
+      "panel.detail.choicesLoading": "Loading options\u2026",
+      "panel.detail.choicesFailed": "Options could not be loaded; saved values are kept.",
       "panel.detail.unsaved": "Unsaved changes",
       "panel.detail.save": "Save changes",
       "panel.detail.saving": "Saving\u2026",
@@ -491,6 +570,14 @@ window.__ModuleLoader__.load({
 
     // src/client/detail.tsx
     var import_jsx_runtime2 = require("react/jsx-runtime");
+    function modelKeyOf(model) {
+      return model === void 0 ? "" : `${model.provider}\0${model.model}`;
+    }
+    function modelTargetOf(key, models) {
+      if (key === "") return void 0;
+      const found = models.find((option) => modelKeyOf(option) === key);
+      return found === void 0 ? void 0 : { provider: found.provider, model: found.model };
+    }
     function draftOf(item) {
       return {
         name: item.name,
@@ -500,12 +587,15 @@ window.__ModuleLoader__.load({
         sessionId: item.sessionId ?? "",
         cwd: item.cwd ?? "",
         workspaceId: item.workspaceId ?? "",
-        preset: item.preset ?? ""
+        preset: item.preset ?? "",
+        modelKey: modelKeyOf(item.model)
       };
     }
-    function changedFields(item, draft) {
+    function changedFields(item, draft, models) {
       const committed = draftOf(item);
       const when = (key) => draft[key] === committed[key] ? {} : { [key]: draft[key] };
+      const nextModel = modelTargetOf(draft.modelKey, models) ?? item.model;
+      const model = draft.modelKey === committed.modelKey || nextModel === void 0 ? {} : { model: nextModel };
       return {
         id: item.id,
         ...when("name"),
@@ -515,7 +605,8 @@ window.__ModuleLoader__.load({
         ...when("sessionId"),
         ...when("cwd"),
         ...when("workspaceId"),
-        ...when("preset")
+        ...when("preset"),
+        ...model
       };
     }
     function Field(props) {
@@ -524,7 +615,7 @@ window.__ModuleLoader__.load({
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sa-field-value", children: props.value })
       ] });
     }
-    function StartupDetail({ item, t, onUpdate, onDelete, onRun }) {
+    function StartupDetail({ item, t, workspaces, choices, onUpdate, onDelete, onRun }) {
       const [draft, setDraft] = (0, import_react.useState)(() => draftOf(item));
       const [note, setNote] = (0, import_react.useState)(void 0);
       const [bad, setBad] = (0, import_react.useState)(false);
@@ -542,7 +633,7 @@ window.__ModuleLoader__.load({
       const save = async () => {
         setBusy(true);
         try {
-          report(await onUpdate(changedFields(item, draft)), t("panel.detail.saved"));
+          report(await onUpdate(changedFields(item, draft, choices.models)), t("panel.detail.saved"));
         } finally {
           setBusy(false);
         }
@@ -634,31 +725,43 @@ window.__ModuleLoader__.load({
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "sa-field", children: [
             /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { className: "sa-field-label", htmlFor: "sa-ws", children: t("panel.detail.field.workspace") }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-              "input",
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+              "select",
               {
                 id: "sa-ws",
-                className: "sa-field-input",
+                className: "sa-field-select",
                 value: draft.workspaceId,
                 onChange: (event) => {
                   edit("workspaceId", event.target.value);
-                }
+                },
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: "", children: t("panel.detail.unset") }),
+                  draft.workspaceId !== "" && !workspaces.some((workspace) => workspace.value === draft.workspaceId) && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: draft.workspaceId, children: draft.workspaceId }),
+                  workspaces.map((workspace) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: workspace.value, children: workspace.label }, workspace.value))
+                ]
               }
             )
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "sa-field", children: [
             /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { className: "sa-field-label", htmlFor: "sa-preset", children: t("panel.detail.field.preset") }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-              "input",
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+              "select",
               {
                 id: "sa-preset",
-                className: "sa-field-input",
+                className: "sa-field-select",
                 value: draft.preset,
                 onChange: (event) => {
                   edit("preset", event.target.value);
-                }
+                },
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: "", children: t("panel.detail.unset") }),
+                  draft.preset !== "" && !choices.presets.some((preset) => preset.value === draft.preset) && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: draft.preset, children: draft.preset }),
+                  choices.presets.map((preset) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: preset.value, children: preset.label }, preset.value))
+                ]
               }
-            )
+            ),
+            choices.status === "loading" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sa-hint", children: t("panel.detail.choicesLoading") }),
+            choices.status === "error" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sa-hint", children: t("panel.detail.choicesFailed") })
           ] })
         ] }),
         draft.action !== "new_session" && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "sa-field", children: [
@@ -689,7 +792,27 @@ window.__ModuleLoader__.load({
             }
           )
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Field, { label: t("panel.detail.field.model"), value: item.model === void 0 ? t("panel.detail.unset") : `${item.model.provider} / ${item.model.model}` }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "sa-field", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { className: "sa-field-label", htmlFor: "sa-model", children: t("panel.detail.field.model") }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+            "select",
+            {
+              id: "sa-model",
+              className: "sa-field-select",
+              value: draft.modelKey,
+              onChange: (event) => {
+                edit("modelKey", event.target.value);
+              },
+              children: [
+                item.model === void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: "", children: t("panel.detail.unset") }),
+                item.model !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: modelKeyOf(item.model), children: `${item.model.provider} / ${item.model.model}` }),
+                choices.models.filter((option) => modelKeyOf(option) !== modelKeyOf(item.model)).map((option) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: modelKeyOf(option), children: option.label }, `${option.provider}\0${option.model}`))
+              ]
+            }
+          ),
+          choices.status === "loading" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sa-hint", children: t("panel.detail.choicesLoading") }),
+          choices.status === "error" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sa-hint", children: t("panel.detail.choicesFailed") })
+        ] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Field, { label: t("panel.detail.field.createdAt"), value: item.createdAt }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Field, { label: t("panel.detail.field.updatedAt"), value: item.updatedAt }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Field, { label: t("panel.detail.field.lastRunAt"), value: item.lastRunAt ?? t("panel.run.never") }),
@@ -772,8 +895,14 @@ window.__ModuleLoader__.load({
       ] });
     }
     function StartupPanel(props) {
-      const { useCatalog, onRetry, onNew, onUpdate, onDelete, onRun, t } = props;
+      const { useCatalog, useChoices, useWorkspaces, onRetry, onNew, onUpdate, onDelete, onRun, t } = props;
       const catalog = useCatalog((snapshot) => snapshot);
+      const choices = useChoices((snapshot) => snapshot);
+      const workspaces = useWorkspaces((state) => state);
+      const workspaceOptions = (0, import_react2.useMemo)(() => workspaces.items.map((workspace) => ({
+        value: workspace.workspaceId,
+        label: workspace.title
+      })), [workspaces.items]);
       const [search, setSearch] = (0, import_react2.useState)("");
       const [filter, setFilter] = (0, import_react2.useState)("all");
       const [selectedId, setSelectedId] = (0, import_react2.useState)(void 0);
@@ -839,6 +968,8 @@ window.__ModuleLoader__.load({
             {
               item: selected,
               t,
+              workspaces: workspaceOptions,
+              choices,
               onUpdate,
               onDelete,
               onRun
@@ -852,7 +983,33 @@ window.__ModuleLoader__.load({
     // src/client/styles.ts
     var STYLE_MARKER = "data-startup-autostart-panel";
     var PANEL_CSS = `
-    .sa-page { display: flex; flex-direction: column; gap: 12px; padding: 16px; height: 100%; box-sizing: border-box; overflow: hidden; }
+    /* Panel-local token bridge: the sheet keeps its historical vocabulary
+       (--dsw-text-*, --dsw-surface-*, ...) while the actual values come from the
+       current client theme aliases (--dsw-alias-*). Every .sa-* element sits inside
+       .sa-page, so these definitions inherit to the whole panel and the theme
+       switch keeps working. \u9762\u677F\u5C40\u90E8 token \u6865\uFF1A\u6837\u5F0F\u8868\u6CBF\u7528\u81EA\u8EAB\u5386\u53F2\u8BCD\u6C47\uFF08--dsw-text-*\u3001
+       --dsw-surface-* \u7B49\uFF09\uFF0C\u5B9E\u9645\u53D6\u503C\u6620\u5C04\u5230\u5F53\u524D\u5BA2\u6237\u7AEF\u4E3B\u9898\u522B\u540D\uFF08--dsw-alias-*\uFF09\u3002\u6240\u6709
+       .sa-* \u5143\u7D20\u90FD\u5728 .sa-page \u5185\u90E8\uFF0C\u8FD9\u4E9B\u5B9A\u4E49\u968F\u4E4B\u7EE7\u627F\u5230\u6574\u4E2A\u9762\u677F\uFF0C\u4E3B\u9898\u5207\u6362\u4ECD\u7136\u751F\u6548\u3002 */
+    .sa-page {
+      --dsw-text-primary: var(--dsw-alias-label-primary);
+      --dsw-text-secondary: var(--dsw-alias-label-secondary);
+      --dsw-text-tertiary: var(--dsw-alias-label-tertiary);
+      --dsw-surface-sunken: var(--dsw-alias-bg-layer-1);
+      --dsw-surface-raised: var(--dsw-alias-bg-layer-2);
+      --dsw-border-subtle: var(--dsw-alias-border-l2);
+      --dsw-accent: var(--dsw-alias-state-business-primary);
+      --dsw-text-on-accent: var(--dsw-alias-label-primary-foreground);
+      --dsw-success-text: var(--dsw-alias-state-success-primary);
+      --dsw-danger-text: var(--dsw-alias-state-error-primary);
+      --dsw-danger-border: var(--dsw-alias-state-error-primary);
+    }
+    /* Border-box for every panel element: rows use width: 100% plus padding and
+       border; under the default content-box each row overflows its column, so the
+       list scrolls sideways and the row's right edge is clipped behind the detail
+       pane. \u9762\u677F\u5185\u6240\u6709\u5143\u7D20\u7EDF\u4E00 border-box\uFF1A\u884C\u4F7F\u7528 width:100% \u518D\u52A0\u5185\u8FB9\u8DDD\u4E0E\u8FB9\u6846\uFF0C\u9ED8\u8BA4
+       content-box \u4E0B\u6BCF\u884C\u90FD\u4F1A\u6EA2\u51FA\u6240\u5728\u5217\uFF0C\u5217\u8868\u51FA\u73B0\u6A2A\u5411\u6EDA\u52A8\u3001\u884C\u53F3\u7F18\u88AB\u8BE6\u60C5\u9762\u677F\u88C1\u5207\u906E\u6321\u3002 */
+    .sa-page, .sa-page *, .sa-page *::before, .sa-page *::after { box-sizing: border-box; }
+    .sa-page { display: flex; flex-direction: column; gap: 12px; padding: 16px; height: 100%; overflow: hidden; }
     .sa-head { display: flex; flex-direction: column; gap: 4px; }
     .sa-title { font-size: 16px; font-weight: 600; color: var(--dsw-text-primary); margin: 0; }
     .sa-subtitle { font-size: 12px; color: var(--dsw-text-tertiary); margin: 0; }
@@ -876,15 +1033,25 @@ window.__ModuleLoader__.load({
     .sa-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
     .sa-row { display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left;
       padding: 8px 10px; cursor: pointer; border-radius: 8px;
-      background: var(--dsw-surface-sunken); border: 1px solid var(--dsw-border-subtle); }
-    .sa-row[aria-current="true"] { border-color: var(--dsw-accent); }
-    .sa-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+      background: var(--dsw-surface-sunken); border: 1px solid var(--dsw-border-subtle);
+      transition: border-color .15s ease, background-color .15s ease; }
+    .sa-row:hover { border-color: var(--dsw-alias-border-l3);
+      background: var(--dsw-alias-interactive-bg-hover); }
+    .sa-row[aria-current="true"] { border-color: var(--dsw-accent);
+      background: color-mix(in srgb, var(--dsw-accent) 6%, transparent); }
+    .sa-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px;
+      /* button \u8981\u7D20\uFF1A\u6D4F\u89C8\u5668\u9ED8\u8BA4\u5C45\u4E2D\u6587\u5B57\u4E14\u4E0D\u7EE7\u627F\u5B57\u4F53\uFF0C\u5FC5\u987B\u663E\u5F0F\u8FD8\u539F\u4E3A\u666E\u901A\u6587\u672C\u6D41\u3002 */
+      /* button element: the UA centers text and drops inherited fonts; restore a
+         plain text flow explicitly. */
+      text-align: left; font: inherit; color: inherit; padding: 0; border: 0;
+      background: transparent; cursor: pointer; }
     .sa-row-name { font-size: 13px; font-weight: 600; color: var(--dsw-text-primary);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sa-row-meta { font-size: 12px; color: var(--dsw-text-tertiary);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sa-badge { font-size: 11px; padding: 1px 6px; border-radius: 999px;
-      color: var(--dsw-text-secondary); background: var(--dsw-surface-raised); }
+    .sa-badge { display: inline-block; font-size: 11px; line-height: 1.4; padding: 0 6px;
+      border-radius: 999px; vertical-align: 1px;
+      color: var(--dsw-text-secondary); background: var(--dsw-alias-bg-layer-3); }
     .sa-badge-ok { color: var(--dsw-success-text); }
     .sa-badge-bad { color: var(--dsw-danger-text); }
     .sa-switch { flex: 0 0 auto; margin-top: 2px; cursor: pointer; }
@@ -922,60 +1089,86 @@ window.__ModuleLoader__.load({
 
     // src/client/index.ts
     var PANEL_ID = "startup";
-    var inject = ["slots", "locale", "remote", "remote.startup", "uiWorkspace"];
+    var inject = ["slots", "locale", "remote", "uiWorkspace"];
     function reported(error) {
       return `${error.code}: ${error.message}`;
     }
+    var PanelPlugin = {
+      name: "startup-autostart:panel",
+      inject: ["remote", "remote.startup"],
+      /** @param ctx - panel-scope context over the mounted namespace. */
+      apply(ctx) {
+        const startup = ctx.remote.startup;
+        ctx.effect(() => ctx.locale.register(NS, { zh, en }), "startup-autostart: dictionaries");
+        installPanelStyles(ctx);
+        const t = ctx.locale.bind(NS);
+        const catalog = createStartupCatalog({
+          list: () => startup.catalog(),
+          // The Host emits this after every committed write and the Web
+          // application forwards it, so the list follows the Host without polling.
+          // 宿主在每次提交写入后发出该事件，Web 应用会转发，列表因此无需轮询。
+          subscribeChanged: (listener) => ctx.remote.$on("startup-autostart/changed", listener),
+          subscribeReset: (listener) => ctx.on("connection/reset", listener)
+        });
+        const choices = createStartupChoices({
+          listPresets: () => ctx.remote.agentPresets.list(),
+          listModels: () => ctx.remote.session.modelCatalog(),
+          subscribeInvalidate: (listener) => [
+            ctx.on("connection/reset", listener),
+            ctx.remote.$on("llm/adapters-updated", listener),
+            ctx.remote.$on("settings/document-updated", listener)
+          ].reduce((parent, dispose) => () => {
+            dispose();
+            parent();
+          }, () => {
+          })
+        });
+        const onUpdate = async (request) => {
+          const result = await startup.update(request);
+          return result.ok ? void 0 : reported(result.error);
+        };
+        const onDelete = async (id) => {
+          const result = await startup.delete({ id });
+          return result.ok ? void 0 : reported(result.error);
+        };
+        const onRun = async (id) => {
+          const result = await startup.run({ id });
+          if (!result.ok) return { ok: false, detail: reported(result.error) };
+          return { ok: result.value.outcome?.status === "ok", detail: result.value.outcome?.detail ?? "" };
+        };
+        ctx.slots.inject("main", () => ctx.slots.register({
+          name: "main",
+          key: PANEL_ID,
+          locale: NS,
+          inject: () => ({
+            hooks: { catalog: catalog.source, choices: choices.source },
+            onRetry: catalog.refresh,
+            // The page has no creation form of its own: a new item starts in a
+            // session, where the model registers it with `startup_create`.
+            // 页面没有自己的创建表单：新启动项在会话里由模型用 `startup_create` 登记。
+            onNew: () => {
+              ctx.uiWorkspace.startSession();
+            },
+            onUpdate,
+            onDelete,
+            onRun
+          })
+        }, StartupPanel));
+        ctx.slots.inject("sidebar.panellist", () => ctx.slots.register({
+          name: "sidebar.panellist",
+          id: PANEL_ID,
+          order: 10,
+          locale: NS,
+          label: () => t("panel")
+        }, StartupPanelIcon));
+      }
+    };
     async function apply(ctx) {
       const unmount = await ctx.remote.$mount(startupRemote);
-      ctx.effect(() => ctx.locale.register(NS, { zh, en }), "startup-autostart: dictionaries");
-      installPanelStyles(ctx);
-      const t = ctx.locale.bind(NS);
-      const catalog = createStartupCatalog({
-        list: () => ctx.remote.startup.catalog(),
-        // The Host emits this after every committed write and the Web application
-        // forwards it, so the list follows the Host without polling.
-        subscribeChanged: (listener) => ctx.remote.$on("startup-autostart/changed", listener),
-        subscribeReset: (listener) => ctx.on("connection/reset", listener)
-      });
-      const onUpdate = async (request) => {
-        const result = await ctx.remote.startup.update(request);
-        return result.ok ? void 0 : reported(result.error);
-      };
-      const onDelete = async (id) => {
-        const result = await ctx.remote.startup.delete({ id });
-        return result.ok ? void 0 : reported(result.error);
-      };
-      const onRun = async (id) => {
-        const result = await ctx.remote.startup.run({ id });
-        if (!result.ok) return { ok: false, detail: reported(result.error) };
-        return { ok: result.value.outcome?.status === "ok", detail: result.value.outcome?.detail ?? "" };
-      };
-      ctx.slots.inject("main", () => ctx.slots.register({
-        name: "main",
-        key: PANEL_ID,
-        locale: NS,
-        inject: () => ({
-          hooks: { catalog: catalog.source },
-          onRetry: catalog.refresh,
-          // The page has no creation form of its own: a new item starts in a
-          // session, where the model registers it with `startup_create`.
-          onNew: () => {
-            ctx.uiWorkspace.startSession();
-          },
-          onUpdate,
-          onDelete,
-          onRun
-        })
-      }, StartupPanel));
-      ctx.slots.inject("sidebar.panellist", () => ctx.slots.register({
-        name: "sidebar.panellist",
-        id: PANEL_ID,
-        order: 10,
-        locale: NS,
-        label: () => t("panel")
-      }, StartupPanelIcon));
+      const panel = ctx.plugin(PanelPlugin);
+      await panel;
       return async () => {
+        await panel.dispose();
         await unmount();
       };
     }

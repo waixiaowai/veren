@@ -2,16 +2,18 @@
  * Browser half of the startup-autostart plugin.
  *
  * The panel is a global page, reached from a sidebar entry beside the shipped
- * "Automated tasks" page. It mounts the `startup` Remote namespace itself —
- * see `./remote.ts` for why the contribution is hand-built — then reads one
- * catalog observable built over that namespace and writes through the same
- * endpoints the model's `startup_*` tools use, so the page and the tools always
- * act on one Host-owned record set.
+ * "Automated tasks" page. The entry plugin mounts the `startup` Remote
+ * namespace itself — see `./remote.ts` for why the contribution is hand-built
+ * — and an inner panel plugin then injects the freshly mounted namespace,
+ * builds one catalog observable over it, and writes through the same endpoints
+ * the model's `startup_*` tools use, so the page and the tools always act on
+ * one Host-owned record set.
  *
  * 启动自启动插件的浏览器半边。面板是一个全局页面，从侧栏入口进入，与随发行版交付的
- * 「自动化任务」页面并列。它自己挂载 `startup` Remote 命名空间（contribution 为何手工
- * 构造见 `./remote.ts`），然后基于该命名空间建立一个目录可观察对象，并通过与模型
- * `startup_*` 工具相同的端点写入，因此页面与工具始终操作同一份宿主持有的记录集合。
+ * 「自动化任务」页面并列。入口插件自己挂载 `startup` Remote 命名空间（contribution
+ * 为何手工构造见 `./remote.ts`），内层面板插件随后注入刚挂载的命名空间，基于它建立
+ * 目录可观察对象，并通过与模型 `startup_*` 工具相同的端点写入，因此页面与工具始终
+ * 操作同一份宿主持有的记录集合。
  *
  * @module @veren/startup-autostart/client
  */
@@ -25,6 +27,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { createStartupCatalog } from './catalog.ts'
+import { createStartupChoices } from './choices.ts'
 import { StartupPanelIcon } from './icon.tsx'
 import { en, NS, zh, type StartupPanelKey } from './locales.ts'
 import { StartupPanel } from './panel.tsx'
@@ -48,12 +51,16 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 /** Sidebar and main-panel identity of the page. */
 const PANEL_ID = 'startup' as MainPanelId
 
-/** Client services this plugin uses; `remote.startup` is mounted by `apply`. */
-// cordis 的 reflect 门禁：访问 ctx.remote.startup 必须显式声明 `remote.startup`，
-// 只声明 `remote` 会在运行期抛 "cannot get property remote.startup without inject"。
-// cordis's reflect gate: reading ctx.remote.startup requires declaring
-// `remote.startup`; declaring `remote` alone throws "without inject" at runtime.
-export const inject = ['slots', 'locale', 'remote', 'remote.startup', 'uiWorkspace']
+/**
+ * Client services of the entry plugin. `remote.startup` must NOT be declared
+ * here: this plugin is the namespace's only mounter, so depending on it would
+ * make the loader wait for a service that does not exist until apply runs -
+ * waiting on itself, pending forever.
+ * 入口插件的服务依赖。`remote.startup` 绝不能写在这里：本插件是该命名空间唯一的
+ * 挂载者，声明依赖会让 Loader 等待一个 apply 运行前尚不存在的服务——自己等自己，
+ * 永远 pending。
+ */
+export const inject = ['slots', 'locale', 'remote', 'uiWorkspace']
 
 /** Render one Host failure as the panel's status line. */
 function reported(error: { readonly code: string; readonly message: string }): string {
@@ -61,56 +68,105 @@ function reported(error: { readonly code: string; readonly message: string }): s
 }
 
 /**
- * Mount the Remote namespace, register the page, its sidebar entry, and copy.
+ * The inner panel plugin. It injects the freshly mounted `remote.startup`
+ * namespace (inject resolution is registry-based, so the sibling-mounted
+ * namespace resolves even though it is not an ancestor of this fiber), then
+ * registers the page, its sidebar entry, and copy from its own fiber. Every
+ * closure reads the namespace captured here, so slot render fibers - which can
+ * never see the namespace through their inject chain - still reach it.
+ * 内层面板插件。它注入刚挂载的 `remote.startup` 命名空间（inject 解析走全局注册表，
+ * 因此即便命名空间不是本 fiber 的祖先也能解析），然后在自身 fiber 上注册页面、侧栏
+ * 入口与文案。所有闭包都读取在这里捕获的命名空间对象，因此经由 inject 链永远看不到
+ * 该命名空间的 slot 渲染 fiber 也能触达它。
+ */
+const PanelPlugin = {
+  name: 'startup-autostart:panel',
+  inject: ['remote', 'remote.startup'],
+  /** @param ctx - panel-scope context over the mounted namespace. */
+  apply(ctx: Context): void {
+    // 捕获命名空间对象：本 fiber 的 inject 链里有 remote.startup，读取放行；
+    // 渲染 fiber 没有，所以闭包一律用捕获值。
+    // Capture the namespace: readable on this fiber (its inject declares
+    // remote.startup); render fibers cannot, so closures use the captured one.
+    const startup = ctx.remote.startup
+    ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'startup-autostart: dictionaries')
+    installPanelStyles(ctx)
+    const t = ctx.locale.bind(NS)
+    const catalog = createStartupCatalog({
+      list: () => startup.catalog(),
+      // The Host emits this after every committed write and the Web
+      // application forwards it, so the list follows the Host without polling.
+      // 宿主在每次提交写入后发出该事件，Web 应用会转发，列表因此无需轮询。
+      subscribeChanged: listener => ctx.remote.$on('startup-autostart/changed', listener),
+      subscribeReset: listener => ctx.on('connection/reset', listener),
+    })
+    // The detail form's dropdowns read the same Host surfaces the shipped
+    // preset picker and model selector use; any of these events may change
+    // them, so one shared invalidation re-reads both.
+    // 详情表单的下拉读取与自带预设选择器、模型选择器相同的宿主表面；下列任一事件
+    // 都可能改变它们，因此用一条共享失效订阅同时重读两者。
+    const choices = createStartupChoices({
+      listPresets: () => ctx.remote.agentPresets.list(),
+      listModels: () => ctx.remote.session.modelCatalog(),
+      subscribeInvalidate: listener => [
+        ctx.on('connection/reset', listener),
+        ctx.remote.$on('llm/adapters-updated', listener),
+        ctx.remote.$on('settings/document-updated', listener),
+      ].reduce((parent, dispose) => () => { dispose(); parent() }, () => {}),
+    })
+    const onUpdate = async (request: StartupItemRequest & { readonly id: string }): Promise<string | undefined> => {
+      const result = await startup.update(request)
+      return result.ok ? undefined : reported(result.error)
+    }
+    const onDelete = async (id: string): Promise<string | undefined> => {
+      const result = await startup.delete({ id })
+      return result.ok ? undefined : reported(result.error)
+    }
+    const onRun = async (id: string): Promise<{ readonly ok: boolean; readonly detail: string }> => {
+      const result = await startup.run({ id })
+      if (!result.ok) return { ok: false, detail: reported(result.error) }
+      return { ok: result.value.outcome?.status === 'ok', detail: result.value.outcome?.detail ?? '' }
+    }
+    ctx.slots.inject('main', () => ctx.slots.register({
+      name: 'main',
+      key: PANEL_ID,
+      locale: NS,
+      inject: () => ({
+        hooks: { catalog: catalog.source, choices: choices.source },
+        onRetry: catalog.refresh,
+        // The page has no creation form of its own: a new item starts in a
+        // session, where the model registers it with `startup_create`.
+        // 页面没有自己的创建表单：新启动项在会话里由模型用 `startup_create` 登记。
+        onNew: () => { ctx.uiWorkspace.startSession() },
+        onUpdate,
+        onDelete,
+        onRun,
+      }),
+    }, StartupPanel))
+    ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+      name: 'sidebar.panellist',
+      id: PANEL_ID,
+      order: 10,
+      locale: NS,
+      label: () => t('panel'),
+    }, StartupPanelIcon))
+  },
+} as const
+
+/**
+ * Mount the Remote namespace, then start the inner panel plugin that waits on
+ * it. Disposal unwinds in reverse: panel first, namespace last.
  * @param ctx - browser services these contributions read.
- * @returns disposer releasing the mounted namespace.
+ * @returns disposer releasing the panel fiber and the mounted namespace.
  */
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
   const unmount = await ctx.remote.$mount(startupRemote)
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'startup-autostart: dictionaries')
-  installPanelStyles(ctx)
-  const t = ctx.locale.bind(NS)
-  const catalog = createStartupCatalog({
-    list: () => ctx.remote.startup.catalog(),
-    // The Host emits this after every committed write and the Web application
-    // forwards it, so the list follows the Host without polling.
-    subscribeChanged: listener => ctx.remote.$on('startup-autostart/changed', listener),
-    subscribeReset: listener => ctx.on('connection/reset', listener),
-  })
-  const onUpdate = async (request: StartupItemRequest & { readonly id: string }): Promise<string | undefined> => {
-    const result = await ctx.remote.startup.update(request)
-    return result.ok ? undefined : reported(result.error)
+  const panel = ctx.plugin(PanelPlugin)
+  await panel
+  return async () => {
+    // 逆序清理：先停面板 fiber，再卸载命名空间。
+    // Reverse-order cleanup: stop the panel fiber, then unmount the namespace.
+    await panel.dispose()
+    await unmount()
   }
-  const onDelete = async (id: string): Promise<string | undefined> => {
-    const result = await ctx.remote.startup.delete({ id })
-    return result.ok ? undefined : reported(result.error)
-  }
-  const onRun = async (id: string): Promise<{ readonly ok: boolean; readonly detail: string }> => {
-    const result = await ctx.remote.startup.run({ id })
-    if (!result.ok) return { ok: false, detail: reported(result.error) }
-    return { ok: result.value.outcome?.status === 'ok', detail: result.value.outcome?.detail ?? '' }
-  }
-  ctx.slots.inject('main', () => ctx.slots.register({
-    name: 'main',
-    key: PANEL_ID,
-    locale: NS,
-    inject: () => ({
-      hooks: { catalog: catalog.source },
-      onRetry: catalog.refresh,
-      // The page has no creation form of its own: a new item starts in a
-      // session, where the model registers it with `startup_create`.
-      onNew: () => { ctx.uiWorkspace.startSession() },
-      onUpdate,
-      onDelete,
-      onRun,
-    }),
-  }, StartupPanel))
-  ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-    name: 'sidebar.panellist',
-    id: PANEL_ID,
-    order: 10,
-    locale: NS,
-    label: () => t('panel'),
-  }, StartupPanelIcon))
-  return async () => { await unmount() }
 }
