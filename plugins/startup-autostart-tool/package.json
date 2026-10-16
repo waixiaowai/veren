@@ -1,7 +1,7 @@
 {
   "name": "@veren/startup-autostart-tool",
   "displayName": "Startup Autostart Tools",
-  "version": "1.4.3",
+  "version": "1.4.6",
   "icon": "./icon.svg",
   "description": "Use when agents need model-facing startup item management tools backed by the separately installed Startup Autostart host service; omit it when startup items should run without being editable by agents.",
   "type": "module",
@@ -19,6 +19,7 @@
     "icon.svg",
     "locale/*.json"
   ],
+  "dsh": {},
   "scripts": {
     "typecheck": "node scripts/typecheck.mjs",
     "build": "node scripts/build.mjs",

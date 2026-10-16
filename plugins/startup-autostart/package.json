@@ -1,7 +1,7 @@
 {
   "name": "@veren/startup-autostart",
   "displayName": "Startup Autostart",
-  "version": "1.4.3",
+  "version": "1.4.6",
   "icon": "./icon.svg",
   "description": "Use when DeepSeek Harness must do something by itself every time it starts - create a session, resume one, wake one with a message, or leave a message in its inbox - with every enabled item running on every successful start and no debounce, because a restart interrupts the work the previous start began; skip it when the work is time-based (that is @deepseek-ai/dsh-schedule) or must run only once.",
   "type": "module",
@@ -19,6 +19,7 @@
     "icon.svg",
     "locale/*.json"
   ],
+  "dsh": {},
   "scripts": {
     "typecheck": "node scripts/typecheck.mjs",
     "build": "node scripts/build.mjs",

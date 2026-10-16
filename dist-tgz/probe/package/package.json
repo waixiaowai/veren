@@ -1,0 +1,49 @@
+{
+  "name": "@veren/startup-autostart-ui",
+  "displayName": "Startup Autostart UI",
+  "version": "1.4.4",
+  "icon": "./icon.svg",
+  "description": "Use when the startup-autostart Host service is installed and people need a Web page to see, edit, run, and delete startup items without asking a model - it adds the \"startup items\" sidebar entry and page to the DeepSeek Harness Web GUI; skip it for a headless, ACP, or SDK profile, where the Host service and the separate tool plugin already cover every operation.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json",
+    "./icon": "./icon.svg",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "dist/*.js",
+    "lib/client.js",
+    "README.md",
+    "README.cn.md",
+    "icon.svg",
+    "locale/*.json"
+  ],
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    }
+  },
+  "scripts": {
+    "bundle": "node scripts/bundle.mjs",
+    "build": "node scripts/bundle.mjs",
+    "typecheck": "node scripts/typecheck.mjs",
+    "test": "vitest run"
+  },
+  "license": "MIT"
+}
