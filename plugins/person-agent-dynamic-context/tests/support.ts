@@ -5,9 +5,10 @@
 // live here; assertions stay in the specs.
 import type { Agent, Inbox, InboxTarget } from '@deepseek-ai/dsh-agent'
 import type { AgentCancelCause } from '@deepseek-ai/dsh-session'
-import { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
+import { MessageId } from '@deepseek-ai/dsh-llm/brand'
+import { SessionId, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import type { MessageId, UserMessage } from '@deepseek-ai/dsh-llm'
+import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { Config } from '../src/index.js'
 import type { ConfigShape, SessionLogView } from '../src/index.js'
 
@@ -35,6 +36,31 @@ export type LoggedMessage = Extract<SessionEvent, { type: 'user/message' }>
  * source may carry optional sections).
  * 从消息来源联合上防御性读取的区块列表（每个来源都可选携带 sections）。 */
 type SourceSections = { sections?: readonly { name: string, text: string }[] }
+
+/**
+ * Build one full host-shaped `user/message` event: branded seq, `surfaceOp`,
+ * and a complete `UserMessage` payload — no partial rows in any spec.
+ * 构造一条完整宿主形状的 `user/message` 事件：品牌号 seq、`surfaceOp`，以及
+ * 完整的 `UserMessage` 负载——任何 spec 里都不再出现残缺行。
+ * @param seq - the log sequence to brand.
+ * @param source - the message source (kind plus any source-specific fields).
+ * @param text - the single text block the message carries.
+ * @returns the host-typed event row.
+ */
+export function loggedUserMessage(seq: number, source: UserMessage['source'], text: string): LoggedMessage {
+  return {
+    type: 'user/message',
+    seq: SessionSeq(seq),
+    time: Date.UTC(2026, 9, 15),
+    surfaceOp: 'append',
+    data: {
+      id: MessageId(`msg-${seq}`),
+      role: 'user',
+      source,
+      content: [{ type: 'text', text }],
+    },
+  }
+}
 
 /** 日志序号类型（宿主品牌号），从插件的日志视图推导，避免另立来源。
  * The log sequence type, derived from the plugin's own log view. */

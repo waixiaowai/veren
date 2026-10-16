@@ -1,7 +1,8 @@
-// Bundle invariant test: default preset keeps maintenance tools off, manager
-// preset turns them on. Pure file parsing - concurrency safe, no shared state.
-// 组合包不变量测试：默认 preset 维护工具全关，manager preset 开启。
-// 纯文件解析，并发安全，无共享状态。
+// Bundle invariant test: one preset row, the bridge shape - delegating persona
+// and both maintenance tool families always on, no toggles left.
+// Pure file parsing - concurrency safe, no shared state.
+// 组合包不变量测试：单条预设行、桥梁形态——派活人设与两类维护工具常开，
+// 不再有任何开关。纯文件解析，并发安全，无共享状态。
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -29,25 +30,21 @@ function loadRows(): PatchRow[] {
 describe('person-agent-bundle patch', () => {
   const rows = loadRows()
 
-  it('inserts exactly two rows of the preset plugin with distinct ids', () => {
-    expect(rows).toHaveLength(2)
-    expect(new Set(rows.map((r) => r.id)).size).toBe(2)
-    for (const row of rows) {
-      expect(row.name).toBe('@veren/person-agent-preset')
-    }
+  it('inserts exactly one preset row - the bridge has one shape', () => {
+    // 单行：人设与工具常开，不存在第二行、也不存在开关之分。
+    // One row: persona and tools always on - no second row, no toggle split.
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.name).toBe('@veren/person-agent-preset')
+    expect(rows[0]?.config?.presetId).toBe('person-agent')
   })
 
-  it('keeps every maintenance tool off in the default person-agent row', () => {
-    const def = rows.find((r) => r.config?.presetId === 'person-agent')
-    expect(def).toBeDefined()
-    expect(def?.config?.withWorkspaceTools).toBe(false)
-    expect(def?.config?.withSessionTools).toBe(false)
-  })
-
-  it('turns maintenance tools on only in the opt-in manager row', () => {
-    const mgr = rows.find((r) => r.config?.presetId === 'person-agent-manager')
-    expect(mgr).toBeDefined()
-    expect(mgr?.config?.withWorkspaceTools).toBe(true)
-    expect(mgr?.config?.withSessionTools).toBe(true)
+  it('carries no tool or persona toggles anymore', () => {
+    // 三个历史开关必须消失：它们曾把桥梁劈成两种形态。
+    // The three historical toggles must be gone: they used to split the
+    // bridge into two shapes.
+    const config = rows[0]?.config ?? {}
+    expect(config).not.toHaveProperty('withWorkspaceTools')
+    expect(config).not.toHaveProperty('withSessionTools')
+    expect(config).not.toHaveProperty('dispatcher')
   })
 })

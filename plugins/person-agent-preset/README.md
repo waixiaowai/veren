@@ -4,17 +4,20 @@ English | [中文](README.cn.md)
 
 ## Summary
 
-A DSH host plugin that registers the **Person Agent** agent preset at runtime through `ctx.agentPresets.register()` from `@deepseek-ai/dsh-agent-preset-registry`. Use it when a deployment needs a preset whose sessions report to **human beings**: plain beginner-readable language, visuals-first summaries (tables, Mermaid diagrams, checklists), and concrete artifacts delivered through the `present` tool. Skip it when every consumer reads raw developer output.
+A DSH host plugin that registers the **Person Agent** agent preset at runtime through `ctx.agentPresets.register()` from `@deepseek-ai/dsh-agent-preset-registry`. Person Agent is **the bridge between the human and DSH**: a chief-of-staff persona that understands what the user actually needs, thinks before it thinks (metacognition), talks in plain Simplified Chinese, and hands the work to a properly configured session it creates — picking the workspace, preset, provider and model itself. The delegating persona and both maintenance tool families (workspace + session) are **always on**: there are no toggles, because a bridge without the ability to route work is not a bridge. Skip it when sessions must never create or route other sessions.
 
 ## What the preset composes
 
 | Child row | Purpose |
 |---|---|
-| `persona` (`@deepseek-ai/dsh-persona`) | The reporting style: plain language, visual summary first, deliver artifacts, at most three next steps |
-| `tool-fs` / `tool-fs-search` | File reads and searches needed to do the work |
+| `persona` (`@deepseek-ai/dsh-persona`) | The bridge persona, a character not a procedure: identity (chief of staff, never does the work itself), thinking before thinking, way of thinking, how it talks with humans, how it hands off work |
+| `tool-fs` / `tool-fs-search` | File reads and searches |
 | `present` (`@deepseek-ai/dsh-tool-present`) | Delivers files/charts/documents as client file cards |
 | `tool-todo` / `tool-ask-user` | Progress tracking and asking the user owned questions |
 | `tool-web` (optional, `withWeb`) | Web search when research is part of the work |
+| `tool-workspace` (`@veren/person-agent-tool-workspace`, always on) | `workspace_create` / `workspace_rename` so the bridge can open a home for the work |
+| `tool-session` (`@veren/person-agent-tool-session`, always on) | `session_create` / `session_rename` / `session_fork` / archive / pin — the delegation outlet |
+| `dynamic-context` (`@veren/person-agent-dynamic-context`) | Working memory: preset roster, model catalog and workspace list as snapshot messages |
 
 ## Configuration
 
@@ -23,7 +26,6 @@ A DSH host plugin that registers the **Person Agent** agent preset at runtime th
 | `presetId` | `person-agent` | Stable preset identity sessions record |
 | `order` | `5` | Roster order in client preset pickers |
 | `withWeb` | `true` | Include the web search tool |
-| `refreshMs` | `30000` | Dynamic suffix refresh cadence (ms): polls both registries and diffs the rendered content, re-registering (a revision swap) only when the lists actually changed; `0` disables |
 
 ## How it works
 

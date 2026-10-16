@@ -9,8 +9,6 @@ const OPTIONS = {
   presetId: 'person-agent',
   order: 5,
   withWeb: true,
-  withWorkspaceTools: true,
-  withSessionTools: true,
 }
 
 describe('buildPersonAgentPreset', () => {
@@ -19,13 +17,49 @@ describe('buildPersonAgentPreset', () => {
     expect(entryListProblem(definition.plugins)).toBeUndefined()
   })
 
-  it('keeps a human-facing persona and the present tool', () => {
+  it('is the bridge: delegating persona and both maintenance tool families are always on', () => {
+    // 桥梁是唯一形态：没有开关，人设与维护工具不可拆。
+    // The bridge has exactly one shape: no switches - the persona and the
+    // maintenance tool families are not optional.
+    const definition = buildPersonAgentPreset(OPTIONS)
+    const workspace = definition.plugins.find((row) => row.id === 'tool-workspace')
+    const session = definition.plugins.find((row) => row.id === 'tool-session')
+    expect(String(workspace?.name)).toBe('@veren/person-agent-tool-workspace')
+    expect(String(session?.name)).toBe('@veren/person-agent-tool-session')
+    // 部署默认收紧：工具不允许擅自递归建目录。
+    // Tight deployment default: the tool may not create directories on its own.
+    expect(workspace?.config).toMatchObject({ allowCreate: true, allowCreateDirectory: false })
+    expect(session?.config).toMatchObject({ allowCreate: true, allowFork: true, allowArchive: true, allowPin: true })
+  })
+
+  it('keeps the bridge persona: a character with metacognition, not a handbook', () => {
+    // 人设四层 + 元认知层齐备；身份是「总管」，从不亲自干活。
+    // The persona layers plus metacognition are all present; the identity is
+    // a chief of staff that never does the work itself.
     const definition = buildPersonAgentPreset(OPTIONS)
     const persona = definition.plugins.find((row) => row.id === 'persona')
-    const present = definition.plugins.find((row) => row.id === 'present')
-    expect(persona).toBeDefined()
-    expect(String((persona?.config as { prefix?: string })?.prefix)).toContain('plain')
-    expect(present).toBeDefined()
+    const prefix = String((persona?.config as { prefix?: string })?.prefix)
+    expect(prefix).toContain('chief of staff')
+    expect(prefix).toContain('think about your thinking')
+    expect(prefix).toContain('How you think')
+    expect(prefix).toContain('How you talk with the user')
+    expect(prefix).toContain('How you hand off work')
+    expect(prefix).toContain('Simplified Chinese')
+    expect(definition.description).toContain('bridge between the human and DSH')
+  })
+
+  it('guides instead of dictating: the persona carries no tool recipes', () => {
+    // 提示词只是引导，不是员工手册：不出现逐步流程编号，也不替模型拼装
+    // 工具参数——判断权留给模型本身。
+    // The prompt guides, it is not an employee handbook: no numbered workflow
+    // and no parameter assembly on the model's behalf - judgment stays with it.
+    const definition = buildPersonAgentPreset(OPTIONS)
+    const persona = definition.plugins.find((row) => row.id === 'persona')
+    const prefix = String((persona?.config as { prefix?: string })?.prefix)
+    expect(prefix).not.toMatch(/[1-6]\. [A-Z]/)
+    expect(prefix).not.toContain('workspaceId')
+    expect(prefix).not.toContain('session_create')
+    expect(prefix).not.toContain('workspace_create')
   })
 
   it('bakes no roster into the persona suffix (lists move to the dynamic section)', () => {
@@ -50,27 +84,6 @@ describe('buildPersonAgentPreset', () => {
   it('omits the web tool when withWeb is false', () => {
     const definition = buildPersonAgentPreset({ ...OPTIONS, withWeb: false })
     expect(definition.plugins.some((row) => row.id === 'tool-web')).toBe(false)
-  })
-
-  it('composes the workspace and session maintenance tool rows by package name', () => {
-    // 自助维护工具按包名组合：行名 = package.json 的 name，由加载器解析。
-    // Self-service maintenance tools compose by package name: row name = the
-    // package.json name, resolved by the loader.
-    const definition = buildPersonAgentPreset(OPTIONS)
-    const workspace = definition.plugins.find((row) => row.id === 'tool-workspace')
-    const session = definition.plugins.find((row) => row.id === 'tool-session')
-    expect(String(workspace?.name)).toBe('@veren/person-agent-tool-workspace')
-    expect(String(session?.name)).toBe('@veren/person-agent-tool-session')
-    // 部署默认收紧：工具不允许擅自递归建目录。
-    // Tight deployment default: the tool may not create directories on its own.
-    expect(workspace?.config).toMatchObject({ allowCreate: true, allowCreateDirectory: false })
-    expect(session?.config).toMatchObject({ allowCreate: true, allowFork: true, allowArchive: true, allowPin: true })
-  })
-
-  it('omits the maintenance tool rows when their toggles are false', () => {
-    const definition = buildPersonAgentPreset({ ...OPTIONS, withWorkspaceTools: false, withSessionTools: false })
-    expect(definition.plugins.some((row) => row.id === 'tool-workspace')).toBe(false)
-    expect(definition.plugins.some((row) => row.id === 'tool-session')).toBe(false)
   })
 })
 

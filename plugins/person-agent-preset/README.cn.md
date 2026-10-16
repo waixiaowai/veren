@@ -4,19 +4,20 @@
 
 ## 简介
 
-一个 DSH 宿主插件，通过 `@deepseek-ai/dsh-agent-preset-registry` 的 `ctx.agentPresets.register()` 在运行时动态注册 **Person Agent** 预设。适用于部署中存在"面向人类汇报"的会话场景：小白能懂的平实语言、可视化优先的总结（表格、Mermaid 图、清单）、通过 `present` 工具交付成品文件。如果所有使用者都是直接看原始输出的开发者，则不需要本插件。
+一个 DSH 宿主插件，通过 `@deepseek-ai/dsh-agent-preset-registry` 的 `ctx.agentPresets.register()` 在运行时动态注册 **Person Agent** 预设。Person Agent 是**人类与 DSH 之间的沟通桥梁**：一个「总管」人设——理解用户真正需要什么、先想清楚再想（元认知）、用平实的简体中文沟通，并把活派给自己创建的、配置得当的会话——工作区、预设、提供商与模型都由它自己判断。派活人设与两类维护工具（工作区 + 会话）**常开**：没有开关，因为不能路由工作的桥梁不是桥梁。如果会话绝不允许创建或路由其他会话，则不要使用本插件。
 
 ## 预设组成
 
-`dynamic-context` 子行引用独立包 **@veren/person-agent-dynamic-context**（行名 = 包名，从私有仓库 npm.veren.top 或工作区链接解析）：它在每个步骤准备时（agent/pre-step）把预设名单与工作区列表作为带来源的快照消息追加进会话（工作记忆），值变化才追加。
-
 | 子插件行 | 作用 |
 |---|---|
-| `persona`（`@deepseek-ai/dsh-persona`） | 汇报风格：平实语言、先给可视化总结、交付成品、最多三条下一步建议 |
-| `tool-fs` / `tool-fs-search` | 完成工作所需的文件读取与搜索 |
+| `persona`（`@deepseek-ai/dsh-persona`） | 桥梁人设，是人格不是流程：身份（总管，从不亲自干活）、思考前的思考、思维方式、与人类的沟通方式、派发任务的沟通方式 |
+| `tool-fs` / `tool-fs-search` | 文件读取与搜索 |
 | `present`（`@deepseek-ai/dsh-tool-present`） | 把文件/图表/文档作为客户端文件卡片交付 |
 | `tool-todo` / `tool-ask-user` | 进度跟踪与向用户提问 |
 | `tool-web`（可选，`withWeb`） | 需要调研时的联网搜索 |
+| `tool-workspace`（`@veren/person-agent-tool-workspace`，常开） | `workspace_create` / `workspace_rename`，给活找一个家 |
+| `tool-session`（`@veren/person-agent-tool-session`，常开） | `session_create` / `session_rename` / `session_fork` / 归档 / 置顶——派活的出口 |
+| `dynamic-context`（`@veren/person-agent-dynamic-context`） | 工作记忆：预设名单、模型目录与工作区列表的快照消息 |
 
 ## 配置
 
@@ -25,7 +26,6 @@
 | `presetId` | `person-agent` | 会话记录的稳定预设身份 |
 | `order` | `5` | 客户端预设选择器中的排序 |
 | `withWeb` | `true` | 是否包含联网搜索工具 |
-| `refreshMs` | `30000` | 动态 suffix 的刷新周期（毫秒）：轮询两个注册表并做内容 diff，只有名单真正变化时才重注册（换 revision）；`0` 关闭刷新 |
 
 ## 工作原理
 

@@ -157,22 +157,3 @@ export function lastSnapshotSectionText(
   return undefined
 }
 
-/**
- * The provider/model route the session's latest recorded request actually
- * used, read from the newest `request/header` event; undefined when the log
- * holds no request header (the caller falls back to the deployment default).
- * 会话最近一次已记录请求实际使用的 provider/model 路由，读取自最新一条
- * `request/header` 事件；日志中没有请求头时 undefined（调用方回退到部署
- * 默认模型）。
- */
-export function lastRequestRoute(session: SessionLogView): { provider: string, model: string } | undefined {
-  const events = logEvents(session)
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index]
-    if (event?.type !== 'request/header') continue
-    const config = (event.data as { header?: { config?: { provider?: string, model?: string } } }).header?.config
-    if (config?.provider === undefined || config?.model === undefined) return undefined
-    return { provider: config.provider, model: config.model }
-  }
-  return undefined
-}

@@ -1,18 +1,18 @@
 // 组合测试：走真实 cordis Context——真实 inject 解析、真实 waterfall 事件
-// 派发与逆序清理，仅以假实现提供被注入的服务面；并锁定三条具名小消息与
-// "按块变化检测"的语义。
+// 派发与逆序清理，仅以假实现提供被注入的服务面；并锁定三条具名小消息、
+// "按块变化检测"与"工作区只列工作区"的语义。
 // Composition test: goes through a real cordis Context - real inject
 // resolution, real waterfall dispatch and reverse-order disposal - with only
 // the injected service faces swapped for fakes; also locks the three named
-// small messages and per-section change-detection semantics.
+// small messages, per-section change detection, and the "workspaces only"
+// workspace section.
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { apply, inject, name } from '../src/index.js'
 import type { ConfigShape } from '../src/index.js'
-import { SessionId, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
-import { resolveConfig, fakeAgent, latestSectionText, snapshotTexts } from './support.js'
+import { resolveConfig, latestSectionText, snapshotTexts } from './support.js'
 import type { LogSeq, LoggedMessage } from './support.js'
 
 /** One workspace as the renderer consumes it (host Workspace's read-only slice).
@@ -21,34 +21,13 @@ interface WorkspaceLike {
   id: string
   title: string
   path: string
-  sessionIds: readonly string[]
 }
 
 /** Install the real apply on a real Context with mutable fakes. 在真实 Context 上安装真实 apply，假实现可变。 */
 async function install(config: Partial<ConfigShape> = {}) {
   const ctx = new Context()
   const history: LoggedMessage[] = []
-  const workspaces: WorkspaceLike[] = [{ id: 'ws-1', title: 'Demo', path: 'C:/demo', sessionIds: ['sess-1'] }]
-  const runningIds = new Set<string>()
-  ctx.provide('agents', {
-    get: (id: string) => (runningIds.has(id) ? { status: 'running' } : undefined),
-  })
-  ctx.provide('sessions', {
-    get: (id: string) => ({
-      id,
-      header: { createdAt: Date.UTC(2026, 9, 15), cwd: 'C:/demo', agentPreset: 'person-agent' },
-      // 插件只在需要时读日志事件，这里给出空日志即可（形状与宿主一致）。
-      // The plugin reads log events only when needed; an empty log with the host
-      // shape is enough here.
-      snapshotEvents: (_fromSeq?: number, _toSeqExclusive?: number) => [] as readonly LoggedMessage[],
-      eventAt: (_seq: LogSeq) => undefined,
-    }),
-  })
-  ctx.provide('sessionProjections', {
-    stateOf: (_session: unknown, key: string) => key === 'modelSelection'
-      ? { lastUsed: { provider: 'deepseek', model: 'deepseek-chat' } }
-      : undefined,
-  })
+  const workspaces: WorkspaceLike[] = [{ id: 'ws-1', title: 'Demo', path: 'C:/demo' }]
   ctx.provide('agentPresets', {
     list: async () => [{ id: 'standard', name: 'Standard', description: 'default mode' }],
     defaultId: 'person-agent',
@@ -58,12 +37,6 @@ async function install(config: Partial<ConfigShape> = {}) {
     get archivedSessionIds(): readonly string[] {
       return []
     },
-  })
-  ctx.provide('agentDefaultModel', {
-    currentSelection: () => ({ provider: 'deepseek', model: 'deepseek-chat' }),
-  })
-  ctx.provide('sessionTitle', {
-    get: () => ({ title: 'Greeting' }),
   })
   // LLM 注册表假实现：一个 provider、一个纯文本模型（带上下文窗口）。
   // Fake LLM registry: one provider, one text-only model with a context window.
@@ -83,40 +56,26 @@ async function install(config: Partial<ConfigShape> = {}) {
     history,
     /** Fire one real waterfall pre-step dispatch; committed messages land in history. 触发一次真实 waterfall pre-step 派发；追加的消息落账到历史。 */
     step: async (): Promise<void> => {
-      // 载荷要求完整 Agent 面；插件只读 session，其余成员由 fakeAgent 的不可达桩补齐。
-      // The payload requires the full Agent face; the plugin reads only session,
-      // so fakeAgent's unreachable stubs cover the rest.
-      const agent = fakeAgent({
-        id: SessionId('sess-1'),
-        // 宿主的 seq 是品牌号（SessionLogOffset）；历史长度就是下一步的序号。
-        // The host's seq is branded (SessionLogOffset); the history length is
-        // the next sequence.
-        seq: SessionLogOffset(history.length),
-        eventAt: (seq: LogSeq) => history[Number(seq)],
-        snapshotEvents: (_fromSeq?: number, _toSeqExclusive?: number) => history,
-      })
+      const agent = {
+        session: {
+          // 宿主的 seq 是品牌号；历史长度就是下一步的序号。
+          // The host's seq is branded; the history length is the next sequence.
+          seq: history.length as never,
+          eventAt: (seq: LogSeq) => history[Number(seq)],
+          snapshotEvents: () => history,
+        },
+      }
       // 用宿主的真实决策类型收窄，再取 messages：与插件侧同一套写法，不在联合
-      // 类型上直接取属性。载荷的 turn/step/messages 由假环境给出固定值。
+      // 类型上直接取属性。
       // Narrow with the host's real decision type before reading messages, mirroring
-      // the plugin side: the property is never taken off a union. The payload's
-      // turn/step/messages come from the fake environment as fixed values.
-      const decision = await ctx.waterfall(
-        'agent/pre-step',
-        { agent, messages: [], turn: 1, step: history.length + 1, signal: new AbortController().signal },
-        async () => ({ kind: 'enter', messages: [] }),
-      ) as PreStepDecision
+      // the plugin side: the property is never taken off a union.
+      const decision = await ctx.waterfall('agent/pre-step', { agent, signal: new AbortController().signal }, async () =>
+        ({ kind: 'enter', messages: [] })) as PreStepDecision
       if (decision.kind === 'reject') return
       for (const message of decision.messages) {
-        // 直接入账宿主形状的事件：seq 是品牌号、表层事件必须携带 surfaceOp，
-        // data 就是决策返回的 UserMessage。
-        // Commit host-shaped events directly: seq is branded, surface events
-        // must carry surfaceOp, and data is the UserMessage the decision returned.
         history.push({
           type: 'user/message',
-          seq: SessionSeq(history.length),
-          time: Date.UTC(2026, 9, 15),
-          surfaceOp: 'append',
-          data: message,
+          data: { source: message.source as { kind: string }, content: message.content as readonly { type: string, text?: string }[] },
         })
       }
     },
@@ -129,9 +88,9 @@ async function install(config: Partial<ConfigShape> = {}) {
 
 describe('personAgentDynamicContext composition（真实装配路径 / real assembly path）', () => {
   it('resolves inject through cordis and appends the three named sections', async () => {
-    // 首步三条消息各一个区块；四字段会话行落在工作区区块里。
-    // The first step appends three messages, one section each; the four-fact
-    // session line lands in the workspace section.
+    // 首步三条消息各一个区块；工作区区块只有工作区行，没有会话表格。
+    // The first step appends three messages, one section each; the workspace
+    // section carries workspace lines only, no session table.
     const { step, history } = await install()
     await step()
     const texts = snapshotTexts(history)
@@ -139,7 +98,8 @@ describe('personAgentDynamicContext composition（真实装配路径 / real asse
     expect(texts[0]).toContain('## Agent Preset List')
     expect(texts[1]).toContain('## Model Catalog')
     expect(texts[2]).toContain('## Workspace List')
-    expect(texts[2]).toContain('| sess-1 | Greeting | person-agent | deepseek | deepseek-chat |')
+    expect(texts[2]).toContain('- Demo(ws-1):C:/demo')
+    expect(texts[2]).not.toContain('| sess-1 |')
   })
 
   it('removes the listener when the fiber unloads', async () => {
@@ -169,13 +129,12 @@ describe('personAgentDynamicContext composition（真实装配路径 / real asse
     // roster/catalog append nothing; the changed workspace appends one message.
     const { step, history, setWorkspaces } = await install()
     await step()
-    setWorkspaces([{ id: 'ws-2', title: 'Fresh', path: 'C:/fresh', sessionIds: ['sess-2'] }])
+    setWorkspaces([{ id: 'ws-2', title: 'Fresh', path: 'C:/fresh' }])
     await step()
     const texts = snapshotTexts(history)
     expect(texts).toHaveLength(4)
     expect(texts[3]).toContain('## Workspace List')
     expect(texts[3]).toContain('- Fresh(ws-2):C:/fresh')
-    expect(texts[3]).toContain('| sess-2 | Greeting')
     expect(latestSectionText(history, 'Agent Preset List')).toContain('- Standard(standard):default mode')
   })
 })

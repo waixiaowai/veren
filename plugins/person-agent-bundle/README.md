@@ -11,14 +11,11 @@ Configuration-only DSH bundle that installs and composes the full Person Agent s
 
 Use this bundle when a profile needs the whole stack as one installable, one-toggle unit. Skip it when you prefer listing the four plugins row by row in your own patch.
 
-## Tool policy: default off, per-preset opt-in
+## One preset, one shape: the bridge
 
-The patch inserts **two rows of the same preset plugin** with different identities:
+The patch inserts **one row**. Person Agent IS the bridge between the human and DSH, so the delegating persona and both maintenance tool families are always on — there are no toggles and no second "manager" row. The bridge understands the user's need, picks the workspace, preset, provider and model, creates the working session, and reports its choices.
 
-- `person-agent` (default) — `withWorkspaceTools: false`, `withSessionTools: false`. The assistant reads and reports; it cannot create, rename, archive, or pin sessions/workspaces.
-- `person-agent-manager` (opt-in) — both toggles `true`. A session only gets the maintenance tools when it explicitly selects this preset in the client picker.
-
-Enablement is therefore decided by the preset a session picks, not by a global switch — nothing changes for existing sessions that already selected `person-agent`.
+Sessions that previously selected the retired `person-agent-manager` preset keep their locked composition; new sessions pick `person-agent`.
 
 ## Install (test profile)
 
