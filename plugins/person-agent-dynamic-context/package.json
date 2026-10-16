@@ -1,7 +1,7 @@
 {
   "name": "@veren/person-agent-dynamic-context",
   "displayName": "Person Agent Dynamic Context",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "icon": "./icon.svg",
   "description": "Use when a Person Agent preset's sessions need working memory: it appends the preset roster, the model catalog, and the workspace list as three named small messages at step preparation, each re-appended only when its own content changes; session details are intentionally excluded (covered by a query tool); skip it when sessions should not see the roster or workspaces.",
   "type": "module",
