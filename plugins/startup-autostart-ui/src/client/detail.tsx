@@ -15,10 +15,12 @@
  */
 
 import { useState } from 'react'
+import { Checkbox } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { StartupChoicesSnapshot, StartupModelOption } from './choices.ts'
 import type { StartupItemRequest, StartupItemView } from './remote.ts'
 import { STARTUP_ACTIONS } from './remote.ts'
+import { SelectMenu } from './select.tsx'
 
 /** Actions the detail pane performs through the plugin's injected callbacks. */
 export interface StartupDetailActions {
@@ -48,7 +50,6 @@ interface Draft {
   readonly action: StartupItemView['action']
   readonly message: string
   readonly sessionId: string
-  readonly cwd: string
   readonly workspaceId: string
   readonly preset: string
   /** Select key of the pinned model route; empty means unset. */
@@ -75,7 +76,6 @@ function draftOf(item: StartupItemView): Draft {
     action: item.action,
     message: item.message ?? '',
     sessionId: item.sessionId ?? '',
-    cwd: item.cwd ?? '',
     workspaceId: item.workspaceId ?? '',
     preset: item.preset ?? '',
     modelKey: modelKeyOf(item.model),
@@ -115,7 +115,6 @@ function changedFields(
     ...when('action'),
     ...when('message'),
     ...when('sessionId'),
-    ...when('cwd'),
     ...when('workspaceId'),
     ...when('preset'),
     ...model,
@@ -130,6 +129,50 @@ function Field(props: { readonly label: string; readonly value: string }): React
       <span className="sa-field-value">{props.value}</span>
     </div>
   )
+}
+
+/**
+ * The required-field marker: a danger asterisk with an accessible title, so a
+ * user can tell which fields must be filled before a save is accepted.
+ * 必填标识：带无障碍标题的红色星号，用户能看出哪些字段必须填写才能保存。
+ */
+function RequiredMark(props: { readonly t: PropsLocale<'startup.panel'>['t'] }): React.ReactElement {
+  return <span className="sa-required" title={props.t('panel.detail.required')}> *</span>
+}
+
+/**
+ * A required marker plus the localized label text, for the editable fields.
+ * 可编辑字段的标签：必填标识 + 本地化文案。
+ */
+function FieldLabel(props: {
+  readonly required: boolean
+  readonly text: string
+  readonly t: PropsLocale<'startup.panel'>['t']
+}): React.ReactElement {
+  return <>{props.text}{props.required && <RequiredMark t={props.t} />}</>
+}
+
+/**
+ * Client-side validation mirroring the Host's required-field rules, so a save
+ * is rejected with a readable message before it ever reaches `startup/update`.
+ * 与宿主必填规则一致的客户端校验：不满足时先给出可读提示，不发出 `startup/update`。
+ * @param draft - current draft values.
+ * @param t - locale resolver for the error copy.
+ * @returns the first violation's message, or `undefined` when the draft is valid.
+ */
+function validateDraft(draft: Draft, t: PropsLocale<'startup.panel'>['t']): string | undefined {
+  if (draft.name.trim() === '') return t('panel.detail.error.nameRequired')
+  // Session id is required by every action except creating a brand-new session.
+  // 除新建会话外，其余动作都要求会话 id。
+  if (draft.action !== 'new_session' && draft.sessionId.trim() === '') {
+    return t('panel.detail.error.sessionRequired')
+  }
+  // The host requires a message body for wake and queue actions.
+  // 宿主要求唤醒与投递动作必须携带消息正文。
+  if ((draft.action === 'message_session' || draft.action === 'queue_message') && draft.message.trim() === '') {
+    return t('panel.detail.error.messageRequired')
+  }
+  return undefined
 }
 
 /**
@@ -148,25 +191,24 @@ export function StartupDetail({ item, t, workspaces, choices, onUpdate, onDelete
     setDraft(current => ({ ...current, [key]: value }))
     setNote(undefined)
   }
-  // The Host accepts cwd or workspaceId, never both, so picking one clears
-  // the other in the draft and the save can never send both.
-  // 宿主只接受目录或工作区其一，因此选定其一即在草稿里清空另一者，保存时绝不会
-  // 同时提交两者。
-  const editCwd = (value: string): void => {
-    setDraft(current => ({ ...current, cwd: value, workspaceId: '' }))
-    setNote(undefined)
-  }
-  const editWorkspace = (value: string): void => {
-    setDraft(current => ({ ...current, workspaceId: value, cwd: '' }))
-    setNote(undefined)
-  }
+  // The directory (cwd) input was removed: workspace is the only new-session
+  // target the panel edits, so the mutual-exclusion dance is gone for good.
+  // 目录输入已移除：工作区是面板编辑的唯一新会话目标，二选一的清空逻辑随之删除。
   const report = (failure: string | undefined, okText: string): void => {
     setBad(failure !== undefined)
     setNote(failure ?? okText)
   }
 
-  /** Persist the draft, then re-seed it from the Host's answer. */
+  /** Validate first, then persist the draft and re-seed it from the Host's answer. */
   const save = async (): Promise<void> => {
+    // A required field left blank stops here with a readable message.
+    // 必填字段为空时在这里停下并给出可读提示。
+    const violation = validateDraft(draft, t)
+    if (violation !== undefined) {
+      setBad(true)
+      setNote(violation)
+      return
+    }
     setBusy(true)
     try {
       report(await onUpdate(changedFields(item, draft, choices.models)), t('panel.detail.saved'))
@@ -208,78 +250,78 @@ export function StartupDetail({ item, t, workspaces, choices, onUpdate, onDelete
         <span className="sa-hint">{item.id}</span>
       </header>
       <div className="sa-field">
-        <label className="sa-field-label" htmlFor="sa-name">{t('panel.detail.field.name')}</label>
+        <label className="sa-field-label" htmlFor="sa-name">
+          <FieldLabel required text={t('panel.detail.field.name')} t={t} />
+        </label>
         <input id="sa-name" className="sa-field-input" value={draft.name}
           onChange={event => { edit('name', event.target.value) }} />
       </div>
-      <label className="sa-field sa-field-check" htmlFor="sa-enabled">
-        <input id="sa-enabled" type="checkbox" checked={draft.enabled}
-          onChange={event => { edit('enabled', event.target.checked) }} />
-        <span className="sa-field-label">{t('panel.detail.field.enabled')}</span>
-      </label>
+      <Checkbox checked={draft.enabled} label={t('panel.detail.field.enabled')}
+        onChange={next => { edit('enabled', next) }} />
       <div className="sa-field">
-        <label className="sa-field-label" htmlFor="sa-action">{t('panel.detail.field.action')}</label>
-        <select id="sa-action" className="sa-field-select" value={draft.action}
-          onChange={event => { edit('action', event.target.value as Draft['action']) }}>
-          {STARTUP_ACTIONS.map(action => <option key={action} value={action}>{t(`panel.action.${action}`)}</option>)}
-        </select>
+        <span className="sa-field-label" id="sa-action-label">{t('panel.detail.field.action')}</span>
+        <SelectMenu ariaLabel={t('panel.detail.field.action')} value={draft.action}
+          options={STARTUP_ACTIONS.map(action => ({ value: action, label: t(`panel.action.${action}`) }))}
+          onChange={value => { edit('action', value as Draft['action']) }} />
       </div>
       {draft.action === 'new_session' && <>
         <div className="sa-field">
-          <label className="sa-field-label" htmlFor="sa-cwd">{t('panel.detail.field.cwd')}</label>
-          <input id="sa-cwd" className="sa-field-input" value={draft.cwd}
-            onChange={event => { editCwd(event.target.value) }} />
+          <span className="sa-field-label" id="sa-ws-label">{t('panel.detail.field.workspace')}</span>
+          <SelectMenu ariaLabel={t('panel.detail.field.workspace')} value={draft.workspaceId}
+            onChange={value => { edit('workspaceId', value) }}
+            options={[
+              { value: '', label: t('panel.detail.unset') },
+              // A stored id that no longer resolves (deleted workspace) stays selectable until edited.
+              // 已存的 id 若已无法解析（工作区被删），在编辑前仍保持可选。
+              ...(draft.workspaceId !== '' && !workspaces.some(workspace => workspace.value === draft.workspaceId)
+                ? [{ value: draft.workspaceId, label: draft.workspaceId }]
+                : []),
+              ...workspaces,
+            ]} />
         </div>
         <div className="sa-field">
-          <label className="sa-field-label" htmlFor="sa-ws">{t('panel.detail.field.workspace')}</label>
-          <select id="sa-ws" className="sa-field-select" value={draft.workspaceId}
-            onChange={event => { editWorkspace(event.target.value) }}>
-            <option value="">{t('panel.detail.unset')}</option>
-            {/* A stored id that no longer resolves (deleted workspace) stays selectable until edited. */}
-            {/* 已存的 id 若已无法解析（工作区被删），在编辑前仍保持可选。 */}
-            {draft.workspaceId !== '' && !workspaces.some(workspace => workspace.value === draft.workspaceId)
-              && <option value={draft.workspaceId}>{draft.workspaceId}</option>}
-            {workspaces.map(workspace => (
-              <option key={workspace.value} value={workspace.value}>{workspace.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="sa-field">
-          <label className="sa-field-label" htmlFor="sa-preset">{t('panel.detail.field.preset')}</label>
-          <select id="sa-preset" className="sa-field-select" value={draft.preset}
-            onChange={event => { edit('preset', event.target.value) }}>
-            <option value="">{t('panel.detail.unset')}</option>
-            {draft.preset !== '' && !choices.presets.some(preset => preset.value === draft.preset)
-              && <option value={draft.preset}>{draft.preset}</option>}
-            {choices.presets.map(preset => (
-              <option key={preset.value} value={preset.value}>{preset.label}</option>
-            ))}
-          </select>
+          <span className="sa-field-label" id="sa-preset-label">{t('panel.detail.field.preset')}</span>
+          <SelectMenu ariaLabel={t('panel.detail.field.preset')} value={draft.preset}
+            onChange={value => { edit('preset', value) }}
+            options={[
+              { value: '', label: t('panel.detail.unset') },
+              ...(draft.preset !== '' && !choices.presets.some(preset => preset.value === draft.preset)
+                ? [{ value: draft.preset, label: draft.preset }]
+                : []),
+              ...choices.presets,
+            ]} />
           {choices.status === 'loading' && <span className="sa-hint">{t('panel.detail.choicesLoading')}</span>}
           {choices.status === 'error' && <span className="sa-hint">{t('panel.detail.choicesFailed')}</span>}
         </div>
       </>}
       {draft.action !== 'new_session' && <div className="sa-field">
-        <label className="sa-field-label" htmlFor="sa-session">{t('panel.detail.field.session')}</label>
+        <label className="sa-field-label" htmlFor="sa-session">
+          <FieldLabel required text={t('panel.detail.field.session')} t={t} />
+        </label>
         <input id="sa-session" className="sa-field-input" value={draft.sessionId}
           onChange={event => { edit('sessionId', event.target.value) }} />
       </div>}
       {draft.action !== 'resume_session' && <div className="sa-field">
-        <label className="sa-field-label" htmlFor="sa-message">{t('panel.detail.field.message')}</label>
+        <label className="sa-field-label" htmlFor="sa-message">
+          <FieldLabel required={draft.action === 'message_session' || draft.action === 'queue_message'}
+            text={t('panel.detail.field.message')} t={t} />
+        </label>
         <textarea id="sa-message" className="sa-field-textarea" value={draft.message}
           onChange={event => { edit('message', event.target.value) }} />
       </div>}
       <div className="sa-field">
-        <label className="sa-field-label" htmlFor="sa-model">{t('panel.detail.field.model')}</label>
-        <select id="sa-model" className="sa-field-select" value={draft.modelKey}
-          onChange={event => { edit('modelKey', event.target.value) }}>
-          {item.model === undefined && <option value="">{t('panel.detail.unset')}</option>}
-          {item.model !== undefined
-            && <option value={modelKeyOf(item.model)}>{`${item.model.provider} / ${item.model.model}`}</option>}
-          {choices.models.filter(option => modelKeyOf(option) !== modelKeyOf(item.model)).map(option => (
-            <option key={`${option.provider}\u0000${option.model}`} value={modelKeyOf(option)}>{option.label}</option>
-          ))}
-        </select>
+        <span className="sa-field-label" id="sa-model-label">{t('panel.detail.field.model')}</span>
+        <SelectMenu ariaLabel={t('panel.detail.field.model')} value={draft.modelKey}
+          onChange={value => { edit('modelKey', value) }}
+          options={[
+            ...(item.model === undefined ? [{ value: '', label: t('panel.detail.unset') }] : []),
+            ...(item.model !== undefined
+              ? [{ value: modelKeyOf(item.model), label: `${item.model.provider} / ${item.model.model}` }]
+              : []),
+            ...choices.models
+              .filter(option => modelKeyOf(option) !== modelKeyOf(item.model))
+              .map(option => ({ value: modelKeyOf(option), label: option.label })),
+          ]} />
         {choices.status === 'loading' && <span className="sa-hint">{t('panel.detail.choicesLoading')}</span>}
         {choices.status === 'error' && <span className="sa-hint">{t('panel.detail.choicesFailed')}</span>}
       </div>

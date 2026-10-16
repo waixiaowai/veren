@@ -333,10 +333,11 @@ window.__ModuleLoader__.load({
     };
 
     // src/client/panel.tsx
-    var import_react2 = require("react");
+    var import_react3 = require("react");
 
     // src/client/detail.tsx
-    var import_react = require("react");
+    var import_react2 = require("react");
+    var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
 
     // src/client/remote.ts
     var import_zod = require("zod");
@@ -568,8 +569,54 @@ window.__ModuleLoader__.load({
       }
     }, import_zod.z);
 
-    // src/client/detail.tsx
+    // src/client/select.tsx
+    var import_react = require("react");
+    var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
     var import_jsx_runtime2 = require("react/jsx-runtime");
+    function SelectMenu(props) {
+      const [open, setOpen] = (0, import_react.useState)(false);
+      const current = props.options.find((option) => option.value === props.value);
+      return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        import_dsh_client_ui_primitives.Menu,
+        {
+          portal: true,
+          dense: true,
+          compact: true,
+          autoFocus: true,
+          open,
+          anchor: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+            import_dsh_client_ui_primitives.Button,
+            {
+              variant: "outline",
+              size: "sm",
+              className: "sa-select-trigger",
+              "aria-label": props.ariaLabel,
+              "aria-haspopup": "menu",
+              "aria-expanded": open,
+              onClick: () => {
+                setOpen(true);
+              },
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sa-select-value", children: current === void 0 ? props.value : current.label }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_dsh_client_ui_primitives.IconChevronDownOutlineRegular, {})
+              ]
+            }
+          ),
+          items: props.options.map((option) => ({ id: option.value, label: option.label })),
+          selectedId: props.value,
+          onSelect: (id) => {
+            setOpen(false);
+            props.onChange(id);
+          },
+          onClose: () => {
+            setOpen(false);
+          }
+        }
+      );
+    }
+
+    // src/client/detail.tsx
+    var import_jsx_runtime3 = require("react/jsx-runtime");
     function modelKeyOf(model) {
       return model === void 0 ? "" : `${model.provider}\0${model.model}`;
     }
@@ -585,7 +632,6 @@ window.__ModuleLoader__.load({
         action: item.action,
         message: item.message ?? "",
         sessionId: item.sessionId ?? "",
-        cwd: item.cwd ?? "",
         workspaceId: item.workspaceId ?? "",
         preset: item.preset ?? "",
         modelKey: modelKeyOf(item.model)
@@ -603,27 +649,34 @@ window.__ModuleLoader__.load({
         ...when("action"),
         ...when("message"),
         ...when("sessionId"),
-        ...when("cwd"),
         ...when("workspaceId"),
         ...when("preset"),
         ...model
       };
     }
     function Field(props) {
-      return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "sa-field", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sa-field-label", children: props.label }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sa-field-value", children: props.value })
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-field", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-field-label", children: props.label }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-field-value", children: props.value })
       ] });
     }
     function StartupDetail({ item, t, workspaces, choices, onUpdate, onDelete, onRun }) {
-      const [draft, setDraft] = (0, import_react.useState)(() => draftOf(item));
-      const [note, setNote] = (0, import_react.useState)(void 0);
-      const [bad, setBad] = (0, import_react.useState)(false);
-      const [busy, setBusy] = (0, import_react.useState)(false);
-      const [confirming, setConfirming] = (0, import_react.useState)(false);
+      const [draft, setDraft] = (0, import_react2.useState)(() => draftOf(item));
+      const [note, setNote] = (0, import_react2.useState)(void 0);
+      const [bad, setBad] = (0, import_react2.useState)(false);
+      const [busy, setBusy] = (0, import_react2.useState)(false);
+      const [confirming, setConfirming] = (0, import_react2.useState)(false);
       const dirty = JSON.stringify(draft) !== JSON.stringify(draftOf(item));
       const edit = (key, value) => {
         setDraft((current) => ({ ...current, [key]: value }));
+        setNote(void 0);
+      };
+      const editCwd = (value) => {
+        setDraft((current) => ({ ...current, cwd: value, workspaceId: "" }));
+        setNote(void 0);
+      };
+      const editWorkspace = (value) => {
+        setDraft((current) => ({ ...current, workspaceId: value, cwd: "" }));
         setNote(void 0);
       };
       const report = (failure, okText) => {
@@ -660,14 +713,14 @@ window.__ModuleLoader__.load({
         }
       };
       const outcome = item.lastOutcome;
-      return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("section", { className: "sa-detail", "aria-label": t("panel.detail.title"), children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("header", { className: "sa-detail-head", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h3", { className: "sa-detail-title", children: t("panel.detail.title") }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sa-hint", children: item.id })
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: "sa-detail", "aria-label": t("panel.detail.title"), children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("header", { className: "sa-detail-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { className: "sa-detail-title", children: t("panel.detail.title") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-hint", children: item.id })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "sa-field", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { className: "sa-field-label", htmlFor: "sa-name", children: t("panel.detail.field.name") }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-field", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("label", { className: "sa-field-label", htmlFor: "sa-name", children: t("panel.detail.field.name") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
             "input",
             {
               id: "sa-name",
@@ -679,94 +732,87 @@ window.__ModuleLoader__.load({
             }
           )
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "sa-field", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { className: "sa-field-label", htmlFor: "sa-enabled", children: t("panel.detail.field.enabled") }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-            "input",
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          import_dsh_client_ui_primitives2.Checkbox,
+          {
+            checked: draft.enabled,
+            label: t("panel.detail.field.enabled"),
+            onChange: (next) => {
+              edit("enabled", next);
+            }
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-field", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-field-label", id: "sa-action-label", children: t("panel.detail.field.action") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+            SelectMenu,
             {
-              id: "sa-enabled",
-              type: "checkbox",
-              checked: draft.enabled,
-              onChange: (event) => {
-                edit("enabled", event.target.checked);
+              ariaLabel: t("panel.detail.field.action"),
+              value: draft.action,
+              options: STARTUP_ACTIONS.map((action) => ({ value: action, label: t(`panel.action.${action}`) })),
+              onChange: (value) => {
+                edit("action", value);
               }
             }
           )
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "sa-field", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { className: "sa-field-label", htmlFor: "sa-action", children: t("panel.detail.field.action") }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-            "select",
-            {
-              id: "sa-action",
-              className: "sa-field-select",
-              value: draft.action,
-              onChange: (event) => {
-                edit("action", event.target.value);
-              },
-              children: STARTUP_ACTIONS.map((action) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: action, children: t(`panel.action.${action}`) }, action))
-            }
-          )
-        ] }),
-        draft.action === "new_session" && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "sa-field", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { className: "sa-field-label", htmlFor: "sa-cwd", children: t("panel.detail.field.cwd") }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        draft.action === "new_session" && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-field", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("label", { className: "sa-field-label", htmlFor: "sa-cwd", children: t("panel.detail.field.cwd") }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
               "input",
               {
                 id: "sa-cwd",
                 className: "sa-field-input",
                 value: draft.cwd,
                 onChange: (event) => {
-                  edit("cwd", event.target.value);
+                  editCwd(event.target.value);
                 }
               }
             )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "sa-field", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { className: "sa-field-label", htmlFor: "sa-ws", children: t("panel.detail.field.workspace") }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-              "select",
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-field", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-field-label", id: "sa-ws-label", children: t("panel.detail.field.workspace") }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              SelectMenu,
               {
-                id: "sa-ws",
-                className: "sa-field-select",
+                ariaLabel: t("panel.detail.field.workspace"),
                 value: draft.workspaceId,
-                onChange: (event) => {
-                  edit("workspaceId", event.target.value);
-                },
-                children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: "", children: t("panel.detail.unset") }),
-                  draft.workspaceId !== "" && !workspaces.some((workspace) => workspace.value === draft.workspaceId) && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: draft.workspaceId, children: draft.workspaceId }),
-                  workspaces.map((workspace) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: workspace.value, children: workspace.label }, workspace.value))
+                onChange: editWorkspace,
+                options: [
+                  { value: "", label: t("panel.detail.unset") },
+                  // A stored id that no longer resolves (deleted workspace) stays selectable until edited.
+                  // 已存的 id 若已无法解析（工作区被删），在编辑前仍保持可选。
+                  ...draft.workspaceId !== "" && !workspaces.some((workspace) => workspace.value === draft.workspaceId) ? [{ value: draft.workspaceId, label: draft.workspaceId }] : [],
+                  ...workspaces
                 ]
               }
             )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "sa-field", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { className: "sa-field-label", htmlFor: "sa-preset", children: t("panel.detail.field.preset") }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-              "select",
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-field", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-field-label", id: "sa-preset-label", children: t("panel.detail.field.preset") }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              SelectMenu,
               {
-                id: "sa-preset",
-                className: "sa-field-select",
+                ariaLabel: t("panel.detail.field.preset"),
                 value: draft.preset,
-                onChange: (event) => {
-                  edit("preset", event.target.value);
+                onChange: (value) => {
+                  edit("preset", value);
                 },
-                children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: "", children: t("panel.detail.unset") }),
-                  draft.preset !== "" && !choices.presets.some((preset) => preset.value === draft.preset) && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: draft.preset, children: draft.preset }),
-                  choices.presets.map((preset) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: preset.value, children: preset.label }, preset.value))
+                options: [
+                  { value: "", label: t("panel.detail.unset") },
+                  ...draft.preset !== "" && !choices.presets.some((preset) => preset.value === draft.preset) ? [{ value: draft.preset, label: draft.preset }] : [],
+                  ...choices.presets
                 ]
               }
             ),
-            choices.status === "loading" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sa-hint", children: t("panel.detail.choicesLoading") }),
-            choices.status === "error" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sa-hint", children: t("panel.detail.choicesFailed") })
+            choices.status === "loading" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-hint", children: t("panel.detail.choicesLoading") }),
+            choices.status === "error" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-hint", children: t("panel.detail.choicesFailed") })
           ] })
         ] }),
-        draft.action !== "new_session" && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "sa-field", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { className: "sa-field-label", htmlFor: "sa-session", children: t("panel.detail.field.session") }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        draft.action !== "new_session" && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-field", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("label", { className: "sa-field-label", htmlFor: "sa-session", children: t("panel.detail.field.session") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
             "input",
             {
               id: "sa-session",
@@ -778,9 +824,9 @@ window.__ModuleLoader__.load({
             }
           )
         ] }),
-        draft.action !== "resume_session" && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "sa-field", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { className: "sa-field-label", htmlFor: "sa-message", children: t("panel.detail.field.message") }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        draft.action !== "resume_session" && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-field", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("label", { className: "sa-field-label", htmlFor: "sa-message", children: t("panel.detail.field.message") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
             "textarea",
             {
               id: "sa-message",
@@ -792,67 +838,66 @@ window.__ModuleLoader__.load({
             }
           )
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "sa-field", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { className: "sa-field-label", htmlFor: "sa-model", children: t("panel.detail.field.model") }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-            "select",
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-field", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-field-label", id: "sa-model-label", children: t("panel.detail.field.model") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+            SelectMenu,
             {
-              id: "sa-model",
-              className: "sa-field-select",
+              ariaLabel: t("panel.detail.field.model"),
               value: draft.modelKey,
-              onChange: (event) => {
-                edit("modelKey", event.target.value);
+              onChange: (value) => {
+                edit("modelKey", value);
               },
-              children: [
-                item.model === void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: "", children: t("panel.detail.unset") }),
-                item.model !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: modelKeyOf(item.model), children: `${item.model.provider} / ${item.model.model}` }),
-                choices.models.filter((option) => modelKeyOf(option) !== modelKeyOf(item.model)).map((option) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { value: modelKeyOf(option), children: option.label }, `${option.provider}\0${option.model}`))
+              options: [
+                ...item.model === void 0 ? [{ value: "", label: t("panel.detail.unset") }] : [],
+                ...item.model !== void 0 ? [{ value: modelKeyOf(item.model), label: `${item.model.provider} / ${item.model.model}` }] : [],
+                ...choices.models.filter((option) => modelKeyOf(option) !== modelKeyOf(item.model)).map((option) => ({ value: modelKeyOf(option), label: option.label }))
               ]
             }
           ),
-          choices.status === "loading" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sa-hint", children: t("panel.detail.choicesLoading") }),
-          choices.status === "error" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sa-hint", children: t("panel.detail.choicesFailed") })
+          choices.status === "loading" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-hint", children: t("panel.detail.choicesLoading") }),
+          choices.status === "error" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-hint", children: t("panel.detail.choicesFailed") })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Field, { label: t("panel.detail.field.createdAt"), value: item.createdAt }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Field, { label: t("panel.detail.field.updatedAt"), value: item.updatedAt }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Field, { label: t("panel.detail.field.lastRunAt"), value: item.lastRunAt ?? t("panel.run.never") }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Field, { label: t("panel.detail.field.lastOutcome"), value: outcome === void 0 ? t("panel.detail.unset") : `${t(outcome.status === "ok" ? "panel.run.ok" : "panel.run.failed")} \xB7 ${outcome.detail}` }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Field, { label: t("panel.detail.field.runCount"), value: String(item.runCount) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Field, { label: t("panel.detail.field.createdAt"), value: item.createdAt }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Field, { label: t("panel.detail.field.updatedAt"), value: item.updatedAt }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Field, { label: t("panel.detail.field.lastRunAt"), value: item.lastRunAt ?? t("panel.run.never") }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Field, { label: t("panel.detail.field.lastOutcome"), value: outcome === void 0 ? t("panel.detail.unset") : `${t(outcome.status === "ok" ? "panel.run.ok" : "panel.run.failed")} \xB7 ${outcome.detail}` }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Field, { label: t("panel.detail.field.runCount"), value: String(item.runCount) }),
         debugNote(note, bad, t),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "sa-actions", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "sa-btn sa-btn-primary", disabled: busy || !dirty, onClick: () => {
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-actions", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "sa-btn sa-btn-primary", disabled: busy || !dirty, onClick: () => {
             void save();
           }, children: busy ? t("panel.detail.saving") : t("panel.detail.save") }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "sa-btn", disabled: busy || !dirty, onClick: () => {
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "sa-btn", disabled: busy || !dirty, onClick: () => {
             setDraft(draftOf(item));
             setNote(void 0);
           }, children: t("panel.detail.revert") }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "sa-btn", disabled: busy, onClick: () => {
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "sa-btn", disabled: busy, onClick: () => {
             void run();
           }, children: busy ? t("panel.detail.running") : t("panel.detail.run") }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "sa-btn sa-btn-danger", disabled: busy, onClick: () => {
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "sa-btn sa-btn-danger", disabled: busy, onClick: () => {
             setConfirming(true);
           }, children: t("panel.detail.delete") })
         ] }),
-        confirming && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "sa-actions", role: "alertdialog", "aria-label": t("panel.detail.deleteConfirm", { name: item.name }), children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "sa-note", children: t("panel.detail.deleteConfirm", { name: item.name }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "sa-btn sa-btn-danger", disabled: busy, onClick: () => {
+        confirming && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-actions", role: "alertdialog", "aria-label": t("panel.detail.deleteConfirm", { name: item.name }), children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-note", children: t("panel.detail.deleteConfirm", { name: item.name }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "sa-btn sa-btn-danger", disabled: busy, onClick: () => {
             void remove();
           }, children: t("panel.detail.deleteYes") }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "sa-btn", disabled: busy, onClick: () => {
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "sa-btn", disabled: busy, onClick: () => {
             setConfirming(false);
           }, children: t("panel.detail.deleteNo") })
         ] }),
-        dirty && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "sa-note", children: t("panel.detail.unsaved") })
+        dirty && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "sa-note", children: t("panel.detail.unsaved") })
       ] });
     }
     function debugNote(note, bad, t) {
       if (note === void 0) return null;
-      return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: bad ? "sa-note-bad" : "sa-note", children: bad ? t("panel.detail.failed", { message: note }) : note });
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: bad ? "sa-note-bad" : "sa-note", children: bad ? t("panel.detail.failed", { message: note }) : note });
     }
 
     // src/client/panel.tsx
-    var import_jsx_runtime3 = require("react/jsx-runtime");
+    var import_jsx_runtime4 = require("react/jsx-runtime");
     function targetSummary(item, t) {
       if (item.action === "new_session") {
         if (item.cwd !== void 0) return t("panel.target.cwd", { value: item.cwd });
@@ -865,8 +910,8 @@ window.__ModuleLoader__.load({
     function Row(props) {
       const { item, selected, t, onSelect, onToggle } = props;
       const outcome = item.lastOutcome;
-      return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: "sa-row", "aria-current": selected, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+      return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("li", { className: "sa-row", "aria-current": selected, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
           "input",
           {
             className: "sa-switch",
@@ -878,17 +923,17 @@ window.__ModuleLoader__.load({
             }
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", className: "sa-row-main", "aria-label": t("panel.select", { name: item.name }), onClick: onSelect, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-row-name", children: item.name }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "sa-row-meta", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-badge", children: t(`panel.action.${item.action}`) }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("button", { type: "button", className: "sa-row-main", "aria-label": t("panel.select", { name: item.name }), onClick: onSelect, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "sa-row-name", children: item.name }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "sa-row-meta", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "sa-badge", children: t(`panel.action.${item.action}`) }),
             " ",
             targetSummary(item, t)
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "sa-row-meta", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "sa-row-meta", children: [
             t("panel.run.count", { count: item.runCount }),
             " \xB7 ",
-            outcome === void 0 ? t("panel.run.never") : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: outcome.status === "ok" ? "sa-badge sa-badge-ok" : "sa-badge sa-badge-bad", children: t(outcome.status === "ok" ? "panel.run.ok" : "panel.run.failed") }),
+            outcome === void 0 ? t("panel.run.never") : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: outcome.status === "ok" ? "sa-badge sa-badge-ok" : "sa-badge sa-badge-bad", children: t(outcome.status === "ok" ? "panel.run.ok" : "panel.run.failed") }),
             item.lastRunAt === void 0 ? "" : ` \xB7 ${item.lastRunAt}`
           ] })
         ] })
@@ -899,25 +944,25 @@ window.__ModuleLoader__.load({
       const catalog = useCatalog((snapshot) => snapshot);
       const choices = useChoices((snapshot) => snapshot);
       const workspaces = useWorkspaces((state) => state);
-      const workspaceOptions = (0, import_react2.useMemo)(() => workspaces.items.map((workspace) => ({
+      const workspaceOptions = (0, import_react3.useMemo)(() => workspaces.items.map((workspace) => ({
         value: workspace.workspaceId,
         label: workspace.title
       })), [workspaces.items]);
-      const [search, setSearch] = (0, import_react2.useState)("");
-      const [filter, setFilter] = (0, import_react2.useState)("all");
-      const [selectedId, setSelectedId] = (0, import_react2.useState)(void 0);
-      const rows = (0, import_react2.useMemo)(() => {
+      const [search, setSearch] = (0, import_react3.useState)("");
+      const [filter, setFilter] = (0, import_react3.useState)("all");
+      const [selectedId, setSelectedId] = (0, import_react3.useState)(void 0);
+      const rows = (0, import_react3.useMemo)(() => {
         const query = search.trim().toLowerCase();
         return catalog.records.filter((item) => (filter === "all" || item.enabled === (filter === "enabled")) && (query === "" || item.name.toLowerCase().includes(query) || (item.message ?? "").toLowerCase().includes(query) || (item.sessionId ?? "").toLowerCase().includes(query)));
       }, [catalog.records, search, filter]);
       const selected = rows.find((item) => item.id === selectedId) ?? rows[0];
-      return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: "sa-page", "aria-label": t("panel.title"), children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("header", { className: "sa-head", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { className: "sa-title", children: t("panel.title") }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "sa-subtitle", children: t("panel.subtitle") })
+      return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("section", { className: "sa-page", "aria-label": t("panel.title"), children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("header", { className: "sa-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "sa-title", children: t("panel.title") }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "sa-subtitle", children: t("panel.subtitle") })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-toolbar", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "sa-toolbar", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
             "input",
             {
               className: "sa-input",
@@ -930,24 +975,24 @@ window.__ModuleLoader__.load({
               }
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "sa-seg", role: "group", "aria-label": t("panel.filter.all"), children: ["all", "enabled", "disabled"].map((key) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", "aria-pressed": filter === key, onClick: () => {
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "sa-seg", role: "group", "aria-label": t("panel.filter.all"), children: ["all", "enabled", "disabled"].map((key) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", "aria-pressed": filter === key, onClick: () => {
             setFilter(key);
           }, children: t(`panel.filter.${key}`) }, key)) }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "sa-btn sa-btn-primary", onClick: onNew, children: t("panel.new") })
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: "sa-btn sa-btn-primary", onClick: onNew, children: t("panel.new") })
         ] }),
-        catalog.status === "error" && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: "sa-note-bad", role: "alert", children: [
+        catalog.status === "error" && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("p", { className: "sa-note-bad", role: "alert", children: [
           t("panel.error"),
           " ",
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "sa-btn", onClick: onRetry, children: t("panel.retry") })
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: "sa-btn", onClick: onRetry, children: t("panel.retry") })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-body", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-list-wrap", children: [
-            catalog.status === "loading" && !catalog.settled && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "sa-empty", children: t("panel.loading") }),
-            catalog.settled && rows.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-empty", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: catalog.records.length === 0 ? t("panel.empty") : t("panel.emptyFiltered") }),
-              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "sa-hint", children: t("panel.newHint") })
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "sa-body", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "sa-list-wrap", children: [
+            catalog.status === "loading" && !catalog.settled && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "sa-empty", children: t("panel.loading") }),
+            catalog.settled && rows.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "sa-empty", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { children: catalog.records.length === 0 ? t("panel.empty") : t("panel.emptyFiltered") }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "sa-hint", children: t("panel.newHint") })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "sa-list", children: rows.map((item) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("ul", { className: "sa-list", children: rows.map((item) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
               Row,
               {
                 item,
@@ -963,7 +1008,7 @@ window.__ModuleLoader__.load({
               item.id
             )) })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "sa-detail-wrap", children: selected === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "sa-hint", children: t("panel.empty") }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "sa-detail-wrap", children: selected === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "sa-hint", children: t("panel.empty") }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
             StartupDetail,
             {
               item: selected,
@@ -1060,6 +1105,12 @@ window.__ModuleLoader__.load({
     .sa-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .sa-detail-title { font-size: 13px; font-weight: 600; color: var(--dsw-text-primary); margin: 0; }
     .sa-field { display: flex; flex-direction: column; gap: 3px; }
+    /* The shared Menu trigger stretches to the field width; the value hugs the
+       left and the chevron rides the right edge. */
+    /* \u5171\u4EAB Menu \u7684\u89E6\u53D1\u94AE\u62C9\u4F38\u5230\u5B57\u6BB5\u5BBD\u5EA6\uFF1A\u53D6\u503C\u9760\u5DE6\uFF0C\u7BAD\u5934\u8D34\u53F3\u7F18\u3002 */
+    .sa-select-trigger { width: 100%; justify-content: space-between; }
+    .sa-select-trigger svg:last-child { flex: 0 0 auto; }
+    .sa-select-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sa-field-label { font-size: 11px; color: var(--dsw-text-tertiary); }
     .sa-field-value { font-size: 12px; color: var(--dsw-text-primary); word-break: break-word; }
     .sa-field-input, .sa-field-select, .sa-field-textarea { padding: 5px 8px; font-size: 12px;

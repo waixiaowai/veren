@@ -98,12 +98,16 @@ export const PANEL_CSS = `
 .sa-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .sa-detail-title { font-size: 13px; font-weight: 600; color: var(--dsw-text-primary); margin: 0; }
 .sa-field { display: flex; flex-direction: column; gap: 3px; }
-/* The enabled row is a horizontal label+checkbox pair, not the stacked field. */
-/* 启用行是横向的"标签+勾选框"组合，不套用上下堆叠的字段布局。 */
-.sa-field-check { display: flex; flex-direction: row; align-items: center; gap: 8px; }
-.sa-field-check .sa-field-label { font-size: 12px; color: var(--dsw-text-secondary); }
-.sa-field-check input[type="checkbox"] { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: var(--dsw-accent); }
+/* The shared Menu trigger stretches to the field width; the value hugs the
+   left and the chevron rides the right edge. */
+/* 共享 Menu 的触发钮拉伸到字段宽度：取值靠左，箭头贴右缘。 */
+.sa-select-trigger { width: 100%; justify-content: space-between; }
+.sa-select-trigger svg:last-child { flex: 0 0 auto; }
+.sa-select-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sa-field-label { font-size: 11px; color: var(--dsw-text-tertiary); }
+/* The required-field asterisk rides the label in the danger tone. */
+/* 必填星号跟随标签，使用危险色。 */
+.sa-required { color: var(--dsw-danger-text); }
 .sa-field-value { font-size: 12px; color: var(--dsw-text-primary); word-break: break-word; }
 .sa-field-input, .sa-field-select, .sa-field-textarea { padding: 5px 8px; font-size: 12px;
   color: var(--dsw-text-primary); background: var(--dsw-surface-sunken);
