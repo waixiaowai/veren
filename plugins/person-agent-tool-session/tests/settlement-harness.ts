@@ -68,6 +68,8 @@ export interface FakeAgent {
   readonly steered: UserMessage[]
   readonly steer: (message: UserMessage) => void
   readonly wake: () => void
+  /** 只认领一条排队输入，模拟宿主逐个开跑排队的回合。Claims one queued input, as the host does when it starts queued turns one by one. */
+  readonly claimNext: (index?: number) => void
   readonly say: (text: string) => void
   /** 结束一个已进入 step 的轮次并广播 turn/end。Ends a stepped turn and emits `turn/end`. */
   readonly turnEnd: (reasonKind: string) => void
@@ -167,6 +169,11 @@ export function createFakeAgent(root: Context, id: string, parentSession?: strin
         agent.quiescence = deferred()
       }
       setStatus(agent, 'running')
+    },
+    claimNext: (index = 0) => {
+      const [message] = agent.inbox.nextTurn.splice(index, 1)
+      if (message === undefined) throw new Error(`claimNext: no queued input at ${index}`)
+      emit(agent, 'agent/inbox/claimed', { message, turn: 1 })
     },
     say: (text) => {
       const content = [{ type: 'text', text }]

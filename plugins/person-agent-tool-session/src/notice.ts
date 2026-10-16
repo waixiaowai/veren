@@ -37,6 +37,56 @@ export interface SessionDispatchNoticeSource {
   readonly summary: string
   /** 静止下去的那个会话。Session id of the session that settled. */
   readonly senderSessionId: SessionId
+  /**
+   * 这条通知答复的那次派发的看守句柄。可选：本字段加入之前写下的历史通知没有它，
+   * 读方必须容忍缺省。
+   * The watch handle of the dispatch this notice answers. Optional: notices written
+   * before this field existed lack it, so readers must tolerate its absence.
+   */
+  readonly watchId?: string
+  /** 被派发消息的身份，与该次派发收据里的 messageId 相同。同上，历史通知缺省。 */
+  /** Identity of the enqueued prompt, the same `messageId` the dispatch receipt reported. Absent on historical notices. */
+  readonly messageId?: string
+}
+
+/**
+ * 一次派发的归属信息：让每条回报都能对上它答复的那一次派发。
+ * One dispatch's attribution: what lets every notice answer a specific dispatch.
+ */
+export interface SettlementAttribution {
+  /** 看守句柄，与收据、`session-dispatch/start|end` 事件用的是同一身份。The watch handle, the same identity the receipt and the lifecycle events use. */
+  readonly watchId: string
+  /** 被派发消息的身份。Identity of the enqueued prompt. */
+  readonly messageId: string
+  /** 被派发的提示原文。The dispatched prompt. */
+  readonly prompt: string
+}
+
+/** 归属行里回显提示的字符上限。Character cap for the prompt echoed in the attribution line. */
+const MAX_PROMPT_ECHO_CHARS = 160
+
+/**
+ * 把提示折成一行回显：折叠空白并截断，使归属行永远只是简短的一行。
+ * Fold a prompt into one echoed line: collapse whitespace and truncate, so the
+ * attribution line stays short and single-line.
+ * @param prompt - 提示原文。The prompt.
+ * @returns 单行回显。The one-line echo.
+ */
+function echoPrompt(prompt: string): string {
+  const collapsed = prompt.replace(/\s+/g, ' ').trim()
+  return collapsed.length <= MAX_PROMPT_ECHO_CHARS
+    ? collapsed
+    : `${collapsed.slice(0, MAX_PROMPT_ECHO_CHARS - 1)}…`
+}
+
+/**
+ * 归属行：这条回报答复的是哪一次派发、调用方当时派了什么。
+ * The attribution line: which dispatch this notice answers and what it dispatched.
+ * @param attribution - 归属信息。The attribution.
+ * @returns 模型可见的一行。The model-facing line.
+ */
+function attributionLine(attribution: SettlementAttribution): string {
+  return `That report answers dispatch ${attribution.watchId} (message ${attribution.messageId}): "${echoPrompt(attribution.prompt)}".`
 }
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -120,15 +170,19 @@ function boundClosingText(blocks: readonly ContentBlock[], limit: number): Conte
 }
 
 /**
- * 建一条结算通知：开场句 + 目标的收尾文本（非文本块按官方做法剔除，父级 provider
- * 可能拒收非文本 assistant 块）。
- * Build one settlement notice: the opening line plus the target's closing text
- * (non-text blocks are excluded, as the official notice does, because a parent
- * provider may reject non-text assistant blocks).
+ * 建一条结算通知：开场句 + 归属行 + 目标的收尾文本（非文本块按官方做法剔除，父级
+ * provider 可能拒收非文本 assistant 块）。归属行让调用方永远能判断这条回报答复的是
+ * 哪一次派发，即使同一个会话上前后有过多次派发。
+ * Build one settlement notice: the opening line, the attribution line, and the
+ * target's closing text (non-text blocks are excluded, as the official notice
+ * does, because a parent provider may reject non-text assistant blocks). The
+ * attribution line lets the caller tell which dispatch a notice answers, even
+ * when one session saw several dispatches in a row.
  * @param targetSessionId - 目标会话 id。The target session id.
  * @param outcome - 下场。The outcome.
  * @param closingText - 目标的收尾文本块。The target's closing text blocks.
  * @param maxReportChars - 收尾文本的字符上限。Character cap for the closing text.
+ * @param attribution - 这条通知答复的那次派发。The dispatch this notice answers.
  * @returns 已标识的通知消息。The identified notice message.
  */
 export function createSettlementNotice(
@@ -136,12 +190,14 @@ export function createSettlementNotice(
   outcome: SessionDispatchOutcome,
   closingText: readonly ContentBlock[],
   maxReportChars: number,
+  attribution: SettlementAttribution,
 ): UserMessage {
   const summary = settlementSummary(targetSessionId, outcome)
   const text = closingText.flatMap(block => (block.type === 'text' && block.text.length > 0 ? [block] : []))
   return createUserMessage({
     content: [
       { type: 'text' as const, text: summary },
+      { type: 'text' as const, text: attributionLine(attribution) },
       ...text.length === 0
         ? [{ type: 'text' as const, text: 'It left no closing message.' }]
         : [{ type: 'text' as const, text: 'Its closing message:' }, ...boundClosingText(text, maxReportChars)],
@@ -151,6 +207,8 @@ export function createSettlementNotice(
       form: 'notice',
       summary: boundContextSummary(summary),
       senderSessionId: targetSessionId,
+      watchId: attribution.watchId,
+      messageId: attribution.messageId,
     },
   })
 }

@@ -110,7 +110,7 @@ package-import-method=copy
 ```json
 "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
 ```
-patch 文件是 loader 行数组（见 plugins\auth\cordis.patch.yml、plugins\person-agent-preset\cordis.patch.yml）；缺此声明 = 只装成普通依赖，宿主不加载
+patch 文件是 loader 行数组（见 plugins\auth\cordis.patch.yml、plugins\person-agent-bundle\cordis.patch.yml）；缺此声明 = 只装成普通依赖，宿主不加载。成员插件禁止自带 bundle：只作为普通依赖随组合包（如 person-agent-bundle）安装，由组合包统一插入配置行，避免 reconciliation 激活重复层
 5. 装完两项校验：
 ```powershell
 # a. bundle 选择列表必须含本插件

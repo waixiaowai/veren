@@ -28,14 +28,14 @@ Person Agent 预设的面向模型会话维护工具：基于 `ctx.sessionContro
 | 工具 | 参数 | 效果 |
 | --- | --- | --- |
 | `session_create` | `title?`、`presetId?`、`provider?`+`model?`、`workspaceId?` 与 `cwd?` 二选一 | 创建普通会话，然后按「先模型、后标题」的顺序补装。新会话从空白开始；工具只回报新 id，不切换会话。 |
-| `session_dispatch` | `prompt`、`sessionId?` 与 `newSession?` 二选一、`report?` | 通过宿主标准入队路径（`resolveAgent` → `agent.followup`）把一段提示投进会话并**立即返回**，绝不等目标会话。`report: true`（默认）时由看守观察到目标真正静止，再把它的收尾输出作为 follow-up 消息投回**调用方**会话；`report: false` 时什么也不回。桥梁人设把任务交给新建会话（包括第一句话）就靠它。 |
+| `session_dispatch` | `prompt`、`sessionId?` 与 `newSession?` 二选一、`report?` | 通过宿主标准入队路径（`resolveAgent` → `agent.followup`）把一段提示投进会话并**立即返回**，绝不等目标会话。`report: true`（默认）时由看守观察到目标真正静止，再把它的收尾输出作为 follow-up 消息投回**调用方**会话，并写明它答复的是哪一次派发。**一个目标同时只能有一条未结清的派发**：目标上还有没回报的派发时再派会被 `SESSION_DISPATCH_WATCH_BUSY` 拒绝；`report: false` 时什么也不回。桥梁人设把任务交给新建会话（包括第一句话）就靠它。 |
 | `session_rename` | `sessionId`、`title` | 持久修改一个会话的标题。 |
 | `session_fork` | `sessionId`、`atSeq?` | 把精确的已完成轮次前缀复制成新会话。 |
 | `session_archive` | `sessionId`、`stopActivity?` | 把会话放进归档集合；给 `stopActivity` 时停止运行中的工作而不是拒绝。 |
 | `session_unarchive` | `sessionId` | 把归档会话移回原位。 |
 | `session_pin` / `session_unpin` | `sessionId` | 维护 registry-global 置顶集合。 |
 
-错误是结构化的，带稳定 code（`SESSION_TITLE_EMPTY`、`SESSION_CREATE_LOCATION_CONFLICT`、`SESSION_MODEL_SELECTION_INCOMPLETE`、`SESSION_DISPATCH_NO_CALLER`、`SESSION_DISPATCH_PROMPT_EMPTY`、`SESSION_DISPATCH_TARGET_MISSING`、`SESSION_DISPATCH_TARGET_CONFLICT`、`SESSION_DISPATCH_TARGET_NOT_FOUND`、`SESSION_DISPATCH_CREATE_FAILED`、`SESSION_DISPATCH_CAPACITY_REACHED`）与机器可读字段；注册表层级的拒绝（会话仍在运行、归档会话置顶）原样来自宿主接缝。
+错误是结构化的，带稳定 code（`SESSION_TITLE_EMPTY`、`SESSION_CREATE_LOCATION_CONFLICT`、`SESSION_MODEL_SELECTION_INCOMPLETE`、`SESSION_DISPATCH_NO_CALLER`、`SESSION_DISPATCH_PROMPT_EMPTY`、`SESSION_DISPATCH_TARGET_MISSING`、`SESSION_DISPATCH_TARGET_CONFLICT`、`SESSION_DISPATCH_TARGET_NOT_FOUND`、`SESSION_DISPATCH_CREATE_FAILED`、`SESSION_DISPATCH_CAPACITY_REACHED`、`SESSION_DISPATCH_WATCH_BUSY`）与机器可读字段；注册表层级的拒绝（会话仍在运行、归档会话置顶）原样来自宿主接缝。
 
 ## 结算回报
 
@@ -47,6 +47,18 @@ Person Agent 预设的面向模型会话维护工具：基于 `ctx.sessionContro
 - **异步静止。** 常驻协程 `await agent.whenIdle()` 后读令牌：等待期间被换过就是 `retry`；还有输入没跑就是 `wait`（停在"下一次唤醒"上，不空转）；`ready` 才收尾。判据必须用 `whenIdle()`，因为 maintenance 任务运行期间公开状态仍是 `idle`——所以看守不订阅 `agent/status`，也不排任何定时任务。
 
 消息声明了两种来源 kind，刻意分开：`session-dispatch`（`form: 'relay'`）是调用方撰写的内容，`session-dispatch-notice`（`form: 'notice'` + `summary`）是 runtime 对目标下场的陈述。合并两者会让目标被安上它没说过的话。
+
+### 回报可归属
+
+每条通知先给一行下场陈述，紧接一行写明它答复的是哪一次派发：收据、`session-dispatch/start` 与 `session-dispatch/end` 已经在用的那个 `watchId`、被派发消息的 `messageId`，以及提示原文折叠并截断成的一行回显。同一个 `watchId` 与 `messageId` 也作为 `session-dispatch-notice` 来源的字段随消息落盘，宿主与界面因此不必解析散文就能把通知配回它的派发。这两个字段加入之前写下的历史通知两者都没有，所以读方按可选处理。
+
+### 一个目标同时只有一个未结清看守
+
+看守的判据是**整个目标会话**的静止，所以同一目标上的两个看守会在同一瞬间以同一段收尾输出定案：调用方收到两条逐字相同、谁也对不上的通知，而先跑那条任务的结果永远不会送达——会话记录里也看不出丢了什么。这条规则由看守注册表自己持有：`arm()` 在同一个同步块里查账并登记，因此对已有未结清看守的目标以 `SESSION_DISPATCH_WATCH_BUSY` 拒绝并点名那个看守；`report: false` 的派发走 `deliverGuarded()`，守的是同一条线。两种路径的拒绝都发生在**投递之前**，被拒的提示从未进入目标。
+
+`report: false` 的派发同样受此约束：被接进一个受看守会话的提示，会悄悄换掉那条待结清通知将要描述的收尾输出。
+
+支持的连派方式是：等那条点名了自己派发的通知到达，再派下一条；目标上没有未结清看守时，派发照常受理。
 
 ### 目标为什么停下
 
@@ -114,7 +126,8 @@ Person Agent 预设的面向模型会话维护工具：基于 `ctx.sessionContro
 - 看守不跨插件卸载：它由注册 effect 拥有，卸载即取消挂起的看守，且不补报。
 - 没有等待上限。一个永不静止、也永不被销毁的目标会一直被看守到卸载；`maxConcurrentWatches` 限定这类看守能积累多少个。
 - 看守会缓存目标会话在本次看守期间的事件。事件是共享的冻结值，所以这是一个引用数组而非拷贝，但一个跑得极久的目标仍会把它涨到结算为止。
-- 看守是外部观察者：它会在收尾前复查会话 seq，但不能像官方 manager 关闭子级那样关闭目标的输入准入（`runMaintenance`）。落在复查之后的投递由下一次看守汇报，而不是这一次。
+- 看守是外部观察者：它会在收尾前复查会话 seq，但不能像官方 manager 关闭子级那样关闭目标的输入准入（`runMaintenance`）。本插件自己的第二次派发在看守待结清期间会被拒绝，但从任何其它路径进来的输入——人在 GUI 里打字、到期的提醒、别的插件——仍然会落进来，而且没有下一次看守兜底，于是这条收尾输出可能描述的是这次派发根本没要求的活。
+- 带未结清看守的目标不能再接 `session_dispatch`。结合上一条：一个永不静止、也永不被销毁的目标会一直没法通过本工具派活，直到它的看守结清或插件卸载；本插件的其它工具与插件之外的路径都不受影响。
 - 看守不会像官方 manager 在父级子树正在关闭时用 `parent.inject` 那样把通知停放下来；投不出去的通知记一条 warning 后被丢弃。
 - 无法命名的下场与无法命名的 `turn/end` reason 都按 `error` 汇报、绝不报成功；该分支只能通过可扩展合并触达。
 

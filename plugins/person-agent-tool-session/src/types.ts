@@ -190,6 +190,7 @@ export type SessionToolErrorCode =
   | 'SESSION_DISPATCH_TARGET_NOT_FOUND'
   | 'SESSION_DISPATCH_CREATE_FAILED'
   | 'SESSION_DISPATCH_CAPACITY_REACHED'
+  | 'SESSION_DISPATCH_WATCH_BUSY'
 
 /** 带稳定 code 与机器可读字段的结构化错误（misconfiguration fails loud）。 */
 /** A structured error with a stable code and machine-readable fields (misconfiguration fails loud). */

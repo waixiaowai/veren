@@ -31,6 +31,8 @@
 
 `apply` 调用 `ctx.agentPresets.register(definition)`，并把返回的卸载函数交给 `ctx.effect`，插件卸载时按逆序清理定义。已存在的 Agent 保持原组成不变，只有新建会话才会使用该预设。定义由注册表按修订管理——不修改任何磁盘文件。
 
+本插件**不自带 bundle**（刻意不声明 `dsh.bundle.patch`）：它只是普通依赖，把它的行插入 profile 的那一层在 `@veren/person-agent-bundle` 里。请通过该组合包安装，或在 patch 里自行列出这一行：
+
 ```yaml
 - id: person-agent-preset
   name: '@veren/person-agent-preset'

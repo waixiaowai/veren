@@ -138,7 +138,12 @@ export function registerSessionDispatch(ctx: Context, watch: SettlementWatch): (
       + 'The prompt is queued as its own follow-up turn in the target session and wakes it. '
       + 'With report true (the default) a watcher observes the target until it is genuinely quiescent - no active '
       + 'turn and no maintenance task - and then delivers the target\'s closing output back into THIS session as a '
-      + 'follow-up message, which wakes this session again. Set report to false for fire-and-forget delivery. '
+      + 'follow-up message, which wakes this session again. Every notice names the dispatch it answers. '
+      + 'Only one dispatch per session may be outstanding: the report is the whole session\'s closing output once it '
+      + 'settles, so a second prompt sent before the first report arrives would make both reports describe the same '
+      + 'last output and would lose the earlier result. Such a dispatch is refused with SESSION_DISPATCH_WATCH_BUSY; '
+      + 'wait for the notice that names the pending dispatch and then dispatch again. '
+      + 'Set report to false for fire-and-forget delivery to a session with no outstanding report. '
       + 'This is how the bridge persona hands a created session its task. Session ids appear in the working-memory snapshot.',
     parameters: {
       sessionId: {
@@ -161,7 +166,7 @@ export function registerSessionDispatch(ctx: Context, watch: SettlementWatch): (
       },
       report: {
         type: 'boolean',
-        description: 'true (default) sends the target\'s closing output back into this session once the target settles; false dispatches only and never sends anything back.',
+        description: 'true (default) sends the target\'s closing output back into this session once the target settles; false dispatches only and never sends anything back. Either way the dispatch is refused while this session has an outstanding report for the target.',
       },
     },
     output: {
@@ -218,11 +223,32 @@ export function registerSessionDispatch(ctx: Context, watch: SettlementWatch): (
       }
       const message = createDispatchPrompt(caller.id, prompt, returnGuidance(ctx, caller.id, found.agent))
       const deliver = (): void => { found.agent.followup(message) }
-      // 挂看守与投递由注册表定序：先登记唤醒源，再投递，最后启动观察者。
-      // Arming and delivery are ordered by the registry: register the wake
-      // sources, deliver, then start the observer.
-      const watchId = reporting ? watch.arm(found.agent, caller.id, deliver) : null
-      if (!reporting) deliver()
+      // 挂看守与投递由注册表定序：先查账、再登记唤醒源、然后投递、最后启动观察者。
+      // 报告型派发把这几步并进 arm() 的同一个同步块——查账与登记之间没有 await，所以同一步
+      // 里并发发出的两条派发不可能都通过检查，第二条会被 arm() 以 WATCH_BUSY 拒绝。
+      // Arming and delivery are ordered by the registry: check, register the wake
+      // sources, deliver, then start the observer. A reporting dispatch folds those
+      // steps into one synchronous block inside arm() - no await separates the check
+      // from the registration - so two dispatches issued concurrently in one step
+      // cannot both pass and the second is refused with WATCH_BUSY.
+      let watchId: string | null = null
+      if (reporting) {
+        watchId = watch.arm({
+          agent: found.agent,
+          callerSessionId: caller.id,
+          messageId: message.id,
+          prompt,
+          deliver,
+        })
+      } else {
+        // 非报告型派发没有可登记的看守，只能靠这次同步查账挡住"提示被接进受看守会话、
+        // 换掉那条待结清报告将要描述的收尾输出"。
+        // A non-reporting dispatch has no watch to register, so this synchronous
+        // check is the only thing stopping its prompt from being accepted into a
+        // watched session and replacing what the pending report will describe as
+        // the closing output.
+        watch.deliverGuarded(targetSessionId, deliver)
+      }
       // 派发已被接受：广播开始事件，让宿主与界面无需读会话日志就能看到"已派出"。
       // The dispatch was accepted: broadcast the start event, so a host or UI sees
       // "dispatched" without reading Session logs.
@@ -252,6 +278,6 @@ export function registerSessionDispatch(ctx: Context, watch: SettlementWatch): (
 function describeReceipt(value: SessionDispatchResult): string {
   const head = `Dispatched to session ${value.sessionId} as message ${value.messageId}.`
   return value.reporting
-    ? `${head} Settlement reporting is armed as ${String(value.watchId)}: when that session is genuinely quiescent, its closing output arrives in this session as a follow-up message. Do not poll for it; end your turn or do other work.`
+    ? `${head} Settlement reporting is armed as ${String(value.watchId)}: when that session is genuinely quiescent, its closing output arrives in this session as a follow-up message that names ${String(value.watchId)}. Do not poll for it; end your turn or do other work. Dispatching to that session again before that notice arrives is refused.`
     : `${head} Settlement reporting is off: nothing will be sent back to this session.`
 }

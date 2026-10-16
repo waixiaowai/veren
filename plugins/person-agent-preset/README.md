@@ -31,6 +31,8 @@ A DSH host plugin that registers the **Person Agent** agent preset at runtime th
 
 `apply` calls `ctx.agentPresets.register(definition)` and yields the returned disposer to `ctx.effect`, so uninstalling the plugin retires the definition in reverse order. Existing Agents keep their current composition; only newly created sessions pick up the preset. Definitions are revisioned by the registry — no files on disk are modified.
 
+This plugin exposes **no bundle of its own** (`dsh.bundle.patch` is deliberately absent): it is a plain dependency, and the profile layer that inserts its row lives in `@veren/person-agent-bundle`. Compose it there, or list the row yourself in a patch:
+
 ```yaml
 - id: person-agent-preset
   name: '@veren/person-agent-preset'

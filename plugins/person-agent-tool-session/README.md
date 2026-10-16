@@ -28,14 +28,14 @@ The preset composes it as a child row (no `cordis.patch.yml` needed; the loader 
 | Tool | Arguments | Effect |
 | --- | --- | --- |
 | `session_create` | `title?`, `presetId?`, `provider?`+`model?`, `workspaceId?` xor `cwd?` | Creates an ordinary session, then installs the model selection and title in that order. The session starts empty; the new id is reported, never switched to. |
-| `session_dispatch` | `prompt`, `sessionId?` xor `newSession?`, `report?` | Delivers one prompt into the session through the host's standard enqueue path (`resolveAgent` → `agent.followup`) and **returns at once**; it never waits for that session. With `report: true` (the default) a guard observes the target until it is genuinely quiescent and then delivers its closing output back into the calling session as a follow-up message. With `report: false` nothing comes back. This is how the bridge persona hands a created session its task. |
+| `session_dispatch` | `prompt`, `sessionId?` xor `newSession?`, `report?` | Delivers one prompt into the session through the host's standard enqueue path (`resolveAgent` → `agent.followup`) and **returns at once**; it never waits for that session. With `report: true` (the default) a guard observes the target until it is genuinely quiescent and then delivers its closing output back into the calling session as a follow-up message, which names the dispatch it answers. At most one dispatch per target may be outstanding: a dispatch to a session whose report has not arrived yet is refused with `SESSION_DISPATCH_WATCH_BUSY`. With `report: false` nothing comes back. This is how the bridge persona hands a created session its task. |
 | `session_rename` | `sessionId`, `title` | Retitles one session durably. |
 | `session_fork` | `sessionId`, `atSeq?` | Copies an exact completed-turn prefix into a new session. |
 | `session_archive` | `sessionId`, `stopActivity?` | Moves a session into the archive set; with `stopActivity`, running work is stopped instead of refusing. |
 | `session_unarchive` | `sessionId` | Restores an archived session to its recorded position. |
 | `session_pin` / `session_unpin` | `sessionId` | Maintains the registry-global pin set. |
 
-Errors are structured with stable codes (`SESSION_TITLE_EMPTY`, `SESSION_CREATE_LOCATION_CONFLICT`, `SESSION_MODEL_SELECTION_INCOMPLETE`, `SESSION_DISPATCH_NO_CALLER`, `SESSION_DISPATCH_PROMPT_EMPTY`, `SESSION_DISPATCH_TARGET_MISSING`, `SESSION_DISPATCH_TARGET_CONFLICT`, `SESSION_DISPATCH_TARGET_NOT_FOUND`, `SESSION_DISPATCH_CREATE_FAILED`, `SESSION_DISPATCH_CAPACITY_REACHED`) and machine-readable fields; registry-level refusals (active session, archived pin) propagate from the host seams as-is.
+Errors are structured with stable codes (`SESSION_TITLE_EMPTY`, `SESSION_CREATE_LOCATION_CONFLICT`, `SESSION_MODEL_SELECTION_INCOMPLETE`, `SESSION_DISPATCH_NO_CALLER`, `SESSION_DISPATCH_PROMPT_EMPTY`, `SESSION_DISPATCH_TARGET_MISSING`, `SESSION_DISPATCH_TARGET_CONFLICT`, `SESSION_DISPATCH_TARGET_NOT_FOUND`, `SESSION_DISPATCH_CREATE_FAILED`, `SESSION_DISPATCH_CAPACITY_REACHED`, `SESSION_DISPATCH_WATCH_BUSY`) and machine-readable fields; registry-level refusals (active session, archived pin) propagate from the host seams as-is.
 
 ## Settlement reporting
 
@@ -47,6 +47,18 @@ The guard is modelled on the official subagent settlement observer, `watchLocalS
 - **Asynchronous quiescence.** A standing coroutine awaits `agent.whenIdle()` and then reads the token: `retry` when it was renewed during the await, `wait` when input is still pending (parking on the next wake instead of spinning), `ready` to finalize. `whenIdle()` is the authority because the public status stays `idle` while a maintenance task runs; the guard therefore subscribes to no `agent/status` and schedules no timer.
 
 Two message kinds are declared, deliberately distinct: `session-dispatch` (`form: 'relay'`) for the prompt the caller wrote, and `session-dispatch-notice` (`form: 'notice'` + `summary`) for the runtime's own account of the target's outcome. Merging them would credit the target with words it never produced.
+
+### Attributing a notice
+
+Every notice opens with the outcome line and then a second line naming the dispatch it answers: the `watchId` that the receipt, the start event, and the end event already use, the `messageId` of the enqueued prompt, and the prompt itself folded and truncated to one bounded line. The same `watchId` and `messageId` ride as fields of the notice's `session-dispatch-notice` source, so a host or UI pairs a notice with its dispatch without parsing prose. Notices written before those fields existed carry neither, so both are optional on read.
+
+### One outstanding watch per target
+
+A watch's verdict is the **whole target session's** quiescence, so two watches on one target settle on the same closing output at the same instant: the caller receives two byte-identical notices answering neither dispatch, and the earlier task's result is never delivered — with nothing in the transcript revealing the loss. The guard registry owns that rule: `arm()` checks the ledger and registers the watch inside one synchronous block, so a second reporting dispatch to that target is refused with `SESSION_DISPATCH_WATCH_BUSY`, naming the pending watch. `deliverGuarded()` holds the same line for a `report: false` dispatch. Either way the refusal happens **before** delivery, so the refused prompt never enters the target.
+
+That covers `report: false` dispatches as well: a prompt accepted into a watched session silently replaces whatever the pending notice will describe as the target's closing output.
+
+Waiting for the notice — which names its dispatch — and then dispatching again is the supported way to hand one session several tasks in a row; a target with no unsettled watch accepts a dispatch normally.
 
 ### Why the target stopped
 
@@ -114,7 +126,8 @@ A notice is delivered with the official `sendWaking` rule: `followup` when the c
 - A watch does not survive plugin unload: the guard is owned by the registration effect, so unloading cancels pending watches without reporting.
 - There is no wait deadline. A target that never becomes quiescent and is never disposed stays watched until unload; `maxConcurrentWatches` bounds how many such watches accumulate.
 - The guard buffers the target's session events for the watch's lifetime. Events are shared frozen values, so this is an array of references rather than a copy, but a very long-running target still grows it until it settles.
-- The guard is an outside observer: it re-checks the session seq before finalizing, but it cannot close the target's input admission the way the official manager closes a child's (`runMaintenance`). A delivery landing after the re-check is reported by the next watch, not by this one.
+- The guard is an outside observer: it re-checks the session seq before finalizing, but it cannot close the target's input admission the way the official manager closes a child's (`runMaintenance`). This plugin's own second dispatch onto the target is refused while a watch is pending, but input arriving through any other route — a human typing in the GUI, a scheduled follow-up, another plugin — still lands, and no later watch picks it up, so the closing output may then describe work this dispatch never asked for.
+- A target with an unsettled watch cannot receive another `session_dispatch`. Combined with the bullet above about targets that never become quiescent, such a target stays undispatchable through this tool until its watch settles or the plugin unloads; the other session tools and every route outside this plugin keep working.
 - The guard does not park a notice on a closing caller the way the official manager uses `parent.inject` when the parent subtree is shutting down; an undeliverable notice is logged and dropped.
 - Unnameable outcomes and unnameable `turn/end` reasons are reported as `error`, never as success; that arm is reachable only through a merge-extensible extension.
 

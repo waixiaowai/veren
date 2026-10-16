@@ -1,7 +1,7 @@
 {
   "name": "@veren/person-agent-preset",
   "displayName": "Person Agent Preset",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Use when a DSH deployment needs the bridge between the human and DSH: it registers the \"person-agent\" preset through ctx.agentPresets at runtime, composing a delegating chief-of-staff persona (understands the need, metacognition first, plain Simplified Chinese, hands work to sessions it creates) with workspace and session maintenance tools always on; skip it when sessions must never create or route other sessions.",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,15 +15,9 @@
   },
   "files": [
     "dist",
-    "cordis.patch.yml",
     "README.md",
     "README.cn.md"
   ],
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    }
-  },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",

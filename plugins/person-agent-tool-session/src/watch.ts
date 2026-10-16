@@ -18,6 +18,17 @@
 // maintenance task runs, which is a verdict that can be wrong), schedules
 // nothing, and compares no session ids - the wake sources live on the target
 // Agent's own scope.
+//
+// 与官方的一处刻意分歧：官方的看守独占一个子会话，"会话静止"因此等价于"这次派发干完
+// 了"；这里的目标是别人拥有、可被反复投递的会话，所以注册表强制**一个目标同时只有一个
+// 未结清的看守**，在 `arm()` / `deliverGuarded()` 里与登记同处一个同步块地查账，拒绝
+// 第二条派发。
+// One deliberate divergence from the official guard: the official one exclusively
+// owns a child session, so "the session is quiescent" equals "this dispatch
+// finished". Here the target is a session someone else owns and can hand more
+// work to, so the registry enforces **one unsettled watch per target** and
+// refuses a second dispatch inside `arm()` / `deliverGuarded()`, checking the
+// ledger in the same synchronous block as the registration.
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { emitAgentEvent, foldConsumedWork } from '@deepseek-ai/dsh-agent'
@@ -25,6 +36,7 @@ import { joinAssistantStreamText } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { createSettlementNotice, deliverNotice } from './notice.js'
+import { SessionToolError } from './types.js'
 import type { SessionDispatchOutcome } from './types.js'
 
 /** 观察者的判定结果，与官方 settlementState 同构。The observer's verdict, isomorphic to the official `settlementState`. */
@@ -51,6 +63,10 @@ interface WatchRecord {
   readonly watchId: string
   readonly targetSessionId: SessionId
   readonly callerSessionId: SessionId
+  /** 被投递消息的身份；随通知一起回报，让回报可归属。Identity of the delivered prompt; reported with the notice so the notice is attributable. */
+  readonly messageId: string
+  /** 被投递的提示原文；在通知的归属行里回显。The delivered prompt, echoed in the notice's attribution line. */
+  readonly prompt: string
   readonly armedAt: number
   /**
    * 订阅之后目标会话的事件（事件对象是共享的冻结值，所以这只是引用数组，很便宜）。
@@ -77,16 +93,71 @@ interface WatchRecord {
   settled: boolean
 }
 
+/**
+ * 武装一个看守所需的一切。Everything arming one watch needs.
+ *
+ * 一条派发一个看守，而且**一个目标同时只能有一个未结清的看守**：看守的判据是目标
+ * 会话整体静止，若同一目标上再压一条派发，两个看守会在同一瞬间以同一段收尾输出定案，
+ * 于是调用方收到两条逐字相同、谁也对不上的回报，而先跑那条任务的结果再也不会送达。
+ * `arm()` 自己完成查账，所以调用方绕不过去。
+ * One watch per dispatch, and **at most one unsettled watch per target**: the
+ * verdict is the whole target session's quiescence, so a second dispatch onto the
+ * same target would make two watches settle on the same closing output at the
+ * same instant - the caller then receives two byte-identical notices that answer
+ * neither dispatch, and the earlier task's result is never delivered at all.
+ * `arm()` performs that check itself, so no caller can bypass it.
+ */
+export interface ArmingRequest {
+  /** 目标 Agent。The target Agent. */
+  readonly agent: Agent
+  /** 调用方会话 id。The caller's session id. */
+  readonly callerSessionId: SessionId
+  /** 被投递消息的身份。Identity of the delivered prompt. */
+  readonly messageId: string
+  /** 被投递的提示原文。The delivered prompt. */
+  readonly prompt: string
+  /** 投递动作，在登记唤醒源之后、启动观察者之前执行。The delivery, run after the wake sources register and before the observer starts. */
+  readonly deliver: () => void
+}
+
 /** 结算看守注册表。The settlement-watch registry. */
 export interface SettlementWatch {
   /** 是否还能再接一个看守。Whether another watch fits the configured cap. */
   readonly hasCapacity: () => boolean
   /**
-   * 先登记唤醒源、再执行投递、最后启动观察者；三步同处一个同步块，顺序不可交换。
-   * Register the wake sources, run the delivery, then start the observer; all
-   * three run in one synchronous block and the order is not interchangeable.
+   * 先查账、再登记唤醒源、然后投递、最后启动观察者；四步同处一个同步块，顺序不可交换。
+   * 目标上已有未结清看守时以 `SESSION_DISPATCH_WATCH_BUSY` 拒绝，且不登记、不投递。
+   * Check the ledger, register the wake sources, run the delivery, then start the
+   * observer; all four run in one synchronous block and the order is not
+   * interchangeable. A target that already has an unsettled watch is refused with
+   * `SESSION_DISPATCH_WATCH_BUSY`, registering nothing and delivering nothing.
+   *
+   * 查账留在这里而不是调用方：判据由注册表持有，登记动作自己把关，调用方绕不过去；两者
+   * 又同处一个同步块，检查与登记之间不会被任何别的执行插进来。
+   * The check lives here rather than in the caller: the registry owns the verdict
+   * and the registering operation gates itself, so no caller can bypass it - and
+   * sharing one synchronous block means nothing else runs between the check and
+   * the registration.
+   * @param request - 武装请求。The arming request.
+   * @returns 看守句柄。The watch handle.
    */
-  readonly arm: (agent: Agent, callerSessionId: SessionId, deliver: () => void) => string
+  readonly arm: (request: ArmingRequest) => string
+  /**
+   * 投递一条不挂看守的派发（`report: false`）：查账与投递同处一个同步块，目标上已有未结清
+   * 看守时拒绝且不投递。
+   * Deliver a fire-and-forget dispatch (`report: false`): the check and the
+   * delivery share one synchronous block, and a target with an unsettled watch is
+   * refused without delivering.
+   *
+   * 非报告型派发没有可登记的看守，所以这一步同步查账是唯一挡住"提示被接进受看守会话、
+   * 换掉那条报告将要描述的收尾输出"的东西。
+   * A non-reporting dispatch has no watch to register, so this synchronous check is
+   * the only thing stopping a prompt from being accepted into a watched session and
+   * replacing what that report will describe as the closing output.
+   * @param targetSessionId - 目标会话 id。The target session id.
+   * @param deliver - 投递动作。The delivery.
+   */
+  readonly deliverGuarded: (targetSessionId: SessionId, deliver: () => void) => void
   /** 卸载：取消全部看守，不再回报。Unload: cancel every watch and stop reporting. */
   readonly dispose: () => void
 }
@@ -106,6 +177,46 @@ export interface SettlementWatchConfig {
 export function createSettlementWatch(ctx: Context, config: SettlementWatchConfig): SettlementWatch {
   const watches = new Map<string, WatchRecord>()
   let sequence = 0
+
+  /**
+   * 目标会话上尚未结清的看守句柄；没有时 undefined。
+   * The handle of the unsettled watch on a target session, or undefined.
+   * 已结清的看守在 settle() / disarm() 里立刻从表里摘除，所以"在表里"就等于"未结清"。
+   * A settled watch leaves the map inside settle() / disarm(), so presence in the
+   * map already means unsettled.
+   * @param targetSessionId - 目标会话 id。The target session id.
+   * @returns 看守句柄或 undefined。The watch handle, or undefined.
+   */
+  function pendingOn(targetSessionId: SessionId): string | undefined {
+    for (const record of watches.values()) {
+      if (record.targetSessionId === targetSessionId) return record.watchId
+    }
+    return undefined
+  }
+
+  /**
+   * 目标上已有未结清看守就拒绝这次投递。
+   * Refuse this delivery while the target already has an unsettled watch.
+   *
+   * 判据由注册表自己持有并在登记动作里强制执行：谁在这里登记看守，谁就必须先过这一关，
+   * 因此调用方（或将来新增的调用方）无法先查一次、再绕开检查去登记。
+   * The registry owns the verdict and enforces it inside the registering
+   * operation: whoever registers a watch here must pass this gate first, so a
+   * caller - including one added later - cannot check once and then register
+   * around the check.
+   * @param targetSessionId - 目标会话 id。The target session id.
+   */
+  function assertNoPending(targetSessionId: SessionId): void {
+    const pending = pendingOn(targetSessionId)
+    if (pending === undefined) return
+    throw new SessionToolError(
+      'SESSION_DISPATCH_WATCH_BUSY',
+      `session "${targetSessionId}" already has unsettled settlement watch "${pending}" and its closing output has not been reported back yet. `
+      + 'Delivering another prompt now would either collapse two reports onto the same last output or replace what that pending report describes. '
+      + `Wait for the notice that names "${pending}" and dispatch again.`,
+      { sessionId: targetSessionId, watchId: pending },
+    )
+  }
 
   /**
    * 唤醒观察者：结清旧令牌并换新，让「等待期间状态变过」可被观察。
@@ -201,6 +312,7 @@ export function createSettlementWatch(ctx: Context, config: SettlementWatchConfi
     const closing = closingText(record)
     const message = createSettlementNotice(
       record.targetSessionId, outcome, closing, config.maxReportChars,
+      { watchId: record.watchId, messageId: record.messageId, prompt: record.prompt },
     )
     try {
       // 目标会话已由调用方在收尾复查里 best-effort flush 过，这里只负责投递。
@@ -407,12 +519,26 @@ export function createSettlementWatch(ctx: Context, config: SettlementWatchConfi
       for (const watchId of [...watches.keys()]) disarm(watchId)
     },
 
-    arm(agent, callerSessionId, deliver) {
+    deliverGuarded(targetSessionId, deliver) {
+      assertNoPending(targetSessionId)
+      deliver()
+    },
+
+    arm(request) {
+      // 查账与登记同处一个同步块：中间没有 await，因此同一步里并发发出的两条派发不可能
+      // 都通过这里，第二条只会拿到拒绝，而且什么都没登记、什么都没投递。
+      // The check and the registration share one synchronous block: no await
+      // separates them, so two dispatches issued concurrently in one step cannot
+      // both pass - the second only gets the refusal, with nothing registered and
+      // nothing delivered.
+      assertNoPending(request.agent.id)
       const watchId = `sd-${(sequence += 1)}`
       const record: WatchRecord = {
         watchId,
-        targetSessionId: agent.id,
-        callerSessionId,
+        targetSessionId: request.agent.id,
+        callerSessionId: request.callerSessionId,
+        messageId: request.messageId,
+        prompt: request.prompt,
         armedAt: Date.now(),
         events: [],
         failureAt: undefined,
@@ -421,19 +547,19 @@ export function createSettlementWatch(ctx: Context, config: SettlementWatchConfi
         settled: false,
       }
       watches.set(watchId, record)
-      watchTarget(record, agent)
+      watchTarget(record, request.agent)
       try {
         // 投递在登记之后、观察之前，中间没有 await：目标接下来的每一次 inbox 变化
         // 都会被记进 poke，观察者既不会漏掉转换，也不会提前宣布完成。
         // Delivery sits between registration and observation with no await in
         // between, so every later inbox change is recorded in `poke` and the
         // observer can neither miss a transition nor announce completion early.
-        deliver()
+        request.deliver()
       } catch (error: unknown) {
         disarm(watchId)
         throw error
       }
-      void observe(record, agent).catch((error: unknown) => {
+      void observe(record, request.agent).catch((error: unknown) => {
         if (!record.settled) {
           ctx.logger.warn(`session-dispatch: watching "${record.targetSessionId}" failed: ${String(error)}`)
         }

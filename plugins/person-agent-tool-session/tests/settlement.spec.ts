@@ -318,14 +318,25 @@ describe('session_dispatch 结算 / settlement', () => {
   })
 
   it('通知构造是纯函数：空收尾文本与超限文本都有确定结果', () => {
-    const notice = createSettlementNotice(SessionId('s-1'), 'completed', [], 4000)
-    expect(notice.content).toEqual([
+    // 归属信息现在是必填参数：每条通知都必须写明它答复的是哪一次派发。
+    // Attribution is now a required argument: every notice must state which
+    // dispatch it answers.
+    const first = createSettlementNotice(SessionId('s-1'), 'completed', [], 4000, {
+      watchId: 'sd-1', messageId: 'm-1', prompt: 'do the work',
+    })
+    expect(first.content).toEqual([
       { type: 'text', text: 'Background session s-1 finished and will do no further work unless you send it more.' },
+      { type: 'text', text: 'That report answers dispatch sd-1 (message m-1): "do the work".' },
       { type: 'text', text: 'It left no closing message.' },
     ])
-    const bounded = createSettlementNotice(SessionId('s-2'), 'completed', [{ type: 'text', text: 'y'.repeat(50) }], 10)
-    expect((bounded.content[2] as { text: string }).text).toHaveLength(10)
-    expect((bounded.content[2] as { text: string }).text.endsWith('…')).toBe(true)
+    expect(first.source).toMatchObject({ watchId: 'sd-1', messageId: 'm-1' })
+    const bounded = createSettlementNotice(
+      SessionId('s-2'), 'completed', [{ type: 'text', text: 'y'.repeat(50) }], 10, {
+        watchId: 'sd-2', messageId: 'm-2', prompt: 'p',
+      },
+    )
+    expect((bounded.content[3] as { text: string }).text).toHaveLength(10)
+    expect((bounded.content[3] as { text: string }).text.endsWith('…')).toBe(true)
   })
 })
 
