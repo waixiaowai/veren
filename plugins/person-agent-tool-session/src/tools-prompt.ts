@@ -48,8 +48,10 @@ export function registerSessionPrompt(ctx: Context): () => void {
       description:
         'Deliver one prompt into an existing session and wake it to run. Use this to hand a task ' +
         'to a session you created — including its first message — instead of asking the user to ' +
-        'type it. With wait=true the call returns after the session goes idle; otherwise it ' +
-        'returns as soon as the prompt is accepted. ' + HINT,
+        'type it. Write the prompt as a brief: the need in the user\'s terms, what "done" looks ' +
+        'like, and room for the worker to judge the details — no technical prescriptions. ' +
+        'With wait=true the call returns after the session goes idle; otherwise it returns as ' +
+        'soon as the prompt is accepted. ' + HINT,
       parameters: {
         sessionId: { type: 'string', required: true, description: 'The session id to deliver the prompt to.' },
         prompt: { type: 'string', required: true, description: 'The prompt text, sent verbatim as one text block.' },

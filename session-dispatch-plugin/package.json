@@ -1,0 +1,50 @@
+{
+  "name": "dsh-session-dispatch",
+  "displayName": "Session Dispatch Plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Use when a session must hand work to another session without blocking itself: registers the model-facing session_dispatch tool, which enqueues a prompt in the target session and returns at once, then delivers that session's final assistant output back to the caller as an event-driven follow-up. Skip it when the caller must read the result inside the same tool call.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml",
+    "locale",
+    "icon.svg",
+    "README.md",
+    "README.cn.md"
+  ],
+  "scripts": {
+    "link-deps": "node link-deps.mjs",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-agent": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-session": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-api-session-controller": "0.2.0-rc.2",
+    "@types/node": "^26.6.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  }
+}
