@@ -7,15 +7,7 @@ debounce — a restart interrupts the work the previous start began.
 
 ## What it is
 
-A Host bundle with two rows:
-
-| Row | Package entry | Owns |
-| --- | --- | --- |
-| `startup-autostart` | `@veren/startup-autostart` | The durable items, the startup trigger, and the Typert Remote surface (`ctx.remote.startup`) a management panel reads |
-| `tool-startup-autostart` | `@veren/startup-autostart/tool` | The model-facing `startup_*` tools |
-
-The two rows are separable: a preset that wants no tools drops the tool row and
-keeps the trigger.
+This package supplies only the Host service: durable items, the startup trigger, and the Typert Remote surface (`ctx.remote.startup`). Install the optional `@veren/startup-autostart-tool` package separately when agents need the `startup_*` tools. Its loader row can be mounted selectively without changing the Host service.
 
 ## When to use it
 

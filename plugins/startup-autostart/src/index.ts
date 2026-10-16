@@ -41,6 +41,7 @@ import { StartupRuntime } from './runtime.ts'
 import type { StartupDriveReport } from './runtime.ts'
 
 export type * from './domain.ts'
+export { MAX_MESSAGE_LENGTH, MAX_NAME_LENGTH, STARTUP_ACTIONS, StartupInputError } from './domain.ts'
 export { STARTUP_DOMAIN_NAME, STARTUP_TABLE_NAME, startupDomain, startupItemSchema } from './storage.ts'
 
 declare module '@deepseek-ai/cordis' {

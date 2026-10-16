@@ -6,14 +6,7 @@
 
 ## 它是什么
 
-一个宿主组合包，含两行：
-
-| 行 id | 包入口 | 负责 |
-| --- | --- | --- |
-| `startup-autostart` | `@veren/startup-autostart` | 持久化启动项、启动触发点，以及日后管理面板要读的 Typert Remote 接口（`ctx.remote.startup`） |
-| `tool-startup-autostart` | `@veren/startup-autostart/tool` | 面向模型的 `startup_*` 工具 |
-
-两行可以拆开用：不想要工具的 preset 去掉工具行，只留触发。
+本包只提供宿主服务：持久化启动项、启动触发点，以及管理面板读取的 Typert Remote 接口（`ctx.remote.startup`）。如果 agent 需要 `startup_*` 工具，再单独安装 `@veren/startup-autostart-tool`，按需挂载它的 Loader 行即可。
 
 ## 什么时候用它
 

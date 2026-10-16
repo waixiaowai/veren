@@ -1,0 +1,5 @@
+# Install the model-facing tools as a separate loader row after the Host service.
+# 在宿主服务之后，将面向模型的工具安装为独立 Loader 行。
+- insert:
+    - id: tool-startup-autostart
+      name: '@veren/startup-autostart-tool'

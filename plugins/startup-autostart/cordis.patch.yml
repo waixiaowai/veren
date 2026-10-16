@@ -1,19 +1,8 @@
-# Startup Autostart bundle: the Host service that stores and runs startup
-# items, plus the model-facing startup_* tools.
-# 启动自启动组合包：存储并执行启动项的宿主服务，以及面向模型的 startup_* 工具。
-#
-# Two rows, one package: the service owns the trigger, the storage domain, and
-# the Typert Remote surface the management panel will read; the tool row owns
-# only the model-facing tools, so a preset that wants no tools can drop that row
-# while keeping the trigger. The service row carries no config: what a start
-# does is fixed by the items the user registered.
-# 两行、一个包：服务行持有触发点、存储域，以及日后管理面板要读的 Typert Remote
-# 接口；工具行只持有面向模型的工具，因此不想要工具的 preset 可以去掉这一行而
-# 保留触发。服务行不带 config：一次启动做什么，完全由用户登记的启动项决定。
+# The Host owns the startup trigger, storage, and management Remote surface.
+# 宿主服务持有启动触发器、存储和管理 Remote 接口。
+# Model-facing tools are an optional, separately installed plugin.
+# 面向模型的工具是可选的独立插件，需另行安装。
 
 - insert:
     - id: startup-autostart
       name: '@veren/startup-autostart'
-
-    - id: tool-startup-autostart
-      name: '@veren/startup-autostart/tool'

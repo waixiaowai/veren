@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Startup Autostart Tools",
+    "description": "Optional model-facing tools for creating, listing, updating, deleting, and running startup items through the Startup Autostart Host service."
+  }
+}

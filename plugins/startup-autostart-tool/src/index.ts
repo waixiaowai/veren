@@ -6,23 +6,27 @@
  *
  * 面向模型的 `startup_*` 工具族，作用于宿主 `ctx.startupAutostart` 服务。挂载在
  * 哪个作用域，工具就注册到哪个作用域，由 preset 决定哪些 agent 拿到它们。
- * @module @local/startup-autostart/tool
+ * @module @veren/startup-autostart-tool
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import {
   MAX_MESSAGE_LENGTH, MAX_NAME_LENGTH, STARTUP_ACTIONS, StartupInputError,
-} from './domain.ts'
-import type { StartupAction, StartupErrorCode, StartupItemView, StartupOutcome } from './domain.ts'
+} from '@veren/startup-autostart'
+import type { StartupAction, StartupErrorCode, StartupItemView, StartupOutcome } from '@veren/startup-autostart'
 
 /** Plugin name registered with the Loader. */
 export const name = 'tool-startup-autostart'
 
-/** Host services this plugin consumes; `startupAutostart` is resolved per scope. */
-export const inject = ['tools']
+/** Empty configuration: access is controlled by mounting the plugin. / 空配置：通过挂载插件控制授权。 */
+export const Config = z.object({})
+
+/** Host services this plugin consumes; `startupAutostart` is resolved per scope. / 宿主依赖按作用域解析。 */
+export const inject = ['tools', 'startupAutostart']
 
 /**
  * Every failure a startup tool reports: one of the service's stable codes, or
@@ -254,15 +258,16 @@ const ITEM_PARAMETERS = {
  * @param ctx - Context owning the `tools` registry.
  */
 export function apply(ctx: Context): void {
-  ctx.inject(['startupAutostart'], (startupCtx) => { registerStartupTools(startupCtx) })
+  ctx.effect(() => registerStartupTools(ctx), 'startup-autostart-tool:register')
 }
 
 /**
  * Register the tools in the scope that resolved the startup service.
  * @param ctx - Scope whose `startupAutostart` service the tools act through.
  */
-function registerStartupTools(ctx: Context): void {
-  ctx.tools.register(defineTool({
+function registerStartupTools(ctx: Context): () => void {
+  const disposers: (() => void)[] = []
+  disposers.push(ctx.tools.register(defineTool({
     name: 'startup_create',
     description: CREATE_DESCRIPTION,
     parameters: ITEM_PARAMETERS,
@@ -275,9 +280,9 @@ function registerStartupTools(ctx: Context): void {
       }
     },
     presentCall: args => present('Register startup item', 'other', args.name),
-  }))
+  })))
 
-  ctx.tools.register(defineTool({
+  disposers.push(ctx.tools.register(defineTool({
     name: 'startup_list',
     description: LIST_DESCRIPTION,
     parameters: {},
@@ -290,9 +295,9 @@ function registerStartupTools(ctx: Context): void {
       }
     },
     presentCall: () => present('List startup items', 'read'),
-  }))
+  })))
 
-  ctx.tools.register(defineTool({
+  disposers.push(ctx.tools.register(defineTool({
     name: 'startup_update',
     description: UPDATE_DESCRIPTION,
     parameters: {
@@ -310,9 +315,9 @@ function registerStartupTools(ctx: Context): void {
       }
     },
     presentCall: args => present('Update startup item', 'other', args.id),
-  }))
+  })))
 
-  ctx.tools.register(defineTool({
+  disposers.push(ctx.tools.register(defineTool({
     name: 'startup_delete',
     description: DELETE_DESCRIPTION,
     parameters: {
@@ -329,14 +334,14 @@ function registerStartupTools(ctx: Context): void {
       }
     },
     presentCall: args => present('Delete startup item', 'other', args.id),
-  }))
+  })))
 
-  ctx.tools.register(defineTool({
+  disposers.push(ctx.tools.register(defineTool({
     name: 'startup_run',
     description: RUN_DESCRIPTION,
     parameters: {
       id: { type: 'string', required: true, description: 'Exact startup item id.' },
-      force: { type: 'boolean', description: 'Run even while the item is inside its cooldown window.' },
+      force: { type: 'boolean', description: 'Run even when the item is disabled.' },
     },
     output: { schema: RUN_OUTPUT_SCHEMA, render: renderValue },
     async execute(args): Promise<{ id: string; outcome: StartupOutcome } | StartupToolError> {
@@ -352,5 +357,6 @@ function registerStartupTools(ctx: Context): void {
       }
     },
     presentCall: args => present('Run startup item now', 'other', args.id),
-  }))
+  })))
+  return () => { for (const dispose of disposers.reverse()) dispose() }
 }

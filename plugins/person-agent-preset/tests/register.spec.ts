@@ -48,6 +48,20 @@ describe('buildPersonAgentPreset', () => {
     expect(definition.description).toContain('bridge between the human and DSH')
   })
 
+  it('prefers a fresh or context-bearing fork without forbidding direct follow-ups', () => {
+    // 新任务倾向创建或复用上下文的 fork；纠错与后续沟通可留在原会话。
+    // Prefer create or a context-bearing fork for new work; keep corrections and follow-ups in place.
+    const definition = buildPersonAgentPreset(OPTIONS)
+    const persona = definition.plugins.find((row) => row.id === 'persona')
+    const prefix = String((persona?.config as { prefix?: string })?.prefix)
+    expect(prefix).toContain('Prefer handing a task to a newly created session, or to a fork')
+    expect(prefix).toContain('when a suitable session already contains useful context')
+    expect(prefix).toContain('choose a fresh session when that history is not relevant')
+    expect(prefix).toContain('Use a direct message to an existing session')
+    expect(prefix).toContain('correction, bug fix, clarification, small follow-up')
+    expect(prefix).toContain('Do not create or fork merely to follow a rule')
+  })
+
   it('guides instead of dictating: the persona carries no tool recipes', () => {
     // 提示词只是引导，不是员工手册：不出现逐步流程编号，也不替模型拼装
     // 工具参数——判断权留给模型本身。
