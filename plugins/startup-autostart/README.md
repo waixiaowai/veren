@@ -1,9 +1,9 @@
 # Startup Autostart
 
-Runs the work you registered once every time DeepSeek Harness finishes starting:
+Runs the work you registered every time DeepSeek Harness finishes starting:
 create a session, resume one, wake one with a message, or leave a quiet message
-in its inbox. Every item carries its own cooldown window, so restarting twice in
-a row does not deliver twice.
+in its inbox. Every enabled item runs on every successful start, with no
+debounce — a restart interrupts the work the previous start began.
 
 ## What it is
 
@@ -43,8 +43,8 @@ the file is `$DSH_HOME/storages/startup.json`. It is independent of session logs
 and of any workspace folder: deleting a project directory never deletes an item.
 
 The row the management panel reads is `tables.items`, one object per item keyed
-by its `startup-<uuid>` id, with the cooldown window, the last run instant, and
-the last outcome.
+by its `startup-<uuid>` id, with `enabled`, the last run instant, and the last
+outcome.
 
 ## Trigger
 
@@ -55,10 +55,12 @@ Two paths, because the launcher's successful-start signal is optional:
    subscription fires immediately, so an HMR reload re-arms the trigger.
 2. Plugin activation completion, when no launcher signal exists at all.
 
-Both funnel into one latched drive per activated service, and the durable
-per-item cooldown is the backstop against a second delivery inside the window.
-A failure to open the storage domain, or the absence of `appReady`, degrades to
-a logged, inert feature; it never fails the Harness boot that mounted it.
+Both funnel into one latched drive per activated service, and every delivery runs
+inside `ctx.agents.withoutInitiator`. Those two facts are the whole guard: the
+latch makes one drive per activation, and the initiator-free scope keeps a
+Session this plugin wakes from re-entering the trigger. A failure to open the
+storage domain, or the absence of `appReady`, degrades to a logged, inert
+feature; it never fails the Harness boot that mounted it.
 
 ## Profile coverage
 
@@ -74,15 +76,24 @@ left this plugin permanently pending in those profiles. An item that targets a
 preset or a workspace in such a profile records a failed run naming that reason
 instead of quietly creating a plainer Session than the item asked for.
 
-## Cooldown
+## Every start runs the item
 
-`cooldownSeconds` defaults to `900` (fifteen minutes) and is accepted from `60`
-through `604800`. Every trigger honours it, including the manual
-`startup_run` unless `force` is set.
+There is no debounce. Every successful start runs every enabled item, and
+`startup_run` is not debounced either — its only gate is `enabled`, which
+`force` overrides. A restart interrupts the sessions the items drive, so a run
+suppressed by a cooldown is work the user never gets back.
 
-The default is a fifteen-minute debounce: two restarts in one afternoon collapse
-to one run, while a restart the next morning runs normally. The attempt is
-stamped even when delivery fails, so a broken item cannot flood the log.
+The run history (`lastRunAt`, `lastOutcome`, `runCount`) is retained as a record
+of what happened; it gates nothing. `startup.json` rows written by version 1.1.0
+still carry a `cooldownSeconds` key: the record schema is open, so the key is
+stripped on read and gone after the next write, and the domain stays at version 1
+because a `single`-layout backend reads only an exactly matching stored version.
+
+The guard against a double dispatch is the latch plus the initiator-free scope:
+one drive per activated service, every delivery inside
+`ctx.agents.withoutInitiator`, so a Session the plugin wakes cannot re-enter the
+trigger. A re-activation of the plugin row — an HMR reload, a reinstall, a loader
+tree write-back — is a new activated service, so it drives again by design.
 
 ## Build and check
 
@@ -109,7 +120,7 @@ after the first frame.
 ## Install
 
 ```
-plugin_manager  install_bundle  target = @veren/startup-autostart@1.1.0
+plugin_manager  install_bundle  target = @veren/startup-autostart@1.2.0
 ```
 
 The Chinese delivery note for the person operating this plugin lives in
