@@ -1,0 +1,37 @@
+# Startup Autostart bundle: composes the whole stack in one profile layer.
+# 启动自启动组合包：用一个 profile 层装好整个技术栈。
+#
+# This bundle is the ONLY profile layer of the Startup Autostart stack: none
+# of the three member plugins declares `dsh.bundle.patch`, so the dsh plugin
+# reconciliation activates exactly this layer - installing the bundle can
+# never double-insert a row. Each member rides along as a plain dependency.
+# 本组合包是启动自启动技术栈唯一的 profile 层：三个成员插件都不声明
+# `dsh.bundle.patch`，dsh plugin 的 reconciliation 因此只会激活这一层——
+# 安装组合包绝不会重复插行。各成员只作为普通依赖随行。
+#
+# The bundle carries zero runtime code. Each `insert` row resolves by package
+# name from the bundle's own dependencies (pnpm installs them into the profile
+# alongside this bundle), so the three @veren plugins travel together as one
+# installable unit and can be toggled as one from the plugin manager.
+# 组合包零运行时代码。每条 `insert` 行按包名从组合包自身的 dependencies 解析
+# （pnpm 会把它们和组合包一起装进 profile），三个 @veren 插件因此作为一个可
+# 安装单元随行，并在插件管理页作为一个开关整体启停。
+#
+# Row order matters: the Host first (it owns the startup trigger, storage and
+# the `startup` Remote namespace), then the tools and the UI, which both talk
+# to the Host's surface.
+# 行顺序有讲究：先 Host（拥有启动触发器、存储和 `startup` Remote 命名空间），
+# 再装工具与 UI——两者都依赖 Host 提供的接口面。
+- insert:
+    # The Host: startup trigger, item storage, and the `startup` Remote API.
+    # 宿主服务：启动触发器、启动项存储以及 `startup` Remote 接口。
+    - id: startup-autostart
+      name: '@veren/startup-autostart'
+    # Model-facing tools: let agents manage startup items through the Host.
+    # 面向模型的工具：让智能体通过宿主服务管理启动项。
+    - id: tool-startup-autostart
+      name: '@veren/startup-autostart-tool'
+    # Web UI: the "startup items" sidebar page, talking to the Host.
+    # Web 界面：侧边栏"启动项"页面，与宿主服务通信。
+    - id: startup-autostart-ui
+      name: '@veren/startup-autostart-ui'

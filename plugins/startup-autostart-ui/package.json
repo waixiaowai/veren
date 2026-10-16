@@ -1,7 +1,7 @@
 {
   "name": "@veren/startup-autostart-ui",
   "displayName": "Startup Autostart UI",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "icon": "./icon.svg",
   "description": "Use when the startup-autostart Host service is installed and people need a Web page to see, edit, run, and delete startup items without asking a model - it adds the \"startup items\" sidebar entry and page to the DeepSeek Harness Web GUI; skip it for a headless, ACP, or SDK profile, where the Host service and the separate tool plugin already cover every operation.",
   "type": "module",
@@ -12,23 +12,18 @@
       "default": "./lib/client.js"
     },
     "./package.json": "./package.json",
-    "./cordis.patch.yml": "./cordis.patch.yml",
     "./icon": "./icon.svg",
     "./locale/*.json": "./locale/*.json"
   },
   "files": [
     "dist/*.js",
     "lib/client.js",
-    "cordis.patch.yml",
     "README.md",
     "README.cn.md",
     "icon.svg",
     "locale/*.json"
   ],
   "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
     "client": {
       "platform": "web",
       "inject": [

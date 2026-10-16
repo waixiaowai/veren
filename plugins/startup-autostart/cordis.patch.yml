@@ -1,8 +1,0 @@
-# The Host owns the startup trigger, storage, and management Remote surface.
-# 宿主服务持有启动触发器、存储和管理 Remote 接口。
-# Model-facing tools are an optional, separately installed plugin.
-# 面向模型的工具是可选的独立插件，需另行安装。
-
-- insert:
-    - id: startup-autostart
-      name: '@veren/startup-autostart'
