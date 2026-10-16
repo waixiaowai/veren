@@ -46,10 +46,22 @@ function logView(events: readonly SnapshotEvent[]): SessionLogView {
 }
 
 describe('renderAgentPreset', () => {
-  it('缺名回退 id、缺描述留空，不渲染 undefined', () => {
+  it('自定义预设原样用声明的元数据，不翻译', () => {
     expect(renderAgentPreset({ id: 'person-agent', name: 'Person Agent', description: '面向人类' }))
       .toBe('- Person Agent(person-agent):面向人类')
-    expect(renderAgentPreset({ id: 'minimal' })).toBe('- minimal(minimal):')
+  })
+
+  it('内置预设 id 走官方英文文案折叠', () => {
+    // 与官方 presetDisplayText 折叠一致：内置 id 的文案来自字典。
+    // Matching the official presetDisplayText fold: shipped ids resolve through
+    // the dictionary.
+    expect(renderAgentPreset({ id: 'minimal' } as never))
+      .toBe('- Minimal mode(minimal):The agent uses a terminal and image reading, with context compaction. Useful for testing and comparing its basic performance.')
+    expect(renderAgentPreset({ id: 'standard' } as never)).toContain('- Standard mode(standard):')
+  })
+
+  it('未知 id 回退到 id 本身，缺描述留空，不渲染 undefined', () => {
+    expect(renderAgentPreset({ id: 'bare' } as never)).toBe('- bare(bare):')
   })
 })
 
