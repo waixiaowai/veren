@@ -194,6 +194,15 @@ window.__ModuleLoader__.load({
       "panel.title": "\u542F\u52A8\u9879",
       "panel.subtitle": "\u6BCF\u6B21 DSH \u6210\u529F\u542F\u52A8\u540E\u81EA\u52A8\u6267\u884C\u7684\u5DE5\u4F5C\u3002\u6CA1\u6709\u9632\u6296\uFF1A\u6BCF\u6B21\u542F\u52A8\u90FD\u4F1A\u6267\u884C\u6BCF\u4E00\u6761\u542F\u7528\u9879\u3002",
       "panel.search": "\u641C\u7D22\u540D\u5B57\u3001\u6D88\u606F\u6216\u4F1A\u8BDD id",
+      "panel.sort": "\u6392\u5E8F",
+      "panel.sort.name": "\u6309\u540D\u79F0",
+      "panel.sort.createdAt": "\u6309\u521B\u5EFA\u65F6\u95F4",
+      "panel.sort.lastRunAt": "\u6309\u4E0A\u6B21\u6267\u884C",
+      "panel.sort.runCount": "\u6309\u6267\u884C\u6B21\u6570",
+      "panel.sort.asc": "\u5347\u5E8F",
+      "panel.sort.desc": "\u964D\u5E8F",
+      "panel.edit": "\u7F16\u8F91\u300C{name}\u300D",
+      "panel.edit.short": "\u7F16\u8F91",
       "panel.filter.all": "\u5168\u90E8",
       "panel.filter.enabled": "\u542F\u7528\u4E2D",
       "panel.filter.disabled": "\u5DF2\u505C\u7528",
@@ -226,6 +235,7 @@ window.__ModuleLoader__.load({
       "panel.run.failed": "\u5931\u8D25",
       "panel.detail.title": "\u542F\u52A8\u9879\u8BE6\u60C5",
       "panel.detail.close": "\u5173\u95ED\u8BE6\u60C5",
+      "panel.detail.close.short": "\u5173\u95ED",
       "panel.detail.field.id": "id",
       "panel.detail.field.name": "\u540D\u5B57",
       "panel.detail.field.enabled": "\u542F\u7528",
@@ -268,6 +278,15 @@ window.__ModuleLoader__.load({
       "panel.title": "Startup items",
       "panel.subtitle": "Work DeepSeek Harness performs every time it starts. No debounce: every enabled item runs on every start.",
       "panel.search": "Search name, message, or session id",
+      "panel.sort": "Sort",
+      "panel.sort.name": "By name",
+      "panel.sort.createdAt": "By created time",
+      "panel.sort.lastRunAt": "By last run",
+      "panel.sort.runCount": "By run count",
+      "panel.sort.asc": "Ascending",
+      "panel.sort.desc": "Descending",
+      "panel.edit": "Edit \u201C{name}\u201D",
+      "panel.edit.short": "Edit",
       "panel.filter.all": "All",
       "panel.filter.enabled": "Enabled",
       "panel.filter.disabled": "Disabled",
@@ -300,6 +319,7 @@ window.__ModuleLoader__.load({
       "panel.run.failed": "Failed",
       "panel.detail.title": "Startup item detail",
       "panel.detail.close": "Close detail",
+      "panel.detail.close.short": "Close",
       "panel.detail.field.id": "id",
       "panel.detail.field.name": "Name",
       "panel.detail.field.enabled": "Enabled",
@@ -916,6 +936,23 @@ window.__ModuleLoader__.load({
 
     // src/client/panel.tsx
     var import_jsx_runtime4 = require("react/jsx-runtime");
+    var SORT_KEYS = ["name", "createdAt", "lastRunAt", "runCount"];
+    function byText(a, b) {
+      return a.localeCompare(b, void 0, { sensitivity: "base" });
+    }
+    function compareItems(a, b, sort) {
+      const flip = sort.asc ? 1 : -1;
+      switch (sort.key) {
+        case "name":
+          return flip * byText(a.name, b.name);
+        case "createdAt":
+          return flip * byText(a.createdAt, b.createdAt);
+        case "lastRunAt":
+          return flip * byText(a.lastRunAt ?? "", b.lastRunAt ?? "");
+        case "runCount":
+          return flip * (a.runCount - b.runCount);
+      }
+    }
     function targetSummary(item, t) {
       if (item.action === "new_session") {
         if (item.cwd !== void 0) return t("panel.target.cwd", { value: item.cwd });
@@ -926,9 +963,9 @@ window.__ModuleLoader__.load({
       return t("panel.target.session", { value: item.sessionId });
     }
     function Row(props) {
-      const { item, selected, t, onSelect, onToggle } = props;
+      const { item, t, onToggle, onEdit } = props;
       const outcome = item.lastOutcome;
-      return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("li", { className: "sa-row", "aria-current": selected, children: [
+      return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("li", { className: "sa-row", "aria-current": void 0, children: [
         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
           "input",
           {
@@ -941,7 +978,7 @@ window.__ModuleLoader__.load({
             }
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("button", { type: "button", className: "sa-row-main", "aria-label": t("panel.select", { name: item.name }), onClick: onSelect, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "sa-row-main", children: [
           /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "sa-row-name", children: item.name }),
           /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: "sa-row-meta", children: [
             /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "sa-badge", children: t(`panel.action.${item.action}`) }),
@@ -954,7 +991,17 @@ window.__ModuleLoader__.load({
             outcome === void 0 ? t("panel.run.never") : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: outcome.status === "ok" ? "sa-badge sa-badge-ok" : "sa-badge sa-badge-bad", children: t(outcome.status === "ok" ? "panel.run.ok" : "panel.run.failed") }),
             item.lastRunAt === void 0 ? "" : ` \xB7 ${item.lastRunAt}`
           ] })
-        ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+          "button",
+          {
+            type: "button",
+            className: "sa-btn sa-row-edit",
+            "aria-label": t("panel.edit", { name: item.name }),
+            onClick: onEdit,
+            children: t("panel.edit.short")
+          }
+        )
       ] });
     }
     function StartupPanel(props) {
@@ -968,12 +1015,16 @@ window.__ModuleLoader__.load({
       })), [workspaces.items]);
       const [search, setSearch] = (0, import_react3.useState)("");
       const [filter, setFilter] = (0, import_react3.useState)("all");
-      const [selectedId, setSelectedId] = (0, import_react3.useState)(void 0);
+      const [sort, setSort] = (0, import_react3.useState)({ key: "name", asc: true });
+      const [editingId, setEditingId] = (0, import_react3.useState)(void 0);
       const rows = (0, import_react3.useMemo)(() => {
         const query = search.trim().toLowerCase();
-        return catalog.records.filter((item) => (filter === "all" || item.enabled === (filter === "enabled")) && (query === "" || item.name.toLowerCase().includes(query) || (item.message ?? "").toLowerCase().includes(query) || (item.sessionId ?? "").toLowerCase().includes(query)));
-      }, [catalog.records, search, filter]);
-      const selected = rows.find((item) => item.id === selectedId) ?? rows[0];
+        return catalog.records.filter((item) => (filter === "all" || item.enabled === (filter === "enabled")) && (query === "" || item.name.toLowerCase().includes(query) || (item.message ?? "").toLowerCase().includes(query) || (item.sessionId ?? "").toLowerCase().includes(query))).sort((a, b) => compareItems(a, b, sort));
+      }, [catalog.records, search, filter, sort]);
+      const editing = catalog.records.find((item) => item.id === editingId);
+      const closeDrawer = () => {
+        setEditingId(void 0);
+      };
       return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("section", { className: "sa-page", "aria-label": t("panel.title"), children: [
         /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("header", { className: "sa-head", children: [
           /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: "sa-title", children: t("panel.title") }),
@@ -996,6 +1047,30 @@ window.__ModuleLoader__.load({
           /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "sa-seg", role: "group", "aria-label": t("panel.filter.all"), children: ["all", "enabled", "disabled"].map((key) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", "aria-pressed": filter === key, onClick: () => {
             setFilter(key);
           }, children: t(`panel.filter.${key}`) }, key)) }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+            "select",
+            {
+              className: "sa-input sa-sort",
+              value: sort.key,
+              "aria-label": t("panel.sort"),
+              onChange: (event) => {
+                setSort((current) => ({ ...current, key: event.target.value }));
+              },
+              children: SORT_KEYS.map((key) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("option", { value: key, children: t(`panel.sort.${key}`) }, key))
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+            "button",
+            {
+              type: "button",
+              className: "sa-btn",
+              "aria-label": t("panel.sort"),
+              onClick: () => {
+                setSort((current) => ({ ...current, asc: !current.asc }));
+              },
+              children: t(sort.asc ? "panel.sort.asc" : "panel.sort.desc")
+            }
+          ),
           /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: "sa-btn sa-btn-primary", onClick: onNew, children: t("panel.new") })
         ] }),
         catalog.status === "error" && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("p", { className: "sa-note-bad", role: "alert", children: [
@@ -1003,43 +1078,66 @@ window.__ModuleLoader__.load({
           " ",
           /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: "sa-btn", onClick: onRetry, children: t("panel.retry") })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "sa-body", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "sa-list-wrap", children: [
-            catalog.status === "loading" && !catalog.settled && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "sa-empty", children: t("panel.loading") }),
-            catalog.settled && rows.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "sa-empty", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { children: catalog.records.length === 0 ? t("panel.empty") : t("panel.emptyFiltered") }),
-              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "sa-hint", children: t("panel.newHint") })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("ul", { className: "sa-list", children: rows.map((item) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-              Row,
-              {
-                item,
-                selected: selected?.id === item.id,
-                t,
-                onSelect: () => {
-                  setSelectedId(item.id);
-                },
-                onToggle: (enabled) => {
-                  void onUpdate({ id: item.id, enabled });
-                }
-              },
-              item.id
-            )) })
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "sa-body", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "sa-list-wrap", children: [
+          catalog.status === "loading" && !catalog.settled && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "sa-empty", children: t("panel.loading") }),
+          catalog.settled && rows.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: "sa-empty", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { children: catalog.records.length === 0 ? t("panel.empty") : t("panel.emptyFiltered") }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "sa-hint", children: t("panel.newHint") })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "sa-detail-wrap", children: selected === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: "sa-hint", children: t("panel.empty") }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-            StartupDetail,
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("ul", { className: "sa-list", children: rows.map((item) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+            Row,
             {
-              item: selected,
+              item,
               t,
-              workspaces: workspaceOptions,
-              choices,
-              onUpdate,
-              onDelete,
-              onRun
+              onToggle: (enabled) => {
+                void onUpdate({ id: item.id, enabled });
+              },
+              onEdit: () => {
+                setEditingId(item.id);
+              }
             },
-            selected.id
-          ) })
-        ] })
+            item.id
+          )) })
+        ] }) }),
+        editing !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "sa-drawer-veil", onClick: closeDrawer, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
+          "aside",
+          {
+            className: "sa-drawer",
+            role: "dialog",
+            "aria-label": t("panel.detail.title"),
+            onClick: (event) => {
+              event.stopPropagation();
+            },
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("header", { className: "sa-drawer-head", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: "sa-detail-title", children: t("panel.detail.title") }),
+                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                  "button",
+                  {
+                    type: "button",
+                    className: "sa-btn",
+                    "aria-label": t("panel.detail.close"),
+                    onClick: closeDrawer,
+                    children: t("panel.detail.close.short")
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: "sa-drawer-body", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+                StartupDetail,
+                {
+                  item: editing,
+                  t,
+                  workspaces: workspaceOptions,
+                  choices,
+                  onUpdate,
+                  onDelete,
+                  onRun
+                },
+                editing.id
+              ) })
+            ]
+          }
+        ) })
       ] });
     }
 
@@ -1091,8 +1189,11 @@ window.__ModuleLoader__.load({
     .sa-btn-primary { color: var(--dsw-text-on-accent); background: var(--dsw-accent); border-color: var(--dsw-accent); }
     .sa-btn-danger { color: var(--dsw-danger-text); border-color: var(--dsw-danger-border); }
     .sa-body { display: flex; gap: 12px; min-height: 0; flex: 1 1 auto; }
-    .sa-list-wrap { flex: 1 1 55%; min-width: 0; overflow: auto; }
-    .sa-detail-wrap { flex: 1 1 45%; min-width: 280px; overflow: auto; }
+    .sa-list-wrap { flex: 1 1 100%; min-width: 0; overflow: auto; }
+    /* Sort toolbar: the dropdown stays compact beside the direction toggle. */
+    /* \u6392\u5E8F\u5DE5\u5177\u6761\uFF1A\u4E0B\u62C9\u4FDD\u6301\u7D27\u51D1\uFF0C\u4E0E\u65B9\u5411\u5207\u6362\u6309\u94AE\u5E76\u6392\u3002 */
+    .sa-sort { flex: 0 1 auto; min-width: 0; width: auto; }
+    .sa-row-edit { flex: 0 0 auto; align-self: flex-start; }
     .sa-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
     .sa-row { display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left;
       padding: 8px 10px; cursor: pointer; border-radius: 8px;
@@ -1143,6 +1244,21 @@ window.__ModuleLoader__.load({
     .sa-note-bad { font-size: 12px; color: var(--dsw-danger-text); }
     .sa-hint { font-size: 11px; color: var(--dsw-text-tertiary); }
     .sa-empty { padding: 24px; text-align: center; font-size: 13px; color: var(--dsw-text-tertiary); }
+    /* Edit drawer: a right-side sheet over a dimming veil. Clicking the veil or
+       the close button dismisses it; clicks inside do not. The drawer scrolls its
+       own body so the list underneath keeps its scroll position. */
+    /* \u7F16\u8F91\u62BD\u5C49\uFF1A\u538B\u5728\u53D8\u6697\u906E\u7F69\u4E0A\u7684\u53F3\u4FA7\u9762\u677F\u3002\u70B9\u906E\u7F69\u6216\u5173\u95ED\u6309\u94AE\u6536\u8D77\uFF0C\u5185\u90E8\u70B9\u51FB\u4E0D\u5192\u6CE1\u3002
+       \u62BD\u5C49\u81EA\u5E26\u6EDA\u52A8\uFF0C\u5E95\u4E0B\u5217\u8868\u7684\u6EDA\u52A8\u4F4D\u7F6E\u4E0D\u53D7\u5F71\u54CD\u3002 */
+    .sa-drawer-veil { position: fixed; inset: 0; z-index: 1000;
+      background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 55%, transparent);
+      display: flex; justify-content: flex-end; }
+    .sa-drawer { width: min(420px, 92vw); height: 100%; display: flex; flex-direction: column;
+      background: var(--dsw-surface-raised); border-left: 1px solid var(--dsw-border-subtle);
+      box-shadow: -8px 0 24px color-mix(in srgb, #000 20%, transparent); }
+    .sa-drawer-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--dsw-border-subtle); }
+    .sa-drawer-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px; }
+    .sa-drawer-body .sa-detail { background: transparent; border: 0; padding: 0; }
     `;
     function installPanelStyles(ctx) {
       const doc = globalThis.document;
