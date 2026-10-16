@@ -98,6 +98,11 @@ export const PANEL_CSS = `
 .sa-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .sa-detail-title { font-size: 13px; font-weight: 600; color: var(--dsw-text-primary); margin: 0; }
 .sa-field { display: flex; flex-direction: column; gap: 3px; }
+/* The enabled row is a horizontal label+checkbox pair, not the stacked field. */
+/* 启用行是横向的"标签+勾选框"组合，不套用上下堆叠的字段布局。 */
+.sa-field-check { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+.sa-field-check .sa-field-label { font-size: 12px; color: var(--dsw-text-secondary); }
+.sa-field-check input[type="checkbox"] { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: var(--dsw-accent); }
 .sa-field-label { font-size: 11px; color: var(--dsw-text-tertiary); }
 .sa-field-value { font-size: 12px; color: var(--dsw-text-primary); word-break: break-word; }
 .sa-field-input, .sa-field-select, .sa-field-textarea { padding: 5px 8px; font-size: 12px;

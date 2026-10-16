@@ -81,7 +81,10 @@ function reported(error: { readonly code: string; readonly message: string }): s
  */
 const PanelPlugin = {
   name: 'startup-autostart:panel',
-  inject: ['remote', 'remote.startup'],
+  // Per-namespace declarations: the property proxy admits exactly the
+  // namespaces the fiber names, so plain `remote` is not enough.
+  // 按命名空间声明：属性代理只放行 fiber 点名的命名空间，单写 remote 不够。
+  inject: ['remote.startup', 'remote.agentPresets', 'remote.session'],
   /** @param ctx - panel-scope context over the mounted namespace. */
   apply(ctx: Context): void {
     // 捕获命名空间对象：本 fiber 的 inject 链里有 remote.startup，读取放行；

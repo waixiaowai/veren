@@ -148,6 +148,18 @@ export function StartupDetail({ item, t, workspaces, choices, onUpdate, onDelete
     setDraft(current => ({ ...current, [key]: value }))
     setNote(undefined)
   }
+  // The Host accepts cwd or workspaceId, never both, so picking one clears
+  // the other in the draft and the save can never send both.
+  // 宿主只接受目录或工作区其一，因此选定其一即在草稿里清空另一者，保存时绝不会
+  // 同时提交两者。
+  const editCwd = (value: string): void => {
+    setDraft(current => ({ ...current, cwd: value, workspaceId: '' }))
+    setNote(undefined)
+  }
+  const editWorkspace = (value: string): void => {
+    setDraft(current => ({ ...current, workspaceId: value, cwd: '' }))
+    setNote(undefined)
+  }
   const report = (failure: string | undefined, okText: string): void => {
     setBad(failure !== undefined)
     setNote(failure ?? okText)
@@ -200,11 +212,11 @@ export function StartupDetail({ item, t, workspaces, choices, onUpdate, onDelete
         <input id="sa-name" className="sa-field-input" value={draft.name}
           onChange={event => { edit('name', event.target.value) }} />
       </div>
-      <div className="sa-field">
-        <label className="sa-field-label" htmlFor="sa-enabled">{t('panel.detail.field.enabled')}</label>
+      <label className="sa-field sa-field-check" htmlFor="sa-enabled">
         <input id="sa-enabled" type="checkbox" checked={draft.enabled}
           onChange={event => { edit('enabled', event.target.checked) }} />
-      </div>
+        <span className="sa-field-label">{t('panel.detail.field.enabled')}</span>
+      </label>
       <div className="sa-field">
         <label className="sa-field-label" htmlFor="sa-action">{t('panel.detail.field.action')}</label>
         <select id="sa-action" className="sa-field-select" value={draft.action}
@@ -216,12 +228,12 @@ export function StartupDetail({ item, t, workspaces, choices, onUpdate, onDelete
         <div className="sa-field">
           <label className="sa-field-label" htmlFor="sa-cwd">{t('panel.detail.field.cwd')}</label>
           <input id="sa-cwd" className="sa-field-input" value={draft.cwd}
-            onChange={event => { edit('cwd', event.target.value) }} />
+            onChange={event => { editCwd(event.target.value) }} />
         </div>
         <div className="sa-field">
           <label className="sa-field-label" htmlFor="sa-ws">{t('panel.detail.field.workspace')}</label>
           <select id="sa-ws" className="sa-field-select" value={draft.workspaceId}
-            onChange={event => { edit('workspaceId', event.target.value) }}>
+            onChange={event => { editWorkspace(event.target.value) }}>
             <option value="">{t('panel.detail.unset')}</option>
             {/* A stored id that no longer resolves (deleted workspace) stays selectable until edited. */}
             {/* 已存的 id 若已无法解析（工作区被删），在编辑前仍保持可选。 */}
