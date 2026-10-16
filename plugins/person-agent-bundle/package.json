@@ -2,12 +2,21 @@
   "name": "@veren/person-agent-bundle",
   "displayName": "Person Agent Bundle",
   "version": "0.2.1",
+  "icon": "./icon.svg",
   "description": "Use when a DSH profile needs the whole Person Agent stack (bridge preset, dynamic working memory, session and workspace maintenance tools) installed and composed in one step: it is a configuration-only bundle whose patch inserts the single person-agent preset row - the delegating persona and both maintenance tool families are always on, with no toggles, and the member plugins ship as plain dependencies without bundle declarations of their own, so this patch is the stack's only profile layer; skip it when you want to compose these plugins row by row in your own patch.",
   "type": "module",
+  "exports": {
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./icon": "./icon.svg",
+    "./locale/*.json": "./locale/*.json"
+  },
   "files": [
     "cordis.patch.yml",
     "README.md",
-    "README.cn.md"
+    "README.cn.md",
+    "icon.svg",
+    "locale/*.json"
   ],
   "dsh": {
     "bundle": {
