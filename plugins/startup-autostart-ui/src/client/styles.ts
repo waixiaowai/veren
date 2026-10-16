@@ -66,8 +66,11 @@ export const PANEL_CSS = `
 .sa-btn-primary { color: var(--dsw-text-on-accent); background: var(--dsw-accent); border-color: var(--dsw-accent); }
 .sa-btn-danger { color: var(--dsw-danger-text); border-color: var(--dsw-danger-border); }
 .sa-body { display: flex; gap: 12px; min-height: 0; flex: 1 1 auto; }
-.sa-list-wrap { flex: 1 1 55%; min-width: 0; overflow: auto; }
-.sa-detail-wrap { flex: 1 1 45%; min-width: 280px; overflow: auto; }
+.sa-list-wrap { flex: 1 1 100%; min-width: 0; overflow: auto; }
+/* Sort toolbar: the dropdown stays compact beside the direction toggle. */
+/* 排序工具条：下拉保持紧凑，与方向切换按钮并排。 */
+.sa-sort { flex: 0 1 auto; min-width: 0; width: auto; }
+.sa-row-edit { flex: 0 0 auto; align-self: flex-start; }
 .sa-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .sa-row { display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left;
   padding: 8px 10px; cursor: pointer; border-radius: 8px;
@@ -118,6 +121,21 @@ export const PANEL_CSS = `
 .sa-note-bad { font-size: 12px; color: var(--dsw-danger-text); }
 .sa-hint { font-size: 11px; color: var(--dsw-text-tertiary); }
 .sa-empty { padding: 24px; text-align: center; font-size: 13px; color: var(--dsw-text-tertiary); }
+/* Edit drawer: a right-side sheet over a dimming veil. Clicking the veil or
+   the close button dismisses it; clicks inside do not. The drawer scrolls its
+   own body so the list underneath keeps its scroll position. */
+/* 编辑抽屉：压在变暗遮罩上的右侧面板。点遮罩或关闭按钮收起，内部点击不冒泡。
+   抽屉自带滚动，底下列表的滚动位置不受影响。 */
+.sa-drawer-veil { position: fixed; inset: 0; z-index: 1000;
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 55%, transparent);
+  display: flex; justify-content: flex-end; }
+.sa-drawer { width: min(420px, 92vw); height: 100%; display: flex; flex-direction: column;
+  background: var(--dsw-surface-raised); border-left: 1px solid var(--dsw-border-subtle);
+  box-shadow: -8px 0 24px color-mix(in srgb, #000 20%, transparent); }
+.sa-drawer-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--dsw-border-subtle); }
+.sa-drawer-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px; }
+.sa-drawer-body .sa-detail { background: transparent; border: 0; padding: 0; }
 `
 
 /**

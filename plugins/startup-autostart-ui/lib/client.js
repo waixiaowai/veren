@@ -230,12 +230,15 @@ window.__ModuleLoader__.load({
       "panel.detail.field.name": "\u540D\u5B57",
       "panel.detail.field.enabled": "\u542F\u7528",
       "panel.detail.field.action": "\u52A8\u4F5C",
-      "panel.detail.field.cwd": "\u76EE\u5F55",
       "panel.detail.field.workspace": "\u5DE5\u4F5C\u533A",
       "panel.detail.field.session": "\u4F1A\u8BDD id",
       "panel.detail.field.preset": "\u9884\u8BBE",
       "panel.detail.field.model": "\u6A21\u578B",
       "panel.detail.field.message": "\u6D88\u606F",
+      "panel.detail.required": "\u5FC5\u586B",
+      "panel.detail.error.nameRequired": "\u540D\u5B57\u5FC5\u586B\u3002",
+      "panel.detail.error.sessionRequired": "\u4F1A\u8BDD id \u5FC5\u586B\u3002",
+      "panel.detail.error.messageRequired": "\u8BE5\u52A8\u4F5C\u5FC5\u987B\u586B\u5199\u6D88\u606F\u3002",
       "panel.detail.field.createdAt": "\u521B\u5EFA\u65F6\u95F4",
       "panel.detail.field.updatedAt": "\u66F4\u65B0\u65F6\u95F4",
       "panel.detail.field.lastRunAt": "\u4E0A\u6B21\u6267\u884C",
@@ -301,12 +304,15 @@ window.__ModuleLoader__.load({
       "panel.detail.field.name": "Name",
       "panel.detail.field.enabled": "Enabled",
       "panel.detail.field.action": "Action",
-      "panel.detail.field.cwd": "Directory",
       "panel.detail.field.workspace": "Workspace",
       "panel.detail.field.session": "Session id",
       "panel.detail.field.preset": "Preset",
       "panel.detail.field.model": "Model",
       "panel.detail.field.message": "Message",
+      "panel.detail.required": "Required",
+      "panel.detail.error.nameRequired": "Name is required.",
+      "panel.detail.error.sessionRequired": "Session id is required.",
+      "panel.detail.error.messageRequired": "This action requires a message.",
       "panel.detail.field.createdAt": "Created",
       "panel.detail.field.updatedAt": "Updated",
       "panel.detail.field.lastRunAt": "Last run",
@@ -660,6 +666,25 @@ window.__ModuleLoader__.load({
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-field-value", children: props.value })
       ] });
     }
+    function RequiredMark(props) {
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-required", title: props.t("panel.detail.required"), children: " *" });
+    }
+    function FieldLabel(props) {
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+        props.text,
+        props.required && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(RequiredMark, { t: props.t })
+      ] });
+    }
+    function validateDraft(draft, t) {
+      if (draft.name.trim() === "") return t("panel.detail.error.nameRequired");
+      if (draft.action !== "new_session" && draft.sessionId.trim() === "") {
+        return t("panel.detail.error.sessionRequired");
+      }
+      if ((draft.action === "message_session" || draft.action === "queue_message") && draft.message.trim() === "") {
+        return t("panel.detail.error.messageRequired");
+      }
+      return void 0;
+    }
     function StartupDetail({ item, t, workspaces, choices, onUpdate, onDelete, onRun }) {
       const [draft, setDraft] = (0, import_react2.useState)(() => draftOf(item));
       const [note, setNote] = (0, import_react2.useState)(void 0);
@@ -671,19 +696,17 @@ window.__ModuleLoader__.load({
         setDraft((current) => ({ ...current, [key]: value }));
         setNote(void 0);
       };
-      const editCwd = (value) => {
-        setDraft((current) => ({ ...current, cwd: value, workspaceId: "" }));
-        setNote(void 0);
-      };
-      const editWorkspace = (value) => {
-        setDraft((current) => ({ ...current, workspaceId: value, cwd: "" }));
-        setNote(void 0);
-      };
       const report = (failure, okText) => {
         setBad(failure !== void 0);
         setNote(failure ?? okText);
       };
       const save = async () => {
+        const violation = validateDraft(draft, t);
+        if (violation !== void 0) {
+          setBad(true);
+          setNote(violation);
+          return;
+        }
         setBusy(true);
         try {
           report(await onUpdate(changedFields(item, draft, choices.models)), t("panel.detail.saved"));
@@ -719,7 +742,7 @@ window.__ModuleLoader__.load({
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-hint", children: item.id })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-field", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("label", { className: "sa-field-label", htmlFor: "sa-name", children: t("panel.detail.field.name") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("label", { className: "sa-field-label", htmlFor: "sa-name", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(FieldLabel, { required: true, text: t("panel.detail.field.name"), t }) }),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
             "input",
             {
@@ -758,27 +781,15 @@ window.__ModuleLoader__.load({
         ] }),
         draft.action === "new_session" && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-field", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("label", { className: "sa-field-label", htmlFor: "sa-cwd", children: t("panel.detail.field.cwd") }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-              "input",
-              {
-                id: "sa-cwd",
-                className: "sa-field-input",
-                value: draft.cwd,
-                onChange: (event) => {
-                  editCwd(event.target.value);
-                }
-              }
-            )
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-field", children: [
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "sa-field-label", id: "sa-ws-label", children: t("panel.detail.field.workspace") }),
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
               SelectMenu,
               {
                 ariaLabel: t("panel.detail.field.workspace"),
                 value: draft.workspaceId,
-                onChange: editWorkspace,
+                onChange: (value) => {
+                  edit("workspaceId", value);
+                },
                 options: [
                   { value: "", label: t("panel.detail.unset") },
                   // A stored id that no longer resolves (deleted workspace) stays selectable until edited.
@@ -811,7 +822,7 @@ window.__ModuleLoader__.load({
           ] })
         ] }),
         draft.action !== "new_session" && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-field", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("label", { className: "sa-field-label", htmlFor: "sa-session", children: t("panel.detail.field.session") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("label", { className: "sa-field-label", htmlFor: "sa-session", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(FieldLabel, { required: true, text: t("panel.detail.field.session"), t }) }),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
             "input",
             {
@@ -825,7 +836,14 @@ window.__ModuleLoader__.load({
           )
         ] }),
         draft.action !== "resume_session" && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "sa-field", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("label", { className: "sa-field-label", htmlFor: "sa-message", children: t("panel.detail.field.message") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("label", { className: "sa-field-label", htmlFor: "sa-message", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+            FieldLabel,
+            {
+              required: draft.action === "message_session" || draft.action === "queue_message",
+              text: t("panel.detail.field.message"),
+              t
+            }
+          ) }),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
             "textarea",
             {
@@ -1112,6 +1130,9 @@ window.__ModuleLoader__.load({
     .sa-select-trigger svg:last-child { flex: 0 0 auto; }
     .sa-select-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sa-field-label { font-size: 11px; color: var(--dsw-text-tertiary); }
+    /* The required-field asterisk rides the label in the danger tone. */
+    /* \u5FC5\u586B\u661F\u53F7\u8DDF\u968F\u6807\u7B7E\uFF0C\u4F7F\u7528\u5371\u9669\u8272\u3002 */
+    .sa-required { color: var(--dsw-danger-text); }
     .sa-field-value { font-size: 12px; color: var(--dsw-text-primary); word-break: break-word; }
     .sa-field-input, .sa-field-select, .sa-field-textarea { padding: 5px 8px; font-size: 12px;
       color: var(--dsw-text-primary); background: var(--dsw-surface-sunken);
