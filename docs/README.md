@@ -26,4 +26,4 @@ and cover cross-package topics.
 
 ## Current documents
 
-Empty — contributions are welcome following the table above.
+- [Agent Blackboard Plugin Design (Draft)](./agent-blackboard-design.md): for DSH plugin developers; prerequisites: Cordis, Presets, and Agent Teams.

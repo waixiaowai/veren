@@ -5,8 +5,9 @@ dist
 /deepseek
 deepseek/
 .pnpm-store
-
+dist-publish
 # 打包产物不入库 / Build artifacts must never be committed
 *.tgz
 *.tar.gz
 *.zip
+.e2e

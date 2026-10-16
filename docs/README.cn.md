@@ -23,4 +23,4 @@
 
 ## 当前文档清单
 
-（空 —— 欢迎按上表补充）
+- [Agent 小黑板插件设计（草案）](./agent-blackboard-design.cn.md)：面向 DSH 插件开发者；预备知识：Cordis、Preset、Agent Teams。

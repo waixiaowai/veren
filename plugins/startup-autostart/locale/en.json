@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Startup Autostart",
+    "description": "Runs the sessions you registered once every time DeepSeek Harness starts: create one, resume one, wake one with a message, or leave a quiet message in its inbox. Each item has its own cooldown window, so restarting twice in a row does not deliver twice."
+  }
+}

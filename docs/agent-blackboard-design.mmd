@@ -1,0 +1,29 @@
+flowchart TB
+  User([👤 User]) --> Preset[🧩 Agent Preset]
+  Preset --> Root[⚙️ Root Session]
+  Root --> Team[👥 Existing Agent Team]
+  Team --> Entries[📝 Blackboard Entries]
+  Entries --> Discussion[💬 Blackboard Discussion]
+  Entries --> Search[🔎 Blackboard Search]
+  Entries --> Subscription[🔔 Blackboard Subscription]
+  Subscription --> Wake[⚡ Optional Blackboard Wake]
+  Wake --> Messaging[📨 Existing Team Messaging]
+  Entries --> TaskLink[🔗 Blackboard Task Link]
+  TaskLink --> Tasks[📋 Existing Team Task Board]
+  Entries --> Storage[(💾 DSH Storage Domain)]
+  Entries --> Events[📢 ctx.emit / ctx.on]
+  Events --> Projection[🖥️ Optional Client Projection]
+  Team --> Audit[📝 DSH Session Audit]
+  Root --> Sandbox[🛡️ DSH Sandbox]
+
+  classDef actor fill:#FFE66D,stroke:#F08C00,color:#000
+  classDef primary fill:#90EE90,stroke:#2B8A3E,color:#000
+  classDef optional fill:#87CEEB,stroke:#1864AB,color:#000
+  classDef data fill:#E6E6FA,stroke:#5F3DC4,color:#000
+  classDef platform fill:#D3F9D8,stroke:#2B8A3E,color:#000
+
+  class User actor
+  class Preset,Root,Team,Entries primary
+  class Discussion,Search,Subscription,Wake,TaskLink,Projection optional
+  class Storage data
+  class Events,Messaging,Tasks,Audit,Sandbox platform
