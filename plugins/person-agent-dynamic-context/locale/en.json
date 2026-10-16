@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Person Agent Dynamic Context",
-    "description": "Keep the Person Agent working context updated with preset, model, and workspace summaries."
+    "title": "管家-上下文 (Butler Context)",
+    "description": "Keep the Butler working context updated with preset, model, and workspace summaries."
   }
 }

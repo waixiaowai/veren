@@ -65,17 +65,11 @@ window.__ModuleLoader__.load({
           subscribe(listener) {
             registry.add(listener);
             if (registry.size === 1) {
-              disposers = [deps.subscribeReset(() => {
+              disposers = [deps.subscribeChanged(() => {
+                void read();
+              }), deps.subscribeReset(() => {
                 void read();
               })];
-              if (deps.pollMs > 0) {
-                const timer = setInterval(() => {
-                  void read();
-                }, deps.pollMs);
-                disposers.push(() => {
-                  clearInterval(timer);
-                });
-              }
               void read();
             }
             return () => {
@@ -928,7 +922,7 @@ window.__ModuleLoader__.load({
 
     // src/client/index.ts
     var PANEL_ID = "startup";
-    var inject = ["slots", "locale", "remote", "uiWorkspace"];
+    var inject = ["slots", "locale", "remote", "remote.startup", "uiWorkspace"];
     function reported(error) {
       return `${error.code}: ${error.message}`;
     }
@@ -939,10 +933,10 @@ window.__ModuleLoader__.load({
       const t = ctx.locale.bind(NS);
       const catalog = createStartupCatalog({
         list: () => ctx.remote.startup.catalog(),
-        subscribeReset: (listener) => ctx.on("connection/reset", listener),
-        // See `StartupCatalogDeps.pollMs`: the Host's change notification is not
-        // forwarded to this out-of-tree bundle, so the page re-reads on a timer.
-        pollMs: 1e4
+        // The Host emits this after every committed write and the Web application
+        // forwards it, so the list follows the Host without polling.
+        subscribeChanged: (listener) => ctx.remote.$on("startup-autostart/changed", listener),
+        subscribeReset: (listener) => ctx.on("connection/reset", listener)
       });
       const onUpdate = async (request) => {
         const result = await ctx.remote.startup.update(request);

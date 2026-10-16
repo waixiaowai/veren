@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Person Agent 组合包",
-    "description": "将 Person Agent 预设、动态上下文、会话工具和工作区工具作为一个配置包组合启用。"
+    "title": "管家",
+    "description": "将管家预设、动态上下文、会话工具和工作区工具作为一个配置包组合启用。"
   }
 }

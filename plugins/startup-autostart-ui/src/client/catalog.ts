@@ -37,19 +37,17 @@ export interface StartupCatalogSnapshot {
 export interface StartupCatalogDeps {
   /** Read every stored item. */
   readonly list: () => Promise<StartupRemoteResult<readonly StartupItemView[]>>
-  /** Subscribe to a replaced transport generation. */
-  readonly subscribeReset: (listener: () => void) => () => void
   /**
-   * Re-read interval in milliseconds while a consumer is subscribed, or 0 to
-   * read only on subscription and transport reset.
+   * Subscribe to the Host's durable-change notification.
    *
-   * The Host's `startup-autostart/changed` notification cannot reach this
-   * bundle: the Web application forwards an explicit allowlist of Host events
-   * (`packages/api/remotes/src/remote-events.ts`), and this plugin lives outside
-   * that checkout. Polling while the page is open is the out-of-tree substitute,
-   * so an item the model registers still appears without user action.
+   * The Host emits `startup-autostart/changed` after every committed write, and
+   * the Web application forwards it because the event is on its allowlist
+   * (`packages/api/remotes/src/remote-events.ts`). An item the model registers
+   * with `startup_create` therefore appears without user action.
    */
-  readonly pollMs: number
+  readonly subscribeChanged: (listener: () => void) => () => void
+  /** Subscribe to a replaced transport generation, which invalidates every read. */
+  readonly subscribeReset: (listener: () => void) => () => void
 }
 
 /** Catalog observable plus the manual refresh a failure offers. */
@@ -103,11 +101,7 @@ export function createStartupCatalog(deps: StartupCatalogDeps): StartupCatalog {
       subscribe(listener) {
         registry.add(listener)
         if (registry.size === 1) {
-          disposers = [deps.subscribeReset(() => { void read() })]
-          if (deps.pollMs > 0) {
-            const timer = setInterval(() => { void read() }, deps.pollMs)
-            disposers.push(() => { clearInterval(timer) })
-          }
+          disposers = [deps.subscribeChanged(() => { void read() }), deps.subscribeReset(() => { void read() })]
           void read()
         }
         return () => {

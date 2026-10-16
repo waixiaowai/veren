@@ -49,7 +49,11 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 const PANEL_ID = 'startup' as MainPanelId
 
 /** Client services this plugin uses; `remote.startup` is mounted by `apply`. */
-export const inject = ['slots', 'locale', 'remote', 'uiWorkspace']
+// cordis 的 reflect 门禁：访问 ctx.remote.startup 必须显式声明 `remote.startup`，
+// 只声明 `remote` 会在运行期抛 "cannot get property remote.startup without inject"。
+// cordis's reflect gate: reading ctx.remote.startup requires declaring
+// `remote.startup`; declaring `remote` alone throws "without inject" at runtime.
+export const inject = ['slots', 'locale', 'remote', 'remote.startup', 'uiWorkspace']
 
 /** Render one Host failure as the panel's status line. */
 function reported(error: { readonly code: string; readonly message: string }): string {
@@ -68,10 +72,10 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
   const t = ctx.locale.bind(NS)
   const catalog = createStartupCatalog({
     list: () => ctx.remote.startup.catalog(),
+    // The Host emits this after every committed write and the Web application
+    // forwards it, so the list follows the Host without polling.
+    subscribeChanged: listener => ctx.remote.$on('startup-autostart/changed', listener),
     subscribeReset: listener => ctx.on('connection/reset', listener),
-    // See `StartupCatalogDeps.pollMs`: the Host's change notification is not
-    // forwarded to this out-of-tree bundle, so the page re-reads on a timer.
-    pollMs: 10_000,
   })
   const onUpdate = async (request: StartupItemRequest & { readonly id: string }): Promise<string | undefined> => {
     const result = await ctx.remote.startup.update(request)

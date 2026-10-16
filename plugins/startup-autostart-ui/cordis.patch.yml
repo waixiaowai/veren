@@ -1,0 +1,14 @@
+# Startup Autostart UI: the Web panel for startup items.
+# 启动自启动界面：启动项的 Web 面板。
+#
+# One row, no configuration: the row exists so the Web application discovers the
+# browser half, which talks to the `startup` Remote namespace owned by the
+# separately installed Host service. Install, disable, or remove this bundle
+# without touching the Host service or the model-facing tools.
+# 一行、无配置：这一行存在的意义是让 Web 应用发现浏览器半边，而浏览器半边与**单独安装**的
+# 宿主服务所持有的 `startup` Remote 命名空间通信。可以独立于宿主服务和模型工具安装、
+# 停用或卸载本组合包。
+
+- insert:
+    - id: startup-autostart-ui
+      name: '@veren/startup-autostart-ui'
