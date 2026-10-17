@@ -1,41 +1,53 @@
 {
-  "name": "@veren/graph-node-tool",
-  "displayName": "Veren Graph Node Tool",
+  "name": "@deepseek-ai/dsh-graph-node-tool",
   "version": "0.1.0",
-  "description": "Use when a flow must invoke a tool already registered in the DSH tool registry (ctx.tools, e.g. bash/fs/web) as a flow node: it adapts resolved flow inputs into tool arguments, runs the call through the full tools pipeline (sandbox, policies, timeout), and projects the canonical JSON value into blackboard slots; skip it when the flow only needs the built-in noop/fail/echo/subflow fixtures of @veren/graph-flow-engine.",
+  "description": "Use when a flow must invoke a tool already registered in the DSH tool registry (ctx.tools, e.g. bash/fs/web) as a flow node: it adapts resolved flow inputs into tool arguments, runs the call through the full tools pipeline (sandbox, policies, timeout), and projects the canonical JSON value into blackboard slots; skip it when the flow only needs the built-in noop/fail/echo/subflow fixtures of @deepseek-ai/dsh-graph-flow-engine.",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./types": {
+      "types": "./lib/types.d.ts",
+      "default": "./lib/types.js"
     }
   },
   "files": [
-    "dist"
+    "lib"
   ],
+  "license": "MIT",
   "scripts": {
     "build": "tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/dsh-graph-core": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-api": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-engine": "workspace:*",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
-    "@deepseek-ai/schemastery": "^3.18.4",
-    "@veren/core": "workspace:*",
-    "@veren/graph-core": "workspace:*",
-    "@veren/graph-flow-api": "workspace:*",
-    "@veren/graph-flow-engine": "workspace:*"
+    "@deepseek-ai/schemastery": "3.18.4",
+    "@veren/core": "workspace:*"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/dsh-graph-core": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-api": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-engine": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-storage": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-yaml": "workspace:*",
     "@deepseek-ai/dsh-storage": "0.2.0-rc.2",
     "@deepseek-ai/dsh-storage-domain": "0.2.0-rc.2",
     "@deepseek-ai/dsh-storage-json": "0.2.0-rc.2",
     "@deepseek-ai/dsh-system-prompt": "0.2.0-rc.2",
-    "@veren/graph-flow-storage": "workspace:*",
-    "@veren/graph-flow-yaml": "workspace:*",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
     "@veren/yaml-parser": "workspace:*"
   }
 }

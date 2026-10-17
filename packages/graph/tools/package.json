@@ -1,36 +1,48 @@
 {
-  "name": "@veren/graph-tools",
-  "displayName": "Veren Graph Tools",
+  "name": "@deepseek-ai/dsh-graph-tools",
   "version": "0.1.0",
   "description": "Use when a model-facing agent must drive the flow engine through the DSH tool registry: it registers graph_list / graph_run / graph_status over the FlowEngine capability so an agent can enumerate registered flows, start one by name and read a run's status, output and per-node records; skip it when flows are started by host code or another trigger.",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./types": {
+      "types": "./lib/types.d.ts",
+      "default": "./lib/types.js"
     }
   },
   "files": [
-    "dist"
+    "lib"
   ],
+  "license": "MIT",
   "scripts": {
     "build": "tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/dsh-graph-flow-api": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-engine": "workspace:*",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-util-values": "0.2.0-rc.2"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-util-values": "0.2.0-rc.2",
-    "@deepseek-ai/schemastery": "^3.18.4",
-    "@veren/core": "workspace:*",
-    "@veren/graph-flow-api": "workspace:*",
-    "@veren/graph-flow-engine": "workspace:*"
+    "@deepseek-ai/schemastery": "3.18.4",
+    "@veren/core": "workspace:*"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/dsh-graph-core": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-api": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-engine": "workspace:*",
     "@deepseek-ai/dsh-system-prompt": "0.2.0-rc.2",
-    "@veren/graph-core": "workspace:*"
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-util-values": "0.2.0-rc.2"
   }
 }

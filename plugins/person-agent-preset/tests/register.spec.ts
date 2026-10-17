@@ -1,5 +1,7 @@
 // 单测：预设定义合法、注册与逆序清理语义。
 // Unit tests: definition validity, registration and reverse-order disposal.
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { entryListProblem } from '@deepseek-ai/dsh-agent-preset-registry'
 import { buildPersonAgentPreset } from '../src/definition.ts'
@@ -9,6 +11,7 @@ const OPTIONS = {
   presetId: 'person-agent',
   order: 5,
   withWeb: true,
+  withSkills: true,
 }
 
 describe('buildPersonAgentPreset', () => {
@@ -98,6 +101,36 @@ describe('buildPersonAgentPreset', () => {
   it('omits the web tool when withWeb is false', () => {
     const definition = buildPersonAgentPreset({ ...OPTIONS, withWeb: false })
     expect(definition.plugins.some((row) => row.id === 'tool-web')).toBe(false)
+  })
+
+  it('loads only the packaged writing skill and keeps it inside this preset', () => {
+    // 技能来源只扫包内 skills/：不把项目或用户根技能带进个人助理。
+    // The skill source scans only the packaged skills/ directory: project and
+    // user-root skills stay out of the person-agent preset.
+    const definition = buildPersonAgentPreset(OPTIONS)
+    const filesystem = definition.plugins.find((row) => row.id === 'skill-filesystem')
+    expect(String(filesystem?.name)).toBe('@deepseek-ai/dsh-skill-filesystem')
+    const config = filesystem?.config as { includeDefaultRoots?: boolean; customSkillDirs?: string[] }
+    expect(config.includeDefaultRoots).toBe(false)
+    expect(config.customSkillDirs).toHaveLength(1)
+    expect(config.customSkillDirs?.[0]).toMatch(/skills[\\/]$/)
+    expect(definition.plugins.some((row) => row.id === 'tool-skill')).toBe(true)
+    expect(String((definition.plugins.find((row) => row.id === 'persona')?.config as { prefix?: string } | undefined)?.prefix)).toContain('renhua')
+  })
+
+  it('omits the skill rows when withSkills is false', () => {
+    const definition = buildPersonAgentPreset({ ...OPTIONS, withSkills: false })
+    expect(definition.plugins.some((row) => row.id === 'skill-filesystem')).toBe(false)
+    expect(definition.plugins.some((row) => row.id === 'tool-skill')).toBe(false)
+    expect(String((definition.plugins.find((row) => row.id === 'persona')?.config as { prefix?: string } | undefined)?.prefix)).not.toContain('renhua')
+  })
+
+  it('ships a kebab-case skill whose description names when to use it', () => {
+    const path = fileURLToPath(new URL('../skills/renhua/SKILL.md', import.meta.url))
+    const text = readFileSync(path, 'utf8')
+    expect(text).toMatch(/^---\nname: renhua\ndescription: .+\n---\n/)
+    expect(text).toContain('什么时候不该用')
+    expect(text).toContain('否定词、条件、数量、代码/路径/报错原文一律不动')
   })
 })
 

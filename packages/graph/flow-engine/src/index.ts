@@ -1,21 +1,21 @@
 /**
- * @veren/graph-flow-engine —— flow 语义层引擎。
+ * @deepseek-ai/dsh-graph-flow-engine —— flow 语义层引擎。
  *
- * @veren/graph-flow-engine — the flow semantic-layer engine.
+ * @deepseek-ai/dsh-graph-flow-engine — the flow semantic-layer engine.
  *
  * 插件入口：提供 NodeRegistry 能力（节点插件注入注册）与 FlowEngine 能力
  * （yaml/storage 等外围插件注入使用）；FlowStorage 为可选能力，由
- * @veren/graph-flow-storage 提供。
+ * @deepseek-ai/dsh-graph-flow-storage 提供。
  * The plugin entry: provides the NodeRegistry capability (node plugins
  * register into it) and the FlowEngine capability (consumed by the yaml and
  * storage plugins); FlowStorage is an optional capability provided by
- * @veren/graph-flow-storage.
+ * @deepseek-ai/dsh-graph-flow-storage.
  */
 
 import type { Context } from '@deepseek-ai/cordis';
 import { get, getOrThrow, provideValue } from '@veren/core';
-import { GraphKernelToken } from '@veren/graph-core';
-import { NodeRegistryToken } from '@veren/graph-flow-api';
+import { GraphKernelToken } from '@deepseek-ai/dsh-graph-core';
+import { NodeRegistryToken } from '@deepseek-ai/dsh-graph-flow-api';
 import { Config, FlowEngineService, FlowEngineToken, FlowStorageToken } from './service.js';
 import type { FlowEngineConfig } from './service.js';
 import { NodeRegistryImpl } from './registry.js';
@@ -24,6 +24,7 @@ export { Config, FlowEngineService, FlowEngineToken, FlowStorageToken } from './
 export type { FlowEngineConfig } from './service.js';
 export {
     createBuiltinHandlers,
+    createRunner,
     createSubflowHandler,
     echoHandler,
     failHandler,
@@ -34,14 +35,13 @@ export type { SubflowRunner } from './registry.js';
 export {
     compileFlow,
     createBlackboard,
-    createRunner,
     flowError,
     FlowError,
     resolveInputValue,
     toFlowError,
     wrapGraphError,
 } from './runtime.js';
-export type { FlowErrorCode, OutcomePorts, RunnerDeps } from './runtime.js';
+export type { DriveEnv, FlowErrorCode, OutcomePorts, RunnerDeps } from './runtime.js';
 export type {
     CompiledFlow,
     FlowEngine,
@@ -50,6 +50,7 @@ export type {
     FlowRunDetail,
     FlowRunEndPayload,
     FlowRunEventPayload,
+    FlowNodeStatusPayload,
     FlowRunHandle,
     FlowRunOptions,
     FlowRunResult,

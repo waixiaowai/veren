@@ -1,14 +1,14 @@
 /**
- * flow 运行时：结构化错误、黑板、FlowDefinition → 内核图校验、节点执行器
- * 包裹（输入映射 / 重试 / 超时 / onError / mock）。
+ * flow 运行时：结构化错误、黑板、FlowDefinition → 内核图校验、运行环境与
+ * 内核图组装。
  * The flow runtime: structured errors, the blackboard, FlowDefinition →
- * kernel-graph validation, and the node executor wrapper.
+ * kernel-graph validation, and the run environment / kernel-graph assembly.
  */
 
-import type { FlowBlackboard, FlowDefinition, FlowId, FlowNodeDef, NodeExecuteContext, NodeHandler, NodeId, NodeRegistry, RunId } from '@veren/graph-flow-api';
-import { GraphNodeError, validateGraph } from '@veren/graph-core';
-import type { GExecutor, GraphRunContext } from '@veren/graph-core';
-import type { CompiledFlow, FlowNodeDefMap } from './types.js';
+import type { FlowBlackboard, FlowDefinition, FlowId, NodeHandler, NodeId, NodeRegistry, RunId } from '@deepseek-ai/dsh-graph-flow-api';
+import { GraphNodeError, validateGraph } from '@deepseek-ai/dsh-graph-core';
+import type { GraphRunContext, GraphRunResult } from '@deepseek-ai/dsh-graph-core';
+import type { CompiledFlow, FlowNodeDefMap, FlowNodeRecord, FlowRunResult, RunEntry } from './types.js';
 
 /** flow 层稳定错误码（开放字符串便于透传工具自带 code）/ stable flow-layer error codes (open string so tool codes pass through) */
 export type FlowErrorCode =
@@ -111,6 +111,16 @@ export function compileFlow(definition: FlowDefinition, registry: NodeRegistry):
         configs.set(node.id, config);
         if (node.type === 'subflow') references.push((config as { flow: string }).flow as FlowId);
     }
+    // errorBranch 必须有命名 error 出边，否则失败无处可去（misconfiguration fails loud）
+    // errorBranch needs a named error edge; without it a failure has nowhere to go.
+    for (const node of definition.nodes) {
+        if ((node.onError ?? 'failFast') !== 'errorBranch') continue;
+        if (definition.edges.some((edge) => edge.from === node.id && edge.port === 'error')) continue;
+        throw flowError('NODE_CONFIG_INVALID', `node "${node.id}" uses errorBranch but declares no "error" output port`, {
+            flowId: definition.id,
+            nodeId: node.id,
+        });
+    }
     try {
         validateGraph(toKernelShape(definition));
     } catch (cause) {
@@ -120,7 +130,7 @@ export function compileFlow(definition: FlowDefinition, registry: NodeRegistry):
 }
 
 /** NODE_TYPE_NOT_FOUND 构造 / build the NODE_TYPE_NOT_FOUND error */
-function notFound(definition: FlowDefinition, nodeId: string, type: string, version?: number): FlowError {
+function notFound(definition: FlowDefinition, nodeId: NodeId, type: string, version?: number): FlowError {
     const wanted = version === undefined ? type : `${type}@${version}`;
     return flowError('NODE_TYPE_NOT_FOUND', `node "${nodeId}" references unregistered type "${wanted}"`, {
         flowId: definition.id,
@@ -153,6 +163,14 @@ export function wrapGraphError(cause: unknown, flowId: string): FlowError | Grap
     return flowError('NODE_FAILED', cause instanceof Error ? cause.message : String(cause), { flowId, cause });
 }
 
+/** 归一化节点产出为命名 slot / normalize a node output into named slots */
+export function toSlots(output: unknown): Record<string, unknown> {
+    if (output !== null && typeof output === 'object' && !Array.isArray(output)) {
+        return output as Record<string, unknown>;
+    }
+    return { out: output };
+}
+
 /** 运行期输出端口结论：节点落定后它激活哪些命名端口 / outcome ports: which named ports a node activates */
 export type OutcomePorts = Map<NodeId, Set<string>>;
 
@@ -170,135 +188,105 @@ export interface RunnerDeps {
     defaultTimeoutMs: number;
 }
 
-/** 归一化节点产出为命名 slot / normalize a node output into named slots */
-export function toSlots(output: unknown): Record<string, unknown> {
-    if (output !== null && typeof output === 'object' && !Array.isArray(output)) {
-        return output as Record<string, unknown>;
-    }
-    return { out: output };
+/** 一次 flow 运行的环境依赖（run 主体与执行器组装共用）/ per-run environment (shared by the run body and runner assembly) */
+export interface DriveEnv {
+    input: Record<string, unknown>;
+    mocks?: Record<NodeId, unknown>;
+    blackboard: FlowBlackboard;
+    outcomePorts: OutcomePorts;
+    isCancelled: () => boolean;
+    setCancel: (cancel: () => void) => void;
 }
 
-/**
- * 构造 GExecutor 适配器：mock 直出、输入映射解析、重试、超时、onError
- * 策略（failFast / fallback / errorBranch）、黑板写入与端口结论。
- * Build the GExecutor adapter: mock passthrough, input-mapping resolution,
- * retry, timeout, the onError policy (failFast / fallback / errorBranch),
- * blackboard writes and outcome ports.
- */
-export function createRunner(deps: RunnerDeps): GExecutor {
+/** flow 图 → 内核图：边条件组合端口结论与声明谓词 / flow graph → kernel graph: edge conditions combine outcome ports and declared predicates */
+export function toKernelGraph(compiled: CompiledFlow, blackboard: FlowBlackboard, outcomePorts: OutcomePorts) {
+    const definition = compiled.definition;
     return {
-        async execute(node, kctx): Promise<unknown> {
-            const nodeId = node.id as NodeId;
-            const signal = kctx.signal;
-            const defNode = deps.nodeDefs.get(nodeId)!;
-            if (deps.mocks && nodeId in deps.mocks) return settle(deps, nodeId, deps.mocks[nodeId]);
-            const input = resolveInputs(defNode, deps.blackboard);
-            const tries = Math.max(1, defNode.retry?.tries ?? 1);
-            for (let attempt = 1; attempt <= tries; attempt++) {
-                if (signal.aborted) throw flowError('FLOW_CANCELLED', 'cancelled before execution', runRef(deps, nodeId));
-                try {
-                    const output = await runOnce(deps, nodeId, defNode, input, kctx, signal, attempt);
-                    return settle(deps, nodeId, output);
-                } catch (cause) {
-                    if (attempt < tries) await retrySleep(defNode.retry?.backoffMs ?? 0, signal);
-                    else return settleFailure(deps, nodeId, defNode, cause);
-                }
-            }
-            throw flowError('NODE_FAILED', 'unreachable', runRef(deps, nodeId));
-        },
+        id: definition.id,
+        nodes: definition.nodes.map((node) => ({ id: node.id })),
+        edges: definition.edges.map((edge) => ({
+            from: edge.from,
+            to: edge.to,
+            // 边条件 = 命名端口结论 ∧ 声明谓词；error 端口激活时默认输出关闭
+            // edge condition = outcome port ∧ declared predicate; the default output closes once 'error' activates
+            when: (kctx: GraphRunContext) => {
+                const ports = outcomePorts.get(edge.from);
+                if (edge.port) return ports?.has(edge.port) ?? false;
+                if (ports?.has('error')) return false;
+                return edge.when ? edge.when(blackboard, kctx) : true;
+            },
+        })),
     };
 }
 
-/** 运行引用三元组 / the run reference triple */
-function runRef(deps: RunnerDeps, nodeId: NodeId): { flowId: string; runId: string; nodeId: NodeId } {
-    return { flowId: deps.flowId, runId: deps.runId, nodeId };
+/** 组装执行器依赖 / assemble the runner dependencies */
+export function runnerDeps(
+    compiled: CompiledFlow,
+    entry: RunEntry,
+    env: DriveEnv,
+    registry: NodeRegistry,
+    defaultTimeoutMs: number,
+): RunnerDeps {
+    const nodeDefs: FlowNodeDefMap = new Map(compiled.definition.nodes.map((node) => [node.id, node]));
+    return {
+        flowId: entry.flowId,
+        runId: entry.runId,
+        nodeDefs,
+        compiled,
+        registry,
+        blackboard: env.blackboard,
+        outcomePorts: env.outcomePorts,
+        mocks: env.mocks,
+        defaultTimeoutMs,
+    };
 }
 
-/** 解析显式输入映射 / resolve the explicit input mapping */
-function resolveInputs(defNode: FlowNodeDef, blackboard: FlowBlackboard): Record<string, unknown> {
-    return Object.fromEntries(
-        Object.entries(defNode.input ?? {}).map(([key, value]) => [key, resolveInputValue(value, blackboard)]),
+/** 内核节点记录 → flow 节点记录 / map a kernel node record to a flow record */
+function toFlowRecord([id, record]: [string, GraphRunResult['nodes'][string]]): [string, FlowNodeRecord] {
+    return [id, {
+        status: record.status,
+        skipReason: record.skipReason,
+        startedAt: record.startedAt,
+        endedAt: record.endedAt,
+        error: record.error ? { code: record.error.code, message: record.error.message } : undefined,
+        output: record.output,
+    }];
+}
+
+/** 内核结果 → flow 结果：节点记录、解析后的输出变量、首个错误 /
+    kernel result → flow result: node records, resolved output variables, the first error */
+export function toFlowResult(
+    compiled: CompiledFlow,
+    entry: RunEntry,
+    blackboard: FlowBlackboard,
+    kernelResult: GraphRunResult,
+): FlowRunResult {
+    const nodes = Object.fromEntries(Object.entries(kernelResult.nodes).map(toFlowRecord));
+    const output = Object.fromEntries(
+        Object.entries(compiled.definition.output ?? {}).map(([name, ref]) => [name, resolveInputValue(ref, blackboard)]),
     );
-}
-
-/** 单次尝试：nctx 组装 + 超时包裹 / one attempt: build nctx and wrap with a timeout */
-async function runOnce(
-    deps: RunnerDeps,
-    nodeId: NodeId,
-    defNode: FlowNodeDef,
-    input: Record<string, unknown>,
-    kctx: GraphRunContext,
-    signal: AbortSignal,
-    attempt: number,
-): Promise<unknown> {
-    const entry = deps.compiled.handlers.get(nodeId)!;
-    // 运行期重解析：节点类型被卸载时得到 NODE_TYPE_NOT_FOUND / re-resolve at run time
-    const handler = deps.registry.get(entry.type, entry.version);
-    if (!handler) {
-        throw flowError('NODE_TYPE_NOT_FOUND', `node "${nodeId}" references unregistered type "${entry.type}@${entry.version}"`, runRef(deps, nodeId));
-    }
-    const nctx: NodeExecuteContext = {
-        ctx: kctx,
-        flowId: deps.flowId as FlowId,
-        runId: deps.runId as RunId,
-        nodeId,
-        attempt,
-        config: deps.compiled.configs.get(nodeId),
-        blackboard: deps.blackboard,
-        signal,
+    const failure = Object.values(kernelResult.nodes).find((record) => record.error);
+    return {
+        flowId: entry.flowId,
+        runId: entry.runId,
+        status: kernelResult.status,
+        output,
+        nodes,
+        error: failure ? { code: failure.error!.code, message: failure.error!.message } : undefined,
     };
-    return withTimeout(Promise.resolve(handler.execute(input, nctx)), defNode.timeout ?? deps.defaultTimeoutMs, nodeId, deps.flowId, signal);
 }
 
-/** 成功落定：写黑板并记录端口结论 / settle success: write the blackboard and record outcome ports */
-function settle(deps: RunnerDeps, nodeId: NodeId, output: unknown): Record<string, unknown> {
-    const slots = toSlots(output);
-    for (const [slot, value] of Object.entries(slots)) deps.blackboard.write(nodeId, slot, value);
-    deps.outcomePorts.set(nodeId, new Set(Object.keys(slots)));
-    return slots;
+/** 取消：每个节点都是 cancelled（不是 skipped）/ cancel: every node is cancelled (never skipped) */
+export function cancelledRunResult(compiled: CompiledFlow, flowId: FlowId, runId: RunId): GraphRunResult {
+    const nodes = Object.fromEntries(compiled.definition.nodes.map((node) => [node.id, { id: node.id, status: 'cancelled' as const }]));
+    return { graphId: flowId, runId, status: 'cancelled', nodes };
 }
 
-/** 失败落定：按 onError 策略 / settle failure according to the onError policy */
-function settleFailure(deps: RunnerDeps, nodeId: NodeId, defNode: FlowNodeDef, cause: unknown): Record<string, unknown> {
-    const policy = defNode.onError ?? 'failFast';
-    if (policy === 'fallback') return settle(deps, nodeId, defNode.fallbackValue);
-    const error = toFlowError(cause, runRef(deps, nodeId));
-    if (policy === 'errorBranch') {
-        const summary = { code: error.code, message: error.message };
-        deps.blackboard.write(nodeId, 'error', summary);
-        deps.outcomePorts.set(nodeId, new Set(['error']));
-        return { error: summary };
-    }
-    throw error;
-}
-
-/** 可中止的重试间隔 / an abortable retry backoff */
-async function retrySleep(ms: number, signal: AbortSignal): Promise<void> {
-    if (ms <= 0) return;
-    await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(resolve, ms);
-        signal.addEventListener('abort', () => {
-            clearTimeout(timer);
-            reject(flowError('FLOW_CANCELLED', 'cancelled during backoff'));
-        }, { once: true });
-    });
-}
-
-/** 带超时与取消的执行 / execute with timeout and cancellation */
-function withTimeout<T>(work: Promise<T>, timeoutMs: number, nodeId: NodeId, flowId: string, signal: AbortSignal): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-        const timer = timeoutMs > 0
-            ? setTimeout(() => reject(flowError('NODE_TIMEOUT', `node "${nodeId}" timed out after ${timeoutMs}ms`, { flowId, nodeId })), timeoutMs)
-            : undefined;
-        const onAbort = () => reject(flowError('FLOW_CANCELLED', 'cancelled', { flowId, nodeId }));
-        signal.addEventListener('abort', onAbort, { once: true });
-        const cleanup = (): void => {
-            if (timer !== undefined) clearTimeout(timer);
-            signal.removeEventListener('abort', onAbort);
-        };
-        work.then(
-            (value) => { cleanup(); resolve(value); },
-            (cause) => { cleanup(); reject(cause); },
-        );
-    });
+/** 拒绝启动：未启动节点 skipped/run-rejected / refused start: never-started nodes are skipped */
+export function rejectedRunResult(compiled: CompiledFlow, flowId: FlowId, runId: RunId): GraphRunResult {
+    const nodes = Object.fromEntries(compiled.definition.nodes.map((node) => [
+        node.id,
+        { id: node.id, status: 'skipped' as const, skipReason: 'run-rejected' as const },
+    ]));
+    return { graphId: flowId, runId, status: 'cancelled', nodes };
 }

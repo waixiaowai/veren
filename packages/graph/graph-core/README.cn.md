@@ -1,6 +1,6 @@
-# @veren/graph-core
+# @deepseek-ai/dsh-graph-core
 
-面向 Cordis 应用的业务无关有向无环图（DAG）执行内核。当你需要执行一张"抽象节点的依赖图"——flow 引擎、pipeline、任务编排——而又不想让内核知道"节点是什么、数据怎么流"时，使用它。需要 flow 语义（类型化节点、黑板数据传递）时，请在 `@veren/graph-flow-engine` 之上适配；内核保持中立。
+面向 Cordis 应用的业务无关有向无环图（DAG）执行内核。当你需要执行一张"抽象节点的依赖图"——flow 引擎、pipeline、任务编排——而又不想让内核知道"节点是什么、数据怎么流"时，使用它。需要 flow 语义（类型化节点、黑板数据传递）时，请在 `@deepseek-ai/dsh-graph-flow-engine` 之上适配；内核保持中立。
 
 ## 提供什么
 
@@ -15,15 +15,17 @@
   - `graph/node-pre-execute` `@mode bail` —— 真值否决该节点（skipped，`pre-execute-veto`）；
   - `graph/node-post-execute` `@mode waterfall` —— 监听器修改 `envelope.output` 且**必须调用 `next()`**；
   - `graph/node-error` `@mode emit` —— 结构化错误 `{ code, graphId, runId, nodeId, cause }`；
+  - `graph/node-status` `@mode emit` —— 每次节点状态迁移（`pending`/`ready`/`running`/`completed`/`failed`/`skipped`/`cancelled`），带 `skipReason`、`error`、`startedAt`、`endedAt`；这是实时画布/CLI 的中性数据源；
   - `graph/run-end` `@mode emit` —— `{ runId, graphId, status }`。
 - **失败传播** —— 默认 fail-fast：失败节点的下游标记 `skipped`（`upstream-failure`），运行中的兄弟分支自然跑完（signal 只通知，执行方自愿响应），run 结束为 `failed`。策略可按 run 替换（`onNodeFailure`），将来 continue/retry 等策略插件化不改内核。
+- **取消** —— 外部取消把所有未落定节点记为 `cancelled`（包括从未启动的下游）；取消期间拒绝的执行方同样落 `cancelled`，且不带 `skipReason`、不发 `node-error`。fail-fast 的通知使用独立的 abort reason，因此只停止新调度，不会把运行中的兄弟分支改判。
 - **边条件** —— `when` 为 false 时跳过该边的下游子树，skipReason 记 `upstream-condition`，与失败传播区分。
 
 ## 用法
 
 ```ts
 import { Context } from '@deepseek-ai/cordis';
-import { apply, GraphKernelToken } from '@veren/graph-core';
+import { apply, GraphKernelToken } from '@deepseek-ai/dsh-graph-core';
 
 const ctx = new Context();
 await ctx.plugin(apply, { concurrency: 4 });
@@ -46,7 +48,7 @@ const result = await handle.result;
 
 ## 非目标（二期）
 
-- 不做 Client 端可视化画布 —— 中性 `Graph` 模型就是将来画布的数据源；节点布局元数据由上层附加，内核不存。Service/事件 API 为二期保留订阅面。
+- 不做 Client 端可视化画布 —— 中性 `Graph` 模型与 `graph/node-status` 仍是数据源，`@deepseek-ai/dsh-graph-flow-canvas` 把它们变成可序列化的画布/CLI 投影。节点布局元数据由上层附加，内核不存。
 - 不做迭代/循环节点、触发器、完整表达式语言（一期只有 flow 层的 `${nodeId.slot}` slot 引用）。
 - 不做节点间数据传递 —— 请在你的 `GExecutor` 内适配。
 

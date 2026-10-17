@@ -1,6 +1,6 @@
-# @veren/graph-core
+# @deepseek-ai/dsh-graph-core
 
-A business-agnostic directed-acyclic-graph (DAG) execution kernel for Cordis-based applications. Use it when you need to run a dependency graph of abstract nodes — flow engines, pipelines, task orchestration — without the kernel knowing what a node is or how data flows. If you want flow semantics (typed nodes, blackboard data passing), build them on top with `@veren/graph-flow-engine`; the kernel itself stays neutral.
+A business-agnostic directed-acyclic-graph (DAG) execution kernel for Cordis-based applications. Use it when you need to run a dependency graph of abstract nodes — flow engines, pipelines, task orchestration — without the kernel knowing what a node is or how data flows. If you want flow semantics (typed nodes, blackboard data passing), build them on top with `@deepseek-ai/dsh-graph-flow-engine`; the kernel itself stays neutral.
 
 ## What it provides
 
@@ -15,15 +15,17 @@ A business-agnostic directed-acyclic-graph (DAG) execution kernel for Cordis-bas
   - `graph/node-pre-execute` `@mode bail` — a truthy return vetoes the node (skipped, `pre-execute-veto`);
   - `graph/node-post-execute` `@mode waterfall` — listeners mutate `envelope.output` and **must call `next()`**;
   - `graph/node-error` `@mode emit` — structured error `{ code, graphId, runId, nodeId, cause }`;
+  - `graph/node-status` `@mode emit` — every node transition (`pending`/`ready`/`running`/`completed`/`failed`/`skipped`/`cancelled`) with `skipReason`, `error`, `startedAt`, `endedAt`; the neutral data source for live canvases and CLIs;
   - `graph/run-end` `@mode emit` — `{ runId, graphId, status }`.
 - **Failure propagation** — fail-fast by default: downstream of a failure is `skipped` (`upstream-failure`), running siblings finish naturally (the signal only notifies; executors opt in), the run ends `failed`. The strategy is replaceable per run via `onNodeFailure` (future continue/retry strategies plug in without kernel changes).
+- **Cancellation** — an external cancel marks every unsettled node `cancelled`, including never-started downstream nodes; a node that rejects while the cancel is in flight also lands `cancelled`, carries no `skipReason` and emits no `node-error`. The fail-fast notice uses a separate abort reason, so it stops new scheduling without relabelling running siblings.
 - **Edge conditions** — a false `when` skips that edge's downstream subtree with `upstream-condition`, distinct from failure propagation.
 
 ## Usage
 
 ```ts
 import { Context } from '@deepseek-ai/cordis';
-import { apply, GraphKernelToken } from '@veren/graph-core';
+import { apply, GraphKernelToken } from '@deepseek-ai/dsh-graph-core';
 
 const ctx = new Context();
 await ctx.plugin(apply, { concurrency: 4 });
@@ -46,7 +48,7 @@ const result = await handle.result;
 
 ## Non-goals (phase 2)
 
-- No client-side visual canvas — the neutral `Graph` model is the future canvas data source; layout metadata is attached by upper layers, never stored here. Service/event APIs keep a subscription surface for phase 2.
+- No client-side visual canvas — the neutral `Graph` model and `graph/node-status` stay the data source; `@deepseek-ai/dsh-graph-flow-canvas` turns them into a serializable canvas/CLI projection. Layout metadata is attached by upper layers, never stored here.
 - No iteration/loop nodes, no triggers, no expression language (only `${nodeId.slot}` slot references exist, at the flow layer).
 - No data passing between nodes — adapt it inside your `GExecutor`.
 

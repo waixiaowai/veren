@@ -1,6 +1,7 @@
 /target
 node_modules
 dist
+packages/graph/*/lib
 *.tsbuildinfo
 /deepseek
 deepseek/

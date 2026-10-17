@@ -1,6 +1,6 @@
-# @veren/graph-flow-yaml
+# @deepseek-ai/dsh-graph-flow-yaml
 
-在插件启动时把 YAML 文件中的 flow 定义装载进 flow 引擎。当 flow 以声明式 YAML 文档（磁盘文件）编写、并希望自动注册进 `@veren/graph-flow-engine` 时使用它——注销经 `ctx.effect` 逆序清理。flow 由代码构建或由 `@veren/graph-flow-storage` 持久化时请跳过。
+在插件启动时把 YAML 文件中的 flow 定义装载进 flow 引擎。当 flow 以声明式 YAML 文档（磁盘文件）编写、并希望自动注册进 `@deepseek-ai/dsh-graph-flow-engine` 时使用它——注销经 `ctx.effect` 逆序清理。flow 由代码构建或由 `@deepseek-ai/dsh-graph-flow-storage` 持久化时请跳过。
 
 ## 提供什么
 
@@ -28,10 +28,10 @@ output:
 
 ```ts
 import { Context } from '@deepseek-ai/cordis';
-import { apply as kernel } from '@veren/graph-core';
-import { apply as engine } from '@veren/graph-flow-engine';
+import { apply as kernel } from '@deepseek-ai/dsh-graph-core';
+import { apply as engine } from '@deepseek-ai/dsh-graph-flow-engine';
 import { apply as yamlParser } from '@veren/yaml-parser';
-import { apply as flowYaml } from '@veren/graph-flow-yaml';
+import { apply as flowYaml } from '@deepseek-ai/dsh-graph-flow-yaml';
 
 const ctx = new Context();
 await ctx.plugin(kernel);

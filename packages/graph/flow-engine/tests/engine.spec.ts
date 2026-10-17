@@ -1,42 +1,15 @@
 /**
  * flow 引擎单测：编译期错误、输入映射、mock、重试、超时、onError 策略、
- * subflow 与 flow 事件。每个用例自建 Context，保证并发安全。
- *
+ * 运行清单与运行详情。
  * Flow engine unit tests: compile-time errors, input mapping, mocks, retry,
- * timeout, onError policies, subflow and flow events. Every case builds its
- * own Context so specs stay concurrency-safe.
+ * timeout, onError policies, the run list and run details.
  */
 
 import { describe, expect, it } from 'vitest';
-import { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
-import { GraphKernelService } from '@veren/graph-core';
-import type { FlowDefinition, NodeHandler } from '@veren/graph-flow-api';
+import type { FlowDefinition, NodeHandler } from '@deepseek-ai/dsh-graph-flow-api';
 import { FlowEngineService, flowError, FlowError } from '../src/index.js';
-import { NodeRegistryImpl } from '../src/registry.js';
-
-/** 构建"内核 + 注册表 + 引擎"的最小组合 / build a minimal kernel + registry + engine stack */
-function makeEngine(config: { nodeTimeoutMs?: number } = {}) {
-    const ctx = new Context();
-    const kernel = new GraphKernelService(ctx);
-    const registry = new NodeRegistryImpl();
-    const engine = new FlowEngineService(ctx, { nodeTimeoutMs: config.nodeTimeoutMs ?? 5000 }, kernel, registry);
-    return { ctx, kernel, registry, engine };
-}
-
-/** 计数失败 handler：前 failTimes 次抛错 / a handler failing the first N attempts */
-const flakyHandler = (attempts: number[]): NodeHandler => ({
-    type: 'flaky',
-    version: 1,
-    config: z.object({}) as NodeHandler['config'],
-    execute: () => {
-        attempts.push(1);
-        if (attempts.length < 3) throw new Error('flaky');
-        return { attempt: attempts.length };
-    },
-});
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+import { flakyHandler, makeEngine, sleep } from './helpers.js';
 
 describe('compile-time validation', () => {
     it('rejects unknown node types with NODE_TYPE_NOT_FOUND', async () => {
@@ -59,6 +32,15 @@ describe('compile-time validation', () => {
             edges: [],
         };
         await expect(engine.registerFlow(def)).rejects.toMatchObject({ code: 'NODE_CONFIG_INVALID' });
+    });
+
+    it('rejects errorBranch without a declared error port', async () => {
+        const { engine } = makeEngine();
+        await expect(engine.registerFlow({
+            id: 'bad-error-branch',
+            nodes: [{ id: 'gate', type: 'fail', onError: 'errorBranch' }, { id: 'normal', type: 'noop' }],
+            edges: [{ from: 'gate', to: 'normal' }],
+        })).rejects.toMatchObject({ code: 'NODE_CONFIG_INVALID' });
     });
 
     it('detects graph cycles as FLOW_CYCLE_DETECTED and dangling edges loudly', async () => {
@@ -93,17 +75,11 @@ describe('compile-time validation', () => {
 
     it('reports mutual subflow references as FLOW_REFERENCE_CYCLE', async () => {
         const { engine } = makeEngine();
-        const sub = (flow: string): FlowDefinition => ({
-            id: flow as FlowDefinition['id'],
-            nodes: [{ id: 's', type: 'subflow', config: { flow } }],
-            edges: [],
-        });
         // A 引用 B：此时 B 未注册，先成功 / A references B: B is unknown yet, so it succeeds
         await engine.registerFlow({ id: 'fa', nodes: [{ id: 's', type: 'subflow', config: { flow: 'fb' } }], edges: [] });
         // B 引用 A：形成互引用环 / B references A: a mutual reference cycle
         await expect(engine.registerFlow({ id: 'fb', nodes: [{ id: 's', type: 'subflow', config: { flow: 'fa' } }], edges: [] }))
             .rejects.toMatchObject({ code: 'FLOW_REFERENCE_CYCLE' });
-        void sub;
     });
 });
 
@@ -145,7 +121,7 @@ describe('runs', () => {
     it('retries failures until success within the try budget', async () => {
         const { engine, registry } = makeEngine();
         const attempts: number[] = [];
-        registry.register(flakyHandler(attempts));
+        registry.register(flakyHandler(attempts, 2));
         await engine.registerFlow({
             id: 'retrying',
             nodes: [{ id: 'a', type: 'flaky', retry: { tries: 3, backoffMs: 1 } }],
@@ -153,8 +129,26 @@ describe('runs', () => {
         });
         const result = await engine.run('retrying').awaitCompletion();
         expect(result.status).toBe('completed');
-        expect(attempts.length).toBe(3);
+        // 尝试序号来自 nctx.attempt / the attempt numbers come from nctx.attempt
+        expect(attempts).toEqual([1, 2, 3]);
         expect(result.nodes['a']!.output).toEqual({ attempt: 3 });
+    });
+
+    it('stops retrying at the configured tries upper bound', async () => {
+        const { engine, registry } = makeEngine();
+        const attempts: number[] = [];
+        // failTimes = Number.MAX_SAFE_INTEGER → 每次尝试都失败 /
+        // failTimes = Number.MAX_SAFE_INTEGER → every attempt fails
+        registry.register(flakyHandler(attempts, Number.MAX_SAFE_INTEGER));
+        await engine.registerFlow({
+            id: 'bounded',
+            nodes: [{ id: 'a', type: 'flaky', retry: { tries: 2 } }],
+            edges: [],
+        });
+        const result = await engine.run('bounded').awaitCompletion();
+        expect(result.status).toBe('failed');
+        expect(attempts).toEqual([1, 2]);
+        expect(result.nodes['a']!.error!.code).toBe('NODE_FAILED');
     });
 
     it('times nodes out with NODE_TIMEOUT', async () => {
@@ -229,82 +223,6 @@ describe('runs', () => {
         expect(result.nodes['recover']!.status).toBe('skipped');
         expect(result.nodes['normal']!.status).toBe('completed');
         expect(result.nodes['normal']!.output).toEqual({ said: 'echo' });
-    });
-});
-
-describe('subflow and events', () => {
-    it('runs a referenced flow as a subflow node', async () => {
-        const { engine } = makeEngine();
-        await engine.registerFlow({
-            id: 'child',
-            nodes: [{ id: 'e', type: 'echo', config: { message: 'from-child' } }],
-            edges: [],
-            output: { said: '${e.message}' },
-        });
-        await engine.registerFlow({
-            id: 'parent',
-            nodes: [{ id: 'sub', type: 'subflow', config: { flow: 'child' } }],
-            edges: [],
-            output: { result: '${sub.out}' },
-        });
-        const result = await engine.run('parent').awaitCompletion();
-        expect(result.status).toBe('completed');
-        expect(result.output['result']).toMatchObject({ status: 'completed', output: { said: 'from-child' } });
-    });
-
-    it('flow/run-starting can refuse the run', async () => {
-        const { ctx, engine } = makeEngine();
-        ctx.on('flow/run-starting', () => true);
-        await engine.registerFlow({ id: 'blocked', nodes: [{ id: 'a', type: 'echo' }], edges: [] });
-        const result = await engine.run('blocked').awaitCompletion();
-        expect(result.status).toBe('cancelled');
-        expect(result.nodes['a']!.skipReason).toBe('run-rejected');
-    });
-
-    it('flow/run-end carries the blackboard snapshot', async () => {
-        const { ctx, engine } = makeEngine();
-        const ends: unknown[] = [];
-        ctx.on('flow/run-end', (payload) => ends.push(payload));
-        await engine.registerFlow({
-            id: 'snapshot',
-            nodes: [{ id: 'e', type: 'echo', config: { message: 'snap' } }],
-            edges: [],
-        });
-        await engine.run('snapshot').awaitCompletion();
-        expect(ends.length).toBe(1);
-        expect(ends[0]).toMatchObject({ flowId: 'snapshot', status: 'completed', blackboard: { 'e.message': 'snap' } });
-    });
-
-    it('tracks run handles: status, cancel and listRuns', async () => {
-        const { engine, registry } = makeEngine();
-        registry.register({
-            type: 'hold',
-            version: 1,
-            config: z.object({}) as NodeHandler['config'],
-            execute: (_input, nctx) =>
-                new Promise((resolve) => {
-                    nctx.signal.addEventListener('abort', () => resolve('done'), { once: true });
-                }),
-        });
-        await engine.registerFlow({
-            id: 'cancellable',
-            nodes: [{ id: 'a', type: 'hold' }, { id: 'b', type: 'noop' }],
-            edges: [{ from: 'a', to: 'b' }],
-        });
-        const handle = engine.run('cancellable');
-        expect(handle.status()).toBe('running');
-        handle.cancel();
-        const result = await handle.awaitCompletion();
-        expect(handle.status()).toBe('cancelled');
-        expect(result.status).toBe('cancelled');
-        expect(engine.listRuns().length).toBe(1);
-        expect(engine.listRuns()[0]!.status).toBe('cancelled');
-    });
-
-    it('rejects runs of unregistered flows with FLOW_NOT_FOUND', () => {
-        const { engine } = makeEngine();
-        expect(() => engine.run('nope')).toThrowError(expect.objectContaining({ code: 'FLOW_NOT_FOUND' }));
-        expect(flowError('FLOW_NOT_FOUND', 'x')).toBeInstanceOf(FlowError);
     });
 });
 

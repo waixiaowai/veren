@@ -1,7 +1,11 @@
 // Person Agent 预设定义：人类与 DSH 之间的沟通桥梁——理解需求、派活、汇报。
 // Person Agent preset definition: the bridge between the human and DSH -
 // understands needs, delegates work, reports back.
+import { fileURLToPath } from 'node:url'
 import type { PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
+
+/** Packaged writing-skill root. `skills/` sits beside `dist/` in the installed package. */
+const BUNDLED_SKILL_DIR = fileURLToPath(new URL('../skills/', import.meta.url))
 
 /** Plugin row shape the registry accepts for one child entry. */
 /** 注册表接受的单条子插件行结构。 */
@@ -18,6 +22,7 @@ export interface PresetOptions {
   presetId: string
   order: number
   withWeb: boolean
+  withSkills: boolean
 }
 
 /**
@@ -91,6 +96,13 @@ const PERSONA_PREFIX = [
 ].join(' ')
 
 /**
+ * The one carve-out from the bridge's delegating posture: text the user will
+ * read is written here, not handed off. The skill carries the actual rules.
+ * 派活姿态的唯一例外：用户要读的文字由桥梁自己写，不外包；具体规矩在技能里。
+ */
+const WRITING_SKILL_GUIDE = 'When the user asks for text other people will read — a document, letter, notice, README, or report — write it yourself and load the `renhua` skill first. Delegate tasks that need a working session; keep the wording the user will read in your own hands.'
+
+/**
  * Runtime context appended under the persona. Must stay free of `{{cwd}}` and
  * any other prompt variable: the loop does not register `{{cwd}}`, so a
  * reference here fails prompt assembly before any model request (see the
@@ -132,6 +144,22 @@ export function buildPersonAgentPreset(options: PresetOptions): PresetDefinition
   // The bridge has exactly one shape: the delegating persona and both
   // maintenance tool families are always on - there is no switch to turn
   // them off.
+  const skills: PluginRow[] = options.withSkills
+    ? [
+        // 写作技能只属于这个预设：文件系统来源只扫包内 skills/，不碰项目或用户根。
+        // The writing skill belongs to this preset alone: the filesystem source
+        // scans only the packaged skills/ directory, never project or user roots.
+        {
+          id: 'skill-filesystem',
+          name: '@deepseek-ai/dsh-skill-filesystem',
+          config: {
+            includeDefaultRoots: false,
+            customSkillDirs: [BUNDLED_SKILL_DIR],
+          },
+        },
+        { id: 'tool-skill', name: '@deepseek-ai/dsh-tool-skill' },
+      ]
+    : []
   const tools: PluginRow[] = [
     { id: 'tool-fs', name: '@deepseek-ai/dsh-tool-fs' },
     {
@@ -177,12 +205,16 @@ export function buildPersonAgentPreset(options: PresetOptions): PresetDefinition
       {
         id: 'persona',
         name: '@deepseek-ai/dsh-persona',
-        config: { prefix: PERSONA_PREFIX, suffix: PERSONA_SUFFIX },
+        config: {
+          prefix: options.withSkills ? `${PERSONA_PREFIX} ${WRITING_SKILL_GUIDE}` : PERSONA_PREFIX,
+          suffix: PERSONA_SUFFIX,
+        },
       },
       {
         id: 'dynamic-context',
         name: dynamicContextRowName,
       },
+      ...skills,
       ...tools,
     ],
   }

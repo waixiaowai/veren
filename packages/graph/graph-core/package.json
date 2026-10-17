@@ -1,32 +1,38 @@
 {
-  "name": "@veren/graph-core",
-  "displayName": "Veren Graph Core",
+  "name": "@deepseek-ai/dsh-graph-core",
   "version": "0.1.0",
-  "description": "Use when you need a business-agnostic directed-acyclic-graph execution kernel: it validates a neutral Node/Edge/Graph model, schedules nodes topologically with a concurrency cap, drives a per-node status machine, emits graph lifecycle events over the Cordis event bus, and applies a replaceable failure-propagation strategy; skip it when you want flow semantics (typed nodes, blackboard data) — those live in @veren/graph-flow-* on top of this kernel.",
+  "description": "Use when you need a business-agnostic directed-acyclic-graph execution kernel: it validates a neutral Node/Edge/Graph model, schedules nodes topologically with a concurrency cap, drives a per-node status machine, emits graph lifecycle events over the Cordis event bus, and applies a replaceable failure-propagation strategy; skip it when you want flow semantics (typed nodes, blackboard data) — those live in @deepseek-ai/dsh-graph-flow-* on top of this kernel.",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
     },
     "./types": {
-      "types": "./dist/types.d.ts",
-      "default": "./dist/types.js"
+      "types": "./lib/types.d.ts",
+      "default": "./lib/types.js"
     }
   },
   "files": [
-    "dist"
+    "lib"
   ],
+  "license": "MIT",
   "scripts": {
     "build": "tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.4"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/schemastery": "^3.18.4",
+    "@deepseek-ai/schemastery": "3.18.4",
     "@veren/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.4"
   }
 }

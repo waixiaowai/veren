@@ -1,7 +1,7 @@
 /**
- * @veren/graph-core —— 通用有向无环图执行内核的类型面。
+ * @deepseek-ai/dsh-graph-core —— 通用有向无环图执行内核的类型面。
  *
- * @veren/graph-core — type surface of the general-purpose DAG execution kernel.
+ * @deepseek-ai/dsh-graph-core — type surface of the general-purpose DAG execution kernel.
  *
  * 内核只认识中性模型（Node/Edge/Graph），对"节点是什么、数据怎么流"完全中立：
  * 不做节点类型校验、不做数据传递、不碰持久化。flow/pipeline 等语义层在此之上适配。
@@ -161,6 +161,22 @@ export interface GraphRunEndPayload {
     status: GraphRunStatus;
 }
 
+/**
+ * 节点状态迁移事件载荷：只含中性字段，画布/CLI/编辑器等上层可直接消费。
+ * Payload of a node status transition: neutral fields only, directly
+ * consumable by upper layers such as canvases, CLIs and editor plugins.
+ */
+export interface GraphNodeStatusPayload {
+    graphId: string;
+    runId: string;
+    nodeId: string;
+    status: GraphNodeStatus;
+    skipReason?: GraphSkipReason;
+    error?: GraphNodeError;
+    startedAt?: number;
+    endedAt?: number;
+}
+
 // 生命周期事件：类型经 declaration merging 定义，JSDoc 标注 @mode。
 // Lifecycle events: typed via declaration merging; JSDoc carries the @mode.
 declare module '@deepseek-ai/cordis' {
@@ -192,6 +208,12 @@ declare module '@deepseek-ai/cordis' {
         ): unknown;
         /** 节点失败：结构化错误（code/graphId/runId/nodeId/cause）。@mode emit */
         'graph/node-error'(error: GraphNodeError): void;
+        /**
+         * 节点状态迁移：每次进入 pending/ready/running/... 都广播一次，
+         * 带跳过原因、错误与起止时间（只含中性字段）。
+         * @mode emit
+         */
+        'graph/node-status'(payload: GraphNodeStatusPayload): void;
         /** run 结束：携带最终状态。@mode emit */
         'graph/run-end'(payload: GraphRunEndPayload): void;
     }

@@ -1,10 +1,10 @@
 /**
  * flow 语义层最小 API 的类型面：节点插件只 import type 本文件，
- * 加上注入 NodeRegistryToken，禁止依赖实现包（@veren/graph-flow-engine）。
+ * 加上注入 NodeRegistryToken，禁止依赖实现包（@deepseek-ai/dsh-graph-flow-engine）。
  *
  * The type surface of the minimal flow semantic-layer API: node plugins
  * import types from this file and inject NodeRegistryToken only; they must
- * never depend on the implementation package (@veren/graph-flow-engine).
+ * never depend on the implementation package (@deepseek-ai/dsh-graph-flow-engine).
  */
 
 import type { Context } from '@deepseek-ai/cordis';

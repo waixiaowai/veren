@@ -1,7 +1,7 @@
 /**
- * @veren/graph-tools —— flow 引擎的模型可见工具面。
+ * @deepseek-ai/dsh-graph-tools —— flow 引擎的模型可见工具面。
  *
- * @veren/graph-tools — the model-facing tool surface of the flow engine.
+ * @deepseek-ai/dsh-graph-tools — the model-facing tool surface of the flow engine.
  *
  * 三个工具只看 FlowEngine 能力（不碰存储、不碰内核）：
  *   - graph_list   返回已注册 flow 的清单
@@ -16,8 +16,8 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
-import type { FlowId, RunId } from '@veren/graph-flow-api'
-import type { FlowEngine, FlowRunDetail, FlowRunHandle, FlowRunResult } from '@veren/graph-flow-engine'
+import type { FlowId, RunId } from '@deepseek-ai/dsh-graph-flow-api'
+import type { FlowEngine, FlowRunDetail, FlowRunHandle, FlowRunResult } from '@deepseek-ai/dsh-graph-flow-engine'
 import type { GraphListPayload, GraphNodeItem, GraphRunPayload } from './types.js'
 
 /** 错误块 schema（工具输出面）/ the error-block schema (tool output surface) */

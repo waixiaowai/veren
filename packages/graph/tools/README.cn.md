@@ -1,4 +1,4 @@
-# @veren/graph-tools
+# @deepseek-ai/dsh-graph-tools
 
 把 flow 引擎暴露成模型可见的内置工具：`graph_list`、`graph_run`、`graph_status`。需要让 agent 自己列出已注册工作流、按名启动一次运行、读取运行状态时用它；工作流由宿主代码、定时任务或其它触发器启动时不需要它。
 
@@ -13,14 +13,14 @@
 ## 用法
 
 ```yaml
-- name: "@veren/graph-tools"
+- name: "@deepseek-ai/dsh-graph-tools"
   config:
     runTimeoutMs: 60000
 ```
 
 配置：`runTimeoutMs`（默认 60 000 毫秒）只约束 `graph_run` 等待多久，不会因为超时取消运行。
 
-插件注入两项能力，因此二者必须先挂载：DSH 工具注册表（`ctx.tools`，来自 `@deepseek-ai/dsh-tools`）与 flow 引擎（`graphFlowEngine`，来自 `@veren/graph-flow-engine`）。可运行的 flow 来自 `@veren/graph-flow-yaml`（YAML 文件）或宿主代码调用 `registerFlow`。
+插件注入两项能力，因此二者必须先挂载：DSH 工具注册表（`ctx.tools`，来自 `@deepseek-ai/dsh-tools`）与 flow 引擎（`graphFlowEngine`，来自 `@deepseek-ai/dsh-graph-flow-engine`）。可运行的 flow 来自 `@deepseek-ai/dsh-graph-flow-yaml`（YAML 文件）或宿主代码调用 `registerFlow`。
 
 ## 非目标
 

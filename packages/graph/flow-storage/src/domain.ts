@@ -7,8 +7,8 @@
 
 import { z } from 'zod';
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain';
-import type { FlowDefinition } from '@veren/graph-flow-api';
-import type { FlowRunResult } from '@veren/graph-flow-engine';
+import type { FlowDefinition } from '@deepseek-ai/dsh-graph-flow-api';
+import type { FlowRunResult } from '@deepseek-ai/dsh-graph-flow-engine';
 
 /** 持久化的 flow 定义记录 / a persisted flow-definition record */
 export interface FlowRecord {

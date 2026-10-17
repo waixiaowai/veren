@@ -8,9 +8,9 @@ import { describe, expect, it } from 'vitest';
 import { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 import { provideValue } from '@veren/core';
-import { NodeRegistryToken, registerNodeHandler } from '@veren/graph-flow-api';
+import { NodeRegistryToken, registerNodeHandler } from '@deepseek-ai/dsh-graph-flow-api';
 import { NodeRegistryImpl, type SubflowRunner } from '../src/registry.js';
-import type { NodeHandler } from '@veren/graph-flow-api';
+import type { NodeHandler } from '@deepseek-ai/dsh-graph-flow-api';
 
 /** 计数 handler 工厂 / a counting-handler factory */
 const makeHandler = (type: string, version: number): NodeHandler => ({
@@ -42,6 +42,18 @@ describe('NodeRegistryImpl', () => {
         expect(dispose()).toBe(true);
         // 替换者的 disposer 移除该版本 / the replacement's disposer removes the version
         expect(registry.get('demo', 1)).toBeUndefined();
+    });
+
+    it('an old disposer never deletes a handler registered after it (HMR safe)', () => {
+        const registry = new NodeRegistryImpl();
+        const disposeOld = registry.register(makeHandler('demo', 1));
+        const replacement = makeHandler('demo', 1);
+        registry.register(replacement);
+        // 旧 fiber 的卸载晚于新注册：身份校验让旧 disposer 成为 no-op
+        // The old fiber unloads after the new registration: the identity check makes the old disposer a no-op.
+        expect(disposeOld()).toBe(false);
+        expect(registry.get('demo', 1)).toBe(replacement);
+        expect(registry.has('demo')).toBe(true);
     });
 
     it('dispose removes exactly its own version and cleans up empty types', () => {

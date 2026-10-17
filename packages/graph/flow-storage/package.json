@@ -1,39 +1,51 @@
 {
-  "name": "@veren/graph-flow-storage",
-  "displayName": "Veren Graph Flow Storage",
+  "name": "@deepseek-ai/dsh-graph-flow-storage",
   "version": "0.1.0",
-  "description": "Use when flow definitions and run records must survive process restarts: it mounts a schema-validated storage domain over the dsh storage hub (ctx.storage.domain, json/sqlite backends) and provides the engine's FlowStorage capability (saveFlow/deleteFlow/saveRun/listRuns) for @veren/graph-flow-engine; skip it for in-memory or file-based flow loading (@veren/graph-flow-yaml).",
+  "description": "Use when flow definitions and run records must survive process restarts: it mounts a schema-validated storage domain over the dsh storage hub (ctx.storage.domain, json/sqlite backends) and provides the engine's FlowStorage capability (saveFlow/deleteFlow/saveRun/listRuns) for @deepseek-ai/dsh-graph-flow-engine; skip it for in-memory or file-based flow loading (@deepseek-ai/dsh-graph-flow-yaml).",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
     },
     "./types": {
-      "types": "./dist/types.d.ts",
-      "default": "./dist/types.js"
+      "types": "./lib/types.d.ts",
+      "default": "./lib/types.js"
     }
   },
   "files": [
-    "dist"
+    "lib"
   ],
+  "license": "MIT",
   "scripts": {
     "build": "tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
-  "dependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/dsh-graph-core": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-api": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-engine": "workspace:*",
     "@deepseek-ai/dsh-storage": "0.2.0-rc.2",
     "@deepseek-ai/dsh-storage-domain": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-storage-json": "0.2.0-rc.2",
-    "@deepseek-ai/schemastery": "^3.18.4",
+    "@deepseek-ai/dsh-storage-json": "0.2.0-rc.2"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.4",
     "@veren/core": "workspace:*",
-    "@veren/graph-core": "workspace:*",
-    "@veren/graph-flow-api": "workspace:*",
-    "@veren/graph-flow-engine": "workspace:*",
-    "zod": "^4.6.7"
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/dsh-graph-core": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-api": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-engine": "workspace:*",
+    "@deepseek-ai/dsh-storage": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-storage-domain": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-storage-json": "0.2.0-rc.2"
   }
 }

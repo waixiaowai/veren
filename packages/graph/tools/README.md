@@ -1,4 +1,4 @@
-# @veren/graph-tools
+# @deepseek-ai/dsh-graph-tools
 
 Registers the model-facing tools that drive the flow engine: `graph_list`, `graph_run` and `graph_status`. Use it when an agent must enumerate registered workflows, start one by name and read a run's state without a bespoke client. Skip it when flows are started by host code, a schedule, or another trigger.
 
@@ -13,14 +13,14 @@ Registers the model-facing tools that drive the flow engine: `graph_list`, `grap
 ## Usage
 
 ```yaml
-- name: "@veren/graph-tools"
+- name: "@deepseek-ai/dsh-graph-tools"
   config:
     runTimeoutMs: 60000
 ```
 
 Config: `runTimeoutMs` (default 60 000 ms) bounds only how long `graph_run` waits; the run itself is not cancelled by the budget.
 
-The plugin injects two capabilities, so both must be mounted first: the DSH tool registry (`ctx.tools`, from `@deepseek-ai/dsh-tools`) and the flow engine (`graphFlowEngine`, from `@veren/graph-flow-engine`). Flows to run come from `@veren/graph-flow-yaml` (YAML files) or from host code calling `registerFlow`.
+The plugin injects two capabilities, so both must be mounted first: the DSH tool registry (`ctx.tools`, from `@deepseek-ai/dsh-tools`) and the flow engine (`graphFlowEngine`, from `@deepseek-ai/dsh-graph-flow-engine`). Flows to run come from `@deepseek-ai/dsh-graph-flow-yaml` (YAML files) or from host code calling `registerFlow`.
 
 ## Non-goals
 

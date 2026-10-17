@@ -1,32 +1,37 @@
 {
-  "name": "@veren/graph-flow-api",
-  "displayName": "Veren Graph Flow API",
+  "name": "@deepseek-ai/dsh-graph-flow-api",
   "version": "0.1.0",
-  "description": "Use when you write a flow node-type plugin or need the flow semantic-layer vocabulary against the DAG kernel: it declares the type-only surface (FlowDefinition, NodeHandler, branded FlowId/RunId/NodeId, the blackboard contract, the FlowEngine/RunHandle shapes) plus the NodeRegistry token and a registerNodeHandler helper; skip it when you need the engine implementation — node plugins must depend only on this package and never on @veren/graph-flow-engine.",
+  "description": "Use when you write a flow node-type plugin or need the flow semantic-layer vocabulary against the DAG kernel: it declares the type-only surface (FlowDefinition, NodeHandler, branded FlowId/RunId/NodeId, the blackboard contract, the FlowEngine/RunHandle shapes) plus the NodeRegistry token and a registerNodeHandler helper; skip it when you need the engine implementation — node plugins must depend only on this package and never on @deepseek-ai/dsh-graph-flow-engine.",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
     },
     "./types": {
-      "types": "./dist/types.d.ts",
-      "default": "./dist/types.js"
+      "types": "./lib/types.d.ts",
+      "default": "./lib/types.js"
     }
   },
   "files": [
-    "dist"
+    "lib"
   ],
+  "license": "MIT",
   "scripts": {
     "build": "tsc",
     "test": "vitest run"
   },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.4"
+  },
   "dependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/schemastery": "^3.18.4",
+    "@deepseek-ai/schemastery": "3.18.4",
     "@veren/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.4"
   }
 }

@@ -6,9 +6,10 @@
 
 import { describe, expect, it } from 'vitest';
 import { Context } from '@deepseek-ai/cordis';
-import { GraphKernelService } from '@veren/graph-core';
-import type { FlowRunResult, FlowStorage } from '@veren/graph-flow-engine';
-import { FlowEngineService, NodeRegistryImpl as NodeRegistry } from '@veren/graph-flow-engine';
+import { provideValue } from '@veren/core';
+import { GraphKernelService } from '@deepseek-ai/dsh-graph-core';
+import type { FlowRunResult, FlowStorage } from '@deepseek-ai/dsh-graph-flow-engine';
+import { FlowEngineService, FlowStorageToken, NodeRegistryImpl as NodeRegistry } from '@deepseek-ai/dsh-graph-flow-engine';
 import type { FlowDomainTables } from '../src/storage.js';
 import { createDomainStorage } from '../src/storage.js';
 
@@ -83,5 +84,18 @@ describe('domain storage capability', () => {
         await engine.registerFlow({ id: 'ok', nodes: [{ id: 'e', type: 'echo' }], edges: [] });
         const result = await engine.run('ok').awaitCompletion();
         expect(result.status).toBe('completed');
+    });
+
+    it('picks up a FlowStorage provided after the engine mounts', async () => {
+        // 典型组合顺序：引擎先装、flow-storage 的异步 effect 稍后才提供能力 /
+        // Typical composition order: the engine mounts first and flow-storage's async effect provides the capability later.
+        const ctx = new Context();
+        const engine = new FlowEngineService(ctx, { nodeTimeoutMs: 5000 }, new GraphKernelService(ctx), new NodeRegistry());
+        const tables = fakeTables();
+        provideValue(ctx, FlowStorageToken, createDomainStorage(tables, () => 0));
+        await engine.registerFlow({ id: 'late', nodes: [{ id: 'e', type: 'echo' }], edges: [] });
+        expect(tables.flows.get('late')).toMatchObject({ id: 'late' });
+        const result = await engine.run('late').awaitCompletion();
+        expect(tables.runs.get(result.runId)).toMatchObject({ status: 'completed' });
     });
 });

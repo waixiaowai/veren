@@ -9,14 +9,22 @@
 
 import { describe, expect, it } from 'vitest';
 import { Context } from '@deepseek-ai/cordis';
+import z from '@deepseek-ai/schemastery';
 import { provideValue } from '@veren/core';
-import { apply as kernelPlugin } from '@veren/graph-core';
-import { NodeRegistryToken, registerNodeHandler } from '@veren/graph-flow-api';
-import type { FlowDefinition, NodeExecuteContext } from '@veren/graph-flow-api';
-import { apply as enginePlugin, FlowEngineToken, NodeRegistryImpl } from '@veren/graph-flow-engine';
+import { apply as kernelPlugin } from '@deepseek-ai/dsh-graph-core';
+import { NodeRegistryToken, registerNodeHandler } from '@deepseek-ai/dsh-graph-flow-api';
+import type { FlowDefinition, NodeExecuteContext, NodeHandler } from '@deepseek-ai/dsh-graph-flow-api';
+import { apply as enginePlugin, FlowEngineToken, NodeRegistryImpl } from '@deepseek-ai/dsh-graph-flow-engine';
 import * as nodeTool from '../src/index.js';
 import { createToolHandler } from '../src/index.js';
 import type { ToolExecutionInput, ToolExecutionResult, ToolInvoker } from '../src/index.js';
+
+/** 一次性放行信号（测试用）/ a one-shot gate for tests */
+function gate(): { promise: Promise<void>; open: () => void } {
+    let open!: () => void;
+    const promise = new Promise<void>((resolve) => { open = resolve; });
+    return { promise, open };
+}
 
 /** 成功结果构造（补齐必填 content）/ build a success result (content required) */
 const success = (value: unknown): ToolExecutionResult => ({ isError: false, value, content: [] } as ToolExecutionResult);
@@ -54,7 +62,9 @@ describe('tool node handler', () => {
         expect(invoker.calls.length).toBe(1);
         expect(invoker.calls[0]!.name).toBe('bash');
         expect(invoker.calls[0]!.arguments).toEqual({ command: 'ls' });
-        expect(invoker.calls[0]!.signal).toBe(controller.signal);
+        // 调用面拿到派生 signal（外部取消才中止工具）/ the call gets a derived signal (only an external cancel aborts the tool)
+        expect(invoker.calls[0]!.signal).toBeInstanceOf(AbortSignal);
+        expect(invoker.calls[0]!.signal.aborted).toBe(false);
         expect(typeof invoker.calls[0]!.callId).toBe('string');
     });
 
@@ -160,5 +170,66 @@ describe('tool node composition (real Loader)', () => {
         ctx.registry.delete(plugin as never);
         await new Promise((resolve) => setTimeout(resolve, 0));
         expect(registry.has('tool')).toBe(false);
+    });
+
+    it('does not abort a running tool sibling on a fail-fast notice', async () => {
+        let abortedAtEnd: boolean | undefined;
+        const invoker = mockInvoker(async (call) => {
+            await new Promise((resolve) => setTimeout(resolve, 80));
+            abortedAtEnd = call.signal.aborted;
+            return success({ ok: true });
+        });
+        const { ctx, engine } = await makeStack(invoker);
+        // 慢失败兄弟：先于工具完成失败，触发 fail-fast / a slow-failing sibling fails before the tool finishes
+        ctx.get(NodeRegistryToken)!.register({
+            type: 'slowFail',
+            version: 1,
+            config: z.object({}) as NodeHandler['config'],
+            execute: () => new Promise((_resolve, reject) => setTimeout(() => reject(new Error('branch failed')), 10)),
+        });
+        const events: string[] = [];
+        ctx.on('graph/node-error', (error) => events.push(`error:${error.nodeId}`));
+        await engine.registerFlow({
+            id: 'tool-sibling',
+            nodes: [
+                { id: 'bad', type: 'slowFail' },
+                { id: 'run', type: 'tool' },
+                { id: 'join', type: 'noop' },
+            ],
+            edges: [
+                { from: 'bad', to: 'join' },
+                { from: 'run', to: 'join' },
+            ],
+        } as FlowDefinition);
+        const result = await engine.run('tool-sibling').awaitCompletion();
+        expect(result.status).toBe('failed');
+        // 工具兄弟自然跑完，且工具调用期间 signal 未被 fail-fast 置位
+        // The tool sibling finishes naturally and its call signal never flips under fail-fast.
+        expect(result.nodes['run']!.status).toBe('completed');
+        expect(result.nodes['run']!.error).toBeUndefined();
+        expect(result.nodes['join']!.status).toBe('skipped');
+        expect(abortedAtEnd).toBe(false);
+        expect(events).toEqual(['error:bad']);
+    });
+
+    it('forwards an external cancel to the running tool call', async () => {
+        const started = gate();
+        let sawAbort = false;
+        const invoker = mockInvoker(async (call) => {
+            started.open();
+            await new Promise<void>((resolve) => {
+                call.signal.addEventListener('abort', () => { sawAbort = true; resolve(); }, { once: true });
+            });
+            return success({ ok: true });
+        });
+        const { engine } = await makeStack(invoker);
+        await engine.registerFlow({ id: 'tool-cancel', nodes: [{ id: 'run', type: 'tool' }], edges: [] } as FlowDefinition);
+        const handle = engine.run('tool-cancel');
+        await started.promise;
+        handle.cancel();
+        const result = await handle.awaitCompletion();
+        expect(result.status).toBe('cancelled');
+        expect(result.nodes['run']!.status).toBe('cancelled');
+        expect(sawAbort).toBe(true);
     });
 });

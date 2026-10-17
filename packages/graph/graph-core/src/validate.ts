@@ -5,7 +5,7 @@
  * and cycles are all detected loudly before any run.
  */
 
-import type { Graph } from './types.js';
+import type { GEdge, Graph, GraphNodeRecord } from './types.js';
 import { graphError } from './errors.js';
 
 /** 重复节点 id / duplicate node id */
@@ -82,4 +82,24 @@ export function validateGraph(graph: Graph): string[] {
     assertUniqueNodes(graph);
     assertEdgesAnchored(graph);
     return topoSort(graph);
+}
+
+/** 收集落定为 failed 的节点 / collect nodes that settled as failed */
+export function failedIds(records: Record<string, GraphNodeRecord>): string[] {
+    return Object.values(records).filter((record) => record.status === 'failed').map((record) => record.id);
+}
+
+/** 从失败节点沿边可达的节点集合 / nodes reachable from the failed set along edges */
+export function reachableFrom(roots: string[], outgoing: Map<string, GEdge[]>): Set<string> {
+    const seen = new Set<string>();
+    const queue = [...roots];
+    for (let head = 0; head < queue.length; head++) {
+        for (const edge of outgoing.get(queue[head]!) ?? []) {
+            if (!seen.has(edge.to)) {
+                seen.add(edge.to);
+                queue.push(edge.to);
+            }
+        }
+    }
+    return seen;
 }

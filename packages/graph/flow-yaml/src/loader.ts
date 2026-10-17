@@ -12,7 +12,7 @@
  * stay out of YAML; validation happens at engine compile time.
  */
 
-import type { FlowDefinition, FlowEdge, FlowId, NodeId } from '@veren/graph-flow-api';
+import type { FlowDefinition, FlowEdge, FlowId, NodeId } from '@deepseek-ai/dsh-graph-flow-api';
 
 /** YAML 结构错误（稳定 code + 定位字段）/ a YAML shape error (stable code plus locating fields) */
 export class YamlFlowError extends Error {

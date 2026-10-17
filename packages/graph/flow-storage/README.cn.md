@@ -1,6 +1,6 @@
-# @veren/graph-flow-storage
+# @deepseek-ai/dsh-graph-flow-storage
 
-经 dsh domain 存储层（`ctx.storage.domain`，构建在 dsh storage hub 之上，支持 json/sqlite 后端）持久化 flow 定义与运行记录。当 flow 与运行历史需要跨进程重启保留、并让 flow 引擎从真实介质获得 `FlowStorage` 能力时使用它。内存或 YAML 文件装载（`@veren/graph-flow-yaml`）场景请跳过。
+经 dsh domain 存储层（`ctx.storage.domain`，构建在 dsh storage hub 之上，支持 json/sqlite 后端）持久化 flow 定义与运行记录。当 flow 与运行历史需要跨进程重启保留、并让 flow 引擎从真实介质获得 `FlowStorage` 能力时使用它。内存或 YAML 文件装载（`@deepseek-ai/dsh-graph-flow-yaml`）场景请跳过。
 
 ## 提供什么
 
@@ -12,9 +12,9 @@
 
 ```ts
 import { Context } from '@deepseek-ai/cordis';
-import { apply as kernel } from '@veren/graph-core';
-import { apply as engine } from '@veren/graph-flow-engine';
-import { apply as flowStorage } from '@veren/graph-flow-storage';
+import { apply as kernel } from '@deepseek-ai/dsh-graph-core';
+import { apply as engine } from '@deepseek-ai/dsh-graph-flow-engine';
+import { apply as flowStorage } from '@deepseek-ai/dsh-graph-flow-storage';
 // 需先装载存储栈：
 // @deepseek-ai/dsh-storage（hub）+ 后端（如 dsh-storage-json）+ dsh-storage-domain
 

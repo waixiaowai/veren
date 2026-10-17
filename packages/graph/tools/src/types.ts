@@ -1,8 +1,8 @@
 /**
- * @veren/graph-tools 的载荷类型：三个模型可见工具返回的 canonical 值。
+ * @deepseek-ai/dsh-graph-tools 的载荷类型：三个模型可见工具返回的 canonical 值。
  * 只放类型，工具定义与 schema 在 tools.ts。
  *
- * Payload types of @veren/graph-tools: the canonical values the three
+ * Payload types of @deepseek-ai/dsh-graph-tools: the canonical values the three
  * model-facing tools return. Types only; the tool definitions and schemas live
  * in tools.ts.
  */

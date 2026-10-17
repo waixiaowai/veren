@@ -18,6 +18,7 @@
 | `tool-workspace`（`@veren/person-agent-tool-workspace`，常开） | `workspace_create` / `workspace_rename`，给活找一个家 |
 | `tool-session`（`@veren/person-agent-tool-session`，常开） | `session_create` / `session_rename` / `session_fork` / 归档 / 置顶——派活的出口 |
 | `dynamic-context`（`@veren/person-agent-dynamic-context`） | 工作记忆：预设名单、模型目录与工作区列表的快照消息 |
+| `skill-filesystem` / `tool-skill` | 只扫包内 `skills/` 的写作技能目录与加载器；`/renhua` 直接点名，写作前按描述自动加载 |
 
 ## 配置
 
@@ -26,6 +27,7 @@
 | `presetId` | `person-agent` | 会话记录的稳定预设身份 |
 | `order` | `5` | 客户端预设选择器中的排序 |
 | `withWeb` | `true` | 是否包含联网搜索工具 |
+| `withSkills` | `true` | 是否包含内置的「人话」写作技能与加载器；设 `false` 可整体停用 |
 
 ## 工作原理
 
@@ -39,6 +41,16 @@
   config:
     presetId: person-agent
 ```
+
+## 写作技能：`renhua`
+
+内置技能 `renhua`（人话）只做一件事：把给人看的中文写顺，同时不丢硬信息。用户打 `/renhua` 可点名加载；写文档、信件、说明、汇报前，模型也会按目录里的描述自行加载。正文按需读取，目录常驻只占一条描述。
+
+开销：正文约 1,260 字符（928 个汉字），加载一次约 900–1,200 tokens；目录里常驻一条约 120 字的描述，约 100–150 tokens。
+
+它**不该**用在：给 agent 看的紧凑指令、列表型数据、代码/API 参考、日志和表格——这些要密度和结构，不要阅读节奏。正文末尾也写了这条边界。
+
+停用：在 profile patch 里把 `person-agent-preset` 的 `withSkills` 设为 `false`，或停用整个组合包。回滚：装回上一版 tarball。技能随包发布，直接改 `node_modules` 会在下次安装时被覆盖。
 
 ## 测试
 

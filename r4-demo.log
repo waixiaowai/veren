@@ -1,0 +1,324 @@
+﻿plugins/person-agent-dynamic-context     |  WARN  The field "pnpm.onlyBuiltDependencies" was found in C:\Users\imeep\Documents\cursour\plugins\person-agent-dynamic-context/package.json. This will not take effect. You should configure "pnpm.onlyBuiltDependencies" at the root of the workspace instead.
+plugins/person-agent-preset              |  WARN  The field "pnpm.onlyBuiltDependencies" was found in C:\Users\imeep\Documents\cursour\plugins\person-agent-preset/package.json. This will not take effect. You should configure "pnpm.onlyBuiltDependencies" at the root of the workspace instead.
+plugins/person-agent-tool-session        |  WARN  The field "pnpm.onlyBuiltDependencies" was found in C:\Users\imeep\Documents\cursour\plugins\person-agent-tool-session/package.json. This will not take effect. You should configure "pnpm.onlyBuiltDependencies" at the root of the workspace instead.
+plugins/person-agent-tool-workspace      |  WARN  The field "pnpm.onlyBuiltDependencies" was found in C:\Users\imeep\Documents\cursour\plugins\person-agent-tool-workspace/package.json. This will not take effect. You should configure "pnpm.onlyBuiltDependencies" at the root of the workspace instead.
+
+> @deepseek-ai/dsh-graph-flow-canvas@0.1.0 demo C:\Users\imeep\Documents\cursour\packages\graph\flow-canvas
+> vitest run tests/demo.spec.ts --reporter=verbose
+
+
+ RUN  v5.0.4 C:/Users/imeep/Documents/cursour/packages/graph/flow-canvas
+
+stdout | tests/demo.spec.ts > canvas demo > prints the canvas JSON and the live per-node status stream of a YAML flow
+
+=== flow-canvas demo: static canvas JSON ===
+{
+  "schemaVersion": 1,
+  "flowId": "canvas-demo",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "noop",
+      "display": {
+        "label": "start",
+        "subtitle": "noop"
+      },
+      "onError": "failFast",
+      "layout": null
+    },
+    {
+      "id": "gate",
+      "type": "fail",
+      "display": {
+        "label": "gate",
+        "subtitle": "fail"
+      },
+      "config": {
+        "message": "demo recoverable failure"
+      },
+      "onError": "errorBranch",
+      "layout": null
+    },
+    {
+      "id": "recover",
+      "type": "echo",
+      "display": {
+        "label": "Recovery branch",
+        "subtitle": "echo"
+      },
+      "config": {
+        "message": "RECOVERED",
+        "label": "Recovery branch"
+      },
+      "onError": "failFast",
+      "layout": null
+    },
+    {
+      "id": "normal",
+      "type": "echo",
+      "display": {
+        "label": "normal",
+        "subtitle": "echo"
+      },
+      "config": {
+        "message": "NORMAL"
+      },
+      "onError": "failFast",
+      "layout": null
+    },
+    {
+      "id": "fatal",
+      "type": "fail",
+      "display": {
+        "label": "fatal",
+        "subtitle": "fail"
+      },
+      "config": {
+        "message": "demo fatal failure"
+      },
+      "onError": "failFast",
+      "layout": null
+    },
+    {
+      "id": "join",
+      "type": "noop",
+      "display": {
+        "label": "join",
+        "subtitle": "noop"
+      },
+      "onError": "failFast",
+      "layout": null
+    }
+  ],
+  "edges": [
+    {
+      "id": "start:out->gate",
+      "from": "start",
+      "to": "gate",
+      "condition": {
+        "kind": "always",
+        "hasPredicate": false,
+        "summary": "always"
+      },
+      "layout": null
+    },
+    {
+      "id": "gate:error->recover",
+      "from": "gate",
+      "to": "recover",
+      "port": "error",
+      "condition": {
+        "kind": "port",
+        "port": "error",
+        "hasPredicate": false,
+        "summary": "port \"error\""
+      },
+      "layout": null
+    },
+    {
+      "id": "gate:out->normal",
+      "from": "gate",
+      "to": "normal",
+      "condition": {
+        "kind": "error-branch-default",
+        "hasPredicate": false,
+        "summary": "default output (closed when the error port is active)"
+      },
+      "layout": null
+    },
+    {
+      "id": "recover:out->fatal",
+      "from": "recover",
+      "to": "fatal",
+      "condition": {
+        "kind": "always",
+        "hasPredicate": false,
+        "summary": "always"
+      },
+      "layout": null
+    },
+    {
+      "id": "fatal:out->join",
+      "from": "fatal",
+      "to": "join",
+      "condition": {
+        "kind": "always",
+        "hasPredicate": false,
+        "summary": "always"
+      },
+      "layout": null
+    }
+  ],
+  "output": {
+    "recovered": "${recover.message}"
+  },
+  "hasInputSchema": false,
+  "layout": {
+    "viewport": null,
+    "nodes": {},
+    "edges": {}
+  },
+  "meta": {
+    "nodeCount": 6,
+    "edgeCount": 5
+  }
+}
+
+stdout | tests/demo.spec.ts > canvas demo > prints the canvas JSON and the live per-node status stream of a YAML flow
+status start: pending
+status gate: pending
+status recover: pending
+status normal: pending
+status fatal: pending
+status join: pending
+status start: ready
+
+stdout | tests/demo.spec.ts > canvas demo > prints the canvas JSON and the live per-node status stream of a YAML flow
+status start: running (startedAt=1792237824706)
+
+stdout | tests/demo.spec.ts > canvas demo > prints the canvas JSON and the live per-node status stream of a YAML flow
+status start: completed (startedAt=1792237824706 endedAt=1792237824707)
+
+stdout | tests/demo.spec.ts > canvas demo > prints the canvas JSON and the live per-node status stream of a YAML flow
+status gate: ready
+
+stdout | tests/demo.spec.ts > canvas demo > prints the canvas JSON and the live per-node status stream of a YAML flow
+status gate: running (startedAt=1792237824707)
+
+stdout | tests/demo.spec.ts > canvas demo > prints the canvas JSON and the live per-node status stream of a YAML flow
+status gate: completed (startedAt=1792237824707 endedAt=1792237824707)
+status normal: skipped (skip=upstream-condition)
+
+stdout | tests/demo.spec.ts > canvas demo > prints the canvas JSON and the live per-node status stream of a YAML flow
+status recover: ready
+
+stdout | tests/demo.spec.ts > canvas demo > prints the canvas JSON and the live per-node status stream of a YAML flow
+status recover: running (startedAt=1792237824708)
+
+stdout | tests/demo.spec.ts > canvas demo > prints the canvas JSON and the live per-node status stream of a YAML flow
+status recover: completed (startedAt=1792237824708 endedAt=1792237824708)
+
+stdout | tests/demo.spec.ts > canvas demo > prints the canvas JSON and the live per-node status stream of a YAML flow
+status fatal: ready
+
+stdout | tests/demo.spec.ts > canvas demo > prints the canvas JSON and the live per-node status stream of a YAML flow
+status fatal: running (startedAt=1792237824708)
+
+stdout | tests/demo.spec.ts > canvas demo > prints the canvas JSON and the live per-node status stream of a YAML flow
+status fatal: failed (error=NODE_FAILED startedAt=1792237824708 endedAt=1792237824708)
+status join: skipped (skip=upstream-failure)
+
+stdout | tests/demo.spec.ts > canvas demo > prints the canvas JSON and the live per-node status stream of a YAML flow
+
+=== flow-canvas demo: final snapshot ===
+{
+  "schemaVersion": 1,
+  "flowId": "canvas-demo",
+  "runId": "f7a05c4a-d55a-4044-9849-725d3dab4f90",
+  "status": "failed",
+  "nodes": {
+    "start": {
+      "id": "start",
+      "status": "completed",
+      "startedAt": 1792237824706,
+      "endedAt": 1792237824707
+    },
+    "gate": {
+      "id": "gate",
+      "status": "completed",
+      "startedAt": 1792237824707,
+      "endedAt": 1792237824707
+    },
+    "recover": {
+      "id": "recover",
+      "status": "completed",
+      "startedAt": 1792237824708,
+      "endedAt": 1792237824708
+    },
+    "normal": {
+      "id": "normal",
+      "status": "skipped",
+      "skipReason": "upstream-condition"
+    },
+    "fatal": {
+      "id": "fatal",
+      "status": "failed",
+      "error": {
+        "code": "NODE_FAILED",
+        "message": "demo fatal failure"
+      },
+      "startedAt": 1792237824708,
+      "endedAt": 1792237824708
+    },
+    "join": {
+      "id": "join",
+      "status": "skipped",
+      "skipReason": "upstream-failure"
+    }
+  },
+  "result": {
+    "flowId": "canvas-demo",
+    "runId": "f7a05c4a-d55a-4044-9849-725d3dab4f90",
+    "status": "failed",
+    "output": {
+      "recovered": "RECOVERED"
+    },
+    "nodes": {
+      "start": {
+        "status": "completed",
+        "startedAt": 1792237824706,
+        "endedAt": 1792237824707,
+        "output": {}
+      },
+      "gate": {
+        "status": "completed",
+        "startedAt": 1792237824707,
+        "endedAt": 1792237824707,
+        "output": {
+          "error": {
+            "code": "NODE_FAILED",
+            "message": "demo recoverable failure"
+          }
+        }
+      },
+      "recover": {
+        "status": "completed",
+        "startedAt": 1792237824708,
+        "endedAt": 1792237824708,
+        "output": {
+          "out": {},
+          "message": "RECOVERED"
+        }
+      },
+      "normal": {
+        "status": "skipped",
+        "skipReason": "upstream-condition"
+      },
+      "fatal": {
+        "status": "failed",
+        "startedAt": 1792237824708,
+        "endedAt": 1792237824708,
+        "error": {
+          "code": "NODE_FAILED",
+          "message": "demo fatal failure"
+        }
+      },
+      "join": {
+        "status": "skipped",
+        "skipReason": "upstream-failure"
+      }
+    },
+    "error": {
+      "code": "NODE_FAILED",
+      "message": "demo fatal failure"
+    }
+  }
+}
+
+ ✓ tests/demo.spec.ts > canvas demo > prints the canvas JSON and the live per-node status stream of a YAML flow 22ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  19:50:24
+   Duration  212ms (import 56%, transform 21%, tests 20%, worker 3%)
+

@@ -1,6 +1,6 @@
-# @veren/graph-flow-yaml
+# @deepseek-ai/dsh-graph-flow-yaml
 
-Loads flow definitions from YAML files into the flow engine at plugin startup. Use it when flows are authored as declarative YAML documents (files on disk) and should be registered into `@veren/graph-flow-engine` automatically — with reverse-order unregistration via `ctx.effect`. Skip it when flows are built in code or persisted by `@veren/graph-flow-storage`.
+Loads flow definitions from YAML files into the flow engine at plugin startup. Use it when flows are authored as declarative YAML documents (files on disk) and should be registered into `@deepseek-ai/dsh-graph-flow-engine` automatically — with reverse-order unregistration via `ctx.effect`. Skip it when flows are built in code or persisted by `@deepseek-ai/dsh-graph-flow-storage`.
 
 ## What it provides
 
@@ -28,10 +28,10 @@ output:
 
 ```ts
 import { Context } from '@deepseek-ai/cordis';
-import { apply as kernel } from '@veren/graph-core';
-import { apply as engine } from '@veren/graph-flow-engine';
+import { apply as kernel } from '@deepseek-ai/dsh-graph-core';
+import { apply as engine } from '@deepseek-ai/dsh-graph-flow-engine';
 import { apply as yamlParser } from '@veren/yaml-parser';
-import { apply as flowYaml } from '@veren/graph-flow-yaml';
+import { apply as flowYaml } from '@deepseek-ai/dsh-graph-flow-yaml';
 
 const ctx = new Context();
 await ctx.plugin(kernel);

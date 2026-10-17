@@ -1,6 +1,6 @@
-# @veren/graph-flow-api
+# @deepseek-ai/dsh-graph-flow-api
 
-flow 语义层的最小 API（纯类型面）。当你编写 **flow 节点类型插件**，或只需要 flow 词汇表而不想要任何实现时使用它：节点插件只 import 本包的类型并注入 `NodeRegistryToken`，禁止依赖实现包 `@veren/graph-flow-engine`。
+flow 语义层的最小 API（纯类型面）。当你编写 **flow 节点类型插件**，或只需要 flow 词汇表而不想要任何实现时使用它：节点插件只 import 本包的类型并注入 `NodeRegistryToken`，禁止依赖实现包 `@deepseek-ai/dsh-graph-flow-engine`。
 
 ## 提供什么
 
@@ -17,7 +17,7 @@ flow 语义层的最小 API（纯类型面）。当你编写 **flow 节点类型
 ```ts
 import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
-import { NodeRegistryToken, registerNodeHandler, type NodeHandler } from '@veren/graph-flow-api';
+import { NodeRegistryToken, registerNodeHandler, type NodeHandler } from '@deepseek-ai/dsh-graph-flow-api';
 
 export const name = 'myUpperNode';
 export const inject = [NodeRegistryToken] as const;
@@ -36,6 +36,6 @@ export const apply = (ctx: Context) => {
 
 ## 非目标（二期）
 
-只有类型声明 —— 不含注册表/引擎实现、不含触发器、除 `${nodeId.slot}` 外无表达式语言、除中性模型外无画布类型。
+类型声明 + 绑定到 ctx.effect 的注册帮助函数 —— 不含注册表/引擎实现、不含触发器、除 `${nodeId.slot}` 外无表达式语言、除中性模型外无画布类型。
 
 中文文档即本文件；英文见 [README.md](./README.md)。

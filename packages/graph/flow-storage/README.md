@@ -1,6 +1,6 @@
-# @veren/graph-flow-storage
+# @deepseek-ai/dsh-graph-flow-storage
 
-Persists flow definitions and run records through the dsh storage domain layer (`ctx.storage.domain` over the dsh storage hub — json/sqlite backends). Use it when flows and run history must survive process restarts and the flow engine should get its `FlowStorage` capability from a real medium. Skip it for in-memory or YAML-file-based flow loading (`@veren/graph-flow-yaml`).
+Persists flow definitions and run records through the dsh storage domain layer (`ctx.storage.domain` over the dsh storage hub — json/sqlite backends). Use it when flows and run history must survive process restarts and the flow engine should get its `FlowStorage` capability from a real medium. Skip it for in-memory or YAML-file-based flow loading (`@deepseek-ai/dsh-graph-flow-yaml`).
 
 ## What it provides
 
@@ -12,9 +12,9 @@ Persists flow definitions and run records through the dsh storage domain layer (
 
 ```ts
 import { Context } from '@deepseek-ai/cordis';
-import { apply as kernel } from '@veren/graph-core';
-import { apply as engine } from '@veren/graph-flow-engine';
-import { apply as flowStorage } from '@veren/graph-flow-storage';
+import { apply as kernel } from '@deepseek-ai/dsh-graph-core';
+import { apply as engine } from '@deepseek-ai/dsh-graph-flow-engine';
+import { apply as flowStorage } from '@deepseek-ai/dsh-graph-flow-storage';
 // the storage stack must be mounted first:
 // @deepseek-ai/dsh-storage (hub) + a backend (e.g. dsh-storage-json) + dsh-storage-domain
 

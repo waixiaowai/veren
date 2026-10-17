@@ -1,15 +1,15 @@
 /**
- * @veren/graph-tools —— 把 flow 引擎暴露成模型可见的内置工具。
+ * @deepseek-ai/dsh-graph-tools —— 把 flow 引擎暴露成模型可见的内置工具。
  *
- * @veren/graph-tools — expose the flow engine as model-facing built-in tools.
+ * @deepseek-ai/dsh-graph-tools — expose the flow engine as model-facing built-in tools.
  *
  * 插件入口：注册 graph_list / graph_run / graph_status 三个工具。依赖两项能力：
  * DSH 工具注册表（ctx.tools，dsh-tools 提供）与 flow 引擎（FlowEngineToken，
- * @veren/graph-flow-engine 提供）。每个注册走 ctx.effect，随 fiber 逆序注销。
+ * @deepseek-ai/dsh-graph-flow-engine 提供）。每个注册走 ctx.effect，随 fiber 逆序注销。
  * The plugin entry: register the graph_list / graph_run / graph_status tools. It
  * requires two capabilities — the DSH tool registry (ctx.tools, provided by
  * dsh-tools) and the flow engine (FlowEngineToken, provided by
- * @veren/graph-flow-engine). Every registration goes through ctx.effect, so it
+ * @deepseek-ai/dsh-graph-flow-engine). Every registration goes through ctx.effect, so it
  * unregisters in reverse order with the fiber.
  */
 
@@ -19,7 +19,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
 import { getOrThrow } from '@veren/core'
-import { FlowEngineToken } from '@veren/graph-flow-engine'
+import { FlowEngineToken } from '@deepseek-ai/dsh-graph-flow-engine'
 import { createGraphTools } from './tools.js'
 
 export { createGraphTools } from './tools.js'

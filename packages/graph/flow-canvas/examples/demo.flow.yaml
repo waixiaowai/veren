@@ -1,0 +1,35 @@
+# 画布数据源演示 flow：error 端口条件 + 后续 fail-fast + skipped 下游。
+# Canvas data-source demo flow: an error-port condition, then a fail-fast
+# node, so the demo prints failed/completed/skipped statuses in one run.
+id: canvas-demo
+nodes:
+  - id: start
+    type: noop
+  - id: gate
+    type: fail
+    config:
+      message: demo recoverable failure
+    onError: errorBranch
+  - id: recover
+    type: echo
+    config:
+      message: RECOVERED
+      label: Recovery branch
+  - id: normal
+    type: echo
+    config:
+      message: NORMAL
+  - id: fatal
+    type: fail
+    config:
+      message: demo fatal failure
+  - id: join
+    type: noop
+edges:
+  - { from: start, to: gate }
+  - { from: gate, to: recover, port: error }
+  - { from: gate, to: normal }
+  - { from: recover, to: fatal }
+  - { from: fatal, to: join }
+output:
+  recovered: "${recover.message}"

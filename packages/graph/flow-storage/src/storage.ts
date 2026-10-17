@@ -6,8 +6,8 @@
  */
 
 import type { Domain } from '@deepseek-ai/dsh-storage-domain';
-import type { FlowDefinition, FlowId } from '@veren/graph-flow-api';
-import type { FlowRunResult, FlowRunSummary, FlowStorage } from '@veren/graph-flow-engine';
+import type { FlowDefinition, FlowId } from '@deepseek-ai/dsh-graph-flow-api';
+import type { FlowRunResult, FlowRunSummary, FlowStorage } from '@deepseek-ai/dsh-graph-flow-engine';
 import type { FlowRecord, RunRecord } from './domain.js';
 
 /** 领域表句柄的最小形状（便于测试替身）/ minimal table shape (keeps test doubles easy) */

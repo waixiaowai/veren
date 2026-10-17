@@ -1,7 +1,7 @@
 /**
- * @veren/graph-flow-yaml —— YAML flow 定义加载插件。
+ * @deepseek-ai/dsh-graph-flow-yaml —— YAML flow 定义加载插件。
  *
- * @veren/graph-flow-yaml — the YAML flow-definition loader plugin.
+ * @deepseek-ai/dsh-graph-flow-yaml — the YAML flow-definition loader plugin.
  *
  * 插件入口：按 Config.files 逐个读取 YAML 文件，经 @veren/yaml-parser 解析、
  * loader 校验映射，再注册进 FlowEngine；注册走 ctx.effect，随 fiber 卸载
@@ -16,7 +16,7 @@ import { readFile } from 'node:fs/promises';
 import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 import { defineToken, getOrThrow } from '@veren/core';
-import { FlowEngineToken } from '@veren/graph-flow-engine';
+import { FlowEngineToken } from '@deepseek-ai/dsh-graph-flow-engine';
 import { name as YamlParserToken } from '@veren/yaml-parser';
 import { flowFromYaml } from './loader.js';
 import type { YamlFlowError } from './loader.js';

@@ -1,12 +1,12 @@
 /**
- * 内核单测：纯内存 executor 覆盖调度顺序、并发上限、环检测、cancel 传播、
- * fail-fast、状态机迁移与生命周期事件——不依赖 flow 层。每个用例自建
- * Context，保证并发安全（单独跑才过 = 缺陷）。
+ * 内核单测：纯内存 executor 覆盖调度顺序、并发上限、环检测、状态机迁移
+ * 与生命周期事件——不依赖 flow 层。每个用例自建 Context，保证并发安全
+ * （单独跑才过 = 缺陷）。cancel / fail-fast 语义见 cancel.spec.ts。
  *
  * Kernel unit tests: pure in-memory executors cover scheduling order, the
- * concurrency cap, cycle detection, cancel propagation, fail-fast, the full
- * status machine and lifecycle events — no flow dependency. Every case builds
- * its own Context so specs stay concurrency-safe.
+ * concurrency cap, cycle detection, the status machine and lifecycle events —
+ * no flow dependency. Every case builds its own Context so specs stay
+ * concurrency-safe. Cancel/fail-fast semantics live in cancel.spec.ts.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -21,37 +21,8 @@ import {
     validateGraph,
     type GExecutor,
     type Graph,
-    type GraphNodeError as GraphNodeErrorType,
 } from '../src/index.js';
-
-/** 记录执行轨迹的内存 executor / an in-memory executor that records a trace */
-function traceExecutor(trace: string[], opts: { delay?: number } = {}): GExecutor {
-    return {
-        async execute(node) {
-            trace.push(`start:${node.id}`);
-            if (opts.delay) await new Promise((resolve) => setTimeout(resolve, opts.delay));
-            trace.push(`end:${node.id}`);
-            return { from: node.id };
-        },
-    };
-}
-
-/** 失败节点 executor / an executor that fails named nodes */
-function failingExecutor(failIds: string[], trace: string[] = []): GExecutor {
-    return {
-        async execute(node) {
-            trace.push(node.id);
-            if (failIds.includes(node.id)) throw new Error(`boom:${node.id}`);
-            return { ok: true };
-        },
-    };
-}
-
-const line = (id: string, deps: string[]): Graph => ({
-    id: 'g',
-    nodes: [id, ...deps].map((nid) => ({ id: nid })),
-    edges: deps.map((from) => ({ from, to: id })),
-});
+import { line, traceExecutor } from './helpers.js';
 
 describe('graph kernel scheduling', () => {
     it('runs a diamond in topological order and reports completed', async () => {
@@ -78,7 +49,7 @@ describe('graph kernel scheduling', () => {
         expect(result.nodes['d']!.output).toEqual({ from: 'd' });
     });
 
-    it('never exceeds the concurrency cap', async () => {
+    it('schedules up to the concurrency cap concurrently', async () => {
         const ctx = new Context();
         let running = 0;
         let peak = 0;
@@ -86,7 +57,7 @@ describe('graph kernel scheduling', () => {
             async execute(node) {
                 running++;
                 peak = Math.max(peak, running);
-                await new Promise((resolve) => setTimeout(resolve, 5));
+                await new Promise((resolve) => setTimeout(resolve, 20));
                 running--;
                 return node.id;
             },
@@ -98,17 +69,17 @@ describe('graph kernel scheduling', () => {
         };
         const result = await runGraph(graph, executor, { ctx, concurrency: 2 }).result;
         expect(result.status).toBe('completed');
-        expect(peak).toBeLessThanOrEqual(2);
+        // 既证上限也证真的并发（串行实现 peak=1 也会过 ≤2）/
+        // proves both the cap and actual concurrency (a serial implementation would pass a ≤ 2 check).
+        expect(peak).toBe(2);
     });
 });
 
 describe('graph validation', () => {
     it('detects duplicate node ids', () => {
-        const ctx = new Context();
         expect(() =>
             validateGraph({ id: 'g', nodes: [{ id: 'a' }, { id: 'a' }], edges: [] }),
         ).toThrowError(expect.objectContaining({ code: 'GRAPH_DUPLICATE_NODE' }));
-        void ctx;
     });
 
     it('detects dangling edges', () => {
@@ -130,74 +101,6 @@ describe('graph validation', () => {
         expect(() => runGraph(graph, traceExecutor([]), { ctx })).toThrowError(
             expect.objectContaining({ code: 'GRAPH_CYCLE_DETECTED' }),
         );
-    });
-});
-
-describe('cancel and failure propagation', () => {
-    it('marks nodes cancelled after an external cancel', async () => {
-        const ctx = new Context();
-        const graph: Graph = {
-            id: 'cancel',
-            nodes: [{ id: 'slow' }, { id: 'never' }],
-            edges: [{ from: 'slow', to: 'never' }],
-        };
-        const executor: GExecutor = {
-            execute: (node, runCtx) =>
-                new Promise((resolve) => {
-                    // 执行方自愿响应 signal / the executor opts in to the signal
-                    runCtx.signal.addEventListener('abort', () => resolve(node.id), { once: true });
-                }),
-        };
-        const handle = runGraph(graph, executor, { ctx });
-        handle.cancel();
-        const result = await handle.result;
-        expect(result.status).toBe('cancelled');
-        expect(result.nodes['slow']!.status).toBe('cancelled');
-        expect(result.nodes['never']!.status).toBe('cancelled');
-    });
-
-    it('fail-fast skips downstream, lets siblings finish, fails the run', async () => {
-        const ctx = new Context();
-        const trace: string[] = [];
-        const graph: Graph = {
-            id: 'failfast',
-            nodes: [{ id: 'bad' }, { id: 'down' }, { id: 'sibling' }, { id: 'join' }],
-            edges: [
-                { from: 'bad', to: 'down' },
-                { from: 'sibling', to: 'join' },
-                { from: 'down', to: 'join' },
-            ],
-        };
-        const events: string[] = [];
-        ctx.on('graph/node-error', (error: GraphNodeErrorType) => events.push(`error:${error.nodeId}`));
-        ctx.on('graph/run-end', (payload) => events.push(`end:${payload.status}`));
-        const result = await runGraph(graph, failingExecutor(['bad'], trace), { ctx }).result;
-        expect(result.status).toBe('failed');
-        expect(result.nodes['bad']!.status).toBe('failed');
-        expect(result.nodes['bad']!.error).toBeInstanceOf(GraphNodeError);
-        expect(result.nodes['down']!.status).toBe('skipped');
-        expect(result.nodes['down']!.skipReason).toBe('upstream-failure');
-        expect(result.nodes['sibling']!.status).toBe('completed');
-        expect(result.nodes['join']!.status).toBe('skipped');
-        expect(events).toContain('error:bad');
-        expect(events).toContain('end:failed');
-        expect(trace).toContain('sibling');
-    });
-
-    it('supports a replaceable continue strategy', async () => {
-        const ctx = new Context();
-        const graph: Graph = {
-            id: 'continue',
-            nodes: [{ id: 'bad' }, { id: 'down' }],
-            edges: [{ from: 'bad', to: 'down' }],
-        };
-        const result = await runGraph(graph, failingExecutor(['bad']), {
-            ctx,
-            onNodeFailure: () => 'continue',
-        }).result;
-        expect(result.status).toBe('completed');
-        expect(result.nodes['bad']!.status).toBe('failed');
-        expect(result.nodes['down']!.status).toBe('skipped');
     });
 });
 

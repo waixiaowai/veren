@@ -1,7 +1,7 @@
 /**
- * @veren/graph-core —— 通用有向无环图执行内核。
+ * @deepseek-ai/dsh-graph-core —— 通用有向无环图执行内核。
  *
- * @veren/graph-core — the general-purpose DAG execution kernel.
+ * @deepseek-ai/dsh-graph-core — the general-purpose DAG execution kernel.
  *
  * 导出内核服务（GraphKernelService）、run 子 context 上的状态上报令牌
  * （RunStatusToken）与全部中性类型。对业务零认知：flow/pipeline 等语义层
@@ -12,11 +12,12 @@
  * the GraphKernel capability and adapting a GExecutor.
  */
 
+import { randomUUID } from 'node:crypto';
 import { Service, type Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 import { defineToken, provideValue } from '@veren/core';
-import { DEFAULT_CONCURRENCY, RunStatusToken, runGraph } from './scheduler.js';
-import type { GraphRunHandle } from './scheduler.js';
+import { CANCEL_REASON, DEFAULT_CONCURRENCY, emitNodeStatus, isExternalCancel, RunStatusToken, schedule } from './scheduler.js';
+import type { ScheduleEnv } from './scheduler.js';
 import { graphError, GraphNodeError } from './errors.js';
 import { validateGraph } from './validate.js';
 import type { GraphErrorCode, GraphErrorFields } from './errors.js';
@@ -40,9 +41,8 @@ import type {
 
 export { graphError, GraphNodeError } from './errors.js';
 export type { GraphErrorCode, GraphErrorFields } from './errors.js';
-export { DEFAULT_CONCURRENCY, RunStatusToken, runGraph } from './scheduler.js';
-export type { GraphRunHandle } from './scheduler.js';
-export { assertEdgesAnchored, assertUniqueNodes, topoSort, validateGraph } from './validate.js';
+export { DEFAULT_CONCURRENCY, emitNodeStatus, isExternalCancel, RunStatusToken } from './scheduler.js';
+export { assertEdgesAnchored, assertUniqueNodes, failedIds, reachableFrom, topoSort, validateGraph } from './validate.js';
 export type {
     GEdge,
     GExecutor,
@@ -51,6 +51,7 @@ export type {
     GraphFailureStrategy,
     GraphNodeRecord,
     GraphNodeStatus,
+    GraphNodeStatusPayload,
     GraphRunContext,
     GraphRunEndPayload,
     GraphRunEventMeta,
@@ -60,6 +61,54 @@ export type {
     GraphRunStatusService,
     GraphSkipReason,
 } from './types.js';
+
+/** 一次内核 run 的句柄：等待结果 + 主动取消 / handle of one kernel run: await the result and cancel */
+export interface GraphRunHandle {
+    readonly runId: string;
+    readonly result: Promise<GraphRunResult>;
+    /** 通知式取消：signal 只置位，执行方自愿响应 / cooperative cancel: the signal is set, executors opt in */
+    cancel(): void;
+}
+
+/**
+ * 运行一次图：校验 → 拦截启动 → 并发调度 → 事件与状态机 → 汇总结果。
+ * Run one graph: validate → intercept start → concurrent scheduling → events
+ * and status machine → aggregate the result.
+ */
+export function runGraph(
+    graph: Graph,
+    executor: GExecutor,
+    options: { ctx: Context; runId?: string; concurrency?: number; onNodeFailure?: GraphFailureStrategy },
+): GraphRunHandle {
+    validateGraph(graph);
+    const runId = options.runId ?? randomUUID();
+    const controller = new AbortController();
+    // run 子 context + 状态上报服务的独立作用域（并发 run 互不冲突）
+    // The run child context plus an isolated scope for the status service (concurrent runs never collide).
+    const runCtx = options.ctx
+        .extend({ graphId: graph.id, runId, signal: controller.signal })
+        .isolate(RunStatusToken, Symbol(runId)) as GraphRunContext;
+    const records: Record<string, GraphNodeRecord> = Object.fromEntries(
+        graph.nodes.map((node) => [node.id, { id: node.id, status: 'pending' }]),
+    );
+    const status: GraphRunStatusService = {
+        setStatus: (nodeId, nodeStatus, patch) => {
+            Object.assign(records[nodeId]!, patch, { status: nodeStatus });
+            emitNodeStatus(runCtx, records[nodeId]!);
+        },
+    };
+    const disposeStatus = provideValue(runCtx, RunStatusToken, status);
+    const env: ScheduleEnv = {
+        runCtx,
+        records,
+        runId,
+        controller,
+        concurrency: Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY),
+        strategy: options.onNodeFailure ?? (() => 'failFast'),
+    };
+    const result = schedule(graph, executor, env).finally(disposeStatus);
+    return { runId, result, cancel: () => controller.abort(CANCEL_REASON) };
+}
 
 /** 内核服务令牌：语义层注入它以复用内核 / the kernel service token; semantic layers inject it to reuse the kernel */
 export const GraphKernelToken = defineToken<GraphKernelService>('graphKernel');

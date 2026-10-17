@@ -16,11 +16,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Context } from '@deepseek-ai/cordis';
-import { apply as kernelPlugin } from '@veren/graph-core';
-import { apply as enginePlugin, FlowEngineToken } from '@veren/graph-flow-engine';
-import * as flowStorage from '@veren/graph-flow-storage';
+import { apply as kernelPlugin } from '@deepseek-ai/dsh-graph-core';
+import { apply as enginePlugin, FlowEngineToken, FlowStorageToken } from '@deepseek-ai/dsh-graph-flow-engine';
+import * as flowStorage from '@deepseek-ai/dsh-graph-flow-storage';
 import { apply as yamlParserPlugin } from '@veren/yaml-parser';
-import { apply as yamlPlugin, Config as yamlConfig } from '@veren/graph-flow-yaml';
+import { apply as yamlPlugin, Config as yamlConfig } from '@deepseek-ai/dsh-graph-flow-yaml';
 import * as nodeTool from '../src/index.js';
 import ToolRuntime from '@deepseek-ai/dsh-tools';
 
@@ -112,6 +112,15 @@ async function runScenario(dir: string): Promise<void> {
     // 2) 内核 + flow-storage + systemPrompt（ToolRuntime 的依赖）+ 引擎 + 真实 ToolRuntime + tool 节点
     await ctx.plugin(kernelPlugin);
     await ctx.plugin({ inject: flowStorage.inject, apply: flowStorage.apply } as never, {});
+    // flow-storage 的 Domain 在异步 effect 里打开，FlowStorage 能力晚一步提供；
+    // 等它就绪再装引擎，否则引擎装载时快照不到该能力，运行记录不会落盘。
+    // flow-storage opens its domain in an async effect, so FlowStorage arrives a
+    // step later; wait for it before mounting the engine, otherwise the engine
+    // cannot see the capability and run records never reach the medium.
+    for (let i = 0; i < 50 && !ctx.get(FlowStorageToken); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(ctx.get(FlowStorageToken)).toBeDefined();
     const SystemPrompt = (await import('@deepseek-ai/dsh-system-prompt')).SystemPrompt as unknown as new (c: Context, config: Record<string, unknown>) => object;
     await ctx.plugin({ apply: (c: Context) => void new SystemPrompt(c, {}) } as never);
     await ctx.plugin(enginePlugin as never, { nodeTimeoutMs: 30_000 });

@@ -5,7 +5,8 @@
  * records and the storage capability contract.
  */
 
-import type { FlowBlackboard, FlowDefinition, FlowId, FlowNodeDef, NodeHandler, NodeId, RunId, SlotRef } from '@veren/graph-flow-api';
+import type { FlowBlackboard, FlowDefinition, FlowId, FlowNodeDef, NodeHandler, NodeId, RunId, SlotRef } from '@deepseek-ai/dsh-graph-flow-api';
+import type { GraphNodeStatus } from '@deepseek-ai/dsh-graph-core';
 
 /** 一次 flow 运行的状态（running 为运行中快照）/ status of one flow run ('running' = live snapshot) */
 export type FlowRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
@@ -87,6 +88,8 @@ export interface FlowEngine {
     registerFlow(definition: FlowDefinition): Promise<void>;
     unregisterFlow(flowId: FlowId): Promise<void>;
     hasFlow(flowId: FlowId): boolean;
+    /** 取已注册 flow 的原始定义；未注册返回 undefined / the registered definition, or undefined when absent */
+    getFlow(flowId: FlowId): FlowDefinition | undefined;
     /** 已注册 flow 摘要（按 id 升序）/ registered-flow summaries, sorted by id */
     listFlows(): FlowSummary[];
     /** 启动一次运行（非阻塞，返回句柄）/ start one run (non-blocking; returns a handle) */
@@ -113,6 +116,9 @@ export interface RunEntry {
     runId: RunId;
     status: FlowRunStatus;
     startedAt: number;
+    /** 该 run 的祖先 flow 链（运行期递归防护，per-run 而不是引擎全局）/
+        the run's ancestor flow chain (per-run runtime recursion guard, not engine-global) */
+    ancestry: readonly FlowId[];
     /** 该 run 的黑板（waterfall 改写同步用）/ the run's blackboard (waterfall rewrite sync) */
     blackboard?: FlowBlackboard;
     /** 完成后写入的结果（getRun 面）/ the result written back once finished (the getRun surface) */
@@ -152,6 +158,22 @@ export interface FlowRunEndPayload {
     blackboard: Record<string, unknown>;
 }
 
+/**
+ * 事件载荷：flow 节点的状态迁移（由内核中性事件转发，补上 flowId）。
+ * Payload of a flow node status transition: forwarded from the kernel's neutral
+ * event with the flowId added.
+ */
+export interface FlowNodeStatusPayload {
+    flowId: FlowId;
+    runId: RunId;
+    nodeId: NodeId;
+    status: GraphNodeStatus;
+    skipReason?: string;
+    error?: { code: string; message: string };
+    startedAt?: number;
+    endedAt?: number;
+}
+
 // flow 层语义事件：declaration merging + JSDoc @mode。
 // Flow semantic events: declaration merging with JSDoc @mode.
 declare module '@deepseek-ai/cordis' {
@@ -160,6 +182,12 @@ declare module '@deepseek-ai/cordis' {
         'flow/run-starting'(payload: FlowRunEventPayload): boolean | void | Promise<boolean | void>;
         /** flow 运行已启动。@mode emit */
         'flow/run-start'(payload: FlowRunEventPayload): void;
+        /**
+         * flow 节点状态迁移：订阅方按节点收到 pending → ready → running →
+         * completed | failed | skipped | cancelled，无需轮询。
+         * @mode emit
+         */
+        'flow/node-status'(payload: FlowNodeStatusPayload): void;
         /** flow 运行结束：携带输出变量与黑板快照。@mode emit */
         'flow/run-end'(payload: FlowRunEndPayload): void;
     }

@@ -9,13 +9,20 @@
 import { randomUUID } from 'node:crypto';
 import { Service, type Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
-import { defineToken } from '@veren/core';
-import type { GraphKernelService, GraphRunContext, GraphRunResult } from '@veren/graph-core';
-import type { FlowBlackboard, FlowDefinition, FlowId, NodeExecuteContext, NodeId, NodeRegistry, RunId } from '@veren/graph-flow-api';
-import { createBuiltinHandlers, NodeRegistryImpl } from './registry.js';
-import { compileFlow, createBlackboard, createRunner, flowError, resolveInputValue, toSlots } from './runtime.js';
-import type { OutcomePorts } from './runtime.js';
-import type { CompiledFlow, FlowNodeDefMap, FlowNodeRecord, FlowRunDetail, FlowRunHandle, FlowRunOptions, FlowRunResult, FlowRunStatus, FlowRunSummary, FlowStorage, FlowSummary, RunEntry } from './types.js';
+import { defineToken, get } from '@veren/core';
+import type { GraphKernelService, GraphRunResult } from '@deepseek-ai/dsh-graph-core';
+import { isExternalCancel } from '@deepseek-ai/dsh-graph-core';
+import type { FlowBlackboard, FlowDefinition, FlowId, NodeExecuteContext, NodeId, NodeRegistry, RunId } from '@deepseek-ai/dsh-graph-flow-api';
+import { createBuiltinHandlers, createRunner, NodeRegistryImpl } from './registry.js';
+import {
+    cancelledRunResult, compileFlow, createBlackboard, flowError, rejectedRunResult,
+    runnerDeps, toFlowResult, toKernelGraph, toSlots,
+} from './runtime.js';
+import type { DriveEnv, OutcomePorts } from './runtime.js';
+import type {
+    CompiledFlow, FlowRunDetail, FlowRunHandle, FlowRunOptions,
+    FlowRunResult, FlowRunSummary, FlowStorage, FlowSummary, RunEntry,
+} from './types.js';
 
 /** 引擎服务令牌 / the engine service token */
 export const FlowEngineToken = defineToken<FlowEngineService>('graphFlowEngine');
@@ -31,20 +38,9 @@ export interface FlowEngineConfig {
 /** 插件配置 schema / the plugin config schema */
 export const Config: z<FlowEngineConfig> = z.object({ nodeTimeoutMs: z.number().min(0).default(30_000) });
 
-/** 运行主体的环境依赖 / environment for the run body */
-interface DriveEnv {
-    input: Record<string, unknown>;
-    mocks?: Record<NodeId, unknown>;
-    blackboard: FlowBlackboard;
-    outcomePorts: OutcomePorts;
-    isCancelled: () => boolean;
-    setCancel: (cancel: () => void) => void;
-}
-
 export class FlowEngineService extends Service {
     private readonly flows = new Map<FlowId, CompiledFlow>();
     private readonly runs = new Map<RunId, RunEntry>();
-    private readonly activeRefs = new Set<FlowId>();
 
     constructor(
         ctx: Context,
@@ -54,8 +50,8 @@ export class FlowEngineService extends Service {
         private readonly kernel: GraphKernelService,
         /** 节点类型注册表（引擎默认提供实现）/ the node-type registry (the engine provides the default) */
         private readonly registry: NodeRegistry = new NodeRegistryImpl(),
-        /** 可选存储能力 / the optional storage capability */
-        private readonly storage?: FlowStorage,
+        /** 可选存储能力（装载时快照；晚到能力按次解析）/ the optional storage capability (snapshot at mount; late capabilities resolve per use) */
+        private readonly storageCapability?: FlowStorage,
     ) {
         super(ctx, FlowEngineToken);
         // 内置节点随引擎 fiber 卸载逆序注销 / built-ins unregister in reverse order with the engine fiber
@@ -74,6 +70,32 @@ export class FlowEngineService extends Service {
             }
             return final;
         });
+        // 内核中性状态事件 → flow 语义事件（补 flowId；错误收缩为可序列化面）
+        // Kernel neutral status event → flow semantic event (adds flowId; the
+        // error shrinks to its serializable surface).
+        ctx.on('graph/node-status', (payload) => {
+            this.ctx.emit('flow/node-status', {
+                flowId: payload.graphId as FlowId,
+                runId: payload.runId as RunId,
+                nodeId: payload.nodeId as NodeId,
+                status: payload.status,
+                skipReason: payload.skipReason,
+                error: payload.error ? { code: payload.error.code, message: payload.error.message } : undefined,
+                startedAt: payload.startedAt,
+                endedAt: payload.endedAt,
+            });
+        });
+    }
+
+    /**
+     * 解析存储能力：可选能力可能晚于引擎装载到达（flow-storage 的异步
+     * effect），因此每次使用时重新解析，而不是在 apply 时快照成 undefined。
+     * Resolve the storage capability per use: the optional capability can arrive
+     * after the engine mounts (flow-storage's async effect), so a snapshot taken
+     * at apply time would silently stay undefined.
+     */
+    private resolveStorage(): FlowStorage | undefined {
+        return this.storageCapability ?? get(this.ctx, FlowStorageToken);
     }
 
     /** 注册一个 flow：先编译 fail loud，再做引用环检测 / register a flow: compile loudly first, then check reference cycles */
@@ -81,17 +103,22 @@ export class FlowEngineService extends Service {
         const compiled = compileFlow(definition, this.registry);
         this.assertNoReferenceCycle(compiled);
         this.flows.set(definition.id, compiled);
-        await this.storage?.saveFlow(definition);
+        await this.resolveStorage()?.saveFlow(definition);
     }
 
     /** 注销一个 flow / unregister a flow */
     async unregisterFlow(flowId: FlowId): Promise<void> {
         this.flows.delete(flowId);
-        await this.storage?.deleteFlow(flowId);
+        await this.resolveStorage()?.deleteFlow(flowId);
     }
 
     hasFlow(flowId: FlowId): boolean {
         return this.flows.has(flowId);
+    }
+
+    /** 取已注册 flow 的原始定义（画布/CLI 投影用）/ the registered definition (for canvas/CLI projection) */
+    getFlow(flowId: FlowId): FlowDefinition | undefined {
+        return this.flows.get(flowId)?.definition;
     }
 
     /** 已注册 flow 摘要，按 id 升序（清单面稳定，便于模型/UI 消费）/ registered-flow summaries sorted by id */
@@ -141,6 +168,11 @@ export class FlowEngineService extends Service {
 
     /** 启动一次运行（非阻塞）；入参经 Start 签名校验 / start one run (non-blocking); input validated via the Start signature */
     run(flowId: FlowId, options: FlowRunOptions = {}): FlowRunHandle {
+        return this.startRun(flowId, options, [flowId]);
+    }
+
+    /** 启动一次运行并记录祖先链（subflow 递归防护用）/ start a run and record its ancestor chain (subflow guard) */
+    private startRun(flowId: FlowId, options: FlowRunOptions, ancestry: readonly FlowId[]): FlowRunHandle {
         const compiled = this.flows.get(flowId);
         if (!compiled) throw flowError('FLOW_NOT_FOUND', `flow "${flowId}" is not registered`, { flowId });
         let input = options.input ?? {};
@@ -153,7 +185,7 @@ export class FlowEngineService extends Service {
         }
         const runId = randomUUID() as RunId;
         const blackboard = createBlackboard();
-        const entry: RunEntry = { flowId, runId, status: 'running', startedAt: Date.now(), blackboard };
+        const entry: RunEntry = { flowId, runId, status: 'running', startedAt: Date.now(), ancestry, blackboard };
         this.runs.set(runId, entry);
         const outcomePorts: OutcomePorts = new Map();
         let kernelCancel: (() => void) | undefined;
@@ -186,60 +218,17 @@ export class FlowEngineService extends Service {
     private async drive(compiled: CompiledFlow, entry: RunEntry, env: DriveEnv): Promise<FlowRunResult> {
         const { flowId, runId } = entry;
         const payload = { flowId, runId, input: env.input };
-        // 全部节点统一置位（取消/拒绝共用）/ set every node at once (shared by cancel and refusal)
-        const allNodes = (status: 'cancelled', skipReason: 'upstream-cancel' | 'run-rejected'): GraphRunResult => ({
-            graphId: flowId,
-            runId,
-            status,
-            nodes: Object.fromEntries(compiled.definition.nodes.map((node) => [node.id, { id: node.id, status: 'skipped', skipReason }])),
-        });
-        if (env.isCancelled()) return this.finalize(compiled, entry, env.blackboard, allNodes('cancelled', 'upstream-cancel'));
+        if (env.isCancelled()) return this.finalize(compiled, entry, env.blackboard, cancelledRunResult(compiled, flowId, runId));
         if (await this.ctx.serial('flow/run-starting', payload)) {
-            return this.finalize(compiled, entry, env.blackboard, allNodes('cancelled', 'run-rejected'));
+            return this.finalize(compiled, entry, env.blackboard, rejectedRunResult(compiled, flowId, runId));
         }
-        if (env.isCancelled()) return this.finalize(compiled, entry, env.blackboard, allNodes('cancelled', 'upstream-cancel'));
+        if (env.isCancelled()) return this.finalize(compiled, entry, env.blackboard, cancelledRunResult(compiled, flowId, runId));
         this.ctx.emit('flow/run-start', payload);
-        const graph = this.toKernelGraph(compiled, env.blackboard, env.outcomePorts);
-        const handle = this.kernel.run(graph, createRunner(this.runnerDeps(compiled, entry, env)), { runId });
+        const graph = toKernelGraph(compiled, env.blackboard, env.outcomePorts);
+        const deps = runnerDeps(compiled, entry, env, this.registry, this.config.nodeTimeoutMs);
+        const handle = this.kernel.run(graph, createRunner(deps), { runId });
         env.setCancel(() => handle.cancel());
         return this.finalize(compiled, entry, env.blackboard, await handle.result);
-    }
-
-    /** flow 图 → 内核图：边条件组合端口结论与声明谓词 / flow graph → kernel graph: edge conditions combine outcome ports and declared predicates */
-    private toKernelGraph(compiled: CompiledFlow, blackboard: FlowBlackboard, outcomePorts: OutcomePorts) {
-        const definition = compiled.definition;
-        return {
-            id: definition.id,
-            nodes: definition.nodes.map((node) => ({ id: node.id })),
-            edges: definition.edges.map((edge) => ({
-                from: edge.from,
-                to: edge.to,
-                // 边条件 = 命名端口结论 ∧ 声明谓词；error 端口激活时默认输出关闭
-                // edge condition = outcome port ∧ declared predicate; the default output closes once 'error' activates
-                when: (kctx: GraphRunContext) => {
-                    const ports = outcomePorts.get(edge.from);
-                    if (edge.port) return ports?.has(edge.port) ?? false;
-                    if (ports?.has('error')) return false;
-                    return edge.when ? edge.when(blackboard, kctx) : true;
-                },
-            })),
-        };
-    }
-
-    /** 组装执行器依赖 / assemble the runner dependencies */
-    private runnerDeps(compiled: CompiledFlow, entry: RunEntry, env: DriveEnv) {
-        const nodeDefs: FlowNodeDefMap = new Map(compiled.definition.nodes.map((node) => [node.id, node]));
-        return {
-            flowId: entry.flowId,
-            runId: entry.runId,
-            nodeDefs,
-            compiled,
-            registry: this.registry,
-            blackboard: env.blackboard,
-            outcomePorts: env.outcomePorts,
-            mocks: env.mocks,
-            defaultTimeoutMs: this.config.nodeTimeoutMs,
-        };
     }
 
     /** 汇总结果：输出变量、节点记录、事件与持久化 / aggregate the result: output vars, node records, events, persistence */
@@ -249,35 +238,14 @@ export class FlowEngineService extends Service {
         blackboard: FlowBlackboard,
         kernelResult: GraphRunResult,
     ): Promise<FlowRunResult> {
-        const toFlowRecord = ([id, record]: [string, GraphRunResult['nodes'][string]]): [string, FlowNodeRecord] => [id, {
-            status: record.status,
-            skipReason: record.skipReason,
-            startedAt: record.startedAt,
-            endedAt: record.endedAt,
-            error: record.error ? { code: record.error.code, message: record.error.message } : undefined,
-            output: record.output,
-        }];
-        const nodes = Object.fromEntries(Object.entries(kernelResult.nodes).map(toFlowRecord));
-        const output = Object.fromEntries(
-            Object.entries(compiled.definition.output ?? {}).map(([name, ref]) => [name, resolveInputValue(ref, blackboard)]),
-        );
-        const failure = Object.values(kernelResult.nodes).find((record) => record.error);
-        const status = kernelResult.status;
-        const result: FlowRunResult = {
-            flowId: entry.flowId,
-            runId: entry.runId,
-            status,
-            output,
-            nodes,
-            error: failure ? { code: failure.error!.code, message: failure.error!.message } : undefined,
-        };
-        entry.status = status;
+        const result = toFlowResult(compiled, entry, blackboard, kernelResult);
+        entry.status = result.status;
         // 结果回写运行条目（getRun 面）：内存随运行清单一起增长，与 listRuns 同生命周期
         // Write the result back onto the run entry (the getRun surface); it lives as long as the run list.
         entry.result = result;
-        this.ctx.emit('flow/run-end', { flowId: entry.flowId, runId: entry.runId, status, output, blackboard: blackboard.snapshot() });
+        this.ctx.emit('flow/run-end', { flowId: entry.flowId, runId: entry.runId, status: result.status, output: result.output, blackboard: blackboard.snapshot() });
         try {
-            await this.storage?.saveRun(result);
+            await this.resolveStorage()?.saveRun(result);
         } catch (cause) {
             this.ctx.logger.error('flow run persist failed / flow 运行持久化失败', cause);
         }
@@ -290,29 +258,36 @@ export class FlowEngineService extends Service {
             .map(({ flowId, runId, status, startedAt }) => ({ flowId, runId, status, startedAt }));
     }
 
-    /** subflow 回调：递归防护 + 父级取消传播 / the subflow callback: recursion guard + parent cancel propagation */
+    /**
+     * subflow 回调：按 run 的祖先链做递归防护（不是引擎级全局集合，
+     * 否则同一子 flow 的并行引用会互相误伤），并传播父级取消。
+     * The subflow callback: the recursion guard walks the run's own ancestor
+     * chain (an engine-global set would make parallel references to the same
+     * child flow collide) and propagates the parent cancel.
+     */
     private runSubflow = async (flowId: FlowId, input: Record<string, unknown>, nctx: NodeExecuteContext): Promise<unknown> => {
-        if (this.activeRefs.has(flowId)) {
+        const ancestry = this.runs.get(nctx.runId)?.ancestry ?? [];
+        if (ancestry.includes(flowId)) {
             throw flowError('FLOW_REFERENCE_CYCLE', `recursive subflow reference to "${flowId}" at runtime`, { flowId, nodeId: nctx.nodeId });
         }
-        this.activeRefs.add(flowId);
+        const handle = this.startRun(flowId, { input }, [...ancestry, flowId]);
+        // 只有外部取消才取消子 flow；fail-fast 只是通知，子 flow 必须自然落定
+        // Only an external cancel cancels the child run; a fail-fast notice lets it settle naturally.
+        const onAbort = (): void => {
+            if (isExternalCancel(nctx.signal)) handle.cancel();
+        };
+        if (isExternalCancel(nctx.signal)) handle.cancel();
+        else nctx.signal.addEventListener('abort', onAbort, { once: true });
         try {
-            const handle = this.run(flowId, { input });
-            const onAbort = () => handle.cancel();
-            nctx.signal.addEventListener('abort', onAbort, { once: true });
-            try {
-                const result = await handle.awaitCompletion();
-                if (result.status !== 'completed') {
-                    throw flowError('NODE_FAILED', `subflow "${flowId}" ended with status ${result.status}`, {
-                        flowId, runId: nctx.runId, nodeId: nctx.nodeId,
-                    });
-                }
-                return result;
-            } finally {
-                nctx.signal.removeEventListener('abort', onAbort);
+            const result = await handle.awaitCompletion();
+            if (result.status !== 'completed') {
+                throw flowError('NODE_FAILED', `subflow "${flowId}" ended with status ${result.status}`, {
+                    flowId, runId: nctx.runId, nodeId: nctx.nodeId,
+                });
             }
+            return result;
         } finally {
-            this.activeRefs.delete(flowId);
+            nctx.signal.removeEventListener('abort', onAbort);
         }
     };
 }

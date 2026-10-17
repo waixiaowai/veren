@@ -1,0 +1,21 @@
+﻿plugins/person-agent-dynamic-context     |  WARN  The field "pnpm.onlyBuiltDependencies" was found in C:\Users\imeep\Documents\cursour\plugins\person-agent-dynamic-context/package.json. This will not take effect. You should configure "pnpm.onlyBuiltDependencies" at the root of the workspace instead.
+plugins/person-agent-preset              |  WARN  The field "pnpm.onlyBuiltDependencies" was found in C:\Users\imeep\Documents\cursour\plugins\person-agent-preset/package.json. This will not take effect. You should configure "pnpm.onlyBuiltDependencies" at the root of the workspace instead.
+plugins/person-agent-tool-session        |  WARN  The field "pnpm.onlyBuiltDependencies" was found in C:\Users\imeep\Documents\cursour\plugins\person-agent-tool-session/package.json. This will not take effect. You should configure "pnpm.onlyBuiltDependencies" at the root of the workspace instead.
+plugins/person-agent-tool-workspace      |  WARN  The field "pnpm.onlyBuiltDependencies" was found in C:\Users\imeep\Documents\cursour\plugins\person-agent-tool-workspace/package.json. This will not take effect. You should configure "pnpm.onlyBuiltDependencies" at the root of the workspace instead.
+Scope: 8 of 46 workspace projects
+packages/graph/flow-api build$ tsc
+packages/graph/graph-core build$ tsc
+packages/graph/flow-api build: Done
+packages/graph/graph-core build: Done
+packages/graph/flow-engine build$ tsc
+packages/graph/flow-engine build: Done
+packages/graph/flow-storage build$ tsc
+packages/graph/tools build$ tsc
+packages/graph/flow-yaml build$ tsc
+packages/graph/flow-yaml build: Done
+packages/graph/tools build: Done
+packages/graph/flow-storage build: Done
+packages/graph/flow-canvas build$ tsc
+packages/graph/node-tool build$ tsc
+packages/graph/flow-canvas build: Done
+packages/graph/node-tool build: Done

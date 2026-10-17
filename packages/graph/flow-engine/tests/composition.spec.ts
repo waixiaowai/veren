@@ -12,11 +12,11 @@
 import { describe, expect, it } from 'vitest';
 import { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
-import { apply as kernelPlugin, GraphKernelToken } from '@veren/graph-core';
-import { NodeRegistryToken, registerNodeHandler } from '@veren/graph-flow-api';
-import type { NodeHandler } from '@veren/graph-flow-api';
+import { apply as kernelPlugin, GraphKernelToken } from '@deepseek-ai/dsh-graph-core';
+import { NodeRegistryToken, registerNodeHandler } from '@deepseek-ai/dsh-graph-flow-api';
+import type { NodeHandler } from '@deepseek-ai/dsh-graph-flow-api';
 import { apply as enginePlugin, FlowEngineToken } from '../src/index.js';
-import type { FlowDefinition } from '@veren/graph-flow-api';
+import type { FlowDefinition } from '@deepseek-ai/dsh-graph-flow-api';
 
 /** 参考节点插件：把输入文本转大写 / the reference node plugin: upper-cases its text input */
 const upperHandler: NodeHandler<{ upper?: boolean }> = {

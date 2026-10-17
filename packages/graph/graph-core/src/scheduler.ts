@@ -6,11 +6,8 @@
  * upper layer's GExecutor; edge `when` predicates are injected at build time.
  */
 
-import { randomUUID } from 'node:crypto';
-import type { Context } from '@deepseek-ai/cordis';
-import { defineToken, provideValue } from '@veren/core';
+import { defineToken } from '@veren/core';
 import { toNodeError } from './errors.js';
-import { validateGraph } from './validate.js';
 import type {
     GEdge,
     GExecutor,
@@ -18,12 +15,13 @@ import type {
     Graph,
     GraphFailureStrategy,
     GraphNodeRecord,
+    GraphNodeStatus,
     GraphRunContext,
     GraphRunResult,
     GraphRunStatus,
     GraphRunStatusService,
-    GraphSkipReason,
 } from './types.js';
+import { failedIds, reachableFrom } from './validate.js';
 
 /** 默认就绪集并发上限 / default ready-set concurrency cap */
 export const DEFAULT_CONCURRENCY = 4;
@@ -31,74 +29,62 @@ export const DEFAULT_CONCURRENCY = 4;
 /** 状态上报能力令牌：注册在 run 子 context 上 / token of the status-reporting capability on the run context */
 export const RunStatusToken = defineToken<GraphRunStatusService>('graphRunStatus');
 
-/** 默认失败策略：fail-fast / the default failure strategy: fail-fast */
-const failFast: GraphFailureStrategy = () => 'failFast';
-
-/** 一次内核 run 的句柄：等待结果 + 主动取消 / handle of one kernel run: await the result and cancel */
-export interface GraphRunHandle {
-    readonly runId: string;
-    readonly result: Promise<GraphRunResult>;
-    /** 通知式取消：signal 只置位，执行方自愿响应 / cooperative cancel: the signal is set, executors opt in */
-    cancel(): void;
-}
-
 /** 事件引用载荷 / the neutral event reference payload */
 const refMeta = (graphId: string, runId: string, nodeId?: string) => ({ graphId, runId, nodeId });
 
 /**
- * 运行一次图：校验 → 拦截启动 → 并发调度 → 事件与状态机 → 汇总结果。
- * Run one graph: validate → intercept start → concurrent scheduling → events
- * and status machine → aggregate the result.
+ * 广播一次节点状态迁移：内核只报告中性状态，不解释节点业务。
+ * Emit one node status transition: the kernel reports neutral state only and
+ * does not interpret node business.
  */
-export function runGraph(
-    graph: Graph,
-    executor: GExecutor,
-    options: {
-        ctx: Context;
-        runId?: string;
-        concurrency?: number;
-        onNodeFailure?: GraphFailureStrategy;
-    },
-): GraphRunHandle {
-    validateGraph(graph);
-    const runId = options.runId ?? randomUUID();
-    const controller = new AbortController();
-    // run 子 context + 状态上报服务的独立作用域（并发 run 互不冲突）
-    // The run child context plus an isolated scope for the status service (concurrent runs never collide).
-    const runCtx = options.ctx
-        .extend({ graphId: graph.id, runId, signal: controller.signal })
-        .isolate(RunStatusToken, Symbol(runId)) as GraphRunContext;
-    const records: Record<string, GraphNodeRecord> = Object.fromEntries(
-        graph.nodes.map((node) => [node.id, { id: node.id, status: 'pending' }]),
-    );
-    const status: GraphRunStatusService = {
-        setStatus: (nodeId, nodeStatus, patch) => {
-            Object.assign(records[nodeId]!, patch, { status: nodeStatus });
-        },
-    };
-    const disposeStatus = provideValue(runCtx, RunStatusToken, status);
-    const result = schedule(graph, executor, {
-        runCtx,
-        records,
-        runId,
-        controller,
-        concurrency: Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY),
-        strategy: options.onNodeFailure ?? failFast,
-    }).finally(disposeStatus);
-    return { runId, result, cancel: () => controller.abort(CANCEL_REASON) };
+export function emitNodeStatus(runCtx: GraphRunContext, record: GraphNodeRecord): void {
+    runCtx.emit('graph/node-status', {
+        graphId: runCtx.graphId,
+        runId: runCtx.runId,
+        nodeId: record.id,
+        status: record.status,
+        skipReason: record.skipReason,
+        error: record.error,
+        startedAt: record.startedAt,
+        endedAt: record.endedAt,
+    });
 }
 
-/** 外部取消的 abort reason 标记 / the abort reason marker for external cancels */
-const CANCEL_REASON = Symbol('veren:graph-cancel');
+/** 外部取消的 abort reason 标记 / the abort reason marker for an external cancel */
+export const CANCEL_REASON: unique symbol = Symbol('veren:graph-cancel');
+
+/** fail-fast 通知的 abort reason 标记（只是通知，不改变节点归属）/
+    the abort reason marker for a fail-fast notification (a notice only; it does not relabel nodes) */
+const FAILURE_REASON: unique symbol = Symbol('veren:graph-failure');
+
+/**
+ * 判断 signal 是否来自外部取消：fail-fast 的通知不算取消。
+ * Whether the signal comes from an external cancel; a fail-fast notice is not a cancel.
+ */
+export function isExternalCancel(signal: AbortSignal): boolean {
+    return signal.aborted && signal.reason === CANCEL_REASON;
+}
 
 /** 调度环境 / the scheduling environment */
-interface ScheduleEnv {
+export interface ScheduleEnv {
     runCtx: GraphRunContext;
     records: Record<string, GraphNodeRecord>;
     runId: string;
     controller: AbortController;
     concurrency: number;
     strategy: GraphFailureStrategy;
+}
+
+/** 落定节点状态并广播状态事件 / settle a node status and emit the status event */
+function settleNode(
+    env: ScheduleEnv,
+    nodeId: string,
+    status: GraphNodeStatus,
+    patch: Partial<Omit<GraphNodeRecord, 'id' | 'status'>> = {},
+): void {
+    const record = env.records[nodeId]!;
+    Object.assign(record, patch, { status });
+    emitNodeStatus(env.runCtx, record);
 }
 
 /** 节点间共享的调度状态 / scheduling state shared across node tasks */
@@ -112,7 +98,7 @@ interface SharedState {
 }
 
 /** 调度主体（拆出纯函数，便于控制行数）/ the scheduling body (extracted to keep functions small) */
-async function schedule(graph: Graph, executor: GExecutor, env: ScheduleEnv): Promise<GraphRunResult> {
+export async function schedule(graph: Graph, executor: GExecutor, env: ScheduleEnv): Promise<GraphRunResult> {
     const { runCtx, records, runId } = env;
     const finish = (status: GraphRunStatus): GraphRunResult => {
         runCtx.emit('graph/run-end', { graphId: graph.id, runId, status });
@@ -121,12 +107,14 @@ async function schedule(graph: Graph, executor: GExecutor, env: ScheduleEnv): Pr
     // @mode serial 拦截：真值即拒绝启动 / serial intercept: truthy refuses the run
     if (await runCtx.serial('graph/run-starting', { graphId: graph.id, runId })) {
         for (const record of Object.values(records)) {
-            record.status = 'skipped';
-            record.skipReason = 'run-rejected';
+            settleNode(env, record.id, 'skipped', { skipReason: 'run-rejected' });
         }
         return finish('cancelled');
     }
     runCtx.emit('graph/run-start', { graphId: graph.id, runId });
+    // 初始 pending 快照：订阅方无需轮询即可拿到全部节点的起始状态
+    // The initial pending snapshot: subscribers get every node's starting state without polling.
+    for (const record of Object.values(records)) emitNodeStatus(runCtx, record);
     const status = await drive(graph, executor, env);
     return finish(status);
 }
@@ -159,84 +147,78 @@ async function drive(graph: Graph, executor: GExecutor, env: ScheduleEnv): Promi
         if (shared.running.size === 0) break;
         await Promise.race([...shared.running]);
     }
-    // 收尾：未被启动的 pending 节点按"失败可达性"归为 skipped 或 cancelled
-    // Finalize: never-started pending nodes become skipped (failure-reachable) or cancelled.
+    // 收尾：外部取消下所有未落定节点都是 cancelled；fail-fast 下未启动的
+    // 失败可达节点是 skipped/upstream-failure。两种情况分开收尾，避免把
+    // 取消写成 skipped（验收要求 cancel 后各节点进入 cancelled）。
+    // Finalize: under an external cancel every unsettled node is cancelled;
+    // under fail-fast, never-started failure-reachable nodes are skipped.
+    // The two paths stay separate so a cancel is never recorded as a skip.
+    const cancelledRun = isExternalCancel(controller.signal);
     if (shared.pending.size > 0) {
-        const doomed = shared.failed ? reachableFrom(failedIds(records), shared.outgoing) : new Set<string>();
+        const doomed = !cancelledRun && shared.failed
+            ? reachableFrom(failedIds(records), shared.outgoing)
+            : new Set<string>();
         for (const id of shared.pending) {
-            const record = records[id]!;
-            record.status = doomed.has(id) ? 'skipped' : 'cancelled';
-            record.skipReason = doomed.has(id) ? 'upstream-failure' : 'upstream-cancel';
-        }
-    }
-    if (shared.failed) return 'failed';
-    return controller.signal.aborted ? 'cancelled' : 'completed';
-}
-
-/** 收集落定为 failed 的节点 / collect nodes that settled as failed */
-function failedIds(records: Record<string, GraphNodeRecord>): string[] {
-    return Object.values(records).filter((record) => record.status === 'failed').map((record) => record.id);
-}
-
-/** 从失败节点沿边可达的节点集合 / nodes reachable from the failed set along edges */
-function reachableFrom(roots: string[], outgoing: Map<string, GEdge[]>): Set<string> {
-    const seen = new Set<string>();
-    const queue = [...roots];
-    for (let head = 0; head < queue.length; head++) {
-        for (const edge of outgoing.get(queue[head]!) ?? []) {
-            if (!seen.has(edge.to)) {
-                seen.add(edge.to);
-                queue.push(edge.to);
+            if (cancelledRun) {
+                settleNode(env, id, 'cancelled');
+                continue;
             }
+            settleNode(env, id, 'skipped', { skipReason: doomed.has(id) ? 'upstream-failure' : 'upstream-cancel' });
         }
     }
-    return seen;
+    if (cancelledRun) return 'cancelled';
+    if (shared.failed) return 'failed';
+    return 'completed';
 }
 
 /** 跳过 id 自身及其下游子树 / skip id itself plus its downstream subtree */
 function skipSubtree(
     id: string,
     shared: SharedState,
-    records: Record<string, GraphNodeRecord>,
-    reason: 'upstream-failure' | 'upstream-condition' | 'upstream-cancel',
+    env: ScheduleEnv,
+    reason: 'upstream-failure' | 'upstream-condition',
 ): void {
     if (!shared.pending.has(id)) return;
     shared.pending.delete(id);
-    const record = records[id]!;
-    record.status = 'skipped';
-    record.skipReason = reason;
-    skipDownstream(id, shared, records, reason);
+    settleNode(env, id, 'skipped', { skipReason: reason });
+    skipDownstream(id, shared, env, reason);
 }
 
 /** 沿出边级联跳过（不含 id 自身）/ cascade a skip along outgoing edges (id itself untouched) */
 function skipDownstream(
     id: string,
     shared: SharedState,
-    records: Record<string, GraphNodeRecord>,
-    reason: 'upstream-failure' | 'upstream-condition' | 'upstream-cancel',
+    env: ScheduleEnv,
+    reason: 'upstream-failure' | 'upstream-condition',
 ): void {
     for (const edge of shared.outgoing.get(id) ?? []) {
         if (!shared.pending.has(edge.to)) continue;
         shared.pending.delete(edge.to);
-        const record = records[edge.to]!;
-        record.status = 'skipped';
-        record.skipReason = reason;
-        skipDownstream(edge.to, shared, records, reason);
+        settleNode(env, edge.to, 'skipped', { skipReason: reason });
+        skipDownstream(edge.to, shared, env, reason);
+    }
+}
+
+/**
+ * 取消级联：下游未落定节点同样是 cancelled（不是 skipped）/
+ * Cancel cascade: unsettled downstream nodes become cancelled too (never skipped).
+ */
+function cancelDownstream(id: string, shared: SharedState, env: ScheduleEnv): void {
+    for (const edge of shared.outgoing.get(id) ?? []) {
+        if (!shared.pending.has(edge.to)) continue;
+        shared.pending.delete(edge.to);
+        settleNode(env, edge.to, 'cancelled');
+        cancelDownstream(edge.to, shared, env);
     }
 }
 
 /** 上游 completed：求值出边条件并放行就绪集 / upstream completed: evaluate outgoing conditions */
-function activateOutgoing(
-    id: string,
-    shared: SharedState,
-    records: Record<string, GraphNodeRecord>,
-    runCtx: GraphRunContext,
-): void {
+function activateOutgoing(id: string, shared: SharedState, env: ScheduleEnv): void {
     for (const edge of shared.outgoing.get(id) ?? []) {
-        if (edge.when?.(runCtx) === false) {
+        if (edge.when?.(env.runCtx) === false) {
             // 只跳过该条件边下游子树（含边目标），不影响 from 的其他分支
             // Only the subtree below this condition edge (including its target) is skipped.
-            skipSubtree(edge.to, shared, records, 'upstream-condition');
+            skipSubtree(edge.to, shared, env, 'upstream-condition');
             continue;
         }
         const degree = shared.incoming.get(edge.to)! - 1;
@@ -245,39 +227,41 @@ function activateOutgoing(
     }
 }
 
-/** 单节点生命周期：ready → veto? → running → post-execute → completed | failed | skipped */
+/** 单节点生命周期：ready → veto? → running → post-execute → completed | failed | skipped | cancelled */
 async function runNode(node: GNode, executor: GExecutor, env: ScheduleEnv, shared: SharedState): Promise<void> {
     const { runCtx, records, runId, controller } = env;
     const record = records[node.id]!;
     const meta = refMeta(runCtx.graphId, runId, node.id);
-    const settleSkip = (status: 'skipped' | 'cancelled', reason: GraphSkipReason): void => {
-        record.status = status;
-        record.skipReason = reason;
-        const cascade =
-            reason === 'upstream-failure'
-                ? 'upstream-failure'
-                : reason === 'upstream-cancel'
-                  ? 'upstream-cancel'
-                  : 'upstream-condition';
-        skipDownstream(node.id, shared, records, cascade);
+    const settleCancelled = (): void => {
+        settleNode(env, node.id, 'cancelled', record.startedAt === undefined ? {} : { endedAt: Date.now() });
+        cancelDownstream(node.id, shared, env);
+    };
+    const settleVeto = (): void => {
+        settleNode(env, node.id, 'skipped', { skipReason: 'pre-execute-veto' });
+        skipDownstream(node.id, shared, env, 'upstream-condition');
     };
     try {
-        if (controller.signal.aborted) return settleSkip('cancelled', 'upstream-cancel');
-        record.status = 'ready';
+        // 外部取消：节点与下游都记 cancelled（不是 skipped）/ external cancel: node and downstream are cancelled
+        if (isExternalCancel(controller.signal)) return settleCancelled();
+        settleNode(env, node.id, 'ready');
         // @mode bail：监听器返回真值即否决该节点（框架 isBailed 以真值为 bail，
         // false/undefined 视为放行，与 tools/pre-execute 的语义一致）
         // @mode bail: a truthy listener return vetoes the node (the framework's
         // isBailed treats truthy as bail; false/undefined let the node run).
         const veto = await runCtx.bail('graph/node-pre-execute', meta);
-        if (veto) return settleSkip('skipped', 'pre-execute-veto');
-        record.status = 'running';
-        record.startedAt = Date.now();
+        // 取消优先于否决：运行已取消时节点落 cancelled，而不是 skipped
+        // A cancel outranks a veto: on a cancelled run the node lands cancelled, not skipped.
+        if (isExternalCancel(controller.signal)) return settleCancelled();
+        if (veto) return settleVeto();
+        settleNode(env, node.id, 'running', { startedAt: Date.now() });
         // 节点作用域：在 run 子 context 上按 nodeId 派生 / node scope derived from the run child context
         const nodeCtx = runCtx.extend({ nodeId: node.id }).isolate(node.id) as GraphRunContext;
         let output: unknown;
         try {
             output = await executor.execute(node, nodeCtx);
         } catch (cause) {
+            // 取消期间的拒绝属于取消，不是失败 / a rejection during an external cancel is a cancel, not a failure
+            if (isExternalCancel(controller.signal)) return settleCancelled();
             throw toNodeError(cause, { graphId: runCtx.graphId, runId, nodeId: node.id });
         }
         // @mode waterfall：监听器修改 envelope.output 并必须调 next()
@@ -285,22 +269,21 @@ async function runNode(node: GNode, executor: GExecutor, env: ScheduleEnv, share
         const envelope = { output };
         runCtx.waterfall('graph/node-post-execute', meta, envelope, () => envelope.output);
         record.output = envelope.output;
-        // 外部取消后落定的节点记为 cancelled（执行方自愿响应 signal）
-        // Nodes settling after an external cancel are marked cancelled (executors opt in).
-        if (controller.signal.reason === CANCEL_REASON) return settleSkip('cancelled', 'upstream-cancel');
-        record.status = 'completed';
-        record.endedAt = Date.now();
-        activateOutgoing(node.id, shared, records, runCtx);
+        // 外部取消后落定的节点记为 cancelled；fail-fast 的通知不改变节点归属
+        // Nodes settling after an external cancel are cancelled; a fail-fast notice does not relabel them.
+        if (isExternalCancel(controller.signal)) return settleCancelled();
+        settleNode(env, node.id, 'completed', { endedAt: Date.now() });
+        activateOutgoing(node.id, shared, env);
     } catch (cause) {
+        // 取消期间抛出的错误同样记 cancelled / an error thrown while cancelling still lands as cancelled
+        if (isExternalCancel(controller.signal)) return settleCancelled();
         const error = toNodeError(cause, { graphId: runCtx.graphId, runId, nodeId: node.id });
-        record.status = 'failed';
-        record.error = error;
-        record.endedAt = Date.now();
+        settleNode(env, node.id, 'failed', { error, endedAt: Date.now() });
         runCtx.emit('graph/node-error', error);
         if (env.strategy({ node, error, records }) === 'failFast') {
             shared.failed = true;
-            controller.abort();
+            controller.abort(FAILURE_REASON);
         }
-        skipDownstream(node.id, shared, records, 'upstream-failure');
+        skipDownstream(node.id, shared, env, 'upstream-failure');
     }
 }

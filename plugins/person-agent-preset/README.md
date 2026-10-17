@@ -18,6 +18,7 @@ A DSH host plugin that registers the **Person Agent** agent preset at runtime th
 | `tool-workspace` (`@veren/person-agent-tool-workspace`, always on) | `workspace_create` / `workspace_rename` so the bridge can open a home for the work |
 | `tool-session` (`@veren/person-agent-tool-session`, always on) | `session_create` / `session_rename` / `session_fork` / archive / pin — the delegation outlet |
 | `dynamic-context` (`@veren/person-agent-dynamic-context`) | Working memory: preset roster, model catalog and workspace list as snapshot messages |
+| `skill-filesystem` / `tool-skill` | Writing-skill directory limited to the packaged `skills/` root; `/renhua` invokes it directly and writing tasks load it from its description |
 
 ## Configuration
 
@@ -26,6 +27,7 @@ A DSH host plugin that registers the **Person Agent** agent preset at runtime th
 | `presetId` | `person-agent` | Stable preset identity sessions record |
 | `order` | `5` | Roster order in client preset pickers |
 | `withWeb` | `true` | Include the web search tool |
+| `withSkills` | `true` | Include the bundled `renhua` writing skill and its loader; set `false` to disable both |
 
 ## How it works
 
@@ -39,6 +41,16 @@ This plugin exposes **no bundle of its own** (`dsh.bundle.patch` is deliberately
   config:
     presetId: person-agent
 ```
+
+## Writing skill: `renhua`
+
+The bundled `renhua` skill does one thing: make Chinese text written for people read smoothly without losing hard facts. A user can type `/renhua`; before a document, letter, notice or report the model also loads it from the description in its catalog. The body is read on demand, so the catalog carries one description line.
+
+Overhead: the body is about 1,260 characters (928 Chinese characters), roughly 900–1,200 tokens when loaded. The catalog line is about 120 characters, roughly 100–150 tokens.
+
+Do **not** use it for compact agent-facing instructions, list-shaped data, code/API reference, logs or tables — those need density and structure, not reading rhythm. The body states this boundary too.
+
+Disable it with `withSkills: false` on the `person-agent-preset` row in the profile patch, or disable the whole bundle. Roll back by reinstalling the previous tarball. The skill ships with the package, so editing `node_modules` is overwritten by the next install.
 
 ## Testing
 

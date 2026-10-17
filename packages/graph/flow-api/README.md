@@ -1,6 +1,6 @@
-# @veren/graph-flow-api
+# @deepseek-ai/dsh-graph-flow-api
 
-The minimal, type-only API of the flow semantic layer on top of the DAG kernel. Use it when you write a **flow node-type plugin** or need the flow vocabulary without any implementation: node plugins import types from this package and inject `NodeRegistryToken` only — they must never depend on the implementation package `@veren/graph-flow-engine`.
+The minimal, type-only API of the flow semantic layer on top of the DAG kernel. Use it when you write a **flow node-type plugin** or need the flow vocabulary without any implementation: node plugins import types from this package and inject `NodeRegistryToken` only — they must never depend on the implementation package `@deepseek-ai/dsh-graph-flow-engine`.
 
 ## What it provides
 
@@ -17,7 +17,7 @@ The minimal, type-only API of the flow semantic layer on top of the DAG kernel. 
 ```ts
 import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
-import { NodeRegistryToken, registerNodeHandler, type NodeHandler } from '@veren/graph-flow-api';
+import { NodeRegistryToken, registerNodeHandler, type NodeHandler } from '@deepseek-ai/dsh-graph-flow-api';
 
 export const name = 'myUpperNode';
 export const inject = [NodeRegistryToken] as const;
@@ -36,6 +36,6 @@ export const apply = (ctx: Context) => {
 
 ## Non-goals (phase 2)
 
-Type declarations only — no registry/engine implementation, no triggers, no expression language beyond `${nodeId.slot}`, no client-side canvas types beyond the neutral model.
+Types plus the effect-bound registration helper — no registry or engine implementation, no triggers, no expression language beyond `${nodeId.slot}`, no client-side canvas types beyond the neutral model.
 
 See [README.cn.md](./README.cn.md) for the Chinese documentation.

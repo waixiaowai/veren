@@ -1,7 +1,7 @@
 /**
- * @veren/graph-flow-storage —— flow 定义与运行记录持久化插件。
+ * @deepseek-ai/dsh-graph-flow-storage —— flow 定义与运行记录持久化插件。
  *
- * @veren/graph-flow-storage — persistence for flow definitions and run
+ * @deepseek-ai/dsh-graph-flow-storage — persistence for flow definitions and run
  * records.
  *
  * 插件入口：在 dsh storage hub 上打开 graph-flow 域（后端路由由
@@ -15,7 +15,7 @@
 
 import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
-import { FlowStorageToken } from '@veren/graph-flow-engine';
+import { FlowStorageToken } from '@deepseek-ai/dsh-graph-flow-engine';
 import type { DomainFacility } from '@deepseek-ai/dsh-storage-domain';
 import { flowDomain } from './domain.js';
 import type { FlowDomainTables } from './storage.js';

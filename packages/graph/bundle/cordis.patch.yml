@@ -1,6 +1,6 @@
-# Veren graph 插件族：Host 级服务（内核 / flow 引擎 / YAML 装载 / 存储 / 通用 tool 节点）
+# DSH graph 插件族：Host 级服务（内核 / flow 引擎 / YAML 装载 / 存储 / 通用 tool 节点）
 # 以及它们的模型可见工具面。
-# The Veren graph plugin family: Host-level services (kernel / flow engine /
+# The DSH graph plugin family: Host-level services (kernel / flow engine /
 # YAML loading / storage / the generic tool node), the YAML parser provider that
 # the flow-YAML loader injects, and the model-facing graph tools.
 #
@@ -32,21 +32,21 @@
     - id: veren-yaml-parser
       name: "@veren/yaml-parser"
     - id: graph-kernel
-      name: "@veren/graph-core"
+      name: "@deepseek-ai/dsh-graph-core"
       config:
         concurrency: 4
     - id: graph-flow-engine
-      name: "@veren/graph-flow-engine"
+      name: "@deepseek-ai/dsh-graph-flow-engine"
       config:
         nodeTimeoutMs: 30000
     - id: graph-flow-node-tool
-      name: "@veren/graph-node-tool"
+      name: "@deepseek-ai/dsh-graph-node-tool"
     - id: graph-flow-yaml
-      name: "@veren/graph-flow-yaml"
+      name: "@deepseek-ai/dsh-graph-flow-yaml"
       config:
         files: []
     - id: graph-flow-storage
-      name: "@veren/graph-flow-storage"
+      name: "@deepseek-ai/dsh-graph-flow-storage"
       config:
         restoreFlows: false
     # graph-tools 把引擎的"列 / 跑 / 查"读取面暴露成模型可见工具（graph_list /
@@ -57,6 +57,6 @@
     # mounted with the tool chain) and the FlowEngine service, and touches neither
     # storage nor the kernel.
     - id: graph-tools
-      name: "@veren/graph-tools"
+      name: "@deepseek-ai/dsh-graph-tools"
       config:
         runTimeoutMs: 60000

@@ -12,8 +12,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { Context } from '@deepseek-ai/cordis';
-import { apply as kernelPlugin } from '@veren/graph-core';
-import { apply as enginePlugin, FlowEngineToken } from '@veren/graph-flow-engine';
+import { apply as kernelPlugin } from '@deepseek-ai/dsh-graph-core';
+import { apply as enginePlugin, FlowEngineToken } from '@deepseek-ai/dsh-graph-flow-engine';
 import { apply as yamlParserPlugin } from '@veren/yaml-parser';
 import { apply as yamlPlugin, Config as yamlConfig, FlowYamlLoaderToken } from '../src/index.js';
 import { flowFromYaml, YamlFlowError } from '../src/loader.js';
@@ -57,8 +57,16 @@ async function makeStack() {
     await ctx.plugin(kernelPlugin);
     await ctx.plugin(enginePlugin as never, { nodeTimeoutMs: 5000 });
     await ctx.plugin(yamlParserPlugin);
-    await ctx.plugin(yamlPlugin as never, yamlConfig({ files: [flowFile] }));
-    return { ctx, engine: ctx.get(FlowEngineToken)! };
+    const fiber = await ctx.plugin(yamlPlugin as never, yamlConfig({ files: [flowFile] }));
+    return { ctx, engine: ctx.get(FlowEngineToken)!, fiber };
+}
+
+/** 轮询等待 flow 注册（装载是异步 effect，固定 sleep 会时序脆弱）/
+    poll until the flow registers (mounting is an async effect; a fixed sleep is timing-fragile) */
+async function waitForFlow(engine: { hasFlow(id: string): boolean }, id: string): Promise<void> {
+    for (let i = 0; i < 50 && !engine.hasFlow(id); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
 }
 
 describe('yaml flow loader', () => {
@@ -74,8 +82,8 @@ describe('yaml flow loader', () => {
     });
 
     it('loads the parallel-branch flow through the real Loader into the engine', async () => {
-        const { ctx, engine } = await makeStack();
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        const { engine } = await makeStack();
+        await waitForFlow(engine, 'yaml-demo');
         expect(engine.hasFlow('yaml-demo')).toBe(true);
         // 并行分支真的能跑：join 同时读到左右分支的产出 / the parallel branches actually run
         const result = await engine.run('yaml-demo').awaitCompletion();
@@ -83,7 +91,16 @@ describe('yaml flow loader', () => {
         // 并行分支在 join 汇聚 / the parallel branches join
         expect(result.output['l']).toBe('L');
         expect(result.output['r']).toBe('R');
-        void ctx;
+    });
+
+    it('unregisters loaded flows when the yaml plugin fiber unloads', async () => {
+        const { engine, fiber } = await makeStack();
+        await waitForFlow(engine, 'yaml-demo');
+        expect(engine.hasFlow('yaml-demo')).toBe(true);
+        await fiber.dispose();
+        // 注册走 ctx.effect：fiber 卸载逆序清理，不留注册泄漏 /
+        // Registration goes through ctx.effect: fiber unload cleans up in reverse order, no leaks.
+        expect(engine.hasFlow('yaml-demo')).toBe(false);
     });
 
     it('exposes the loader capability and reports missing ids', async () => {

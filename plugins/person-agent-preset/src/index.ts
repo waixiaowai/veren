@@ -17,6 +17,9 @@ export interface Config {
   /** Whether the preset includes the web search tool. */
   /// 预设是否包含联网搜索工具。
   withWeb: boolean
+  /** Whether the preset includes the bundled human-writing skill and its loader. */
+  /** 预设是否包含内置的「人话」写作技能与加载器。 */
+  withSkills: boolean
 }
 
 export const Config: z<Config> = z
@@ -24,6 +27,7 @@ export const Config: z<Config> = z
     presetId: z.string().default('person-agent'),
     order: z.number().default(5),
     withWeb: z.boolean().default(true),
+    withSkills: z.boolean().default(true),
   })
   .description('Person Agent preset identity; the delegating persona and both maintenance tool families are always on.')
 
@@ -54,6 +58,7 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
       presetId: config.presetId,
       order: config.order,
       withWeb: config.withWeb,
+      withSkills: config.withSkills,
     }),
   )
   // effect 的 execute 返回卸载函数本身，cordis 会在卸载时自动逆序调用。
