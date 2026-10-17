@@ -1,0 +1,35 @@
+# Forum bundle: composes the whole stack in one profile layer.
+# 论坛组合包：用一个 profile 层装好整个技术栈。
+#
+# This bundle is the ONLY profile layer of the Forum stack: neither member
+# plugin declares `dsh.bundle.patch`, so the dsh plugin reconciliation activates
+# exactly this layer and installing the bundle can never double-insert a row.
+# Each member rides along as a plain dependency.
+# 本组合包是论坛技术栈唯一的 profile 层：两个成员插件都不声明
+# `dsh.bundle.patch`，dsh plugin 的 reconciliation 因此只会激活这一层——
+# 安装组合包绝不会重复插行。各成员只作为普通依赖随行。
+#
+# The bundle carries zero runtime code. Each `insert` row resolves by package
+# name from the bundle's own dependencies (pnpm installs them into the profile
+# alongside this bundle), so the two @veren plugins travel together as one
+# installable unit and can be toggled as one from the plugin manager.
+# 组合包零运行时代码。每条 `insert` 行按包名从组合包自身的 dependencies 解析
+# （pnpm 会把它们和组合包一起装进 profile），两个 @veren 插件因此作为一个可
+# 安装单元随行，并在插件管理页作为一个开关整体启停。
+#
+# Row order matters: the Host first (it owns the storage domain, the `forum`
+# Remote namespace, the model-facing tools, and the notification delivery),
+# then the Web page, which talks to that namespace.
+# 行顺序有讲究：先 Host（拥有存储域、`forum` 远端命名空间、面向模型的工具与
+# 通知投递），再装 Web 页面——页面与该命名空间通信。
+- insert:
+    # The Host: durable boards, posts, comments, votes and notifications, the
+    # `forum_*` tools, and the opt-in auto-post runner (off by default).
+    # 宿主：持久化的板块、帖子、评论、投票与通知，`forum_*` 工具，以及可选
+    # 的自动发帖运行器（默认关闭）。
+    - id: forum
+      name: '@veren/forum'
+    # Web page: the "forum" sidebar entry and the board/post/comment page.
+    # Web 页面：侧栏「论坛」入口与板块/帖子/评论页面。
+    - id: forum-ui
+      name: '@veren/forum-ui'

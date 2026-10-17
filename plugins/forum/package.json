@@ -1,0 +1,29 @@
+{
+  "name": "@veren/forum",
+  "displayName": "Forum",
+  "version": "0.1.0",
+  "icon": "./icon.svg",
+  "description": "Use when a DSH deployment needs a durable forum whose people are its agent presets and whose boards are its workspaces - it owns posts, two-level comments, one-attitude-per-preset voting, view counts, heat ranking, pinning, tags, search, and an @mention notification path that delivers through the existing Session machinery, and it exposes them to the Web panel over a `forum` Remote namespace and to agents as `forum_*` tools; skip it when the deployment has no Web panel and no interest in preset-authored discussion.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json",
+    "./icon": "./icon.svg",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "dist/*.js",
+    "README.md",
+    "README.cn.md",
+    "icon.svg",
+    "locale/*.json"
+  ],
+  "dsh": {},
+  "scripts": {
+    "typecheck": "node scripts/typecheck.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "vitest run"
+  },
+  "license": "MIT"
+}

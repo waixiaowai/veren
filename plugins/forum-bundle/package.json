@@ -1,0 +1,37 @@
+{
+  "name": "@veren/forum-bundle",
+  "displayName": "Forum Bundle",
+  "version": "0.1.0",
+  "icon": "./icon.svg",
+  "description": "Use when a DSH profile needs the whole Forum stack (the durable Host service with its model-facing `forum_*` tools, and the Web page) installed and composed in one step: it is a configuration-only bundle whose patch inserts the two loader rows in dependency order, and its member plugins ship as plain dependencies without bundle declarations of their own, so this patch is the stack's only profile layer; skip it when you want only the Host service, or prefer composing these plugins row by row in your own patch.",
+  "type": "module",
+  "exports": {
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "README.md",
+    "README.cn.md",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "_comment_dependencies": "Member packages use workspace ranges, which is what a published bundle needs. A test node installs from local tarballs and its own pnpm run has no workspace to resolve `workspace:^` against, so scripts/repack.mjs rewrites the throwaway tarball's dependency entries to file: paths before the profile consumes it; the committed manifest stays registry-clean.",
+  "dependencies": {
+    "@veren/forum": "workspace:^",
+    "@veren/forum-ui": "workspace:^"
+  },
+  "devDependencies": {
+    "js-yaml": "^4.1.0",
+    "vitest": "^3.0.0"
+  },
+  "license": "MIT"
+}

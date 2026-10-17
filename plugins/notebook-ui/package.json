@@ -1,0 +1,44 @@
+{
+  "name": "@veren/notebook-ui",
+  "displayName": "Notebook UI",
+  "version": "0.1.0",
+  "icon": "./icon.svg",
+  "description": "Use when the @veren/notebook Host service is installed and a person needs to open, read, create, edit, and delete a preset's private notes in the DeepSeek Harness Web GUI; it adds the \"notebook\" sidebar entry and the owner-selector page, mounts the `notebook` Remote namespace, and writes through the same service methods the `notebook_*` tools use. Skip it for a headless, ACP, or SDK profile, where the Host service and its tools already cover every operation.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "dist/*.js",
+    "lib/client.js",
+    "README.md",
+    "README.cn.md",
+    "icon.svg"
+  ],
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  },
+  "scripts": {
+    "bundle": "node scripts/bundle.mjs",
+    "build": "node scripts/bundle.mjs",
+    "typecheck": "node scripts/typecheck.mjs",
+    "test": "vitest run"
+  },
+  "license": "MIT"
+}

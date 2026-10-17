@@ -1,0 +1,527 @@
+/**
+ * Browser half of the notebook plugin.
+ *
+ * The page is a global panel reached from a sidebar entry. The entry plugin
+ * mounts the `notebook` Remote namespace itself — the shipped contributions are
+ * generated inside the Harness checkout and this package lives outside it, so
+ * `./remote.ts` builds the same contribution by hand — and an inner panel plugin
+ * then injects the freshly mounted namespace, builds one observable over it, and
+ * writes through the same endpoints the model's `notebook_*` tools use.
+ *
+ * 记事本插件的浏览器半边。
+ *
+ * 页面是一个全局面板，从侧栏入口进入。入口插件自己挂载 `notebook` 远端命名空间（随发行版
+ * 交付的 contribution 在 Harness 检出仓库内生成，而本包在其之外，因此 `./remote.ts` 手工
+ * 构造同样的 contribution），内层面板插件随后注入刚挂载的命名空间，基于它建立一个可观察对象，
+ * 并通过与模型 `notebook_*` 工具相同的端点写入。
+ *
+ * @module @veren/notebook-ui/client
+ */
+
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-client-connection/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
+import { NS, en, zh, type NotebookKey } from './locales.ts'
+import { NotebookPanel, type NotebookPanelInjected } from './panel.tsx'
+import { notebookRemote, type NoteView, type NotebookRemoteApi, type NotebookRemoteResult, type OwnerView } from './remote.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** Notebook page copy. */
+    notebook: NotebookKey
+  }
+}
+
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface TypertRemoteNamespaceMap {
+    /** Notebook reading and writing, mounted by this plugin's `apply`. */
+    notebook: NotebookRemoteApi
+  }
+}
+
+/** Sidebar and main-panel identity of the page. */
+const PANEL_ID = 'notebook' as MainPanelId
+
+/** How long the open page waits before re-reading, in milliseconds. */
+const POLL_MS = 8_000
+
+/** Everything the page renders from the Host. */
+export interface NotebookSnapshot {
+  /** Presets with a notebook, including ones the registry no longer declares. */
+  readonly owners: readonly OwnerView[]
+  /** The notebook currently on screen. */
+  readonly owner: string | undefined
+  /** That owner's notes, newest update first. */
+  readonly notes: readonly NoteView[]
+  /** `loading` is republished only before the first successful read. */
+  readonly status: 'loading' | 'ready' | 'error'
+  /** Whether an authoritative read has ever succeeded. */
+  readonly settled: boolean
+  /** The last failure's message, for the page's error line. */
+  readonly error: string
+}
+
+/** The observable plus the owner selection and manual refresh the page uses. */
+export interface NotebookSource {
+  readonly source: HostObservable<NotebookSnapshot>
+  readonly select: (owner: string) => void
+  readonly refresh: () => void
+}
+
+/**
+ * Client services of the entry plugin. `remote.notebook` must NOT be declared
+ * here: this plugin is the namespace's only mounter, so depending on it would
+ * make the loader wait for a service that does not exist until apply runs.
+ * 入口插件的服务依赖。`remote.notebook` 绝不能写在这里：本插件是该命名空间唯一的挂载者，
+ * 声明依赖会让 Loader 等待一个 apply 运行前尚不存在的服务。
+ */
+export const inject = ['slots', 'locale', 'remote']
+
+/**
+ * The inner panel plugin: it injects the freshly mounted namespace, then
+ * registers the page and its sidebar entry from its own fiber.
+ */
+const PanelPlugin = {
+  name: 'notebook:panel',
+  inject: ['remote.notebook'],
+  /** @param ctx - panel-scope context over the mounted namespace. */
+  apply(ctx: Context): void {
+    const api = ctx.remote.notebook
+    ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'notebook-ui:dictionaries')
+    installPanelStyles(ctx)
+    const t = ctx.locale.bind(NS)
+    const notebook = createNotebookSource(api)
+    ctx.slots.inject('main', () => ctx.slots.register({
+      name: 'main',
+      key: PANEL_ID,
+      locale: NS,
+      inject: (): NotebookPanelInjected => ({
+        hooks: { notebook: notebook.source },
+        onSelect: notebook.select,
+        onRefresh: notebook.refresh,
+        onCreate: async input => unwrap(api.create(input)),
+        onUpdate: async input => unwrap(api.update(input)),
+        onRemove: async input => unwrap(api.remove(input)),
+      }),
+    }, NotebookPanel))
+    ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+      name: 'sidebar.panellist',
+      id: PANEL_ID,
+      order: 21,
+      locale: NS,
+      label: () => t('panel'),
+    }, NotebookPanelIcon))
+  },
+} as const
+
+/**
+ * Build the page's single observable over the Remote namespace.
+ * @param api - the mounted `remote.notebook` namespace.
+ * @returns the observable, its owner selection, and its manual refresh.
+ */
+function createNotebookSource(api: NotebookRemoteApi): NotebookSource {
+  let snapshot: NotebookSnapshot = {
+    owners: [], owner: undefined, notes: [], status: 'loading', settled: false, error: '',
+  }
+  let owner: string | undefined
+  let epoch = 0
+  let timer: ReturnType<typeof globalThis.setInterval> | undefined
+  const listeners = new Set<() => void>()
+  const publish = (next: Partial<NotebookSnapshot>): void => {
+    snapshot = { ...snapshot, ...next }
+    for (const listener of [...listeners]) listener()
+  }
+  const run = async (mine: number): Promise<void> => {
+    try {
+      const owners = await readOwners(api)
+      const chosen = chooseOwner(owners, owner)
+      owner = chosen
+      if (chosen === undefined) {
+        if (mine === epoch) {
+          publish({ owners, owner: undefined, notes: [], status: 'ready', settled: true, error: '' })
+        }
+        return
+      }
+      const notes = await readNotes(api, chosen)
+      if (mine !== epoch) return
+      publish({ owners, owner: chosen, notes, status: 'ready', settled: true, error: '' })
+    } catch (error: unknown) {
+      if (mine === epoch) publish({ status: 'error', error: messageOf(error) })
+    }
+  }
+  const load = (): void => {
+    const mine = ++epoch
+    if (!snapshot.settled) publish({ status: 'loading' })
+    void run(mine)
+  }
+  return {
+    source: {
+      getSnapshot: () => snapshot,
+      subscribe(listener) {
+        listeners.add(listener)
+        if (listeners.size === 1) {
+          load()
+          timer = globalThis.setInterval(load, POLL_MS)
+        }
+        return () => {
+          listeners.delete(listener)
+          if (listeners.size !== 0) return
+          if (timer !== undefined) globalThis.clearInterval(timer)
+          timer = undefined
+          epoch += 1
+        }
+      },
+    },
+    select: (next) => { owner = next; load() },
+    refresh: () => { load() },
+  }
+}
+
+/** Keep the selected owner when it still exists, else prefer a declared preset. */
+function chooseOwner(owners: readonly OwnerView[], current: string | undefined): string | undefined {
+  if (current !== undefined && owners.some(owner => owner.id === current)) return current
+  return owners.find(owner => owner.declared)?.id ?? owners[0]?.id
+}
+
+/** Read the owner list or throw the Host's message. */
+async function readOwners(api: NotebookRemoteApi): Promise<readonly OwnerView[]> {
+  const result = await api.owners({})
+  if (!result.ok) throw new Error(result.error.message)
+  return result.value
+}
+
+/** Read one owner's notes or throw the Host's message. */
+async function readNotes(api: NotebookRemoteApi, owner: string): Promise<readonly NoteView[]> {
+  const result = await api.list({ owner })
+  if (!result.ok) throw new Error(result.error.message)
+  return result.value
+}
+
+/** Unwrap one write result, raising the Host's message on refusal. */
+async function unwrap<T>(result: Promise<NotebookRemoteResult<T>>): Promise<T> {
+  const settled = await result
+  if (!settled.ok) throw new Error(settled.error.message)
+  return settled.value
+}
+
+/** Render one failure as a single line. */
+function messageOf(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'object' && error !== null && 'message' in error) return String(error.message)
+  return String(error)
+}
+
+/**
+ * Mount the Remote namespace, then start the inner panel plugin that waits on
+ * it. Disposal unwinds in reverse: panel first, namespace last.
+ * @param ctx - browser services these contributions read.
+ * @returns disposer releasing the panel fiber and the mounted namespace.
+ */
+export async function apply(ctx: Context): Promise<() => Promise<void>> {
+  const unmount = await ctx.remote.$mount(notebookRemote)
+  const panel = ctx.plugin(PanelPlugin)
+  await panel
+  return async () => {
+    await panel.dispose()
+    await unmount()
+  }
+}
+
+/** The sidebar icon: a small notebook with a bookmark and ruled lines. */
+function NotebookPanelIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M3.5 2.5h8v11h-8z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M7.5 2.5v4l1.2-.9 1.3.9v-4" fill="currentColor" />
+      <path d="M5.5 9h5M5.5 11h3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+/** Marker attribute so a re-activation replaces its own sheet rather than stacking. */
+const STYLE_MARKER = 'data-notebook-panel'
+
+/** The page's complete stylesheet; colors come only from shared theme tokens. */
+const PANEL_CSS = `
+.notebook-page {
+  --nb-canvas: var(--dsw-alias-bg-module-platform);
+  --nb-surface: var(--dsw-alias-bg-layer-1);
+  --nb-sunken: var(--dsw-alias-turn-trigger-bg);
+  --nb-text: var(--dsw-alias-label-primary);
+  --nb-secondary: var(--dsw-alias-label-secondary);
+  --nb-muted: var(--dsw-alias-label-tertiary);
+  --nb-border: var(--dsw-alias-border-l2);
+  --nb-border-soft: var(--dsw-alias-border-l1);
+  --nb-accent: var(--dsw-alias-state-business-primary);
+  --nb-accent-soft: var(--dsw-alias-state-business-tertiary);
+  --nb-ink: var(--dsw-alias-button-primary-fill);
+  --nb-ink-hover: var(--dsw-alias-button-primary-hover);
+  --nb-ink-fg: var(--dsw-alias-label-primary-foreground);
+  --nb-danger: var(--dsw-alias-state-error-primary);
+  --nb-success: var(--dsw-alias-state-success-primary);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--nb-canvas);
+  color: var(--nb-text);
+  font-family: var(--dsw-font-family);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.notebook-page *, .notebook-page *::before, .notebook-page *::after { box-sizing: border-box; }
+.notebook-page :focus-visible { outline: 2px solid var(--nb-accent); outline-offset: 2px; }
+.notebook-page ::selection { background: var(--nb-accent-soft); }
+.notebook-header {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 24px 32px 14px;
+}
+.notebook-heading-row { display: flex; align-items: center; gap: 10px; }
+.notebook-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: var(--nb-accent-soft);
+  color: var(--nb-accent);
+}
+.notebook-mark svg { width: 19px; height: 19px; }
+.notebook-heading h1 { margin: 0; font-size: 23px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; }
+.notebook-heading p { margin: 6px 0 0; color: var(--nb-secondary); font-size: 12.5px; }
+.notebook-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.notebook-owner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 4px 0 11px;
+  border: 1px solid var(--nb-border-soft);
+  border-radius: 10px;
+  background: var(--nb-surface);
+}
+.notebook-owner span { color: var(--nb-muted); font-size: 11px; white-space: nowrap; }
+.notebook-owner select {
+  max-width: 190px;
+  height: 28px;
+  padding: 0 4px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--nb-text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.notebook-owner select:hover { background: var(--nb-sunken); }
+.notebook-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--nb-border);
+  border-radius: 9px;
+  background: var(--nb-surface);
+  color: var(--nb-text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.notebook-btn:hover:not(:disabled) { background: var(--nb-sunken); }
+.notebook-btn:disabled { opacity: .5; cursor: not-allowed; }
+.notebook-btn.is-primary { border-color: var(--nb-ink); background: var(--nb-ink); color: var(--nb-ink-fg); }
+.notebook-btn.is-primary:hover:not(:disabled) { background: var(--nb-ink-hover); border-color: var(--nb-ink-hover); }
+.notebook-btn.is-danger { border-color: color-mix(in srgb, var(--nb-danger) 35%, var(--nb-border)); color: var(--nb-danger); }
+.notebook-btn.is-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--nb-danger) 10%, transparent); }
+.notebook-banner {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto 8px;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--nb-danger) 22%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--nb-danger) 8%, transparent);
+  color: var(--nb-danger);
+  font-size: 12px;
+}
+.notebook-layout {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 310px minmax(0, 1fr);
+  gap: 18px;
+  width: 100%;
+  max-width: 1120px;
+  min-height: 0;
+  margin: 0 auto;
+  padding: 0 32px 28px;
+}
+.notebook-list, .notebook-editor {
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--nb-border-soft);
+  border-radius: 14px;
+  background: var(--nb-surface);
+  box-shadow: var(--dsw-shadow-lv1);
+}
+.notebook-list { display: flex; flex-direction: column; }
+.notebook-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--nb-border-soft);
+  color: var(--nb-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+.notebook-count {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--nb-sunken);
+  color: var(--nb-secondary);
+  font-size: 10.5px;
+  line-height: 1;
+}
+.notebook-items { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px; }
+.notebook-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 10px 11px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.notebook-item:hover { background: var(--nb-sunken); }
+.notebook-item[aria-current='true'] { border-color: var(--nb-border); background: var(--nb-sunken); }
+.notebook-item-title {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notebook-item-excerpt {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--nb-secondary);
+  font-size: 11.5px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.notebook-item-time { color: var(--nb-muted); font-size: 10.5px; }
+.notebook-editor { display: flex; flex-direction: column; }
+.notebook-editor-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--nb-border-soft);
+}
+.notebook-editor-head h2 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
+.notebook-editor-head p { margin: 4px 0 0; color: var(--nb-muted); font-size: 11.5px; }
+.notebook-editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.notebook-form { flex: 1 1 auto; display: flex; flex-direction: column; gap: 14px; min-height: 0; padding: 16px 18px 18px; }
+.notebook-field { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.notebook-field.is-grow { flex: 1 1 auto; }
+.notebook-label { color: var(--nb-secondary); font-size: 11.5px; font-weight: 600; }
+.notebook-input, .notebook-textarea {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--nb-border);
+  border-radius: 10px;
+  background: var(--nb-surface);
+  color: var(--nb-text);
+  font: inherit;
+  font-size: 13px;
+}
+.notebook-input::placeholder, .notebook-textarea::placeholder { color: var(--nb-muted); }
+.notebook-input:focus, .notebook-textarea:focus {
+  outline: none;
+  border-color: var(--nb-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--nb-accent) 16%, transparent);
+}
+.notebook-textarea { flex: 1 1 auto; min-height: 220px; line-height: 1.7; resize: none; }
+.notebook-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--nb-muted); font-size: 11px; }
+.notebook-notice { color: var(--nb-success); font-weight: 600; }
+.notebook-error { color: var(--nb-danger); font-weight: 600; }
+.notebook-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 240px;
+  padding: 32px;
+  color: var(--nb-secondary);
+  text-align: center;
+}
+.notebook-empty h3 { margin: 0; font-size: 14px; font-weight: 650; color: var(--nb-text); }
+.notebook-empty p { max-width: 360px; margin: 0; font-size: 12px; line-height: 1.65; }
+.notebook-empty .notebook-btn { margin-top: 10px; }
+.notebook-items::-webkit-scrollbar { width: 8px; }
+.notebook-items::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--dsw-alias-scrollbar-bg-l2);
+  background-clip: padding-box;
+}
+@media (max-width: 900px) {
+  .notebook-header, .notebook-layout { padding-left: 18px; padding-right: 18px; }
+  .notebook-layout { grid-template-columns: minmax(0, 1fr); overflow-y: auto; }
+  .notebook-list { max-height: 260px; }
+}
+`
+
+/**
+ * Install the page stylesheet once, replacing any previous activation's copy.
+ * @param ctx - the plugin's client context, whose effect owns the element.
+ */
+function installPanelStyles(ctx: Context): void {
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.setAttribute(STYLE_MARKER, '')
+    style.textContent = PANEL_CSS
+    document.head.append(style)
+    return () => { style.remove() }
+  }, 'notebook-ui:styles')
+}
