@@ -20,6 +20,7 @@
 import { z } from 'zod'
 import { createTypertRemoteInfo } from '@deepseek-ai/dsh-typert-protocol/remote-info'
 import type { TypertRemoteCodecSpec, TypertRemoteParameterSpec } from '@deepseek-ai/dsh-typert-protocol'
+import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 
 /** Longest title the Host accepts; keep in step with `@veren/notebook`. */
 export const MAX_TITLE_CHARS = 200
@@ -48,6 +49,56 @@ export type NotebookRemoteResult<Value> =
   | { readonly ok: true; readonly value: Value }
   | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
 
+/** The create payload the page builds. */
+export interface NewNoteInput {
+  readonly owner: string
+  readonly title: string
+  readonly body: string
+}
+
+/** The update payload the page builds. */
+export interface UpdateNoteInput {
+  readonly owner: string
+  readonly id: string
+  readonly title: string
+  readonly body: string
+  readonly expectedUpdatedAt?: string
+}
+
+/** Everything the page renders from the Host. */
+export interface NotebookSnapshot {
+  /** Presets with a notebook, including ones the registry no longer declares. */
+  readonly owners: readonly OwnerView[]
+  /** The notebook currently on screen. */
+  readonly owner: string | undefined
+  /** That owner's notes, newest update first. */
+  readonly notes: readonly NoteView[]
+  /** `loading` is republished only before the first successful read. */
+  readonly status: 'loading' | 'ready' | 'error'
+  /** Whether an authoritative read has ever succeeded. */
+  readonly settled: boolean
+  /** The last failure's message, for the page's error line. */
+  readonly error: string
+}
+
+/** Everything the page's inject face supplies: one observable and callbacks. */
+export interface NotebookPanelInjected {
+  /** The notebook observable, bound as `useNotebook`. */
+  readonly hooks: {
+    readonly notebook: HostObservable<NotebookSnapshot>
+  }
+  /** Choose whose notebook is on screen. */
+  readonly onSelect: (owner: string) => void
+  /** Re-read the owner list and the selected notebook. */
+  readonly onRefresh: () => void
+  /** Write one note into the selected notebook. */
+  readonly onCreate: (input: NewNoteInput) => Promise<NoteView>
+  /** Replace fields of one note in the selected notebook. */
+  readonly onUpdate: (input: UpdateNoteInput) => Promise<NoteView>
+  /** Delete one note from the selected notebook. */
+  readonly onRemove: (input: { readonly owner: string; readonly id: string }) => Promise<{ readonly deleted: boolean }>
+}
+
 /** The mounted `ctx.remote.notebook` surface. */
 export interface NotebookRemoteApi {
   /** List every preset with a notebook. */
@@ -69,7 +120,7 @@ export interface NotebookRemoteApi {
     readonly expectedUpdatedAt?: string
   }) => Promise<NotebookRemoteResult<NoteView>>
   /** Delete one note from one preset's notebook. */
-  readonly remove: (request: {
+  readonly deleteNote: (request: {
     readonly owner: string
     readonly id: string
   }) => Promise<NotebookRemoteResult<{ readonly deleted: boolean }>>
@@ -154,8 +205,8 @@ export const notebookRemote = createTypertRemoteInfo({
     ...method('update', 'Replace fields of one note in one preset\u2019s notebook.', 'update', [
       parameter('request', 'notebook:update:request', () => UPDATE_REQUEST),
     ], () => NOTE_SCHEMA),
-    ...method('remove', 'Delete one note from one preset\u2019s notebook.', 'remove', [
-      parameter('request', 'notebook:remove:request', () => REMOVE_REQUEST),
+    ...method('deleteNote', 'Delete one note from one preset\u2019s notebook.', 'deleteNote', [
+      parameter('request', 'notebook:deleteNote:request', () => REMOVE_REQUEST),
     ], () => z.looseObject({ deleted: z.boolean() })),
   } as Record<string, never>,
 }, z)

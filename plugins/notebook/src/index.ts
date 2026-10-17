@@ -27,12 +27,12 @@ import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import z from '@deepseek-ai/schemastery'
-import type { NoteSummary, NoteView, OwnerView } from './types.ts'
+import type { NoteSummary, NoteView, NotebookConfig, NotebookToolsPort, OwnerView } from './types.ts'
 import { NOTEBOOK_DOMAIN_NAME, notebookDomain, view } from './storage.ts'
 import type { NotebookStore, NotebookTable } from './storage.ts'
 import {
   NotebookError, applyUpdate, buildNote, ensureExpected, noteKey, noteView, notesOf, ownersOf,
-  requireOwned, summariesOf, validateCreate, validateUpdate,
+  requireOwner, requireOwned, summariesOf, validateCreate, validateUpdate,
 } from './notes.ts'
 import type { NoteRecord } from './types.ts'
 import { registerNotebookTools } from './tools.ts'
@@ -44,18 +44,6 @@ declare module '@deepseek-ai/cordis' {
     /** Durable private notebooks, one per agent preset. */
     notebook: NotebookService
   }
-}
-
-/** Model-facing tool registration. */
-export interface NotebookToolConfig {
-  /** Register `notebook_*` tools for every agent. */
-  enabled: boolean
-}
-
-/** Notebook plugin configuration. */
-export interface NotebookConfig {
-  /** Model-facing tools. */
-  tools: NotebookToolConfig
 }
 
 /**
@@ -71,24 +59,6 @@ export const Config = z.object({
     enabled: z.boolean().default(true),
   }).default({ enabled: true }),
 })
-
-/** The narrow surface the model-facing tools read and write. */
-export interface NotebookToolsPort {
-  /** Read one owner's list rows. */
-  readonly list: (owner: string) => Promise<readonly NoteSummary[]>
-  /** Read one owner's whole note. */
-  readonly read: (owner: string, id: string) => Promise<NoteView>
-  /** Write one owner's note. */
-  readonly create: (owner: string, title: string, body: string) => Promise<NoteView>
-  /** Replace fields of one owner's note. */
-  readonly update: (
-    owner: string,
-    id: string,
-    patch: { readonly title?: string; readonly body?: string; readonly expectedUpdatedAt?: string },
-  ) => Promise<NoteView>
-  /** Delete one owner's note; resolves to whether it existed. */
-  readonly remove: (owner: string, id: string) => Promise<boolean>
-}
 
 /**
  * Notebook service: the plugin's whole host surface.
@@ -125,11 +95,12 @@ export class NotebookService extends TypertRemoteService {
 
   /**
    * List every preset that has a notebook, declared or remembered by its notes.
-   * @param _request - no fields; the parameter keeps the Remote call uniform.
+   * @param request - no fields; the parameter keeps the Remote call uniform.
    * @returns owners with their note counts and declaration state.
    */
   @Remote('owners')
-  async owners(_request: Record<string, never>): Promise<readonly OwnerView[]> {
+  async owners(request: Record<string, never>): Promise<readonly OwnerView[]> {
+    void request
     return this.readDomain(async domain => ownersOf(this.table(domain), await this.declaredPresets()))
   }
 
@@ -215,8 +186,8 @@ export class NotebookService extends TypertRemoteService {
    * @param request - owner and note id.
    * @returns whether the note existed.
    */
-  @Remote('remove')
-  async remove(request: { readonly owner: string; readonly id: string }): Promise<{ readonly deleted: boolean }> {
+  @Remote('deleteNote')
+  async deleteNote(request: { readonly owner: string; readonly id: string }): Promise<{ readonly deleted: boolean }> {
     const owner = requireOwner(request.owner)
     return this.writeDomain(async (domain) => {
       const table = this.table(domain)
@@ -228,8 +199,24 @@ export class NotebookService extends TypertRemoteService {
 
   /** Open the storage domain, reporting rather than throwing on failure. */
   private async openDomain(): Promise<NotebookStore | undefined> {
+    // A live reinstall can leave the previous activation's domain open under the
+    // same name. Close that handle first, which frees the name for a fresh open;
+    // a real restart finds nothing here and takes the same open path below.
+    const stale = this.host.storageDomain.get(NOTEBOOK_DOMAIN_NAME)
+    if (stale !== undefined) {
+      try {
+        await stale.close()
+        this.host.logger.warn('notebook: closed the storage domain left open by a previous activation')
+      } catch (error: unknown) {
+        this.host.logger.warn(`notebook: the previous storage domain could not close: ${String(error)}`)
+      }
+    }
     try {
-      return await this.host.storageDomain.open(notebookDomain)
+      const domain = await this.host.storageDomain.open(notebookDomain)
+      // The caller owns the handle: close it when this plugin unloads so the
+      // next activation starts from a free name.
+      this.host.effect(() => () => domain.close(), 'notebook:storage')
+      return domain
     } catch (error: unknown) {
       this.storageFailure = error instanceof Error ? error.message : String(error)
       this.host.logger.error(
@@ -290,7 +277,7 @@ export class NotebookService extends TypertRemoteService {
         ...patch.body === undefined ? {} : { body: patch.body },
         ...patch.expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt: patch.expectedUpdatedAt },
       }),
-      remove: async (owner, id) => (await this.remove({ owner, id })).deleted,
+      remove: async (owner, id) => (await this.deleteNote({ owner, id })).deleted,
     }
   }
 
@@ -300,21 +287,14 @@ export class NotebookService extends TypertRemoteService {
   }
 }
 
-/** Refuse an empty owner before it reaches a storage key. */
-function requireOwner(value: string): string {
-  const owner = value.trim()
-  if (owner === '') {
-    throw new NotebookError('notebook/input-invalid', 'a notebook is always read for one preset owner.')
-  }
-  return owner
-}
-
 export { NotebookError } from './notes.ts'
 export {
   EXCERPT_CHARS, MAX_BODY_CHARS, MAX_TITLE_CHARS, applyUpdate, buildNote, ensureExpected, noteKey,
-  noteSummary, noteView, notesOf, ownersOf, requireOwned, validateCreate, validateUpdate,
+  noteSummary, noteView, notesOf, ownersOf, requireOwner, requireOwned, validateCreate, validateUpdate,
 } from './notes.ts'
 export { NOTEBOOK_DOMAIN_NAME, notebookDomain } from './storage.ts'
-export type { NoteRecord, NoteSummary, NoteView, NotebookErrorCode, OwnerView } from './types.ts'
+export type {
+  NoteRecord, NoteSummary, NoteView, NotebookConfig, NotebookErrorCode, NotebookToolsPort, OwnerView,
+} from './types.ts'
 
 export default NotebookService

@@ -88,3 +88,33 @@ export interface NotePatch {
   readonly title?: string
   readonly body?: string
 }
+
+/** Model-facing tool registration. */
+export interface NotebookToolConfig {
+  /** Register `notebook_*` tools for every agent. */
+  enabled: boolean
+}
+
+/** Notebook plugin configuration. */
+export interface NotebookConfig {
+  /** Model-facing tools. */
+  tools: NotebookToolConfig
+}
+
+/** The narrow surface the model-facing tools read and write. */
+export interface NotebookToolsPort {
+  /** Read one owner's list rows. */
+  readonly list: (owner: string) => Promise<readonly NoteSummary[]>
+  /** Read one owner's whole note. */
+  readonly read: (owner: string, id: string) => Promise<NoteView>
+  /** Write one owner's note. */
+  readonly create: (owner: string, title: string, body: string) => Promise<NoteView>
+  /** Replace fields of one owner's note. */
+  readonly update: (
+    owner: string,
+    id: string,
+    patch: { readonly title?: string; readonly body?: string; readonly expectedUpdatedAt?: string },
+  ) => Promise<NoteView>
+  /** Delete one owner's note; resolves to whether it existed. */
+  readonly remove: (owner: string, id: string) => Promise<boolean>
+}

@@ -1,0 +1,33 @@
+# Notebook bundle: composes the whole stack in one profile layer.
+# 记事本组合包：用一个 profile 层装好整个技术栈。
+#
+# This bundle is the ONLY profile layer of the Notebook stack: neither member
+# plugin declares `dsh.bundle.patch`, so the dsh plugin reconciliation activates
+# exactly this layer and installing the bundle can never double-insert a row.
+# Each member rides along as a plain dependency.
+# 本组合包是记事本技术栈唯一的 profile 层：两个成员插件都不声明
+# `dsh.bundle.patch`，dsh plugin 的 reconciliation 因此只会激活这一层——安装组合包
+# 绝不会重复插行。各成员只作为普通依赖随行。
+#
+# The bundle carries zero runtime code. Each `insert` row resolves by package
+# name from the bundle's own dependencies (pnpm installs them into the profile
+# alongside this bundle), so the two @veren plugins travel together as one
+# installable unit and can be toggled as one from the plugin manager.
+# 组合包零运行时代码。每条 `insert` 行按包名从组合包自身的 dependencies 解析
+# （pnpm 会把它们和组合包一起装进 profile），两个 @veren 插件因此作为一个可安装单元随行，
+# 并在插件管理页作为一个开关整体启停。
+#
+# Row order matters: the Host first (it owns the storage domain, the `notebook`
+# Remote namespace, and the model-facing tools), then the Web page, which talks
+# to that namespace.
+# 行顺序有讲究：先 Host（拥有存储域、`notebook` 远端命名空间与面向模型的工具），再装
+# Web 页面——页面与该命名空间通信。
+- insert:
+    # The Host: durable private notebooks and the `notebook_*` tools.
+    # 宿主：持久化的私密记事本与 `notebook_*` 工具。
+    - id: notebook
+      name: '@veren/notebook'
+    # Web page: the "notebook" sidebar entry and its owner/notes/editor page.
+    # Web 页面：侧栏「记事本」入口及其归属/笔记/编辑器页面。
+    - id: notebook-ui
+      name: '@veren/notebook-ui'

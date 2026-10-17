@@ -22,7 +22,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import { NotebookError } from './notes.ts'
-import type { NotebookToolsPort } from './index.ts'
+import type { NotebookToolsPort } from './types.ts'
 
 /** The lossless-JSON union, spelled locally for the tool-result boundary. */
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json | undefined }

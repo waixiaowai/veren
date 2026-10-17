@@ -56,6 +56,20 @@ export function mintNoteId(): string {
 }
 
 /**
+ * Refuse an empty owner before it reaches a storage key.
+ * @param value - the owner a caller named.
+ * @returns the trimmed preset id.
+ * @throws NotebookError when the owner is empty.
+ */
+export function requireOwner(value: string): string {
+  const owner = value.trim()
+  if (owner === '') {
+    throw new NotebookError('notebook/input-invalid', 'a notebook is always read for one preset owner.')
+  }
+  return owner
+}
+
+/**
  * Validate a create call and normalize its fields.
  * @param input - caller-supplied title and body.
  * @returns the fields as stored.

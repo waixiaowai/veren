@@ -63,6 +63,7 @@ async function emitNodeHalf() {
 
 /** Emit the browser half inside the module-loader envelope. */
 async function emitClientHalf() {
+  const panelCss = readFileSync(join(root, 'src/client/panel.css'), 'utf8')
   const result = await build({
     entryPoints: [join(root, 'src/client/index.tsx')],
     absWorkingDir: root,
@@ -77,10 +78,13 @@ async function emitClientHalf() {
     alias: {
       '@deepseek-ai/dsh-typert-protocol/remote-info': join(CHECKOUT, 'packages/typert/protocol/src/remote-info.ts'),
     },
-    define: { 'process.env.NODE_ENV': '"production"' },
+    define: {
+      'process.env.NODE_ENV': '"production"',
+      __NOTEBOOK_CSS__: JSON.stringify(panelCss),
+    },
   })
   const envelope = [
-    '/* Built by scripts/bundle.mjs — the browser half of the forum page. */',
+    '/* Built by scripts/bundle.mjs - the browser half of the notebook page. */',
     'window.__ModuleLoader__.load({',
     `  id: ${JSON.stringify(packageName)},`,
     '  factory: (require) => {',

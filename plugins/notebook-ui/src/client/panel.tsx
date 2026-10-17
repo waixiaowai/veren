@@ -1,82 +1,33 @@
 /**
  * The notebook page: an owner selector, a note list, and one editor.
  *
- * The page is a presentation component. It reads one observable through the
- * framework's `useNotebook` seat — synthesized from the inject face's `hooks`
- * compartment — and performs every mutation through the callbacks that face
- * supplies. It never touches `ctx`, never imports a Host service, and holds only
- * view state (the selected note, the draft, and transient feedback).
+ * A presentation component fed by one observable and the inject face's
+ * callbacks; it holds only view state and never touches `ctx`.
  *
- * 记事本页面：归属选择器、笔记列表，以及一个编辑器。
+ * 记事本页面：归属选择器、笔记列表与一个编辑器。
  *
- * 页面是展示组件。它通过框架的 `useNotebook` 座位（由注入面的 `hooks` 舱合成）读取一个
- * 可观察对象，所有写入都经注入面提供的回调完成——它不碰 `ctx`、不导入宿主服务，本地只持有
- * 视图状态（选中的笔记、草稿与瞬态反馈）。
+ * 由可观察对象和注入面回调驱动的展示组件；只持有视图状态，不碰 `ctx`。
  *
  * @module @veren/notebook-ui/client/panel
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
-  HostObservable, InjectFace, PropsLocale, PropsRuntime,
+  InjectFace, PropsLocale, PropsRuntime,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import type { NotebookSnapshot } from './index.tsx'
-import {
-  MAX_BODY_CHARS, MAX_TITLE_CHARS, type NoteView,
+import { EMPTY_DRAFT, NoteEditor, type Draft } from './editor.tsx'
+import { NoteList } from './note-list.tsx'
+import type {
+  NoteView, NotebookPanelInjected, NotebookSnapshot,
 } from './remote.ts'
 import type { NotebookKey } from './locales.ts'
-
-/** Everything the page's inject face supplies: one observable and callbacks. */
-export interface NotebookPanelInjected {
-  /** The notebook observable, bound as `useNotebook`. */
-  readonly hooks: {
-    readonly notebook: HostObservable<NotebookSnapshot>
-  }
-  /** Choose whose notebook is on screen. */
-  readonly onSelect: (owner: string) => void
-  /** Re-read the owner list and the selected notebook. */
-  readonly onRefresh: () => void
-  /** Write one note into the selected notebook. */
-  readonly onCreate: (input: NewNoteInput) => Promise<NoteView>
-  /** Replace fields of one note in the selected notebook. */
-  readonly onUpdate: (input: UpdateNoteInput) => Promise<NoteView>
-  /** Delete one note from the selected notebook. */
-  readonly onRemove: (input: { readonly owner: string; readonly id: string }) => Promise<{ readonly deleted: boolean }>
-}
-
-/** The one create payload the editor builds. */
-export interface NewNoteInput {
-  readonly owner: string
-  readonly title: string
-  readonly body: string
-}
-
-/** The one update payload the editor builds. */
-export interface UpdateNoteInput {
-  readonly owner: string
-  readonly id: string
-  readonly title: string
-  readonly body: string
-  readonly expectedUpdatedAt?: string
-}
 
 /** Props of {@link NotebookPanel}, derived from the framework shares. */
 export type NotebookPanelProps = PropsRuntime<'main'>
   & InjectFace<NotebookPanelInjected>
   & PropsLocale<'notebook'>
 
-/** One note's editable fields plus the update time the draft was read at. */
-interface Draft {
-  readonly title: string
-  readonly body: string
-  readonly updatedAt: string | undefined
-}
-
-/** The empty draft shared by "new note" and "nothing selected". */
-const EMPTY_DRAFT: Draft = { title: '', body: '', updatedAt: undefined }
-
-/** Everything the page body needs, with the inject face already resolved. */
-interface BodyProps {
+/** Everything the page body needs, with the inject face already resolved. */interface BodyProps {
   readonly state: NotebookSnapshot
   readonly t: (key: NotebookKey) => string
   readonly actions: Omit<NotebookPanelInjected, 'hooks'>
@@ -99,7 +50,8 @@ function NotebookBody(props: BodyProps) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
-
+  /** The note this page just deleted, until the refreshed list drops it. */
+  const deleted = useRef<string | undefined>(undefined)
   const openNote = (note: NoteView): void => {
     setSelectedId(note.id)
     setEditingNew(false)
@@ -108,7 +60,6 @@ function NotebookBody(props: BodyProps) {
     setConfirmDelete(false)
     setError('')
   }
-
   // A different owner means a different notebook: drop the old draft first.
   useEffect(() => {
     setSelectedId(undefined)
@@ -119,7 +70,6 @@ function NotebookBody(props: BodyProps) {
     setError('')
     setNotice('')
   }, [state.owner])
-
   // Select the first note once a notebook has notes, and follow external edits
   // only while the draft is clean. A dirty draft is the user's, not the poll's.
   useEffect(() => {
@@ -130,12 +80,26 @@ function NotebookBody(props: BodyProps) {
       return
     }
     const current = state.notes.find(note => note.id === selectedId)
-    if (current !== undefined && !dirty && current.updatedAt !== draft.updatedAt) openNote(current)
-    // `openNote` is a local setter bundle; the list identity is what changed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (current === undefined) {
+      // A note this page deleted disappears from the refreshed list; pick the next one.
+      if (deleted.current !== undefined && !state.notes.some(note => note.id === deleted.current)) {
+        deleted.current = undefined
+        setNotice('')
+        const first = state.notes[0]
+        if (first !== undefined) openNote(first)
+        else {
+          setSelectedId(undefined)
+          setEditingNew(false)
+          setDraft(EMPTY_DRAFT)
+          setDirty(false)
+        }
+      }
+      return
+    }
+    if (!dirty && current.updatedAt !== draft.updatedAt) openNote(current)
   }, [state.notes, selectedId, editingNew, dirty, draft.updatedAt])
-
   const startNew = (): void => {
+    deleted.current = undefined
     setEditingNew(true)
     setSelectedId(undefined)
     setDraft(EMPTY_DRAFT)
@@ -144,8 +108,8 @@ function NotebookBody(props: BodyProps) {
     setError('')
     setNotice('')
   }
-
   const chooseOwner = (owner: string): void => {
+    deleted.current = undefined
     actions.onSelect(owner)
     setSelectedId(undefined)
     setEditingNew(false)
@@ -155,14 +119,12 @@ function NotebookBody(props: BodyProps) {
     setError('')
     setNotice('')
   }
-
   const edit = (patch: Partial<Pick<Draft, 'title' | 'body'>>): void => {
     setDraft(current => ({ ...current, ...patch }))
     setDirty(true)
     setConfirmDelete(false)
     setError('')
   }
-
   const save = async (): Promise<void> => {
     const owner = state.owner
     if (owner === undefined) return
@@ -196,10 +158,10 @@ function NotebookBody(props: BodyProps) {
       setBusy(false)
     }
   }
-
   const remove = async (): Promise<void> => {
     const owner = state.owner
-    if (owner === undefined || selectedId === undefined) return
+    const id = selectedId
+    if (owner === undefined || id === undefined) return
     if (!confirmDelete) {
       setConfirmDelete(true)
       return
@@ -208,7 +170,8 @@ function NotebookBody(props: BodyProps) {
     setError('')
     setNotice('')
     try {
-      await actions.onRemove({ owner, id: selectedId })
+      await actions.onRemove({ owner, id })
+      deleted.current = id
       setSelectedId(undefined)
       setEditingNew(false)
       setDraft(EMPTY_DRAFT)
@@ -274,43 +237,15 @@ function NotebookBody(props: BodyProps) {
       )}
 
       <div className="notebook-layout">
-        <section className="notebook-list" aria-label={t('notes')}>
-          <div className="notebook-list-head">
-            <span>{t('notes')}</span>
-            <span className="notebook-count">{state.notes.length}</span>
-          </div>
-          {state.notes.length === 0
-            ? (
-              <div className="notebook-empty">
-                <h3>{t('noNotes')}</h3>
-                <p>{t('noNotesHint')}</p>
-                <button
-                  type="button" className="notebook-btn is-primary"
-                  disabled={state.owner === undefined || busy}
-                  onClick={startNew}
-                >
-                  {t('newNote')}
-                </button>
-              </div>
-            )
-            : (
-              <div className="notebook-items">
-                {state.notes.map(note => (
-                  <button
-                    key={note.id}
-                    type="button"
-                    className="notebook-item"
-                    aria-current={note.id === selectedId}
-                    onClick={() => { openNote(note) }}
-                  >
-                    <span className="notebook-item-title">{note.title}</span>
-                    {note.body !== '' && <span className="notebook-item-excerpt">{note.body}</span>}
-                    <span className="notebook-item-time">{formatTime(note.updatedAt)}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-        </section>
+        <NoteList
+          t={t}
+          notes={state.notes}
+          selectedId={selectedId}
+          busy={busy}
+          canCreate={state.owner !== undefined}
+          onOpen={(note) => { deleted.current = undefined; openNote(note) }}
+          onCreate={startNew}
+        />
 
         <section className="notebook-editor" aria-label={t('editNote')}>
           {state.owner === undefined
@@ -328,74 +263,24 @@ function NotebookBody(props: BodyProps) {
                 </div>
               )
               : (
-                <>
-                  <div className="notebook-editor-head">
-                    <div>
-                      <h2>{editingNew ? t('newNote') : t('editNote')}</h2>
-                      <p>
-                        {editingNew
-                          ? t('newNoteHint')
-                          : `${t('updatedAt')} ${formatTime(draft.updatedAt)}`}
-                      </p>
-                    </div>
-                    <div className="notebook-editor-actions">
-                      {!editingNew && (
-                        <button
-                          type="button" className="notebook-btn is-danger"
-                          disabled={busy} onClick={() => { void remove() }}
-                        >
-                          {confirmDelete ? t('confirmDelete') : t('delete')}
-                        </button>
-                      )}
-                      <button
-                        type="button" className="notebook-btn is-primary"
-                        disabled={busy} onClick={() => { void save() }}
-                      >
-                        {busy ? t('saving') : t('save')}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="notebook-form">
-                    <label className="notebook-field">
-                      <span className="notebook-label">{t('title')}</span>
-                      <input
-                        className="notebook-input"
-                        value={draft.title}
-                        maxLength={MAX_TITLE_CHARS}
-                        placeholder={t('titlePlaceholder')}
-                        onChange={event => { edit({ title: event.target.value }) }}
-                      />
-                    </label>
-                    <label className="notebook-field is-grow">
-                      <span className="notebook-label">{t('body')}</span>
-                      <textarea
-                        className="notebook-textarea"
-                        value={draft.body}
-                        maxLength={MAX_BODY_CHARS}
-                        placeholder={t('bodyPlaceholder')}
-                        onChange={event => { edit({ body: event.target.value }) }}
-                      />
-                    </label>
-                    <div className="notebook-meta">
-                      <span>{draft.body.length} / {MAX_BODY_CHARS}</span>
-                      {dirty && <span>{t('unsaved')}</span>}
-                      {notice !== '' && <span className="notebook-notice">{notice}</span>}
-                      {error !== '' && <span className="notebook-error">{error}</span>}
-                    </div>
-                  </div>
-                </>
+                <NoteEditor
+                  t={t}
+                  editingNew={editingNew}
+                  draft={draft}
+                  busy={busy}
+                  dirty={dirty}
+                  error={error}
+                  notice={notice}
+                  confirmDelete={confirmDelete}
+                  onEdit={edit}
+                  onSave={() => { void save() }}
+                  onRemove={() => { void remove() }}
+                />
               )}
         </section>
       </div>
     </div>
   )
-}
-
-/** Format one ISO instant in the reader's locale, or an empty string. */
-function formatTime(value: string | undefined): string {
-  if (value === undefined) return ''
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 
 /** Render one failure as a single line. */

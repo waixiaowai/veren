@@ -1,4 +1,4 @@
-/* Built by scripts/bundle.mjs — the browser half of the forum page. */
+/* Built by scripts/bundle.mjs - the browser half of the notebook page. */
 window.__ModuleLoader__.load({
   id: "@veren/notebook-ui",
   factory: (require) => {
@@ -316,18 +316,143 @@ window.__ModuleLoader__.load({
         ...method("update", "Replace fields of one note in one preset\u2019s notebook.", "update", [
           parameter("request", "notebook:update:request", () => UPDATE_REQUEST)
         ], () => NOTE_SCHEMA),
-        ...method("remove", "Delete one note from one preset\u2019s notebook.", "remove", [
-          parameter("request", "notebook:remove:request", () => REMOVE_REQUEST)
+        ...method("deleteNote", "Delete one note from one preset\u2019s notebook.", "deleteNote", [
+          parameter("request", "notebook:deleteNote:request", () => REMOVE_REQUEST)
         ], () => import_zod.z.looseObject({ deleted: import_zod.z.boolean() }))
       }
     }, import_zod.z);
 
-    // src/client/panel.tsx
+    // src/client/editor.tsx
     var import_jsx_runtime = require("react/jsx-runtime");
     var EMPTY_DRAFT = { title: "", body: "", updatedAt: void 0 };
+    function NoteEditor(props) {
+      const { t, editingNew, draft, busy, dirty, error, notice, confirmDelete } = props;
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-editor-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: editingNew ? t("newNote") : t("editNote") }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: editingNew ? t("newNoteHint") : `${t("updatedAt")} ${formatTime(draft.updatedAt)}` })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-editor-actions", children: [
+            !editingNew && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "button",
+              {
+                type: "button",
+                className: "notebook-btn is-danger",
+                disabled: busy,
+                onClick: props.onRemove,
+                children: confirmDelete ? t("confirmDelete") : t("delete")
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "button",
+              {
+                type: "button",
+                className: "notebook-btn is-primary",
+                disabled: busy,
+                onClick: props.onSave,
+                children: busy ? t("saving") : t("save")
+              }
+            )
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-form", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "notebook-field", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "notebook-label", children: t("title") }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "input",
+              {
+                className: "notebook-input",
+                value: draft.title,
+                maxLength: MAX_TITLE_CHARS,
+                placeholder: t("titlePlaceholder"),
+                onChange: (event) => {
+                  props.onEdit({ title: event.target.value });
+                }
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "notebook-field is-grow", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "notebook-label", children: t("body") }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "textarea",
+              {
+                className: "notebook-textarea",
+                value: draft.body,
+                maxLength: MAX_BODY_CHARS,
+                placeholder: t("bodyPlaceholder"),
+                onChange: (event) => {
+                  props.onEdit({ body: event.target.value });
+                }
+              }
+            )
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-meta", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+              draft.body.length,
+              " / ",
+              MAX_BODY_CHARS
+            ] }),
+            dirty && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: t("unsaved") }),
+            notice !== "" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "notebook-notice", children: notice }),
+            error !== "" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "notebook-error", children: error })
+          ] })
+        ] })
+      ] });
+    }
+    function formatTime(value) {
+      if (value === void 0) return "";
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+    }
+
+    // src/client/note-list.tsx
+    var import_jsx_runtime2 = require("react/jsx-runtime");
+    function NoteList(props) {
+      const { t, notes, selectedId, busy, canCreate } = props;
+      return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("section", { className: "notebook-list", "aria-label": t("notes"), children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "notebook-list-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: t("notes") }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "notebook-count", children: notes.length })
+        ] }),
+        notes.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "notebook-empty", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h3", { children: t("noNotes") }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { children: t("noNotesHint") }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            "button",
+            {
+              type: "button",
+              className: "notebook-btn is-primary",
+              disabled: !canCreate || busy,
+              onClick: props.onCreate,
+              children: t("newNote")
+            }
+          )
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "notebook-items", children: notes.map((note) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+          "button",
+          {
+            type: "button",
+            className: "notebook-item",
+            "aria-current": note.id === selectedId,
+            onClick: () => {
+              props.onOpen(note);
+            },
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "notebook-item-title", children: note.title }),
+              note.body !== "" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "notebook-item-excerpt", children: note.body }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "notebook-item-time", children: formatTime(note.updatedAt) })
+            ]
+          },
+          note.id
+        )) })
+      ] });
+    }
+
+    // src/client/panel.tsx
+    var import_jsx_runtime3 = require("react/jsx-runtime");
     function NotebookPanel(props) {
       const state = props.useNotebook((snapshot) => snapshot);
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(NotebookBody, { state, t: props.t, actions: props });
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(NotebookBody, { state, t: props.t, actions: props });
     }
     function NotebookBody(props) {
       const { state, t, actions } = props;
@@ -339,6 +464,7 @@ window.__ModuleLoader__.load({
       const [error, setError] = (0, import_react.useState)("");
       const [notice, setNotice] = (0, import_react.useState)("");
       const [confirmDelete, setConfirmDelete] = (0, import_react.useState)(false);
+      const deleted = (0, import_react.useRef)(void 0);
       const openNote = (note) => {
         setSelectedId(note.id);
         setEditingNew(false);
@@ -364,9 +490,25 @@ window.__ModuleLoader__.load({
           return;
         }
         const current = state.notes.find((note) => note.id === selectedId);
-        if (current !== void 0 && !dirty && current.updatedAt !== draft.updatedAt) openNote(current);
+        if (current === void 0) {
+          if (deleted.current !== void 0 && !state.notes.some((note) => note.id === deleted.current)) {
+            deleted.current = void 0;
+            setNotice("");
+            const first = state.notes[0];
+            if (first !== void 0) openNote(first);
+            else {
+              setSelectedId(void 0);
+              setEditingNew(false);
+              setDraft(EMPTY_DRAFT);
+              setDirty(false);
+            }
+          }
+          return;
+        }
+        if (!dirty && current.updatedAt !== draft.updatedAt) openNote(current);
       }, [state.notes, selectedId, editingNew, dirty, draft.updatedAt]);
       const startNew = () => {
+        deleted.current = void 0;
         setEditingNew(true);
         setSelectedId(void 0);
         setDraft(EMPTY_DRAFT);
@@ -376,6 +518,7 @@ window.__ModuleLoader__.load({
         setNotice("");
       };
       const chooseOwner2 = (owner) => {
+        deleted.current = void 0;
         actions.onSelect(owner);
         setSelectedId(void 0);
         setEditingNew(false);
@@ -422,7 +565,8 @@ window.__ModuleLoader__.load({
       };
       const remove = async () => {
         const owner = state.owner;
-        if (owner === void 0 || selectedId === void 0) return;
+        const id = selectedId;
+        if (owner === void 0 || id === void 0) return;
         if (!confirmDelete) {
           setConfirmDelete(true);
           return;
@@ -431,7 +575,8 @@ window.__ModuleLoader__.load({
         setError("");
         setNotice("");
         try {
-          await actions.onRemove({ owner, id: selectedId });
+          await actions.onRemove({ owner, id });
+          deleted.current = id;
           setSelectedId(void 0);
           setEditingNew(false);
           setDraft(EMPTY_DRAFT);
@@ -446,19 +591,19 @@ window.__ModuleLoader__.load({
         }
       };
       const active = editingNew || selectedId !== void 0;
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-page", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", { className: "notebook-header", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-heading", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-heading-row", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "notebook-mark", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(NotebookGlyph, {}) }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: t("panel") })
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "notebook-page", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("header", { className: "notebook-header", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "notebook-heading", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "notebook-heading-row", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "notebook-mark", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(NotebookGlyph, {}) }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h1", { children: t("panel") })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: t("panelSubtitle") })
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: t("panelSubtitle") })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-actions", children: [
-            state.owners.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "notebook-owner", title: t("ownerHint"), children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: t("owner") }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "notebook-actions", children: [
+            state.owners.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "notebook-owner", title: t("ownerHint"), children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("owner") }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
                 "select",
                 {
                   value: state.owner ?? "",
@@ -466,14 +611,14 @@ window.__ModuleLoader__.load({
                   onChange: (event) => {
                     chooseOwner2(event.target.value);
                   },
-                  children: state.owners.map((owner) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: owner.id, children: owner.declared ? owner.id : `${owner.id} (${t("removed")})` }, owner.id))
+                  children: state.owners.map((owner) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: owner.id, children: owner.declared ? owner.id : `${owner.id} (${t("removed")})` }, owner.id))
                 }
               )
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "notebook-btn", onClick: () => {
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "notebook-btn", onClick: () => {
               actions.onRefresh();
             }, children: t("refresh") }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
               "button",
               {
                 type: "button",
@@ -485,142 +630,60 @@ window.__ModuleLoader__.load({
             )
           ] })
         ] }),
-        state.status === "error" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-banner", role: "alert", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+        state.status === "error" && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "notebook-banner", role: "alert", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
             t("failed"),
             ": ",
             state.error
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "notebook-btn", onClick: () => {
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "notebook-btn", onClick: () => {
             actions.onRefresh();
           }, children: t("retry") })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-layout", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "notebook-list", "aria-label": t("notes"), children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-list-head", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: t("notes") }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "notebook-count", children: state.notes.length })
-            ] }),
-            state.notes.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-empty", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: t("noNotes") }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: t("noNotesHint") }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                "button",
-                {
-                  type: "button",
-                  className: "notebook-btn is-primary",
-                  disabled: state.owner === void 0 || busy,
-                  onClick: startNew,
-                  children: t("newNote")
-                }
-              )
-            ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "notebook-items", children: state.notes.map((note) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-              "button",
-              {
-                type: "button",
-                className: "notebook-item",
-                "aria-current": note.id === selectedId,
-                onClick: () => {
-                  openNote(note);
-                },
-                children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "notebook-item-title", children: note.title }),
-                  note.body !== "" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "notebook-item-excerpt", children: note.body }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "notebook-item-time", children: formatTime(note.updatedAt) })
-                ]
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "notebook-layout", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+            NoteList,
+            {
+              t,
+              notes: state.notes,
+              selectedId,
+              busy,
+              canCreate: state.owner !== void 0,
+              onOpen: (note) => {
+                deleted.current = void 0;
+                openNote(note);
               },
-              note.id
-            )) })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", { className: "notebook-editor", "aria-label": t("editNote"), children: state.owner === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-empty", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: t("noOwners") }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: t("ownerHint") })
-          ] }) : !active ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-empty", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: t("emptyTitle") }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: t("emptyBody") })
-          ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-editor-head", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: editingNew ? t("newNote") : t("editNote") }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: editingNew ? t("newNoteHint") : `${t("updatedAt")} ${formatTime(draft.updatedAt)}` })
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-editor-actions", children: [
-                !editingNew && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                  "button",
-                  {
-                    type: "button",
-                    className: "notebook-btn is-danger",
-                    disabled: busy,
-                    onClick: () => {
-                      void remove();
-                    },
-                    children: confirmDelete ? t("confirmDelete") : t("delete")
-                  }
-                ),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                  "button",
-                  {
-                    type: "button",
-                    className: "notebook-btn is-primary",
-                    disabled: busy,
-                    onClick: () => {
-                      void save();
-                    },
-                    children: busy ? t("saving") : t("save")
-                  }
-                )
-              ] })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-form", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "notebook-field", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "notebook-label", children: t("title") }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                  "input",
-                  {
-                    className: "notebook-input",
-                    value: draft.title,
-                    maxLength: MAX_TITLE_CHARS,
-                    placeholder: t("titlePlaceholder"),
-                    onChange: (event) => {
-                      edit({ title: event.target.value });
-                    }
-                  }
-                )
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { className: "notebook-field is-grow", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "notebook-label", children: t("body") }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                  "textarea",
-                  {
-                    className: "notebook-textarea",
-                    value: draft.body,
-                    maxLength: MAX_BODY_CHARS,
-                    placeholder: t("bodyPlaceholder"),
-                    onChange: (event) => {
-                      edit({ body: event.target.value });
-                    }
-                  }
-                )
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "notebook-meta", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-                  draft.body.length,
-                  " / ",
-                  MAX_BODY_CHARS
-                ] }),
-                dirty && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: t("unsaved") }),
-                notice !== "" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "notebook-notice", children: notice }),
-                error !== "" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "notebook-error", children: error })
-              ] })
-            ] })
-          ] }) })
+              onCreate: startNew
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("section", { className: "notebook-editor", "aria-label": t("editNote"), children: state.owner === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "notebook-empty", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { children: t("noOwners") }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: t("ownerHint") })
+          ] }) : !active ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "notebook-empty", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { children: t("emptyTitle") }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: t("emptyBody") })
+          ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+            NoteEditor,
+            {
+              t,
+              editingNew,
+              draft,
+              busy,
+              dirty,
+              error,
+              notice,
+              confirmDelete,
+              onEdit: edit,
+              onSave: () => {
+                void save();
+              },
+              onRemove: () => {
+                void remove();
+              }
+            }
+          ) })
         ] })
       ] });
-    }
-    function formatTime(value) {
-      if (value === void 0) return "";
-      const date = new Date(value);
-      return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
     }
     function messageOf(error) {
       if (error instanceof Error) return error.message;
@@ -628,14 +691,14 @@ window.__ModuleLoader__.load({
       return String(error);
     }
     function NotebookGlyph() {
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { width: "19", height: "19", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M3.5 2.5h8v11h-8z", stroke: "currentColor", strokeWidth: "1.2", strokeLinejoin: "round" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M5.5 9h5M5.5 11h3.5", stroke: "currentColor", strokeWidth: "1.2", strokeLinecap: "round" })
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("svg", { width: "19", height: "19", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M3.5 2.5h8v11h-8z", stroke: "currentColor", strokeWidth: "1.2", strokeLinejoin: "round" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M5.5 9h5M5.5 11h3.5", stroke: "currentColor", strokeWidth: "1.2", strokeLinecap: "round" })
       ] });
     }
 
     // src/client/index.tsx
-    var import_jsx_runtime2 = require("react/jsx-runtime");
+    var import_jsx_runtime4 = require("react/jsx-runtime");
     var PANEL_ID = "notebook";
     var POLL_MS = 8e3;
     var inject = ["slots", "locale", "remote"];
@@ -659,7 +722,7 @@ window.__ModuleLoader__.load({
             onRefresh: notebook.refresh,
             onCreate: async (input) => unwrap(api.create(input)),
             onUpdate: async (input) => unwrap(api.update(input)),
-            onRemove: async (input) => unwrap(api.remove(input))
+            onRemove: async (input) => unwrap(api.deleteNote(input))
           })
         }, NotebookPanel));
         ctx.slots.inject("sidebar.panellist", () => ctx.slots.register({
@@ -763,291 +826,32 @@ window.__ModuleLoader__.load({
       return String(error);
     }
     async function apply(ctx) {
-      const unmount = await ctx.remote.$mount(notebookRemote);
-      const panel = ctx.plugin(PanelPlugin);
-      await panel;
-      return async () => {
-        await panel.dispose();
-        await unmount();
-      };
+      try {
+        const unmount = await ctx.remote.$mount(notebookRemote);
+        const panel = ctx.plugin(PanelPlugin);
+        await panel;
+        return async () => {
+          await panel.dispose();
+          await unmount();
+        };
+      } catch (error) {
+        console.error("notebook-ui apply failed", error);
+        throw error;
+      }
     }
     function NotebookPanelIcon() {
-      return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("svg", { width: "16", height: "16", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M3.5 2.5h8v11h-8z", stroke: "currentColor", strokeWidth: "1.2", strokeLinejoin: "round" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M7.5 2.5v4l1.2-.9 1.3.9v-4", fill: "currentColor" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M5.5 9h5M5.5 11h3.5", stroke: "currentColor", strokeWidth: "1.2", strokeLinecap: "round" })
+      return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("svg", { width: "16", height: "16", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M3.5 2.5h8v11h-8z", stroke: "currentColor", strokeWidth: "1.2", strokeLinejoin: "round" }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M7.5 2.5v4l1.2-.9 1.3.9v-4", fill: "currentColor" }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M5.5 9h5M5.5 11h3.5", stroke: "currentColor", strokeWidth: "1.2", strokeLinecap: "round" })
       ] });
     }
     var STYLE_MARKER = "data-notebook-panel";
-    var PANEL_CSS = `
-    .notebook-page {
-      --nb-canvas: var(--dsw-alias-bg-module-platform);
-      --nb-surface: var(--dsw-alias-bg-layer-1);
-      --nb-sunken: var(--dsw-alias-turn-trigger-bg);
-      --nb-text: var(--dsw-alias-label-primary);
-      --nb-secondary: var(--dsw-alias-label-secondary);
-      --nb-muted: var(--dsw-alias-label-tertiary);
-      --nb-border: var(--dsw-alias-border-l2);
-      --nb-border-soft: var(--dsw-alias-border-l1);
-      --nb-accent: var(--dsw-alias-state-business-primary);
-      --nb-accent-soft: var(--dsw-alias-state-business-tertiary);
-      --nb-ink: var(--dsw-alias-button-primary-fill);
-      --nb-ink-hover: var(--dsw-alias-button-primary-hover);
-      --nb-ink-fg: var(--dsw-alias-label-primary-foreground);
-      --nb-danger: var(--dsw-alias-state-error-primary);
-      --nb-success: var(--dsw-alias-state-success-primary);
-      box-sizing: border-box;
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-      min-height: 0;
-      overflow: hidden;
-      background: var(--nb-canvas);
-      color: var(--nb-text);
-      font-family: var(--dsw-font-family);
-      font-size: 13.5px;
-      line-height: 1.5;
-    }
-    .notebook-page *, .notebook-page *::before, .notebook-page *::after { box-sizing: border-box; }
-    .notebook-page :focus-visible { outline: 2px solid var(--nb-accent); outline-offset: 2px; }
-    .notebook-page ::selection { background: var(--nb-accent-soft); }
-    .notebook-header {
-      flex: 0 0 auto;
-      display: flex;
-      flex-wrap: wrap;
-      align-items: flex-end;
-      justify-content: space-between;
-      gap: 18px;
-      width: 100%;
-      max-width: 1120px;
-      margin: 0 auto;
-      padding: 24px 32px 14px;
-    }
-    .notebook-heading-row { display: flex; align-items: center; gap: 10px; }
-    .notebook-mark {
-      display: grid;
-      place-items: center;
-      width: 36px;
-      height: 36px;
-      border-radius: 11px;
-      background: var(--nb-accent-soft);
-      color: var(--nb-accent);
-    }
-    .notebook-mark svg { width: 19px; height: 19px; }
-    .notebook-heading h1 { margin: 0; font-size: 23px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; }
-    .notebook-heading p { margin: 6px 0 0; color: var(--nb-secondary); font-size: 12.5px; }
-    .notebook-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-    .notebook-owner {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      height: 36px;
-      padding: 0 4px 0 11px;
-      border: 1px solid var(--nb-border-soft);
-      border-radius: 10px;
-      background: var(--nb-surface);
-    }
-    .notebook-owner span { color: var(--nb-muted); font-size: 11px; white-space: nowrap; }
-    .notebook-owner select {
-      max-width: 190px;
-      height: 28px;
-      padding: 0 4px;
-      border: none;
-      border-radius: 7px;
-      background: transparent;
-      color: var(--nb-text);
-      font: inherit;
-      font-size: 12.5px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .notebook-owner select:hover { background: var(--nb-sunken); }
-    .notebook-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      height: 34px;
-      padding: 0 12px;
-      border: 1px solid var(--nb-border);
-      border-radius: 9px;
-      background: var(--nb-surface);
-      color: var(--nb-text);
-      font: inherit;
-      font-size: 12.5px;
-      font-weight: 550;
-      white-space: nowrap;
-      cursor: pointer;
-    }
-    .notebook-btn:hover:not(:disabled) { background: var(--nb-sunken); }
-    .notebook-btn:disabled { opacity: .5; cursor: not-allowed; }
-    .notebook-btn.is-primary { border-color: var(--nb-ink); background: var(--nb-ink); color: var(--nb-ink-fg); }
-    .notebook-btn.is-primary:hover:not(:disabled) { background: var(--nb-ink-hover); border-color: var(--nb-ink-hover); }
-    .notebook-btn.is-danger { border-color: color-mix(in srgb, var(--nb-danger) 35%, var(--nb-border)); color: var(--nb-danger); }
-    .notebook-btn.is-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--nb-danger) 10%, transparent); }
-    .notebook-banner {
-      flex: 0 0 auto;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      width: 100%;
-      max-width: 1120px;
-      margin: 0 auto 8px;
-      padding: 9px 12px;
-      border: 1px solid color-mix(in srgb, var(--nb-danger) 22%, transparent);
-      border-radius: 10px;
-      background: color-mix(in srgb, var(--nb-danger) 8%, transparent);
-      color: var(--nb-danger);
-      font-size: 12px;
-    }
-    .notebook-layout {
-      flex: 1 1 auto;
-      display: grid;
-      grid-template-columns: 310px minmax(0, 1fr);
-      gap: 18px;
-      width: 100%;
-      max-width: 1120px;
-      min-height: 0;
-      margin: 0 auto;
-      padding: 0 32px 28px;
-    }
-    .notebook-list, .notebook-editor {
-      min-height: 0;
-      overflow: hidden;
-      border: 1px solid var(--nb-border-soft);
-      border-radius: 14px;
-      background: var(--nb-surface);
-      box-shadow: var(--dsw-shadow-lv1);
-    }
-    .notebook-list { display: flex; flex-direction: column; }
-    .notebook-list-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 13px 15px;
-      border-bottom: 1px solid var(--nb-border-soft);
-      color: var(--nb-secondary);
-      font-size: 12px;
-      font-weight: 650;
-    }
-    .notebook-count {
-      display: grid;
-      place-items: center;
-      min-width: 20px;
-      height: 20px;
-      padding: 0 6px;
-      border-radius: 999px;
-      background: var(--nb-sunken);
-      color: var(--nb-secondary);
-      font-size: 10.5px;
-      line-height: 1;
-    }
-    .notebook-items { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px; }
-    .notebook-item {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      width: 100%;
-      margin-bottom: 4px;
-      padding: 10px 11px;
-      border: 1px solid transparent;
-      border-radius: 10px;
-      background: transparent;
-      color: inherit;
-      font: inherit;
-      text-align: left;
-      cursor: pointer;
-    }
-    .notebook-item:hover { background: var(--nb-sunken); }
-    .notebook-item[aria-current='true'] { border-color: var(--nb-border); background: var(--nb-sunken); }
-    .notebook-item-title {
-      overflow: hidden;
-      font-size: 12.5px;
-      font-weight: 650;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .notebook-item-excerpt {
-      display: -webkit-box;
-      overflow: hidden;
-      color: var(--nb-secondary);
-      font-size: 11.5px;
-      line-height: 1.55;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 2;
-    }
-    .notebook-item-time { color: var(--nb-muted); font-size: 10.5px; }
-    .notebook-editor { display: flex; flex-direction: column; }
-    .notebook-editor-head {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 16px 18px 12px;
-      border-bottom: 1px solid var(--nb-border-soft);
-    }
-    .notebook-editor-head h2 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
-    .notebook-editor-head p { margin: 4px 0 0; color: var(--nb-muted); font-size: 11.5px; }
-    .notebook-editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-    .notebook-form { flex: 1 1 auto; display: flex; flex-direction: column; gap: 14px; min-height: 0; padding: 16px 18px 18px; }
-    .notebook-field { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
-    .notebook-field.is-grow { flex: 1 1 auto; }
-    .notebook-label { color: var(--nb-secondary); font-size: 11.5px; font-weight: 600; }
-    .notebook-input, .notebook-textarea {
-      width: 100%;
-      padding: 9px 11px;
-      border: 1px solid var(--nb-border);
-      border-radius: 10px;
-      background: var(--nb-surface);
-      color: var(--nb-text);
-      font: inherit;
-      font-size: 13px;
-    }
-    .notebook-input::placeholder, .notebook-textarea::placeholder { color: var(--nb-muted); }
-    .notebook-input:focus, .notebook-textarea:focus {
-      outline: none;
-      border-color: var(--nb-accent);
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--nb-accent) 16%, transparent);
-    }
-    .notebook-textarea { flex: 1 1 auto; min-height: 220px; line-height: 1.7; resize: none; }
-    .notebook-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--nb-muted); font-size: 11px; }
-    .notebook-notice { color: var(--nb-success); font-weight: 600; }
-    .notebook-error { color: var(--nb-danger); font-weight: 600; }
-    .notebook-empty {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      min-height: 240px;
-      padding: 32px;
-      color: var(--nb-secondary);
-      text-align: center;
-    }
-    .notebook-empty h3 { margin: 0; font-size: 14px; font-weight: 650; color: var(--nb-text); }
-    .notebook-empty p { max-width: 360px; margin: 0; font-size: 12px; line-height: 1.65; }
-    .notebook-empty .notebook-btn { margin-top: 10px; }
-    .notebook-items::-webkit-scrollbar { width: 8px; }
-    .notebook-items::-webkit-scrollbar-thumb {
-      border: 2px solid transparent;
-      border-radius: 999px;
-      background: var(--dsw-alias-scrollbar-bg-l2);
-      background-clip: padding-box;
-    }
-    @media (max-width: 900px) {
-      .notebook-header, .notebook-layout { padding-left: 18px; padding-right: 18px; }
-      .notebook-layout { grid-template-columns: minmax(0, 1fr); overflow-y: auto; }
-      .notebook-list { max-height: 260px; }
-    }
-    `;
     function installPanelStyles(ctx) {
       ctx.effect(() => {
         const style = document.createElement("style");
         style.setAttribute(STYLE_MARKER, "");
-        style.textContent = PANEL_CSS;
+        style.textContent = ".notebook-page {\n  --nb-canvas: var(--dsw-alias-bg-module-platform);\n  --nb-surface: var(--dsw-alias-bg-layer-1);\n  --nb-sunken: var(--dsw-alias-turn-trigger-bg);\n  --nb-text: var(--dsw-alias-label-primary);\n  --nb-secondary: var(--dsw-alias-label-secondary);\n  --nb-muted: var(--dsw-alias-label-tertiary);\n  --nb-border: var(--dsw-alias-border-l2);\n  --nb-border-soft: var(--dsw-alias-border-l1);\n  --nb-accent: var(--dsw-alias-state-business-primary);\n  --nb-accent-soft: var(--dsw-alias-state-business-tertiary);\n  --nb-ink: var(--dsw-alias-button-primary-fill);\n  --nb-ink-hover: var(--dsw-alias-button-primary-hover);\n  --nb-ink-fg: var(--dsw-alias-label-primary-foreground);\n  --nb-danger: var(--dsw-alias-state-error-primary);\n  --nb-success: var(--dsw-alias-state-success-primary);\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n  height: 100%;\n  min-height: 0;\n  overflow: hidden;\n  background: var(--nb-canvas);\n  color: var(--nb-text);\n  font-family: var(--dsw-font-family);\n  font-size: 13.5px;\n  line-height: 1.5;\n}\n.notebook-page *, .notebook-page *::before, .notebook-page *::after { box-sizing: border-box; }\n.notebook-page :focus-visible { outline: 2px solid var(--nb-accent); outline-offset: 2px; }\n.notebook-page ::selection { background: var(--nb-accent-soft); }\n.notebook-header {\n  flex: 0 0 auto;\n  display: flex;\n  flex-wrap: wrap;\n  align-items: flex-end;\n  justify-content: space-between;\n  gap: 18px;\n  width: 100%;\n  max-width: 1120px;\n  margin: 0 auto;\n  padding: 24px 32px 14px;\n}\n.notebook-heading-row { display: flex; align-items: center; gap: 10px; }\n.notebook-mark {\n  display: grid;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  border-radius: 11px;\n  background: var(--nb-accent-soft);\n  color: var(--nb-accent);\n}\n.notebook-mark svg { width: 19px; height: 19px; }\n.notebook-heading h1 { margin: 0; font-size: 23px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; }\n.notebook-heading p { margin: 6px 0 0; color: var(--nb-secondary); font-size: 12.5px; }\n.notebook-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }\n.notebook-owner {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  height: 36px;\n  padding: 0 4px 0 11px;\n  border: 1px solid var(--nb-border-soft);\n  border-radius: 10px;\n  background: var(--nb-surface);\n}\n.notebook-owner span { color: var(--nb-muted); font-size: 11px; white-space: nowrap; }\n.notebook-owner select {\n  max-width: 190px;\n  height: 28px;\n  padding: 0 4px;\n  border: none;\n  border-radius: 7px;\n  background: transparent;\n  color: var(--nb-text);\n  font: inherit;\n  font-size: 12.5px;\n  font-weight: 600;\n  cursor: pointer;\n}\n.notebook-owner select:hover { background: var(--nb-sunken); }\n.notebook-btn {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  gap: 6px;\n  height: 34px;\n  padding: 0 12px;\n  border: 1px solid var(--nb-border);\n  border-radius: 9px;\n  background: var(--nb-surface);\n  color: var(--nb-text);\n  font: inherit;\n  font-size: 12.5px;\n  font-weight: 550;\n  white-space: nowrap;\n  cursor: pointer;\n}\n.notebook-btn:hover:not(:disabled) { background: var(--nb-sunken); }\n.notebook-btn:disabled { opacity: .5; cursor: not-allowed; }\n.notebook-btn.is-primary { border-color: var(--nb-ink); background: var(--nb-ink); color: var(--nb-ink-fg); }\n.notebook-btn.is-primary:hover:not(:disabled) { background: var(--nb-ink-hover); border-color: var(--nb-ink-hover); }\n.notebook-btn.is-danger { border-color: color-mix(in srgb, var(--nb-danger) 35%, var(--nb-border)); color: var(--nb-danger); }\n.notebook-btn.is-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--nb-danger) 10%, transparent); }\n.notebook-banner {\n  flex: 0 0 auto;\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  width: 100%;\n  max-width: 1120px;\n  margin: 0 auto 8px;\n  padding: 9px 12px;\n  border: 1px solid color-mix(in srgb, var(--nb-danger) 22%, transparent);\n  border-radius: 10px;\n  background: color-mix(in srgb, var(--nb-danger) 8%, transparent);\n  color: var(--nb-danger);\n  font-size: 12px;\n}\n.notebook-layout {\n  flex: 1 1 auto;\n  display: grid;\n  grid-template-columns: 310px minmax(0, 1fr);\n  gap: 18px;\n  width: 100%;\n  max-width: 1120px;\n  min-height: 0;\n  margin: 0 auto;\n  padding: 0 32px 28px;\n}\n.notebook-list, .notebook-editor {\n  min-height: 0;\n  overflow: hidden;\n  border: 1px solid var(--nb-border-soft);\n  border-radius: 14px;\n  background: var(--nb-surface);\n  box-shadow: var(--dsw-shadow-lv1);\n}\n.notebook-list { display: flex; flex-direction: column; }\n.notebook-list-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 8px;\n  padding: 13px 15px;\n  border-bottom: 1px solid var(--nb-border-soft);\n  color: var(--nb-secondary);\n  font-size: 12px;\n  font-weight: 650;\n}\n.notebook-count {\n  display: grid;\n  place-items: center;\n  min-width: 20px;\n  height: 20px;\n  padding: 0 6px;\n  border-radius: 999px;\n  background: var(--nb-sunken);\n  color: var(--nb-secondary);\n  font-size: 10.5px;\n  line-height: 1;\n}\n.notebook-items { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px; }\n.notebook-item {\n  display: flex;\n  flex-direction: column;\n  gap: 4px;\n  width: 100%;\n  margin-bottom: 4px;\n  padding: 10px 11px;\n  border: 1px solid transparent;\n  border-radius: 10px;\n  background: transparent;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n}\n.notebook-item:hover { background: var(--nb-sunken); }\n.notebook-item[aria-current='true'] { border-color: var(--nb-border); background: var(--nb-sunken); }\n.notebook-item-title {\n  overflow: hidden;\n  font-size: 12.5px;\n  font-weight: 650;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n.notebook-item-excerpt {\n  display: -webkit-box;\n  overflow: hidden;\n  color: var(--nb-secondary);\n  font-size: 11.5px;\n  line-height: 1.55;\n  -webkit-box-orient: vertical;\n  -webkit-line-clamp: 2;\n}\n.notebook-item-time { color: var(--nb-muted); font-size: 10.5px; }\n.notebook-editor { display: flex; flex-direction: column; }\n.notebook-editor-head {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: 12px;\n  padding: 16px 18px 12px;\n  border-bottom: 1px solid var(--nb-border-soft);\n}\n.notebook-editor-head h2 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }\n.notebook-editor-head p { margin: 4px 0 0; color: var(--nb-muted); font-size: 11.5px; }\n.notebook-editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }\n.notebook-form { flex: 1 1 auto; display: flex; flex-direction: column; gap: 14px; min-height: 0; padding: 16px 18px 18px; }\n.notebook-field { display: flex; flex-direction: column; gap: 6px; min-height: 0; }\n.notebook-field.is-grow { flex: 1 1 auto; }\n.notebook-label { color: var(--nb-secondary); font-size: 11.5px; font-weight: 600; }\n.notebook-input, .notebook-textarea {\n  width: 100%;\n  padding: 9px 11px;\n  border: 1px solid var(--nb-border);\n  border-radius: 10px;\n  background: var(--nb-surface);\n  color: var(--nb-text);\n  font: inherit;\n  font-size: 13px;\n}\n.notebook-input::placeholder, .notebook-textarea::placeholder { color: var(--nb-muted); }\n.notebook-input:focus, .notebook-textarea:focus {\n  outline: none;\n  border-color: var(--nb-accent);\n  box-shadow: 0 0 0 3px color-mix(in srgb, var(--nb-accent) 16%, transparent);\n}\n.notebook-textarea { flex: 1 1 auto; min-height: 220px; line-height: 1.7; resize: none; }\n.notebook-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--nb-muted); font-size: 11px; }\n.notebook-notice { color: var(--nb-success); font-weight: 600; }\n.notebook-error { color: var(--nb-danger); font-weight: 600; }\n.notebook-empty {\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  justify-content: center;\n  gap: 6px;\n  min-height: 240px;\n  padding: 32px;\n  color: var(--nb-secondary);\n  text-align: center;\n}\n.notebook-empty h3 { margin: 0; font-size: 14px; font-weight: 650; color: var(--nb-text); }\n.notebook-empty p { max-width: 360px; margin: 0; font-size: 12px; line-height: 1.65; }\n.notebook-empty .notebook-btn { margin-top: 10px; }\n.notebook-items::-webkit-scrollbar { width: 8px; }\n.notebook-items::-webkit-scrollbar-thumb {\n  border: 2px solid transparent;\n  border-radius: 999px;\n  background: var(--dsw-alias-scrollbar-bg-l2);\n  background-clip: padding-box;\n}\n@media (max-width: 900px) {\n  .notebook-header, .notebook-layout { padding-left: 18px; padding-right: 18px; }\n  .notebook-layout { grid-template-columns: minmax(0, 1fr); overflow-y: auto; }\n  .notebook-list { max-height: 260px; }\n}\n\n";
         document.head.append(style);
         return () => {
           style.remove();
