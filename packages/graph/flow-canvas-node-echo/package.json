@@ -1,0 +1,62 @@
+{
+  "name": "@deepseek-ai/dsh-graph-flow-canvas-node-echo",
+  "description": "Use when a DSH Web profile already runs the graph flow-canvas panel and one node type should render differently: it is a minimal standalone client plugin that registers exactly one keyed `flow.canvas.node` renderer for the `echo` node type, proving the panel's per-type extension point and falling back to the default card when uninstalled; skip it when the default node card is enough or when you need host or execution behavior.",
+  "version": "0.1.4",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/client.js.map",
+    "lib/types/**/*.js",
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
+    "cordis.patch.yml",
+    "README.md",
+    "README.cn.md",
+    "README.i18n.yaml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-graph-flow-canvas-panel"
+      ]
+    }
+  },
+  "scripts": {
+    "paths": "node scripts/gen-tsconfig-paths.mjs",
+    "build": "node scripts/build.mjs",
+    "typecheck": "node scripts/typecheck.mjs",
+    "test": "node scripts/test.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-graph-flow-api": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-canvas": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-canvas-panel": "workspace:*"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,176 @@
+/**
+ * Custom echo card styles. Tokens only; the card is intentionally unlike the
+ * default card (a blue extension badge instead of a type glyph) so screenshots
+ * show which renderer is active, while sharing the same spacing, radius and
+ * shadow language.
+ *
+ * 自定义 echo 卡片样式。只用主题 token；卡片刻意不同于默认卡片（用蓝色扩展徽标代替类型图标），
+ * 截图一眼可见当前渲染器，同时共用相同的间距、圆角与阴影语言。
+ */
+
+.card {
+    --echo-status: var(--dsw-alias-label-tertiary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    padding: 9px 11px;
+    margin: 0;
+    text-align: start;
+    background: var(--dsw-alias-bg-layer-1);
+    color: var(--dsw-alias-label-primary);
+    border: 0.5px solid var(--dsw-alias-border-l2);
+    border-radius: var(--dsw-radius-md);
+    font: inherit;
+    cursor: pointer;
+    box-shadow: var(--dsw-shadow-lv1);
+    transition: background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.card:hover:not(:disabled) {
+    background: var(--dsw-alias-bg-layer-2);
+    border-color: var(--dsw-alias-border-l3);
+    box-shadow: var(--dsw-shadow-lv2);
+}
+
+.card:active:not(:disabled) {
+    background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.card:focus-visible {
+    outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+    outline-offset: 2px;
+}
+
+.selected {
+    outline: 2px solid var(--dsw-alias-state-business-primary);
+    outline-offset: 2px;
+}
+
+.card:disabled {
+    opacity: 0.55;
+    cursor: default;
+    box-shadow: none;
+}
+
+.icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--dsw-radius-sm);
+    background: var(--dsw-alias-interactive-bg-hover);
+    color: var(--dsw-alias-label-secondary);
+}
+
+.icon svg {
+    display: block;
+}
+
+.body {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.titleRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.metaRow {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.badge {
+    flex: none;
+    padding: 1px 6px;
+    border-radius: var(--dsw-radius-xs);
+    background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent);
+    color: var(--dsw-alias-state-business-primary);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.5;
+    letter-spacing: 0.02em;
+}
+
+.label {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 13.5px;
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -0.005em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: none;
+    color: var(--echo-status);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.statusDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex: none;
+}
+
+.ready,
+.running {
+    --echo-status: var(--dsw-alias-state-business-primary);
+}
+
+.completed {
+    --echo-status: var(--dsw-alias-state-success-primary);
+}
+
+.recovered,
+.awaiting {
+    --echo-status: var(--dsw-alias-state-warn-label);
+}
+
+.failed {
+    --echo-status: var(--dsw-alias-state-error-primary);
+}
+
+.skipped,
+.cancelled {
+    --echo-status: var(--dsw-alias-label-tertiary);
+}
+
+.skipped .label,
+.cancelled .label {
+    color: var(--dsw-alias-label-secondary);
+}
+
+.skipped .icon,
+.cancelled .icon {
+    opacity: 0.55;
+}
+
+.skipped .badge,
+.cancelled .badge {
+    opacity: 0.55;
+}

@@ -1,0 +1,5 @@
+# Echo renderer demo bundle layer: one Loader row for the client-only plugin.
+# echo 渲染器演示的 bundle 层：为这个纯客户端插件插入一条 Loader 行。
+- insert:
+    - id: graph-flow-canvas-node-echo
+      name: '@deepseek-ai/dsh-graph-flow-canvas-node-echo'
