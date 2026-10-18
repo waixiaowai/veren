@@ -1,0 +1,47 @@
+{
+  "name": "@deepseek-ai/dsh-graph-flow-canvas-ui",
+  "version": "0.1.0",
+  "description": "Use when a person needs a read-only first-version browser canvas for one registered flow: it loads examples/demo.flow.yaml through the real YAML Loader, projects it with @deepseek-ai/dsh-graph-flow-canvas, auto-layouts the DAG, streams live node statuses over SSE, and shows node output from snapshot.result; skip it when you need a production flow editor, layout persistence, or the 3080 client-plugin integration (see README for the next step).",
+  "private": true,
+  "type": "module",
+  "main": "lib/server.js",
+  "types": "lib/server.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/server.d.ts",
+      "default": "./lib/server.js"
+    },
+    "./model": {
+      "types": "./lib/model.d.ts",
+      "default": "./lib/model.js"
+    },
+    "./layout": {
+      "types": "./lib/layout.d.ts",
+      "default": "./lib/layout.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "public",
+    "docs",
+    "README.md",
+    "README.cn.md"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "start": "node lib/server.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/dsh-graph-core": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-api": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-canvas": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-engine": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-yaml": "workspace:*",
+    "@veren/core": "workspace:*",
+    "@veren/yaml-parser": "workspace:*"
+  }
+}

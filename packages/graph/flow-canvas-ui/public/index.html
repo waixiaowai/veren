@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Flow Canvas · flow-canvas-ui</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="app">
+        <header class="topbar">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true">flow</span>
+                <div>
+                    <h1>Flow Canvas</h1>
+                    <p>只读运行画布 / read-only run canvas</p>
+                </div>
+            </div>
+            <div class="toolbar">
+                <label class="field">
+                    <span>Flow</span>
+                    <select id="flow-select" aria-label="flow"></select>
+                </label>
+                <span id="flow-meta" class="flow-meta">loading…</span>
+                <button id="run-button" class="run-button" type="button" disabled>运行 Run</button>
+            </div>
+        </header>
+
+        <section id="summary" class="summary tone-idle" aria-live="polite"></section>
+        <div id="legend" class="legend" aria-label="legend"></div>
+
+        <main class="workspace">
+            <section class="canvas-panel" aria-label="flow graph">
+                <div id="canvas" class="canvas"></div>
+            </section>
+            <aside class="side">
+                <section id="inspector" class="panel" aria-label="node inspector"></section>
+                <section id="events" class="panel" aria-label="status stream"></section>
+            </aside>
+        </main>
+
+        <footer class="footer">
+            <span>只读：UI 只消费 canvas 投影与运行快照，不修改快照 / result。</span>
+            <span>Read-only: the UI consumes the canvas projection and run snapshots without mutating them.</span>
+            <code>output = snapshot.result.nodes[id].output</code>
+        </footer>
+    </div>
+    <script type="module" src="/lib/client.js"></script>
+</body>
+</html>

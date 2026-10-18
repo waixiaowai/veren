@@ -1,0 +1,31 @@
+# 文档语言索引与使用说明 / documentation language index and usage guide
+package: "@deepseek-ai/dsh-graph-flow-canvas-ui"
+default: en
+
+readme:
+  en: README.md
+  zh: README.cn.md
+
+how-to-use:
+  en:
+    - "Read README.md first: it is the English source of truth for this package."
+    - "Open README.cn.md for the Chinese version of the same content."
+    - "Run the build/start commands in order, then open the printed 127.0.0.1 URL."
+    - "The run/30-second tour sections describe exactly what a reviewer should see."
+    - "When editing either side, mirror the change and keep code blocks identical."
+  zh:
+    - "先读 README.md：它是本包英文内容的事实来源。"
+    - "中文看 README.cn.md，内容与英文一一对应。"
+    - "按顺序执行 build/start 命令，然后打开日志里打印的 127.0.0.1 地址。"
+    - "运行/30 秒小节的描述就是验收时应看到的内容。"
+    - "修改任一侧时同步另一侧，保持代码块一致。"
+
+scope:
+  en: "First-version read-only browser canvas for a registered flow: static projection, caller-side auto-layout, live SSE statuses and snapshot.result output. Standalone local page; the 3080 client-plugin integration is the documented next step. No editing, dragging, layout persistence or kernel event access."
+  zh: "已注册 flow 的只读浏览器画布第一版：静态投影、调用方自动布局、SSE 实时状态与 snapshot.result output。独立本地页面；接进 3080 的客户端插件是文档化的下一步。不做编辑、拖拽、布局持久化，也不直接碰内核事件。"
+
+naming:
+  en: "This repository uses README.cn.md for Chinese; README.zh.md is not used (AGENTS.md convention)."
+  zh: "本仓库中文文件用 README.cn.md；不使用 README.zh.md（AGENTS.md 约定）。"
+
+reviewed: "2026-10-17"
