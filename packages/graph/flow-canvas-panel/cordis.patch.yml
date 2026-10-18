@@ -1,0 +1,5 @@
+# Flow-canvas panel bundle layer: one Loader row for the host + browser plugin.
+# 画布面板的 bundle 层：为宿主 + 浏览器插件插入一条 Loader 行。
+- insert:
+    - id: graph-flow-canvas-panel
+      name: '@deepseek-ai/dsh-graph-flow-canvas-panel'

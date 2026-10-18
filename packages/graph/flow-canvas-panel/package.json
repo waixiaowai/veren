@@ -1,0 +1,65 @@
+{
+  "name": "@deepseek-ai/dsh-graph-flow-canvas-panel",
+  "description": "Use when a DSH Web profile should show registered graph flows as a clickable canvas: it is a standard DSH client plugin (tsx components, a main-panel page, an extensible per-node-type renderer slot, locale-owned copy) whose Host half exposes the flow-canvas projection and run stream over the `flowCanvas` Remote namespace; skip it for headless profiles, flow authoring, or layout persistence.",
+  "version": "0.1.12",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/client.js.map",
+    "lib/types/**/*.js",
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
+    "cordis.patch.yml",
+    "docs",
+    "README.md",
+    "README.cn.md",
+    "README.i18n.yaml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-gateway",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  },
+  "scripts": {
+    "paths": "node scripts/gen-tsconfig-paths.mjs",
+    "build": "node scripts/build.mjs",
+    "typecheck": "node scripts/typecheck.mjs",
+    "test": "node scripts/test.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-graph-flow-api": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-canvas": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-engine": "workspace:*"
+  },
+  "license": "MIT"
+}

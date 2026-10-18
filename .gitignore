@@ -23,6 +23,9 @@ dist-tgz/
 .tmp-*
 *.log
 
+# 0.1.10 旧版面板调试截图保留在本地 / legacy 0.1.10 panel captures stay local
+packages/graph/flow-canvas-panel/docs/shot-*.png
+
 # 误跑 tsc 时落在源码旁的编译产物 / stray tsc output next to sources
 packages/**/src/*.js
 packages/**/src/*.js.map
