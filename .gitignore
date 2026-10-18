@@ -12,3 +12,20 @@ dist-publish
 *.tar.gz
 *.zip
 .e2e
+
+# 本地打包/验收产物与临时目录 / local packaging and verification artifacts
+dist-tgz/
+/tarballs/
+/flow-canvas-panel/
+.dsh-desktop-profile-backup-*/
+
+# 临时会话日志与探针 / temporary session logs and probes
+.tmp-*
+
+# 误跑 tsc 时落在源码旁的编译产物 / stray tsc output next to sources
+packages/**/src/*.js
+packages/**/src/*.js.map
+packages/**/src/index.d.ts
+packages/**/src/index.d.ts.map
+packages/**/src/types.d.ts
+packages/**/src/types.d.ts.map
