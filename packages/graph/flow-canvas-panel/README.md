@@ -31,7 +31,7 @@ relative to the profile root; do not install the bundle as a single tarball):
 ```powershell
 $env:DSH_HOME = 'C:\path\to\your\test-node'   # never point this at ~/.dsh by accident
 pnpm --dir packages/graph/flow-canvas-panel pack --pack-destination C:\temp\flow-canvas
-pnpm --dir deepseek/deepseek-harness dsh plugin --profile web add C:\temp\flow-canvas\deepseek-ai-dsh-graph-flow-canvas-panel-0.1.12.tgz
+pnpm --dir deepseek/deepseek-harness dsh plugin --profile web add C:\temp\flow-canvas\deepseek-ai-dsh-graph-flow-canvas-panel-0.1.13.tgz
 ```
 
 The bundle directory lives at `packages/graph/bundle`; the isolated test node's
@@ -43,7 +43,7 @@ Optional: install the demo renderer extension the same way.
 
 ```powershell
 pnpm --dir packages/graph/flow-canvas-node-echo pack --pack-destination C:\temp\flow-canvas
-pnpm --dir deepseek/deepseek-harness dsh plugin --profile web add C:\temp\flow-canvas\deepseek-ai-dsh-graph-flow-canvas-node-echo-0.1.4.tgz
+pnpm --dir deepseek/deepseek-harness dsh plugin --profile web add C:\temp\flow-canvas\deepseek-ai-dsh-graph-flow-canvas-node-echo-0.1.5.tgz
 ```
 
 Restart `dsh web` after installing. Open the Web GUI, then click **Flow 画布**
@@ -187,17 +187,20 @@ The Host only calls the public canvas API (`project`, `run`, `snapshot`,
 
 The current UI was exercised in the real Web GUI on a temporary isolated node
 (own `DSH_HOME` and pnpm store, port 3099; removed after verification; 3080 was
-never touched): graph bundle + panel 0.1.12 + echo 0.1.4 + the test-only
+never touched): graph bundle + panel 0.1.13 + echo 0.1.5 + the test-only
 approval fixture. The layout round and its first-use assessment live in
 [`docs/ui-refactor.md`](docs/ui-refactor.md); the node-card visual rules live in
 [`docs/ui-cards.md`](docs/ui-cards.md). `docs/e2e-ui.mjs` drives headless Chrome
 at 1440×900 through the operator path: zoom in → 100% → fit → drag-pan, select a
 flow → run, watch the approval dock, allow it, inspect output, then reload while
 an approval is still pending and finish the same run. It also captures the dark
-theme. Run it with:
+theme. `docs/e2e-borders.mjs` isolates the card outline: 82% and 100% in light
+and dark, plus hover and selected states, and logs the computed border/shadow.
+Run it with:
 
 ```powershell
 node docs/e2e-ui.mjs <web-url> after docs/ui-card-after
+node docs/e2e-borders.mjs <web-url> after docs/ui-borders-after
 ```
 
 The card `before` set is the previous 0.1.11 build on the same flows and
@@ -205,7 +208,7 @@ viewport (`docs/ui-card-before`, copied from the earlier `ui-after` set); the
 layout before/after pair from 0.1.10 remains under `docs/ui-before` and
 `docs/ui-after`.
 
-| Before (0.1.11) | After (0.1.12) |
+| Before (0.1.11) | After (0.1.13) |
 |---|---|
 | ![Before: settled run](docs/ui-card-before/after-settled.png) | ![After: settled run](docs/ui-card-after/after-settled.png) |
 | ![Before: approval card](docs/ui-card-before/after-approval-card.png) | ![After: approval dock](docs/ui-card-after/after-approval-card.png) |

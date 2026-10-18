@@ -12,7 +12,7 @@ It requires the canvas panel in the same profile. Then:
 
 ```powershell
 pnpm --dir packages/graph/flow-canvas-node-echo pack --pack-destination C:\temp\flow-canvas
-pnpm --dir deepseek/deepseek-harness dsh plugin --profile web add C:\temp\flow-canvas\deepseek-ai-dsh-graph-flow-canvas-node-echo-0.1.4.tgz
+pnpm --dir deepseek/deepseek-harness dsh plugin --profile web add C:\temp\flow-canvas\deepseek-ai-dsh-graph-flow-canvas-node-echo-0.1.5.tgz
 ```
 
 Restart `dsh web` (or disable the plugin row) and reopen the panel. The two

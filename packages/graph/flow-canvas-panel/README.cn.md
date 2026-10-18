@@ -25,7 +25,7 @@ tarball；不要把 bundle 当单个 tarball 安装）：
 ```powershell
 $env:DSH_HOME = 'C:\path\to\your\test-node'   # 千万不要误指向 ~/.dsh
 pnpm --dir packages/graph/flow-canvas-panel pack --pack-destination C:\temp\flow-canvas
-pnpm --dir deepseek/deepseek-harness dsh plugin --profile web add C:\temp\flow-canvas\deepseek-ai-dsh-graph-flow-canvas-panel-0.1.12.tgz
+pnpm --dir deepseek/deepseek-harness dsh plugin --profile web add C:\temp\flow-canvas\deepseek-ai-dsh-graph-flow-canvas-panel-0.1.13.tgz
 ```
 
 bundle 目录在 `packages/graph/bundle`；隔离测试节点的
@@ -36,7 +36,7 @@ bundle 目录在 `packages/graph/bundle`；隔离测试节点的
 
 ```powershell
 pnpm --dir packages/graph/flow-canvas-node-echo pack --pack-destination C:\temp\flow-canvas
-pnpm --dir deepseek/deepseek-harness dsh plugin --profile web add C:\temp\flow-canvas\deepseek-ai-dsh-graph-flow-canvas-node-echo-0.1.4.tgz
+pnpm --dir deepseek/deepseek-harness dsh plugin --profile web add C:\temp\flow-canvas\deepseek-ai-dsh-graph-flow-canvas-node-echo-0.1.5.tgz
 ```
 
 安装后重启 `dsh web`，在侧栏点 **Flow 画布**。宿主会在演示 flow 缺失时注册三个真实 flow
@@ -153,23 +153,25 @@ function MyNode({ node, runtime, selected, onSelect, pendingApproval, onApproval
 ## 验证
 
 当前界面在一个临时隔离节点（自有 `DSH_HOME` 与 pnpm store，端口 3099；验证后已清理；
-全程没有碰 3080）的真实 Web GUI 中验证：graph bundle + 面板 0.1.12 + echo 0.1.4 +
+全程没有碰 3080）的真实 Web GUI 中验证：graph bundle + 面板 0.1.13 + echo 0.1.5 +
 仅测试用的授权夹具。布局轮与首次使用判断见
 [`docs/ui-refactor.cn.md`](docs/ui-refactor.cn.md)；节点卡片视觉规则见
 [`docs/ui-cards.cn.md`](docs/ui-cards.cn.md)。`docs/e2e-ui.mjs` 用无头 Chrome 在
 1440×900 下走完整路径：放大 → 100% → 适应屏幕 → 拖拽平移，选流程 → 运行，
 等待授权坞 → 同意，点节点看 output，再在授权仍挂起时整页刷新并完成同一运行；
-同时截取深色主题。运行方式：
+同时截取深色主题。`docs/e2e-borders.mjs` 专门检查卡片轮廓：浅色/深色下的 82% 与
+100%、hover 与选中态，并记录计算后的描边/阴影。运行方式：
 
 ```powershell
 node docs/e2e-ui.mjs <web-url> after docs/ui-card-after
+node docs/e2e-borders.mjs <web-url> after docs/ui-borders-after
 ```
 
 卡片 `before` 来自同一批 flow、同一分辨率下的上一版 0.1.11（`docs/ui-card-before`，
 从上一轮的 `ui-after` 复制）；0.1.10 的布局前后对比仍保留在 `docs/ui-before` 与
 `docs/ui-after`。
 
-| 改前（0.1.11） | 改后（0.1.12） |
+| 改前（0.1.11） | 改后（0.1.13） |
 |---|---|
 | ![改前：运行结束](docs/ui-card-before/after-settled.png) | ![改后：运行结束](docs/ui-card-after/after-settled.png) |
 | ![改前：等待授权](docs/ui-card-before/after-approval-card.png) | ![改后：等待授权](docs/ui-card-after/after-approval-card.png) |

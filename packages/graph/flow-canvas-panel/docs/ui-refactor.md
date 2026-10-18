@@ -2,8 +2,8 @@
 
 Date: 2026-10-18 · Panel `0.1.11` · Echo demo `0.1.3`
 
-> The follow-up node-card visual polish (`0.1.12`) is documented in
-> [`ui-cards.md`](ui-cards.md). This page covers the layout/interaction round.
+> The follow-up node-card visual polish and border fix (`0.1.13`) are documented
+> in [`ui-cards.md`](ui-cards.md). This page covers the layout/interaction round.
 
 This is an interaction/layout refactor of `packages/graph/flow-canvas-panel`, not
 a palette change. The data plane, the read-only contract, the approval

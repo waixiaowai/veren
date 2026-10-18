@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-graph-flow-canvas-node-echo",
   "description": "Use when a DSH Web profile already runs the graph flow-canvas panel and one node type should render differently: it is a minimal standalone client plugin that registers exactly one keyed `flow.canvas.node` renderer for the `echo` node type, proving the panel's per-type extension point and falling back to the default card when uninstalled; skip it when the default node card is enough or when you need host or execution behavior.",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "main": "lib/index.js",

@@ -21,7 +21,7 @@
     text-align: start;
     background: var(--dsw-alias-bg-layer-1);
     color: var(--dsw-alias-label-primary);
-    border: 0.5px solid var(--dsw-alias-border-l2);
+    border: 1px solid var(--dsw-alias-border-l4);
     border-radius: var(--dsw-radius-md);
     font: inherit;
     cursor: pointer;
@@ -31,7 +31,7 @@
 
 .card:hover:not(:disabled) {
     background: var(--dsw-alias-bg-layer-2);
-    border-color: var(--dsw-alias-border-l3);
+    border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 30%, var(--dsw-alias-border-l4));
     box-shadow: var(--dsw-shadow-lv2);
 }
 
@@ -44,9 +44,11 @@
     outline-offset: 2px;
 }
 
-.selected {
+.card.selected,
+.card.selected:hover {
     outline: 2px solid var(--dsw-alias-state-business-primary);
     outline-offset: 2px;
+    background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 8%, var(--dsw-alias-bg-layer-1));
 }
 
 .card:disabled {

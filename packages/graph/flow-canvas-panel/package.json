@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-graph-flow-canvas-panel",
   "description": "Use when a DSH Web profile should show registered graph flows as a clickable canvas: it is a standard DSH client plugin (tsx components, a main-panel page, an extensible per-node-type renderer slot, locale-owned copy) whose Host half exposes the flow-canvas projection and run stream over the `flowCanvas` Remote namespace; skip it for headless profiles, flow authoring, or layout persistence.",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "private": true,
   "type": "module",
   "main": "lib/index.js",

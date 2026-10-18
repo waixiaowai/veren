@@ -199,14 +199,14 @@ export function GraphEdges({ layout, run, t }: GraphEdgesProps) {
                             <circle
                                 cx={edge.fromX}
                                 cy={edge.fromY}
-                                r={3}
+                                r={3.5}
                                 className={[css.portDot, portDotClass(tone)].join(' ')}
                                 data-flow-port="source"
                             />
                             <circle
                                 cx={edge.toX}
                                 cy={edge.toY}
-                                r={2.6}
+                                r={3}
                                 className={[css.portDot, portDotClass(tone)].join(' ')}
                                 data-flow-port="target"
                             />
