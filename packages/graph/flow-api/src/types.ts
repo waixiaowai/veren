@@ -9,6 +9,7 @@
 
 import type { Context } from '@deepseek-ai/cordis';
 import type z from '@deepseek-ai/schemastery';
+import type { FlowNodeApprovalPort } from './approval.js';
 
 /** 品牌记号（零运行时开销）/ the brand mark (zero runtime overhead) */
 declare const brand: unique symbol;
@@ -107,6 +108,12 @@ export interface NodeExecuteContext {
     blackboard: FlowBlackboard;
     /** 统一取消通道 / the unified cancel channel */
     signal: AbortSignal;
+    /**
+     * 本节点尝试的授权面：请求会真正挂起运行，直到有人回答、超时或取消。
+     * The approval face of this node attempt: a request really suspends the run
+     * until someone answers, the timeout fires, or the run cancels.
+     */
+    approval: FlowNodeApprovalPort;
 }
 
 /**

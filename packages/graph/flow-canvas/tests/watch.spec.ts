@@ -13,7 +13,7 @@ import z from '@deepseek-ai/schemastery';
 import { apply as kernelPlugin } from '@deepseek-ai/dsh-graph-core';
 import { registerNodeHandler, type NodeHandler } from '@deepseek-ai/dsh-graph-flow-api';
 import { apply as enginePlugin, FlowEngineToken } from '@deepseek-ai/dsh-graph-flow-engine';
-import { apply as canvasPlugin, FlowCanvasToken, type CanvasNodeStatusChange } from '../src/index.js';
+import { apply as canvasPlugin, FlowCanvasToken, type CanvasNodeStatusChange, type CanvasRunProjection } from '../src/index.js';
 
 /** 最小组合：内核 + 引擎 + 画布数据源 / the minimal kernel + engine + canvas stack */
 async function makeStack() {
@@ -153,6 +153,61 @@ describe('canvas run projection', () => {
         expect(changes.some((change) => change.status === 'failed')).toBe(false);
     });
 
+    it('returns a consistent final snapshot when watching an already-finished run', async () => {
+        const { engine, canvas } = await makeStack();
+        await engine.registerFlow({
+            id: 'late-watch',
+            nodes: [
+                { id: 'a', type: 'noop' },
+                { id: 'b', type: 'noop' },
+            ],
+            edges: [{ from: 'a', to: 'b' }],
+        });
+        const handle = engine.run('late-watch');
+        const result = await handle.awaitCompletion();
+        const projection = canvas.watch(handle);
+        const immediate = projection.snapshot();
+        expect(immediate.status).toBe(result.status);
+        expect(immediate.result).toEqual(result);
+        for (const [id, record] of Object.entries(result.nodes)) {
+            const expected: Record<string, unknown> = { id, status: record.status };
+            if (record.skipReason !== undefined) expected.skipReason = record.skipReason;
+            if (record.startedAt !== undefined) expected.startedAt = record.startedAt;
+            if (record.endedAt !== undefined) expected.endedAt = record.endedAt;
+            if (record.error) expected.error = record.error;
+            if (record.recovered) expected.recovered = record.recovered;
+            expect(immediate.nodes[id]).toEqual(expected);
+        }
+        expect((await projection.finished).result).toEqual(result);
+    });
+
+    it('keeps the errorBranch failure fact on the draw surface', async () => {
+        const { engine, canvas } = await makeStack();
+        await engine.registerFlow({
+            id: 'errorbranch-recovered',
+            nodes: [
+                { id: 'gate', type: 'fail', onError: 'errorBranch' },
+                { id: 'recover', type: 'noop' },
+                { id: 'normal', type: 'noop' },
+            ],
+            edges: [
+                { from: 'gate', to: 'recover', port: 'error' },
+                { from: 'gate', to: 'normal' },
+            ],
+        });
+        const changes: CanvasNodeStatusChange[] = [];
+        const final = await canvas.run('errorbranch-recovered', {}, (change) => changes.push(change)).finished;
+        expect(final.status).toBe('completed');
+        // 失败事实保留，但完成语义与端口行为不变
+        // The failure fact is preserved while completion and port behavior stay unchanged.
+        expect(final.nodes['gate']).toMatchObject({ status: 'completed', recovered: { code: 'NODE_FAILED' } });
+        expect(final.result!.nodes['gate']!.recovered).toEqual({ code: 'NODE_FAILED', message: 'node failed' });
+        expect(changes.find((change) => change.nodeId === 'gate' && change.status === 'completed')!.recovered)
+            .toEqual({ code: 'NODE_FAILED', message: 'node failed' });
+        expect(final.nodes['recover']!.status).toBe('completed');
+        expect(final.nodes['normal']).toMatchObject({ status: 'skipped', skipReason: 'upstream-condition' });
+    });
+
     it('removes its listeners when the run ends (no leak into the next run)', async () => {
         const { ctx, engine, canvas } = await makeStack();
         await engine.registerFlow({ id: 'cleanup-flow', nodes: [{ id: 'a', type: 'noop' }], edges: [] });
@@ -181,5 +236,29 @@ describe('canvas run projection', () => {
         // 停止订阅不影响底层运行 / stopping the subscription does not cancel the run
         await projection.finished;
         expect(projection.handle.status()).toBe('completed');
+    });
+
+    it('keeps live events when the run is started from a child context', async () => {
+        const { ctx, engine } = await makeStack();
+        registerNodeHandler(ctx, slowHandler);
+        await engine.registerFlow({
+            id: 'rebind-flow',
+            nodes: [{ id: 'a', type: 'slow' }, { id: 'b', type: 'noop' }],
+            edges: [{ from: 'a', to: 'b' }],
+        });
+        const changes: CanvasNodeStatusChange[] = [];
+        let projection: CanvasRunProjection | undefined;
+        // A Remote call is a transient child context in Cordis: this reproduces
+        // the Gateway's service rebind, where the listener must not follow the
+        // caller context.
+        const child = ctx.plugin({
+            apply(scope) {
+                projection = scope.get(FlowCanvasToken)!.run('rebind-flow', {}, (change) => changes.push(change));
+            },
+        });
+        await child;
+        await projection!.finished;
+        expect(changes.some((change) => change.nodeId === 'a' && change.status === 'running')).toBe(true);
+        expect(changes.some((change) => change.nodeId === 'a' && change.status === 'completed')).toBe(true);
     });
 });

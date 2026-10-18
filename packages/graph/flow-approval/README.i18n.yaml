@@ -1,0 +1,26 @@
+# 文档语言索引与使用说明 / documentation language index and usage guide
+package: "@deepseek-ai/dsh-graph-flow-approval"
+default: en
+
+readme:
+  en: README.md
+  zh: README.cn.md
+
+# 怎么用这份双语文档 / how to use this bilingual documentation
+how-to-use:
+  en:
+    - "Read README.md first: it is the English source of truth for this package."
+    - "Open README.cn.md for the Chinese version of the same content."
+    - "Follow the usage section in order; it is the copy-paste path."
+    - "When editing either side, mirror the change, keep code blocks identical, and update reviewed."
+  zh:
+    - "先读 README.md：它是本包英文内容的事实来源。"
+    - "中文看 README.cn.md，内容与英文一一对应。"
+    - "按 usage 小节的顺序执行；那就是可复制粘贴的使用路径。"
+    - "修改任一侧时同步另一侧，保持代码块一致，并更新 reviewed。"
+
+naming:
+  en: "This repository uses README.cn.md for Chinese; README.zh.md is not used (AGENTS.md convention)."
+  zh: "本仓库中文文件用 README.cn.md；不使用 README.zh.md（AGENTS.md 约定）。"
+
+reviewed: "2026-10-18"

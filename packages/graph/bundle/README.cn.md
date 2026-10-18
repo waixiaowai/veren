@@ -1,10 +1,10 @@
 # @deepseek-ai/dsh-graph-bundle
 
-把整个 DSH graph 插件族打成一个可安装的 DSH 组合包。它的 `dsh.bundle.patch` 负责挂载 DAG 内核、flow 引擎、YAML flow 装载器与其解析能力提供者、存储接缝、通用 tool 节点以及模型可见的 graph 工具；`tarballs/` 里带着这些行要加载的每个包。想一步把这一族装进 DSH profile 时用它；要自己组装宿主时请直接依赖各个 `@deepseek-ai/dsh-graph-*` 包。
+把整个 DSH graph 插件族打成一个可安装的 DSH 组合包。它的 `dsh.bundle.patch` 负责挂载 DAG 内核、节点授权服务、flow 引擎、画布数据源、YAML flow 装载器与其解析能力提供者、存储接缝、通用 tool 节点以及模型可见的 graph 工具；`tarballs/` 里带着这些行要加载的每个包。想一步把这一族装进 DSH profile 时用它；要自己组装宿主时请直接依赖各个 `@deepseek-ai/dsh-graph-*` 包。
 
 ## 提供什么
 
-- **一个组合层**（`cordis.patch.yml`）—— 一次 `insert` 插入 `veren-yaml-parser`、`graph-kernel`、`graph-flow-engine`、`graph-flow-node-tool`、`graph-flow-yaml`、`graph-flow-storage` 与 `graph-tools` 七行。行按 id 寻址，因此后续组合层或 profile 自己的 `cordis.patch.yml` 可以覆写任意一行的配置。
+- **一个组合层**（`cordis.patch.yml`）—— 一次 `insert` 插入 `veren-yaml-parser`、`graph-kernel`、`graph-flow-approval`、`graph-flow-engine`、`graph-flow-canvas`、`graph-flow-node-tool`、`graph-flow-yaml`、`graph-flow-storage` 与 `graph-tools` 九行。行按 id 寻址，因此后续组合层或 profile 自己的 `cordis.patch.yml` 可以覆写任意一行的配置。`graph-flow-canvas` 是只读投影服务：投影静态 flow 结构与运行中逐节点状态，不存布局；`graph-flow-approval` 让需要授权的节点真正挂起（默认 60 秒超时，可按行配置覆写）。
 - **自带的 tarball**（`tarballs/*.tgz`）—— 每个包由 `pnpm pack` 产出。打包会把 `workspace:*` 依赖改写成裸版本号，所以目标 profile 需要 pnpm `overrides` 把本 bundle 携带的每个 `@deepseek-ai/dsh-graph-*` 与 `@veren/*` 包钉到自己的副本上。
 
 ## 装进 DSH profile
@@ -23,6 +23,6 @@
 
 ## 非目标
 
-不含运行时代码、不参与构建、没有测试：它是发布件。它不替你选存储后端或 flow 来源，那些留在部署侧（`@deepseek-ai/dsh-graph-flow-storage` 的配置、`@deepseek-ai/dsh-graph-flow-yaml` 的 `files`）。
+不含运行时代码、不参与构建、没有测试：它是发布件。它携带画布数据源，但不含可视化画布——没有渲染器、没有布局算法、也不持久化坐标。它不替你选存储后端或 flow 来源，那些留在部署侧（`@deepseek-ai/dsh-graph-flow-storage` 的配置、`@deepseek-ai/dsh-graph-flow-yaml` 的 `files`）。
 
 中文文档即本文件；英文见 [README.md](./README.md)。

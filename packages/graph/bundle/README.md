@@ -1,10 +1,10 @@
 # @deepseek-ai/dsh-graph-bundle
 
-Ships the whole DSH graph plugin family as one installable DSH bundle. Its `dsh.bundle.patch` mounts the DAG kernel, the flow engine, the YAML flow loader and its parser provider, the storage seam, the generic tool node and the model-facing graph tools, and its `tarballs/` carry every package those rows load. Use it to put the family into a DSH profile in one step; depend on the individual `@deepseek-ai/dsh-graph-*` packages instead when you compose a host of your own.
+Ships the whole DSH graph plugin family as one installable DSH bundle. Its `dsh.bundle.patch` mounts the DAG kernel, the node approval service, the flow engine, the canvas data source, the YAML flow loader and its parser provider, the storage seam, the generic tool node and the model-facing graph tools, and its `tarballs/` carry every package those rows load. Use it to put the family into a DSH profile in one step; depend on the individual `@deepseek-ai/dsh-graph-*` packages instead when you compose a host of your own.
 
 ## What it provides
 
-- **One bundle layer** (`cordis.patch.yml`) — a single `insert` of the rows `veren-yaml-parser`, `graph-kernel`, `graph-flow-engine`, `graph-flow-node-tool`, `graph-flow-yaml`, `graph-flow-storage` and `graph-tools`. The rows are addressed by id, so a later bundle layer or the profile's own `cordis.patch.yml` can override any of their configs.
+- **One bundle layer** (`cordis.patch.yml`) — a single `insert` of the rows `veren-yaml-parser`, `graph-kernel`, `graph-flow-approval`, `graph-flow-engine`, `graph-flow-canvas`, `graph-flow-node-tool`, `graph-flow-yaml`, `graph-flow-storage` and `graph-tools`. The rows are addressed by id, so a later bundle layer or the profile's own `cordis.patch.yml` can override any of their configs. `graph-flow-canvas` is a read-only projection service: it projects static flow structure and live per-node status, and stores no layout. `graph-flow-approval` lets a node that needs authorization really suspend (60 s default timeout, overridable per row).
 - **Self-contained tarballs** (`tarballs/*.tgz`) — each package built with `pnpm pack`. Packing rewrites `workspace:*` dependencies into bare versions, so the target profile needs pnpm `overrides` pinning every `@deepseek-ai/dsh-graph-*` and `@veren/*` package it carries to its own copies.
 
 ## Install into a DSH profile
@@ -23,6 +23,6 @@ This directory is excluded from the repository pnpm workspace (`!packages/graph/
 
 ## Non-goals
 
-No runtime code, no build step and no tests: it is a shipping artifact. It does not choose a storage backend or a flow source; those stay deployment choices (`@deepseek-ai/dsh-graph-flow-storage` config, `@deepseek-ai/dsh-graph-flow-yaml` `files`).
+No runtime code, no build step and no tests: it is a shipping artifact. It carries the canvas data source, not a visual canvas — no renderer, no layout algorithm and no persisted coordinates. It does not choose a storage backend or a flow source; those stay deployment choices (`@deepseek-ai/dsh-graph-flow-storage` config, `@deepseek-ai/dsh-graph-flow-yaml` `files`).
 
 See [README.cn.md](./README.cn.md) for the Chinese documentation.

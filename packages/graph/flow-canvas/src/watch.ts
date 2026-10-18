@@ -9,7 +9,7 @@
 
 import type { Context } from '@deepseek-ai/cordis';
 import type { NodeId } from '@deepseek-ai/dsh-graph-flow-api';
-import type { FlowEngine, FlowRunHandle, FlowRunResult } from '@deepseek-ai/dsh-graph-flow-engine';
+import type { FlowEngine, FlowNodeRecord, FlowRunHandle, FlowRunResult } from '@deepseek-ai/dsh-graph-flow-engine';
 import type {
     CanvasNodeRuntime,
     CanvasNodeStatusChange,
@@ -18,7 +18,32 @@ import type {
     CanvasStatusListener,
 } from './types.js';
 
-/** 订阅一个已启动的运行，并立即播种全部节点的 pending 状态 / watch a started run, seeding pending states */
+/** 状态单调序：hydration 后到达的迟到事件不得把节点拉回 pending/ready。等待授权与 running 同级：授权落定后可以回到 running。 */
+const STATUS_RANK: Record<CanvasNodeRuntime['status'], number> = {
+    pending: 0,
+    ready: 1,
+    running: 2,
+    'awaiting-approval': 2,
+    completed: 3,
+    failed: 3,
+    skipped: 3,
+    cancelled: 3,
+};
+const TERMINAL = new Set<CanvasNodeRuntime['status']>(['completed', 'failed', 'skipped', 'cancelled']);
+
+/** flow 节点记录 → 画布运行节点；缺失的可选字段不落键 / map a flow record; absent optional fields are omitted */
+function toRuntime(id: string, record: FlowNodeRecord): CanvasNodeRuntime {
+    const node: CanvasNodeRuntime = { id: id as NodeId, status: record.status };
+    if (record.skipReason !== undefined) node.skipReason = record.skipReason;
+    if (record.error) node.error = record.error;
+    if (record.recovered) node.recovered = record.recovered;
+    if (record.approvals !== undefined) node.approvals = record.approvals;
+    if (record.startedAt !== undefined) node.startedAt = record.startedAt;
+    if (record.endedAt !== undefined) node.endedAt = record.endedAt;
+    return node;
+}
+
+/** 订阅一个已启动的运行；启动时先 hydration，再接收增量 / watch a run: hydrate first, then consume changes */
 export function watchRun(
     ctx: Context,
     engine: FlowEngine,
@@ -32,10 +57,19 @@ export function watchRun(
         schemaVersion: 1,
         flowId: handle.flowId,
         runId: handle.runId,
-        status: handle.status(),
+        status: 'running',
         nodes,
         result: null,
     };
+    // 任意时刻挂载：先同步 hydration。已完成的 run 直接取终态；运行中的 run 取引擎的实时逐节点状态。
+    // Watch at any time: hydrate synchronously first. A finished run takes the final result; a live run takes the engine's live node states.
+    const detail = engine.getRun(handle.runId);
+    if (detail?.result) {
+        applyResult(snapshot, detail.result);
+    } else if (detail) {
+        snapshot.status = detail.status;
+        for (const [id, record] of Object.entries(detail.nodes ?? {})) snapshot.nodes[id] = toRuntime(id, record);
+    }
     const listeners = new Set<CanvasStatusListener>();
     if (listener) listeners.add(listener);
     const disposers: Array<() => boolean> = [];
@@ -58,19 +92,27 @@ export function watchRun(
     disposers.push(
         ctx.on('flow/node-status', (payload) => {
             if (!active || payload.runId !== handle.runId) return;
-            const node = snapshot.nodes[payload.nodeId] ?? (snapshot.nodes[payload.nodeId] = { id: payload.nodeId as NodeId, status: 'pending' });
-            Object.assign(node, {
-                status: payload.status,
-                skipReason: payload.skipReason,
-                error: payload.error,
-                startedAt: payload.startedAt,
-                endedAt: payload.endedAt,
-            });
+            const current = snapshot.nodes[payload.nodeId];
+            // 终态吸收 + 状态序单调：hydration 之后迟到的 pending/ready 不得造成回退
+            // Terminal states absorb, and rank must not decrease: a late pending/ready cannot roll a hydrated node back.
+            if (current && (TERMINAL.has(current.status) || STATUS_RANK[payload.status] < STATUS_RANK[current.status])) return;
+            const node = current ?? (snapshot.nodes[payload.nodeId] = { id: payload.nodeId as NodeId, status: 'pending' });
+            node.status = payload.status;
+            if (payload.skipReason === undefined) delete node.skipReason; else node.skipReason = payload.skipReason;
+            if (payload.error === undefined) delete node.error; else node.error = payload.error;
+            if (payload.recovered === undefined) delete node.recovered; else node.recovered = payload.recovered;
+            if (payload.approvals === undefined) delete node.approvals; else node.approvals = payload.approvals;
+            if (payload.startedAt === undefined) delete node.startedAt; else node.startedAt = payload.startedAt;
+            if (payload.endedAt === undefined) delete node.endedAt; else node.endedAt = payload.endedAt;
             notify({ flowId: payload.flowId, runId: payload.runId, nodeId: node.id, ...node });
         }),
         ctx.on('flow/run-end', (payload) => {
             if (payload.runId !== handle.runId) return;
-            snapshot.status = payload.status;
+            // run-end 时引擎已回写 result：同步对齐，避免 status 已终态而 result/nodes 还是旧的
+            // The engine has written the result by run-end: align synchronously so status, result and nodes settle together.
+            const detail = engine.getRun(handle.runId);
+            if (detail?.result) applyResult(snapshot, detail.result);
+            else snapshot.status = payload.status;
             cleanup();
         }),
     );
@@ -104,15 +146,6 @@ function applyResult(snapshot: CanvasRunSnapshot, result: FlowRunResult): void {
     snapshot.result = result;
     snapshot.status = result.status;
     const nodes: Record<string, CanvasNodeRuntime> = {};
-    for (const [id, record] of Object.entries(result.nodes)) {
-        nodes[id] = {
-            id: id as NodeId,
-            status: record.status,
-            skipReason: record.skipReason,
-            error: record.error,
-            startedAt: record.startedAt,
-            endedAt: record.endedAt,
-        };
-    }
+    for (const [id, record] of Object.entries(result.nodes)) nodes[id] = toRuntime(id, record);
     snapshot.nodes = nodes;
 }

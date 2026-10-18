@@ -1,0 +1,37 @@
+{
+  "name": "@deepseek-ai/dsh-graph-flow-approval",
+  "version": "0.1.2",
+  "description": "Use when a flow node must wait for a human decision before acting: it implements the flow-api approval seam (one pending request per node attempt, single-use answers scoped to one run, configurable auto-deny timeout, cancellation, actor/time audit facts) and broadcasts the pending and settled requests as Cordis events; skip it when flows run unattended and approval-gated calls should keep failing closed.",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib",
+    "README.md",
+    "README.cn.md",
+    "README.i18n.yaml"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/dsh-graph-flow-api": "workspace:*"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/dsh-graph-flow-api": "workspace:*"
+  }
+}

@@ -22,8 +22,9 @@ import type {
     NodeRegistry,
     RunId,
 } from '@deepseek-ai/dsh-graph-flow-api';
-import { flowError, resolveInputValue, toFlowError, toSlots } from './runtime.js';
+import { flowError, nodeApprovalPort, resolveInputValue, toFlowError, toSlots } from './runtime.js';
 import type { RunnerDeps } from './runtime.js';
+import type { CompiledFlow } from './types.js';
 
 /** (type, version) 二级索引 / the two-level (type, version) index */
 export class NodeRegistryImpl implements NodeRegistry {
@@ -203,8 +204,21 @@ async function runOnce(
         config: deps.compiled.configs.get(nodeId),
         blackboard: deps.blackboard,
         signal,
+        approval: nodeApprovalPort(
+            deps.approval,
+            { flowId: deps.flowId as FlowId, runId: deps.runId as RunId, nodeId, attempt },
+            signal,
+        ),
     };
-    return withTimeout(Promise.resolve(handler.execute(input, nctx)), defNode.timeout ?? deps.defaultTimeoutMs, nodeId, deps.flowId, signal);
+    return withTimeout(
+        () => handler.execute(input, nctx),
+        defNode.timeout ?? deps.defaultTimeoutMs,
+        nodeId,
+        deps,
+        attempt,
+        signal,
+        kctx,
+    );
 }
 
 /** 成功落定：写黑板并记录端口结论 / settle success: write the blackboard and record outcome ports */
@@ -243,24 +257,102 @@ async function retrySleep(ms: number, signal: AbortSignal): Promise<void> {
     });
 }
 
-/** 带超时与取消的执行：只有外部取消才拒绝；fail-fast 通知交给执行方自然落定 /
-    Execute with timeout and cancellation: only an external cancel rejects; a fail-fast notice lets the work settle. */
-function withTimeout<T>(work: Promise<T>, timeoutMs: number, nodeId: NodeId, flowId: string, signal: AbortSignal): Promise<T> {
+/**
+ * 带超时与取消的执行：只有外部取消才拒绝；fail-fast 通知交给执行方自然落定。
+ * 等待授权的时段不计入节点执行预算（请求挂起时暂停计时器，落定时恢复），
+ * 否则等一个人点按钮会先撞上执行超时，而不是授权超时。
+ * Execute with timeout and cancellation: only an external cancel rejects; a
+ * fail-fast notice lets the work settle. Time spent waiting for an approval
+ * does not consume the node's execution budget (the timer pauses when the
+ * request opens and resumes when it settles); otherwise waiting for a human
+ * would trip the execution timeout instead of the approval timeout.
+ */
+function withTimeout<T>(
+    work: () => T | Promise<T>,
+    timeoutMs: number,
+    nodeId: NodeId,
+    deps: RunnerDeps,
+    attempt: number,
+    signal: AbortSignal,
+    kctx: GraphRunContext,
+): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-        const timer = timeoutMs > 0
-            ? setTimeout(() => reject(flowError('NODE_TIMEOUT', `node "${nodeId}" timed out after ${timeoutMs}ms`, { flowId, nodeId })), timeoutMs)
-            : undefined;
+        const limited = timeoutMs > 0;
+        let remaining = timeoutMs;
+        let armedAt = 0;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let paused = false;
+        const arm = (): void => {
+            armedAt = Date.now();
+            timer = setTimeout(() => {
+                timer = undefined;
+                reject(flowError('NODE_TIMEOUT', `node "${nodeId}" timed out after ${timeoutMs}ms`, { flowId: deps.flowId, nodeId }));
+            }, Math.max(0, remaining));
+        };
+        const pause = (): void => {
+            if (!limited || paused || timer === undefined) return;
+            clearTimeout(timer);
+            timer = undefined;
+            remaining -= Date.now() - armedAt;
+            paused = true;
+        };
+        const resume = (): void => {
+            if (!limited || !paused) return;
+            paused = false;
+            arm();
+        };
+        if (limited) arm();
+        const matches = (request: { runId: string; nodeId: string; attempt: number }): boolean =>
+            request.runId === deps.runId && request.nodeId === nodeId && request.attempt === attempt;
+        const offRequested = kctx.on('flow/approval-requested', (request) => {
+            if (matches(request)) pause();
+        });
+        const offDecided = kctx.on('flow/approval-decided', (payload) => {
+            if (matches(payload.request)) resume();
+        });
         const onAbort = (): void => {
-            if (isExternalCancel(signal)) reject(flowError('FLOW_CANCELLED', 'cancelled', { flowId, nodeId }));
+            if (isExternalCancel(signal)) reject(flowError('FLOW_CANCELLED', 'cancelled', { flowId: deps.flowId, nodeId }));
         };
         signal.addEventListener('abort', onAbort, { once: true });
         const cleanup = (): void => {
             if (timer !== undefined) clearTimeout(timer);
             signal.removeEventListener('abort', onAbort);
+            offRequested();
+            offDecided();
         };
-        work.then(
+        // 监听器先装好再启动节点，等待授权事件才不会漏掉（节点可能在第一个 await 前就提问）。
+        // Install the listeners before starting the node so an approval request
+        // raised before the first await is not missed.
+        void Promise.resolve().then(work).then(
             (value) => { cleanup(); resolve(value); },
             (cause) => { cleanup(); reject(cause); },
         );
     });
+}
+
+/** flow 引用图 DFS 找环 / find reference cycles in the flow reference graph */
+export function assertNoReferenceCycle(flows: Map<FlowId, CompiledFlow>, compiled: CompiledFlow): void {
+    const definitionId = compiled.definition.id;
+    const graph = new Map<FlowId, readonly FlowId[]>();
+    for (const [id, flow] of flows) {
+        if (id !== definitionId) graph.set(id, flow.references);
+    }
+    graph.set(definitionId, compiled.references);
+    const visiting = new Set<FlowId>();
+    const done = new Set<FlowId>();
+    const stack: FlowId[] = [];
+    const visit = (id: FlowId): void => {
+        if (visiting.has(id)) {
+            const start = Math.max(0, stack.indexOf(id));
+            throw flowError('FLOW_REFERENCE_CYCLE', `flow reference cycle: ${[...stack.slice(start), id].join(' -> ')}`, { flowId: id });
+        }
+        if (done.has(id)) return;
+        visiting.add(id);
+        stack.push(id);
+        for (const next of graph.get(id) ?? []) visit(next);
+        stack.pop();
+        visiting.delete(id);
+        done.add(id);
+    };
+    for (const id of graph.keys()) visit(id);
 }

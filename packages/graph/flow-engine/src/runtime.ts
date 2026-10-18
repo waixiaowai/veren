@@ -5,7 +5,18 @@
  * kernel-graph validation, and the run environment / kernel-graph assembly.
  */
 
-import type { FlowBlackboard, FlowDefinition, FlowId, NodeHandler, NodeId, NodeRegistry, RunId } from '@deepseek-ai/dsh-graph-flow-api';
+import type {
+    FlowApprovalBroker,
+    FlowApprovalOpenContext,
+    FlowBlackboard,
+    FlowDefinition,
+    FlowId,
+    FlowNodeApprovalPort,
+    NodeHandler,
+    NodeId,
+    NodeRegistry,
+    RunId,
+} from '@deepseek-ai/dsh-graph-flow-api';
 import { GraphNodeError, validateGraph } from '@deepseek-ai/dsh-graph-core';
 import type { GraphRunContext, GraphRunResult } from '@deepseek-ai/dsh-graph-core';
 import type { CompiledFlow, FlowNodeDefMap, FlowNodeRecord, FlowRunResult, RunEntry } from './types.js';
@@ -186,6 +197,8 @@ export interface RunnerDeps {
     outcomePorts: OutcomePorts;
     mocks?: Record<NodeId, unknown>;
     defaultTimeoutMs: number;
+    /** 授权服务（未装载时为 undefined → 请求按 unavailable 拒绝）/ the approval service (undefined → requests deny as unavailable) */
+    approval?: FlowApprovalBroker;
 }
 
 /** 一次 flow 运行的环境依赖（run 主体与执行器组装共用）/ per-run environment (shared by the run body and runner assembly) */
@@ -196,6 +209,8 @@ export interface DriveEnv {
     outcomePorts: OutcomePorts;
     isCancelled: () => boolean;
     setCancel: (cancel: () => void) => void;
+    /** 本 run 的授权服务快照（未装载时 undefined）/ the run's approval service snapshot (undefined when absent) */
+    approval?: FlowApprovalBroker;
 }
 
 /** flow 图 → 内核图：边条件组合端口结论与声明谓词 / flow graph → kernel graph: edge conditions combine outcome ports and declared predicates */
@@ -238,23 +253,50 @@ export function runnerDeps(
         outcomePorts: env.outcomePorts,
         mocks: env.mocks,
         defaultTimeoutMs,
+        ...env.approval === undefined ? {} : { approval: env.approval },
     };
 }
 
-/** 内核节点记录 → flow 节点记录 / map a kernel node record to a flow record */
-function toFlowRecord([id, record]: [string, GraphRunResult['nodes'][string]]): [string, FlowNodeRecord] {
-    return [id, {
-        status: record.status,
-        skipReason: record.skipReason,
-        startedAt: record.startedAt,
-        endedAt: record.endedAt,
-        error: record.error ? { code: record.error.code, message: record.error.message } : undefined,
-        output: record.output,
-    }];
+/**
+ * 为一次节点尝试构造授权面：把 flow-api 的输入交给本 run 的授权服务。
+ * 服务未装载时返回一个稳定的 unavailable 拒绝，保持旧的 fail-closed 行为。
+ * Build the approval face of one node attempt: hand the flow-api input to the
+ * run's approval service. With no service mounted it denies as unavailable,
+ * preserving the historical fail-closed behavior.
+ * @param broker - the run's approval service, or undefined when not mounted.
+ * @param identity - the run/node/attempt identity attached to the request.
+ * @param signal - the run's cancellation signal.
+ * @returns the node-scoped approval port.
+ */
+export function nodeApprovalPort(
+    broker: FlowApprovalBroker | undefined,
+    identity: Omit<FlowApprovalOpenContext, 'signal'>,
+    signal: AbortSignal,
+): FlowNodeApprovalPort {
+    if (broker === undefined) {
+        return { request: () => Promise.resolve({ decision: 'deny', via: 'unavailable', decidedAt: Date.now() }) };
+    }
+    return { request: (input) => broker.open(input, { ...identity, signal }) };
 }
 
-/** 内核结果 → flow 结果：节点记录、解析后的输出变量、首个错误 /
-    kernel result → flow result: node records, resolved output variables, the first error */
+/** errorBranch 兜底失败事实：从黑板 error slot 读成稳定结构 / the recovered failure fact from the blackboard */
+export function recoveredFailure(blackboard: FlowBlackboard | undefined, nodeId: NodeId): { code: string; message: string } | undefined {
+    const value = blackboard?.read(nodeId, 'error');
+    if (value === undefined) return undefined;
+    const summary = value as { code?: unknown; message?: unknown };
+    return typeof summary?.code === 'string' && typeof summary.message === 'string' ? { code: summary.code, message: summary.message } : { code: 'NODE_FAILED', message: String(value) };
+}
+/** 内核节点记录 → flow 节点记录；缺失的可选字段不落键 / map a kernel record; absent optional fields are omitted */
+function toFlowRecord([id, record]: [string, GraphRunResult['nodes'][string]]): [string, FlowNodeRecord] {
+    const node: FlowNodeRecord = { status: record.status };
+    if (record.skipReason !== undefined) node.skipReason = record.skipReason;
+    if (record.startedAt !== undefined) node.startedAt = record.startedAt;
+    if (record.endedAt !== undefined) node.endedAt = record.endedAt;
+    if (record.output !== undefined) node.output = record.output;
+    if (record.error) node.error = { code: record.error.code, message: record.error.message };
+    return [id, node];
+}
+/** 内核结果 → flow 结果：节点记录、解析后的输出变量、首个错误 / kernel result → flow result */
 export function toFlowResult(
     compiled: CompiledFlow,
     entry: RunEntry,
@@ -262,26 +304,25 @@ export function toFlowResult(
     kernelResult: GraphRunResult,
 ): FlowRunResult {
     const nodes = Object.fromEntries(Object.entries(kernelResult.nodes).map(toFlowRecord));
-    const output = Object.fromEntries(
-        Object.entries(compiled.definition.output ?? {}).map(([name, ref]) => [name, resolveInputValue(ref, blackboard)]),
-    );
+    // 失败事实是加法：errorBranch 节点仍是 completed，但记录里带 recovered
+    // The failure fact is additive: an errorBranch node stays completed but carries recovered.
+    for (const node of compiled.definition.nodes) {
+        const record = nodes[node.id];
+        if (node.onError !== 'errorBranch' || record?.status !== 'completed') continue;
+        const recovered = recoveredFailure(blackboard, node.id);
+        if (recovered) record.recovered = recovered;
+    }
+    const output = Object.fromEntries(Object.entries(compiled.definition.output ?? {}).map(([name, ref]) => [name, resolveInputValue(ref, blackboard)]));
     const failure = Object.values(kernelResult.nodes).find((record) => record.error);
-    return {
-        flowId: entry.flowId,
-        runId: entry.runId,
-        status: kernelResult.status,
-        output,
-        nodes,
-        error: failure ? { code: failure.error!.code, message: failure.error!.message } : undefined,
-    };
+    const result: FlowRunResult = { flowId: entry.flowId, runId: entry.runId, status: kernelResult.status, output, nodes };
+    if (failure) result.error = { code: failure.error!.code, message: failure.error!.message };
+    return result;
 }
-
 /** 取消：每个节点都是 cancelled（不是 skipped）/ cancel: every node is cancelled (never skipped) */
 export function cancelledRunResult(compiled: CompiledFlow, flowId: FlowId, runId: RunId): GraphRunResult {
     const nodes = Object.fromEntries(compiled.definition.nodes.map((node) => [node.id, { id: node.id, status: 'cancelled' as const }]));
     return { graphId: flowId, runId, status: 'cancelled', nodes };
 }
-
 /** 拒绝启动：未启动节点 skipped/run-rejected / refused start: never-started nodes are skipped */
 export function rejectedRunResult(compiled: CompiledFlow, flowId: FlowId, runId: RunId): GraphRunResult {
     const nodes = Object.fromEntries(compiled.definition.nodes.map((node) => [

@@ -12,6 +12,7 @@
 
 import type { Context } from '@deepseek-ai/cordis';
 import { defineToken, getOrThrow } from '@veren/core';
+import type { FlowApprovalBroker } from './approval.js';
 import type { NodeHandler, NodeRegistry } from './types.js';
 
 // 类型面整体再导出：节点插件只 import 本包即可拿到全部类型。
@@ -33,8 +34,27 @@ export type {
     NodeRegistry,
 } from './types.js';
 
+// 授权接缝的类型再导出：第三方节点类型只依赖本包即可请求/渲染授权。
+// Re-export the approval seam types: a third-party node type needs only this
+// package to request and render approvals.
+export type {
+    FlowApprovalAnswer,
+    FlowApprovalAudit,
+    FlowApprovalBroker,
+    FlowApprovalDecision,
+    FlowApprovalOpenContext,
+    FlowApprovalOutcome,
+    FlowApprovalRequest,
+    FlowApprovalVia,
+    FlowNodeApprovalInput,
+    FlowNodeApprovalPort,
+} from './approval.js';
+
 /** 节点类型注册表令牌 / the node-type registry token */
 export const NodeRegistryToken = defineToken<NodeRegistry>('graphNodeRegistry');
+
+/** 授权服务令牌（实现由 flow-approval 提供）/ the approval service token (provided by flow-approval) */
+export const FlowApprovalToken = defineToken<FlowApprovalBroker>('graphFlowApproval');
 
 /**
  * 注册一个节点类型 handler：经 ctx.effect 挂载，fiber 卸载时逆序注销。

@@ -38,6 +38,7 @@ function statusLine(change: CanvasNodeStatusChange): string {
     const details = [
         change.skipReason ? `skip=${change.skipReason}` : '',
         change.error ? `error=${change.error.code}` : '',
+        change.recovered ? `recovered=${change.recovered.code}` : '',
         change.startedAt !== undefined ? `startedAt=${change.startedAt}` : '',
         change.endedAt !== undefined ? `endedAt=${change.endedAt}` : '',
     ].filter(Boolean).join(' ');
@@ -71,7 +72,7 @@ describe('canvas demo', () => {
 
         // 一次运行里同时看到 completed / skipped / failed
         // One run shows completed, skipped and failed nodes at once.
-        expect(lines.some((line) => line.startsWith('gate: completed'))).toBe(true);
+        expect(lines.some((line) => line.startsWith('gate: completed') && line.includes('recovered=NODE_FAILED'))).toBe(true);
         expect(lines.some((line) => line.startsWith('recover: completed'))).toBe(true);
         expect(lines).toContain('normal: skipped (skip=upstream-condition)');
         expect(lines.some((line) => line.startsWith('fatal: failed (error=NODE_FAILED'))).toBe(true);

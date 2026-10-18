@@ -204,4 +204,29 @@ describe('kernel service wiring', () => {
         expect(result.nodes['a']!.error).toBeInstanceOf(GraphNodeError);
         expect(result.nodes['a']!.error!.code).toBe('GRAPH_NODE_FAILED');
     });
+
+    it('keeps node events visible when started from a transient child context', async () => {
+        const ctx = new Context();
+        await ctx.plugin(kernelPlugin);
+        const events: Array<{ nodeId: string; status: string }> = [];
+        ctx.on('graph/node-status', (payload) => events.push({ nodeId: payload.nodeId, status: payload.status }));
+        const graph: Graph = {
+            id: 'rebind',
+            nodes: [{ id: 'a' }, { id: 'b' }],
+            edges: [{ from: 'a', to: 'b' }],
+        };
+        let handle: ReturnType<GraphKernelService['run']> | undefined;
+        const child = ctx.plugin({
+            apply(scope) {
+                handle = scope.get(GraphKernelToken)!.run(graph, traceExecutor([], { delay: 20 }));
+            },
+        });
+        await child;
+        // A Remote call is a transient child context. The run context must not
+        // be created below it, or the owner-level listener sees no events.
+        await child.dispose();
+        await handle!.result;
+        expect(events.some((event) => event.nodeId === 'a' && event.status === 'running')).toBe(true);
+        expect(events.some((event) => event.nodeId === 'b' && event.status === 'completed')).toBe(true);
+    });
 });

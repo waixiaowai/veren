@@ -19,8 +19,12 @@ how-to-use:
     - "按 usage / demo 小节的顺序执行；demo 命令可直接复制运行。"
     - "修改任一侧时同步另一侧，保持代码块一致，并更新 reviewed。"
 
+scope:
+  en: "Data source only: static JSON projection plus live per-node status hydratable at any time; no renderer, layout algorithm or persisted coordinates. The UI still owns layout, rendering and view state. Ships as the graph-flow-canvas row of @deepseek-ai/dsh-graph-bundle."
+  zh: "只做数据源：静态 JSON 投影 + 可任意时刻 hydration 的运行中逐节点状态；不含渲染器、布局算法或坐标持久化。布局、渲染与视图状态仍归 UI 侧。作为 @deepseek-ai/dsh-graph-bundle 的 graph-flow-canvas 行发布。"
+
 naming:
   en: "This repository uses README.cn.md for Chinese; README.zh.md is not used (AGENTS.md convention)."
   zh: "本仓库中文文件用 README.cn.md；不使用 README.zh.md（AGENTS.md 约定）。"
 
-reviewed: "2026-10-17"
+reviewed: "2026-10-18"

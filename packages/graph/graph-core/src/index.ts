@@ -132,12 +132,27 @@ export const Config: z<GraphKernelConfig> = z.object({
  * concurrency cap; scheduling semantics match runGraph.
  */
 export class GraphKernelService extends Service {
+    /**
+     * The context that owns every run's child context.
+     *
+     * Cordis rebinds `this.ctx` to the caller when a Remote/child context calls
+     * a service view. A run context created from that transient caller would
+     * emit its status events below the caller, where the engine and canvas
+     * listeners on the service's owner context never see them.
+     *
+     * 每次 run 子 context 的归属 context。Cordis 在 Remote/子 context 调用服务视图时
+     * 把 `this.ctx` 重绑到调用方；用该瞬态调用方创建 run context，状态事件会发在调用方
+     * 之下，服务归属 context 上的引擎/画布监听器永远收不到。
+     */
+    private readonly ownerCtx: Context;
+
     constructor(
         ctx: Context,
         /** 本实例的归一化配置 / the normalized config of this instance */
         readonly config: GraphKernelConfig = { concurrency: DEFAULT_CONCURRENCY },
     ) {
         super(ctx, GraphKernelToken);
+        this.ownerCtx = ctx;
     }
 
     /** 校验图并运行；返回可取消的句柄 / validate and run the graph; returns a cancellable handle */
@@ -146,7 +161,7 @@ export class GraphKernelService extends Service {
         executor: GExecutor,
         options: { runId?: string; concurrency?: number; onNodeFailure?: GraphFailureStrategy } = {},
     ): GraphRunHandle {
-        return runGraph(graph, executor, { ctx: this.ctx, concurrency: this.config.concurrency, ...options });
+        return runGraph(graph, executor, { ctx: this.ownerCtx, concurrency: this.config.concurrency, ...options });
     }
 
     /** 只校验不运行（注册期 fail loud 用）/ validate without running (for loud registration-time checks) */

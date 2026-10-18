@@ -1,9 +1,9 @@
 {
   "name": "@deepseek-ai/dsh-graph-bundle",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
-  "description": "Use when a DSH profile should mount the whole graph plugin family (DAG kernel, flow engine, YAML flow loading, storage persistence, the generic tool node and the model-facing graph tools) in one step; skip it when you compose a host from individual @deepseek-ai/dsh-graph-* packages or choose your own storage backend and flow source.",
+  "description": "Use when a DSH profile should mount the whole graph plugin family (DAG kernel, flow engine, the canvas data source, YAML flow loading, storage persistence, the generic tool node and the model-facing graph tools) in one step; skip it when you compose a host from individual @deepseek-ai/dsh-graph-* packages or choose your own storage backend and flow source.",
   "license": "MIT",
   "files": [
     "cordis.patch.yml",
@@ -20,13 +20,15 @@
   },
   "dependencies": {
     "@veren/core": "file:./tarballs/veren-core-0.1.0.tgz",
-    "@deepseek-ai/dsh-graph-core": "file:./tarballs/deepseek-ai-dsh-graph-core-0.1.0.tgz",
-    "@deepseek-ai/dsh-graph-flow-api": "file:./tarballs/deepseek-ai-dsh-graph-flow-api-0.1.0.tgz",
-    "@deepseek-ai/dsh-graph-flow-engine": "file:./tarballs/deepseek-ai-dsh-graph-flow-engine-0.1.0.tgz",
-    "@deepseek-ai/dsh-graph-node-tool": "file:./tarballs/deepseek-ai-dsh-graph-node-tool-0.1.0.tgz",
-    "@deepseek-ai/dsh-graph-flow-storage": "file:./tarballs/deepseek-ai-dsh-graph-flow-storage-0.1.0.tgz",
-    "@deepseek-ai/dsh-graph-flow-yaml": "file:./tarballs/deepseek-ai-dsh-graph-flow-yaml-0.1.0.tgz",
-    "@deepseek-ai/dsh-graph-tools": "file:./tarballs/deepseek-ai-dsh-graph-tools-0.1.0.tgz",
+    "@deepseek-ai/dsh-graph-core": "file:./tarballs/deepseek-ai-dsh-graph-core-0.1.2.tgz",
+    "@deepseek-ai/dsh-graph-flow-api": "file:./tarballs/deepseek-ai-dsh-graph-flow-api-0.1.2.tgz",
+    "@deepseek-ai/dsh-graph-flow-approval": "file:./tarballs/deepseek-ai-dsh-graph-flow-approval-0.1.2.tgz",
+    "@deepseek-ai/dsh-graph-flow-engine": "file:./tarballs/deepseek-ai-dsh-graph-flow-engine-0.1.2.tgz",
+    "@deepseek-ai/dsh-graph-flow-canvas": "file:./tarballs/deepseek-ai-dsh-graph-flow-canvas-0.1.2.tgz",
+    "@deepseek-ai/dsh-graph-node-tool": "file:./tarballs/deepseek-ai-dsh-graph-node-tool-0.1.2.tgz",
+    "@deepseek-ai/dsh-graph-flow-storage": "file:./tarballs/deepseek-ai-dsh-graph-flow-storage-0.1.2.tgz",
+    "@deepseek-ai/dsh-graph-flow-yaml": "file:./tarballs/deepseek-ai-dsh-graph-flow-yaml-0.1.2.tgz",
+    "@deepseek-ai/dsh-graph-tools": "file:./tarballs/deepseek-ai-dsh-graph-tools-0.1.2.tgz",
     "@veren/yaml-parser": "file:./tarballs/veren-yaml-parser-0.1.0.tgz"
   }
 }

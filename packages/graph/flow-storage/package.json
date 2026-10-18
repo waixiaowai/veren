@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-graph-flow-storage",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Use when flow definitions and run records must survive process restarts: it mounts a schema-validated storage domain over the dsh storage hub (ctx.storage.domain, json/sqlite backends) and provides the engine's FlowStorage capability (saveFlow/deleteFlow/saveRun/listRuns) for @deepseek-ai/dsh-graph-flow-engine; skip it for in-memory or file-based flow loading (@deepseek-ai/dsh-graph-flow-yaml).",
   "private": true,
   "type": "module",

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-graph-flow-yaml",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Use when flow definitions live in YAML files and should be loaded into the flow engine at plugin startup: it maps YAML documents to FlowDefinitions (id, nodes, edges, output slot references), validates the shape loudly, registers each flow through ctx.effect for reverse-order unregistration, and reloads on config change; skip it when flows are built in code or stored by @deepseek-ai/dsh-graph-flow-storage.",
   "private": true,
   "type": "module",

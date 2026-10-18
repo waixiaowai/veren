@@ -73,7 +73,7 @@ describe('canvas static projection', () => {
         const port = canvas.edges.find((edge) => edge.port === 'error')!;
         const predicate = canvas.edges.find((edge) => edge.condition.kind === 'predicate')!;
 
-        expect(always.condition).toEqual({ kind: 'always', hasPredicate: false, summary: 'always' });
+        expect(always.condition).toEqual({ kind: 'always', hasPredicate: false, closedByErrorPort: false, summary: 'always' });
         expect(port.condition.kind).toBe('port');
         expect(port.condition.port).toBe('error');
         expect(port.condition.summary).toContain('port "error"');
@@ -100,6 +100,29 @@ describe('canvas static projection', () => {
         expect(fallback.condition.kind).toBe('error-branch-default');
         expect(fallback.condition.summary).toContain('closed when the error port is active');
         expect(errorPort.condition).toMatchObject({ kind: 'port', port: 'error' });
+    });
+
+    it('keeps errorBranch default semantics when a predicate is also declared', () => {
+        const flow: FlowDefinition = {
+            id: 'error-branch-predicate' as FlowId,
+            nodes: [
+                { id: 'gate' as NodeId, type: 'fail', onError: 'errorBranch' },
+                { id: 'target' as NodeId, type: 'noop' },
+            ],
+            edges: [{ from: 'gate' as NodeId, to: 'target' as NodeId, when: () => true }],
+        };
+        const canvas = projectFlow(flow);
+        const condition = canvas.edges[0]!.condition;
+        expect(condition).toMatchObject({
+            kind: 'error-branch-default',
+            hasPredicate: true,
+            closedByErrorPort: true,
+        });
+        expect(condition.summary).toContain('predicate');
+        // 序列化往返后仍必须认出这是 errorBranch 默认边 + 谓词
+        // A JSON round-trip must still identify the errorBranch default edge plus predicate.
+        const roundTrip = JSON.parse(JSON.stringify(canvas));
+        expect(roundTrip.edges[0].condition).toEqual(condition);
     });
 
     it('keeps duplicate edge ids unique and deterministic', () => {

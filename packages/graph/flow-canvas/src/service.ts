@@ -29,12 +29,27 @@ export interface FlowCanvasConfig {}
 export const Config: z<FlowCanvasConfig> = z.object({});
 
 export class FlowCanvasService extends Service implements FlowCanvas {
+    /**
+     * The context that owns this service's long-lived run listeners.
+     *
+     * Cordis rebinds `this.ctx` to the caller when a Remote/child context calls
+     * a service view. Attaching `flow/node-status` listeners to that transient
+     * context loses every change emitted by the parent engine as soon as the
+     * call context is gone. The construction context is the stable owner.
+     *
+     * 服务长期运行监听器所属的 context。Cordis 在 Remote/子 context 调用服务视图时会把
+     * `this.ctx` 重绑到调用方；把 `flow/node-status` 监听器挂到该瞬态 context 上，调用
+     * context 一消失就会漏掉父引擎发出的所有变更。构造时的 context 才是稳定归属。
+     */
+    private readonly ownerCtx: Context;
+
     constructor(
         ctx: Context,
         /** 需要投影的 flow 引擎 / the flow engine being projected */
         private readonly engine: FlowEngine,
     ) {
         super(ctx, FlowCanvasToken);
+        this.ownerCtx = ctx;
     }
 
     project(flowId: FlowId): CanvasFlow {
@@ -50,7 +65,7 @@ export class FlowCanvasService extends Service implements FlowCanvas {
     }
 
     watch(handle: FlowRunHandle, listener?: CanvasStatusListener): CanvasRunProjection {
-        return watchRun(this.ctx, this.engine, handle, listener);
+        return watchRun(this.ownerCtx, this.engine, handle, listener);
     }
 
     run(flowId: FlowId, options?: FlowRunOptions, listener?: CanvasStatusListener): CanvasRunProjection {

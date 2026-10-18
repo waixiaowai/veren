@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-graph-flow-engine",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Use when you want flow semantics on top of the DAG kernel: it compiles FlowDefinitions into kernel graphs (schema-validated node configs, explicit input mappings, a per-run blackboard), provides the FlowEngine service (registerFlow/unregisterFlow/run/RunHandle/listRuns), the node-type registry with noop/fail/echo starter handlers and a subflow type, node-level retry/timeout/onError policies and mocks; skip it when you only need the neutral kernel (@deepseek-ai/dsh-graph-core) or type-only declarations (@deepseek-ai/dsh-graph-flow-api).",
   "private": true,
   "type": "module",
@@ -37,6 +37,7 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.4",
     "@deepseek-ai/dsh-graph-core": "workspace:*",
-    "@deepseek-ai/dsh-graph-flow-api": "workspace:*"
+    "@deepseek-ai/dsh-graph-flow-api": "workspace:*",
+    "@deepseek-ai/dsh-graph-flow-approval": "workspace:*"
   }
 }

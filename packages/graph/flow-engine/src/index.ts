@@ -47,6 +47,7 @@ export type {
     FlowEngine,
     FlowNodeDefMap,
     FlowNodeRecord,
+    FlowNodeStatus,
     FlowRunDetail,
     FlowRunEndPayload,
     FlowRunEventPayload,

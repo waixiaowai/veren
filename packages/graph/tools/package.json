@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-graph-tools",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Use when a model-facing agent must drive the flow engine through the DSH tool registry: it registers graph_list / graph_run / graph_status over the FlowEngine capability so an agent can enumerate registered flows, start one by name and read a run's status, output and per-node records; skip it when flows are started by host code or another trigger.",
   "private": true,
   "type": "module",

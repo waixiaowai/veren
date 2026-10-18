@@ -8,7 +8,8 @@ The minimal, type-only API of the flow semantic layer on top of the DAG kernel. 
 - **`FlowDefinition`** — `id`, optional `input` schema (schemastery; the Start signature), `output` slot references (the End signature), `nodes`, `edges` (dependency order only, optional `port` for named output ports and `when` for conditions).
 - **`FlowNodeDef`** — `type`, pinned `version`, `config`, explicit `input` mapping (slot refs or literals), `onError` (`failFast | fallback | errorBranch`), `fallbackValue`, `retry { tries, backoffMs }`, `timeout`.
 - **`NodeHandler`** — `type`, `version`, `config` (schemastery schema), `execute(input, nctx)`; return named output slots (an object) — non-object returns land in `out`.
-- **`NodeExecuteContext`** — node-scoped `ctx`, `flowId`, `runId`, `nodeId`, `attempt`, validated `config`, `blackboard`, `signal`.
+- **`NodeExecuteContext`** — node-scoped `ctx`, `flowId`, `runId`, `nodeId`, `attempt`, validated `config`, `blackboard`, `signal`, and `approval` (a `FlowNodeApprovalPort`: any node type can request approval and really suspend the run).
+- **Approval seam types** — `FlowApprovalRequest`/`FlowApprovalOutcome`/`FlowApprovalAudit`/`FlowNodeApprovalPort`/`FlowApprovalBroker` plus `FlowApprovalToken`; the implementation is provided by `@deepseek-ai/dsh-graph-flow-approval` and a node plugin depends only on this package.
 - **`FlowBlackboard`** — read/write named slots; edges never carry values.
 - **`NodeRegistry` + `NodeRegistryToken` + `registerNodeHandler(ctx, handler)`** — registration through `ctx.effect` so uninstalls clean up in reverse order (HMR-safe).
 
@@ -31,6 +32,21 @@ const handler: NodeHandler<{ upper: boolean }> = {
 
 export const apply = (ctx: Context) => {
     registerNodeHandler(ctx, handler);
+};
+```
+
+## Usage (a node that needs approval)
+
+```ts
+execute: async (input, nctx) => {
+    const outcome = await nctx.approval.request({
+        kind: 'tool',
+        action: 'deploy',
+        reason: 'publishing changes production',
+        summary: JSON.stringify(input),
+    });
+    if (outcome.decision === 'deny') throw Object.assign(new Error('denied'), { code: 'NODE_PERMISSION_DENIED' });
+    return { deployed: true };
 };
 ```
 

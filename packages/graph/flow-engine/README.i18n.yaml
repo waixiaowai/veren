@@ -19,8 +19,12 @@ how-to-use:
     - "按 usage / configuration 小节的顺序执行；那就是可复制粘贴的使用路径。"
     - "修改任一侧时同步另一侧，保持代码块一致，并更新 reviewed。"
 
+scope:
+  en: "Flow semantics on the DAG kernel; getRun exposes live per-node states for late hydration, and a recovered errorBranch node stays completed but carries recovered: { code, message } in its record and flow/node-status event."
+  zh: "DAG 内核之上的 flow 语义；getRun 暴露实时逐节点状态供晚订阅 hydration，errorBranch 兜底成功的节点仍为 completed，但记录与 flow/node-status 事件会带 recovered: { code, message }。"
+
 naming:
   en: "This repository uses README.cn.md for Chinese; README.zh.md is not used (AGENTS.md convention)."
   zh: "本仓库中文文件用 README.cn.md；不使用 README.zh.md（AGENTS.md 约定）。"
 
-reviewed: "2026-10-17"
+reviewed: "2026-10-18"

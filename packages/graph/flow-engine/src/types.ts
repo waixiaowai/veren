@@ -5,19 +5,44 @@
  * records and the storage capability contract.
  */
 
-import type { FlowBlackboard, FlowDefinition, FlowId, FlowNodeDef, NodeHandler, NodeId, RunId, SlotRef } from '@deepseek-ai/dsh-graph-flow-api';
+import type { FlowApprovalAudit, FlowBlackboard, FlowDefinition, FlowId, FlowNodeDef, NodeHandler, NodeId, RunId, SlotRef } from '@deepseek-ai/dsh-graph-flow-api';
 import type { GraphNodeStatus } from '@deepseek-ai/dsh-graph-core';
 
 /** 一次 flow 运行的状态（running 为运行中快照）/ status of one flow run ('running' = live snapshot) */
 export type FlowRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
+/**
+ * flow 节点状态：内核状态 + flow 层唯一的挂起态 `awaiting-approval`。
+ * 挂起不是内核状态：内核仍视该节点为 running，flow 层把等待授权投影成
+ * 可辨识的状态，让画布/CLI 能显示"卡在等人"。
+ * Flow node status: the kernel statuses plus the flow layer's single suspended
+ * state `awaiting-approval`. Suspension is not a kernel state — the kernel still
+ * sees the node as running; the flow layer projects the wait so canvases/CLIs
+ * can show that it is blocked on a human.
+ */
+export type FlowNodeStatus = GraphNodeStatus | 'awaiting-approval';
+
 /** 单节点执行记录 / per-node execution record */
 export interface FlowNodeRecord {
-    status: 'completed' | 'failed' | 'skipped' | 'cancelled' | 'pending' | 'ready' | 'running';
+    status: FlowNodeStatus;
     skipReason?: string;
     startedAt?: number;
     endedAt?: number;
     error?: { code: string; message: string };
+    /**
+     * 挂起/已完成授权的审计记录（按发生顺序）。等待时最后一条没有 outcome。
+     * The approval audit trail in occurrence order. The last entry has no
+     * outcome while a decision is still pending.
+     */
+    approvals?: readonly FlowApprovalAudit[];
+    /**
+     * errorBranch 兜底成功的失败事实：status 仍是 completed、下游照常继续，
+     * 但画布/告警可以知道这个节点曾经失败。
+     * The recovered failure fact of a successful errorBranch fallback: status
+     * stays completed and downstream continues, but canvases/alerts can see
+     * that the node failed.
+     */
+    recovered?: { code: string; message: string };
     output?: unknown;
 }
 
@@ -62,15 +87,23 @@ export interface FlowSummary {
 }
 
 /**
- * 一次运行的详情（getRun 面）：运行中只有状态，完成后带结果。
- * Detail of one run (the getRun surface): status while running, the result
- * once finished.
+ * 一次运行的详情（getRun 面）：运行中给出实时逐节点状态，完成后带结果。
+ * Detail of one run (the getRun surface): live per-node states while running,
+ * the full result once finished.
  */
 export interface FlowRunDetail {
     flowId: FlowId;
     runId: RunId;
     status: FlowRunStatus;
     startedAt: number;
+    /**
+     * 实时逐节点记录（pending/ready/running/终态，含 skipReason/error/recovered/起止时间）。
+     * 这是画布 hydration 的只读入口；完成后与 result.nodes 同源。
+     * Live per-node records (pending/ready/running/terminal, with skipReason,
+     * error, recovered and timestamps). The read-only hydration surface for
+     * canvases; after completion it is the same source as result.nodes.
+     */
+    nodes: Record<string, FlowNodeRecord>;
     /** 完成后存在的运行结果 / the run result, present once the run finished */
     result?: FlowRunResult;
 }
@@ -121,6 +154,8 @@ export interface RunEntry {
     ancestry: readonly FlowId[];
     /** 该 run 的黑板（waterfall 改写同步用）/ the run's blackboard (waterfall rewrite sync) */
     blackboard?: FlowBlackboard;
+    /** 实时逐节点状态（getRun hydration 面）/ live per-node states (the getRun hydration surface) */
+    nodes: Record<string, FlowNodeRecord>;
     /** 完成后写入的结果（getRun 面）/ the result written back once finished (the getRun surface) */
     result?: FlowRunResult;
 }
@@ -167,9 +202,13 @@ export interface FlowNodeStatusPayload {
     flowId: FlowId;
     runId: RunId;
     nodeId: NodeId;
-    status: GraphNodeStatus;
+    status: FlowNodeStatus;
     skipReason?: string;
     error?: { code: string; message: string };
+    /** errorBranch 兜底成功的失败事实 / the recovered failure fact of an errorBranch fallback */
+    recovered?: { code: string; message: string };
+    /** 授权审计（等待中的请求带 outcome=undefined）/ approval audit (a pending request has no outcome) */
+    approvals?: readonly FlowApprovalAudit[];
     startedAt?: number;
     endedAt?: number;
 }

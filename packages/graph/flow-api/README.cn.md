@@ -8,7 +8,8 @@ flow 语义层的最小 API（纯类型面）。当你编写 **flow 节点类型
 - **`FlowDefinition`** —— `id`、可选 `input` schema（schemastery，即 Start 签名）、`output` slot 引用（End 签名）、`nodes`、`edges`（只表达依赖顺序，可选 `port` 命名输出端口与 `when` 条件）。
 - **`FlowNodeDef`** —— `type`、固定 `version`、`config`、显式 `input` 映射（slot 引用或字面量）、`onError`（`failFast | fallback | errorBranch`）、`fallbackValue`、`retry { tries, backoffMs }`、`timeout`。
 - **`NodeHandler`** —— `type`、`version`、`config`（schemastery schema）、`execute(input, nctx)`；返回命名输出 slot（对象），非对象返回值落在 `out`。
-- **`NodeExecuteContext`** —— 节点作用域 `ctx`、`flowId`、`runId`、`nodeId`、`attempt`、已校验 `config`、`blackboard`、`signal`。
+- **`NodeExecuteContext`** —— 节点作用域 `ctx`、`flowId`、`runId`、`nodeId`、`attempt`、已校验 `config`、`blackboard`、`signal`，以及 `approval`（`FlowNodeApprovalPort`：任何节点类型都能请求授权并真正挂起运行）。
+- **授权接缝类型** —— `FlowApprovalRequest`/`FlowApprovalOutcome`/`FlowApprovalAudit`/`FlowNodeApprovalPort`/`FlowApprovalBroker` 与 `FlowApprovalToken`；实现由 `@deepseek-ai/dsh-graph-flow-approval` 提供，节点插件只依赖本包。
 - **`FlowBlackboard`** —— 命名 slot 读写；边不传值。
 - **`NodeRegistry` + `NodeRegistryToken` + `registerNodeHandler(ctx, handler)`** —— 经 `ctx.effect` 注册，卸载逆序清理（HMR 安全）。
 
@@ -31,6 +32,21 @@ const handler: NodeHandler<{ upper: boolean }> = {
 
 export const apply = (ctx: Context) => {
     registerNodeHandler(ctx, handler);
+};
+```
+
+## 用法（需要授权的节点）
+
+```ts
+execute: async (input, nctx) => {
+    const outcome = await nctx.approval.request({
+        kind: 'tool',
+        action: 'deploy',
+        reason: '发布会改动生产环境',
+        summary: JSON.stringify(input),
+    });
+    if (outcome.decision === 'deny') throw Object.assign(new Error('denied'), { code: 'NODE_PERMISSION_DENIED' });
+    return { deployed: true };
 };
 ```
 

@@ -19,8 +19,12 @@ how-to-use:
     - "按 install / usage / configuration 小节的顺序执行；那就是可复制粘贴的使用路径。"
     - "修改任一侧时同步另一侧，保持代码块一致，并更新 reviewed。"
 
+scope:
+  en: "The whole graph plugin family, including the graph-flow-canvas data-source row; the canvas row projects data only (no UI, renderer or layout)."
+  zh: "整个 graph 插件族，包含 graph-flow-canvas 数据源行；该行只投影数据（不含 UI、渲染器或布局）。"
+
 naming:
   en: "This repository uses README.cn.md for Chinese; README.zh.md is not used (AGENTS.md convention)."
   zh: "本仓库中文文件用 README.cn.md；不使用 README.zh.md（AGENTS.md 约定）。"
 
-reviewed: "2026-10-17"
+reviewed: "2026-10-18"

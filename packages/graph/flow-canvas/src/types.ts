@@ -12,9 +12,8 @@
  * caller; this package never invents coordinates and the kernel stores none.
  */
 
-import type { GraphNodeStatus } from '@deepseek-ai/dsh-graph-core';
-import type { FlowDefinition, FlowId, NodeId, OnErrorPolicy, RetryPolicy, SlotRef } from '@deepseek-ai/dsh-graph-flow-api';
-import type { FlowRunHandle, FlowRunOptions, FlowRunResult, FlowRunStatus } from '@deepseek-ai/dsh-graph-flow-engine';
+import type { FlowApprovalAudit, FlowDefinition, FlowId, NodeId, OnErrorPolicy, RetryPolicy, SlotRef } from '@deepseek-ai/dsh-graph-flow-api';
+import type { FlowNodeStatus, FlowRunHandle, FlowRunOptions, FlowRunResult, FlowRunStatus } from '@deepseek-ai/dsh-graph-flow-engine';
 
 /** JSON 值：投影结果必须能直接 JSON.stringify / JSON values: projections must serialize directly */
 export type JsonPrimitive = string | number | boolean | null;
@@ -67,8 +66,22 @@ export interface CanvasEdgeCondition {
     kind: CanvasEdgeKind;
     /** 命名输出端口（kind === 'port' 时存在）/ named output port (present for port conditions) */
     port?: string;
-    /** 是否额外声明了函数谓词（端口条件优先，谓词会被忽略）/ whether a predicate was also declared */
+    /**
+     * 是否额外声明了函数谓词：端口条件下谓词不参与；errorBranch 默认边
+     * 在 error 端口未激活时仍会求值谓词。
+     * Whether a predicate was also declared: it is not evaluated for a port
+     * condition, and it still runs for an errorBranch default edge while the
+     * error port is inactive.
+     */
     hasPredicate: boolean;
+    /**
+     * 该默认边是否会在上游 error 端口激活时关闭（errorBranch 语义）。
+     * 与 hasPredicate 正交，因此“error 端口 + 谓词”可以同时表达。
+     * Whether this default edge closes when the upstream error port activates
+     * (errorBranch semantics). Orthogonal to hasPredicate, so
+     * "error port + predicate" can be expressed together.
+     */
+    closedByErrorPort: boolean;
     /** 人可读摘要，不是可求值表达式 / human-readable summary, not an evaluable expression */
     summary: string;
 }
@@ -130,9 +143,23 @@ export interface CanvasFlow {
 /** 运行中的逐节点状态 / per-node status in the run projection */
 export interface CanvasNodeRuntime {
     id: NodeId;
-    status: GraphNodeStatus;
+    /** 内核状态 + flow 层的 `awaiting-approval` / kernel statuses + the flow layer's `awaiting-approval` */
+    status: FlowNodeStatus;
     skipReason?: string;
     error?: { code: string; message: string };
+    /**
+     * errorBranch 兜底成功的失败事实：节点状态仍是 completed，但画布可以
+     * 用 recovered 标出“失败已兜底”。
+     * The recovered failure fact of a successful errorBranch fallback: the
+     * node stays completed, but a canvas can mark it as "failed then recovered".
+     */
+    recovered?: { code: string; message: string };
+    /**
+     * 授权审计：等待中的请求没有 outcome；已答复的条目带回答者/时间/来源。
+     * Approval audit: a pending request has no outcome; a settled entry carries
+     * the actor, time, and via.
+     */
+    approvals?: readonly FlowApprovalAudit[];
     startedAt?: number;
     endedAt?: number;
 }

@@ -35,10 +35,25 @@
       name: "@deepseek-ai/dsh-graph-core"
       config:
         concurrency: 4
+    # 节点授权服务：flow 节点挂起等人工决定（一次性、按 run 隔离、可超时）。
+    # 未装载时节点授权面按 unavailable 拒绝，fail-closed 行为不变。
+    # The node approval service: a flow node suspends for a human decision
+    # (single-use, run-scoped, timed). Without it the node approval face denies
+    # as unavailable, keeping the fail-closed behavior.
+    - id: graph-flow-approval
+      name: "@deepseek-ai/dsh-graph-flow-approval"
+      config:
+        timeoutMs: 60000
     - id: graph-flow-engine
       name: "@deepseek-ai/dsh-graph-flow-engine"
       config:
         nodeTimeoutMs: 30000
+    # graph-flow-canvas 是只读投影层，不参与调度；它 inject FlowEngine，提供
+    # graphFlowCanvas 服务给画布/CLI/编辑器消费。
+    # graph-flow-canvas is the read-only projection layer; it injects the
+    # FlowEngine and provides the graphFlowCanvas service for canvases/CLIs/editors.
+    - id: graph-flow-canvas
+      name: "@deepseek-ai/dsh-graph-flow-canvas"
     - id: graph-flow-node-tool
       name: "@deepseek-ai/dsh-graph-node-tool"
     - id: graph-flow-yaml

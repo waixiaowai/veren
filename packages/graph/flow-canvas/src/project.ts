@@ -134,18 +134,27 @@ function conditionOf(edge: FlowEdge, sourceOnError: OnErrorPolicy | undefined): 
             kind: 'port',
             port: edge.port,
             hasPredicate,
+            closedByErrorPort: false,
             summary: hasPredicate ? `port "${edge.port}" (predicate ignored)` : `port "${edge.port}"`,
         };
     }
-    if (hasPredicate) return { kind: 'predicate', hasPredicate: true, summary: 'declared predicate' };
+    // errorBranch 默认边优先于谓词：运行时先看 error 端口，关闭时谓词不再求值
+    // The errorBranch default edge outranks the predicate: at runtime the error
+    // port is checked first, and the predicate is skipped once it closes the edge.
     if (sourceOnError === 'errorBranch') {
         return {
             kind: 'error-branch-default',
-            hasPredicate: false,
-            summary: 'default output (closed when the error port is active)',
+            hasPredicate,
+            closedByErrorPort: true,
+            summary: hasPredicate
+                ? 'default output (closed when the error port is active) with declared predicate'
+                : 'default output (closed when the error port is active)',
         };
     }
-    return { kind: 'always', hasPredicate: false, summary: 'always' };
+    if (hasPredicate) {
+        return { kind: 'predicate', hasPredicate: true, closedByErrorPort: false, summary: 'declared predicate' };
+    }
+    return { kind: 'always', hasPredicate: false, closedByErrorPort: false, summary: 'always' };
 }
 
 /**
