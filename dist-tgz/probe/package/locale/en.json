@@ -1,6 +1,0 @@
-{
-  "meta": {
-    "title": "Startup Items Panel",
-    "description": "Adds a startup-items page to the DeepSeek Harness Web GUI: see every registered startup item, switch it on or off, edit its action, target, and message, run it once now, or delete it. It reads and writes the same stored records the startup-autostart Host service owns."
-  }
-}

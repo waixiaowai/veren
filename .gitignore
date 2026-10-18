@@ -21,6 +21,7 @@ dist-tgz/
 
 # 临时会话日志与探针 / temporary session logs and probes
 .tmp-*
+*.log
 
 # 误跑 tsc 时落在源码旁的编译产物 / stray tsc output next to sources
 packages/**/src/*.js
