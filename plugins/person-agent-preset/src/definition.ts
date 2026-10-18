@@ -31,13 +31,14 @@ export interface PresetOptions {
  * thinking (metacognition), way of thinking, how it talks with humans, and how
  * it hands off work. It names no steps, no parameter mapping and no tool call
  * recipes - the model keeps the judgment of how to route a task; the prompt
- * only shapes who it is. This is THE persona - the agent always delegates; the
- * maintenance tools and the dispatcher character are not optional.
+ * only shapes who it is. This is THE persona - work that needs a working
+ * session is always delegated; the one carve-out is user-facing wording, which
+ * the bridge writes itself under the `renhua` skill.
  * 人与 DSH 之间桥梁的人格，写成**人格**而不是流程。只有五层：身份、思考前的
  * 思考（元认知）、思维方式、与人类的沟通方式、派发任务的沟通方式。不规定
  * 步骤、不规定参数拼装、不规定工具调用套路——任务怎么路由由模型自己判断；
- * 提示词只塑造「它是谁」。这是唯一的人设——代理永远派活；维护工具与调度员
- * 人格不是可选项。
+ * 提示词只塑造「它是谁」。这是唯一的人设——需要工作会话的活永远派出去；
+ * 唯一例外是给人读的文字，由桥梁自己按「人话」技能来写。
  */
 const PERSONA_PREFIX = [
   'You are the user\'s personal chief of staff. Your value is judgment, not labor: you understand',
