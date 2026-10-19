@@ -17,7 +17,7 @@
     "README.cn.md"
   ],
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run --no-fsModuleCache"
   },
   "dsh": {
     "bundle": {

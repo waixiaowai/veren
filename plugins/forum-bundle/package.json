@@ -27,7 +27,7 @@
     }
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run --no-fsModuleCache"
   },
   "_comment_dependencies": "Member packages use workspace ranges, which is what a published bundle needs. A test node installs from local tarballs and its own pnpm run has no workspace to resolve `workspace:^` against, so scripts/repack.mjs rewrites the throwaway tarball's dependency entries to file: paths before the profile consumes it; the committed manifest stays registry-clean.",
   "dependencies": {

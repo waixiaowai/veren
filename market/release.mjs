@@ -114,7 +114,8 @@ async function publish(manifest) {
     return
   }
   console.log(`publishing ${manifest.name}@${manifest.version}`)
-  const { stdout } = await run('pnpm', args, { cwd: ROOT_DIR, maxBuffer: 16 * 1024 * 1024 })
+  // Windows 上 pnpm 是 .cmd，必须经 shell 启动 / On Windows pnpm is a .cmd shim, so it needs a shell.
+  const { stdout } = await run('pnpm', args, { cwd: ROOT_DIR, maxBuffer: 16 * 1024 * 1024, shell: process.platform === 'win32' })
   for (const line of stdout.split('\n')) if (line.includes('+ ')) console.log(`  ${line.trim()}`)
 }
 

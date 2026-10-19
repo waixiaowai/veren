@@ -306,10 +306,10 @@ describe('startup trigger', () => {
     // again. That is the intended trade: no debounce anywhere, including here.
     // 重载是一个带自有闩锁的新激活服务，因此它会再驱动一次。这就是权衡所在：哪里都没有防抖。
     const { ctx: another } = await boot({ root, appReady: ready })
-    // The second drive re-runs the same row, so its count is already 2 in the
-    // one shared document; waiting for 2 covers both starts.
-    // 第二轮驱动重跑同一行，因此同一份共享文档里的计数已经是 2；等 2 即覆盖两次启动。
-    await settle(ctx, 2)
+    // The second drive re-runs the same row, so its count is already 2; waiting
+    // for 2 on the new context covers both starts.
+    // 第二轮驱动重跑同一行，因此计数已是 2；在新上下文上等 2 即覆盖两次启动。
+    await settle(another, 2)
     expect((await another.startupAutostart.catalog())[0]?.runCount).toBe(2)
     await another.fiber.dispose()
   })
@@ -322,9 +322,9 @@ describe('startup trigger', () => {
     provideStub(ctx, 'agents', layer.services.agents)
     provideStub(ctx, 'sessions', { flush: async () => false })
     provideStub(ctx, 'sessionController', layer.services.sessionController)
-    ctx.plugin(Storage.default)
-    ctx.plugin(StorageJson, { root })
-    ctx.plugin(StorageDomain, { backend: 'json' })
+    await ctx.plugin(Storage.default)
+    await ctx.plugin(StorageJson, { root })
+    await ctx.plugin(StorageDomain, { backend: 'json' })
     await ctx.plugin(StartupAutostartService)
     await settle(ctx, 1)
 
@@ -383,16 +383,13 @@ describe('every start runs the item', () => {
     seed(root, [item({ id: 'startup-a', name: 'both times', action: 'new_session', cwd: 'C:/work' })])
 
     const first = await boot({ root })
-    // Both boots share one storage document, so the second start's stamp lands
-    // in the same file; the wait therefore counts from one onwards.
-    // 两次启动共享同一份存储文档，因此第二次的戳记落在同一个文件里；等待因此从一开始计数。
-    await settle(ctx, 1)
+    await settle(first.ctx, 1)
     expect(first.layer.calls.created).toHaveLength(1)
     expect((await first.ctx.startupAutostart.catalog())[0]?.runCount).toBe(1)
     await first.ctx.fiber.dispose()
 
     const second = await boot({ root })
-    await settle(ctx, 2)
+    await settle(second.ctx, 2)
     expect(second.layer.calls.created).toHaveLength(1)
     expect((await second.ctx.startupAutostart.catalog())[0]?.runCount).toBe(2)
     await second.ctx.fiber.dispose()

@@ -45,7 +45,7 @@
     "bundle": "node scripts/bundle.mjs",
     "build": "node scripts/bundle.mjs",
     "typecheck": "node scripts/typecheck.mjs",
-    "test": "vitest run"
+    "test": "vitest run --no-fsModuleCache"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",

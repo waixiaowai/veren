@@ -24,7 +24,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.test.json",
-    "test": "vitest run"
+    "test": "vitest run --no-fsModuleCache"
   },
   "devDependencies": {
     "vitest": "^5.0.4"

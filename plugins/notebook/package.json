@@ -24,7 +24,7 @@
   "scripts": {
     "typecheck": "node scripts/typecheck.mjs",
     "build": "node scripts/build.mjs",
-    "test": "vitest run"
+    "test": "vitest run --no-fsModuleCache"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",

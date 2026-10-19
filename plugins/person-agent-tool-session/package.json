@@ -29,7 +29,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
-    "test": "vitest run"
+    "test": "vitest run --no-fsModuleCache"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

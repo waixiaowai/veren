@@ -38,7 +38,7 @@
   },
   "scripts": {
     "build": "tsc && tsc -p tsconfig.client.json && tsdown",
-    "test": "vitest run"
+    "test": "vitest run --no-fsModuleCache"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",

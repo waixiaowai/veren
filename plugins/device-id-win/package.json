@@ -9,7 +9,7 @@
   "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }, "./package.json": "./package.json" },
   "files": ["dist", "README.md", "README.cn.md"],
   "engines": { "dsh": ">=0.2.1-rc.2 <0.3.0" },
-  "scripts": { "build": "tsc", "test": "vitest run" },
+  "scripts": { "build": "tsc", "test": "vitest run --no-fsModuleCache" },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.5"
   },

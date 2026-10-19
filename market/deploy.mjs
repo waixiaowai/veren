@@ -50,10 +50,21 @@ async function main() {
     // 全部图标都内联时没有 icons/ 目录，这不是失败 / No icons/ directory when every icon is inlined; not a failure.
     if (!String(error).includes('No such file')) throw error
   })
-  const status = await step('curl', ['-sS', '-o', '/dev/null', '-w', '%{http_code}', PUBLIC_INDEX_URL])
+  const status = await verify()
   if (DRY_RUN) return
-  if (status !== '200') throw new Error(`${PUBLIC_INDEX_URL} 返回 ${status} / returned ${status}`)
+  if (status !== 200) throw new Error(`${PUBLIC_INDEX_URL} 返回 ${status} / returned ${status}`)
   console.log(`deployed: ${PUBLIC_INDEX_URL} -> ${HOST}:${REMOTE_DIR} (HTTP ${status})`)
+}
+
+/**
+ * 用 Node 的 fetch 自检，避免依赖平台上的 curl / 用 Node's fetch for the check, so no platform curl is needed.
+ * @returns {Promise<number>} HTTP 状态码 / HTTP status code.
+ */
+async function verify() {
+  if (DRY_RUN) return 200
+  const response = await fetch(PUBLIC_INDEX_URL, { method: 'GET' })
+  await response.arrayBuffer()
+  return response.status
 }
 
 await main()

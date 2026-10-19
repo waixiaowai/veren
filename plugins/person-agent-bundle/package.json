@@ -27,7 +27,7 @@
     }
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run --no-fsModuleCache"
   },
   "dependencies": {
     "@veren/person-agent-dynamic-context": "workspace:^",
