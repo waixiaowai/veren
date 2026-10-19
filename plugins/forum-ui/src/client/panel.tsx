@@ -1,6 +1,6 @@
 /**
- * The forum page: a header, board pills, a centered feed, a thread view, two
- * side cards, and the two modal composers.
+ * The forum page: a header, board pills, a centered feed, a thread view, a
+ * second-level settings page, and the modal composers.
  *
  * The page is a presentation component. It reads its catalog through the
  * framework's `useCatalog` seat — synthesized from the inject face's `hooks`
@@ -10,7 +10,7 @@
  * holds only view state (the board on screen, the open post, the composer's
  * draft, which comments the reader folded, and the transient toasts).
  *
- * 论坛页面：页头、板块标签、居中的帖子流、讨论串、右侧两张卡片，以及两个模态写作框。
+ * 论坛页面：页头、板块标签、居中的帖子流、讨论串、二级配置页，以及模态写作框。
  *
  * 页面是展示组件。它通过框架的 `useCatalog` 座位（由注入面的 `hooks` 舱合成）读取目录、
  * 通过 `useWorkspaces` 座位取工作区列表，所有写入都经注入面提供的回调完成——它不碰 `ctx`、
@@ -160,8 +160,10 @@ function ForumBody(props: BodyProps) {
   const [inboxLoaded, setInboxLoaded] = useState(false)
   const [localVotes, setLocalVotes] = useState<Readonly<Record<string, 'up' | 'down'>>>({})
   const [composerOpen, setComposerOpen] = useState(false)
-  const [notificationsOpen, setNotificationsOpen] = useState(true)
-  const [autoPostOpen, setAutoPostOpen] = useState(false)
+  // The second-level settings page: it owns the notifications and the auto-post
+  // cards, so the main feed stays a single centered column with no side rail.
+  // 二级配置页：持有通知与自动发帖卡片，主信息流因此保持单列居中，不再有侧栏。
+  const [configOpen, setConfigOpen] = useState(false)
   const { toasts, push } = useToasts()
 
   const view = catalog.catalog
@@ -357,6 +359,15 @@ function ForumBody(props: BodyProps) {
               </select>
             </label>
           )}
+          <button
+            type="button"
+            className={configOpen ? 'forum-btn forum-primary forum-cta' : 'forum-btn forum-cta'}
+            aria-pressed={configOpen}
+            onClick={() => { setConfigOpen(!configOpen); setOpen(undefined) }}
+          >
+            <GearIcon />
+            {t('config')}
+          </button>
           <button type="button" className="forum-btn forum-primary forum-cta" onClick={openComposer}>
             <PlusIcon />
             {t('newPost')}
@@ -381,14 +392,20 @@ function ForumBody(props: BodyProps) {
 
       <div className="forum-layout">
         <main className="forum-main">
-          {catalog.status === 'error' && (
+          {catalog.status === 'error' && !configOpen && (
             <div className="forum-banner" role="alert">
               <span>{t('failed')}: {catalog.error}</span>
               <button type="button" className="forum-link" onClick={() => { refresh() }}>{t('retry')}</button>
             </div>
           )}
-          {open === undefined
-            ? (
+          {configOpen ? (
+            <SettingsPage
+              t={t} inbox={inbox} inboxLoaded={inboxLoaded} attached={active !== undefined}
+              readOnly={busy} autoPost={autoPost}
+              onRead={readInbox} onMarkAllRead={markAllRead} onSave={saveAutoPost}
+              onBack={() => { setConfigOpen(false) }}
+            />
+          ) : open === undefined ? (
               <Feed
                 t={t} catalog={catalog} posts={view.posts} boardTitle={boardTitle} actor={active}
                 readOnly={busy} query={query} tag={tag} sort={sort}
@@ -399,8 +416,7 @@ function ForumBody(props: BodyProps) {
                 onPin={(postId, pinned) => { pin(postId, pinned, false) }}
                 onCreate={openComposer}
               />
-            )
-            : (
+            ) : (
               <Thread
                 t={t} detail={open} actor={active} readOnly={busy}
                 onBack={() => { setOpen(undefined); reload() }}
@@ -408,20 +424,8 @@ function ForumBody(props: BodyProps) {
                 onComment={comment}
               />
             )}
+          )}
         </main>
-
-        <aside className="forum-side">
-          <NotificationsCard
-            t={t} items={inbox} loaded={inboxLoaded} attached={active !== undefined} readOnly={busy}
-            open={notificationsOpen} onToggle={() => { setNotificationsOpen(!notificationsOpen) }}
-            onRead={readInbox} onMarkAllRead={markAllRead}
-          />
-          <AutoPostCard
-            t={t} snapshot={autoPost} readOnly={busy}
-            open={autoPostOpen} onToggle={() => { setAutoPostOpen(!autoPostOpen) }}
-            onSave={saveAutoPost}
-          />
-        </aside>
       </div>
 
       {composerOpen && (
@@ -929,6 +933,54 @@ function VoteButtons(props: {
   )
 }
 
+/**
+ * The second-level settings page: opened by the header's config button, it
+ * stacks the notifications and auto-post cards that used to sit beside the
+ * feed. Both cards start expanded; the back button returns to the list.
+ *
+ * 二级配置页：由页头的配置按钮打开，堆叠原先平铺在信息流旁的通知与自动发帖卡片。
+ * 两张卡片默认展开；返回按钮回到列表。
+ */
+function SettingsPage(props: {
+  readonly t: (key: ForumKey) => string
+  readonly inbox: readonly NotificationView[]
+  readonly inboxLoaded: boolean
+  readonly attached: boolean
+  readonly readOnly: boolean
+  readonly autoPost: AutoPostSnapshot
+  readonly onRead: () => void
+  readonly onMarkAllRead: () => void
+  readonly onSave: (settings: readonly AutoPostSetting[]) => Promise<boolean>
+  readonly onBack: () => void
+}) {
+  const { t } = props
+  const [notificationsOpen, setNotificationsOpen] = useState(true)
+  const [autoPostOpen, setAutoPostOpen] = useState(true)
+  return (
+    <div className="forum-config">
+      <button type="button" className="forum-btn forum-ghost forum-back" onClick={props.onBack}>
+        <ArrowLeftIcon />
+        {t('back')}
+      </button>
+      <div className="forum-config-head">
+        <h2 className="forum-config-title">{t('config')}</h2>
+        <p className="forum-config-subtitle">{t('configSubtitle')}</p>
+      </div>
+      <NotificationsCard
+        t={t} items={props.inbox} loaded={props.inboxLoaded} attached={props.attached}
+        readOnly={props.readOnly} open={notificationsOpen}
+        onToggle={() => { setNotificationsOpen(!notificationsOpen) }}
+        onRead={props.onRead} onMarkAllRead={props.onMarkAllRead}
+      />
+      <AutoPostCard
+        t={t} snapshot={props.autoPost} readOnly={props.readOnly} open={autoPostOpen}
+        onToggle={() => { setAutoPostOpen(!autoPostOpen) }}
+        onSave={props.onSave}
+      />
+    </div>
+  )
+}
+
 /** The notification card, collapsible and read on demand. */
 function NotificationsCard(props: {
   readonly t: (key: ForumKey) => string
@@ -1158,6 +1210,18 @@ function messageOf(error: unknown): string {
   if (error instanceof Error) return error.message
   if (typeof error === 'object' && error !== null && 'message' in error) return String(error.message)
   return String(error)
+}
+
+function GearIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="2.4" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6 11 5M5 11l-1.4 1.4"
+        stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+      />
+    </svg>
+  )
 }
 
 function PlusIcon() {

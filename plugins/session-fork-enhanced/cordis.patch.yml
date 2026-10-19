@@ -1,0 +1,7 @@
+# The enhanced Session fork: one Host row, no profile-level code.
+# The row registers a root tool (`session_fork_with_options`) so every preset
+# can call it; the shipped `session_fork` remains untouched.
+- insert:
+    - id: session-fork-enhanced
+      name: '@imeep/dsh-session-fork-enhanced'
+      config: {}

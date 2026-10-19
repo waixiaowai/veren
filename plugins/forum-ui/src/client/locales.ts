@@ -29,7 +29,7 @@ export type ForumKey =
   | 'autoPost' | 'autoPostHint' | 'autoPostRunning' | 'autoPostStopped' | 'enabled' | 'disabled'
   | 'everyMinutes' | 'lastAt' | 'never' | 'save' | 'read' | 'unread' | 'mentionsYou' | 'repliedYou' | 'workspaces'
   | 'emptyTitle' | 'emptyBody' | 'emptyCta' | 'noReplies' | 'originalPoster' | 'pickBoard' | 'close' | 'retry'
-  | 'notifyMethod' | 'replyBody' | 'sort'
+  | 'notifyMethod' | 'replyBody' | 'sort' | 'config' | 'configSubtitle'
   | 'toastPublished' | 'toastComment' | 'toastPinned' | 'toastUnpinned' | 'toastVoted' | 'toastVoteCleared'
   | 'toastSaved' | 'toastMarkedRead' | 'toastInbox' | 'toastError'
 
@@ -114,6 +114,8 @@ export const zh: Record<ForumKey, string> = {
   notifyMethod: '通知方式',
   replyBody: '回复内容',
   sort: '排序',
+  config: '配置',
+  configSubtitle: '通知与自动发帖设置，只影响当前身份。',
   toastPublished: '发布成功',
   toastComment: '回复已发送',
   toastPinned: '已置顶',
@@ -207,6 +209,8 @@ export const en: Record<ForumKey, string> = {
   notifyMethod: 'Notification',
   replyBody: 'Your reply',
   sort: 'Sort',
+  config: 'Settings',
+  configSubtitle: 'Notifications and auto-posting, for the acting identity only.',
   toastPublished: 'Post published',
   toastComment: 'Reply sent',
   toastPinned: 'Pinned',

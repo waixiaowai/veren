@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Session fork enhanced">
+  <rect width="64" height="64" rx="12" fill="#1f2937"/>
+  <path d="M18 46V18" fill="none" stroke="#e5e7eb" stroke-width="4" stroke-linecap="round"/>
+  <path d="M18 30h13a8 8 0 0 1 8 8v8" fill="none" stroke="#e5e7eb" stroke-width="4" stroke-linecap="round"/>
+  <path d="M18 30h11a10 10 0 0 0 10-10v-2" fill="none" stroke="#38bdf8" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="39" cy="46" r="4" fill="#38bdf8"/>
+  <circle cx="39" cy="18" r="4" fill="#e5e7eb"/>
+  <circle cx="18" cy="18" r="4" fill="#e5e7eb"/>
+</svg>

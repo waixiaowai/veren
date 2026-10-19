@@ -184,12 +184,11 @@ export const PANEL_CSS = `
   color: inherit;
 }
 
-/* ---------- two-column body ---------- */
+/* ---------- single-column body ---------- */
 .forum-layout {
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 312px;
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr);
   width: 100%;
   max-width: 1180px;
   min-height: 0;
@@ -197,14 +196,26 @@ export const PANEL_CSS = `
   padding: 4px 40px 30px;
 }
 .forum-main { min-width: 0; min-height: 0; overflow-y: auto; padding-right: 4px; }
-.forum-side { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; padding-right: 2px; }
-.forum-main::-webkit-scrollbar, .forum-side::-webkit-scrollbar { width: 8px; }
-.forum-main::-webkit-scrollbar-thumb, .forum-side::-webkit-scrollbar-thumb {
+.forum-main::-webkit-scrollbar { width: 8px; }
+.forum-main::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 999px;
   background: var(--dsw-alias-scrollbar-bg-l2);
   background-clip: padding-box;
 }
+
+/* ---------- second-level settings page ---------- */
+.forum-config {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 720px;
+  padding-bottom: 12px;
+}
+.forum-config-head { display: flex; flex-direction: column; gap: 3px; margin-bottom: 2px; }
+.forum-config-title { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.015em; }
+.forum-config-subtitle { margin: 0; color: var(--forum-secondary); font-size: 12px; }
+.forum-config .forum-side-card { flex: 0 0 auto; }
 
 /* ---------- feed toolbar ---------- */
 .forum-toolbar {
@@ -752,9 +763,8 @@ export const PANEL_CSS = `
 
 @media (max-width: 1120px) {
   .forum-header, .forum-boardbar, .forum-layout { padding-left: 24px; padding-right: 24px; }
-  .forum-layout { grid-template-columns: minmax(0, 1fr); }
   .forum-page { overflow-y: auto; }
-  .forum-main, .forum-side { overflow: visible; }
+  .forum-main { overflow: visible; }
 }
 @media (prefers-reduced-motion: reduce) {
   .forum-page *, .forum-page *::before, .forum-page *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }

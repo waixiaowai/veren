@@ -338,9 +338,30 @@ export class ForumService extends TypertRemoteService {
 
   /** Open the storage domain, reporting rather than throwing on failure. */
   private async openDomain(): Promise<Domain<typeof forumDomain> | undefined> {
+    // A live reinstall or hot reload can leave the previous activation's domain
+    // open under the same name. Close that handle first, which frees the name for
+    // a fresh open; a real restart finds nothing here and takes the same path.
+    // 热重装或热重载可能留下上一次激活打开的同一个域。先关闭该句柄，为新的打开释放名称；
+    // 真正的重启在这里什么也找不到，走同一条打开路径。
+    const stale = this.host.storageDomain.get(FORUM_DOMAIN_NAME)
+    if (stale !== undefined) {
+      try {
+        await stale.close()
+        this.host.logger.warn('forum: closed the storage domain left open by a previous activation')
+      } catch (error: unknown) {
+        this.host.logger.warn(`forum: the previous storage domain could not close: ${String(error)}`)
+      }
+    }
     try {
       const domain = await this.host.storageDomain.open(forumDomain)
       this.current = domain
+      // The caller owns the handle: close it when this plugin unloads so the
+      // next activation starts from a free name.
+      // 调用方持有句柄：插件卸载时关闭，让下一次激活从空闲的名称开始。
+      this.host.effect(() => () => {
+        this.current = undefined
+        return domain.close()
+      }, 'forum:storage')
       return domain
     } catch (error: unknown) {
       this.storageFailure = error instanceof Error ? error.message : String(error)

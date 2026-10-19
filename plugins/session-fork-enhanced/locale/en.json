@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Session Fork Enhanced",
+    "description": "Fork a session's completed-turn context into a new branch under a chosen agent preset and model."
+  }
+}
