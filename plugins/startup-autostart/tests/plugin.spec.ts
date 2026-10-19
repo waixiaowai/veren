@@ -12,7 +12,7 @@
  * delivery note, which install the published package from the registry.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFile, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -25,8 +25,37 @@ import StartupAutostartService from '../src/index.ts'
 import type { StartupAction, StartupItemInput } from '../src/domain.ts'
 import type { StoredStartupItem } from '../src/storage.ts'
 
-/** Wait for the async activation chain to settle. */
-const settle = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 60))
+/**
+ * Wait until the drive has finished, not for a fixed time.
+ *
+ * The drive's completion is observable: the last thing it does is commit the
+ * run stamp, which lands in the storage document the JSON backend writes. The
+ * spec therefore polls the file the backend owns and stops as soon as the
+ * committed state is there, so a loaded host cannot turn a passing spec into a
+ * timing race.
+ *
+ * 等待驱动结束，而不是等固定时长。
+ *
+ * 驱动的结束是可观测的：它做的最后一件事是提交运行戳记，而提交会落进 JSON 后端写出的存储
+ * 文档。因此这些用例轮询后端拥有的那个文件，一旦提交状态出现就停止，这样负载高的主机也不会
+ * 把通过的用例变成时序竞赛。
+ *
+ * @param root - the storage root the JSON backend writes into.
+ * @param expected - the number of items whose run stamp must be committed.
+ * @returns after every expected stamp is durable.
+ */
+async function settle(root: string, expected: number): Promise<void> {
+  const deadline = Date.now() + 10_000
+  while (Date.now() < deadline) {
+    const document = await readFile(join(root, 'startup.json'), 'utf8').catch(() => '')
+    const committed = [...document.matchAll(/"runCount":\s*(\d+)/g)]
+      .map(match => Number(match[1]))
+      .filter(count => count > 0)
+    if (committed.length >= expected) return
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+  throw new Error(`startup-autostart: the drive did not commit ${expected} run stamp(s) within 10s`)
+}
 
 /**
  * Publish a test double for one Host service.
@@ -184,7 +213,9 @@ async function boot(options: {
     ctx.plugin(StorageDomain, { backend: 'json' })
   }
   ctx.plugin(StartupAutostartService)
-  await settle()
+  // The drive writes a run stamp for every enabled item, so its completion is
+  // observable in the storage document. 驱动会给每个启用项写一个运行戳记，因此它的结束在存储文档里可观测。
+  await settle(options.root, options.storageDomain === undefined ? 1 : 0)
   return { ctx, layer }
 }
 
@@ -215,14 +246,14 @@ describe('startup trigger', () => {
 
     expect(layer.calls.followup).toHaveLength(0)
     ready.commit()
-    await settle()
+    await settle(root, 1)
     expect(layer.calls.followup).toHaveLength(1)
 
     // A second commit, and a late subscriber on the same activated service, must
     // not deliver again: the latch is what makes one drive per activation.
     ready.commit()
     ctx.get('appReady')?.onReady(() => {})
-    await settle()
+    await settle(root, 1)
     expect(layer.calls.followup).toHaveLength(1)
     expect((await ctx.startupAutostart.catalog())[0]?.runCount).toBe(1)
     await ctx.fiber.dispose()
@@ -258,7 +289,7 @@ describe('startup trigger', () => {
     ctx.plugin(StorageJson, { root })
     ctx.plugin(StorageDomain, { backend: 'json' })
     ctx.plugin(StartupAutostartService)
-    await settle()
+    await settle(root, 1)
 
     const stored = await ctx.startupAutostart.catalog()
     expect(stored[0]?.lastOutcome?.status).toBe('failed')
@@ -274,7 +305,7 @@ describe('startup trigger', () => {
     provideStub(ctx, 'sessionController', layer.services.sessionController)
     provideStub(ctx, 'storageDomain', { open: async () => { throw new Error('backend "json" is missing') } })
     ctx.plugin(StartupAutostartService)
-    await settle()
+    await settle(root, 1)
 
     await expect(ctx.startupAutostart.catalog()).rejects.toMatchObject({ code: 'storage_unavailable' })
     await expect(ctx.startupAutostart.create({ name: 'x', action: 'resume_session', sessionId: 's' }))
@@ -521,7 +552,7 @@ describe('profiles without the Web session controller', () => {
     ctx.plugin(StorageJson, { root: options.root })
     ctx.plugin(StorageDomain, { backend: 'json' })
     ctx.plugin(StartupAutostartService)
-    await settle()
+    await settle(root, 1)
     return { ctx, calls }
   }
 
