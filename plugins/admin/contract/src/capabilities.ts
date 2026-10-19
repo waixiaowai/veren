@@ -32,6 +32,12 @@ export interface AdminIdentity {
   readonly roles: readonly string[]
   /** Data scope for reads and writes. 读写的数据范围。 */
   readonly scope: 'all' | 'assigned' | 'own'
+  /** Session id when the request authenticated with a browser session. 浏览器会话认证时的 session id。 */
+  readonly sessionId?: string
+  /** Token id when the request authenticated with an API token. API token 认证时的 token id。 */
+  readonly tokenId?: string
+  /** Scopes granted by the presented token; unused for session authentication. 所提交 token 授予的 scope；会话认证不使用。 */
+  readonly scopes?: readonly string[]
 }
 
 /**
@@ -43,10 +49,6 @@ export interface AdminIdentity {
 export interface AuthenticatedPrincipal extends AdminIdentity {
   /** Flat permission strings such as `admin.users.manage`. 形如 `admin.users.manage` 的扁平权限串。 */
   readonly permissions: readonly string[]
-  /** Session id when the request authenticated with a browser session. 浏览器会话认证时的 session id。 */
-  readonly sessionId?: string
-  /** Token id when the request authenticated with an API token. API token 认证时的 token id。 */
-  readonly tokenId?: string
 }
 
 /** A user as the admin UI sees it. 管理界面看到的用户。 */
@@ -127,6 +129,8 @@ export interface AdminLoginResult {
   readonly session: AdminSessionView
   /** Double-submit CSRF token for subsequent unsafe requests. 后续非安全请求使用的双提交 CSRF token。 */
   readonly csrfToken: string
+  /** Opaque session token to place in the session cookie. 放入会话 Cookie 的不透明会话令牌。 */
+  readonly sessionToken: string
 }
 
 /**

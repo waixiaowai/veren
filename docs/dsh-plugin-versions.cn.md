@@ -43,7 +43,9 @@ profile 模板设置了 `autoInstallPeers: false`，peer 区间永远不会被�
 
 ## 如何执行
 
-`pnpm check:plugins` 运行 [`scripts/check-plugin-manifests.mjs`](../scripts/check-plugin-manifests.mjs)。以下情况会失败：缺少或放宽 `engines.dsh`、DSH 包出现在 `dependencies`、peer 没有 dev 镜像、dsh peer 使用了不同区间。新增插件后与发布前都要跑一次。
+`pnpm check:plugins` 运行 [`scripts/check-plugin-manifests.mjs`](../scripts/check-plugin-manifests.mjs)，覆盖 `plugins/` 与 `packages/` 下的每个清单。以下情况会失败：插件缺少或放宽 `engines.dsh`、任意位置出现装在 `dependencies` 里的 DSH 包、peer 没有 dev 镜像、dsh peer 使用了不同区间。新增插件后与发布前都要跑一次。
+
+`@deepseek-ai/dsh-graph-*` 是本仓库自己的包，不是 DSH 运行时包，但 DSH 的兼容性检查会把每个 `@deepseek-ai/dsh-*` peer 区间当成运行时要求。因此它们同样声明 `engines.dsh`，由它优先判定，DSH 就不再检查它们的 workspace peer。
 
 ## 升级到新的 DSH 版本
 

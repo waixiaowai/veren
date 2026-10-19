@@ -43,7 +43,9 @@ Use `import type` or `import type {}` for packages that contribute only types or
 
 ## Enforcing it
 
-`pnpm check:plugins` runs [`scripts/check-plugin-manifests.mjs`](../scripts/check-plugin-manifests.mjs). It fails on a missing or widened `engines.dsh`, a DSH package under `dependencies`, a peer without a dev mirror, or a dsh peer with a different range. Run it after adding a plugin and before publishing.
+`pnpm check:plugins` runs [`scripts/check-plugin-manifests.mjs`](../scripts/check-plugin-manifests.mjs) over every manifest in `plugins/` and `packages/`. It fails on a missing or widened `engines.dsh` in a plugin, a DSH package under `dependencies` anywhere, a peer without a dev mirror, or a dsh peer with a different range. Run it after adding a plugin and before publishing.
+
+The `@deepseek-ai/dsh-graph-*` packages are ours, not DSH runtime packages, but DSH's compatibility check reads every `@deepseek-ai/dsh-*` peer range as a runtime requirement. They therefore declare `engines.dsh` as well, which takes precedence and stops DSH from judging their workspace peers.
 
 ## Upgrading to a new DSH release
 

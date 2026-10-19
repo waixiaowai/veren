@@ -118,11 +118,10 @@ for (const row of summary) {
   console.log(`${row.engines.padEnd(8)} ${row.plugin.padEnd(34)} ${String(row.peers).padStart(2)} peer(s)  v${row.version}`)
 }
 
-/** 工作区里仍是旧式声明的包：只报告，不阻断（迁移按包逐个进行）。
- *  Workspace packages still on the old scheme: reported, not gated yet. */
-const packagesDir = join(root, 'packages')
-
-/** 列出工作区内的包目录，含一层分组目录 / package dirs, including one grouping level. */
+/**
+ * 工作区包目录，含一层分组目录（packages/graph/graph-core 等）。
+ * Workspace package dirs, including one grouping level.
+ */
 function workspacePackageDirs() {
   const dirs = []
   for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
@@ -139,24 +138,27 @@ function workspacePackageDirs() {
   return dirs
 }
 
-const legacy = workspacePackageDirs()
-  .map(dir => JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')))
-  .map(manifest => ({
-    name: manifest.name,
-    offenders: Object.keys(manifest.dependencies ?? {})
-      .filter(name => isHostShared(name) && !STATELESS_DSH.has(name)),
-  }))
-  .filter(row => row.offenders.length > 0)
+// packages/ 下的包同样遵守规则 2（DSH 包不得进 dependencies），但它们不是
+// profile 插件：engines.dsh 只对会进 profile 的包有意义，因此只有
+// plugins/ 的清单要求 engines.dsh。
+const packagesDir = join(root, 'packages')
+const packageFailures = workspacePackageDirs()
+  .map(dir => readManifest(dir))
+  .filter(manifest => manifest !== undefined)
+  .flatMap(manifest => Object.entries(manifest.dependencies ?? {})
+    .filter(([name]) => isHostShared(name) && !STATELESS_DSH.has(name))
+    .map(([name, spec]) => `${manifest.name}: ${name}@${spec} belongs in peerDependencies, not dependencies`))
 
-if (legacy.length > 0) {
-  console.log('\nLegacy manifests outside plugins/ (same rule applies, migration pending):')
-  for (const row of legacy) console.log(`  - ${row.name}: ${row.offenders.join(', ')}`)
+if (packageFailures.length > 0) {
+  console.error(`\n${packageFailures.length} workspace manifest problem(s):`)
+  for (const failure of packageFailures) console.error(`  - ${failure}`)
+  process.exit(1)
 }
 
 if (failures.length > 0) {
-  console.error(`\n${failures.length} manifest problem(s):`)
+  console.error(`\n${failures.length} plugin manifest problem(s):`)
   for (const failure of failures) console.error(`  - ${failure}`)
   process.exit(1)
 }
 
-console.log(`\n${summary.length} plugin manifests satisfy the DSH dependency policy.`)
+console.log(`\n${summary.length} plugin manifests and ${workspacePackageDirs().length} workspace manifests satisfy the DSH dependency policy.`)

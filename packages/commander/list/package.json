@@ -18,13 +18,16 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
     "@deepseek-ai/schemastery": "^3.18.4",
     "@veren/commander-core": "workspace:*",
     "@veren/commander-discovery": "workspace:*",
     "@veren/core": "workspace:*"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
     "@deepseek-ai/dsh-fs-local": "0.2.0-rc.2"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5"
   }
 }

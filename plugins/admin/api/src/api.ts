@@ -187,6 +187,7 @@ export class AdminApi extends Service {
       if (unsafe && route.audience !== 'public') this.assertCsrf(facts)
       principal = identity === undefined ? undefined : await this.principalOf(identity)
       if (route.permission !== undefined) this.assertPermission(route, principal)
+      if (route.scopes !== undefined && route.scopes.length > 0) this.assertScopes(route, principal)
 
       const request: AdminRequest = {
         requestId,
@@ -309,6 +310,21 @@ export class AdminApi extends Service {
     const access = this.ctx.admin.has('access') ? this.ctx.admin.require<AdminAccess>('access') : undefined
     if (access === undefined || !access.can(principal, permission)) {
       throw new AdminError('FORBIDDEN', `missing permission ${permission}`, { permission })
+    }
+  }
+
+  /**
+   * Enforce the scopes a terminal route requires.
+   *
+   * @param route - matched route 匹配路由
+   * @param principal - resolved principal 已解析主体
+   */
+  private assertScopes(route: AdminRoute, principal: AuthenticatedPrincipal | undefined): void {
+    const required = route.scopes as readonly string[]
+    const granted = principal?.scopes ?? []
+    const missing = required.filter((scope) => !granted.includes(scope))
+    if (missing.length > 0) {
+      throw new AdminError('FORBIDDEN', `token is missing scopes: ${missing.join(', ')}`, { missingScopes: missing })
     }
   }
 

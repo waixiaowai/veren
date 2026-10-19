@@ -17,6 +17,16 @@ import { Context } from '@deepseek-ai/cordis'
 import { collectText, composePrompt, generatePost, parseDraft, toDraft } from '../src/compose.ts'
 import type { ComposeInput } from '../src/compose.ts'
 import type { BoardView, PostView } from '../src/types.ts'
+// Type-only import: pulls the `ctx.agentDefaultModel` service declaration into
+// this face so the fake can be published under its real key.
+// 仅类型导入：把 `ctx.agentDefaultModel` 服务声明拉进这一面，假实现才能挂在真实键上。
+import type {} from '@deepseek-ai/dsh-agent-default-model'
+
+/** One provider/model pair the drafting call selects. 起草调用选中的一对提供方/模型。 */
+interface ModelSelection {
+  readonly provider: string
+  readonly model: string
+}
 
 /** One board the draft is written for. 一份被起草帖子的板块。 */
 function board(): BoardView {
@@ -59,18 +69,25 @@ function stream(chunks: readonly { readonly type: string, readonly text?: string
 }
 
 /** Mount a Host context whose `llm` and default-model selection are fakes. 挂载 `llm` 与默认模型选择都是假实现的宿主上下文。 */
-function host(options: { chunks?: readonly { type: string, text?: string }[], selection?: unknown } = {}) {
+function host(options: { chunks?: readonly { type: string, text?: string }[], selection?: ModelSelection | undefined } = {}) {
   const ctx = new Context()
   const seen: Record<string, unknown>[] = []
+  // The service's `stream` returns the iterable synchronously; iteration happens
+  // inside `collectText`. 服务的 `stream` 同步返回可迭代对象；迭代发生在 `collectText` 内。
   ctx.provide('llm', {
-    async stream(request: Record<string, unknown>) {
+    stream(request: Record<string, unknown>) {
       seen.push(request)
       return stream(options.chunks ?? [{ type: 'text-delta', text: '{"title":"T","body":"B"}' }])
     },
   } as unknown as Context['llm'])
-  ctx.provide('agentDefaultModel', {
-    currentSelection: () => options.selection ?? { provider: 'deepseek', model: 'v4-flash' },
-  } as unknown as Context['agentDefaultModel'])
+  // `agentDefaultModel` is optional for the drafting call, so the fake omits
+  // the whole service when the spec has no selection to hand out.
+  // `agentDefaultModel` 对起草调用是可选的，因此用例没有可选模型时假实现整个不提供该服务。
+  if (options.selection !== undefined) {
+    ctx.provide('agentDefaultModel', {
+      currentSelection: () => options.selection,
+    } as unknown as Context['agentDefaultModel'])
+  }
   return { ctx, seen }
 }
 
@@ -136,7 +153,7 @@ describe('forum auto-post reply parsing / 自动发帖回复解析', () => {
 
 describe('forum auto-post drafting call / 自动发帖起草调用', () => {
   it('sends one one-shot request with the composed prompt', async () => {
-    const { ctx, seen } = host()
+    const { ctx, seen } = host({ selection: { provider: 'deepseek', model: 'v4-flash' } })
     const prompt = composePrompt(input())
 
     await generatePost(ctx, input())
@@ -171,7 +188,10 @@ describe('forum auto-post drafting call / 自动发帖起草调用', () => {
   })
 
   it('refuses a reply that never becomes a valid post', async () => {
-    const { ctx } = host({ chunks: [{ type: 'text-delta', text: '抱歉，今天没有灵感。' }] })
+    const { ctx } = host({
+      selection: { provider: 'deepseek', model: 'v4-flash' },
+      chunks: [{ type: 'text-delta', text: '抱歉，今天没有灵感。' }],
+    })
 
     await expect(generatePost(ctx, input())).rejects.toMatchObject({ code: 'forum/input-invalid' })
   })

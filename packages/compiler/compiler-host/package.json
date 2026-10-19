@@ -17,10 +17,15 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "typescript": "^5.9.3",
-    "@deepseek-ai/cordis": "^4.0.4",
     "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/compiler-options": "workspace:*",
     "@veren/core": "workspace:*",
-    "@veren/compiler-options": "workspace:*"
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5"
   }
 }

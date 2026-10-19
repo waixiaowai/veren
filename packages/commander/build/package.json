@@ -1,31 +1,34 @@
 {
-    "name":  "@veren/commander-build",
-    "displayName":  "Veren Commander Build",
-    "version":  "0.1.0",
-    "description":  "Use when you want the veren CLI\u0027s `build` command as a standard Cordis plugin module (name/inject/Config/apply): it injects the command registry, the Discovery service and ctx.fs, classifies each unit (frontend plugin bundle, backend plugin tsc-style build, cargo build for Cargo.toml units) and runs the per-kind command in the unit directory; skip it when you build units with your own tooling.",
-    "private":  true,
-    "type":  "module",
-    "main":  "./dist/index.js",
-    "types":  "./dist/index.d.ts",
-    "exports":  {
-                    ".":  {
-                              "types":  "./dist/index.d.ts",
-                              "default":  "./dist/index.js"
-                          }
-                },
-    "scripts":  {
-                    "build":  "tsc",
-                    "test":  "vitest run"
-                },
-    "dependencies":  {
-                         "@deepseek-ai/cordis":  "^4.0.4",
-                         "@deepseek-ai/schemastery":  "^3.18.4",
-                         "@veren/commander-core":  "workspace:*",
-                         "@veren/commander-discovery":  "workspace:*",
-                         "@veren/core":  "workspace:*",
-                         "@deepseek-ai/dsh-fs":  "0.2.0-rc.2"
-                     },
-    "devDependencies":  {
-                            "@deepseek-ai/dsh-fs-local":  "0.2.0-rc.2"
-                        }
+  "name": "@veren/commander-build",
+  "displayName": "Veren Commander Build",
+  "version": "0.1.0",
+  "description": "Use when you want the veren CLI's `build` command as a standard Cordis plugin module (name/inject/Config/apply): it injects the command registry, the Discovery service and ctx.fs, classifies each unit (frontend plugin bundle, backend plugin tsc-style build, cargo build for Cargo.toml units) and runs the per-kind command in the unit directory; skip it when you build units with your own tooling.",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/commander-core": "workspace:*",
+    "@veren/commander-discovery": "workspace:*",
+    "@veren/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-fs": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-fs-local": "0.2.0-rc.2"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5"
+  }
 }

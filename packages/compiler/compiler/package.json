@@ -17,14 +17,17 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "typescript": "^5.9.3",
-    "@deepseek-ai/cordis": "^4.0.4",
-    "@veren/core": "workspace:*",
-    "@veren/compiler-type-checker": "workspace:*",
     "@veren/compiler-options": "workspace:*",
-    "@veren/compiler-program": "workspace:*"
+    "@veren/compiler-program": "workspace:*",
+    "@veren/compiler-type-checker": "workspace:*",
+    "@veren/core": "workspace:*",
+    "typescript": "^5.9.3"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
     "@veren/compiler-host": "workspace:*"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5"
   }
 }

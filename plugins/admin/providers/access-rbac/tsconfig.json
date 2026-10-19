@@ -1,0 +1,10 @@
+{
+  // Package face of `plugins/admin/providers/access-rbac`.
+  // `plugins/admin/providers/access-rbac` 的包配置面。
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

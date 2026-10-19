@@ -18,11 +18,16 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
     "@deepseek-ai/schemastery": "^3.18.4",
     "@veren/commander-core": "workspace:*",
     "@veren/commander-project": "workspace:*",
     "@veren/core": "workspace:*",
     "yaml": "^2.8.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5"
   }
 }
