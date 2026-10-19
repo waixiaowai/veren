@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "@veren/device-id-linux",
   "displayName": "Veren Device ID (Linux)",
   "version": "0.1.0",
@@ -8,12 +8,18 @@
   "types": "./dist/index.d.ts",
   "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }, "./package.json": "./package.json" },
   "files": ["dist", "README.md", "README.cn.md"],
+  "engines": { "dsh": ">=0.2.1-rc.2 <0.3.0" },
   "scripts": { "build": "tsc", "test": "vitest run" },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5"
+  },
   "dependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
     "@deepseek-ai/schemastery": "^3.18.4",
     "@veren/core": "workspace:*",
     "@veren/device-id": "workspace:*"
   },
-  "devDependencies": { "@types/node": "^26.6.5" }
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@types/node": "^26.6.5"
+  }
 }
