@@ -20,6 +20,12 @@ export interface Config {
   /** Whether the preset includes the bundled human-writing skill and its loader. */
   /** 预设是否包含内置的「人话」写作技能与加载器。 */
   withSkills: boolean
+  /** Whether the preset mounts the periodic re-anchor row. */
+  /** 预设是否挂载定期重锚行。 */
+  withReanchor: boolean
+  /** Consecutive analysis-only steps before a re-anchor reminder, also stated in the persona suffix. */
+  /** 触发重锚所需的连续纯分析步数；人设 suffix 使用同一个数字。 */
+  reanchorThreshold: number
 }
 
 export const Config: z<Config> = z
@@ -28,8 +34,10 @@ export const Config: z<Config> = z
     order: z.number().default(5),
     withWeb: z.boolean().default(true),
     withSkills: z.boolean().default(true),
+    withReanchor: z.boolean().default(true),
+    reanchorThreshold: z.natural().min(1).default(3),
   })
-  .description('Person Agent preset identity; the delegating persona and both maintenance tool families are always on.')
+  .description('Person Agent preset identity; the delegating persona and both maintenance tool families are always on, with a configurable periodic self-work re-anchor.')
 
 // 注入的是能力（Service）：注册表负责声明，名单由 dynamic-context 子行在
 // 会话创建时读取，本入口无需 workspaceRegistry。
@@ -59,6 +67,8 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
       order: config.order,
       withWeb: config.withWeb,
       withSkills: config.withSkills,
+      withReanchor: config.withReanchor,
+      reanchorThreshold: config.reanchorThreshold,
     }),
   )
   // effect 的 execute 返回卸载函数本身，cordis 会在卸载时自动逆序调用。

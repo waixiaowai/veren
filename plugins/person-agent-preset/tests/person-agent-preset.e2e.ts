@@ -190,6 +190,7 @@ export const apply = async (ctx) => {
       const { createRequire } = await import('node:module')
       const presetRequire = createRequire(${JSON.stringify(pathToFileURL(join(PLUGIN_ROOT, 'dist', 'index.js')).href)})
       await import(presetRequire.resolve('@veren/person-agent-dynamic-context'))
+      await import(presetRequire.resolve('@veren/person-agent-reanchor'))
     } catch (error) {
       importError = String(error?.message ?? error)
     }
@@ -286,7 +287,8 @@ describe('person-agent preset on the real dsh web host', () => {
       // 渲染出的组合以 entry-list YAML 声明了面向人的人设与 present 工具。
       expect(result.composition).toContain('dsh-persona')
       expect(result.composition).toContain('dsh-tool-present')
-      expect(result.composition).toContain('plain, everyday language')
+      expect(result.composition).toContain('warm and plain')
+      expect(result.composition).toContain('3 or more consecutive steps')
 
       // 3. The composition inventory lists every declared row as enabled, and
       // no row renders as "undefined" in the persona's preset list.

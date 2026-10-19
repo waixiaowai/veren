@@ -16,7 +16,8 @@
       "default": "./lib/client.js"
     },
     "./src/*": "./src/*",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "files": [
     "lib/index.js",
@@ -26,6 +27,7 @@
     "lib/types/**/*.d.ts",
     "lib/types/**/*.d.ts.map",
     "cordis.patch.yml",
+    "locale/*.json",
     "docs",
     "README.md",
     "README.cn.md",

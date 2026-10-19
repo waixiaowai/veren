@@ -5,6 +5,7 @@ const packages = [
   'startup-autostart-bundle',
   'startup-autostart',
   'startup-autostart-tool',
+  'startup-autostart-skill',
   'startup-autostart-ui',
 ]
 

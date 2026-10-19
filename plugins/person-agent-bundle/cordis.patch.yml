@@ -2,19 +2,19 @@
 # Person Agent 组合包：用一个 profile 层装好整栈。
 #
 # This bundle is the ONLY profile layer of the Person Agent stack: none of the
-# four member plugins declares `dsh.bundle.patch`, so the dsh plugin
+# five member plugins declares `dsh.bundle.patch`, so the dsh plugin
 # reconciliation activates exactly this layer - installing the bundle can
 # never double-insert a row. Each member rides along as a plain dependency.
-# 本组合包是 Person Agent 技术栈唯一的 profile 层：四个成员插件都不声明
+# 本组合包是 Person Agent 技术栈唯一的 profile 层：五个成员插件都不声明
 # `dsh.bundle.patch`，dsh plugin 的 reconciliation 因此只会激活这一层——
 # 安装组合包绝不会重复插行。各成员只作为普通依赖随行。
 #
 # The bundle carries zero runtime code. Each `insert` row resolves by package
 # name from the bundle's own dependencies (pnpm installs them into the profile
-# alongside this bundle), so the four @veren plugins travel together as one
+# alongside this bundle), so the five @veren plugins travel together as one
 # installable unit and can be toggled as one from the plugin manager.
 # 组合包零运行时代码。每条 `insert` 行按包名从组合包自身的 dependencies 解析
-# （pnpm 会把它们和组合包一起装进 profile），四个 @veren 插件因此作为一个可
+# （pnpm 会把它们和组合包一起装进 profile），五个 @veren 插件因此作为一个可
 # 安装单元随行，并在插件管理页作为一个开关整体启停。
 #
 # One preset, one shape: Person Agent IS the bridge between the human and DSH.
@@ -22,13 +22,13 @@
 # there are no toggles and no second "manager" row anymore. The bridge
 # understands the need, picks workspace/preset/provider/model and hands the
 # work to a session it creates. The preset definition itself composes the
-# other three members (dynamic-context, tool-session, tool-workspace) as
-# per-session child rows, so one inserted row is the whole integration.
+# other four members (dynamic-context, reanchor, tool-session, tool-workspace)
+# as per-session child rows, so one inserted row is the whole integration.
 # 一个预设、一种形态：Person Agent 就是人类与 DSH 之间的桥梁。派活人设与两类
 # 维护工具常开——没有开关，也不再有两行的「管理员」划分。桥梁理解需求、
-# 选工作区/预设/提供商与模型，把活派给自己创建的会话。其余三个成员
-# （dynamic-context、tool-session、tool-workspace）由预设定义本身作为
-# 按会话挂载的子行组合——插入这一行即完成全部集成。
+# 选工作区/预设/提供商与模型，把活派给自己创建的会话。其余四个成员
+# （dynamic-context、reanchor、tool-session、tool-workspace）由预设定义本身
+# 作为按会话挂载的子行组合——插入这一行即完成全部集成。
 
 - insert:
     # The bridge persona: read the need, route the work, report back.

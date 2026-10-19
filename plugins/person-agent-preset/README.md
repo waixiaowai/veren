@@ -10,8 +10,9 @@ A DSH host plugin that registers the **Person Agent** agent preset at runtime th
 
 | Child row | Purpose |
 |---|---|
-| `persona` (`@deepseek-ai/dsh-persona`) | The bridge persona, a character not a procedure: identity (chief of staff, never does the work itself), thinking before thinking, way of thinking, how it talks with humans, how it hands off work |
-| `tool-fs` / `tool-fs-search` | File reads and searches |
+| `persona` (`@deepseek-ai/dsh-persona`) | The bridge persona as a character: identity, metacognition, thinking, talking with humans, handing off work. The hard numeric "stop working and delegate" rule is the **suffix**, rendered last in the system prompt so it sits closest to the conversation |
+| `tool-fs` / `tool-fs-search` | `read` / `read_image` / `write` and file searches. `edit` is explicitly disabled: the bridge has no terminal, so removing `edit` removes the last place self-work could land, while `write` stays for human-facing documents |
+| `reanchor` (`@veren/person-agent-reanchor`) | Periodic self-work re-anchor: after N consecutive analysis-only steps with no dispatch, appends one short numeric notice to the next request (append-only, never a system-prompt update) |
 | `present` (`@deepseek-ai/dsh-tool-present`) | Delivers files/charts/documents as client file cards |
 | `tool-todo` / `tool-ask-user` | Progress tracking and asking the user owned questions |
 | `tool-web` (optional, `withWeb`) | Web search when research is part of the work |
@@ -28,6 +29,14 @@ A DSH host plugin that registers the **Person Agent** agent preset at runtime th
 | `order` | `5` | Roster order in client preset pickers |
 | `withWeb` | `true` | Include the web search tool |
 | `withSkills` | `true` | Include the bundled `renhua` writing skill and its loader; set `false` to disable both |
+| `withReanchor` | `true` | Mount the periodic re-anchor child row; set `false` to remove it |
+| `reanchorThreshold` | `3` | Consecutive analysis-only steps before one re-anchor notice |
+
+## Why the prompt is split into prefix and suffix
+
+Long sessions dilute a persona that only lives at the far head of the system prompt. The preset therefore states the delegating identity once in the prefix and the hard self-work check once in the suffix, where the system prompt is closest to the conversation. The suffix states numeric criteria — 3+ consecutive analysis-only steps with no dispatch — so the model can check a count instead of judging an adjective. The prefix no longer repeats the same rule in two sections.
+
+That static placement is not enough on its own, because the system prompt still sits far away. The `reanchor` child row supplies the periodic, append-only reminder; `edit` removal removes the hands. The three layers are independent: text position, periodic fact, and missing tool.
 
 ## How it works
 

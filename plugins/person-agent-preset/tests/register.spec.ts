@@ -12,6 +12,8 @@ const OPTIONS = {
   order: 5,
   withWeb: true,
   withSkills: true,
+  withReanchor: true,
+  reanchorThreshold: 3,
 }
 
 describe('buildPersonAgentPreset', () => {
@@ -57,12 +59,11 @@ describe('buildPersonAgentPreset', () => {
     const definition = buildPersonAgentPreset(OPTIONS)
     const persona = definition.plugins.find((row) => row.id === 'persona')
     const prefix = String((persona?.config as { prefix?: string })?.prefix)
-    expect(prefix).toContain('Prefer handing a task to a newly created session, or to a fork')
-    expect(prefix).toContain('when a suitable session already contains useful context')
-    expect(prefix).toContain('choose a fresh session when that history is not relevant')
+    expect(prefix).toContain('Prefer a newly created session, or a fork')
+    expect(prefix).toContain('already holds useful')
     expect(prefix).toContain('Use a direct message to an existing session')
-    expect(prefix).toContain('correction, bug fix, clarification, small follow-up')
-    expect(prefix).toContain('Do not create or fork merely to follow a rule')
+    expect(prefix).toContain('correction, small follow-up')
+    expect(prefix).toContain('do not create or fork merely to follow a rule')
   })
 
   it('guides instead of dictating: the persona carries no tool recipes', () => {
@@ -85,6 +86,52 @@ describe('buildPersonAgentPreset', () => {
     const definition = buildPersonAgentPreset(OPTIONS)
     const persona = definition.plugins.find((row) => row.id === 'persona')
     expect(String((persona?.config as { suffix?: string })?.suffix)).not.toContain('Agent Preset List')
+  })
+
+  it('puts the hard ban in the suffix with numeric self-work criteria', () => {
+    // 最硬的禁令在 suffix（系统提示词最后），判据带数字，模型不用猜形容词。
+    // The hard ban lives in the suffix (end of the system prompt), with numeric
+    // criteria so the model checks a count instead of judging an adjective.
+    const definition = buildPersonAgentPreset(OPTIONS)
+    const persona = definition.plugins.find((row) => row.id === 'persona')
+    const prefix = String((persona?.config as { prefix?: string })?.prefix)
+    const suffix = String((persona?.config as { suffix?: string })?.suffix)
+    expect(suffix).toContain('3 or more consecutive steps')
+    expect(suffix).toContain('STOP AND CHECK')
+    expect(suffix).toContain('Create or dispatch a working session')
+    // 后缀里的数字与重锚阈值同源：改成 5，prompt 也变成 5。
+    // The number in the suffix comes from the same threshold: 5 changes both.
+    const five = buildPersonAgentPreset({ ...OPTIONS, reanchorThreshold: 5 })
+    const fiveSuffix = String((five.plugins.find((row) => row.id === 'persona')?.config as { suffix?: string } | undefined)?.suffix)
+    expect(fiveSuffix).toContain('5 or more consecutive steps')
+    // 禁令只保留一份：prefix 不再重复「停手改派活」。
+    // One statement only: the prefix no longer repeats "stop and delegate".
+    expect(prefix).not.toContain('stop and delegate')
+    expect(prefix).not.toContain('STOP AND CHECK')
+  })
+
+  it('mounts no edit tool but keeps write for human-facing documents', () => {
+    // 预设不再挂 edit（不是删工具包），write 保留给「写给人看的文档」。
+    // The preset no longer mounts edit (the package stays intact), while write
+    // remains for documents a human reads.
+    const definition = buildPersonAgentPreset(OPTIONS)
+    const fs = definition.plugins.find((row) => row.id === 'tool-fs')
+    expect(String(fs?.name)).toBe('@deepseek-ai/dsh-tool-fs')
+    expect(fs?.config).toMatchObject({ edit: false })
+    expect(fs?.config).not.toMatchObject({ write: false })
+    expect(definition.plugins.some((row) => /(?:^|[^a-z])edit(?:[^a-z]|$)/iu.test(String(row.name)))).toBe(false)
+  })
+
+  it('mounts the periodic re-anchor row with a configurable threshold', () => {
+    // B 层是独立子行，阈值可配；关掉 withReanchor 后整行消失。
+    // Layer B is its own child row with a configurable threshold; turning
+    // withReanchor off removes the row entirely.
+    const definition = buildPersonAgentPreset(OPTIONS)
+    const reanchor = definition.plugins.find((row) => row.id === 'reanchor')
+    expect(String(reanchor?.name)).toBe('@veren/person-agent-reanchor')
+    expect(reanchor?.config).toMatchObject({ threshold: 3 })
+    const disabled = buildPersonAgentPreset({ ...OPTIONS, withReanchor: false })
+    expect(disabled.plugins.some((row) => row.id === 'reanchor')).toBe(false)
   })
 
   it('references the dynamic-context row by its package name', () => {

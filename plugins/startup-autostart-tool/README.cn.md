@@ -14,7 +14,7 @@
 - `startup_delete`
 - `startup_run`
 
-工具通过 `ctx.startupAutostart` 调用宿主服务，不负责存储或启动触发。本包**不声明** `dsh.bundle.patch`，因此单独安装只会多一个依赖、**不会插入 Loader 行**：它经聚合包 `@veren/startup-autostart-bundle` 安装，由聚合包的 patch 把本行连同宿主行、UI 行一起插入。preset 可按需授权工具。发布时先发布新版宿主包，因为工具会引用宿主导出的公共校验常量。
+工具通过 `ctx.startupAutostart` 调用宿主服务，不负责存储或启动触发。本包**不声明** `dsh.bundle.patch`，因此单独安装只会多一个依赖、**不会插入 Loader 行**：它经聚合包 `@veren/startup-autostart-bundle` 安装，由聚合包的 patch 把本行连同宿主行、指导技能行、UI 行一起插入。preset 可按需授权工具。发布时先发布新版宿主包，因为工具会引用宿主导出的公共校验常量。
 
 ## 开发
 

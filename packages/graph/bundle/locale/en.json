@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Graph Bundle",
+    "description": "Compose the graph kernel, flow engine, canvas, YAML flow loading, storage, and model-facing graph tools as one profile bundle."
+  }
+}

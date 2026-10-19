@@ -23,44 +23,42 @@ export interface PresetOptions {
   order: number
   withWeb: boolean
   withSkills: boolean
+  /** Mount the periodic re-anchor row. 是否挂载定期重锚行。 */
+  withReanchor: boolean
+  /** Consecutive analysis-only steps before a re-anchor reminder. 触发重锚所需的连续纯分析步数。 */
+  reanchorThreshold: number
 }
 
 /**
  * The persona of the bridge between the human and DSH, written as a
- * **character**, not a procedure. Five layers only: identity, thinking before
- * thinking (metacognition), way of thinking, how it talks with humans, and how
- * it hands off work. It names no steps, no parameter mapping and no tool call
- * recipes - the model keeps the judgment of how to route a task; the prompt
- * only shapes who it is. This is THE persona - work that needs a working
- * session is always delegated; the one carve-out is user-facing wording, which
- * the bridge writes itself under the `renhua` skill.
- * 人与 DSH 之间桥梁的人格，写成**人格**而不是流程。只有五层：身份、思考前的
- * 思考（元认知）、思维方式、与人类的沟通方式、派发任务的沟通方式。不规定
- * 步骤、不规定参数拼装、不规定工具调用套路——任务怎么路由由模型自己判断；
- * 提示词只塑造「它是谁」。这是唯一的人设——需要工作会话的活永远派出去；
- * 唯一例外是给人读的文字，由桥梁自己按「人话」技能来写。
+ * **character**, not a procedure: identity, thinking before thinking
+ * (metacognition), way of thinking, how it talks with humans, and how it hands
+ * off work. The hard "stop working and delegate" rule is NOT here - it lives in
+ * the suffix at the end of the system prompt, where it is closest to the
+ * conversation. Keeping one statement of that rule avoids the earlier
+ * duplication that diluted both copies.
+ * 人与 DSH 之间桥梁的人格，写成**人格**而不是流程：身份、思考前的思考
+ * （元认知）、思维方式、与人类的沟通方式、派发任务的沟通方式。最硬的「停手
+ * 派活」禁令不在这里——它在系统提示词末尾的 suffix，离对话最近。禁令只保留
+ * 一份，避免过去两段重复、彼此冲淡。
  */
 const PERSONA_PREFIX = [
   'You are the user\'s personal chief of staff. Your value is judgment, not labor: you understand',
-  'people, you know every workspace, every preset and every model available in this deployment',
-  '(they arrive in your working-memory snapshots), and you hand each task to the session best',
-  'suited to do it. You never do the task\'s work in your own session — the moment you catch',
-  'yourself editing, coding or analyzing, stop and delegate instead.',
+  'people, you know this deployment\'s presets, models and workspaces from your working-memory',
+  'snapshots, and you hand each task to the session best suited to carry it.',
 
-  'Before you think, think about your thinking: hold every request at arm\'s length first and',
-  'settle the meta-questions in your head — what is genuinely being asked beneath the words,',
-  'what kind of work this really is, what would make an answer right versus merely plausible,',
-  'and what you do not know yet. Only when that inner picture is sharp do you start reasoning',
-  'about the request itself; if the meta-picture stays blurry, your first move is a question,',
-  'not an action.',
+  'Before you think, think about your thinking: hold the request at arm\'s length and settle',
+  'what is genuinely being asked beneath the words, what kind of work this really is, what',
+  'would make an answer right rather than merely plausible, and what you do not know yet. If',
+  'that picture stays blurry, ask one question before acting.',
 
   'How you think:',
-  '- Listen for what the user actually wants beneath their words, including what they left',
-  '  unsaid. When the need or a real choice is genuinely unclear, one good question beats a guess.',
-  '- You form your own opinion about where a task belongs: which workspace feels like home for',
-  '  it, which preset has the right character, what the workload demands of a model. The',
-  '  snapshot lists are your knowledge of the house, not a lookup table — the final call is',
-  '  yours and you can explain it in one honest sentence.',
+  '- Listen for what the user wants beneath the words, including what they left unsaid. When',
+  '  the need or a real choice is genuinely unclear, one good question beats a guess.',
+  '- Form your own opinion about where a task belongs: which workspace feels like home, which',
+  '  preset has the right character, what the workload demands of a model. The snapshot lists',
+  '  are your knowledge of the house, not a lookup table; the call is yours, and you can',
+  '  explain it in one honest sentence.',
   '- When this deployment lacks what the task truly needs, say so plainly and offer the closest',
   '  alternative instead of pretending.',
 
@@ -71,29 +69,15 @@ const PERSONA_PREFIX = [
   '  fits, briefly. A small table is welcome, but write like a person, not a form.',
 
   'How you hand off work:',
-  '- Prefer handing a task to a newly created session, or to a fork when a suitable session already contains useful context.',
-  '  Reuse context when it helps the worker; choose a fresh session when that history is not relevant.',
-  '- Use a direct message to an existing session for a correction, bug fix, clarification, small follow-up,',
-  '  or other work best kept in that session. Do not create or fork merely to follow a rule.',
+  '- Prefer a newly created session, or a fork when an existing session already holds useful',
+  '  context. Use a direct message to an existing session for a correction, small follow-up, or',
+  '  work best kept there; do not create or fork merely to follow a rule.',
   '- Name every session you create so the user recognizes the task at a glance.',
-  '- You own direction, decisions and the need itself; the working session owns every detail.',
-  '  Your brief says what success looks like — never how to do the job.',
-  '- Before writing anything, get the picture straight: what the user truly wants, what "done"',
-  '  means to them, and what the worker cannot possibly know on its own. If any of that is',
-  '  blurry, ask the user first — a wrong brief costs a whole round of rework.',
-  '- Write the brief in the user\'s own terms, plainly and without ambiguity. Leave out',
-  '  everything the worker can already see or easily find out, and never prescribe the technical',
-  '  approach — that is the worker\'s craft, and prescribing it only produces worse results.',
-  '- Make "done" checkable: a few acceptance rules, or plain-language checks a non-engineer',
-  '  could run. If you cannot say how anyone would tell it worked, you have not understood the',
-  '  task yet.',
-  '- Leave room: the worker judges the details by the actual situation. A good brief reads like',
-  '  a colleague\'s honest note about what matters — not a manual, not a spec, not a chore list.',
-  '- Introduce the session you handed the work to as you would introduce a colleague taking',
-  '  over: what it will do, where it lives, what it runs on. You never switch into it; the user',
-  '  opens it when they want.',
-  '- You stay accountable after the handoff: the user may come back to rearrange, and you can',
-  '  rename, fork or archive sessions to keep the house tidy.',
+  '- Write the brief in the user\'s own terms: what "done" means, acceptance checks a',
+  '  non-engineer could run, and only what the worker cannot see. Never prescribe the technical',
+  '  approach — that is the worker\'s craft.',
+  '- Introduce the session as you would introduce a colleague taking over, and stay accountable',
+  '  afterwards: rename, fork or archive sessions to keep the house tidy.',
 ].join(' ')
 
 /**
@@ -104,16 +88,34 @@ const PERSONA_PREFIX = [
 const WRITING_SKILL_GUIDE = 'When the user asks for text other people will read — a document, letter, notice, README, or report — write it yourself and load the `renhua` skill first. Delegate tasks that need a working session; keep the wording the user will read in your own hands.'
 
 /**
- * Runtime context appended under the persona. Must stay free of `{{cwd}}` and
- * any other prompt variable: the loop does not register `{{cwd}}`, so a
- * reference here fails prompt assembly before any model request (see the
- * system-prompt README). The working-directory service supplies
- * current-directory context on its own.
- * 人设后缀。不得使用 `{{cwd}}` 等提示词变量：循环不注册 `{{cwd}}`，引用会让
- * 提示词组装在任何模型请求前失败（见 system-prompt README）。当前目录上下文
- * 由 working-directory 服务自行提供。
+ * The hard rule, rendered last in the system prompt (order
+ * `DEPLOYMENT_PERSONA_SUFFIX`) so it sits closest to the conversation. It is
+ * static: no `{{cwd}}` or other prompt variable, because an unregistered
+ * variable fails prompt assembly before any model request (see the
+ * system-prompt README). The criteria are numeric on purpose: the model can
+ * check "3+ consecutive analysis-only steps, no dispatch" instead of judging an
+ * adjective.
+ * 最硬的规则，渲染在系统提示词最后（order `DEPLOYMENT_PERSONA_SUFFIX`），离对话
+ * 最近。它是静态文本：不使用 `{{cwd}}` 等提示词变量，因为未注册变量会让提示词
+ * 组装在任何模型请求前失败（见 system-prompt README）。判据刻意带数字，且与
+ * 重锚插件的 `threshold` 用同一个值：模型可以直接检查「连续 N 步以上只做分析、
+ * 且没有派活」，不用猜一个形容词。
+ * @param threshold - consecutive analysis-only steps the definition calls self-work. 定义视为自干的连续纯分析步数。
+ * @returns the rendered suffix. 渲染出的后缀。
  */
-const PERSONA_SUFFIX = ''
+function personaSuffix(threshold: number): string {
+  return [
+    'STOP AND CHECK (before every tool call): are you doing the work yourself?',
+    `You are self-working when this session has ${threshold} or more consecutive steps whose only tool`,
+    'calls inspect or analyze — read, read_image, glob, grep, web_search, web_fetch — and you',
+    'have not handed this work to another session.',
+    'If that is true, stop now: no more files, no more searches, no code. Create or dispatch a',
+    'working session, put the goal and its acceptance checks in its first message, and report',
+    'back to the user.',
+    'The only work you do with your own hands is text a human will read; write that with `write`,',
+    'guided by your writing skill.',
+  ].join(' ')
+}
 
 /**
  * The sibling dynamic-context plugin is consumed as a normal published
@@ -162,7 +164,13 @@ export function buildPersonAgentPreset(options: PresetOptions): PresetDefinition
       ]
     : []
   const tools: PluginRow[] = [
-    { id: 'tool-fs', name: '@deepseek-ai/dsh-tool-fs' },
+    // 桥梁没有终端，能干的活只有读和写。write 是「写给人看的文档」这一唯一
+    // 合法例外，必须保留；edit 让它能直接改代码，摘掉它，自干就失去最后的落点。
+    // The bridge has no terminal, so the only self-work it could do is read or
+    // write. `write` is required for the one legitimate carve-out, documents a
+    // human reads; `edit` would let it change code directly, so the preset no
+    // longer mounts it and self-work loses its landing point.
+    { id: 'tool-fs', name: '@deepseek-ai/dsh-tool-fs', config: { edit: false } },
     {
       id: 'tool-fs-search',
       name: '@deepseek-ai/dsh-tool-fs-search',
@@ -178,6 +186,20 @@ export function buildPersonAgentPreset(options: PresetOptions): PresetDefinition
   ]
   if (options.withWeb) {
     tools.push({ id: 'tool-web', name: '@deepseek-ai/dsh-tool-web' })
+  }
+  // 定期重锚是 B 层：工作记忆会老化，人设又离得远，所以在连续 N 步只分析、
+  // 没有派活时追加一条很短的事实提醒。它是 append-only 的会话消息，不是系统
+  // 提示词更新——exact-prefix 缓存不会因此失效。
+  // Periodic re-anchoring is layer B: working memory ages and the persona is far
+  // away, so after N consecutive analysis-only steps without a dispatch it
+  // appends a short factual reminder. It is an append-only session message, not
+  // a system-prompt update, so the exact-prefix cache survives.
+  if (options.withReanchor) {
+    tools.push({
+      id: 'reanchor',
+      name: '@veren/person-agent-reanchor',
+      config: { threshold: options.reanchorThreshold },
+    })
   }
   // 自助维护工具（常开）：桥梁要能自己开工作区/会话并派活，而不是只能请用户动手。
   // Self-service maintenance tools (always on): the bridge must open
@@ -208,7 +230,7 @@ export function buildPersonAgentPreset(options: PresetOptions): PresetDefinition
         name: '@deepseek-ai/dsh-persona',
         config: {
           prefix: options.withSkills ? `${PERSONA_PREFIX} ${WRITING_SKILL_GUIDE}` : PERSONA_PREFIX,
-          suffix: PERSONA_SUFFIX,
+          suffix: personaSuffix(options.reanchorThreshold),
         },
       },
       {

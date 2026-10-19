@@ -13,13 +13,13 @@
 模块（客户端模块系统通过扫描活跃 Loader 行的 `dsh.client` 清单来发现）。
 
 本包**不声明** `dsh.bundle.patch`，所以单独装它只会多一个依赖、不会多一行 Loader 行。
-要装就装组合包——它把本行连同宿主行、工具行一起插进去：
+要装就装组合包——它把本行连同宿主行、工具行、指导技能行一起插进去：
 
 ```sh
-plugin_manager  install_bundle  target = @veren/startup-autostart-bundle@1.4.6
+plugin_manager  install_bundle  target = @veren/startup-autostart-bundle@1.4.8
 ```
 
-装完刷新页面。卸载组合包会整体去掉这三行；已存储的启动项不受影响。
+装完刷新页面。卸载组合包会整体去掉这四行；已存储的启动项不受影响。
 
 ## 页面怎么用
 

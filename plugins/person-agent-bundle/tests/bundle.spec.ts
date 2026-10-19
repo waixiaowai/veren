@@ -1,20 +1,20 @@
 // Bundle invariant tests. Two invariants, both pure file parsing:
 // 1. Composition shape: exactly one preset row, the bridge shape - the
 //    delegating persona and both maintenance tool families always on, no
-//    toggles left. The other three members are composed by the preset
+//    toggles left. The other four members are composed by the preset
 //    definition itself as per-session child rows, so one row is the whole
 //    integration.
 // 2. Bundle ownership: the bundle is the stack's ONLY profile layer - its
-//    manifest declares exactly one patch file and all four members, while no
+//    manifest declares exactly one patch file and all five members, while no
 //    member declares `dsh.bundle.patch`. This is what keeps `dsh plugin`
 //    reconciliation from activating a second, duplicate layer on install.
 // Concurrency safe: read-only, no shared state.
 // 组合包不变量测试。两个不变量，均为纯文件解析：
 // 1. 组合形态：单条预设行、桥梁形态——派活人设与两类维护工具常开，不再有
-//    任何开关。其余三个成员由预设定义本身作为按会话子行组合，插入这一行即
+//    任何开关。其余四个成员由预设定义本身作为按会话子行组合，插入这一行即
 //    完成全部集成。
 // 2. bundle 归属：组合包是技术栈唯一的 profile 层——自身 manifest 只声明一个
-//    patch 文件并列全四个成员，而任何成员都不得声明 `dsh.bundle.patch`。
+//    patch 文件并列全五个成员，而任何成员都不得声明 `dsh.bundle.patch`。
 //    这保证 `dsh plugin` 的 reconciliation 在安装时不会激活第二个重复层。
 // 并发安全：只读文件，无共享状态。
 import { readFileSync } from 'node:fs'
@@ -83,12 +83,13 @@ describe('person-agent-bundle patch', () => {
 })
 
 describe('person-agent-bundle owns the stack\'s only bundle layer', () => {
-  // 四个成员目录：与组合包在同一个 plugins/ 工作区里。
-  // The four member directories: siblings of the bundle in the plugins/
+  // 五个成员目录：与组合包在同一个 plugins/ 工作区里。
+  // The five member directories: siblings of the bundle in the plugins/
   // workspace.
   const members = [
     'person-agent-preset',
     'person-agent-dynamic-context',
+    'person-agent-reanchor',
     'person-agent-tool-session',
     'person-agent-tool-workspace',
   ]

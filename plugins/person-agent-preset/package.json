@@ -1,9 +1,9 @@
 {
   "name": "@veren/person-agent-preset",
   "displayName": "管家-预设",
-  "version": "0.2.6",
+  "version": "0.3.0",
   "icon": "./icon.svg",
-  "description": "Use when a DSH deployment needs the bridge between the human and DSH: it registers the \"person-agent\" preset through ctx.agentPresets at runtime, composing a delegating chief-of-staff persona (understands the need, metacognition first, plain Simplified Chinese, hands work to sessions it creates) with workspace and session maintenance tools always on, plus a bundled human-writing skill that keeps user-facing text readable; skip it when sessions must never create or route other sessions.",
+  "description": "Use when a DSH deployment needs the bridge between the human and DSH: it registers the \"person-agent\" preset through ctx.agentPresets at runtime, composing a delegating chief-of-staff persona (understands the need, metacognition first, plain Simplified Chinese, hands work to sessions it creates) whose hard numeric self-work check is the system-prompt suffix, a periodic append-only re-anchor row, workspace and session maintenance tools always on, file tools with edit disabled but write kept for human-facing documents, plus a bundled human-writing skill; skip it when sessions must never create or route other sessions.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -31,6 +31,7 @@
   },
   "dependencies": {
     "@veren/person-agent-dynamic-context": "workspace:^",
+    "@veren/person-agent-reanchor": "workspace:^",
     "@deepseek-ai/cordis": "^4.0.4",
     "@deepseek-ai/dsh-agent-preset-registry": ">=0.2.0-rc.2",
     "@deepseek-ai/dsh-scope": "0.2.0-rc.2",
@@ -49,6 +50,7 @@
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-agent-preset-registry": ">=0.2.0-rc.2",
-    "@veren/person-agent-dynamic-context": "*"
+    "@veren/person-agent-dynamic-context": "*",
+    "@veren/person-agent-reanchor": "*"
   }
 }

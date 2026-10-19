@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Startup Autostart Skill">
+  <defs>
+    <linearGradient id="ss-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3d7dff"/>
+      <stop offset="1" stop-color="#1b4bd8"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded tile -->
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#ss-body)"/>
+  <!-- Open book: the guidance this package carries -->
+  <path d="M14 20c6-2 11-2 16 1v24c-5-3-10-3-16-1z" fill="#ffffff" opacity="0.95"/>
+  <path d="M50 20c-6-2-11-2-16 1v24c5-3 10-3 16-1z" fill="#ffffff" opacity="0.8"/>
+  <!-- Power mark on the open page: the startup trigger it explains -->
+  <path d="M32 27v7" stroke="#1b4bd8" stroke-width="3" stroke-linecap="round"/>
+  <path d="M27 30a7 7 0 1 0 10 0" fill="none" stroke="#1b4bd8" stroke-width="3" stroke-linecap="round"/>
+  <!-- Gold bookmark: the guidance a reader keeps coming back to -->
+  <path d="M44 14l5 6-5 6z" fill="#ffd45e"/>
+</svg>

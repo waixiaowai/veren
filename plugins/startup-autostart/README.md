@@ -115,7 +115,7 @@ This package declares no `dsh.bundle.patch`: it is a member of the stack, and th
 aggregate bundle is the stack's only profile layer. Install that:
 
 ```
-plugin_manager  install_bundle  target = @veren/startup-autostart-bundle@1.4.6
+plugin_manager  install_bundle  target = @veren/startup-autostart-bundle@1.4.8
 ```
 
 The Chinese delivery note for the person operating this plugin lives in

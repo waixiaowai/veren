@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Flow Canvas",
+    "description": "Show registered flows on a read-only canvas in the Web GUI, with live per-node status."
+  }
+}

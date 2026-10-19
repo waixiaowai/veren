@@ -1,17 +1,18 @@
 // Bundle invariant tests. Two invariants, both pure file parsing:
-// 1. Composition shape: exactly three rows in dependency order - Host first,
-//    then the model-facing tools, then the Web UI - with no configuration on
-//    any row (each member already carries its own defaults).
+// 1. Composition shape: exactly four rows in dependency order - Host first,
+//    then the model-facing tools, then the guidance skill that teaches when and
+//    how to use them, then the Web UI - with no configuration on any row (each
+//    member already carries its own defaults).
 // 2. Bundle ownership: the bundle is the stack's ONLY profile layer - its
-//    manifest declares exactly one patch file and all three members, while no
+//    manifest declares exactly one patch file and all four members, while no
 //    member declares `dsh.bundle.patch`. This is what keeps `dsh plugin`
 //    reconciliation from activating a second, duplicate layer on install.
 // Concurrency safe: read-only, no shared state.
 // 组合包不变量测试。两个不变量，均为纯文件解析：
-// 1. 组合形态：恰好三行、按依赖顺序——先 Host，再面向模型的工具，再 Web UI，
-//    且每行不带任何配置（各成员自带默认值）。
+// 1. 组合形态：恰好四行、按依赖顺序——先 Host，再面向模型的工具，再教「何时、
+//    怎么用」的指导技能，最后是 Web UI，且每行不带任何配置（各成员自带默认值）。
 // 2. bundle 归属：组合包是技术栈唯一的 profile 层——自身 manifest 只声明一个
-//    patch 文件并列全三个成员，而任何成员都不得声明 `dsh.bundle.patch`。
+//    patch 文件并列全四个成员，而任何成员都不得声明 `dsh.bundle.patch`。
 //    这保证 `dsh plugin` 的 reconciliation 在安装时不会激活第二个重复层。
 // 并发安全：只读文件，无共享状态。
 import { readFileSync } from 'node:fs'
@@ -60,13 +61,16 @@ function loadRows(): PatchRow[] {
 describe('startup-autostart-bundle patch', () => {
   const rows = loadRows()
 
-  it('inserts exactly three rows in dependency order', () => {
-    // 三行、按依赖顺序：Host 必须最先插入，工具与 UI 依赖它的接口面。
-    // Three rows in dependency order: the Host must be inserted first; the
-    // tools and the UI both depend on its surface.
+  it('inserts exactly four rows in dependency order', () => {
+    // 四行、按依赖顺序：Host 必须最先插入；工具与 UI 依赖它的接口面；技能行
+    // 讲的是工具怎么用，因此紧跟在工具之后。
+    // Four rows in dependency order: the Host must be inserted first; the
+    // tools and the UI depend on its surface; the guidance row documents those
+    // tools, so it rides directly after them.
     expect(rows.map((row) => row.name)).toEqual([
       '@veren/startup-autostart',
       '@veren/startup-autostart-tool',
+      '@veren/startup-autostart-skill',
       '@veren/startup-autostart-ui',
     ])
   })
@@ -82,12 +86,13 @@ describe('startup-autostart-bundle patch', () => {
 })
 
 describe("startup-autostart-bundle owns the stack's only bundle layer", () => {
-  // 三个成员目录：与组合包同在 plugins/ 工作区里。
-  // The three member directories: siblings of the bundle in the plugins/
+  // 四个成员目录：与组合包同在 plugins/ 工作区里。
+  // The four member directories: siblings of the bundle in the plugins/
   // workspace.
   const members = [
     'startup-autostart',
     'startup-autostart-tool',
+    'startup-autostart-skill',
     'startup-autostart-ui',
   ]
   const bundle = JSON.parse(
@@ -101,7 +106,7 @@ describe("startup-autostart-bundle owns the stack's only bundle layer", () => {
     expect(bundle.dsh?.bundle?.patch).toBe('./cordis.patch.yml')
     for (const member of members) {
       const manifest = readMemberManifest(member)
-      expect(bundle.dependencies?.[manifest.name]).toBeDefined()
+      expect(bundle.dependencies?.[manifest.name], `${manifest.name} must be a dependency`).toBeDefined()
     }
   })
 

@@ -10,8 +10,9 @@
 
 | 子插件行 | 作用 |
 |---|---|
-| `persona`（`@deepseek-ai/dsh-persona`） | 桥梁人设，是人格不是流程：身份（总管，从不亲自干活）、思考前的思考、思维方式、与人类的沟通方式、派发任务的沟通方式 |
-| `tool-fs` / `tool-fs-search` | 文件读取与搜索 |
+| `persona`（`@deepseek-ai/dsh-persona`） | 桥梁人设，是人格不是流程：身份、元认知、思维方式、与人类的沟通方式、派发任务的沟通方式。最硬的「停手派活」规则带数字，放在 **suffix**，渲染在系统提示词最后，离对话最近 |
+| `tool-fs` / `tool-fs-search` | `read` / `read_image` / `write` 与文件搜索。`edit` 被显式关闭：桥梁没有终端，摘掉 `edit` 就摘掉了自干最后的落点；`write` 保留给写给人看的文档 |
+| `reanchor`（`@veren/person-agent-reanchor`） | 定期重锚：连续 N 步只分析、没有派活后，向下一请求追加一条很短的带数字提醒（只追加，从不改系统提示词） |
 | `present`（`@deepseek-ai/dsh-tool-present`） | 把文件/图表/文档作为客户端文件卡片交付 |
 | `tool-todo` / `tool-ask-user` | 进度跟踪与向用户提问 |
 | `tool-web`（可选，`withWeb`） | 需要调研时的联网搜索 |
@@ -28,6 +29,14 @@
 | `order` | `5` | 客户端预设选择器中的排序 |
 | `withWeb` | `true` | 是否包含联网搜索工具 |
 | `withSkills` | `true` | 是否包含内置的「人话」写作技能与加载器；设 `false` 可整体停用 |
+| `withReanchor` | `true` | 是否挂载定期重锚子行；设 `false` 整行摘掉 |
+| `reanchorThreshold` | `3` | 触发一条重锚提醒所需的连续纯分析步数 |
+
+## 为什么提示词分成 prefix 和 suffix
+
+人设只挂在系统提示词最远的头部时，长会话会把它冲淡。因此预设只在 prefix 里陈述一次派活身份，把最硬的自干检查只放在 suffix——系统提示词离对话最近的一端。suffix 的判据带数字——连续 3 步以上只做分析、期间没有派活——模型可以数数，而不用猜一个形容词。prefix 不再两段重复同一条规则。
+
+只靠静态位置还不够，因为系统提示词终究在远处。`reanchor` 子行负责定期的只追加提醒，摘掉 `edit` 拿走「手」。三层相互独立：文字位置、定期事实、缺失的工具。
 
 ## 工作原理
 

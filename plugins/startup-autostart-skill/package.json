@@ -1,0 +1,39 @@
+{
+  "name": "@veren/startup-autostart-skill",
+  "displayName": "Startup Autostart Skill",
+  "version": "1.4.7",
+  "icon": "./icon.svg",
+  "description": "Use when a DSH profile installs the Startup Autostart stack and agents must know when and how to manage startup items: it contributes one bundled, model-invocable skill named startup-autostart that explains when a recurring every-start job is the right request, how to choose among new_session, resume_session, message_session, and queue_message, the no-debounce run rules with enabled as the only gate, the input boundaries, and how to diagnose a failed item; skip it when the stack is absent or agents never touch startup items.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json",
+    "./icon": "./icon.svg",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "dist/*.js",
+    "assets/*.md",
+    "README.md",
+    "README.cn.md",
+    "icon.svg",
+    "locale/*.json"
+  ],
+  "dsh": {},
+  "scripts": {
+    "typecheck": "node scripts/typecheck.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-skill": "0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "devDependencies": {
+    "@veren/startup-autostart": "workspace:^",
+    "vitest": "^3.0.0"
+  },
+  "license": "MIT"
+}

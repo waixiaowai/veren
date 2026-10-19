@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Echo Node Renderer",
+    "description": "Render echo nodes on the flow canvas with a custom card, demonstrating the panel's per-node-type renderer extension."
+  }
+}
