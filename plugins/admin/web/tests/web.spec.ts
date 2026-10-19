@@ -18,6 +18,7 @@ import type {
 } from '@veren/admin-contract'
 import { AdminKernel } from '@veren/admin-kernel'
 import { bootstrapPayload, uiManifest, webRoutes } from '../src/handlers.ts'
+import { inject } from '../src/index.ts'
 import { resolveWithin } from '../src/static.ts'
 
 /** Manifest helper for fake providers. 伪 provider 的清单辅助函数。 */
@@ -101,5 +102,17 @@ describe('bootstrap payload', () => {
       'public:GET:/ui-manifest',
       'admin:GET:/ui-manifest',
     ])
+  })
+})
+
+describe('plugin declaration', () => {
+  // The bootstrap handler reads the navigation façade at request time, and Cordis
+  // rejects any service access the plugin did not declare
+  // (`cannot get property "adminNavigation" without inject`), so the declaration
+  // is part of the contract, not an implementation detail.
+  // bootstrap 处理器在请求时读取导航 façade，而 Cordis 会拒绝任何未声明的服务访问
+  // （`cannot get property "adminNavigation" without inject`），因此该声明属于契约而非实现细节。
+  it('declares the navigation façade the bootstrap handler reads', () => {
+    expect(inject).toContain('adminNavigation')
   })
 })

@@ -89,8 +89,8 @@ export function apply(ctx: Context): void { ... }
 ```
 
 - 稳定测试节点
-目录: DSH_HOME=~/.dsh_test_2 密钥从~/.dsh/.credentials.yaml拷贝
-启动: `$env:DSH_HOME='C:\Users\imeep\.dsh_test_2'; pnpm --dir deepseek\deepseek-harness dsh web --port 3080 --no-open`（`dsh web` 默认就是 web profile，不要再传 `--profile`，会报 "select a profile only once"；启动报核心行被兼容检查禁用时，按日志对每个包执行 `dsh plugin --profile web allow-version <pkg>@<ver> --dsh-version <runtime> --accept-risk`）
+目录: DSH_HOME=deepseek\.dsh（即工作区下 deepseek\.dsh，不用 ~/.dsh_test_*）；密钥从~/.dsh/.credentials.yaml拷贝
+启动: 用 deepseek\deepseek-harness 源码启动：`$env:DSH_HOME='C:\Users\imeep\Documents\cursour\deepseek\.dsh'; pnpm --dir deepseek\deepseek-harness dsh web --port 3080 --no-open`（`dsh web` 默认就是 web profile，不要再传 `--profile`，会报 "select a profile only once"；启动报核心行被兼容检查禁用时，按日志对每个包执行 `dsh plugin --profile web allow-version <pkg>@<ver> --dsh-version <runtime> --accept-risk`）
 - dsh_test_1 已弃用：禁止对它执行任何 pnpm 操作
 
 - 一次性测试节点，测试结束后清理，用于e2e自动化测试

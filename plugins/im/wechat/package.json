@@ -1,0 +1,50 @@
+{
+  "name": "@veren/im-wechat",
+  "displayName": "Veren IM WeChat",
+  "version": "0.1.0",
+  "description": "Use when a DSH host must talk to a personal WeChat account through the Tencent iLink bot protocol: it provides QR authorization, 35-second getupdates long polling with a persisted cursor, message-id deduplication, per-account context_token reuse, and text sending split at 1,800 UTF-16 code units, while images and files remain unsupported V1 extension points.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**/*.js",
+    "src/**/*.ts",
+    "README.md",
+    "README.cn.md"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {},
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/im": "workspace:*",
+    "qrcode": "^1.5.4"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-credentials": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-home-paths": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-credentials": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-home-paths": "0.2.1-rc.2",
+    "@types/node": "^26.6.5",
+    "@types/qrcode": "^1.5.5",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}

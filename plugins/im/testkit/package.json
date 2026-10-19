@@ -1,0 +1,42 @@
+{
+  "name": "@veren/im-testkit",
+  "displayName": "Veren IM Testkit",
+  "version": "0.1.0",
+  "description": "Use when an IM provider must be proven against the @veren/im contract without a real account: it ships a programmable fake provider (listen, QR bind state machine, send capture, deduplication) and one reusable conformance suite that asserts those behaviors for any provider driver.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**/*.js",
+    "src/**/*.ts",
+    "README.md",
+    "README.cn.md"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {},
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@veren/im": "workspace:*"
+  },
+  "peerDependencies": {
+    "vitest": "^5.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}

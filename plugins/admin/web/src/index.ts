@@ -30,8 +30,22 @@ import { contentTypeFor, INDEX_SECURITY_HEADERS, resolveWithin, sendFile } from 
 /** Plugin display name. 插件显示名。 */
 export const name = 'admin-web'
 
-/** The SPA needs the kernel, the gateway, the HTTP carrier and the UI registry. SPA 需要内核、网关、HTTP 载体与 UI 注册表。 */
-export const inject = ['admin', 'adminApi', 'webServer', 'adminUi'] as const
+/**
+ * Services this plugin needs before it may load: the kernel, the gateway, the
+ * HTTP carrier, the UI registry and the navigation façade.
+ *
+ * `adminNavigation` is listed because the bootstrap handler reads
+ * `ctx.adminNavigation.tree(principal)` at request time; Cordis rejects every
+ * service access a plugin did not declare, with
+ * `cannot get property "adminNavigation" without inject`.
+ *
+ * 本插件加载前需要的服务：内核、网关、HTTP 载体、UI 注册表与导航 façade。
+ *
+ * 必须声明 `adminNavigation`：bootstrap 处理器在请求时读取
+ * `ctx.adminNavigation.tree(principal)`，而 Cordis 会拒绝任何未声明的服务访问，报
+ * `cannot get property "adminNavigation" without inject`。
+ */
+export const inject = ['admin', 'adminApi', 'webServer', 'adminUi', 'adminNavigation'] as const
 
 /** Web carrier configuration. Web 载体配置。 */
 export interface Config {
