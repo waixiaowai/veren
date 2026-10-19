@@ -23,7 +23,7 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@veren/im": ["../core/index.ts"]
+      "@veren/im": ["../core/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"]

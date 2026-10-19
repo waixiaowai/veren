@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { defineConfig } from 'vitest/config'
 
-const core = resolve(fileURLToPath(new URL('.', import.meta.url)), '../core/index.ts')
+const core = resolve(fileURLToPath(new URL('.', import.meta.url)), '../core/src/index.ts')
 
 export default defineConfig({
   resolve: {
