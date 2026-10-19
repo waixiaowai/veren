@@ -123,7 +123,7 @@ export function bindView(attempt: ImBindAttempt, account?: ImAccount): JsonValue
     if (challenge.imagePath !== undefined) view.qrPath = challenge.imagePath
   }
   if (account !== undefined) view.account = accountView(account)
-  return jsonOf(view)
+  return jsonOf({ ok: true, ...view })
 }
 
 /** Build one local file content block. */

@@ -1,12 +1,9 @@
 /**
  * Binding, authorization polling, sending, and listing.
- *
  * This module owns every mutation of the durable binding table and the
  * active-pointer invariant. It never renders a prompt and never listens to a
  * channel: routing stays in `router.ts`.
- *
  * 绑定、授权轮询、发送与列表。
- *
  * 本模块拥有绑定表的全部写操作与 active 指针不变量。它不渲染 Prompt，也不监听渠道：路由留在
  * `router.ts`。
  *
@@ -27,7 +24,6 @@ import type {
   ImRegistry,
 } from './contract.ts'
 import type { ImAccountRow, ImBindingStore } from './store.ts'
-
 /** Logging surface shared by the router and bindings. */
 export interface ImLogger {
   info?(message: string): void
@@ -104,7 +100,6 @@ export class ImBindings {
   readonly #newId: (prefix: string) => string
   readonly #attempts = new Map<string, { providerId: string; attempt: ImBindAttempt }>()
   #writeChain: Promise<unknown> = Promise.resolve()
-
   constructor(options: ImBindingsOptions) {
     this.#store = options.store
     this.#registry = options.registry

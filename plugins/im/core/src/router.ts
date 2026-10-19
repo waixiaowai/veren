@@ -1,16 +1,8 @@
 /**
- * Active-binding routing and session hand-off.
- *
- * Inbound messages resolve through the active binding of their conversation;
- * source metadata and body are rendered as separate sections, and the answer
- * returns to the exact conversation that produced the turn.
- *
- * 活跃绑定路由与会话交接：入站消息按会话的 active binding 解析，来源元数据与正文分区渲染，
- * 答案回送到产生本次 turn 的会话。
+ * Active-binding routing and session hand-off. 活跃绑定路由与会话交接。
  *
  * @module @veren/im/router
  */
-
 import { defineToken } from '@veren/core'
 import { ImError } from './contract.ts'
 import type {
@@ -35,7 +27,6 @@ import type {
   ImRouterSendRequest,
   ImSessionGateway,
 } from './bindings.ts'
-
 export { ImBindings } from './bindings.ts'
 export type {
   ImBindPollResult,
@@ -47,7 +38,6 @@ export type {
   ImRouterSendRequest,
   ImSessionGateway,
 } from './bindings.ts'
-
 /** One account removal result. */
 export interface ImUnbindAccountResult {
   removed: boolean
@@ -66,7 +56,6 @@ export interface ImRouterOptions extends ImBindingsOptions {
 }
 /** Router service token, consumed by @veren/im-tool. */
 export const ImRouterToken = defineToken<ImRouter>('imRouter')
-
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Active-binding router, provided by @veren/im. */
@@ -133,7 +122,6 @@ export class ImRouter {
   readonly #config: ImRouterConfig
   readonly #bindings: ImBindings
   readonly #conversationChains = new Map<string, Promise<unknown>>()
-
   /**
    * @param options - storage, registry, session gateway, credentials, and config.
    */

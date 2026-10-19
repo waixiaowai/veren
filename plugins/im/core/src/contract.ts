@@ -1,6 +1,5 @@
 /**
  * Provider-neutral IM contract and registry.
- *
  * Providers implement ImService and register one ImProvider; the host routes
  * through ImRegistry, never a channel singleton.
  *
@@ -147,7 +146,6 @@ export interface ImBindChallenge {
 }
 /** One authorization attempt's state. */
 export type ImBindStatus = 'pending' | 'scanned' | 'needs-code' | 'bound' | 'expired' | 'failed'
-
 /** A live authorization attempt; the provider advances it in the background. */
 export interface ImBindAttempt {
   bindId: string
@@ -223,10 +221,8 @@ export interface ImProvider {
 }
 /** Callback the registry uses to hand an inbound message to the router. */
 export type ImMessageHandler = (providerId: string, message: ImMessage) => void | Promise<void>
-
 /** The `im` service token. */
 export const ImToken = defineToken<ImRegistry>('im')
-
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Provider-neutral IM registry. */
@@ -257,9 +253,7 @@ export function imCredentialKey(accountId: string): CredentialKey {
  */
 export class ImRegistry extends Service {
   static provide = ImToken
-
   private readonly providers = new Map<string, { provider: ImProvider; unlisten: () => void }>()
-
   /**
    * @param ctx - owning Cordis context.
    * @param onMessage - router callback receiving every inbound message.

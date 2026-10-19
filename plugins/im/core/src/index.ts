@@ -1,6 +1,5 @@
 /**
  * @veren/im plugin entry: registry, router, storage, and the DSH session bridge.
- *
  * The core package owns no channel-specific code. It opens the durable IM
  * domain, constructs the registry and router, publishes the router under
  * `imRouter`, and hands inbound messages to the active-binding router. The
@@ -246,13 +245,10 @@ function messageOf(error: unknown): string {
 
 /** Plugin name. */
 export const name = 'im'
-
 /** Host services the core needs. */
 export const inject = ['storageDomain', 'credentials', 'agents'] as const
-
 /** Services this plugin provides. */
 export const provide = [ImToken, ImRouterToken] as const
-
 /** Plugin configuration. */
 export interface Config {
   /** Auto-create a Session for an inbound conversation without an active binding. */
@@ -260,13 +256,11 @@ export interface Config {
   /** Maximum wait for one Session turn to finish. */
   replyTimeoutMs: number
 }
-
 /** Configuration schema. */
 export const Config: z<Config> = z.object({
   autoCreateSession: z.boolean().default(false),
   replyTimeoutMs: z.number().default(120_000),
 })
-
 /**
  * Apply the IM core plugin.
  * @param ctx - host context.
@@ -276,7 +270,6 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   const storage = new ImStorage()
   await storage.open(ctx)
   ctx.effect(() => () => storage.close(), 'im:storage')
-
   const logger: ImLogger = {
     info: message => ctx.logger.info(message),
     warn: message => ctx.logger.warn(message),
@@ -284,7 +277,6 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   }
   const gateway = new DshSessionGateway(ctx, config.replyTimeoutMs)
   ctx.effect(() => () => gateway.dispose(), 'im:gateway')
-
   // The registry starts delivering as soon as a provider registers, so messages
   // that arrive before the router exists are buffered here and replayed in order
   // instead of being dropped silently.
