@@ -6,8 +6,9 @@
  * 插件里手抄一份就等于把外壳的契约复制了 N 份，外壳增删基座模块时不会有任何
  * 门禁报错，只会白屏或 `require is not a function`。因此这里只保留一份。
  *
- * 与官方 `packages/client/web/src/platform.ts` 的冻结表同源；改动它等于改动外壳
- * 契约，必须同时升级所有 UI 插件的 `engines.dsh` 区间。
+ * 本包零构建：`exports` 直接指向本文件，`pnpm check:platform-modules` 会把它与
+ * 官方 `packages/client/web/src/platform.ts` 逐项比对（缺项、多项、顺序不同都失败）。
+ * 改动它等于改动外壳契约，必须同时升级所有 UI 插件的 `engines.dsh` 区间。
  *
  * The shell's frozen module table — the single source of truth for every
  * browser-plugin build.
@@ -19,12 +20,13 @@
  * a blank page or `require is not a function` instead of a checkable error.
  * Keep exactly one copy here.
  *
- * It mirrors the frozen table in the official
- * `packages/client/web/src/platform.ts`; changing it changes the shell
- * contract and must move every UI plugin's `engines.dsh` range in the same
- * change.
+ * This package builds nothing: `exports` points straight at this file, and
+ * `pnpm check:platform-modules` compares it item by item with the official
+ * `packages/client/web/src/platform.ts` (a missing, extra, or reordered module
+ * fails the gate). Changing it changes the shell contract and must move every
+ * UI plugin's `engines.dsh` range in the same change.
  *
- * @module @veren/shared/platform-modules
+ * @module @veren/platform-modules
  */
 
 /** 外壳共享进冻结模块表的模块名 / module specifiers the shell shares into its frozen table. */

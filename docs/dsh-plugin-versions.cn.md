@@ -62,5 +62,5 @@ profile 级逃生门 `dsh plugin allow-version <package@version> --dsh-version <
 
 ## 已知限制
 
-- 浏览器构建仍带有一份外壳冻结模块表，位于 [`plugins/_shared/platform-modules.mjs`](../plugins/_shared/platform-modules.mjs)。现在是唯一一份而不是每个插件一份，但没有任何脚本从 `packages/client/web/src/platform.ts` 生成它；基座模块变动时要人工复核。
+- 浏览器构建从工作区包 [`packages/platform-modules/platform-modules.mjs`](../packages/platform-modules/platform-modules.mjs) 读取外壳冻结模块表（零构建；`platform-modules.d.mts` 里是字面量元组声明）。`pnpm check:platform-modules` 会在 `DSH_CHECKOUT` 指向的检出里与 `packages/client/web/src/platform.ts` 逐项比对，缺项、多项、重复项、顺序不同都会失败，基座模块变动不再依赖人工复核。
 - `pnpm check:plugins` 校验声明，不校验行为。只有组合测试能覆盖“运行时改了服务契约却没改版本号”的情况。

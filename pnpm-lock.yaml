@@ -693,6 +693,8 @@ importers:
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-storage@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))
 
+  packages/platform-modules: {}
+
   packages/yaml-parser:
     dependencies:
       '@deepseek-ai/schemastery':
@@ -1094,6 +1096,9 @@ importers:
       '@types/ws':
         specifier: ^8.5.10
         version: 8.18.2
+      '@veren/platform-modules':
+        specifier: workspace:*
+        version: link:../../packages/platform-modules
       lightningcss:
         specifier: ^1.28.0
         version: 1.33.0
@@ -1298,6 +1303,9 @@ importers:
       '@types/react-dom':
         specifier: ^19
         version: 19.3.0(@types/react@19.3.0)
+      '@veren/platform-modules':
+        specifier: workspace:*
+        version: link:../../packages/platform-modules
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
@@ -1399,6 +1407,9 @@ importers:
       '@types/react-dom':
         specifier: ^19
         version: 19.3.0(@types/react@19.3.0)
+      '@veren/platform-modules':
+        specifier: workspace:*
+        version: link:../../packages/platform-modules
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
@@ -1809,6 +1820,9 @@ importers:
       '@deepseek-ai/dsh-typert-protocol':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
+      '@veren/platform-modules':
+        specifier: workspace:*
+        version: link:../../packages/platform-modules
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2

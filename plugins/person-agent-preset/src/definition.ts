@@ -164,18 +164,31 @@ export function buildPersonAgentPreset(options: PresetOptions): PresetDefinition
       ]
     : []
   const tools: PluginRow[] = [
-    // 桥梁没有终端，能干的活只有读和写。write 是「写给人看的文档」这一唯一
-    // 合法例外，必须保留；edit 让它能直接改代码，摘掉它，自干就失去最后的落点。
-    // The bridge has no terminal, so the only self-work it could do is read or
-    // write. `write` is required for the one legitimate carve-out, documents a
-    // human reads; `edit` would let it change code directly, so the preset no
-    // longer mounts it and self-work loses its landing point.
+    // 文件工具：读写与搜索。write 保留（它是「写给人看的文档」这一唯一合法例外）；
+    // edit 仍然关闭——要改代码就走终端执行行，或派给能干活的会话，避免「悄悄改
+    // 一行」这种最难审的改动。
+    // File tools: read/write plus search. `write` stays - it is the one legitimate
+    // carve-out for documents a human reads. `edit` stays off so code changes go
+    // through the terminal row or a delegated session, instead of a silent
+    // one-line edit nobody reviews.
     { id: 'tool-fs', name: '@deepseek-ai/dsh-tool-fs', config: { edit: false } },
     {
       id: 'tool-fs-search',
       name: '@deepseek-ai/dsh-tool-fs-search',
       config: { sampleOverCapGlobResults: false },
     },
+    // 终端执行行：用户明确要求桥梁自己能跑命令，好让它亲手验收构建与门禁，不必把
+    // 每条命令都退回给用户。Windows 上取 pwsh 版；它提供前台执行 + 后台作业，
+    // 行为与 bash 版对等。
+    // 注意：挂上这一行之后，「桥梁没有终端」这个旧前提就不成立了，自干重新有了
+    // 落点；此时唯一的闸门是系统提示词末尾那条带数字的「停手派活」规则。
+    // Terminal row: the user asked for real command execution so the bridge can run
+    // builds and gates itself instead of bouncing every command back to the human.
+    // On Windows this is the pwsh variant (foreground + background jobs, the
+    // behavioural twin of the bash tool). Mounting it retires the old "the bridge
+    // has no terminal" premise, so self-work has a landing point again; the
+    // numeric stop-and-delegate suffix is now the only gate.
+    { id: 'tool-pwsh', name: '@deepseek-ai/dsh-tool-pwsh' },
     // present 让 Agent 把成果作为文件卡片交付，是人类可读汇报的关键出口。
     // present delivers artifacts as file cards - the key outlet for readable reports.
     { id: 'present', name: '@deepseek-ai/dsh-tool-present' },

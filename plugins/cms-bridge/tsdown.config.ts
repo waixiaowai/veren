@@ -15,7 +15,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { UserConfig } from 'tsdown';
 // 外壳冻结模块表只有一份事实源 / the shell's frozen module table has one source of truth.
-import { PLATFORM_MODULES } from '../_shared/platform-modules.mjs';
+import { PLATFORM_MODULES } from '@veren/platform-modules';
 
 const PKG = '@veren/cms-bridge';
 

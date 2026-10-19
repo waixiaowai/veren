@@ -62,5 +62,5 @@ A passing load proves only that imports resolved. A composition test should also
 
 ## Known limits
 
-- The browser build still carries a copy of the shell's frozen module table in [`plugins/_shared/platform-modules.mjs`](../plugins/_shared/platform-modules.mjs). It is one copy instead of one per plugin, but nothing generates it from `packages/client/web/src/platform.ts`; review it whenever a baseline module changes.
+- The browser build consumes the shell's frozen module table from the workspace package [`packages/platform-modules/platform-modules.mjs`](../packages/platform-modules/platform-modules.mjs) (zero build; the declaration in `platform-modules.d.mts` is a literal tuple). `pnpm check:platform-modules` compares it item by item with `packages/client/web/src/platform.ts` under `DSH_CHECKOUT` and fails on a missing, extra, duplicated, or reordered module, so a baseline change no longer relies on manual review.
 - `pnpm check:plugins` validates declarations, not behavior. Only the composition test covers a runtime that changed a service contract without changing its version.

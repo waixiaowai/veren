@@ -24,7 +24,7 @@ import { build } from 'esbuild'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { PLATFORM_MODULES } from '../../_shared/platform-modules.mjs'
+import { PLATFORM_MODULES } from '@veren/platform-modules'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const packageName = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).name

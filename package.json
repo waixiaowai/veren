@@ -7,6 +7,8 @@
     "build": "pnpm -r build",
     "test": "pnpm -r --workspace-concurrency=1 test",
     "cli": "node scripts/commander.mjs",
+    "check": "pnpm check:plugins && pnpm check:platform-modules",
+    "check:platform-modules": "node scripts/check-platform-modules.mjs",
     "check:plugins": "node scripts/check-plugin-manifests.mjs",
     "market:build": "node market/build.mjs",
     "market:deploy": "node market/deploy.mjs"
