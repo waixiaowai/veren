@@ -1,7 +1,6 @@
 {
   "name": "@imeep/dsh-session-fork-enhanced",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "Use when a session must be forked with an explicit agent preset and/or provider model for the new branch: registers the session_fork_with_options tool over ctx.sessionQuery, ctx.agentPresets and ctx.agents; skip it when plain session_fork inheritance is enough.",
   "main": "./dist/index.js",

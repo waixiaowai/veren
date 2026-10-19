@@ -58,6 +58,12 @@ export function FlowGraph({ flow, run, selectedNodeId, renderNode, onClearSelect
             onPointerUp={viewport.onPointerEnd}
             onPointerCancel={viewport.onPointerEnd}
             onDoubleClick={viewport.onDoubleClick}
+            // Block the browser's native HTML5 drag (text/image/ghost drag).
+            // Without this, dragging a node card starts a native drag whose
+            // drop behaves like a copy — the "drag triggers copy" bug.
+            // 阻止浏览器原生 HTML5 拖拽（文本/图片/幽灵拖拽）。缺少这一步时，
+            // 拖动节点卡片会启动原生拖拽，其放置行为等同复制——即“拖拽触发复制”的 bug。
+            onDragStart={event => { event.preventDefault() }}
         >
             <div
                 className={css.graphContent}

@@ -620,6 +620,12 @@
     background-image: radial-gradient(var(--dsw-alias-border-l1) 1px, transparent 1px);
     background-size: 22px 22px;
     touch-action: none;
+    /* Suppress native text selection: dragging the canvas must pan, never
+       start a selection or the native HTML5 drag that drops as a "copy".
+       禁止原生文本选择：在画布上拖拽只做平移，绝不能触发选区或会被当作
+       “复制”放置的原生 HTML5 拖拽。 */
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .graphViewportDragging {

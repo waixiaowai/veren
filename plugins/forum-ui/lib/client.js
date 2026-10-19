@@ -194,6 +194,8 @@ window.__ModuleLoader__.load({
       notifyMethod: "\u901A\u77E5\u65B9\u5F0F",
       replyBody: "\u56DE\u590D\u5185\u5BB9",
       sort: "\u6392\u5E8F",
+      config: "\u914D\u7F6E",
+      configSubtitle: "\u901A\u77E5\u4E0E\u81EA\u52A8\u53D1\u5E16\u8BBE\u7F6E\uFF0C\u53EA\u5F71\u54CD\u5F53\u524D\u8EAB\u4EFD\u3002",
       toastPublished: "\u53D1\u5E03\u6210\u529F",
       toastComment: "\u56DE\u590D\u5DF2\u53D1\u9001",
       toastPinned: "\u5DF2\u7F6E\u9876",
@@ -285,6 +287,8 @@ window.__ModuleLoader__.load({
       notifyMethod: "Notification",
       replyBody: "Your reply",
       sort: "Sort",
+      config: "Settings",
+      configSubtitle: "Notifications and auto-posting, for the acting identity only.",
       toastPublished: "Post published",
       toastComment: "Reply sent",
       toastPinned: "Pinned",
@@ -641,8 +645,7 @@ window.__ModuleLoader__.load({
       const [inboxLoaded, setInboxLoaded] = (0, import_react.useState)(false);
       const [localVotes, setLocalVotes] = (0, import_react.useState)({});
       const [composerOpen, setComposerOpen] = (0, import_react.useState)(false);
-      const [notificationsOpen, setNotificationsOpen] = (0, import_react.useState)(true);
-      const [autoPostOpen, setAutoPostOpen] = (0, import_react.useState)(false);
+      const [configOpen, setConfigOpen] = (0, import_react.useState)(false);
       const { toasts, push } = useToasts();
       const view = catalog.catalog;
       const people = view.people;
@@ -807,6 +810,22 @@ window.__ModuleLoader__.load({
                 }
               )
             ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+              "button",
+              {
+                type: "button",
+                className: configOpen ? "forum-btn forum-primary forum-cta" : "forum-btn forum-cta",
+                "aria-pressed": configOpen,
+                onClick: () => {
+                  setConfigOpen(!configOpen);
+                  setOpen(void 0);
+                },
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(GearIcon, {}),
+                  t("config")
+                ]
+              }
+            ),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { type: "button", className: "forum-btn forum-primary forum-cta", onClick: openComposer, children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PlusIcon, {}),
               t("newPost")
@@ -829,102 +848,85 @@ window.__ModuleLoader__.load({
           },
           board.id
         )) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "forum-layout", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", { className: "forum-main", children: [
-            catalog.status === "error" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "forum-banner", role: "alert", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-                t("failed"),
-                ": ",
-                catalog.error
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "forum-link", onClick: () => {
-                refresh();
-              }, children: t("retry") })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "forum-layout", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", { className: "forum-main", children: [
+          catalog.status === "error" && !configOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "forum-banner", role: "alert", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+              t("failed"),
+              ": ",
+              catalog.error
             ] }),
-            open === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              Feed,
-              {
-                t,
-                catalog,
-                posts: view.posts,
-                boardTitle,
-                actor: active,
-                readOnly: busy,
-                query,
-                tag,
-                sort,
-                onQuery: (value) => {
-                  setQuery(value);
-                  refresh({ ...boardFilter, query: value, tag, sort });
-                },
-                onTag: (value) => {
-                  setTag(value);
-                  refresh({ ...boardFilter, query, tag: value, sort });
-                },
-                onSort: (value) => {
-                  setSort(value);
-                  refresh({ ...boardFilter, query, tag, sort: value });
-                },
-                onOpenPost: openPost,
-                onVote: vote,
-                voteOf,
-                onPin: (postId, pinned) => {
-                  pin(postId, pinned, false);
-                },
-                onCreate: openComposer
-              }
-            ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              Thread,
-              {
-                t,
-                detail: open,
-                actor: active,
-                readOnly: busy,
-                onBack: () => {
-                  setOpen(void 0);
-                  reload();
-                },
-                onVote: vote,
-                voteOf,
-                onPin: (postId, pinned) => {
-                  pin(postId, pinned, true);
-                },
-                onComment: comment
-              }
-            )
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", className: "forum-link", onClick: () => {
+              refresh();
+            }, children: t("retry") })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("aside", { className: "forum-side", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              NotificationsCard,
-              {
-                t,
-                items: inbox,
-                loaded: inboxLoaded,
-                attached: active !== void 0,
-                readOnly: busy,
-                open: notificationsOpen,
-                onToggle: () => {
-                  setNotificationsOpen(!notificationsOpen);
-                },
-                onRead: readInbox,
-                onMarkAllRead: markAllRead
+          configOpen ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            SettingsPage,
+            {
+              t,
+              inbox,
+              inboxLoaded,
+              attached: active !== void 0,
+              readOnly: busy,
+              autoPost,
+              onRead: readInbox,
+              onMarkAllRead: markAllRead,
+              onSave: saveAutoPost,
+              onBack: () => {
+                setConfigOpen(false);
               }
-            ),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              AutoPostCard,
-              {
-                t,
-                snapshot: autoPost,
-                readOnly: busy,
-                open: autoPostOpen,
-                onToggle: () => {
-                  setAutoPostOpen(!autoPostOpen);
-                },
-                onSave: saveAutoPost
-              }
-            )
-          ] })
-        ] }),
+            }
+          ) : open === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            Feed,
+            {
+              t,
+              catalog,
+              posts: view.posts,
+              boardTitle,
+              actor: active,
+              readOnly: busy,
+              query,
+              tag,
+              sort,
+              onQuery: (value) => {
+                setQuery(value);
+                refresh({ ...boardFilter, query: value, tag, sort });
+              },
+              onTag: (value) => {
+                setTag(value);
+                refresh({ ...boardFilter, query, tag: value, sort });
+              },
+              onSort: (value) => {
+                setSort(value);
+                refresh({ ...boardFilter, query, tag, sort: value });
+              },
+              onOpenPost: openPost,
+              onVote: vote,
+              voteOf,
+              onPin: (postId, pinned) => {
+                pin(postId, pinned, false);
+              },
+              onCreate: openComposer
+            }
+          ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            Thread,
+            {
+              t,
+              detail: open,
+              actor: active,
+              readOnly: busy,
+              onBack: () => {
+                setOpen(void 0);
+                reload();
+              },
+              onVote: vote,
+              voteOf,
+              onPin: (postId, pinned) => {
+                pin(postId, pinned, true);
+              },
+              onComment: comment
+            }
+          )
+        ] }) }),
         composerOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           ComposerModal,
           {
@@ -1533,6 +1535,50 @@ window.__ModuleLoader__.load({
         )
       ] });
     }
+    function SettingsPage(props) {
+      const { t } = props;
+      const [notificationsOpen, setNotificationsOpen] = (0, import_react.useState)(true);
+      const [autoPostOpen, setAutoPostOpen] = (0, import_react.useState)(true);
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "forum-config", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { type: "button", className: "forum-btn forum-ghost forum-back", onClick: props.onBack, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowLeftIcon, {}),
+          t("back")
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "forum-config-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { className: "forum-config-title", children: t("config") }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "forum-config-subtitle", children: t("configSubtitle") })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          NotificationsCard,
+          {
+            t,
+            items: props.inbox,
+            loaded: props.inboxLoaded,
+            attached: props.attached,
+            readOnly: props.readOnly,
+            open: notificationsOpen,
+            onToggle: () => {
+              setNotificationsOpen(!notificationsOpen);
+            },
+            onRead: props.onRead,
+            onMarkAllRead: props.onMarkAllRead
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          AutoPostCard,
+          {
+            t,
+            snapshot: props.autoPost,
+            readOnly: props.readOnly,
+            open: autoPostOpen,
+            onToggle: () => {
+              setAutoPostOpen(!autoPostOpen);
+            },
+            onSave: props.onSave
+          }
+        )
+      ] });
+    }
     function NotificationsCard(props) {
       const { t, items, loaded, attached, readOnly, open, onToggle, onRead, onMarkAllRead } = props;
       return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "forum-side-card", children: [
@@ -1716,6 +1762,20 @@ window.__ModuleLoader__.load({
       if (error instanceof Error) return error.message;
       if (typeof error === "object" && error !== null && "message" in error) return String(error.message);
       return String(error);
+    }
+    function GearIcon() {
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: "8", cy: "8", r: "2.4", stroke: "currentColor", strokeWidth: "1.5" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "path",
+          {
+            d: "M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6 11 5M5 11l-1.4 1.4",
+            stroke: "currentColor",
+            strokeWidth: "1.5",
+            strokeLinecap: "round"
+          }
+        )
+      ] });
     }
     function PlusIcon() {
       return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M8 3v10M3 8h10", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round" }) });
@@ -1914,12 +1974,11 @@ window.__ModuleLoader__.load({
       color: inherit;
     }
 
-    /* ---------- two-column body ---------- */
+    /* ---------- single-column body ---------- */
     .forum-layout {
       flex: 1 1 auto;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 312px;
-      gap: 24px;
+      grid-template-columns: minmax(0, 1fr);
       width: 100%;
       max-width: 1180px;
       min-height: 0;
@@ -1927,14 +1986,26 @@ window.__ModuleLoader__.load({
       padding: 4px 40px 30px;
     }
     .forum-main { min-width: 0; min-height: 0; overflow-y: auto; padding-right: 4px; }
-    .forum-side { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; padding-right: 2px; }
-    .forum-main::-webkit-scrollbar, .forum-side::-webkit-scrollbar { width: 8px; }
-    .forum-main::-webkit-scrollbar-thumb, .forum-side::-webkit-scrollbar-thumb {
+    .forum-main::-webkit-scrollbar { width: 8px; }
+    .forum-main::-webkit-scrollbar-thumb {
       border: 2px solid transparent;
       border-radius: 999px;
       background: var(--dsw-alias-scrollbar-bg-l2);
       background-clip: padding-box;
     }
+
+    /* ---------- second-level settings page ---------- */
+    .forum-config {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      max-width: 720px;
+      padding-bottom: 12px;
+    }
+    .forum-config-head { display: flex; flex-direction: column; gap: 3px; margin-bottom: 2px; }
+    .forum-config-title { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.015em; }
+    .forum-config-subtitle { margin: 0; color: var(--forum-secondary); font-size: 12px; }
+    .forum-config .forum-side-card { flex: 0 0 auto; }
 
     /* ---------- feed toolbar ---------- */
     .forum-toolbar {
@@ -2482,9 +2553,8 @@ window.__ModuleLoader__.load({
 
     @media (max-width: 1120px) {
       .forum-header, .forum-boardbar, .forum-layout { padding-left: 24px; padding-right: 24px; }
-      .forum-layout { grid-template-columns: minmax(0, 1fr); }
       .forum-page { overflow-y: auto; }
-      .forum-main, .forum-side { overflow: visible; }
+      .forum-main { overflow: visible; }
     }
     @media (prefers-reduced-motion: reduce) {
       .forum-page *, .forum-page *::before, .forum-page *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }

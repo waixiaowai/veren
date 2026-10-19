@@ -66,6 +66,8 @@ interface DragState {
 
 /** Elements that own their own click and must not start a pan. */
 const INTERACTIVE = '[data-flow-node], [data-canvas-control]'
+/** Controls own their pointer too; node cards may still start a pan. */
+const PAN_BLOCKERS = '[data-canvas-control]'
 
 /**
  * Own the viewport transform for one laid-out graph.
@@ -174,7 +176,11 @@ export function useCanvasViewport(
     const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
         if (event.button !== 0) return
         const target = event.target as Element
-        if (target.closest(INTERACTIVE) !== null) return
+        // Node cards may start a pan too (with native drag suppressed a drag on
+        // a node must not be a dead zone); only canvas controls are excluded.
+        // 节点卡片也可以启动平移（原生拖拽被禁止后，节点上的拖拽不能是死区）；
+        // 只排除画布控件。
+        if (target.closest(PAN_BLOCKERS) !== null) return
         dragRef.current = {
             pointerId: event.pointerId,
             startX: event.clientX,

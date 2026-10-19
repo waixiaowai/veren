@@ -424,7 +424,6 @@ function ForumBody(props: BodyProps) {
                 onComment={comment}
               />
             )}
-          )}
         </main>
       </div>
 
