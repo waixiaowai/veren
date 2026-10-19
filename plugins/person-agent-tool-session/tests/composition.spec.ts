@@ -62,10 +62,18 @@ function fakeAgent(record: { followupCalls: unknown[], whenIdleCalls: number }) 
   }
 }
 
-/** 记录调用的假工作区注册表（只含归档/置顶方法）。A fake registry with only the archive/pin verbs. */
+/** 记录调用的假工作区注册表（归档/置顶 + 按路径解析）。A fake registry with the archive/pin verbs and path resolution. */
 function fakeWorkspaceRegistry() {
   return {
     calls: [] as string[],
+    resolveCalls: [] as string[],
+    byPath: new Map<string, { id: string }>(),
+    failResolve: false,
+    async resolveByPath(path: string) {
+      this.resolveCalls.push(path)
+      if (this.failResolve) throw new Error(`cannot resolve ${path}`)
+      return this.byPath.get(path)
+    },
     async archiveSession(id: string, options?: { stopActivity?: boolean }) {
       this.calls.push(`archiveSession:${String(id)}:${String(options?.stopActivity === true)}`)
     },
@@ -155,6 +163,53 @@ describe('personAgentToolSession composition（真实装配路径 / real assembl
     // 调用顺序锁定：先创建，再装模型，最后写标题。
     // Locked call order: create first, then model selection, then title.
     expect(env.sessionController.calls.map((call) => call.split(':')[0])).toEqual(['create', 'selectModel', 'rename'])
+    // 显式 workspaceId 不再按路径解析，避免把调用方明确指定的工作区换掉。
+    // An explicit workspaceId is never re-resolved by path, so the caller's
+    // explicit workspace cannot be replaced.
+    expect(env.workspaceRegistry.resolveCalls).toEqual([])
+  })
+
+  it('attaches session_create cwd to the workspace that owns it', async () => {
+    const env = await install()
+    env.workspaceRegistry.byPath.set('C:/work/app', { id: 'ws-1' })
+    await env.run('session_create', { cwd: 'C:/work/app' })
+    expect(env.workspaceRegistry.resolveCalls).toEqual(['C:/work/app'])
+    expect(env.sessionController.calls).toEqual(['create:{"workspaceId":"ws-1"}'])
+  })
+
+  it('keeps a plain cwd when no workspace owns it', async () => {
+    const env = await install()
+    await env.run('session_create', { cwd: 'C:/work/other' })
+    expect(env.sessionController.calls).toEqual(['create:{"cwd":"C:/work/other"}'])
+  })
+
+  it('keeps a plain cwd when the registry cannot resolve the path', async () => {
+    const env = await install()
+    env.workspaceRegistry.failResolve = true
+    await env.run('session_create', { cwd: 'C:/missing' })
+    expect(env.sessionController.calls).toEqual(['create:{"cwd":"C:/missing"}'])
+  })
+
+  it('resolves a dispatched new session cwd to its workspace, or falls back to cwd', async () => {
+    // 假 sessionController 会先记下 create 请求；随后新 id 解析不到目标，
+    // 这个稳定错误正好让断言停在「派发如何请求宿主创建」这一步。
+    // The fake controller records the create request first; the minted id is
+    // then unresolvable, so the stable error lets the assertion stop at how the
+    // dispatch asked the host to create the session.
+    const matched = await install()
+    matched.workspaceRegistry.byPath.set('C:/work/app', { id: 'ws-1' })
+    await expect(matched.run('session_dispatch', {
+      newSession: { cwd: 'C:/work/app' },
+      prompt: 'task',
+    }, { agent: { id: 'caller' } })).rejects.toMatchObject({ code: 'SESSION_DISPATCH_TARGET_NOT_FOUND' })
+    expect(matched.sessionController.calls[0]).toBe('create:{"workspaceId":"ws-1"}')
+
+    const unmatched = await install()
+    await expect(unmatched.run('session_dispatch', {
+      newSession: { cwd: 'C:/work/other' },
+      prompt: 'task',
+    }, { agent: { id: 'caller' } })).rejects.toMatchObject({ code: 'SESSION_DISPATCH_TARGET_NOT_FOUND' })
+    expect(unmatched.sessionController.calls[0]).toBe('create:{"cwd":"C:/work/other"}')
   })
 
   it('rejects an incomplete model selection and a location conflict', async () => {

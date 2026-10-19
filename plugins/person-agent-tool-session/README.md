@@ -35,6 +35,13 @@ The preset composes it as a child row (no `cordis.patch.yml` needed; the loader 
 | `session_unarchive` | `sessionId` | Restores an archived session to its recorded position. |
 | `session_pin` / `session_unpin` | `sessionId` | Maintains the registry-global pin set. |
 
+`session_create`'s `cwd` and `session_dispatch`'s `newSession.cwd` are resolved
+against `ctx.workspaceRegistry.resolveByPath`. An exact registered workspace is
+attached automatically, so the new session is grouped there; an unregistered,
+missing, or unresolvable path keeps the plain cwd and lands in the ungrouped
+bucket. Subdirectories are not promoted to a parent workspace, because doing so
+would rewrite the task's working directory.
+
 Errors are structured with stable codes (`SESSION_TITLE_EMPTY`, `SESSION_CREATE_LOCATION_CONFLICT`, `SESSION_MODEL_SELECTION_INCOMPLETE`, `SESSION_DISPATCH_NO_CALLER`, `SESSION_DISPATCH_PROMPT_EMPTY`, `SESSION_DISPATCH_TARGET_MISSING`, `SESSION_DISPATCH_TARGET_CONFLICT`, `SESSION_DISPATCH_TARGET_NOT_FOUND`, `SESSION_DISPATCH_CREATE_FAILED`, `SESSION_DISPATCH_CAPACITY_REACHED`, `SESSION_DISPATCH_WATCH_BUSY`) and machine-readable fields; registry-level refusals (active session, archived pin) propagate from the host seams as-is.
 
 ## Settlement reporting
@@ -114,8 +121,8 @@ A notice is delivered with the official `sendWaking` rule: `followup` when the c
 ## Understand the implementation
 
 - `src/index.ts` — plugin identity, toggles, and effect-managed registration (reverse-order cleanup, HMR safe).
-- `src/tools-management.ts` — create/rename/fork over `ctx.sessionController`.
-- `src/tools-dispatch.ts` — `session_dispatch` over `resolveAgent` + the settlement guard.
+- `src/tools-management.ts` — create/rename/fork over `ctx.sessionController`; also resolves a create `cwd` to its registered workspace.
+- `src/tools-dispatch.ts` — `session_dispatch` over `resolveAgent` + the settlement guard; a new-session `cwd` uses the same workspace resolver.
 - `src/watch.ts` — the settlement guard: inbox wake sources, the observation token, and the closing-output selection.
 - `src/notice.ts` — the two message kinds, the settlement notice, and `sendWaking` delivery.
 - `src/tools-state.ts` — archive/pin verbs over `ctx.workspaceRegistry`.

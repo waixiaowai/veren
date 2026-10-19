@@ -23,6 +23,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import { createDispatchPrompt } from './notice.js'
+import { resolveSessionLocation } from './tools-management.js'
 import { SessionToolError } from './types.js'
 import type { NewSessionArgs, SessionDispatchArgs, SessionDispatchResult } from './types.js'
 import type { SettlementWatch } from './watch.js'
@@ -106,14 +107,24 @@ async function resolveTarget(ctx: Context, args: SessionDispatchArgs): Promise<S
 /**
  * 新建目标会话；失败收敛成稳定的创建错误。
  * Create the target session; failures collapse into a stable create error.
+ *
+ * cwd 命中已登记工作区时改传 workspaceId：宿主会据此建立分组并把新会话挂到
+ * 该工作区；未命中才保留普通 cwd（未分组）。两条创建路径（session_create 与
+ * 本工具的 newSession）共用同一个解析器，行为不会分叉。
+ * When the cwd matches a registered workspace the request carries workspaceId:
+ * the host then creates the grouping and attaches the new session to that
+ * workspace; only a miss keeps the plain cwd (ungrouped). Both creation paths
+ * (session_create and this tool's newSession) share one resolver, so their
+ * behavior cannot diverge.
  * @param ctx - 宿主上下文。The host context.
  * @param created - 新建参数。The creation arguments.
  * @returns 新会话 id。The new session id.
  */
 async function createTarget(ctx: Context, created: NewSessionArgs): Promise<SessionId> {
+  const location = await resolveSessionLocation(ctx, created.cwd)
   try {
     const value = await ctx.sessionController.create({
-      ...created.cwd === undefined ? {} : { cwd: created.cwd },
+      ...(location === undefined ? {} : location),
       ...created.agentPreset === undefined ? {} : { agentPreset: created.agentPreset },
     })
     return value.sessionId
@@ -155,7 +166,10 @@ export function registerSessionDispatch(ctx: Context, watch: SettlementWatch): (
         additionalProperties: false,
         description: 'Create a fresh session instead of naming an existing one. Provide either sessionId or newSession, not both.',
         properties: {
-          cwd: { type: 'string', description: 'Directory the new session owns. Defaults to the deployment default.' },
+          cwd: {
+            type: 'string',
+            description: 'Directory the new session owns. A registered workspace owning this exact path is attached automatically; otherwise the session stays ungrouped. Defaults to the deployment default.',
+          },
           agentPreset: { type: 'string', description: 'Agent preset the new session runs. Defaults to the configured default.' },
         },
       },

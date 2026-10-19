@@ -35,6 +35,11 @@ Person Agent 预设的面向模型会话维护工具：基于 `ctx.sessionContro
 | `session_unarchive` | `sessionId` | 把归档会话移回原位。 |
 | `session_pin` / `session_unpin` | `sessionId` | 维护 registry-global 置顶集合。 |
 
+`session_create` 的 `cwd` 与 `session_dispatch` 的 `newSession.cwd` 会先经
+`ctx.workspaceRegistry.resolveByPath` 解析：精确命中已登记工作区时自动挂靠，新会话
+进入该分组；未登记、不存在或无法解析的路径保留普通 cwd，进入未分组。子目录不会被
+提升到父工作区，否则会改写任务的工作目录。
+
 错误是结构化的，带稳定 code（`SESSION_TITLE_EMPTY`、`SESSION_CREATE_LOCATION_CONFLICT`、`SESSION_MODEL_SELECTION_INCOMPLETE`、`SESSION_DISPATCH_NO_CALLER`、`SESSION_DISPATCH_PROMPT_EMPTY`、`SESSION_DISPATCH_TARGET_MISSING`、`SESSION_DISPATCH_TARGET_CONFLICT`、`SESSION_DISPATCH_TARGET_NOT_FOUND`、`SESSION_DISPATCH_CREATE_FAILED`、`SESSION_DISPATCH_CAPACITY_REACHED`、`SESSION_DISPATCH_WATCH_BUSY`）与机器可读字段；注册表层级的拒绝（会话仍在运行、归档会话置顶）原样来自宿主接缝。
 
 ## 结算回报
@@ -114,8 +119,8 @@ Person Agent 预设的面向模型会话维护工具：基于 `ctx.sessionContro
 ## 实现说明
 
 - `src/index.ts` — 插件身份、开关与 effect 托管的注册（逆序清理，HMR 安全）。
-- `src/tools-management.ts` — 走 `ctx.sessionController` 的创建/改名/分叉。
-- `src/tools-dispatch.ts` — 走 `resolveAgent` + 结算看守的 `session_dispatch`。
+- `src/tools-management.ts` — 走 `ctx.sessionController` 的创建/改名/分叉；并把创建时的 `cwd` 解析到已登记工作区。
+- `src/tools-dispatch.ts` — 走 `resolveAgent` + 结算看守的 `session_dispatch`；`newSession` 的 `cwd` 复用同一个工作区解析器。
 - `src/watch.ts` — 结算看守：inbox 唤醒源、观察令牌与收尾输出选取。
 - `src/notice.ts` — 两种消息 kind、结算通知与 `sendWaking` 投递。
 - `src/tools-state.ts` — 走 `ctx.workspaceRegistry` 的归档/置顶动词。

@@ -8,7 +8,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 // 类型-only import：拉取 sessionController 与 workspaceRegistry 的声明合并。
 // Type-only imports: pull the sessionController and workspaceRegistry merging.
 import type {} from '@deepseek-ai/dsh-api-session-controller'
-import type {} from '@deepseek-ai/dsh-workspace'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import {
   SessionToolError,
   optionalModelSelection,
@@ -18,6 +18,39 @@ import type { SessionCreateArgs, SessionCreateResult, SessionForkArgs, SessionRe
 
 /** 工具描述共用提示：id 可在工作记忆快照里查到。Shared description hint. */
 const HINT = 'Session ids appear in the working-memory snapshot.'
+
+/** 会话位置：已登记工作区或普通 cwd。A session location: a registered workspace or a plain cwd. */
+export type SessionLocation = { readonly workspaceId: WorkspaceId } | { readonly cwd: string }
+
+/**
+ * 把目标 cwd 解析成已登记的工作区；匹配不到（或路径无法解析）时保留普通 cwd。
+ * Resolve a target cwd to a registered workspace; fall back to the plain cwd
+ * when no workspace owns it (or the path cannot be resolved).
+ *
+ * 工作区分组按 canonical cwd 精确匹配，所以这里只接受注册表返回的精确记录：
+ * 子目录不会被强行挂到父工作区，否则会把任务的工作目录改写成工作区根。
+ * Workspace grouping matches the canonical cwd exactly, so only an exact
+ * registry record is accepted: a subdirectory is never attached to its parent
+ * workspace, which would rewrite the task's working directory.
+ * @param ctx - 携带 workspaceRegistry 的宿主上下文。The context carrying workspaceRegistry.
+ * @param cwd - 目标目录；省略时返回 undefined。The target directory; undefined when omitted.
+ * @returns 位置片段，或没有 cwd 时的 undefined。The location fragment, or undefined without a cwd.
+ */
+export async function resolveSessionLocation(
+  ctx: Context,
+  cwd: string | undefined,
+): Promise<SessionLocation | undefined> {
+  if (cwd === undefined) return undefined
+  try {
+    const workspace = await ctx.workspaceRegistry.resolveByPath(cwd)
+    if (workspace !== undefined) return { workspaceId: workspace.id }
+  } catch {
+    // 未登记、路径不存在或无法 realpath：保持宿主原有的普通 cwd 行为（未分组）。
+    // Unregistered, missing, or unresolvable: keep the host's plain-cwd
+    // behavior (ungrouped).
+  }
+  return { cwd }
+}
 
 /** 宿主 create 的返回形状（本文件内复用，避免再声明一遍）。 */
 /** The host create value shape (reused in this file instead of redeclaring). */
@@ -42,7 +75,10 @@ export function registerSessionCreate(ctx: Context): () => void {
         provider: { type: 'string', description: 'Provider id; required together with model.' },
         model: { type: 'string', description: 'Model id; required together with provider.' },
         workspaceId: { type: 'string', description: 'Workspace to attach; mutually exclusive with cwd.' },
-        cwd: { type: 'string', description: 'Working directory for the new session; mutually exclusive with workspaceId.' },
+        cwd: {
+          type: 'string',
+          description: 'Working directory for the new session; a registered workspace owning this exact path is attached automatically, otherwise the session stays ungrouped. Mutually exclusive with workspaceId.',
+        },
       },
       output: {
         // 无损 JSON 输出：结果小而稳定，模型直接读原始值。
@@ -52,7 +88,7 @@ export function registerSessionCreate(ctx: Context): () => void {
         render: (_args, value) => [{ type: 'text' as const, text: JSON.stringify(value) }],
       },
       async execute(args): Promise<SessionCreateResult> {
-        const request = buildCreateRequest(args)
+        const request = await buildCreateRequest(ctx, args)
         const created = await ctx.sessionController.create(request)
         // 创建成功后再按需补装模型选择与标题；失败时新会话保留，错误显性返回。
         // Model selection and title are installed after a successful create; on
@@ -72,8 +108,21 @@ export function registerSessionCreate(ctx: Context): () => void {
 /**
  * 把创建参数翻译成宿主请求（位置互斥在这里显性失败）。
  * Translate create arguments into the host request (location conflicts fail loud here).
+ *
+ * cwd 先尝试解析成已登记工作区：命中时改传 workspaceId，宿主据此建立分组并
+ * 把会话挂到该工作区；未命中才退回普通 cwd（未分组）。
+ * A cwd is first resolved to a registered workspace: on a hit the request
+ * carries workspaceId, so the host creates the group membership and attaches
+ * the session to that workspace; only a miss falls back to a plain cwd
+ * (ungrouped).
+ * @param ctx - 携带 workspaceRegistry 的宿主上下文。The context carrying workspaceRegistry.
+ * @param args - 模型给出的创建参数。The model-supplied create arguments.
+ * @returns 宿主 create 请求。The host create request.
  */
-function buildCreateRequest(args: SessionCreateArgs): Parameters<Context['sessionController']['create']>[0] {
+async function buildCreateRequest(
+  ctx: Context,
+  args: SessionCreateArgs,
+): Promise<Parameters<Context['sessionController']['create']>[0]> {
   if (args.workspaceId !== undefined && args.cwd !== undefined) {
     throw new SessionToolError(
       'SESSION_CREATE_LOCATION_CONFLICT',
@@ -82,9 +131,11 @@ function buildCreateRequest(args: SessionCreateArgs): Parameters<Context['sessio
     )
   }
   optionalModelSelection(args)
+  const location = args.workspaceId !== undefined
+    ? { workspaceId: args.workspaceId as WorkspaceId }
+    : await resolveSessionLocation(ctx, args.cwd)
   return {
-    ...(args.workspaceId === undefined ? {} : { workspaceId: args.workspaceId as never }),
-    ...(args.cwd === undefined ? {} : { cwd: args.cwd }),
+    ...(location === undefined ? {} : location),
     ...(args.presetId === undefined ? {} : { agentPreset: args.presetId }),
   }
 }
