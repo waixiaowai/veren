@@ -21,6 +21,12 @@ const createRoleBody = z.object({
   permissions: z.array(z.string()).default([]),
 })
 
+/** Body of a role update request; the id travels in the path. 更新角色请求体；id 走路径。 */
+const updateRoleBody = z.object({
+  label: z.string().min(1).max(80).optional(),
+  permissions: z.array(z.string()).optional(),
+})
+
 /** Body of a role binding request. 角色绑定请求体。 */
 const bindRoleBody = z.object({
   roleId: z.string().min(1),
@@ -65,6 +71,21 @@ export function accessRoutes(access: RbacAccess): AdminRoute[] {
       handler: async ({ request }) => {
         const body = request.body as z.infer<typeof createRoleBody>
         return access.createRole(body)
+      },
+    },
+    {
+      audience: 'admin',
+      method: 'PATCH',
+      path: '/roles/:id',
+      permission: ADMIN_PERMISSIONS.rolesManage,
+      summary: 'Update a custom role label or permissions',
+      tags: ['access'],
+      action: 'roles.update',
+      audit: true,
+      input: updateRoleBody,
+      handler: async ({ request }) => {
+        const body = request.body as z.infer<typeof updateRoleBody>
+        return access.updateRole(request.params.id as string, body)
       },
     },
     {

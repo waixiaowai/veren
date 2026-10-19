@@ -149,6 +149,29 @@ describe('local auth provider', () => {
       .rejects.toMatchObject({ code: 'CONFLICT' })
   })
 
+  it('resets a password and refuses a reset to the same value', async () => {
+    await auth.setup({ email: 'owner@example.com', password: 'correct horse', name: 'Owner' })
+    const created = await auth.createUser({ email: 'alice@example.com', password: 'alice pass 1', name: 'Alice' })
+
+    await auth.updateUser(created.id, { password: 'alice pass 2' })
+    await expect(auth.login({ email: 'alice@example.com', password: 'alice pass 2' }))
+      .resolves.toMatchObject({ principal: { email: 'alice@example.com' } })
+    await expect(auth.login({ email: 'alice@example.com', password: 'alice pass 1' }))
+      .rejects.toMatchObject({ code: 'AUTH_REQUIRED' })
+
+    // Same password as the stored one is a form mistake, not a reset.
+    // 与已存口令相同属于表单笔误，而不是重置。
+    await expect(auth.updateUser(created.id, { password: 'alice pass 2' }))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'UNCHANGED' } })
+
+    // An omitted password keeps the current one, and the policy still applies to a
+    // supplied one. 省略密码保持原值；提供密码时策略仍然生效。
+    await auth.updateUser(created.id, { name: 'Alice Chen' })
+    await expect(auth.login({ email: 'alice@example.com', password: 'alice pass 2' })).resolves.toBeTruthy()
+    await expect(auth.updateUser(created.id, { password: 'short' }))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED' })
+  })
+
   it('refuses to delete the last owner', async () => {
     const result = await auth.setup({ email: 'owner@example.com', password: 'correct horse', name: 'Owner' })
     await expect(auth.deleteUser(result.principal.userId)).rejects.toMatchObject({ code: 'LAST_OWNER' })

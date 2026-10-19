@@ -172,6 +172,12 @@ export const deleteUser = (id) => request('DELETE', `${ADMIN}/users/${encodeURIC
 /** Every role. 全部角色。 */
 export const listRoles = () => request('GET', `${ADMIN}/roles`)
 
+/** Create one custom role. 创建一个自定义角色。 */
+export const createRole = (input) => request('POST', `${ADMIN}/roles`, input)
+
+/** Update one custom role's label and/or permissions. 更新一个自定义角色的显示名与/或权限。 */
+export const updateRole = (id, patch) => request('PATCH', `${ADMIN}/roles/${encodeURIComponent(id)}`, patch)
+
 /** One page of audit entries. 一页审计记录。 */
 export const listAudit = (query) => request('GET', `${ADMIN}/audit${queryString(query)}`)
 

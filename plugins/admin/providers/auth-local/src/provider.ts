@@ -205,8 +205,42 @@ export class LocalAuth implements AdminAuth {
     id: string,
     patch: { readonly name?: string; readonly active?: boolean; readonly password?: string },
   ): Promise<AdminUserView> {
+    await this.assertPasswordChange(id, patch.password)
     await updateUser(this.ctx, { minLength: this.config.passwordMinLength }, id, patch)
     return (await listUsers(this.ctx)).find((view) => view.id === id) as AdminUserView
+  }
+
+  /**
+   * Refuse a password reset that would store the same password again.
+   *
+   * The rule lives here rather than in the user table helpers because it needs the
+   * stored hash: a reset that changes nothing is almost always a form mistake, and
+   * telling the operator is cheaper than a silent no-op. The policy itself (minimum
+   * length) stays in one place, shared with user creation.
+   *
+   * 拒绝把密码重置成同一个值。
+   *
+   * 规则放在这里而不是用户表辅助函数里，因为它需要已存哈希：什么都没改的重置几乎总是
+   * 表单笔误，明确告知操作者比静默无操作更划算。口令策略（最小长度）仍只有一份，与创建
+   * 用户共用。
+   *
+   * @param id - target user 目标用户
+   * @param password - requested password, when supplied 请求的新口令（若提供）
+   * @throws AdminError `NOT_FOUND` for an unknown user, `VALIDATION_FAILED` with
+   *   `details.reason === 'UNCHANGED'` when the password already matches
+   */
+  private async assertPasswordChange(id: string, password: string | undefined): Promise<void> {
+    if (password === undefined) return
+    const current = userTable(this.ctx).find(id)
+    if (current === undefined) {
+      throw new AdminError('NOT_FOUND', `user '${id}' does not exist`, { userId: id })
+    }
+    if (await verifyPassword(password, current.passwordHash)) {
+      throw new AdminError('VALIDATION_FAILED', 'the new password must differ from the current password', {
+        field: 'password',
+        reason: 'UNCHANGED',
+      })
+    }
   }
 
   /** @param id - user id 用户 id */

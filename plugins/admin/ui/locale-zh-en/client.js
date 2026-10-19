@@ -27,6 +27,8 @@ const en = {
   'app.close': 'Close',
   'app.notFound': 'Page not found',
   'app.forbidden': 'You do not have permission to open this page',
+  // Separator for a list of translated values inside one cell. 单元格内已翻译值的分隔符。
+  'app.listSeparator': ', ',
 
   // Menu labels resolved from `bootstrap.nav[].labelKey` 来自导航的菜单标签
   'nav.dashboard': 'Dashboard',
@@ -47,6 +49,11 @@ const en = {
   'auth.loginAction': 'Sign in',
   'auth.setupAction': 'Create administrator',
   'auth.invalid': 'Email or password is incorrect',
+  // Placeholders: examples, not copy, so the address is identical in both locales.
+  // 占位提示：属于示例而非文案，因此邮箱在两语言下保持同一值。
+  'auth.emailPlaceholder': 'admin@example.com',
+  'auth.passwordPlaceholder': 'Enter your password',
+  'auth.namePlaceholder': 'Display name',
 
   // Dashboard 仪表盘
   'dashboard.title': 'Dashboard',
@@ -66,10 +73,24 @@ const en = {
   'users.email': 'Email',
   'users.lastLogin': 'Last sign-in',
   'users.created': 'Created',
+  'users.searchPlaceholder': 'Search by email or name',
+  'users.searchEmpty': 'No user matches this keyword',
+  'users.passwordReset': 'Reset password',
+  'users.passwordKeepHint': 'Leave blank to keep the current password',
+  'users.passwordUnchanged': 'The new password must differ from the current password',
+  'users.passwordPlaceholder': 'At least 8 characters',
+  'users.namePlaceholder': 'Display name',
 
   // Roles 角色
   'roles.title': 'Roles',
   'roles.name': 'Role',
+  'roles.label': 'Name',
+  'roles.id': 'Identifier',
+  'roles.idPlaceholder': 'lowercase letters, digits and hyphens',
+  'roles.namePlaceholder': 'Role name',
+  'roles.create': 'New role',
+  'roles.edit': 'Edit',
+  'roles.builtInHint': 'Built-in role — cannot be edited',
   'roles.permissions': 'Permissions',
   'roles.builtIn': 'Built in',
 
@@ -85,6 +106,8 @@ const en = {
   'audit.success': 'Success',
   'audit.failure': 'Failure',
   'audit.denied': 'Denied',
+  'audit.searchPlaceholder': 'Search by actor, action or target',
+  'audit.searchEmpty': 'No audit entry matches this keyword',
 
   // Capabilities 能力
   'capabilities.title': 'Capabilities',
@@ -110,6 +133,33 @@ const en = {
   'toast.created': 'Created',
   'toast.saved': 'Saved',
   'toast.deleted': 'Deleted',
+
+  // Permission names, keyed by the wire value (`perm.<permission>`). The raw id
+  // stays visible as the option's subtitle, so a renamed label never loses
+  // traceability to what the gateway compares.
+  // 权限名称，按线上值建键（`perm.<permission>`）。原始标识仍作为选项副标题可见，
+  // 因此改名后的标签永远保留回指网关实际比较的值。
+  'perm.admin.dashboard.read': 'Dashboard · Read',
+  'perm.admin.users.manage': 'Users · Manage',
+  'perm.admin.roles.manage': 'Roles · Manage',
+  'perm.admin.tokens.manage': 'API tokens · Manage',
+  'perm.admin.audit.read': 'Audit log · Read',
+  'perm.admin.capabilities.read': 'Capabilities · Read',
+  'perm.admin.settings.write': 'Settings · Write',
+  'perm.admin.plugins.manage': 'Plugins · Manage',
+  'perm.terminal.tasks.read': 'Terminal tasks · Read',
+  'perm.terminal.tasks.decide': 'Terminal tasks · Decide',
+
+  // Permission sections and picker controls. 权限分组与选择器控件。
+  'permGroup.overview': 'Overview',
+  'permGroup.identity': 'Users & roles',
+  'permGroup.observe': 'Audit & capabilities',
+  'permGroup.system': 'System',
+  'permGroup.terminal': 'Terminal tasks',
+  'permGroup.other': 'Other',
+  'permPicker.all': 'Select all',
+  'permPicker.none': 'Clear all',
+  'permPicker.invert': 'Invert',
 }
 
 /** Chinese dictionary; same keys as {@link en}. 中词典；键与 {@link en} 完全一致。 */
@@ -126,6 +176,8 @@ const zh = {
   'app.close': '关闭',
   'app.notFound': '页面不存在',
   'app.forbidden': '你没有打开该页面的权限',
+  // 单元格内已翻译值的分隔符。
+  'app.listSeparator': '、',
 
   // 来自导航的菜单标签
   'nav.dashboard': '仪表盘',
@@ -146,6 +198,11 @@ const zh = {
   'auth.loginAction': '登录',
   'auth.setupAction': '创建管理员',
   'auth.invalid': '邮箱或密码不正确',
+  // 占位提示：属于示例而非文案，因此邮箱在两语言下保持同一值。
+  // Placeholders: examples, not copy, so the address is identical in both locales.
+  'auth.emailPlaceholder': 'admin@example.com',
+  'auth.passwordPlaceholder': '请输入密码',
+  'auth.namePlaceholder': '请输入姓名',
 
   // 仪表盘
   'dashboard.title': '仪表盘',
@@ -165,10 +222,24 @@ const zh = {
   'users.email': '邮箱',
   'users.lastLogin': '最近登录',
   'users.created': '创建时间',
+  'users.searchPlaceholder': '按邮箱或姓名搜索',
+  'users.searchEmpty': '没有匹配该关键字的用户',
+  'users.passwordReset': '重置密码',
+  'users.passwordKeepHint': '留空表示不修改当前密码',
+  'users.passwordUnchanged': '新密码不能与当前密码相同',
+  'users.passwordPlaceholder': '至少 8 位字符',
+  'users.namePlaceholder': '请输入姓名',
 
   // 角色
   'roles.title': '角色',
   'roles.name': '角色',
+  'roles.label': '名称',
+  'roles.id': '标识',
+  'roles.idPlaceholder': '小写字母、数字与连字符',
+  'roles.namePlaceholder': '角色名称',
+  'roles.create': '新增角色',
+  'roles.edit': '编辑',
+  'roles.builtInHint': '内置角色，不可编辑',
   'roles.permissions': '权限',
   'roles.builtIn': '内置',
 
@@ -184,6 +255,8 @@ const zh = {
   'audit.success': '成功',
   'audit.failure': '失败',
   'audit.denied': '拒绝',
+  'audit.searchPlaceholder': '按操作者、操作类型或对象搜索',
+  'audit.searchEmpty': '没有匹配该关键字的审计记录',
 
   // 能力
   'capabilities.title': '能力',
@@ -209,6 +282,33 @@ const zh = {
   'toast.created': '已创建',
   'toast.saved': '已保存',
   'toast.deleted': '已删除',
+
+  // 权限名称，按线上值建键（`perm.<permission>`）。原始标识仍作为选项副标题可见，
+  // 因此改名后的标签永远保留回指网关实际比较的值。
+  // Permission names, keyed by the wire value (`perm.<permission>`); the raw id stays
+  // visible as the option's subtitle.
+  'perm.admin.dashboard.read': '仪表盘·查看',
+  'perm.admin.users.manage': '用户管理',
+  'perm.admin.roles.manage': '角色管理',
+  'perm.admin.tokens.manage': 'API 令牌管理',
+  'perm.admin.audit.read': '审计日志·读取',
+  'perm.admin.capabilities.read': '能力清单·读取',
+  'perm.admin.settings.write': '系统设置·修改',
+  'perm.admin.plugins.manage': '插件管理',
+  'perm.terminal.tasks.read': '终端任务·查看',
+  'perm.terminal.tasks.decide': '终端任务·审批',
+
+  // 权限分组与选择器控件。
+  // Permission sections and picker controls.
+  'permGroup.overview': '概览',
+  'permGroup.identity': '用户与角色',
+  'permGroup.observe': '审计与能力',
+  'permGroup.system': '系统',
+  'permGroup.terminal': '终端任务',
+  'permGroup.other': '其他',
+  'permPicker.all': '全选',
+  'permPicker.none': '全不选',
+  'permPicker.invert': '反选',
 }
 
 /**

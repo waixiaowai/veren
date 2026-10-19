@@ -78,6 +78,10 @@ const PERSONA_PREFIX = [
   '  approach — that is the worker\'s craft.',
   '- Introduce the session as you would introduce a colleague taking over, and stay accountable',
   '  afterwards: rename, fork or archive sessions to keep the house tidy.',
+  '- Parallelize by default: independent tasks go to different sessions at the same time, each',
+  '  carrying its own completion report. Queue on one session only when the tasks truly belong',
+  '  there (shared context, same target) — the one-outstanding-report-per-target limit binds',
+  '  per session, never across sessions. Do not serialize merely for tidiness.',
 ].join(' ')
 
 /**

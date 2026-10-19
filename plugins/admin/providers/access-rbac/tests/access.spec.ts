@@ -112,6 +112,32 @@ describe('RBAC access provider', () => {
     await expect(access.deleteRole(OWNER_ROLE)).rejects.toMatchObject({ code: 'CONFLICT' })
   })
 
+  it('updates a custom role and refuses built-ins with a stable code', async () => {
+    await access.createRole({ id: 'support', label: 'Support', permissions: [ADMIN_PERMISSIONS.dashboardRead] })
+
+    const updated = await access.updateRole('support', {
+      label: 'Support desk',
+      permissions: [ADMIN_PERMISSIONS.dashboardRead, ADMIN_PERMISSIONS.auditRead],
+    })
+    expect(updated.label).toBe('Support desk')
+    expect(updated.permissions).toEqual([ADMIN_PERMISSIONS.dashboardRead, ADMIN_PERMISSIONS.auditRead])
+    expect(updated.builtIn).toBe(false)
+
+    // A label-only patch keeps the stored permissions. 只改显示名时保留已存权限。
+    const renamed = await access.updateRole('support', { label: 'Help desk' })
+    expect(renamed.permissions).toEqual([ADMIN_PERMISSIONS.dashboardRead, ADMIN_PERMISSIONS.auditRead])
+
+    const listed = (await access.roles()).find((role) => role.id === 'support')
+    expect(listed?.label).toBe('Help desk')
+
+    await expect(access.updateRole(OWNER_ROLE, { label: 'X' }))
+      .rejects.toMatchObject({ code: 'CONFLICT', details: { builtIn: true } })
+    await expect(access.updateRole('ghost', { label: 'X' }))
+      .rejects.toMatchObject({ code: 'NOT_FOUND' })
+    await expect(access.updateRole('support', { permissions: ['admin.nope'] }))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED' })
+  })
+
   it('refuses to strip the owner role from the last owner', async () => {
     await access.assignRole('u1', OWNER_ROLE)
     await expect(access.revokeRole('u1', OWNER_ROLE)).rejects.toMatchObject({ code: 'LAST_OWNER' })

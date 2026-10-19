@@ -217,6 +217,14 @@ body {
   gap: 8px;
 }
 
+/* Filter row above a table. 表格上方的过滤行。 */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .page-footer {
   display: flex;
   justify-content: center;
@@ -304,10 +312,18 @@ body {
   border-block-end: none;
 }
 
+/* A table cell, not a flex box: `display: flex` on a `<td>` leaves the table
+ * layout and draws its bottom border at the content height, which shows as a
+ * stray rule beside a tall row.
+ * 它是表格单元格而非弹性盒子：`td` 上用 `display: flex` 会脱离表格布局，底边线画在
+ * 内容高度上，行较高时就会出现一条多余的竖线。 */
 .cell-actions {
-  display: flex;
-  gap: 4px;
-  justify-content: flex-end;
+  text-align: end;
+  white-space: nowrap;
+}
+
+.cell-actions > * + * {
+  margin-inline-start: 4px;
 }
 
 .cell-wrap {
@@ -422,6 +438,21 @@ body {
   height: 18px;
 }
 
+/* Placeholder hints are guidance, never content: muted, and never mistaken for a
+ * value. `opacity: 1` keeps Firefox from fading them further.
+ * 占位提示只作引导、不属于内容：使用弱化色，且不会被误认为已填值；`opacity: 1` 防止
+ * Firefox 再额外淡化。 */
+.input::placeholder {
+  color: var(--admin-muted);
+  opacity: 1;
+}
+
+/* The search box is one control, not a full-width field. 搜索框是单个控件，不占满整行。 */
+.search-input {
+  flex: 1 1 18rem;
+  max-width: 26rem;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -433,10 +464,139 @@ body {
   font-size: 0.85rem;
 }
 
+/* Guidance under a control, e.g. "leave blank to keep the password".
+ * 控件下方的引导文案，例如「留空表示不修改密码」。 */
+.field-hint {
+  color: var(--admin-muted);
+  font-size: 0.78rem;
+}
+
 .field-inline {
   flex-direction: row;
   align-items: center;
   gap: 8px;
+}
+
+/* Multi-select permission list inside a dialog. 对话框内的多选权限列表。 */
+.field-group {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.field-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: 4px 12px;
+  max-height: 11rem;
+  overflow: auto;
+  padding: 8px 10px;
+  background: var(--admin-surface-2);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+}
+
+/* ---- Permission picker 权限选择器 ---- */
+.picker-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-block-end: 8px;
+}
+
+/* Summary counters sit at the end and never shift the buttons as digits change.
+ * 汇总计数靠右，数字变化时不会推动按钮。 */
+.picker-count,
+.picker-group-count {
+  color: var(--admin-muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.picker-count {
+  margin-inline-start: auto;
+}
+
+.picker-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 17rem;
+  overflow: auto;
+  padding: 8px 10px;
+  background: var(--admin-surface-2);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+}
+
+.picker-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.picker-group + .picker-group {
+  border-block-start: 1px solid var(--admin-border);
+  padding-block-start: 8px;
+}
+
+.picker-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.picker-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.picker-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: 4px 12px;
+}
+
+.button.small {
+  padding: 4px 10px;
+  font-size: 0.82rem;
+}
+
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* The readable name; the raw wire value below it is the traceability anchor.
+ * 可读名称；其下的原始线上值是可追溯锚点。 */
+.option-label {
+  color: var(--admin-text);
+}
+
+.option-id {
+  color: var(--admin-muted);
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Explanatory restriction copy, e.g. "built-in role — cannot be edited".
+ * 说明性限制文案，例如「内置角色，不可编辑」。 */
+.hint {
+  color: var(--admin-muted);
+  font-size: 0.85rem;
 }
 
 /* ---- Badges 角标 ---- */

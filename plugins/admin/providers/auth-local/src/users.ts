@@ -5,7 +5,9 @@
  * than in routes, so every caller (HTTP, a future CLI, a test) meets the same
  * rules.
  *
- * 本地认证 provider 的用户与 API token 操作。邮箱唯一性、口令强度与防自锁在这里而不�? * 路由里执行，因此每个调用方（HTTP、未来的 CLI、测试）面对同一套规则�? *
+ * 本地认证 provider 的用户与 API token 操作。邮箱唯一性、口令强度与防自锁在这里而不
+ * 是路由里执行，因此每个调用方（HTTP、未来的 CLI、测试）面对同一套规则。
+ *
  * @module @veren/admin-auth-local/users
  */
 
@@ -17,8 +19,8 @@ import {
   type AdminUserView,
 } from '@veren/admin-contract'
 import type { Context } from '@deepseek-ai/cordis'
-// ����-only ���룺ֻΪ���� kernel �� declaration merge��ʹ ctx.adminData /
-// ctx.adminAccess �ڱ��ļ�����ã�����ʱ������������
+// 仅类型导入：拉取内核的声明合并，使 ctx.adminData 与
+// ctx.adminAccess 在此有类型；运行时并不加载任何内容。
 // Type-only import: pulls the kernel's declaration merge so ctx.adminData and
 // ctx.adminAccess are typed here; nothing is loaded at runtime.
 import type {} from '@veren/admin-kernel'
@@ -35,9 +37,9 @@ import {
   type UserRecord,
 } from './store.ts'
 
-/** Password policy this provider enforces. �?provider 执行的口令策略�?*/
+/** Password policy this provider enforces. 本 provider 执行的口令策略。 */
 export interface PasswordPolicy {
-  /** Minimum password length. 最小口令长度�?*/
+  /** Minimum password length. 最小口令长度。 */
   readonly minLength: number
 }
 
@@ -70,7 +72,7 @@ export function tokenTable(ctx: Context): AdminTable<TokenRecord> {
  *
  * @param ctx - owning context 所属上下文
  * @param email - raw email 原始邮箱
- * @returns the user, or `undefined` 用户�?`undefined`
+ * @returns the user, or `undefined` 用户，或 `undefined`
  */
 export function findUserByEmail(ctx: Context, email: string): UserRecord | undefined {
   const normalized = normalizeEmail(email)
@@ -81,7 +83,8 @@ export function findUserByEmail(ctx: Context, email: string): UserRecord | undef
  * Project one stored user into the admin view.
  *
  * @param ctx - owning context 所属上下文
- * @param user - stored user 存储的用�? * @returns the view 视图
+ * @param user - stored user 存储的用户
+ * @returns the view 视图
  */
 export async function userView(ctx: Context, user: UserRecord): Promise<AdminUserView> {
   const roles = await ctx.adminAccess.rolesOf(user.id)
@@ -113,7 +116,7 @@ export async function listUsers(ctx: Context): Promise<readonly AdminUserView[]>
  * @param ctx - owning context 所属上下文
  * @param policy - password policy 口令策略
  * @param input - user input 用户输入
- * @returns the stored user 存储的用�? */
+ * @returns the stored user 存储的用户 */
 export async function createUser(
   ctx: Context,
   policy: PasswordPolicy,
@@ -180,7 +183,7 @@ export async function updateUser(
  * Count how many users currently hold the owner role.
  *
  * @param ctx - owning context 所属上下文
- * @returns the owner count 所有者数�? */
+ * @returns the owner count 所有者数 */
 export async function countOwners(ctx: Context): Promise<number> {
   const access: AdminAccess = ctx.adminAccess
   const roles = await Promise.all(userTable(ctx).list().map((user) => access.rolesOf(user.id)))
@@ -215,7 +218,7 @@ export async function deleteUser(ctx: Context, id: string): Promise<void> {
 /**
  * Project one stored token into the admin view; the secret never appears.
  *
- * @param token - stored token 存储�?token
+ * @param token - stored token 存储的 token
  * @returns the view 视图
  */
 export function tokenView(token: TokenRecord): AdminTokenView {
@@ -234,7 +237,7 @@ export function tokenView(token: TokenRecord): AdminTokenView {
  * List one user's API tokens.
  *
  * @param ctx - owning context 所属上下文
- * @param userId - owning user id 所属用�?id
+ * @param userId - owning user id 所属用户 id
  * @returns the token views token 视图
  */
 export function listTokens(ctx: Context, userId: string): readonly AdminTokenView[] {
@@ -249,7 +252,7 @@ export function listTokens(ctx: Context, userId: string): readonly AdminTokenVie
  *
  * @param ctx - owning context 所属上下文
  * @param input - token input Token 输入
- * @returns the plaintext secret and its view 明文密钥与视�? */
+ * @returns the plaintext secret and its view 明文密钥与视图 */
 export async function createToken(
   ctx: Context,
   input: { userId: string; name: string; scopes: readonly string[] },

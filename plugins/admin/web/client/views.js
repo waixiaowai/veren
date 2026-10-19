@@ -33,6 +33,108 @@ const HEALTH_KEYS = { ok: 'health.ok', degraded: 'health.degraded', down: 'healt
 const HEALTH_TONES = { ok: 'ok', degraded: 'warn', down: 'danger' }
 
 /**
+ * Semantic sections of the permission catalog.
+ *
+ * Grouping is by what an operator is granting, not by the wire prefix: `admin.` covers
+ * a read-only overview, identity, observability and system administration, so a prefix
+ * split would put unrelated grants in one list. Order is the order of increasing
+ * blast radius — overview first, terminal approvals last.
+ *
+ * 权限目录的语义分组。
+ *
+ * 分组依据是「操作者在授予什么」，而非线上前缀：`admin.` 同时覆盖只读概览、身份、可观测性
+ * 与系统管理，按前缀切会把互不相关的授权塞进同一列表。顺序按影响面递增——概览在前，终端
+ * 审批在后。
+ */
+const PERMISSION_GROUPS = [
+  { id: 'overview', labelKey: 'permGroup.overview', permissions: ['admin.dashboard.read'] },
+  {
+    id: 'identity',
+    labelKey: 'permGroup.identity',
+    permissions: ['admin.users.manage', 'admin.roles.manage', 'admin.tokens.manage'],
+  },
+  {
+    id: 'observe',
+    labelKey: 'permGroup.observe',
+    permissions: ['admin.audit.read', 'admin.capabilities.read'],
+  },
+  {
+    id: 'system',
+    labelKey: 'permGroup.system',
+    permissions: ['admin.settings.write', 'admin.plugins.manage'],
+  },
+  {
+    id: 'terminal',
+    labelKey: 'permGroup.terminal',
+    permissions: ['terminal.tasks.read', 'terminal.tasks.decide'],
+  },
+]
+
+/**
+ * Split the available permissions into the sections the picker renders.
+ *
+ * Every available value appears exactly once: a permission the catalog has never seen
+ * (a newer provider) lands in the trailing `other` section instead of disappearing.
+ * Empty sections are dropped, so a deployment with a narrower catalog shows no blank
+ * groups.
+ *
+ * 把可用权限切成选择器要渲染的小节。
+ *
+ * 每个可用值恰好出现一次：目录里没有的权限（更新的 provider）落到末尾的 `other` 小节，
+ * 而不是凭空消失。空小节会被丢弃，因此权限目录较窄的部署不会出现空白分组。
+ *
+ * @param available - permission wire values to place 要归位的权限线上值
+ * @returns the sections in display order 按展示顺序排列的小节
+ */
+export function groupPermissions(available) {
+  const pool = new Set(Array.isArray(available) ? available : [])
+  const groups = []
+  for (const group of PERMISSION_GROUPS) {
+    const permissions = group.permissions.filter((permission) => pool.has(permission))
+    if (permissions.length === 0) continue
+    for (const permission of permissions) pool.delete(permission)
+    groups.push({ id: group.id, labelKey: group.labelKey, permissions })
+  }
+  if (pool.size > 0) {
+    groups.push({ id: 'other', labelKey: 'permGroup.other', permissions: [...pool].sort() })
+  }
+  return groups
+}
+
+/**
+ * Count selected permissions overall and per section.
+ *
+ * @param groups - sections from {@link groupPermissions} 来自 {@link groupPermissions} 的小节
+ * @param selected - selected permission values 已选权限值
+ * @returns totals plus one entry per section 合计与逐小节计数
+ */
+export function selectionSummary(groups, selected) {
+  const chosen = new Set(Array.isArray(selected) ? selected : [])
+  const entries = groups.map((group) => ({
+    id: group.id,
+    total: group.permissions.length,
+    selected: group.permissions.filter((permission) => chosen.has(permission)).length,
+  }))
+  return {
+    total: entries.reduce((sum, entry) => sum + entry.total, 0),
+    selected: entries.reduce((sum, entry) => sum + entry.selected, 0),
+    groups: entries,
+  }
+}
+
+/**
+ * Invert a selection over the offered values.
+ *
+ * @param values - every offered permission 全部可选项
+ * @param selected - currently selected permissions 当前已选权限
+ * @returns the complement, in the offered order 补集，按可选项顺序
+ */
+export function invertSelection(values, selected) {
+  const chosen = new Set(Array.isArray(selected) ? selected : [])
+  return (Array.isArray(values) ? values : []).filter((value) => !chosen.has(value))
+}
+
+/**
  * Create one element with attributes, listeners and children.
  *
  * @param tag - tag name 标签名
@@ -203,23 +305,144 @@ function openModal(ui, spec) {
  * @returns the node and a value reader 节点与取值器
  */
 function modalField(ui, spec) {
+  if (spec.type === 'permission-groups') return permissionGroupField(ui, spec)
   const input = el('input', {
     class: 'input',
     type: spec.type,
     name: spec.name,
     autocomplete: spec.autocomplete,
     required: spec.required === true,
+    placeholder: spec.placeholderKey === undefined ? undefined : ui.t(spec.placeholderKey),
   })
   if (spec.type === 'checkbox') input.checked = spec.value === true
   else input.value = spec.value ?? ''
-  const node = el('label', { class: spec.type === 'checkbox' ? 'field field-inline' : 'field' }, [
-    el('span', { class: 'field-label', text: ui.t(spec.labelKey) }),
-    input,
-  ])
+  const children = [el('span', { class: 'field-label', text: ui.t(spec.labelKey) }), input]
+  // An optional hint sits under the control, e.g. "leave blank to keep the password".
+  // 可选提示放在控件下方，例如「留空表示不修改密码」。
+  if (spec.hintKey !== undefined) children.push(el('span', { class: 'field-hint', text: ui.t(spec.hintKey) }))
+  const node = el('label', { class: spec.type === 'checkbox' ? 'field field-inline' : 'field' }, children)
   return {
     name: spec.name,
     node,
     read: () => (spec.type === 'checkbox' ? input.checked : input.value.trim()),
+  }
+}
+
+/**
+ * The permission picker: sections with per-section select-all, group summaries and a
+ * global select-all / clear / invert toolbar.
+ *
+ * Every control is a real checkbox, so the browser supplies focus, keyboard toggling and
+ * form semantics; the section and global summaries are recomputed from the inputs on every
+ * change, which keeps the three levels of state unable to disagree.
+ *
+ * 权限选择器：分小节、每节可全选、组标题带汇总，顶部有全局全选/全不选/反选。
+ *
+ * 每个控件都是真正的复选框，浏览器因此负责焦点、键盘切换与表单语义；小节与全局汇总在每次
+ * 变更后由输入框重新计算，三层状态因此不可能互相矛盾。
+ *
+ * @param ui - view helpers 视图助手
+ * @param spec - name, label, offered permissions and selected values
+ *   名称、标签、可授权限与已选值
+ * @returns the fieldset node and an array reader 字段集节点与数组取值器
+ */
+function permissionGroupField(ui, spec) {
+  const available = Array.isArray(spec.permissions) ? spec.permissions : []
+  const groups = groupPermissions(available)
+  const initial = new Set(Array.isArray(spec.values) ? spec.values : [])
+  const inputs = new Map()
+  const sections = []
+
+  const selectedValues = () => available.filter((permission) => inputs.get(permission)?.checked === true)
+  const globalCount = el('span', { class: 'picker-count' })
+
+  const sync = () => {
+    const summary = selectionSummary(groups, selectedValues())
+    globalCount.textContent = `${summary.selected}/${summary.total}`
+    for (const entry of summary.groups) {
+      const section = sections.find((candidate) => candidate.id === entry.id)
+      if (section === undefined) continue
+      section.count.textContent = `${entry.selected}/${entry.total}`
+      section.toggle.checked = entry.selected === entry.total
+      // Indeterminate is the browser's own tri-state, so the header never claims
+      // "all" while a member is off. 半选态用浏览器自带的三态，组标题绝不会在仍有成员未选时
+      // 显示成「全选」。
+      section.toggle.indeterminate = entry.selected > 0 && entry.selected < entry.total
+    }
+  }
+
+  const setChecked = (values) => {
+    const wanted = new Set(values)
+    for (const [permission, input] of inputs) input.checked = wanted.has(permission)
+    sync()
+  }
+
+  const groupNodes = groups.map((group) => {
+    const toggle = el('input', { type: 'checkbox', class: 'picker-toggle' })
+    const count = el('span', { class: 'picker-group-count' })
+    toggle.addEventListener('change', () => {
+      for (const permission of group.permissions) {
+        const input = inputs.get(permission)
+        if (input !== undefined) input.checked = toggle.checked
+      }
+      sync()
+    })
+    const items = group.permissions.map((permission) => {
+      const input = el('input', { type: 'checkbox', value: permission })
+      input.checked = initial.has(permission)
+      input.addEventListener('change', sync)
+      inputs.set(permission, input)
+      return el('label', { class: 'option', title: permission }, [
+        input,
+        el('span', { class: 'option-text' }, [
+          el('span', { class: 'option-label', text: permissionLabel(ui, permission) }),
+          // The raw value stays a subtitle: names are for reading, ids for tracing
+          // back to what the gateway compares. 原始值保留为副标题：名称用于阅读，id 用于
+          // 回溯网关的比较值。
+          el('span', { class: 'option-id', text: permission }),
+        ]),
+      ])
+    })
+    const header = el('header', { class: 'picker-group-header' }, [
+      el('label', { class: 'picker-group-title' }, [toggle, el('span', { text: ui.t(group.labelKey) })]),
+      count,
+    ])
+    sections.push({ id: group.id, toggle, count })
+    return el('section', { class: 'picker-group' }, [header, el('div', { class: 'picker-items' }, items)])
+  })
+
+  const toolbar = el('div', { class: 'picker-toolbar' }, [
+    el('button', {
+      class: 'button small',
+      type: 'button',
+      text: ui.t('permPicker.all'),
+      onclick: () => setChecked(available),
+    }),
+    el('button', {
+      class: 'button small',
+      type: 'button',
+      text: ui.t('permPicker.none'),
+      onclick: () => setChecked([]),
+    }),
+    el('button', {
+      class: 'button small',
+      type: 'button',
+      text: ui.t('permPicker.invert'),
+      onclick: () => setChecked(invertSelection(available, selectedValues())),
+    }),
+    globalCount,
+  ])
+
+  const node = el('fieldset', { class: 'field field-group permission-picker' }, [
+    el('legend', { class: 'field-label', text: ui.t(spec.labelKey) }),
+    toolbar,
+    el('div', { class: 'picker-groups' }, groupNodes),
+  ])
+  sync()
+  return {
+    name: spec.name,
+    node,
+    read: selectedValues,
   }
 }
 
@@ -308,12 +531,23 @@ export function forbiddenView(ui, onHome) {
  */
 export function authView(ui, options) {
   const setupMode = options.setupRequired === true
-  const email = field(ui, 'auth.email', 'email', { autocomplete: 'username', required: true })
+  const email = field(ui, 'auth.email', 'email', {
+    autocomplete: 'username',
+    required: true,
+    placeholder: ui.t('auth.emailPlaceholder'),
+  })
   const password = field(ui, 'auth.password', 'password', {
     autocomplete: setupMode ? 'new-password' : 'current-password',
     required: true,
+    placeholder: ui.t('auth.passwordPlaceholder'),
   })
-  const name = setupMode ? field(ui, 'auth.name', 'text', { autocomplete: 'name', required: true }) : null
+  const name = setupMode
+    ? field(ui, 'auth.name', 'text', {
+      autocomplete: 'name',
+      required: true,
+      placeholder: ui.t('auth.namePlaceholder'),
+    })
+    : null
   const inputs = [email, password, name].filter((entry) => entry !== null)
   const submit = el('button', {
     class: 'button primary block',
@@ -538,9 +772,28 @@ function openCreateUser(ui, actions) {
   openModal(ui, {
     titleKey: 'users.create',
     fields: [
-      { name: 'email', labelKey: 'auth.email', type: 'email', required: true },
-      { name: 'password', labelKey: 'auth.password', type: 'password', autocomplete: 'new-password', required: true },
-      { name: 'name', labelKey: 'auth.name', type: 'text', required: true },
+      {
+        name: 'email',
+        labelKey: 'auth.email',
+        type: 'email',
+        required: true,
+        placeholderKey: 'auth.emailPlaceholder',
+      },
+      {
+        name: 'password',
+        labelKey: 'auth.password',
+        type: 'password',
+        autocomplete: 'new-password',
+        required: true,
+        placeholderKey: 'users.passwordPlaceholder',
+      },
+      {
+        name: 'name',
+        labelKey: 'auth.name',
+        type: 'text',
+        required: true,
+        placeholderKey: 'users.namePlaceholder',
+      },
     ],
     confirmKey: 'users.create',
     onConfirm: (values) => actions.create?.(values),
@@ -559,6 +812,14 @@ function openEditUser(ui, user, actions) {
     titleKey: 'users.edit',
     fields: [
       { name: 'name', labelKey: 'auth.name', type: 'text', value: user.name ?? '', required: true },
+      {
+        name: 'password',
+        labelKey: 'users.passwordReset',
+        type: 'password',
+        autocomplete: 'new-password',
+        placeholderKey: 'users.passwordPlaceholder',
+        hintKey: 'users.passwordKeepHint',
+      },
       { name: 'active', labelKey: 'users.active', type: 'checkbox', value: user.active === true },
     ],
     confirmKey: 'app.save',
@@ -585,7 +846,40 @@ function openDeleteUser(ui, user, actions) {
 }
 
 /**
- * Users page: table plus create, edit and delete dialogs.
+ * Filter users by an email or name keyword.
+ *
+ * The match is a case-insensitive substring test over both fields, so typing
+ * `ali` finds `alice@example.com` and `Alice` alike. An empty or blank keyword
+ * keeps every user, which is what a cleared search box must mean.
+ *
+ * 按邮箱或姓名关键字过滤用户。
+ *
+ * 匹配是对两个字段做大小写不敏感的子串判断，因此输入 `ali` 既能命中
+ * `alice@example.com` 也能命中 `Alice`；关键字为空或全空白时保留全部用户，这也正是清空
+ * 搜索框应有的语义。
+ *
+ * @param users - the users to filter 待过滤的用户
+ * @param query - the keyword typed by the operator 操作者输入的关键字
+ * @returns the users matching the keyword 命中关键字的用户
+ */
+export function filterUsers(users, query) {
+  const needle = String(query ?? '').trim().toLocaleLowerCase()
+  if (needle === '') return users
+  return users.filter((user) => [user?.email, user?.name]
+    .some((value) => typeof value === 'string' && value.toLocaleLowerCase().includes(needle)))
+}
+
+/**
+ * Users page: searchable table plus create, edit and delete dialogs.
+ *
+ * The keyword filters the already-loaded page in the browser: the list is bounded
+ * by the gateway's page size, so a round trip per keystroke would cost more than
+ * it explains.
+ *
+ * 用户页：可检索表格与增改删对话框。
+ *
+ * 关键字在浏览器内过滤已加载的这一页数据：列表受网关分页上限约束，逐键往返请求的代价
+ * 大于它带来的解释力。
  *
  * @param ui - view helpers 视图助手
  * @param data - users, roles and action callbacks 用户、角色与操作回调
@@ -601,39 +895,274 @@ export function usersView(ui, data) {
     type: 'button',
     onclick: () => openCreateUser(ui, actions),
   }, [iconOf(ui, 'plus'), el('span', { text: ui.t('users.create') })])
-  const rows = users.map((user) => userRow(ui, user, roleLabel, actions))
+  const search = el('input', {
+    class: 'input search-input',
+    type: 'search',
+    autocomplete: 'off',
+    placeholder: ui.t('users.searchPlaceholder'),
+    'aria-label': ui.t('users.searchPlaceholder'),
+  })
   const columns = ['auth.name', 'users.email', 'users.roles', 'users.active', 'users.lastLogin', 'users.created', '']
-  return el('section', { class: 'page' }, [pageHeader(ui, 'users.title', create), dataTable(ui, columns, rows)])
+  const results = el('div', { class: 'search-results' })
+  const render = () => {
+    const matches = filterUsers(users, search.value)
+    // No user at all and no match are different facts, so they get different copy.
+    // “一个用户都没有”与“没有命中”是两件事，因此使用不同文案。
+    results.replaceChildren(matches.length === 0 && users.length > 0
+      ? el('p', { class: 'state', text: ui.t('users.searchEmpty') })
+      : dataTable(ui, columns, matches.map((user) => userRow(ui, user, roleLabel, actions))))
+  }
+  search.addEventListener('input', render)
+  render()
+  return el('section', { class: 'page' }, [
+    pageHeader(ui, 'users.title', create),
+    el('div', { class: 'toolbar' }, [search]),
+    results,
+  ])
 }
 
 /**
- * Roles page: label, id, permissions and the built-in flag.
+ * Locale key of one permission's human-readable name.
+ *
+ * The key carries the wire value (`perm.admin.users.manage`), so adding a
+ * permission needs exactly one locale entry and nothing else.
+ *
+ * 某个权限的人类可读名对应的语言键。键里带线上值（`perm.admin.users.manage`），
+ * 因此新增权限只需要补一条文案。
+ *
+ * @param permission - permission wire value 权限线上值
+ * @returns the locale key 语言键
+ */
+function permissionKey(permission) {
+  return `perm.${permission}`
+}
+
+/**
+ * Human-readable name of one permission.
+ *
+ * Falls back to the raw wire value when the locale pack has no entry, so a
+ * permission added by a newer provider stays readable instead of rendering a
+ * dangling key.
+ *
+ * 权限的人类可读名。语言包缺失时回退到原始线上值，因此更新的 provider 新增的权限仍然
+ * 可读，而不会渲染出一个悬空的键。
  *
  * @param ui - view helpers 视图助手
- * @param data - roles payload 角色载荷
- * @returns the page 页面
+ * @param permission - permission wire value 权限线上值
+ * @returns the display name 显示名
  */
-export function rolesView(ui, data) {
-  const roles = data.roles?.items ?? []
-  const rows = roles.map((role) => el('tr', {}, [
+function permissionLabel(ui, permission) {
+  const key = permissionKey(permission)
+  const text = ui.t(key)
+  return text === key ? permission : text
+}
+
+/**
+ * Permission values the role dialogs offer: the union of every loaded role's
+ * grants, which is exactly the catalog the gateway accepts.
+ *
+ * 角色对话框提供的权限值：已加载角色授予项的并集，也就是网关会接受的目录。
+ *
+ * @param roles - loaded roles 已加载角色
+ * @returns the sorted permission strings 排序后的权限串
+ */
+function permissionOptions(roles) {
+  const values = roles.flatMap((role) => (Array.isArray(role.permissions) ? role.permissions : []))
+  return [...new Set(values)].sort()
+}
+
+/**
+ * Open the create-role dialog.
+ *
+ * @param ui - view helpers 视图助手
+ * @param actions - role callbacks 角色回调
+ * @param permissions - permission values to offer 可选权限值
+ */
+function openCreateRole(ui, actions, permissions) {
+  openModal(ui, {
+    titleKey: 'roles.create',
+    fields: [
+      {
+        name: 'label',
+        labelKey: 'roles.label',
+        type: 'text',
+        required: true,
+        placeholderKey: 'roles.namePlaceholder',
+      },
+      {
+        name: 'id',
+        labelKey: 'roles.id',
+        type: 'text',
+        required: true,
+        placeholderKey: 'roles.idPlaceholder',
+      },
+      {
+        name: 'permissions',
+        labelKey: 'roles.permissions',
+        type: 'permission-groups',
+        permissions,
+        values: [],
+      },
+    ],
+    confirmKey: 'roles.create',
+    onConfirm: (values) => actions.create?.(values),
+  })
+}
+
+/**
+ * Open the edit-role dialog for one custom role.
+ *
+ * The id is identity, not a field: it is shown as dialog text so an edit can never
+ * silently rebind users to a different role.
+ *
+ * 打开某个自定义角色的编辑对话框。id 是身份而非字段：只作为对话框文本展示，避免编辑
+ * 悄悄把用户重绑到另一个角色。
+ *
+ * @param ui - view helpers 视图助手
+ * @param role - the role being edited 正在编辑的角色
+ * @param actions - role callbacks 角色回调
+ * @param permissions - permission values to offer 可选权限值
+ */
+function openEditRole(ui, role, actions, permissions) {
+  openModal(ui, {
+    titleKey: 'roles.edit',
+    message: `${ui.t('roles.id')}: ${role.id}`,
+    fields: [
+      {
+        name: 'label',
+        labelKey: 'roles.label',
+        type: 'text',
+        value: role.label ?? '',
+        required: true,
+        placeholderKey: 'roles.namePlaceholder',
+      },
+      {
+        name: 'permissions',
+        labelKey: 'roles.permissions',
+        type: 'permission-groups',
+        permissions,
+        values: Array.isArray(role.permissions) ? role.permissions : [],
+      },
+    ],
+    confirmKey: 'app.save',
+    onConfirm: (values) => actions.update?.(role.id, values),
+  })
+}
+
+/**
+ * One role row: identity, grants, the built-in flag and its action.
+ *
+ * Built-in roles are code, so their action cell carries the restriction as copy
+ * instead of a button that would fail.
+ *
+ * 单个角色行：身份、授权、内置标记与操作。内置角色是代码，因此操作列用文案说明限制，
+ * 而不是放一个必然失败的按钮。
+ *
+ * @param ui - view helpers 视图助手
+ * @param role - the role 角色
+ * @param actions - role callbacks 角色回调
+ * @param permissions - permission values to offer 可选权限值
+ * @returns the row 行
+ */
+function roleRow(ui, role, actions, permissions) {
+  const granted = Array.isArray(role.permissions) ? role.permissions : []
+  const actionCell = role.builtIn === true
+    ? el('td', { class: 'cell-actions' }, [el('span', { class: 'hint', text: ui.t('roles.builtInHint') })])
+    : el('td', { class: 'cell-actions' }, [
+      el('button', {
+        class: 'icon-button',
+        type: 'button',
+        title: ui.t('roles.edit'),
+        'aria-label': ui.t('roles.edit'),
+        onclick: () => openEditRole(ui, role, actions, permissions),
+      }, [iconOf(ui, 'edit')]),
+    ])
+  return el('tr', {}, [
     el('td', { text: asText(role.label) }),
     el('td', { text: asText(role.id) }),
-    el('td', { class: 'cell-wrap', text: (Array.isArray(role.permissions) ? role.permissions : []).join(', ') || DASH }),
+    el('td', {
+      class: 'cell-wrap',
+      // The wire values stay reachable on hover even though the cell shows names.
+      // 即使单元格显示名称，悬停时仍可看到线上值。
+      title: granted.join(', '),
+      text: granted.map((permission) => permissionLabel(ui, permission)).join(ui.t('app.listSeparator')) || DASH,
+    }),
     el('td', {}, [
       el('span', {
         class: role.builtIn === true ? 'badge ok' : 'badge muted',
         text: ui.t(role.builtIn === true ? 'common.yes' : 'common.no'),
       }),
     ]),
-  ]))
-  return el('section', { class: 'page' }, [
-    pageHeader(ui, 'roles.title'),
-    dataTable(ui, ['roles.name', '', 'roles.permissions', 'roles.builtIn'], rows),
+    actionCell,
   ])
 }
 
 /**
- * Audit page with cursor paging.
+ * Roles page: the role directory plus create and edit dialogs.
+ *
+ * @param ui - view helpers 视图助手
+ * @param data - roles payload and action callbacks 角色载荷与操作回调
+ * @returns the page 页面
+ */
+export function rolesView(ui, data) {
+  const roles = data.roles?.items ?? []
+  const actions = data.actions ?? {}
+  const permissions = permissionOptions(roles)
+  const create = el('button', {
+    class: 'button primary',
+    type: 'button',
+    onclick: () => openCreateRole(ui, actions, permissions),
+  }, [iconOf(ui, 'plus'), el('span', { text: ui.t('roles.create') })])
+  const rows = roles.map((role) => roleRow(ui, role, actions, permissions))
+  const columns = ['roles.name', '', 'roles.permissions', 'roles.builtIn', '']
+  return el('section', { class: 'page' }, [
+    pageHeader(ui, 'roles.title', create),
+    dataTable(ui, columns, rows),
+  ])
+}
+
+/**
+ * Filter audit entries by a keyword over action, actor, target and result.
+ *
+ * The match is a case-insensitive substring test and an empty keyword keeps every
+ * entry, which is what a cleared search box must mean. Filtering happens over the
+ * pages already loaded, so it never hides the fact that more pages exist.
+ *
+ * 按关键字过滤审计记录，覆盖操作类型、操作者、对象与结果。
+ *
+ * 匹配为大小写不敏感的子串判断；关键字为空时保留全部记录，这正是清空搜索框应有的
+ * 语义。过滤只作用于已加载的页面，因此不会掩盖「还有更多页」这一事实。
+ *
+ * @param items - loaded audit entries 已加载审计记录
+ * @param query - the keyword typed by the operator 操作者输入的关键字
+ * @returns the entries matching the keyword 命中关键字的记录
+ */
+export function filterAudit(items, query) {
+  const needle = String(query ?? '').trim().toLocaleLowerCase()
+  if (needle === '') return items
+  return items.filter((entry) => [entry?.action, entry?.actorLabel, entry?.actorId, entry?.target, entry?.result]
+    .some((value) => typeof value === 'string' && value.toLocaleLowerCase().includes(needle)))
+}
+
+/**
+ * One audit table row.
+ *
+ * @param ui - view helpers 视图助手
+ * @param entry - one audit entry 单条审计记录
+ * @returns the row 行
+ */
+function auditRow(ui, entry) {
+  return el('tr', {}, [
+    el('td', { text: asText(entry.actorLabel ?? entry.actorId) }),
+    el('td', { text: asText(entry.action) }),
+    el('td', {}, [resultBadge(ui, entry.result)]),
+    el('td', { text: asText(entry.target) }),
+    el('td', { text: formatDate(entry.at, ui.locale) }),
+  ])
+}
+
+/**
+ * Audit page with keyword search and cursor paging.
  *
  * @param ui - view helpers 视图助手
  * @param data - audit page and load-more callback 审计页与加载更多回调
@@ -642,16 +1171,27 @@ export function rolesView(ui, data) {
 export function auditView(ui, data) {
   const page = data.audit ?? {}
   const items = Array.isArray(page.items) ? page.items : []
-  const rows = items.map((entry) => el('tr', {}, [
-    el('td', { text: asText(entry.actorLabel ?? entry.actorId) }),
-    el('td', { text: asText(entry.action) }),
-    el('td', {}, [resultBadge(ui, entry.result)]),
-    el('td', { text: asText(entry.target) }),
-    el('td', { text: formatDate(entry.at, ui.locale) }),
-  ]))
+  const columns = ['audit.actor', 'audit.action', 'audit.result', 'audit.target', 'audit.at']
+  const search = el('input', {
+    class: 'input search-input',
+    type: 'search',
+    autocomplete: 'off',
+    placeholder: ui.t('audit.searchPlaceholder'),
+    'aria-label': ui.t('audit.searchPlaceholder'),
+  })
+  const results = el('div', { class: 'search-results' })
+  const render = () => {
+    const matches = filterAudit(items, search.value)
+    results.replaceChildren(matches.length === 0 && items.length > 0
+      ? el('p', { class: 'state', text: ui.t('audit.searchEmpty') })
+      : dataTable(ui, columns, matches.map((entry) => auditRow(ui, entry))))
+  }
+  search.addEventListener('input', render)
+  render()
   const section = el('section', { class: 'page' }, [
     pageHeader(ui, 'audit.title'),
-    dataTable(ui, ['audit.actor', 'audit.action', 'audit.result', 'audit.target', 'audit.at'], rows),
+    el('div', { class: 'toolbar' }, [search]),
+    results,
   ])
   if (typeof page.nextCursor === 'string' && page.nextCursor !== '') {
     section.append(el('div', { class: 'page-footer' }, [

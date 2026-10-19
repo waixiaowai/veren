@@ -23,6 +23,7 @@ import {
   type AdminLoginResult,
   type AdminResponse,
   type AdminRoute,
+  type AuthenticatedPrincipal,
   type ProviderManifest,
 } from '@veren/admin-contract'
 import type {} from '@veren/admin-api-kernel'
@@ -78,6 +79,12 @@ const updateUserBody = zod.object({
   name: zod.string().min(1).optional(),
   active: zod.boolean().optional(),
   password: zod.string().min(1).optional(),
+})
+
+/** Self-service password change body. 自助修改密码请求体。 */
+const changePasswordBody = zod.object({
+  currentPassword: zod.string().min(1),
+  newPassword: zod.string().min(1),
 })
 
 /** Token creation request body. Token 创建请求体。 */
@@ -186,6 +193,28 @@ export function authRoutes(auth: LocalAuth, config: ResolvedAuthConfig): AdminRo
       summary: 'Read the authenticated principal',
       tags: ['auth'],
       handler: ({ request }) => ({ user: request.principal }),
+    },
+    {
+      audience: 'admin',
+      method: 'POST',
+      path: '/me/password',
+      summary: 'Change the signed-in user password',
+      tags: ['auth'],
+      audit: true,
+      action: 'auth.changePassword',
+      input: changePasswordBody,
+      handler: async ({ request }) => {
+        const body = request.body as zod.infer<typeof changePasswordBody>
+        const principal = request.principal as AuthenticatedPrincipal
+        return auth.changePassword(principal.userId, {
+          currentPassword: body.currentPassword,
+          newPassword: body.newPassword,
+          // The session that made the request survives the change; every other
+          // session of this user is revoked by the provider.
+          // 发起请求的会话在改密后保留；该用户的其它会话由 provider 吊销。
+          ...(principal.sessionId === undefined ? {} : { keepSessionId: principal.sessionId }),
+        })
+      },
     },
     {
       audience: 'admin',

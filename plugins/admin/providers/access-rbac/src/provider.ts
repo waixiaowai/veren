@@ -167,6 +167,49 @@ export class RbacAccess implements AdminAccess {
   }
 
   /**
+   * Update one custom role's label and/or permissions.
+   *
+   * Built-in roles are code, not rows, so editing one is refused with a stable
+   * `CONFLICT` code the UI can explain instead of surfacing a 500. The role id is
+   * identity: it is never rewritten, so existing bindings stay valid.
+   *
+   * 更新一个自定义角色的显示名与/或权限。
+   *
+   * 内置角色是代码而非数据行，因此编辑会被拒绝并返回稳定的 `CONFLICT` 码，供 UI 明确
+   * 解释而不是抛 500。角色 id 是身份标识：永不改写，因此既有绑定保持有效。
+   *
+   * @param roleId - the role to update 要更新的角色
+   * @param patch - label and/or permissions to replace 要替换的显示名与/或权限
+   * @returns the updated role 更新后的角色
+   * @throws AdminError `CONFLICT` for a built-in, `NOT_FOUND` for an unknown id,
+   *   `VALIDATION_FAILED` for an unknown permission
+   */
+  async updateRole(
+    roleId: string,
+    patch: { label?: string | undefined; permissions?: readonly string[] | undefined },
+  ): Promise<AdminRoleView> {
+    if (builtInRole(roleId) !== undefined) {
+      throw new AdminError('CONFLICT', `built-in role '${roleId}' cannot be edited`, { roleId, builtIn: true })
+    }
+    const current = this.rolesTable().find(roleId)
+    if (current === undefined) {
+      throw new AdminError('NOT_FOUND', `role '${roleId}' does not exist`, { roleId })
+    }
+    const permissions = patch.permissions === undefined ? [...current.permissions] : [...patch.permissions]
+    const unknown = permissions.filter((permission) => !this.permissions().includes(permission))
+    if (unknown.length > 0) {
+      throw new AdminError('VALIDATION_FAILED', `unknown permissions: ${unknown.join(', ')}`, { unknown })
+    }
+    const record: RoleRecord = {
+      ...current,
+      label: patch.label ?? current.label,
+      permissions,
+    }
+    await this.rolesTable().save(record)
+    return { id: record.id, label: record.label, permissions: [...record.permissions], builtIn: false }
+  }
+
+  /**
    * Delete one custom role and every binding that referenced it.
    *
    * @param roleId - role to delete 要删除的角色

@@ -22,6 +22,7 @@ import {
   adminManifest,
   bootstrap,
   capabilities,
+  createRole,
   createUser,
   deleteUser,
   getSetup,
@@ -33,6 +34,7 @@ import {
   publicManifest,
   setCsrfToken,
   setup,
+  updateRole,
   updateUser,
 } from './api.js'
 import { createRuntime } from './runtime.js'
@@ -175,13 +177,35 @@ function toast(message) {
   if (node !== null) setTimeout(() => node.remove(), 4000)
 }
 
+/**
+ * Localized text for one API failure.
+ *
+ * Structured reasons the UI can explain better than the server's English message
+ * get first-class copy; everything else keeps the server's own wording, because
+ * inventing text for an unknown failure hides the diagnostic.
+ *
+ * 某个 API 失败的本地化文本。
+ *
+ * UI 能比服务端英文消息解释得更好的结构化原因使用专门文案；其余保留服务端原文，因为给
+ * 未知失败编造文案会掩盖诊断信息。
+ *
+ * @param error - the rejected value 被拒绝的错误值
+ * @returns the message to show 要显示的文本
+ */
+function messageOf(error) {
+  if (error?.code === 'VALIDATION_FAILED' && error?.details?.reason === 'UNCHANGED') {
+    return t('users.passwordUnchanged')
+  }
+  return error?.message ?? String(error)
+}
+
 /** Wrap an action so a rejection becomes a toast instead of an unhandled rejection. 包装操作，让失败变成提示而非未处理拒绝。 */
 function guard(handler) {
   return async (...args) => {
     try {
       await handler(...args)
     } catch (error) {
-      toast(error?.message ?? String(error))
+      toast(messageOf(error))
     }
   }
 }
@@ -338,7 +362,12 @@ function userActions() {
       await reload('/users')
     }),
     update: guard(async (id, patch) => {
-      await updateUser(id, patch)
+      // A blank password field means "keep the current password", so it never
+      // travels to the gateway; only a typed value is a reset.
+      // 密码框留空表示「保持当前密码」，因此不发给网关；只有填写了才是重置。
+      const { password, ...rest } = patch
+      const body = typeof password === 'string' && password.trim() !== '' ? { ...rest, password } : rest
+      await updateUser(id, body)
       toast(t('toast.saved'))
       await reload('/users')
     }),
@@ -346,6 +375,22 @@ function userActions() {
       await deleteUser(id)
       toast(t('toast.deleted'))
       await reload('/users')
+    }),
+  }
+}
+
+/** Page actions of the roles view. 角色页的操作。 */
+function roleActions() {
+  return {
+    create: guard(async (values) => {
+      await createRole(values)
+      toast(t('toast.created'))
+      await reload('/roles')
+    }),
+    update: guard(async (id, patch) => {
+      await updateRole(id, patch)
+      toast(t('toast.saved'))
+      await reload('/roles')
     }),
   }
 }
@@ -372,7 +417,7 @@ function contentFor(view) {
   const data = state.data[state.route] ?? {}
   if (view === 'dashboard') return dashboardView(helpers, { user: state.bootstrap.user, ...data })
   if (view === 'users') return usersView(helpers, { ...data, actions: userActions() })
-  if (view === 'roles') return rolesView(helpers, data)
+  if (view === 'roles') return rolesView(helpers, { ...data, actions: roleActions() })
   if (view === 'audit') return auditView(helpers, { ...data, onLoadMore: loadMoreAudit })
   if (view === 'capabilities') return capabilitiesView(helpers, data)
   return emptyView(helpers)
