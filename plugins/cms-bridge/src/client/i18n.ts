@@ -9,6 +9,10 @@ export type Translate = (key: string, params?: Record<string, string>) => string
 
 export const NS = '@veren/cms-bridge';
 
+/** 字典键联合:locale.register 要求精确的键类型,而不是 Record<string, string>.
+ * The dictionary key union: locale.register wants the exact key type, not Record<string, string>. */
+export type BridgeKey = keyof typeof zh;
+
 /** 插值替换 / placeholder interpolation */
 function format(template: string, params?: Record<string, string>): string {
   if (!params) return template;
@@ -20,7 +24,9 @@ export function translateFrom(dict: Record<string, string>): Translate {
   return (key, params) => format(dict[key] ?? key, params);
 }
 
-export const zh: Record<string, string> = {
+/** 英文键集由中文键联合约束,两边少任何一个键都是编译错误。
+ *  The Chinese dictionary defines the key union; the English one must match it exactly. */
+export const zh = {
   statusTitle: 'CMS 连接',
   apiKeyTitle: 'API Key',
   apiKeyHint: '保存后经 Loader 热更生效,插件自动以新凭证重连;原文不会回显。',
@@ -58,7 +64,8 @@ export const zh: Record<string, string> = {
   'state.disposed': '已卸载',
 };
 
-export const en: Record<string, string> = {
+/** 中英两部必须键集一致,少一个键就在编译期失败。Both dictionaries must agree on keys. */
+export const en: Record<BridgeKey, string> = {
   statusTitle: 'CMS Connection',
   apiKeyTitle: 'API Key',
   apiKeyHint: 'Saved through the Loader hot path; the plugin reconnects with the new credential. The raw value is never shown back.',

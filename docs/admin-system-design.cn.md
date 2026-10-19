@@ -1,10 +1,12 @@
-# DSH 通用 AI 后台管理平台设计方案（草案 v3）
+# DSH 通用 AI 后台管理平台设计方案（草案 v3.1）
 
 [English](admin-system-design.md) | 中文
 
 状态：待评审。本文只确定方案，不包含实现代码。
 
-本版在 v2“独立 `admin` profile”的基础上，补上**契约优先的平台内核**：认证、权限、菜单、路由、API、文档、任务、表单、AI、附件、主题、语言、图标、布局等基础设施，全部先定义接口，再由可替换的 provider 插件实现。`admin-app` 只是默认组合，不是写死的实现。
+本版在 v3“契约优先的平台内核”基础上，补上**数据库与通用后端组件**：ORM-first，支持 PostgreSQL/MySQL/SQLite/MongoDB，并保留 DSH storage KV 兼容适配；Redis、MQ、对象存储、搜索、邮件、锁、缓存等通过统一端口 + 可替换适配器接入。`admin-app` 仍然只是默认组合。
+
+平台原则不变：认证、权限、菜单、路由、API、文档、任务、表单、AI、附件、主题、语言、图标、布局等基础设施先定义接口，再由可替换的 provider 插件实现。
 
 目标读者：DSH 插件开发者、后台平台架构师、需要替换/升级基础设施的团队。预备知识：DSH profile/bundle、Cordis Service、storage domain、Agent/Session、HTTP、RBAC、前端插件化。
 
@@ -21,6 +23,8 @@
 | 前端 | `admin-layout` 只是默认 shell；shell、页面、主题、语言、图标、表单字段、附件渲染器都是 UI 插件 |
 | 统一 API | 所有 provider/module 通过 `adminApi` 注册路由；统一鉴权、权限、审计、错误、分页、幂等、OpenAPI |
 | 统一文档 | OpenAPI + capability catalog + UI manifest + 插件文档；`/api/admin/v1/capabilities`、`/api/admin/v1/ui-manifest` |
+| 数据库 | ORM-first：PostgreSQL/MySQL/SQLite 走 Drizzle ORM，MongoDB 走官方驱动；DSH storage KV 作为兼容适配；一个部署一个主数据库 |
+| 后端组件 | 统一端口 + 适配器：cache/Redis、queue/MQ、lock、object storage/S3、search、mail、telemetry；默认不强依赖 Redis/MQ |
 | 人工闭环 | Task/Approval/Form 引擎；审核、审批、退回、转交、评论、SLA、Outbox |
 | AI 协助 | DSH Agent/LLM 产出摘要、风险、表单预填建议；人类决定，P1 不自动审批 |
 | 可替换性 | 能力 provider、功能 module、UI 插件可独立安装/替换/升级；契约/kernel 是版本化稳定底座 |
@@ -51,6 +55,15 @@
 | 文档靠手写 | OpenAPI/capability catalog/UI manifest 生成 |
 | 替换靠改代码 | 替换 provider、版本协商、drain/rollback |
 
+### 0.3 v3.1 补充
+
+| v3 | v3.1 |
+|---|---|
+| 以 DSH storage KV 为默认持久化 | ORM-first；PG/MySQL/SQLite/Mongo；DSH KV 只做兼容 |
+| 没有数据库/事务抽象 | Repository + UnitOfWork + Migrator；SQL 事务、Mongo 事务/降级、KV reconciliation |
+| Redis/MQ 容易被当成隐含依赖 | 端口 + 可选 adapter；默认 memory/outbox |
+| 后端组件散落在 admin | 独立 `packages/backend/*` 通用库，可被其他 DSH 插件复用 |
+
 ## 1. 目标与边界
 
 ### 1.1 目标
@@ -62,6 +75,8 @@
 - **统一**：一套 API、一套错误、一套权限、一套文档、一套 UI 运行时。
 - **人工闭环**：审核/审批/表单/AI 协助是平台一等公民。
 - **可运维**：健康、审计、限流、迁移、回滚、测试节点。
+- **兼容常用后端栈**：PostgreSQL/MySQL/SQLite/MongoDB、Redis、RabbitMQ/Kafka、S3/MinIO、SMTP、OpenTelemetry 都能作为适配器接入，而不是把某一种中间件写死。
+- **通用后端组件库**：数据库/ORM/UoW、缓存、锁、队列、对象存储、搜索、邮件、遥测以独立库 + 端口的形式提供，可被 admin 之外的 DSH 插件复用。
 
 ### 1.2 非目标
 
@@ -72,6 +87,9 @@
 - 不做跨 DSH 实例集群控制面；P3 再评估。
 - 不做插件市场/计费/签名分发；P3 再评估。
 - 不要求“任意 npm 包即插即用”；插件必须实现契约。
+- 不做跨数据库/跨 MQ 的分布式事务；用 UnitOfWork + Outbox + 幂等保证。
+- 不在一个部署里混用多个主数据库；一个 admin 实例只选一个主数据库引擎。
+- 不强制 Redis/MQ：单进程可用内存/DB outbox；多实例再启用 Redis/MQ 适配器。
 
 ### 1.3 用户与场景
 
@@ -114,7 +132,7 @@
 
 | 类型 | 例子 | 缺失行为 |
 |---|---|---|
-| 必需 | auth、access、navigation、audit | 启动失败，列出缺失能力与候选 provider |
+| 必需 | data、auth、access、navigation、audit | 启动失败，列出缺失能力与候选 provider |
 | 可选 | tasks、forms、assist、attachments、search、notifications、jobs、docs | 能力关闭；菜单/页面隐藏；其他功能正常 |
 
 必需能力也允许替换，但必须有兼容 provider；不能“没有认证也启动”。API 网关/kernel 是平台基础设施，不属于可替换能力。
@@ -129,10 +147,21 @@
 
 ### 2.5 数据归属
 
-- 每个 provider 拥有自己的 storage domain；不共享表。
+- 每个 provider 拥有自己的表/collection/schema；不共享表。
 - 替换 provider 时，数据迁移由 provider 声明：`migrateFrom` / `export` / `import`；没有迁移就明确要求人工导出，不静默丢数据。
 - 业务 module 只存任务引用/表单值/审计等治理数据，业务数据仍归业务插件。
 - 契约层不暴露表结构，只暴露操作。
+
+### 2.6 关键决策
+
+| 决策 | 选择 | 理由 | 放弃的方案 |
+|---|---|---|---|
+| 数据库/ORM | 通用数据库 + Repository/UoW；SQL 用 Drizzle，Mongo 用官方驱动，DSH KV 兼容 | 兼容常见后端；事务/索引/迁移可控；消费者不感知数据库 | 只依赖 DSH KV，或把 SQL 写进业务代码 |
+| 数据库引擎 | 一个部署一个主库：PG/MySQL/SQLite/Mongo | 避免跨库事务和双写；替换靠迁移 | 每个能力各自选库 |
+| 缓存/队列 | 端口 + 可选适配器 | 单进程不强依赖 Redis/MQ；多实例再启用 | 把 Redis/MQ 作为硬依赖 |
+| 事务/副作用 | UnitOfWork + Outbox | SQL/Mongo 尽量原子；KV 用 reconciliation | 直接跨服务写两套数据 |
+| UI 基础设施 | shell/theme/locale/icon/renderer 全是插件 | 可替换、可独立升级 | 固定一套 UI 写死 |
+| 统一接口 | façade + contract + provider manifest | 换实现不换消费者 | 消费者直接 import provider |
 
 ## 3. 总体架构
 
@@ -148,7 +177,10 @@ flowchart TB
 
     APIKernel --> Facades["能力 façade<br/>auth / access / nav / tasks / forms / assist / attachments / audit ..."]
     Facades --> Providers["Provider 插件<br/>默认实现可替换"]
-    Providers --> Store[(💾 各自 domain)]
+    Providers --> Data["Data adapter<br/>Drizzle / Mongo / DSH KV"]
+    Data --> DB[(PG / MySQL / SQLite / Mongo / DSH KV)]
+    Providers --> Backend["Backend components<br/>Cache / Queue / ObjectStore / Search / Mail"]
+    Backend --> Middleware[(Redis / RabbitMQ / S3 / SMTP)]
     Providers --> DSH["DSH 能力<br/>Agent / Session / LLM / Tools"]
     Providers --> Biz["业务插件服务"]
     Kernel["admin-kernel<br/>provider 注册 / 版本 / 替换 / 健康"] --> Facades
@@ -164,8 +196,8 @@ flowchart TB
   classDef platform fill:#87CEEB,stroke:#1864AB,color:#000
   class Browser,Terminal actor
   class Kernel,Facades,UIKernel,APIKernel,Shell,Packs,UIPlugins primary
-  class Store data
-  class Platform,Providers,DSH,Biz,Docs platform
+  class DB,Middleware data
+  class Platform,Providers,DSH,Biz,Docs,Data,Backend platform
 ```
 
 ### 3.1 分层
@@ -176,6 +208,8 @@ flowchart TB
 | 内核层 | `admin-kernel` / `admin-ui-kernel` | provider 注册、版本协商、替换/回滚、健康、目录 |
 | 网关层 | `admin-api-kernel` | 路由表、鉴权、权限、审计、错误、OpenAPI、幂等 |
 | 能力层 | auth/access/nav/tasks/forms/assist/attachments/... providers | 每个能力的实现 |
+| 数据层 | data-drizzle / data-mongodb / data-dsh-kv；Repository/UoW/Migrator | 主数据库、事务、迁移 |
+| 后端组件 | cache/queue/lock/object-store/search/mail/telemetry adapters | 常用中间件的可选适配 |
 | UI 层 | shell/theme/locale/icon/form/attachment/page plugins | 所有可见基础设施与页面 |
 | 业务层 | `admin-module-*` | 权限、路由、任务类型、表单、处理器 |
 | 运行层 | `admin-app` | profile bundle、startup、webserver、静态 SPA |
@@ -186,7 +220,7 @@ flowchart TB
 
 1. 声明自己需要的权限、导航、API、任务类型、表单。
 2. 通过 façade 调用能力（`ctx.adminTasks.create`、`ctx.adminAttachments.put`）。
-3. 提供 handler/页面，不关心 auth 用 Better Auth 还是 OIDC，也不关心主题/图标用哪套 pack。
+3. 提供 handler/页面，不关心 auth 用 Better Auth 还是 OIDC，也不关心主题/图标用哪套 pack，更不关心底层是 PG/MySQL/SQLite/Mongo/DSH KV。
 
 ### 3.3 进程边界
 
@@ -214,6 +248,7 @@ dsh-base
 admin-kernel
 admin-api-kernel
 admin-ui-kernel
+admin-data-drizzle
 admin-auth-better
 admin-access-rbac
 admin-navigation-default
@@ -275,7 +310,18 @@ admin-icons-default
 | `assist.maxConcurrency` | 2 | 并发上限 |
 | `audit.retentionDays` | 180 | 审计保留 |
 | `audit.maxEntries` | 100000 | 审计上限 |
-| `storage.backend` | json | 生产验证后切 SQLite |
+| `database.driver` | `sqlite` | `postgres` / `mysql` / `sqlite` / `mongodb` / `dsh-kv`（兼容） |
+| `database.url` | SQLite 文件 | 连接串；密码走 env/credentials |
+| `database.pool` | 10 | SQL 连接池大小 |
+| `database.migrateOnBoot` | true | 启动时跑迁移，带迁移锁 |
+| `database.ssl` | false | SQL TLS |
+| `cache.driver` | `memory` | `memory` / `redis` |
+| `lock.driver` | `memory` | `memory` / `redis` / `db` |
+| `queue.driver` | `outbox` | `outbox` / `redis-streams` / `rabbitmq` / `kafka` |
+| `objectStorage.driver` | `local` | `local` / `s3`（MinIO 兼容） |
+| `search.driver` | `database` | `database` / `meilisearch` |
+| `mail.driver` | `disabled` | `disabled` / `smtp` |
+| `telemetry.driver` | `none` | `none` / `otel` |
 | `ui.defaultLocale` | zh | 默认语言 |
 
 配置非法在加载时显式失败；秘密走 `ctx.credentials`。
@@ -290,6 +336,9 @@ plugins/admin/
   ui-kernel/         @veren/admin-ui-kernel
   api/               @veren/admin-api-kernel
   providers/
+    data-drizzle/    @veren/admin-data-drizzle（PG/MySQL/SQLite）
+    data-mongodb/    @veren/admin-data-mongodb（可选）
+    data-dsh-kv/     @veren/admin-data-dsh-kv（兼容嵌入式）
     auth-better/     @veren/admin-auth-better
     auth-oidc/       @veren/admin-auth-oidc（可选）
     access-rbac/     @veren/admin-access-rbac
@@ -316,6 +365,24 @@ plugins/admin/
 
 对外入口只有 `admin-app`（安装/启动）、`admin-contract`（Host 契约）、`admin-ui-contract`（UI 契约）。其他是 provider/默认实现，随默认 bundle 安装，也可逐个替换。
 
+通用后端组件库不放在 `plugins/admin`，而是独立在 `packages/backend/`，不依赖 Cordis，可被其他 DSH 插件复用：
+
+| 包 | 作用 |
+|---|---|
+| `@veren/backend-contract` | Database/UoW/Migrator、Cache、Lock、Queue、ObjectStore、Search、Mail、Telemetry 端口 |
+| `@veren/backend-kit` | 配置、生命周期、健康、优雅关闭、重试/超时等公共实现 |
+| `@veren/backend-drizzle` | PG/MySQL/SQLite ORM、schema、migration |
+| `@veren/backend-mongodb` | MongoDB 驱动、collection/index/migration |
+| `@veren/backend-dsh-kv` | DSH storage KV 兼容适配（受限事务） |
+| `@veren/backend-redis` | cache/lock/rate-limit |
+| `@veren/backend-queue-*` | outbox/redis-streams/rabbitmq/kafka |
+| `@veren/backend-storage-*` | local/S3/MinIO |
+| `@veren/backend-search-*` | database/meilisearch |
+| `@veren/backend-mail-smtp` | SMTP |
+| `@veren/backend-otel` | OpenTelemetry |
+
+`plugins/admin/providers/data-*` 只是把上述库接到 `ctx` 与 kernel 的适配器插件，不重复实现数据库逻辑。
+
 ### 4.6 DSH 依赖规则
 
 - DSH 包只写 `peerDependencies` + `devDependencies`；版本契约写 `engines.dsh`。
@@ -330,6 +397,7 @@ plugins/admin/
 
 | 能力 | 契约接口 | 默认 provider | 必需 | 数据域 |
 |---|---|---|---|---|
+| `data` | DatabaseAdapter/UoW/Migrator；SQL/Mongo/KV | `data-drizzle`（SQL） | 是 | 当前主数据库 |
 | `auth` | 用户、密码、会话、API Token | `auth-better` | 是 | `admin_auth` |
 | `access` | 角色、权限、数据范围、授权 | `access-rbac` | 是 | `admin_access` |
 | `navigation` | 菜单树、路由 manifest、badge | `navigation-default` | 是 | 代码/模块注册 |
@@ -346,6 +414,20 @@ plugins/admin/
 
 必需能力缺失 -> 启动失败。可选能力缺失 -> `bootstrap.features` 标 false，菜单/页面隐藏。
 
+通用后端组件（独立于业务能力，单进程可全部走内存/DB 实现）：
+
+| 组件 | 端口 | 常见适配器 | 是否必需 |
+|---|---|---|---|
+| cache | `Cache` | memory / Redis | 否 |
+| lock | `Lock` | memory / Redis / DB advisory | 否 |
+| queue | `Queue` | DB outbox / Redis Streams / RabbitMQ / Kafka | 否（outbox 默认） |
+| object storage | `ObjectStore` | local FS / S3 / MinIO | 附件需要时 |
+| search | `Search` | DB full-text / Meilisearch | 否 |
+| mail | `Mailer` | disabled / SMTP | 否 |
+| telemetry | `Telemetry` | none / OpenTelemetry | 否 |
+
+原则：缓存/搜索不是权威源；锁只做并发协调；队列至少一次投递 + 消费端幂等；对象存储只存字节，元数据在数据库；邮件失败不回滚业务。
+
 ### 5.2 Kernel：注册、选择、替换
 
 Provider 包的 `package.json` 声明 `dsh.admin.provider`；kernel 扫描 active profile 的 provider，不维护硬编码列表。manifest 至少包含：
@@ -361,6 +443,8 @@ Provider 包的 `package.json` 声明 `dsh.admin.provider`；kernel 扫描 activ
 | `config` | Schemastery 配置 schema |
 | `migrations` | 从哪些旧 provider/版本迁移 |
 | `health` | 健康检查入口 |
+
+`data` provider 额外声明 `engine` 与 `features`（transactions / json / fullText / secondaryIndexes）；领域 provider 声明 `requiredDataFeatures`，kernel 在选库时校验，不兼容直接拒绝启动。
 
 替换流程：
 
@@ -406,7 +490,7 @@ Provider 包的 `package.json` 声明 `dsh.admin.provider`；kernel 扫描 activ
 
 ### 5.4 身份、权限与数据范围
 
-- 认证是能力；默认 `auth-better` 复用 Better Auth 的密码/会话能力，也可换 OIDC/LDAP provider。
+- 认证是能力；默认 `auth-better` 参考现有登录门禁的 Better Auth 用法，但用户/会话/Token 表落在 `ctx.backend.db` 的主数据库，不复用 DSH storage domain；也可换 OIDC/LDAP provider。
 - 首次启动 setup token；不开放公开注册。
 - 会话 cookie `HttpOnly`、`SameSite=Lax`、`Secure` iff TLS；CSRF 双提交。
 - API Token 给终端：只存哈希、前缀可见、可撤销、scope 收窄。
@@ -421,7 +505,7 @@ Provider 包的 `package.json` 声明 `dsh.admin.provider`；kernel 扫描 activ
 - `forms` 能力：JSON Schema + UI Schema、服务端校验、版本化。
 - `assist` 能力：隔离 DSH Agent 产出结构化建议；人类应用；不自动通过。
 - DSH `ctx.approval` 只用于 Agent 工具放行；业务审批走 `tasks`，两者不混用。
-- 任务事件权威、快照可重建；不假设跨表事务；reconciliation 修复。
+- 任务事件权威、快照可重建；通过 `ctx.backend.db.transaction` 把事件+快照+Outbox 放进同一事务；不支持事务的 adapter（DSH KV/单机 Mongo）用 reconciliation 修复。
 - 副作用用 Outbox + 幂等 handler；失败可见可重试。
 - AI 默认无 shell/fs/network 工具；任务类型声明只读工具；输出 schema 校验；P1 不自动审批。
 
@@ -455,27 +539,111 @@ UI 契约：
 - 上传组件、附件列表、预览弹窗由 UI 插件提供；默认 ui-kit。
 - 附件渲染器可替换，不能绕过下载鉴权。
 
-### 5.7 数据与迁移
+### 5.7 数据库、ORM 与迁移
 
-每个 provider 拥有自己的 domain；不共享表。
+**主数据库不是 DSH storage KV**；DSH KV 只作为嵌入式/兼容适配。默认走通用 ORM/数据库。
 
-| Domain | 归属 |
-|---|---|
-| `admin_auth` | auth provider |
-| `admin_access` | access provider |
-| `admin_audit` | audit provider |
-| `admin_tasks` | tasks provider |
-| `admin_assist` | assist provider |
-| `admin_attachments` | attachments provider（元数据） |
-| `admin_notifications` | notifications provider |
-| `admin_jobs` | jobs provider |
-| `admin_search` | search provider（可选） |
-| `admin_api` | api kernel（幂等/偏好） |
-| 文件对象 | attachments provider |
+#### 5.7.1 引擎与 ORM
 
-- 契约层不暴露表结构；替换 provider 通过 `migrations`/export/import。
-- 没有迁移的替换必须显式拒绝，不能静默丢数据。
-- Domain 打开失败停止启动；审计不可用不允许写操作。
+| 引擎 | 适配器 | 驱动/ORM | 适用 |
+|---|---|---|---|
+| PostgreSQL | `admin-data-drizzle` | Drizzle + `pg` | 生产首选；事务/jsonb/索引/全文 |
+| MySQL | `admin-data-drizzle` | Drizzle + `mysql2` | 常见生产环境 |
+| SQLite | `admin-data-drizzle` | Drizzle + `better-sqlite3` | 本机/单机默认，零外部服务依赖 |
+| MongoDB | `admin-data-mongodb` | 官方 `mongodb` 驱动 | 文档模型/已有 Mongo 环境 |
+| DSH KV | `admin-data-dsh-kv` | DSH storage domain | 嵌入式兼容/迁移，不作为生产默认 |
+
+ORM 选择：
+
+- **SQL 用 Drizzle**：TypeScript 原生、类型安全、支持 PG/MySQL/SQLite、迁移明确，适合做 Repository/UoW 的底层。
+- **MongoDB 用官方驱动**：Drizzle 不覆盖 Mongo；官方驱动 + Zod 校验更直接，事务需要 replica set。
+- **Prisma 作为可选适配器**：如果团队更熟悉 Prisma，可作为 `admin-data-prisma` 实现同一 `Database` 契约；不让 ORM 泄漏到业务模块。
+- **一个部署一个主引擎**：不要在同一个 admin 实例混用 PG + Mongo；跨能力不做跨库 join，只走契约/API。
+- SQL 驱动（`pg`/`mysql2`/`better-sqlite3`）是可选 peer；启动时按 `database.driver` 检查已安装，缺依赖直接报错，不隐式回退。
+
+#### 5.7.2 Schema 归属与索引
+
+每个能力 provider 拥有自己的表/collection，使用统一前缀：
+
+| 能力 | 表/集合示例 | 关键索引 |
+|---|---|---|
+| auth | `auth_users`、`auth_sessions`、`auth_tokens` | email、session hash、token hash |
+| access | `access_roles`、`access_bindings` | subject、role |
+| audit | `audit_entries` | at、actor、action、result |
+| tasks | `tasks`、`task_events`、`task_outbox` | status+assignee+due、task_id+seq、outbox status+next_attempt |
+| assist | `assist_jobs`、`assist_suggestions` | task_id、status |
+| attachments | `attachments` | owner、task_id、created_at |
+| notifications | `notifications` | user_id+read_at |
+| jobs | `jobs` | status、next_run_at |
+| api | `idempotency`、`preferences` | actor+key、subject |
+
+规则：
+
+- 能力之间不建跨 provider 外键、不做跨表 join；需要组合时走服务/契约，保持可替换。
+- 同一 provider 内部可以有外键/事务。
+- ID 用 UUIDv7/ULID（时间有序）；时间统一 UTC；每行有 `version` 做乐观并发；删除用软删。
+- JSON 字段：PG `jsonb`、MySQL `JSON`、SQLite `TEXT` + JSON1、Mongo 原生文档；不要存不可查询的巨型 blob。
+- 大字段/文件走对象存储，数据库只存元数据和引用。
+- schema 变更由各 provider 的 migration 管理，不共享一张“万能表”。
+
+#### 5.7.3 UnitOfWork 与事务
+
+`Database` 契约提供 `transaction(fn)`，Repository 从当前事务上下文取连接。语义按引擎：
+
+| 引擎 | 事务 | 任务事件 + 快照 + Outbox |
+|---|---|---|
+| PG/MySQL/SQLite | 支持 | 同一事务原子写入 |
+| MongoDB | replica set 支持；单机不支持 | 有事务则原子；否则事件先写 + reconciliation |
+| DSH KV | 不支持跨表事务 | 事件先写 + reconciliation，明确降级 |
+
+- 业务副作用不放在数据库事务里；事务只写任务事件、快照、outbox。
+- 跨服务/跨 MQ 不做分布式事务；用 Outbox + 幂等 consumer。
+- 事务失败显式回滚；不能吞掉错误。
+- 连接池耗尽/数据库不可用返回 `CAPABILITY_UNAVAILABLE`，健康检查标红。
+
+#### 5.7.4 迁移
+
+- 每个 provider 拥有自己的 migration 目录和版本；SQL 用 Drizzle Kit，Mongo 用独立 runner，KV 用 domain version。
+- `_admin_migrations` 记录已应用版本；启动时获取迁移锁（PG advisory lock / MySQL GET_LOCK / SQLite transaction）。
+- `database.migrateOnBoot` 默认 true；生产可以改为部署任务执行。
+- 迁移前自动备份/要求备份；破坏性迁移必须显式确认；失败停止启动，不带着半套 schema 服务。
+- provider 替换必须声明 `migrateFrom`/`migrateTo`；没有迁移就拒绝自动替换。
+
+#### 5.7.5 DSH KV 兼容
+
+- `admin-data-dsh-kv` 实现同一 `Database`/Repository 端口，用于嵌入式、零配置、旧数据迁移。
+- 明确限制：无跨表事务、无二级索引、查询需扫描、并发写弱；只适合小数据/单机。
+- `bootstrap.features`/能力目录暴露 `transactions: false`、`secondaryIndexes: false`，任务/审计用 reconciliation 兜底。
+- 不作为生产默认；大规模部署推荐 PG/MySQL，文档型选 Mongo。
+
+### 5.8 通用后端组件库
+
+`packages/backend/*` 是独立于 admin 的通用库，不依赖 Cordis；admin 只提供 `plugins/admin/providers/*` 适配插件。
+
+| 端口 | 最小能力 | 适配器 |
+|---|---|---|
+| `Database` / `UnitOfWork` / `Migrator` | query、transaction、migration、health | drizzle、mongodb、dsh-kv、memory（测试） |
+| `Cache` | get/set/del、TTL、tag invalidation | memory、redis |
+| `Lock` | acquire/release、TTL、fencing token | memory、redis、DB advisory |
+| `Queue` | publish、consume、ack、retry、dead-letter | outbox、redis-streams、rabbitmq、kafka |
+| `ObjectStore` | put/get/delete、metadata、signed/authenticated URL | local、s3/minio |
+| `Search` | index/query/delete | database、meilisearch |
+| `Mailer` | send、template、retry | disabled、smtp |
+| `Telemetry` | trace/metric/log adapter | none、otel |
+
+`admin-kernel` 挂载稳定的 `ctx.backend`，暴露 `db` / `cache` / `lock` / `queue` / `objectStore` / `search` / `mail` / `telemetry` 端口；provider 注入端口，不各自 new 客户端。具体 adapter 由配置选择，可独立替换。
+
+统一约定：
+
+- 初始化/关闭/健康检查都走 `backend-kit` 的生命周期；配置非法 fail loud。
+- 可选组件未配置时使用内存/禁用实现；生产配置了但连不上则启动失败或能力降级，显式可见。
+- Cache/Search 不是权威源；权威源是数据库。
+- Queue 至少一次投递；consumer 必须幂等；DB outbox 是默认可靠路径，MQ 用于多实例/解耦。
+- Lock 只做并发协调，不替代数据库唯一约束/乐观锁。
+- ObjectStore 只存字节；元数据/权限在数据库。
+- Mail 异步发送；失败重试，不影响任务状态。
+- Telemetry 不阻塞业务；采样率/端点可配。
+- 每个适配器有 contract tests；同一端口的行为一致。
 
 ## 6. UI 内核与契约
 
@@ -581,11 +749,15 @@ Module descriptor：
 - UI 插件：manifest + uiContract；不兼容拒绝；可独立启停。
 - 默认 `admin-app` 只是组合；可用 profile patch 替换任意行。
 - 回滚：保留旧 provider 行，切回即可；数据迁移需可逆或备份。
-- 测试：契约测试 + provider swap 测试 + UI unload 测试。
+- 数据库引擎/adapter 替换是维护操作：备份 → 迁移 → 切换 → 验证；不做热替换，不允许两个主库同时写。
+- cache/queue/object-store/search 适配器可以独立替换；替换时保留降级路径（memory/outbox/local）。
+- 测试：契约测试 + provider swap 测试 + UI unload 测试 + DB migration/rollback 测试。
 
 ### 7.4 不可替换的部分
 
 - `admin-contract`/`admin-ui-contract`/`admin-kernel`/`admin-ui-kernel`/`admin-api-kernel` 是平台底座，不承诺“随便换”；它们通过版本升级。
+- `ctx.backend` 是稳定端口 façade；替换的是它后面的 DB/cache/queue/storage adapter，不是端口契约本身。
+- `data` 能力可以在维护窗口替换 adapter/引擎，但不做运行中热替换；一个部署一个主库。
 - 业务 module 的 handler 逻辑属于该 module；换 module 不是“替换基础设施”，是换业务。
 - 数据迁移不是自动的；provider 必须声明能力。
 
@@ -608,6 +780,7 @@ Module descriptor：
 | `POST` | `/api/admin/v1/logout` | 退出 |
 | `GET` | `/api/admin/v1/bootstrap` | 用户/权限/菜单/badge/CSRF/features |
 | `GET` | `/api/admin/v1/capabilities` | 能力目录/健康/active provider |
+| `GET` | `/api/admin/v1/health/backends` | 数据库/缓存/队列/对象存储/搜索健康 |
 | `GET` | `/api/public/v1/ui-manifest` | 登录前核心 UI pack |
 | `GET` | `/api/admin/v1/ui-manifest` | 登录后完整 UI 插件清单 |
 | `GET` | `/api/admin/v1/tasks` | 任务列表 |
@@ -637,7 +810,7 @@ Module descriptor：
 - `Idempotency-Key` header；24 小时；同 key 不同 body 409。
 - 写操作审计 intent/outcome；拒绝/CSRF/限流记 denied。
 - 权限/范围在 API 层强制；分页/导出同范围。
-- 错误码稳定：AUTH_REQUIRED / FORBIDDEN / CSRF_FAILED / VALIDATION_FAILED / CONFLICT / NOT_FOUND / TASK_STATE_INVALID / FORM_INVALID / ATTACHMENT_TOO_LARGE / ATTACHMENT_MIME / CAPABILITY_UNAVAILABLE / AI_UNAVAILABLE / INTERNAL。
+- 错误码稳定：AUTH_REQUIRED / FORBIDDEN / CSRF_FAILED / VALIDATION_FAILED / CONFLICT / NOT_FOUND / TASK_STATE_INVALID / FORM_INVALID / ATTACHMENT_TOO_LARGE / ATTACHMENT_MIME / CAPABILITY_UNAVAILABLE / BACKEND_UNAVAILABLE / MIGRATION_FAILED / AI_UNAVAILABLE / INTERNAL。
 
 ## 9. 界面与交互
 
@@ -725,16 +898,19 @@ sequenceDiagram
 - 服务端权限；防自锁；审计只追加。
 - UI 插件同源、manifest 校验、uiContract 校验、无远程脚本、可卸载。
 - AI 提示注入：任务内容不可信；只读工具；结构化输出；人类决定。
-- 单写进程；domain 打开失败停止；Outbox 可见重试。
-- 备份/恢复；审计导出 P2；能力目录/健康页。
+- 单写进程；数据库/迁移不可用停止；Outbox 可见重试。
+- 数据库最小权限账号、TLS、连接池上限、迁移锁；迁移前备份，破坏性迁移需确认。
+- Redis ACL/TLS、MQ 认证、S3/MinIO 最小权限；所有连接串/密码走 env/credentials，不进日志。
+- DSH KV 适配明确标注无事务/无二级索引，只用于小数据/嵌入式和迁移。
+- 备份/恢复；审计导出 P2；能力目录/健康页/后端健康页。
 
 ## 12. 路线图
 
 | 阶段 | 目标 | 交付 | 完成标准 |
 |---|---|---|---|
-| P0 契约与内核 | `dsh --profile admin` 跑起来 | contract/ui-contract、kernel、api-kernel、ui-kernel、auth/access/nav/audit 默认 provider、shell/theme/locale/icons 默认 pack、web/app、docs/capability catalog | 登录；菜单/权限/路由；换主题/语言/图标不换页面；缺必需能力显式失败 |
-| P1 人工闭环 | 审核/审批/附件/AI 可用 | tasks/forms/assist/attachments/notifications/jobs providers、任务箱/详情、Outbox、UI 插件运行时、terminal token | 任务→AI→人工→副作用→审计；附件上传/下载；UI 插件可加载/卸载 |
-| P2 可替换与治理 | 独立升级 | provider swap/rollback 工具、契约测试套件、OpenAPI/SDK、用户/角色高级治理、SLA 升级、文档页 | 替换 auth/nav/theme/shell provider 消费者不改；不兼容拒绝；回滚可用 |
+| P0 契约与内核 | `dsh --profile admin` 跑起来 | contract/ui-contract、kernel、api-kernel、ui-kernel、data-drizzle（SQLite 默认）、migration/UoW、auth/access/nav/audit 默认 provider、shell/theme/locale/icons 默认 pack、web/app、docs/capability catalog | 登录；菜单/权限/路由；换主题/语言/图标不换页面；迁移可跑；缺必需能力显式失败 |
+| P1 人工闭环 | 审核/审批/附件/AI 可用 | tasks/forms/assist/attachments/notifications/jobs providers、任务箱/详情、Outbox、UI 插件运行时、terminal token、memory cache/lock、local object storage | 任务→AI→人工→副作用→审计；附件上传/下载；UI 插件可加载/卸载；SQL 事务/Outbox 正确 |
+| P2 可替换与治理 | 独立升级、常用后端栈 | PostgreSQL/MySQL/MongoDB 适配器、Redis cache/lock/rate-limit、RabbitMQ/Kafka/Redis Streams、S3/MinIO、search/mail/OTel、provider swap/rollback、契约测试、OpenAPI/SDK、高级治理 | 替换 auth/nav/theme/shell provider 消费者不改；PG/MySQL/Mongo 迁移通过；Redis/MQ 可选接入；不兼容拒绝；回滚可用 |
 | P3 平台化 | 运营与生态 | 插件市场/签名（评估）、Webhook/邮件、多实例、自动审批策略、分析 | 第三方按契约接入；策略有双人复核和审计 |
 
 P1 不做：多租户、AI 自动审批、可视化工作流设计器、跨实例集群。
@@ -754,6 +930,10 @@ P1 不做：多租户、AI 自动审批、可视化工作流设计器、跨实�
 - 缺必需能力启动失败；缺可选能力功能隐藏。
 - 替换失败回滚；in-flight 请求完成；数据迁移缺失时拒绝。
 - UI 插件卸载后无残留；重复加载幂等。
+- 数据适配器矩阵：SQLite/PG/MySQL/Mongo/DSH KV 跑同一 repository/migration contract tests。
+- 事务/Outbox：SQL 原子；Mongo 有/无 replica set 两种路径；DSH KV 走 reconciliation。
+- 后端组件：cache/lock/queue/object-store/search/mail 的契约测试；配置了但连不上要 fail loud。
+- 迁移：正常/失败/回滚/并发迁移锁；无备份时拒绝破坏性迁移。
 
 ### 13.3 业务与安全
 
@@ -768,7 +948,8 @@ P1 不做：多租户、AI 自动审批、可视化工作流设计器、跨实�
 - P0 能在真实 profile 启动；能力目录/健康可见。
 - 换 theme/locale/icon/shell 不需要改页面。
 - 换 auth provider 后业务 module 不改。
-- 缺必需能力 fail loud；缺可选能力优雅降级。
+- 换数据库/引擎走迁移流程，不双写；DSH KV 兼容路径有明确限制。
+- 缺必需能力/必需后端 fail loud；缺可选能力优雅降级。
 - 所有写操作审计；所有权限服务端校验。
 - UI 插件加载/卸载安全；契约不兼容拒绝。
 - 测试节点安装/卸载通过；无 `~/.dsh` 写入。
@@ -784,6 +965,11 @@ P1 不做：多租户、AI 自动审批、可视化工作流设计器、跨实�
 | 多 provider 冲突 | kernel 单 active + priority；冲突显式拒绝 |
 | AI 成本/延迟 | 预算、并发、超时、取消、失败不阻塞人工 |
 | 附件安全 | MIME/大小/扫描/认证下载/配额 |
+| 数据库/ORM 差异 | 统一 Repository/UoW + contract tests；SQL 用 Drizzle，Mongo 用驱动；不把 SQL 泄漏到业务 |
+| 迁移失败/并发 | 迁移锁、备份、失败停止启动；破坏性迁移确认 |
+| Mongo 无副本集事务 | 事件先写 + reconciliation；能力目录标注 transactions=false |
+| DSH KV 限制 | 明确无事务/无二级索引；只用于小数据/嵌入式/迁移 |
+| Redis/MQ 运维成本 | 默认 memory/outbox；Redis/MQ 只在多实例/规模需要时启用 |
 | 单写进程 | 文档+启动检查；并行用独立 HOME |
 
 ### 14.1 需要确认
@@ -795,6 +981,9 @@ P1 不做：多租户、AI 自动审批、可视化工作流设计器、跨实�
 5. 附件存储是否 P1 就接对象存储，还是先本地文件？
 6. 单实例后台，还是多实例控制面？
 7. 是否接受“provider 默认 bundle + 高级用户自行替换”的交付方式？
+8. P0/P1 的主数据库选 SQLite 还是 PostgreSQL？是否必须同时支持 MySQL/Mongo？
+9. Redis/MQ 是 P1 就要接，还是 P1 只用 memory/outbox、P2 再接？
+10. DSH storage KV 兼容是必须保留，还是只作为迁移工具？
 
 ## 15. 附录
 
@@ -824,6 +1013,9 @@ P1 不做：多租户、AI 自动审批、可视化工作流设计器、跨实�
 | UI kernel | 浏览器侧 UI 插件运行时 |
 | Pack | theme/locale/icon 等可替换 UI 资源包 |
 | Outbox | 决定后待执行的业务副作用队列 |
+| ORM | 对象关系映射；SQL 侧默认 Drizzle |
+| UoW | UnitOfWork；把多个 repository 操作放进一个事务边界 |
+| Adapter | 端口的具体实现，如 PG/MySQL/SQLite/Mongo/Redis/MQ/S3 |
 | Capability catalog | 能力、provider、版本、健康目录 |
 
 ### 15.3 参考

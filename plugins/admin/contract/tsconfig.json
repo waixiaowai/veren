@@ -1,0 +1,10 @@
+{
+  // Package face: `plugins/admin/contract` sits one level below the shared base.
+  // 包配置面：`plugins/admin/contract` 位于共享基础之下第一层。
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

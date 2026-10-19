@@ -1,0 +1,40 @@
+{
+  // Shared TypeScript face for every `plugins/admin/*` package.
+  // `paths` resolve the sibling packages to their sources, so a package type
+  // checks against live code instead of a built copy.
+  // `plugins/admin/*` 下所有包共享的 TypeScript 配置面；`paths` 指向兄弟包源码，
+  // 因此类型检查面对的是实时源码而非构建副本。
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "rewriteRelativeImportExtensions": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"],
+    "paths": {
+      "@veren/admin-contract": ["./contract/src/index.ts"],
+      "@veren/admin-kernel": ["./kernel/src/index.ts"],
+      "@veren/admin-api-kernel": ["./api/src/index.ts"],
+      "@veren/admin-data-dsh-kv": ["./providers/data-dsh-kv/src/index.ts"],
+      "@veren/admin-auth-local": ["./providers/auth-local/src/index.ts"],
+      "@veren/admin-access-rbac": ["./providers/access-rbac/src/index.ts"],
+      "@veren/admin-navigation-default": ["./providers/nav-default/src/index.ts"],
+      "@veren/admin-audit-default": ["./providers/audit-default/src/index.ts"],
+      "@veren/admin-docs-openapi": ["./providers/docs-openapi/src/index.ts"],
+      "@veren/admin-ui-contract": ["./ui-contract/src/index.ts"],
+      "@veren/admin-ui-kernel": ["./ui-kernel/src/index.ts"],
+      "@veren/admin-web": ["./web/src/index.ts"]
+    }
+  }
+}

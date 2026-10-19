@@ -27,5 +27,5 @@ and cover cross-package topics.
 ## Current documents
 
 - [Agent Blackboard Plugin Design (Draft)](./agent-blackboard-design.md): for DSH plugin developers; prerequisites: Cordis, Presets, and Agent Teams.
-- [DSH Universal AI Admin Platform System Design (Draft)](./admin-system-design.md): for DSH plugin developers and admin-platform architects; prerequisites: DSH profiles/bundles, Cordis services, storage domains, Agent/Session, HTTP, RBAC, and frontend plugin architecture.
+- [DSH Universal AI Admin Platform System Design (Draft)](./admin-system-design.md): for DSH plugin developers and admin-platform architects; prerequisites: DSH profiles/bundles, Cordis services, Agent/Session, HTTP, RBAC, frontend plugin architecture, database/ORM, and common backend middleware.
 - [Scene Preset Design (Draft)](./scene-preset-design.md): for DSH plugin developers and Agent product designers; prerequisites: Cordis, Agent presets, system prompts, and tool registration.

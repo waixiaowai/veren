@@ -25,8 +25,11 @@
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/cordis": "^4.0.5",
     "@deepseek-ai/dsh-graph-core": "workspace:*",
     "@deepseek-ai/dsh-graph-flow-api": "workspace:*"
   },
@@ -35,7 +38,7 @@
     "@veren/core": "workspace:*"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/cordis": "^4.0.5",
     "@deepseek-ai/dsh-graph-core": "workspace:*",
     "@deepseek-ai/dsh-graph-flow-api": "workspace:*",
     "@deepseek-ai/dsh-graph-flow-approval": "workspace:*"

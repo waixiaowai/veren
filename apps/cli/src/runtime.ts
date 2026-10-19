@@ -18,6 +18,7 @@ import * as DocCommand from '@veren/commander-doc';
 import * as HelpCommand from '@veren/commander-help';
 import * as ListCommand from '@veren/commander-list';
 import * as Project from '@veren/commander-project';
+import * as TestsCommand from '@veren/commander-tests';
 import * as YamlParser from '@veren/yaml-parser';
 
 /**
@@ -37,6 +38,7 @@ export async function createRuntime(): Promise<Context> {
   await ctx.plugin(ListCommand);
   await ctx.plugin(BuildCommand); // build：按单元分型构建 / kind-aware build
   await ctx.plugin(DocCommand);
+  await ctx.plugin(TestsCommand); // tests: isolated DSH training grounds
   await ctx.plugin(HelpCommand);
 
   return ctx;

@@ -11,15 +11,26 @@
  * components receive data and behavior purely via props (rule 10).
  */
 import type { Context } from '@deepseek-ai/cordis';
-// 类型-only:只为拉取 slots/locale 等 Service 的 declaration merge(使 ctx.slots 可用)
-// Type-only: pulls the declaration merges for slots/locale etc. (makes ctx.slots usable).
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client';
 import type {} from '@deepseek-ai/dsh-client-locale/client';
+// 声明本插件的多语言命名空间与 Plugins 页配置位;两者都由宿主声明,
+// 插件只补自己的那一格。
+// Declare this plugin's locale namespace and its Plugins-page config seat;
+// both are host-declared, and the plugin contributes only its own cell.
+import type {} from '@deepseek-ai/dsh-client-ui-slots';
+import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client';
 import { createStatusStore } from './bridge.ts';
 import { rotateCredential } from './bridge.ts';
 import { CmsBridgePanel } from './CmsBridgePanel.tsx';
-import { NS, en, zh } from './i18n.ts';
+import { NS, en, zh, type BridgeKey } from './i18n.ts';
 import type { Translate } from './i18n.ts';
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** cms-bridge panel copy. cms-bridge 面板文案。 */
+    '@veren/cms-bridge': BridgeKey;
+  }
+}
 
 /** 服务级注入:slots(挂载点)与 locale(多语言)/ service-level inject: slots (mount) and locale (i18n) */
 export const inject = ['slots', 'locale'];

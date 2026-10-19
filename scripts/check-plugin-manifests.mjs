@@ -44,8 +44,20 @@ const STATELESS_DSH = new Set([
   '@deepseek-ai/dsh-util-crypto',
 ])
 
+/**
+ * 本仓库自己发布的 `@deepseek-ai/dsh-graph-*` 也带 dsh- 前缀，但它们不是 DSH 运行时包，
+ * 只是自己的组合成员；DSH 的兼容性检查会按名字把它们误当运行时要求，因此每个 graph 包
+ * 必须声明 engines.dsh 让 peer 区间不再参与判定。
+ *
+ * Our own `@deepseek-ai/dsh-graph-*` packages also carry the dsh- prefix but are not DSH
+ * runtime packages, only bundle members. DSH's compatibility check would misread their
+ * peer ranges as runtime requirements, so every graph package must declare engines.dsh.
+ */
+const OWN_DSH_PREFIX = '@deepseek-ai/dsh-graph-'
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const pluginsDir = join(root, 'plugins')
+const graphDir = join(root, 'packages/graph')
 
 /** 读取一个目录下的 package.json，没有则返回 undefined / read a manifest, or undefined. */
 function readManifest(dir) {
@@ -55,6 +67,7 @@ function readManifest(dir) {
 
 /** 判断一个依赖名是否需要与宿主共享实例 / whether a name must share the host instance. */
 function isHostShared(name) {
+  if (name.startsWith(OWN_DSH_PREFIX)) return false
   return name === '@deepseek-ai/cordis' || name.startsWith('@deepseek-ai/dsh-')
 }
 

@@ -1,0 +1,44 @@
+{
+  "name": "@veren/admin-api-kernel",
+  "displayName": "Admin API Kernel",
+  "version": "0.1.0",
+  "description": "Use when admin providers and modules must expose HTTP endpoints without re-implementing security: it registers audience-prefixed routes and applies request ids, origin and CSRF checks, authentication, permission enforcement, body limits, rate limiting, validation, auditing, the standard error envelope, and generated OpenAPI in one fixed order; skip it when the deployment has no HTTP surface.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.cn.md"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-host-webserver": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "dependencies": {
+    "@veren/admin-contract": "workspace:^",
+    "@veren/admin-kernel": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-host-webserver": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}

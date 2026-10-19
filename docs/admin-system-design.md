@@ -1,10 +1,12 @@
-# DSH Universal AI Admin Platform: System Design (Draft v3)
+# DSH Universal AI Admin Platform: System Design (Draft v3.1)
 
 [中文](admin-system-design.cn.md) | English
 
 Status: for review. This document fixes the design only; it contains no implementation code.
 
-This version builds on v2's standalone `admin` profile and adds a **contract-first platform kernel**: authentication, authorization, navigation, routing, API, documentation, tasks, forms, AI, attachments, themes, locales, icons, and layout all start as interfaces, then are implemented by replaceable provider plugins. `admin-app` is only the default composition, not a hard-coded implementation.
+This version builds on v3's contract-first platform kernel and adds **database and common backend components**: ORM-first support for PostgreSQL/MySQL/SQLite/MongoDB, plus a compatibility adapter for DSH storage KV; Redis, MQ, object storage, search, mail, locks, and cache enter through stable ports and replaceable adapters. `admin-app` remains only the default composition.
+
+The platform principle is unchanged: authentication, authorization, navigation, routing, API, documentation, tasks, forms, AI, attachments, themes, locales, icons, and layout start as interfaces, then are implemented by replaceable provider plugins.
 
 Audience: DSH plugin developers, admin-platform architects, and teams that need to replace or upgrade infrastructure. Prerequisites: DSH profiles/bundles, Cordis services, storage domains, Agent/Session, HTTP, RBAC, and frontend plugin architecture.
 
@@ -21,6 +23,8 @@ Reading path: conclusions only → 0, 2, 12; foundation review → 2–7; human 
 | Frontend | `admin-layout` is only the default shell; shell, pages, theme, locale, icons, form fields, and attachment renderers are UI plugins |
 | Unified API | Every provider/module registers routes through `adminApi`; one auth, permission, audit, error, pagination, idempotency, and OpenAPI pipeline |
 | Unified docs | OpenAPI + capability catalog + UI manifest + plugin docs; `/api/admin/v1/capabilities`, `/api/admin/v1/ui-manifest` |
+| Database | ORM-first: PostgreSQL/MySQL/SQLite via Drizzle, MongoDB via the official driver; DSH storage KV as a compatibility adapter; one primary database per deployment |
+| Backend components | Stable ports + adapters: cache/Redis, queue/MQ, lock, object storage/S3, search, mail, telemetry; Redis/MQ are not required by default |
 | Human loop | Task/Approval/Form engine; review, approve, request changes, transfer, comments, SLA, outbox |
 | AI assistance | DSH Agent/LLM produces summaries, risks, and form prefill suggestions; humans decide; P1 never auto-approves |
 | Replaceability | Capability providers, feature modules, and UI plugins install/replace/upgrade independently; contracts/kernel are the versioned stable base |
@@ -51,6 +55,15 @@ One sentence: **the platform exposes interfaces and stable capability façades; 
 | Documentation was hand-written | OpenAPI/capability catalog/UI manifest are generated |
 | Replacement required code changes | Replace providers with version negotiation and drain/rollback |
 
+### 0.3 v3.1 additions
+
+| v3 | v3.1 |
+|---|---|
+| DSH storage KV as the default persistence | ORM-first; PG/MySQL/SQLite/Mongo; DSH KV compatibility only |
+| No database/transaction abstraction | Repository + UnitOfWork + Migrator; SQL transactions, Mongo transactions/fallback, KV reconciliation |
+| Redis/MQ could become implicit dependencies | Ports + optional adapters; memory/outbox by default |
+| Backend components scattered across admin | Independent `packages/backend/*` library reusable by other DSH plugins |
+
 ## 1. Goals and boundaries
 
 ### 1.1 Goals
@@ -62,6 +75,8 @@ One sentence: **the platform exposes interfaces and stable capability façades; 
 - **Unified**: one API, one error model, one permission model, one documentation surface, one UI runtime.
 - **Human loop**: review, approval, forms, and AI assistance are first-class.
 - **Operable**: health, audit, rate limits, migration, rollback, test nodes.
+- **Common backend stack**: PostgreSQL/MySQL/SQLite/MongoDB, Redis, RabbitMQ/Kafka, S3/MinIO, SMTP, and OpenTelemetry can all enter as adapters; no single middleware is hard-coded.
+- **Common backend library**: database/ORM/UoW, cache, lock, queue, object storage, search, mail, and telemetry are provided as independent libraries + ports, reusable outside admin.
 
 ### 1.2 Non-goals
 
@@ -72,6 +87,9 @@ One sentence: **the platform exposes interfaces and stable capability façades; 
 - No cross-DSH-instance cluster control plane; evaluate in P3.
 - No plugin marketplace/billing/signed distribution; evaluate in P3.
 - No "any npm package works" claim; plugins must implement contracts.
+- No distributed transaction across databases/MQs; use UnitOfWork + outbox + idempotency.
+- No multiple primary databases in one deployment; one admin instance picks one primary engine.
+- Redis/MQ are not mandatory: single-process can use memory/DB outbox; multi-instance enables Redis/MQ adapters.
 
 ### 1.3 Users and scenarios
 
@@ -114,7 +132,7 @@ This is the concrete meaning of "interface-first, not implementation-first."
 
 | Type | Examples | Missing behavior |
 |---|---|---|
-| Essential | auth, access, navigation, audit | Boot fails, naming the missing capability and candidate providers |
+| Essential | data, auth, access, navigation, audit | Boot fails, naming the missing capability and candidate providers |
 | Optional | tasks, forms, assist, attachments, search, notifications, jobs, docs | Capability off; menus/pages hide; the rest works |
 
 Essential capabilities may be replaced, but only with a compatible provider; the platform never starts without authentication. The API gateway/kernel is platform infrastructure, not a replaceable capability.
@@ -129,10 +147,21 @@ Essential capabilities may be replaced, but only with a compatible provider; the
 
 ### 2.5 Data ownership
 
-- Each provider owns its storage domain; no shared tables.
+- Each provider owns its tables/collections/schema; no shared tables.
 - Replacing a provider uses declared `migrateFrom` / `export` / `import`; without migration, explicit export is required, never silent data loss.
 - Business modules store task references, form values, audit, and governance data only; business data stays with the business plugin.
 - Contracts expose operations, never table structures.
+
+### 2.6 Key decisions
+
+| Decision | Choice | Rationale | Rejected alternative |
+|---|---|---|---|
+| Database/ORM | General database + Repository/UoW; Drizzle for SQL, official Mongo driver, DSH KV compatibility | Common backend stack; transactions/indexes/migrations are controllable; consumers do not see the database | DSH KV only, or SQL leaking into business code |
+| Database engine | One primary per deployment: PG/MySQL/SQLite/Mongo | Avoids cross-DB transactions and dual writes; replacement is migration | Each capability choosing its own database |
+| Cache/queue | Ports + optional adapters | No Redis/MQ hard dependency for single-process; enable for multi-instance | Redis/MQ as mandatory infrastructure |
+| Transactions/side effects | UnitOfWork + outbox | SQL/Mongo atomic where possible; KV uses reconciliation | Writing two systems directly |
+| UI infrastructure | Shell/theme/locale/icon/renderer are plugins | Replaceable and independently upgradeable | One fixed UI hard-coded |
+| Unified interface | Façade + contract + provider manifest | Replace implementation without changing consumers | Consumers importing providers |
 
 ## 3. Architecture
 
@@ -148,7 +177,10 @@ flowchart TB
 
     APIKernel --> Facades["Capability façades<br/>auth / access / nav / tasks / forms / assist / attachments / audit ..."]
     Facades --> Providers["Provider plugins<br/>replaceable defaults"]
-    Providers --> Store[(💾 per-provider domains)]
+    Providers --> Data["Data adapter<br/>Drizzle / Mongo / DSH KV"]
+    Data --> DB[(PG / MySQL / SQLite / Mongo / DSH KV)]
+    Providers --> Backend["Backend components<br/>Cache / Queue / ObjectStore / Search / Mail"]
+    Backend --> Middleware[(Redis / RabbitMQ / S3 / SMTP)]
     Providers --> DSH["DSH capabilities<br/>Agent / Session / LLM / Tools"]
     Providers --> Biz["Business plugin services"]
     Kernel["admin-kernel<br/>provider registry / versions / swap / health"] --> Facades
@@ -164,8 +196,8 @@ flowchart TB
   classDef platform fill:#87CEEB,stroke:#1864AB,color:#000
   class Browser,Terminal actor
   class Kernel,Facades,UIKernel,APIKernel,Shell,Packs,UIPlugins primary
-  class Store data
-  class Platform,Providers,DSH,Biz,Docs platform
+  class DB,Middleware data
+  class Platform,Providers,DSH,Biz,Docs,Data,Backend platform
 ```
 
 ### 3.1 Layers
@@ -176,6 +208,8 @@ flowchart TB
 | Kernel | `admin-kernel` / `admin-ui-kernel` | Provider registration, negotiation, swap/rollback, health, catalog |
 | Gateway | `admin-api-kernel` | Route table, auth, permission, audit, errors, OpenAPI, idempotency |
 | Capabilities | auth/access/nav/tasks/forms/assist/attachments/... providers | Capability implementations |
+| Data | data-drizzle / data-mongodb / data-dsh-kv; Repository/UoW/Migrator | Primary database, transactions, migrations |
+| Backend components | cache/queue/lock/object-store/search/mail/telemetry adapters | Optional adapters for common middleware |
 | UI | shell/theme/locale/icon/form/attachment/page plugins | All visible infrastructure and pages |
 | Business | `admin-module-*` | Permissions, routes, task types, forms, handlers |
 | Runtime | `admin-app` | Profile bundle, startup, webserver, static SPA |
@@ -186,7 +220,7 @@ A business module does only three things:
 
 1. Declare its permissions, navigation, APIs, task types, and forms.
 2. Call capabilities through façades (`ctx.adminTasks.create`, `ctx.adminAttachments.put`).
-3. Provide handlers/pages; it does not care whether auth uses Better Auth or OIDC, or which theme/icon pack is active.
+3. Provide handlers/pages; it does not care whether auth uses Better Auth or OIDC, which theme/icon pack is active, or whether the database is PG/MySQL/SQLite/Mongo/DSH KV.
 
 ### 3.3 Process boundary
 
@@ -214,6 +248,7 @@ dsh-base
 admin-kernel
 admin-api-kernel
 admin-ui-kernel
+admin-data-drizzle
 admin-auth-better
 admin-access-rbac
 admin-navigation-default
@@ -275,7 +310,18 @@ Advanced users can:
 | `assist.maxConcurrency` | 2 | Concurrency |
 | `audit.retentionDays` | 180 | Audit retention |
 | `audit.maxEntries` | 100000 | Audit cap |
-| `storage.backend` | json | Switch to SQLite after verification |
+| `database.driver` | `sqlite` | `postgres` / `mysql` / `sqlite` / `mongodb` / `dsh-kv` (compat) |
+| `database.url` | SQLite file | Connection string; secrets via env/credentials |
+| `database.pool` | 10 | SQL pool size |
+| `database.migrateOnBoot` | true | Run migrations at boot with a migration lock |
+| `database.ssl` | false | SQL TLS |
+| `cache.driver` | `memory` | `memory` / `redis` |
+| `lock.driver` | `memory` | `memory` / `redis` / `db` |
+| `queue.driver` | `outbox` | `outbox` / `redis-streams` / `rabbitmq` / `kafka` |
+| `objectStorage.driver` | `local` | `local` / `s3` (MinIO compatible) |
+| `search.driver` | `database` | `database` / `meilisearch` |
+| `mail.driver` | `disabled` | `disabled` / `smtp` |
+| `telemetry.driver` | `none` | `none` / `otel` |
 | `ui.defaultLocale` | zh | Default locale |
 
 Invalid config fails at load; secrets go through `ctx.credentials`.
@@ -290,6 +336,9 @@ plugins/admin/
   ui-kernel/         @veren/admin-ui-kernel
   api/               @veren/admin-api-kernel
   providers/
+    data-drizzle/    @veren/admin-data-drizzle (PG/MySQL/SQLite)
+    data-mongodb/    @veren/admin-data-mongodb (optional)
+    data-dsh-kv/     @veren/admin-data-dsh-kv (embedded compatibility)
     auth-better/     @veren/admin-auth-better
     auth-oidc/       @veren/admin-auth-oidc (optional)
     access-rbac/     @veren/admin-access-rbac
@@ -316,6 +365,24 @@ plugins/admin/
 
 Only three entry points matter externally: `admin-app` (install/start), `admin-contract` (Host contracts), and `admin-ui-contract` (UI contracts). Everything else is a provider/default implementation installed with the default bundle and replaceable individually.
 
+The common backend library lives in `packages/backend/`, not `plugins/admin`, and has no Cordis dependency; other DSH plugins can reuse it:
+
+| Package | Purpose |
+|---|---|
+| `@veren/backend-contract` | Database/UoW/Migrator, Cache, Lock, Queue, ObjectStore, Search, Mail, Telemetry ports |
+| `@veren/backend-kit` | Config, lifecycle, health, graceful shutdown, retry/timeout |
+| `@veren/backend-drizzle` | PG/MySQL/SQLite ORM, schema, migrations |
+| `@veren/backend-mongodb` | MongoDB driver, collections/indexes/migrations |
+| `@veren/backend-dsh-kv` | DSH storage KV compatibility (limited transactions) |
+| `@veren/backend-redis` | Cache/lock/rate-limit |
+| `@veren/backend-queue-*` | Outbox/Redis Streams/RabbitMQ/Kafka |
+| `@veren/backend-storage-*` | Local/S3/MinIO |
+| `@veren/backend-search-*` | Database/Meilisearch |
+| `@veren/backend-mail-smtp` | SMTP |
+| `@veren/backend-otel` | OpenTelemetry |
+
+`plugins/admin/providers/data-*` only adapts those libraries to `ctx` and the kernel; it does not reimplement database logic.
+
 ### 4.6 DSH dependency rules
 
 - DSH packages belong only in `peerDependencies` + `devDependencies`; the version contract is `engines.dsh`.
@@ -330,6 +397,7 @@ Only three entry points matter externally: `admin-app` (install/start), `admin-c
 
 | Capability | Contract | Default provider | Essential | Data domain |
 |---|---|---|---|---|
+| `data` | DatabaseAdapter/UoW/Migrator; SQL/Mongo/KV | `data-drizzle` (SQL) | Yes | Current primary database |
 | `auth` | Users, passwords, sessions, API tokens | `auth-better` | Yes | `admin_auth` |
 | `access` | Roles, permissions, scopes, authorization | `access-rbac` | Yes | `admin_access` |
 | `navigation` | Menu tree, route manifest, badges | `navigation-default` | Yes | code/module registry |
@@ -346,6 +414,20 @@ Only three entry points matter externally: `admin-app` (install/start), `admin-c
 
 Missing essential capability → boot fails. Missing optional capability → `bootstrap.features` false, menus/pages hide.
 
+Common backend components (independent of business capabilities; a single process can use memory/DB implementations):
+
+| Component | Port | Common adapters | Essential |
+|---|---|---|---|
+| cache | `Cache` | memory / Redis | No |
+| lock | `Lock` | memory / Redis / DB advisory | No |
+| queue | `Queue` | DB outbox / Redis Streams / RabbitMQ / Kafka | No (outbox default) |
+| object storage | `ObjectStore` | local FS / S3 / MinIO | Needed for attachments |
+| search | `Search` | DB full-text / Meilisearch | No |
+| mail | `Mailer` | disabled / SMTP | No |
+| telemetry | `Telemetry` | none / OpenTelemetry | No |
+
+Rules: cache/search are never the source of truth; locks only coordinate concurrency; queues are at-least-once with idempotent consumers; object storage stores bytes while metadata lives in the database; mail failure never rolls back business state.
+
 ### 5.2 Kernel: registration, selection, replacement
 
 A provider package declares `dsh.admin.provider` in `package.json`; the kernel scans active profile providers and maintains no hard-coded list. The manifest contains at least:
@@ -361,6 +443,8 @@ A provider package declares `dsh.admin.provider` in `package.json`; the kernel s
 | `config` | Schemastery config schema |
 | `migrations` | Source providers/versions |
 | `health` | Health check entry |
+
+A `data` provider additionally declares `engine` and `features` (transactions / json / fullText / secondaryIndexes); domain providers declare `requiredDataFeatures`, and the kernel validates them when selecting a database. Incompatible combinations are rejected at boot.
 
 Replacement flow:
 
@@ -406,7 +490,7 @@ Unified docs:
 
 ### 5.4 Identity, permissions, and data scope
 
-- Auth is a capability; the default `auth-better` reuses Better Auth's password/session capabilities; OIDC/LDAP providers are alternatives.
+- Auth is a capability; the default `auth-better` follows the existing login gate's Better Auth usage, but user/session/token tables live in `ctx.backend.db` (the primary database), not a DSH storage domain; OIDC/LDAP providers are alternatives.
 - First-run setup token; no public sign-up.
 - Session cookie `HttpOnly`, `SameSite=Lax`, `Secure` iff TLS; double-submit CSRF.
 - API tokens for terminals: hash only, visible prefix, revocable, scope-narrowed.
@@ -421,7 +505,7 @@ Unified docs:
 - `forms`: JSON Schema + UI Schema, server validation, versioning.
 - `assist`: isolated DSH Agent produces structured suggestions; humans apply; no auto-approval.
 - DSH `ctx.approval` is only for Agent tool permission; business approval uses `tasks`; do not conflate them.
-- Task events are authoritative and snapshots rebuildable; do not assume cross-table transactions; reconciliation repairs gaps.
+- Task events are authoritative and snapshots rebuildable; use `ctx.backend.db.transaction` to put the event, snapshot, and outbox in one transaction; adapters without transactions (DSH KV/standalone Mongo) use reconciliation.
 - Side effects use outbox + idempotent handlers; failures are visible and retryable.
 - AI has no shell/fs/network tools by default; task types declare read-only tools; output schema validation; P1 no auto-approval.
 
@@ -455,27 +539,111 @@ UI contract:
 - Upload component, list, preview modal from UI plugins; default ui-kit.
 - Renderers cannot bypass download authorization.
 
-### 5.7 Data and migrations
+### 5.7 Database, ORM, and migrations
 
-Each provider owns its domain; no shared tables.
+**The primary database is not DSH storage KV**; DSH KV is only an embedded/compatibility adapter. The default path is a general ORM/database.
 
-| Domain | Owner |
-|---|---|
-| `admin_auth` | auth provider |
-| `admin_access` | access provider |
-| `admin_audit` | audit provider |
-| `admin_tasks` | tasks provider |
-| `admin_assist` | assist provider |
-| `admin_attachments` | attachments provider (metadata) |
-| `admin_notifications` | notifications provider |
-| `admin_jobs` | jobs provider |
-| `admin_search` | search provider (optional) |
-| `admin_api` | API kernel (idempotency/preferences) |
-| File objects | attachments provider |
+#### 5.7.1 Engines and ORM
 
-- Contracts never expose table structures; replacement uses migrations/export/import.
-- Replacement without migration is explicitly refused; no silent data loss.
-- Domain open failure stops boot; no writes without audit.
+| Engine | Adapter | Driver/ORM | Fit |
+|---|---|---|---|
+| PostgreSQL | `admin-data-drizzle` | Drizzle + `pg` | Production default; transactions/jsonb/indexes/full-text |
+| MySQL | `admin-data-drizzle` | Drizzle + `mysql2` | Common production environment |
+| SQLite | `admin-data-drizzle` | Drizzle + `better-sqlite3` | Local/single-machine default, no external service |
+| MongoDB | `admin-data-mongodb` | Official `mongodb` driver | Document model/existing Mongo environment |
+| DSH KV | `admin-data-dsh-kv` | DSH storage domain | Embedded compatibility/migration, not production default |
+
+ORM choice:
+
+- **SQL uses Drizzle**: TypeScript-native, type-safe, supports PG/MySQL/SQLite, explicit migrations, and fits a Repository/UoW base.
+- **MongoDB uses the official driver**: Drizzle does not cover Mongo; the official driver + Zod validation is direct, and transactions require a replica set.
+- **Prisma is an optional adapter**: teams familiar with Prisma can implement `admin-data-prisma` against the same `Database` contract; the ORM never leaks into business modules.
+- **One primary engine per deployment**: do not mix PG + Mongo in one admin instance; no cross-capability joins, only contracts/APIs.
+- SQL drivers (`pg`/`mysql2`/`better-sqlite3`) are optional peers; startup checks the driver selected by `database.driver` and fails loudly instead of silently falling back.
+
+#### 5.7.2 Schema ownership and indexes
+
+Each capability provider owns its tables/collections with a consistent prefix:
+
+| Capability | Tables/collections | Key indexes |
+|---|---|---|
+| auth | `auth_users`, `auth_sessions`, `auth_tokens` | email, session hash, token hash |
+| access | `access_roles`, `access_bindings` | subject, role |
+| audit | `audit_entries` | at, actor, action, result |
+| tasks | `tasks`, `task_events`, `task_outbox` | status+assignee+due, task_id+seq, outbox status+next_attempt |
+| assist | `assist_jobs`, `assist_suggestions` | task_id, status |
+| attachments | `attachments` | owner, task_id, created_at |
+| notifications | `notifications` | user_id+read_at |
+| jobs | `jobs` | status, next_run_at |
+| api | `idempotency`, `preferences` | actor+key, subject |
+
+Rules:
+
+- No cross-provider foreign keys or cross-table joins; compose through services/contracts to keep providers replaceable.
+- Foreign keys/transactions are allowed inside one provider.
+- IDs use UUIDv7/ULID (time-ordered); timestamps are UTC; each row has `version` for optimistic concurrency; deletes are soft by default.
+- JSON columns: PG `jsonb`, MySQL `JSON`, SQLite `TEXT` + JSON1, Mongo native documents; do not store huge unqueryable blobs.
+- Large files go to object storage; the database stores metadata/references only.
+- Schema changes belong to each provider's migrations; no shared "do-everything" table.
+
+#### 5.7.3 UnitOfWork and transactions
+
+The `Database` contract exposes `transaction(fn)`; repositories take the current transaction context. Semantics by engine:
+
+| Engine | Transactions | Task event + snapshot + outbox |
+|---|---|---|
+| PG/MySQL/SQLite | Supported | Atomic in one transaction |
+| MongoDB | Replica set only; standalone no | Atomic with a transaction; otherwise event-first + reconciliation |
+| DSH KV | No cross-table transaction | Event-first + reconciliation, explicitly degraded |
+
+- Business side effects do not run inside the database transaction; the transaction writes task events, snapshots, and outbox only.
+- No distributed transactions across services/MQ; use outbox + idempotent consumers.
+- Transaction failure rolls back explicitly; never swallow errors.
+- Pool exhaustion/database unavailability returns `CAPABILITY_UNAVAILABLE` and marks health red.
+
+#### 5.7.4 Migrations
+
+- Each provider owns its migration directory and version; SQL uses Drizzle Kit, Mongo uses a dedicated runner, KV uses domain versions.
+- `_admin_migrations` records applied versions; startup takes a migration lock (PG advisory lock / MySQL GET_LOCK / SQLite transaction).
+- `database.migrateOnBoot` defaults true; production may run migrations as a deployment job.
+- Back up before migration or require a backup; destructive migrations require explicit confirmation; failure stops boot, never serves a half-migrated schema.
+- Provider replacement declares `migrateFrom`/`migrateTo`; without migration, automatic replacement is refused.
+
+#### 5.7.5 DSH KV compatibility
+
+- `admin-data-dsh-kv` implements the same `Database`/Repository ports for embedded, zero-config, or legacy migration.
+- Explicit limits: no cross-table transactions, no secondary indexes, scan-based queries, weaker concurrent writes; small data/single machine only.
+- `bootstrap.features`/capability catalog expose `transactions: false` and `secondaryIndexes: false`; tasks/audit use reconciliation.
+- Not the production default; large deployments use PG/MySQL, document workloads use Mongo.
+
+### 5.8 Common backend library
+
+`packages/backend/*` is independent of admin and has no Cordis dependency; admin only provides `plugins/admin/providers/*` adapters.
+
+| Port | Minimum capability | Adapters |
+|---|---|---|
+| `Database` / `UnitOfWork` / `Migrator` | query, transaction, migration, health | drizzle, mongodb, dsh-kv, memory (tests) |
+| `Cache` | get/set/del, TTL, tag invalidation | memory, redis |
+| `Lock` | acquire/release, TTL, fencing token | memory, redis, DB advisory |
+| `Queue` | publish, consume, ack, retry, dead-letter | outbox, redis-streams, rabbitmq, kafka |
+| `ObjectStore` | put/get/delete, metadata, signed/authenticated URL | local, s3/minio |
+| `Search` | index/query/delete | database, meilisearch |
+| `Mailer` | send, template, retry | disabled, smtp |
+| `Telemetry` | trace/metric/log adapter | none, otel |
+
+`admin-kernel` mounts a stable `ctx.backend` exposing `db` / `cache` / `lock` / `queue` / `objectStore` / `search` / `mail` / `telemetry` ports; providers inject ports instead of constructing clients. Config selects the adapter, and each adapter is independently replaceable.
+
+Rules:
+
+- Initialization/shutdown/health go through `backend-kit` lifecycle; invalid config fails loudly.
+- Unconfigured optional components use memory/disabled implementations; configured-but-unreachable production components fail boot or degrade visibly.
+- Cache/search are never the source of truth; the database is.
+- Queues are at-least-once; consumers must be idempotent; DB outbox is the default reliable path, MQ is for multi-instance/decoupling.
+- Locks only coordinate concurrency; they do not replace database unique constraints/optimistic locking.
+- ObjectStore stores bytes; metadata/permissions live in the database.
+- Mail is async with retries; failure never changes task state.
+- Telemetry never blocks business; sampling/endpoints are configurable.
+- Every adapter shares contract tests; behavior is identical behind the same port.
 
 ## 6. UI kernel and contracts
 
@@ -581,11 +749,15 @@ Module descriptor:
 - UI plugins: manifest + uiContract; incompatible rejected; independently enabled/disabled.
 - The default `admin-app` is only a composition; any row can be replaced through a profile patch.
 - Rollback: keep the old provider row; switch back; data migration must be reversible or backed up.
-- Tests: contract tests + provider swap tests + UI unload tests.
+- Database engine/adapter replacement is a maintenance operation: backup → migrate → switch → verify; no hot swap and no two primary writers.
+- Cache/queue/object-store/search adapters replace independently; keep a degraded path (memory/outbox/local).
+- Tests: contract tests + provider swap tests + UI unload tests + DB migration/rollback tests.
 
 ### 7.4 What is not replaceable
 
 - `admin-contract`/`admin-ui-contract`/`admin-kernel`/`admin-ui-kernel`/`admin-api-kernel` are the stable platform base; they upgrade by version, not by arbitrary swap.
+- `ctx.backend` is the stable port façade; what gets replaced is the DB/cache/queue/storage adapter behind it, not the port contract itself.
+- The `data` capability can replace its adapter/engine in a maintenance window, but never hot-swaps; one primary database per deployment.
 - A business module's handler logic belongs to that module; replacing a module is a business change, not infrastructure replacement.
 - Data migration is not automatic; providers must declare it.
 
@@ -608,6 +780,7 @@ Core endpoints:
 | `POST` | `/api/admin/v1/logout` | Sign out |
 | `GET` | `/api/admin/v1/bootstrap` | User/permissions/menus/badges/CSRF/features |
 | `GET` | `/api/admin/v1/capabilities` | Capability catalog/health/active provider |
+| `GET` | `/api/admin/v1/health/backends` | Database/cache/queue/object-store/search health |
 | `GET` | `/api/public/v1/ui-manifest` | Core UI packs before login |
 | `GET` | `/api/admin/v1/ui-manifest` | Full UI plugin manifest after login |
 | `GET` | `/api/admin/v1/tasks` | Task list |
@@ -637,7 +810,7 @@ Core endpoints:
 - `Idempotency-Key` header; 24 hours; same key with a different body is 409.
 - Writes audit intent/outcome; denials/CSRF/rate limits record `denied`.
 - Permission/scope enforced in the API; pagination/export obey the same scope.
-- Stable codes: AUTH_REQUIRED/FORBIDDEN/CSRF_FAILED/VALIDATION_FAILED/CONFLICT/NOT_FOUND/TASK_STATE_INVALID/FORM_INVALID/ATTACHMENT_TOO_LARGE/ATTACHMENT_MIME/CAPABILITY_UNAVAILABLE/AI_UNAVAILABLE/INTERNAL.
+- Stable codes: AUTH_REQUIRED/FORBIDDEN/CSRF_FAILED/VALIDATION_FAILED/CONFLICT/NOT_FOUND/TASK_STATE_INVALID/FORM_INVALID/ATTACHMENT_TOO_LARGE/ATTACHMENT_MIME/CAPABILITY_UNAVAILABLE/BACKEND_UNAVAILABLE/MIGRATION_FAILED/AI_UNAVAILABLE/INTERNAL.
 
 ## 9. Interface and interaction
 
@@ -723,16 +896,19 @@ sequenceDiagram
 - Server-side permissions; self-lockout guards; append-only audit.
 - UI plugins same-origin, manifest/uiContract validated, no remote scripts, unloadable.
 - AI prompt injection: task content untrusted; read-only tools; structured output; humans decide.
-- One writer per DSH_HOME; domain failure stops boot; outbox visible/retryable.
-- Backup/restore; audit export P2; capability catalog/health page.
+- One writer per DSH_HOME; database/migration failure stops boot; outbox visible/retryable.
+- Least-privilege database account, TLS, pool caps, migration lock; backup before migration; destructive migrations require confirmation.
+- Redis ACL/TLS, MQ auth, S3/MinIO least privilege; all connection strings/passwords via env/credentials, never logs.
+- The DSH KV adapter explicitly reports no transactions/no secondary indexes and is limited to small data/embedded/migration.
+- Backup/restore; audit export P2; capability catalog/health page/backend health page.
 
 ## 12. Roadmap
 
 | Phase | Goal | Deliverables | Done when |
 |---|---|---|---|
-| P0 Contracts and kernel | `dsh --profile admin` runs | contract/ui-contract, kernel, api-kernel, ui-kernel, default auth/access/nav/audit providers, default shell/theme/locale/icons packs, web/app, docs/capability catalog | Login; menus/permissions/routes; swap theme/locale/icons without page changes; missing essential capability fails loudly |
-| P1 Human loop | Review/approval/attachments/AI usable | tasks/forms/assist/attachments/notifications/jobs providers, inbox/detail, outbox, UI plugin runtime, terminal tokens | Task → AI → human → side effect → audit; attachment upload/download; UI plugin load/unload |
-| P2 Replaceable and governed | Independent upgrades | Provider swap/rollback tooling, contract test suite, OpenAPI/SDK, advanced user/role governance, SLA escalation, docs page | Swap auth/nav/theme/shell providers without consumer changes; incompatibility rejected; rollback works |
+| P0 Contracts and kernel | `dsh --profile admin` runs | contract/ui-contract, kernel, api-kernel, ui-kernel, data-drizzle (SQLite default), migration/UoW, default auth/access/nav/audit providers, default shell/theme/locale/icons packs, web/app, docs/capability catalog | Login; menus/permissions/routes; swap theme/locale/icons without page changes; migrations run; missing essential capability fails loudly |
+| P1 Human loop | Review/approval/attachments/AI usable | tasks/forms/assist/attachments/notifications/jobs providers, inbox/detail, outbox, UI plugin runtime, terminal tokens, memory cache/lock, local object storage | Task → AI → human → side effect → audit; attachment upload/download; UI plugin load/unload; SQL transactions/outbox correct |
+| P2 Replaceable and governed | Independent upgrades and common backend stack | PostgreSQL/MySQL/MongoDB adapters, Redis cache/lock/rate-limit, RabbitMQ/Kafka/Redis Streams, S3/MinIO, search/mail/OTel, provider swap/rollback, contract tests, OpenAPI/SDK, advanced governance | Swap auth/nav/theme/shell providers without consumer changes; PG/MySQL/Mongo migrations pass; optional Redis/MQ; incompatibility rejected; rollback works |
 | P3 Platform | Operations and ecosystem | Plugin marketplace/signing (evaluate), webhooks/email, multi-instance, auto-approval policy, analytics | Third parties follow contracts; policies have dual control and audit |
 
 P1 excludes multi-tenancy, AI auto-approval, a visual workflow designer, and a multi-instance cluster.
@@ -752,6 +928,10 @@ P1 excludes multi-tenancy, AI auto-approval, a visual workflow designer, and a m
 - Missing essential capability fails boot; missing optional capability hides features.
 - Failed replacement rolls back; in-flight requests finish; missing data migration is refused.
 - UI plugin unload leaves no residue; duplicate load is idempotent.
+- Data adapter matrix: SQLite/PG/MySQL/Mongo/DSH KV run the same repository/migration contract tests.
+- Transactions/outbox: SQL atomic; Mongo with/without replica set; DSH KV reconciliation.
+- Backend components: cache/lock/queue/object-store/search/mail contract tests; configured-but-unreachable fails loudly.
+- Migrations: success/failure/rollback/concurrent migration lock; destructive migration without backup is refused.
 
 ### 13.3 Business and security
 
@@ -766,7 +946,8 @@ P1 excludes multi-tenancy, AI auto-approval, a visual workflow designer, and a m
 - P0 boots in a real profile; capability catalog/health visible.
 - Swapping theme/locale/icon/shell requires no page changes.
 - Swapping the auth provider requires no business-module changes.
-- Missing essential capability fails loudly; missing optional capability degrades gracefully.
+- Database/engine replacement follows migration, never dual-writes; the DSH KV compatibility path documents its limits.
+- Missing essential capability/backend fails loudly; missing optional capability degrades gracefully.
 - Every write is audited; every permission is server-checked.
 - UI plugins load/unload safely; incompatible contracts rejected.
 - Test-node install/uninstall passes; no `~/.dsh` writes.
@@ -782,6 +963,11 @@ P1 excludes multi-tenancy, AI auto-approval, a visual workflow designer, and a m
 | Multiple provider conflicts | Kernel single active + priority; conflicts rejected |
 | AI cost/latency | Budget, concurrency, timeout, cancel; failure never blocks manual |
 | Attachment security | MIME/size/scan/authenticated download/quota |
+| Database/ORM differences | Shared Repository/UoW + contract tests; Drizzle for SQL, official Mongo driver; no SQL leaks into business |
+| Migration failure/concurrency | Migration lock, backup, stop on failure; destructive migration confirmation |
+| Mongo without replica-set transactions | Event-first + reconciliation; capability catalog exposes transactions=false |
+| DSH KV limits | Explicit no transactions/no secondary indexes; small data/embedded/migration only |
+| Redis/MQ operational cost | Memory/outbox by default; Redis/MQ only for multi-instance/scale |
 | One writer per DSH_HOME | Documentation + startup check; separate HOMEs for parallel |
 
 ### 14.1 Questions to confirm
@@ -793,6 +979,9 @@ P1 excludes multi-tenancy, AI auto-approval, a visual workflow designer, and a m
 5. Should attachments use object storage in P1, or local files first?
 6. Single-instance backend, or a multi-instance control plane?
 7. Is "default provider bundle + advanced users replace rows" an acceptable delivery model?
+8. Does P0/P1 use SQLite or PostgreSQL as the primary database? Must MySQL/Mongo be supported at the same time?
+9. Should Redis/MQ be connected in P1, or is P1 memory/outbox with P2 adapters acceptable?
+10. Must DSH storage KV compatibility remain, or is it only a migration tool?
 
 ## 15. Appendix
 
@@ -822,6 +1011,9 @@ P1 excludes multi-tenancy, AI auto-approval, a visual workflow designer, and a m
 | UI kernel | Browser-side UI plugin runtime |
 | Pack | Replaceable theme/locale/icon resource pack |
 | Outbox | Queue of business side effects after a decision |
+| ORM | Object-relational mapping; SQL defaults to Drizzle |
+| UoW | UnitOfWork; groups repository operations into one transaction boundary |
+| Adapter | Concrete port implementation: PG/MySQL/SQLite/Mongo/Redis/MQ/S3 |
 | Capability catalog | Capability/provider/version/health directory |
 
 ### 15.3 References

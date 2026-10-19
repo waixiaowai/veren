@@ -19,6 +19,7 @@
                          "@veren/commander-help":  "workspace:*",
                          "@veren/commander-list":  "workspace:*",
                          "@veren/commander-project":  "workspace:*",
+                         "@veren/commander-tests":  "workspace:*",
                          "@veren/core":  "workspace:*",
                          "@veren/yaml-parser":  "workspace:*",
                          "@veren/commander-build":  "workspace:*"

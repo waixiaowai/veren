@@ -1,0 +1,12 @@
+{
+  // Deep-level package face: extends the shared `plugins/admin` base three
+  // levels up (`plugins/admin/<group>/<package>`).
+  // 深层包配置面：向上三级继承 `plugins/admin` 的共享基础
+  // （`plugins/admin/<group>/<package>`）。
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

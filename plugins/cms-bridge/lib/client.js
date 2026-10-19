@@ -623,6 +623,8 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region src/client/i18n.ts
 		const NS = "@veren/cms-bridge";
+		/** 英文键集由中文键联合约束,两边少任何一个键都是编译错误。
+		*  The Chinese dictionary defines the key union; the English one must match it exactly. */
 		const zh = {
 			statusTitle: "CMS 连接",
 			apiKeyTitle: "API Key",
@@ -660,6 +662,7 @@ window.__ModuleLoader__.load({
 			"state.idle": "空闲",
 			"state.disposed": "已卸载"
 		};
+		/** 中英两部必须键集一致,少一个键就在编译期失败。Both dictionaries must agree on keys. */
 		const en = {
 			statusTitle: "CMS Connection",
 			apiKeyTitle: "API Key",

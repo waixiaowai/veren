@@ -1,0 +1,33 @@
+{
+  "name": "@veren/commander-startup",
+  "displayName": "Veren Commander Startup",
+  "version": "0.1.0",
+  "description": "Use when a DSH profile must expose the veren commander command registry as `dsh --profile commander ...`: it injects the command registry, waits for the Loader to settle every row, dispatches ctx.cmdlineArgs through the registry, and requests the launcher exit code; skip it when you compose your own argv dispatcher.",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@veren/commander-core": "workspace:*",
+    "@veren/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4"
+  },
+  "engines": {
+    "dsh": ">=0.2.1-rc.2"
+  }
+}

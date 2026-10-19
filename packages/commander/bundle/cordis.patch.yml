@@ -1,0 +1,47 @@
+# The veren commander profile bundle, layered over dsh-base.
+# 在 dsh-base 之上叠加的 veren commander profile bundle。
+#
+# Every row is a standard Cordis plugin: the capability plugins provide the
+# command registry, project and discovery services; the command plugins register
+# their commands; the startup plugin waits for the Loader and dispatches
+# `ctx.cmdlineArgs` through the registry.
+#
+# 每一行都是标准 Cordis 插件：能力插件提供命令注册表、项目与 Discovery 服务；
+# 命令插件注册各自命令；startup 插件等待 Loader 完成后通过注册表分发
+# `ctx.cmdlineArgs`。
+
+- id: hmr
+  disabled: true
+
+- insert:
+    - id: commander-yaml-parser
+      name: '@veren/yaml-parser'
+
+    - id: commander-registry
+      name: '@veren/commander-core'
+
+    - id: commander-project
+      name: '@veren/commander-project'
+
+    - id: commander-discovery
+      name: '@veren/commander-discovery'
+
+    - id: commander-list
+      name: '@veren/commander-list'
+
+    - id: commander-build
+      name: '@veren/commander-build'
+
+    - id: commander-doc
+      name: '@veren/commander-doc'
+
+    - id: commander-help
+      name: '@veren/commander-help'
+
+    - id: commander-tests
+      name: '@veren/commander-tests'
+
+    # Kept last for readability; inject on the registry is the real ordering.
+    # 为可读性放在最后；真正的激活顺序由对注册表的 inject 决定。
+    - id: commander-startup
+      name: '@veren/commander-startup'

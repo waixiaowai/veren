@@ -11,6 +11,11 @@ packages:
   # rewrites, resolvable only by the target profile's overrides; keeping it in
   # the workspace makes a root `pnpm install` hit the registry for @veren/*.
   - "!packages/graph/bundle"
+  # commander/profile 是 DSH profile 模板，不是 npm 单元；安装脚本把它复制到
+  # $DSH_HOME/profiles/commander，工作区安装不应把它当成包。
+  # commander/profile is a DSH profile template, not an npm unit; the installer
+  # copies it into $DSH_HOME/profiles/commander, so workspace install must skip it.
+  - "!packages/commander/profile"
   - "plugins/*"
   - "apps/*"
   - "!apps/veren"

@@ -54,6 +54,9 @@ importers:
       '@veren/commander-project':
         specifier: workspace:*
         version: link:../../packages/commander/project
+      '@veren/commander-tests':
+        specifier: workspace:*
+        version: link:../../packages/commander/tests
       '@veren/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -89,6 +92,39 @@ importers:
       '@deepseek-ai/dsh-fs-local':
         specifier: 0.2.0-rc.2
         version: 0.2.0-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-fs@0.2.0-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-brand@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/dsh-invariants@0.2.0-rc.2(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/dsh-llm@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/dsh-sandbox@0.2.0-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-llm@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/dsh-session@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-scope@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)))))
+
+  packages/commander/bundle:
+    dependencies:
+      '@veren/commander-build':
+        specifier: workspace:*
+        version: link:../build
+      '@veren/commander-core':
+        specifier: workspace:*
+        version: link:../core
+      '@veren/commander-discovery':
+        specifier: workspace:*
+        version: link:../discovery
+      '@veren/commander-doc':
+        specifier: workspace:*
+        version: link:../doc
+      '@veren/commander-help':
+        specifier: workspace:*
+        version: link:../help
+      '@veren/commander-list':
+        specifier: workspace:*
+        version: link:../list
+      '@veren/commander-project':
+        specifier: workspace:*
+        version: link:../project
+      '@veren/commander-startup':
+        specifier: workspace:*
+        version: link:../startup
+      '@veren/commander-tests':
+        specifier: workspace:*
+        version: link:../tests
+      '@veren/yaml-parser':
+        specifier: workspace:*
+        version: link:../../yaml-parser
 
   packages/commander/core:
     dependencies:
@@ -216,6 +252,40 @@ importers:
       '@types/node':
         specifier: ^22.13.10
         version: 22.20.5
+
+  packages/commander/startup:
+    dependencies:
+      '@veren/commander-core':
+        specifier: workspace:*
+        version: link:../core
+      '@veren/core':
+        specifier: workspace:*
+        version: link:../../core
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.5
+        version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
+
+  packages/commander/tests:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.5
+        version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.4
+        version: 3.18.4
+      '@veren/commander-core':
+        specifier: workspace:*
+        version: link:../core
+      '@veren/commander-project':
+        specifier: workspace:*
+        version: link:../project
+      '@veren/core':
+        specifier: workspace:*
+        version: link:../../core
+      yaml:
+        specifier: ^2.8.1
+        version: 2.9.1
 
   packages/compiler/compiler:
     dependencies:
@@ -694,6 +764,9 @@ importers:
         specifier: ^4.0.5
         version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
       '@deepseek-ai/dsh-client-locale':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-client-ui-plugin-manager':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
       '@deepseek-ai/dsh-client-ui-primitives':
@@ -1723,6 +1796,11 @@ packages:
 
   '@deepseek-ai/dsh-client-ui-layout@0.2.1-rc.2':
     resolution: {integrity: sha512-9/uJTKfhRX3wnUXFdLlL2ZdOL2LtONkDvVhhm+OXe7owbWIfN9WnIUsaNNDERgZLvzQbR33rgWIn6ESGBSG0uw==}
+    peerDependencies:
+      '@deepseek-ai/cordis': ^4.0.5
+
+  '@deepseek-ai/dsh-client-ui-plugin-manager@0.2.1-rc.2':
+    resolution: {integrity: sha512-T/FfDjKRwjFIdBQTtN9BHSVquuMJ970ICzE//oKqaa5ZU0bRG0RVllwVatL6FIKu7F1M1wzgt3tW+b6vstd2eg==}
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.5
 
@@ -4038,6 +4116,14 @@ snapshots:
   '@deepseek-ai/dsh-client-ui-layout@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
+
+  '@deepseek-ai/dsh-client-ui-plugin-manager@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)':
+    dependencies:
+      '@deepseek-ai/cordis': 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
+      '@deepseek-ai/dsh-timeout': 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-typert-protocol': 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/schemastery': 3.18.5
+      zod: 4.4.3
 
   '@deepseek-ai/dsh-client-ui-primitives@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)':
     dependencies:

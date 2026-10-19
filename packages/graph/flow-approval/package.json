@@ -23,15 +23,18 @@
     "build": "tsc",
     "test": "vitest run"
   },
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/cordis": "^4.0.5",
     "@deepseek-ai/dsh-graph-flow-api": "workspace:*"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "3.18.4"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/cordis": "^4.0.5",
     "@deepseek-ai/dsh-graph-flow-api": "workspace:*"
   }
 }

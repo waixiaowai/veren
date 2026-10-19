@@ -202,3 +202,36 @@ export const startupRemote = createTypertRemoteInfo({
     },
   },
 }, z)
+
+/**
+ * The Host's durable-change notification, available to this page through the
+ * Remote `$on` carrier.
+ *
+ * The Host package declares the same Cordis event; this browser half redeclares
+ * it because the two are typechecked separately, and a Remote `$on` key must be
+ * one of the carrier's forwarding events. The signature is unscoped and returns
+ * `void`, which is what makes the carrier classify it as an `emit` event.
+ *
+ * 宿主的持久化变更通知，通过 Remote `$on` 载体到达本页面。
+ *
+ * 宿主包声明了同一个 Cordis 事件；浏览器半边重新声明，因为两者分别做类型检查，而 Remote
+ * `$on` 的键必须属于载体的可转发事件。签名不带 this 且返回 `void`，载体据此把它归类为
+ * `emit` 事件。
+ */
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * One startup item was written or one run finished, after the durable write landed.
+     * @mode emit
+     * 一条启动项被写入或一次执行结束，且持久化写入已经落地。
+     */
+    'startup-autostart/changed'(): void
+  }
+}
+
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface TypertRemoteEventSelection {
+    /** The page re-reads its catalog after a committed Host write. 页面在宿主提交写入后重读目录。 */
+    'startup-autostart/changed': true
+  }
+}

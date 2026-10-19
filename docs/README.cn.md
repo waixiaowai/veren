@@ -24,5 +24,5 @@
 ## 当前文档清单
 
 - [Agent 小黑板插件设计（草案）](./agent-blackboard-design.cn.md)：面向 DSH 插件开发者；预备知识：Cordis、Preset、Agent Teams。
-- [DSH 通用 AI 后台管理平台设计方案（草案）](./admin-system-design.cn.md)：面向 DSH 插件开发者与后台平台架构师；预备知识：DSH profile/bundle、Cordis Service、storage domain、Agent/Session、HTTP、RBAC、前端插件化。
+- [DSH 通用 AI 后台管理平台设计方案（草案）](./admin-system-design.cn.md)：面向 DSH 插件开发者与后台平台架构师；预备知识：DSH profile/bundle、Cordis Service、Agent/Session、HTTP、RBAC、前端插件化、数据库/ORM 与常用后端中间件。
 - [场景预设设计（草案）](./scene-preset-design.cn.md)：面向 DSH 插件开发者与 Agent 产品设计者；预备知识：Cordis、Agent Preset、系统提示词、工具注册。

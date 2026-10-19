@@ -45,7 +45,9 @@ function resultSchema(endpoint: string): RuntimeSchema {
 function requestSchema(endpoint: string): RuntimeSchema {
   const parameter = descriptor(endpoint).parameters[0]
   if (parameter === undefined) throw new Error(`${endpoint} must declare its request parameter`)
-  return parameter.codec.create() as RuntimeSchema
+  // Same cast as the result: the parameter's codec is the request's Zod schema.
+  // 与结果相同：参数上的 codec 就是请求的 Zod 模式。
+  return (parameter.codec as { create(): RuntimeSchema }).create()
 }
 
 describe('startup remote contract / 启动项远端约定', () => {

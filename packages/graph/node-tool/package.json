@@ -25,30 +25,33 @@
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/cordis": "^4.0.5",
     "@deepseek-ai/dsh-graph-core": "workspace:*",
     "@deepseek-ai/dsh-graph-flow-api": "workspace:*",
     "@deepseek-ai/dsh-graph-flow-engine": "workspace:*",
-    "@deepseek-ai/dsh-tools": "0.2.0-rc.2"
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "3.18.4",
     "@veren/core": "workspace:*"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/cordis": "^4.0.5",
     "@deepseek-ai/dsh-graph-core": "workspace:*",
     "@deepseek-ai/dsh-graph-flow-api": "workspace:*",
     "@deepseek-ai/dsh-graph-flow-approval": "workspace:*",
     "@deepseek-ai/dsh-graph-flow-engine": "workspace:*",
     "@deepseek-ai/dsh-graph-flow-storage": "workspace:*",
     "@deepseek-ai/dsh-graph-flow-yaml": "workspace:*",
-    "@deepseek-ai/dsh-storage": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-storage-domain": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-storage-json": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-system-prompt": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-storage": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-storage-domain": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-storage-json": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
     "@veren/yaml-parser": "workspace:*"
   }
 }

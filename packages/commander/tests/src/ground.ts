@@ -26,6 +26,7 @@ import {
   parsePatchArray,
   parsePatchEntries,
   renderPatch,
+  type PatchEntry,
 } from './model-config.js';
 
 /** 训练场元数据文件名 / the training-ground metadata filename */
@@ -74,6 +75,14 @@ export interface TrainingGroundRef {
   profile: string;
   /** DSH 源码目录 / the DSH source checkout */
   harnessRoot: string;
+}
+
+/** 启动训练场的选项 / options for starting a training ground */
+export interface StartTrainingGroundOptions {
+  /** web 端口 / the web port */
+  port: number;
+  /** 是否打开浏览器 / whether to open a browser */
+  open: boolean;
 }
 
 /** 训练场元数据 / training-ground metadata */
@@ -138,6 +147,8 @@ export interface CreateTrainingGroundResult {
 
 /** 创建选项 / creation options */
 export interface CreateTrainingGroundOptions extends TrainingPaths {
+  /** 训练场名 / the training-ground name */
+  name: string;
   /** 指定模型配置来源 profile；省略时自动探测 / explicit model source profile; auto-detected when omitted */
   sourceProfile?: string;
   /** 只预检，不写磁盘 / validate only, write nothing */
@@ -472,7 +483,7 @@ async function chooseSourceProfile(
 }
 
 /** 读取某源 profile 的模型项；文件缺失或无模型项返回空数组 / read model entries from a source profile; absent file or no model entries yields [] */
-async function readModelEntries(sourceHome: string, profile: string, warnings: string[]): Promise<unknown[]> {
+async function readModelEntries(sourceHome: string, profile: string, warnings: string[]): Promise<PatchEntry[]> {
   const path = join(sourceHome, 'profiles', profile, 'cordis.patch.yml');
   let text: string;
   try {
@@ -500,16 +511,19 @@ async function copyModelPatch(
   const models = await readModelEntries(sourceHome, sourceProfile, warnings);
   if (models.length === 0) return undefined;
   const targetPatch = join(target, 'profiles', profile, 'cordis.patch.yml');
-  const existing = await readExistingPatch(targetPatch);
+  const existing = await readExistingPatch(targetPatch, warnings);
   if (existing === undefined) return undefined;
-  const entries = mergeModelEntries(existing, models as Record<string, unknown>[]);
+  const entries = mergeModelEntries(existing, models);
   await mkdir(dirname(targetPatch), { recursive: true });
   await writeFile(targetPatch, renderPatch(entries), 'utf8');
   return sourceProfile;
 }
 
 /** 读取目标补丁；缺失视为空数组，格式非法则告警并跳过复制 / read the target patch; missing is empty, malformed warns and skips the copy */
-async function readExistingPatch(path: string): Promise<Record<string, unknown>[] | undefined> {
+async function readExistingPatch(
+  path: string,
+  warnings: string[],
+): Promise<PatchEntry[] | undefined> {
   let text: string;
   try {
     text = await readFile(path, 'utf8');
@@ -522,7 +536,7 @@ async function readExistingPatch(path: string): Promise<Record<string, unknown>[
   } catch (error) {
     // 目标补丁可能含无法安全重写的表达式；保留原文件比破坏它更安全。
     // The target patch may hold expressions we cannot safely rewrite; keeping it intact is safer.
-    void error;
+    warnings.push(`保留未重写的目标补丁 / kept the target patch unwritten ${path}: ${messageOf(error)}`);
     return undefined;
   }
 }

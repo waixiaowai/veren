@@ -1,0 +1,28 @@
+{
+  "name": "@veren/commander-bundle",
+  "displayName": "Veren Commander Bundle",
+  "version": "0.1.0",
+  "description": "Use when a DSH profile should expose the veren commander commands (`list`, `build`, `doc`, `help`, `tests`) through `dsh --profile commander ...`: it declares the profile bundle patch that inserts the command registry, project and discovery services, every command plugin, and the startup dispatcher over dsh-base; skip it when you compose your own command profile.",
+  "private": true,
+  "type": "module",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "files": [
+    "cordis.patch.yml"
+  ],
+  "dependencies": {
+    "@veren/commander-build": "workspace:*",
+    "@veren/commander-core": "workspace:*",
+    "@veren/commander-discovery": "workspace:*",
+    "@veren/commander-doc": "workspace:*",
+    "@veren/commander-help": "workspace:*",
+    "@veren/commander-list": "workspace:*",
+    "@veren/commander-project": "workspace:*",
+    "@veren/commander-startup": "workspace:*",
+    "@veren/commander-tests": "workspace:*",
+    "@veren/yaml-parser": "workspace:*"
+  }
+}
