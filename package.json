@@ -6,7 +6,8 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "cli": "node apps/cli/src/cli.ts"
+    "cli": "node apps/cli/src/cli.ts",
+    "check:plugins": "node scripts/check-plugin-manifests.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

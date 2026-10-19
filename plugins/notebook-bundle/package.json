@@ -5,6 +5,9 @@
   "icon": "./icon.svg",
   "description": "Use when a DSH profile needs the whole private-notebook stack (the durable Host service with its model-facing `notebook_*` tools, and the Web page a person uses) installed and composed in one step: it is a configuration-only bundle whose patch inserts the two loader rows in dependency order, and its member plugins ship as plain dependencies without bundle declarations of their own, so this patch is the stack's only profile layer. Skip it when you want only the Host service, or prefer composing these plugins row by row in your own patch.",
   "type": "module",
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
   "exports": {
     "./package.json": "./package.json",
     "./cordis.patch.yml": "./cordis.patch.yml",

@@ -14,19 +14,10 @@ import { transform } from 'lightningcss';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { UserConfig } from 'tsdown';
+// 外壳冻结模块表只有一份事实源 / the shell's frozen module table has one source of truth.
+import { PLATFORM_MODULES } from '../_shared/platform-modules.mjs';
 
 const PKG = '@veren/cms-bridge';
-
-/** 外壳冻结模块表(与官方 packages/client/web/src/platform.ts 同源) */
-/** The shell's frozen module table (same source as the official platform.ts). */
-const PLATFORM_MODULES: readonly string[] = [
-  'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
-  'zod', '@tanstack/react-virtual',
-  '@deepseek-ai/dsh-client-store',
-  '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-ui-dockkit',
-];
 
 const CSS_VIRTUAL_PREFIX = '\0cms-css:';
 const CSS_VIRTUAL_SUFFIX = '.mjs';

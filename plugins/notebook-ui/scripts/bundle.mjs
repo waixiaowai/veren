@@ -24,22 +24,14 @@ import { build } from 'esbuild'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-
-/** Repository root of the DeepSeek Harness checkout this package builds against. */
-const CHECKOUT = 'C:/Users/imeep/Documents/cursour/deepseek/deepseek-harness'
-
-/** Module specifiers the shell shares into its frozen module table. */
-const PLATFORM_MODULES = [
-  'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
-  'zod', '@tanstack/react-virtual',
-  '@deepseek-ai/dsh-client-store',
-  '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-ui-dockkit',
-]
+import { PLATFORM_MODULES } from '../../_shared/platform-modules.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const packageName = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).name
+
+/** Harness checkout this package builds against; override with DSH_CHECKOUT.
+ *  本包构建所对的 Harness 检出目录；可用 DSH_CHECKOUT 覆盖。 */
+const CHECKOUT = process.env.DSH_CHECKOUT ?? resolve(root, '../../deepseek/deepseek-harness')
 
 /** Indent the bundled body one level so the envelope stays readable. */
 const indent = text => text.split('\n').map(line => line === '' ? line : `    ${line}`).join('\n')

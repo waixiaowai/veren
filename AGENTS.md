@@ -7,6 +7,7 @@
 - 编写代码之前，先使用 apps\cli 开发的cli工具，查看已有功能，避免重复造轮子，也可以将代码放在适当的包内，然后评估确定(添加依赖|自己造轮子)方案
 - 在编写子包时，使用pnpm cli list name 查看这个包的依赖的第三方工具包
 - 编写插件必须使用"@deepseek-ai/schemastery"定义config
+- 插件的 DSH 依赖只写 peerDependencies+devDependencies，版本契约只写 engines.dsh；`dependencies` 里出现 cordis/dsh-* 会装出第二份实例（门禁 `pnpm check:plugins`，规则见 docs/dsh-plugin-versions.cn.md）
 - vendor目录下的内容禁止修改，存放一些第三方的源码
 - 比较重要的Service自定义生命周期：Service.init/Service.check/Service.invoke，调试用Service.tracker
 - 插件类型支持Plugin.Function<T> 禁止 default export |Plugin.Constructor<T> export default class X extends Service |Plugin.Object<T>，注意inject依赖的是能力(Service)
