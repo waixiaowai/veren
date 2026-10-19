@@ -1,16 +1,4 @@
 {
-  // Sibling-package source map, applied only by the test faces.
-  //
-  // Pointing a test program at sibling *sources* is what makes a spec check the
-  // live code instead of a possibly stale `dist/`. Package faces deliberately do
-  // not extend this file: mixing sibling sources into an emitting program drags
-  // files outside its `rootDir` and the emit becomes wrong.
-  //
-  // 兄弟包源码映射，只供测试面使用。
-  //
-  // 让测试程序指向兄弟包**源码**，用例才是对着实时代码检查，而不是对着可能过期的
-  // `dist/`。包面刻意不继承本文件：把兄弟包源码混进要产出的程序，会把文件拖出它
-  // 的 `rootDir`，产物因此出错。
   "compilerOptions": {
     "paths": {
       "@veren/admin-contract": ["./contract/src/index.ts"],

@@ -77,8 +77,8 @@ plugins:
 - **随机 id。** id 是 UUIDv4 而非时间有序；除同一毫秒内的并列排序外，排序从不依赖它。
 - **偏移量游标。** 游标是数字偏移，两页之间追加的条目可能让某行跨越页边界。治理读取可以接受；
   若需要快照一致的导出，需要 `at`+`id` 的 keyset 游标，而这要求带索引的数据引擎。
-- **查询校验在 handler 侧。** 网关声明但当前不校验 `route.query`，因此本 provider 在 handler 内
-  通过同一份声明 schema 解析并校验查询串。
+- **查询校验会发生两次。** 网关在 handler 之前校验 `route.query`；handler 仍会重新读取
+  `request.query`，因为网关保留的是原始 `URLSearchParams` 而非解析后的对象。
 
 ## 测试
 

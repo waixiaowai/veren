@@ -81,6 +81,10 @@ const en = {
   'audit.target': 'Target',
   'audit.at': 'When',
   'audit.loadMore': 'Load more',
+  'audit.intent': 'Intent',
+  'audit.success': 'Success',
+  'audit.failure': 'Failure',
+  'audit.denied': 'Denied',
 
   // Capabilities 能力
   'capabilities.title': 'Capabilities',
@@ -176,6 +180,10 @@ const zh = {
   'audit.target': '对象',
   'audit.at': '时间',
   'audit.loadMore': '加载更多',
+  'audit.intent': '意图',
+  'audit.success': '成功',
+  'audit.failure': '失败',
+  'audit.denied': '拒绝',
 
   // 能力
   'capabilities.title': '能力',

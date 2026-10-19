@@ -1,0 +1,686 @@
+/**
+ * Stylesheet of the admin SPA.
+ *
+ * Every colour, radius and shadow comes from a `--admin-*` custom property, so a
+ * theme pack changes values while this file keeps owning layout. The `:root`
+ * blocks below are fallbacks with the same values as the default theme pack:
+ * they keep the app readable when the theme pack fails to load, and a loaded
+ * theme overrides them because packs write inline properties on `<html>`.
+ *
+ * 后台 SPA 的样式表。所有颜色、圆角与阴影都来自 `--admin-*` 自定义属性，因此主题包改变
+ * 取值，而本文件继续拥有布局。下面的 `:root` 块是与默认主题包取值相同的兜底：主题包加载
+ * 失败时应用仍可读；主题包加载后会在 `<html>` 上写入内联属性，从而覆盖这些兜底。
+ *
+ * No external fonts, images or URLs: the page must render on an offline host.
+ * 不引用外部字体、图片或 URL：页面必须能在离线宿主上渲染。
+ */
+
+/* Fallback tokens, light scheme. 兜底 token，亮色方案。 */
+:root {
+  color-scheme: light;
+  --admin-bg: #f7f8fa;
+  --admin-surface: #ffffff;
+  --admin-surface-2: #eef1f5;
+  --admin-border: #cfd6de;
+  --admin-text: #141a21;
+  --admin-muted: #55616f;
+  --admin-accent: #1b5fc1;
+  --admin-accent-text: #ffffff;
+  --admin-danger: #b3261e;
+  --admin-radius: 10px;
+  --admin-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 10px 24px rgba(15, 23, 42, 0.08);
+  /* SPA-internal badge tones; not part of the theme pack contract. 仅 SPA 内部的角标色调，不属于主题包契约。 */
+  --admin-ok: #1f7a4d;
+  --admin-warn: #9a6700;
+}
+
+/* Fallback tokens, dark scheme. 兜底 token，暗色方案。 */
+:root[data-scheme='dark'] {
+  color-scheme: dark;
+  --admin-bg: #0e1319;
+  --admin-surface: #151c24;
+  --admin-surface-2: #1d2731;
+  --admin-border: #2c3846;
+  --admin-text: #e8eef6;
+  --admin-muted: #a8b6c6;
+  --admin-accent: #6ea8fe;
+  --admin-accent-text: #08111d;
+  --admin-danger: #ff9b91;
+  --admin-radius: 10px;
+  --admin-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 14px 30px rgba(0, 0, 0, 0.45);
+  --admin-ok: #6ee7a8;
+  --admin-warn: #f2c46d;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--admin-bg);
+  color: var(--admin-text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans SC', sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus ring: visible on keyboard navigation only. 焦点环：仅键盘导航时可见。 */
+:focus-visible {
+  outline: 2px solid var(--admin-accent);
+  outline-offset: 2px;
+}
+
+/* ---- Shell layout 外壳布局 ---- */
+.shell {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 12px;
+  background: var(--admin-surface);
+  border-inline-end: 1px solid var(--admin-border);
+  overflow-y: auto;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px 14px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--admin-radius);
+  color: var(--admin-text);
+  font-size: 0.94rem;
+  text-decoration: none;
+}
+
+.nav-link:hover {
+  background: var(--admin-surface-2);
+}
+
+.nav-link.is-active {
+  background: var(--admin-surface-2);
+  color: var(--admin-accent);
+  font-weight: 600;
+}
+
+.nav-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: var(--admin-surface);
+  border-block-end: 1px solid var(--admin-border);
+}
+
+.topbar-title {
+  margin-inline-end: auto;
+  font-weight: 600;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.user-chip {
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--admin-muted);
+  font-size: 0.88rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.locale-tag {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+/* ---- Pages 页面 ---- */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 650;
+}
+
+.page-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.page-footer {
+  display: flex;
+  justify-content: center;
+}
+
+.panel {
+  padding: 20px;
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+}
+
+.panel-title {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
+.panel-text {
+  margin: 0;
+  color: var(--admin-muted);
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.stat {
+  padding: 16px;
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+}
+
+.stat-label {
+  margin: 0;
+  color: var(--admin-muted);
+  font-size: 0.85rem;
+}
+
+.stat-value {
+  margin: 6px 0 0;
+  font-size: 1.8rem;
+  font-weight: 650;
+  line-height: 1.1;
+}
+
+/* ---- Tables 表格 ---- */
+.table-wrap {
+  overflow-x: auto;
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.93rem;
+}
+
+.table th,
+.table td {
+  padding: 10px 14px;
+  text-align: start;
+  vertical-align: top;
+  border-block-end: 1px solid var(--admin-border);
+}
+
+.table thead th {
+  background: var(--admin-surface-2);
+  color: var(--admin-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.table tbody tr:hover {
+  background: var(--admin-surface-2);
+}
+
+.table tbody tr:last-child td {
+  border-block-end: none;
+}
+
+.cell-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.cell-wrap {
+  max-width: 360px;
+  word-break: break-word;
+}
+
+/* ---- Controls 控件 ---- */
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--admin-surface);
+  color: var(--admin-text);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  font: inherit;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--admin-surface-2);
+}
+
+.button.primary {
+  background: var(--admin-accent);
+  border-color: var(--admin-accent);
+  color: var(--admin-accent-text);
+  font-weight: 600;
+}
+
+.button.primary:hover {
+  filter: brightness(1.06);
+}
+
+/* Danger fills use the page background as text: readable in both schemes. 危险填充用页面背景作文字色：两套方案都可读。 */
+.button.danger {
+  background: var(--admin-danger);
+  border-color: var(--admin-danger);
+  color: var(--admin-bg);
+  font-weight: 600;
+}
+
+.button.ghost {
+  background: transparent;
+  border-color: transparent;
+}
+
+.button.block {
+  justify-content: center;
+  width: 100%;
+}
+
+.button:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: transparent;
+  color: var(--admin-text);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: var(--admin-surface-2);
+}
+
+.icon-button.danger {
+  color: var(--admin-danger);
+}
+
+.icon-button.locale-toggle {
+  width: auto;
+  padding: 0 10px;
+}
+
+.icon svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+.button .icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.input {
+  width: 100%;
+  padding: 9px 11px;
+  background: var(--admin-surface-2);
+  color: var(--admin-text);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  font: inherit;
+}
+
+.input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label {
+  color: var(--admin-muted);
+  font-size: 0.85rem;
+}
+
+.field-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---- Badges 角标 ---- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  background: var(--admin-surface-2);
+  color: var(--admin-text);
+  border: 1px solid var(--admin-border);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+.badge.ok {
+  color: var(--admin-ok);
+  border-color: var(--admin-ok);
+}
+
+.badge.warn {
+  color: var(--admin-warn);
+  border-color: var(--admin-warn);
+}
+
+.badge.danger {
+  color: var(--admin-danger);
+  border-color: var(--admin-danger);
+}
+
+.badge.muted {
+  color: var(--admin-muted);
+}
+
+/* ---- States 状态 ---- */
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 16px;
+  color: var(--admin-muted);
+  text-align: center;
+}
+
+.state-title {
+  margin: 0;
+  color: var(--admin-text);
+  font-size: 1.2rem;
+}
+
+.state-text {
+  margin: 0;
+}
+
+.state-empty {
+  padding: 32px;
+  background: var(--admin-surface);
+  border: 1px dashed var(--admin-border);
+  border-radius: var(--admin-radius);
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--admin-border);
+  border-top-color: var(--admin-accent);
+  border-radius: 50%;
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Auth 认证 ---- */
+.auth {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 24px;
+  background: radial-gradient(circle at 20% 0%, var(--admin-surface-2), var(--admin-bg) 62%);
+}
+
+.auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(420px, 100%);
+  padding: 28px;
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  border-radius: calc(var(--admin-radius) + 4px);
+  box-shadow: var(--admin-shadow);
+}
+
+.auth-title {
+  margin: 6px 0 0;
+  font-size: 1.25rem;
+}
+
+.auth-hint {
+  margin: 0;
+  color: var(--admin-muted);
+  font-size: 0.9rem;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.form-error {
+  min-height: 1.2em;
+  margin: 0;
+  color: var(--admin-danger);
+  font-size: 0.9rem;
+}
+
+/* ---- Dialogs 对话框 ---- */
+.dialog {
+  width: min(460px, calc(100vw - 32px));
+  padding: 0;
+  color: var(--admin-text);
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  border-radius: calc(var(--admin-radius) + 2px);
+  box-shadow: var(--admin-shadow);
+}
+
+.dialog::backdrop {
+  background: rgba(4, 8, 14, 0.55);
+}
+
+.dialog-header {
+  padding: 18px 20px 0;
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 20px 20px;
+}
+
+.dialog-text {
+  margin: 0;
+  color: var(--admin-muted);
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* ---- Toasts 提示 ---- */
+.toast-region {
+  position: fixed;
+  inset-block-end: 16px;
+  inset-inline-end: 16px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 10px 14px;
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  border-inline-start: 3px solid var(--admin-accent);
+  border-radius: var(--admin-radius);
+  box-shadow: var(--admin-shadow);
+  font-size: 0.9rem;
+}
+
+/* Menu toggle is desktop-hidden. 菜单开关在桌面端隐藏。 */
+.menu-toggle {
+  display: none;
+}
+
+/* ---- Responsive collapse 响应式折叠 ---- */
+@media (max-width: 800px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    z-index: 30;
+    width: 240px;
+    transform: translateX(-100%);
+    transition: transform 160ms ease;
+    box-shadow: var(--admin-shadow);
+  }
+
+  .sidebar.is-open {
+    transform: translateX(0);
+  }
+
+  .menu-toggle {
+    display: inline-flex;
+  }
+
+  .content {
+    padding: 16px;
+  }
+
+  .user-chip,
+  .button-label {
+    display: none;
+  }
+}
+
+/* ---- Reduced motion 减少动效 ---- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .spinner {
+    animation: none;
+    border-top-color: var(--admin-accent);
+  }
+}

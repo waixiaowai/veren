@@ -1,19 +1,4 @@
 {
-  // Shared TypeScript face for every `plugins/admin/*` package.
-  //
-  // Two faces extend this file, and they need opposite module resolution:
-  //
-  // - **Package face** (`rootDir: src`, emits `dist/`): sibling packages resolve
-  //   through node_modules to their built `dist/`, so the emit stays inside this
-  //   package's `rootDir`. Sibling sources must never enter this program.
-  // - **Test face** (`noEmit`): resolves siblings to their sources through
-  //   `admin-paths.json`, so a spec is checked against live code and a workspace
-  //   build order mistake cannot hide a type error.
-  //
-  // `plugins/admin/*` 下所有包共享的 TypeScript 配置基础。两个面都继承它，但
-  // 需要相反的模块解析：包面走 node_modules 解析到兄弟包的构建产物，使产物不越出
-  // 本包的 `rootDir`；测试面经 `admin-paths.json` 指向兄弟包源码，让用例对着实时
-  // 代码检查，顺序错了也藏不住类型错误。
   "compilerOptions": {
     "target": "ES2023",
     "lib": ["ES2023", "DOM"],

@@ -93,9 +93,9 @@ completed trim is still a correct trim.
   between two pages can shift a row across the page boundary. Governance reads
   tolerate that; a snapshot-consistent export would need an `at`+`id` keyset
   cursor, which needs an indexed data engine.
-- **Query validation is handler-side.** The gateway declares but does not
-  currently validate `route.query`, so this provider parses and validates the
-  query string inside the handler through the same declared schema.
+- **Query validation happens twice.** The gateway validates `route.query` before
+  the handler runs; the handler still re-reads `request.query` because the
+  gateway keeps the raw `URLSearchParams` rather than the parsed object.
 
 ## Tests
 

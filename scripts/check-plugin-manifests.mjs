@@ -57,7 +57,7 @@ const OWN_DSH_PREFIX = '@deepseek-ai/dsh-graph-'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const pluginsDir = join(root, 'plugins')
-const graphDir = join(root, 'packages/graph')
+const packagesDir = join(root, 'packages')
 
 /** 读取一个目录下的 package.json，没有则返回 undefined / read a manifest, or undefined. */
 function readManifest(dir) {
@@ -163,14 +163,15 @@ for (const dirName of pluginPackageDirs(pluginsDir)) {
  */
 function collectWorkspaceNames() {
   const names = new Set()
-  const dirs = [
-    ...pluginPackageDirs(pluginsDir).map(dir => join(pluginsDir, dir)),
-    ...workspacePackageDirs(),
-  ]
-  for (const dir of dirs) {
+  const seen = new Set()
+  const add = (dir) => {
+    if (seen.has(dir)) return
+    seen.add(dir)
     const manifest = readManifest(dir)
     if (manifest?.name !== undefined) names.add(manifest.name)
   }
+  for (const dirName of pluginPackageDirs(pluginsDir)) add(join(pluginsDir, dirName))
+  for (const dir of workspacePackageDirs()) add(dir)
   return names
 }
 
@@ -187,15 +188,6 @@ function inspectMembers(dirName, manifest) {
   return Object.keys(manifest.dependencies ?? {})
     .filter(name => name.startsWith('@veren/') && !workspaceNames.has(name))
     .map(name => `${dirName}: dependency ${name} is not in this workspace; pnpm install would fail`)
-}
-
-for (const dirName of pluginPackageDirs(pluginsDir)) {
-  const manifest = readManifest(join(pluginsDir, dirName))
-  if (manifest !== undefined) failures.push(...inspectMembers(dirName, manifest))
-}
-
-for (const row of summary) {
-  console.log(`${row.engines.padEnd(8)} ${row.plugin.padEnd(34)} ${String(row.peers).padStart(2)} peer(s)  v${row.version}`)
 }
 
 /**
@@ -216,10 +208,24 @@ function workspacePackageDirs() {
   return dirs
 }
 
+// Set.prototype.add takes one argument, so a spread would keep only the first
+// name; iterate instead.
+// Set.prototype.add 只接受一个参数，展开只会留下第一个名字；改为逐个加入。
+for (const name of collectWorkspaceNames()) workspaceNames.add(name)
+console.log(`workspace package names: ${workspaceNames.size}`)
+
+for (const dirName of pluginPackageDirs(pluginsDir)) {
+  const manifest = readManifest(join(pluginsDir, dirName))
+  if (manifest !== undefined) failures.push(...inspectMembers(dirName, manifest))
+}
+
+for (const row of summary) {
+  console.log(`${row.engines.padEnd(8)} ${row.plugin.padEnd(34)} ${String(row.peers).padStart(2)} peer(s)  v${row.version}`)
+}
+
 // packages/ 下的包同样遵守规则 2（DSH 包不得进 dependencies），但它们不是
 // profile 插件：engines.dsh 只对会进 profile 的包有意义，因此只有
 // plugins/ 的清单要求 engines.dsh。
-const packagesDir = join(root, 'packages')
 const packageFailures = workspacePackageDirs()
   .map(dir => readManifest(dir))
   .filter(manifest => manifest !== undefined)
@@ -227,15 +233,10 @@ const packageFailures = workspacePackageDirs()
     .filter(([name]) => isHostShared(name) && !STATELESS_DSH.has(name))
     .map(([name, spec]) => `${manifest.name}: ${name}@${spec} belongs in peerDependencies, not dependencies`))
 
-if (packageFailures.length > 0) {
-  console.error(`\n${packageFailures.length} workspace manifest problem(s):`)
-  for (const failure of packageFailures) console.error(`  - ${failure}`)
-  process.exit(1)
-}
-
-if (failures.length > 0) {
-  console.error(`\n${failures.length} plugin manifest problem(s):`)
-  for (const failure of failures) console.error(`  - ${failure}`)
+const allFailures = [...failures, ...packageFailures]
+if (allFailures.length > 0) {
+  console.error(`\n${allFailures.length} manifest problem(s):`)
+  for (const failure of allFailures) console.error(`  - ${failure}`)
   process.exit(1)
 }
 
