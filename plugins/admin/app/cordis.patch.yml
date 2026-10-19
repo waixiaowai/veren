@@ -1,0 +1,79 @@
+# Admin platform bundle: composes the whole P0 stack in one profile layer.
+# 后台平台组合包：用一个 profile 层装好 P0 全套。
+#
+# This bundle is the ONLY profile layer of the admin stack: no member package
+# declares `dsh.bundle.patch`, so dsh plugin reconciliation activates exactly
+# this layer and installing the bundle can never double-insert a row. Each
+# member rides along as a plain dependency of this bundle.
+# 本组合包是后台技术栈唯一的 profile 层：没有成员包声明 `dsh.bundle.patch`，
+# 因此 dsh plugin 的 reconciliation 只会激活这一层，安装组合包绝不会重复插行。
+# 各成员作为本组合包的普通依赖随行。
+#
+# Row order is a dependency order, not a preference:
+#   kernel → gateway → data/access → auth → nav/audit/docs → ui → web
+# The web row runs the boot gate (`admin.ready()`) and therefore must be last.
+# 行顺序是依赖顺序而非偏好：内核 → 网关 → 数据/授权 → 认证 → 导航/审计/文档 →
+# UI → Web。Web 行执行启动门禁（`admin.ready()`），因此必须最后。
+- insert:
+    # Capability registry, version negotiation, façades and the boot gate.
+    # 能力注册表、版本协商、façade 与启动门禁。
+    - id: admin-kernel
+      name: '@veren/admin-kernel'
+
+    # Unified HTTP gateway: auth, permissions, CSRF, audit, OpenAPI.
+    # 统一 HTTP 网关：认证、权限、CSRF、审计、OpenAPI。
+    - id: admin-api-kernel
+      name: '@veren/admin-api-kernel'
+
+    # Embedded `data` provider over the DSH storage domain. The profile's
+    # storage group must register the backend named in `storage.backend`.
+    # 基于 DSH storage domain 的内嵌 `data` provider。profile 的 storage 组必须
+    # 注册 `storage.backend` 指定的后端。
+    - id: admin-data-dsh-kv
+      name: '@veren/admin-data-dsh-kv'
+
+    # `access`: role catalog, bindings, anti-lockout.
+    # `access`：角色目录、绑定、防自锁。
+    - id: admin-access-rbac
+      name: '@veren/admin-access-rbac'
+
+    # `auth`: first-run setup, sign-in, sessions, users, API tokens.
+    # `auth`：首次初始化、登录、会话、用户、API token。
+    - id: admin-auth-local
+      name: '@veren/admin-auth-local'
+
+    # `navigation`: the default menu contributions.
+    # `navigation`：默认菜单贡献。
+    - id: admin-navigation-default
+      name: '@veren/admin-navigation-default'
+
+    # `audit`: append-only trail with retention and cursor paging.
+    # `audit`：带保留策略与游标分页的只追加轨迹。
+    - id: admin-audit-default
+      name: '@veren/admin-audit-default'
+
+    # `docs`: capability catalog, backend health, OpenAPI and docs index.
+    # `docs`：能力目录、后端健康、OpenAPI 与文档索引。
+    - id: admin-docs-openapi
+      name: '@veren/admin-docs-openapi'
+
+    # Browser UI runtime: pack registry and per-audience manifests.
+    # 浏览器 UI 运行时：包注册表与按受众的清单。
+    - id: admin-ui-kernel
+      name: '@veren/admin-ui-kernel'
+
+    # Default packs; disable a row and enable another pack to replace it.
+    # 默认包；禁用一个行并启用另一个包即可替换。
+    - id: admin-theme-default
+      name: '@veren/admin-theme-default'
+    - id: admin-locale-zh-en
+      name: '@veren/admin-locale-zh-en'
+    - id: admin-icons-default
+      name: '@veren/admin-icons-default'
+    - id: admin-shell-default
+      name: '@veren/admin-shell-default'
+
+    # SPA carrier: shell, assets, UI pack files, bootstrap, boot gate.
+    # SPA 载体：壳、资源、UI 包文件、bootstrap、启动门禁。
+    - id: admin-web
+      name: '@veren/admin-web'

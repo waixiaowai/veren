@@ -1,0 +1,49 @@
+{
+  "name": "@veren/admin-web",
+  "displayName": "Admin Web",
+  "version": "0.1.0",
+  "description": "Use when an admin deployment must serve its browser SPA: it mounts the same-origin shell with a strict content security policy, serves static assets and registered UI pack files without escaping their roots, publishes the bootstrap payload joining identity, permissions, navigation and feature flags, and enforces the essential-capability boot gate; skip it when the deployment is API-only.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "client",
+    "README.md",
+    "README.cn.md"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-host-webserver": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "dependencies": {
+    "@veren/admin-api-kernel": "workspace:^",
+    "@veren/admin-contract": "workspace:^",
+    "@veren/admin-kernel": "workspace:^",
+    "@veren/admin-ui-contract": "workspace:^",
+    "@veren/admin-ui-kernel": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-host-webserver": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}

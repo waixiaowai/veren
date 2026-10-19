@@ -1,0 +1,47 @@
+{
+  "name": "@veren/admin-app",
+  "displayName": "Admin App",
+  "version": "0.1.0",
+  "description": "Use when a DSH profile must become the generic AI admin platform in one install: it is a configuration-only bundle whose patch inserts the kernel, gateway, data, auth, access, navigation, audit, docs, UI-kernel, default packs and SPA rows in dependency order, and its member plugins ship as plain dependencies without bundle declarations of their own, so this patch is the stack's only profile layer; skip it when you want to compose those plugins row by row yourself.",
+  "type": "module",
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "exports": {
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "README.md",
+    "README.cn.md"
+  ],
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@veren/admin-access-rbac": "workspace:^",
+    "@veren/admin-api-kernel": "workspace:^",
+    "@veren/admin-audit-default": "workspace:^",
+    "@veren/admin-auth-local": "workspace:^",
+    "@veren/admin-data-dsh-kv": "workspace:^",
+    "@veren/admin-docs-openapi": "workspace:^",
+    "@veren/admin-icons-default": "workspace:^",
+    "@veren/admin-kernel": "workspace:^",
+    "@veren/admin-locale-zh-en": "workspace:^",
+    "@veren/admin-navigation-default": "workspace:^",
+    "@veren/admin-shell-default": "workspace:^",
+    "@veren/admin-theme-default": "workspace:^",
+    "@veren/admin-ui-kernel": "workspace:^",
+    "@veren/admin-web": "workspace:^"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "vitest": "^5.0.4"
+  }
+}

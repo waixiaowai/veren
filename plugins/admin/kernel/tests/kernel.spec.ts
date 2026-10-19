@@ -149,12 +149,13 @@ describe('capability façades', () => {
   it('exposes data features through the data façade', () => {
     const ctx = new Context()
     const kernel = new AdminKernel(ctx, { essential: [] })
-    const database = {
+    const emptyTable = { find: () => undefined, list: () => [], save: async () => {}, remove: async () => false, size: 0 }
+    const database: AdminDatabase = {
       features: { transactions: false, secondaryIndexes: false, fullText: false },
-      table: () => ({ find: () => undefined, list: () => [], save: async () => {}, remove: async () => false, size: 0 }),
-      transaction: async (work: (uow: unknown) => Promise<unknown>) => work({}),
-      health: async () => ({ status: 'ok' as const }),
-    } satisfies AdminDatabase
+      table: () => emptyTable,
+      transaction: async (work) => work({ table: () => emptyTable }),
+      health: async () => ({ status: 'ok' }),
+    }
     kernel.register(manifest({ id: 'kv', capability: 'data' }), database)
     expect(ctx.adminData.features.transactions).toBe(false)
   })

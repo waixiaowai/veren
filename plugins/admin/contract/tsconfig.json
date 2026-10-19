@@ -1,10 +1,13 @@
 {
-  // Package face: `plugins/admin/contract` sits one level below the shared base.
-  // 包配置面：`plugins/admin/contract` 位于共享基础之下第一层。
+  // Package face of `plugins/admin/contract`: emit the shipped artifact only.
+  // `rootDir` is `src`, so tests cannot be part of this program — they are type
+  // checked by `tsconfig.test.json` instead.
+  // `plugins/admin/contract` 的包配置面：只产出随发行交付的产物。`rootDir` 是
+  // `src`，测试不属于这个程序，由 `tsconfig.test.json` 单独做类型检查。
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"]
+  "include": ["src/**/*.ts"]
 }

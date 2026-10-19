@@ -75,7 +75,7 @@ export function createAuditRoute(audit: AdminAudit): AdminRoute {
     summary: 'List audit entries, newest first',
     tags: ['audit'],
     query: auditQuerySchema,
-    handler: ({ request }) => audit.list(readAuditQuery(request.query)),
+    handler: async ({ request }) => audit.list(readAuditQuery(request.query)),
   }
 }
 

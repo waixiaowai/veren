@@ -11,6 +11,11 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+// 类型-only 导入：只为拉起 webServer 的 declaration merge，使 `ctx.webServer`
+// 在本文件里可用，运行时并不加载它。
+// Type-only import: pulls the webServer declaration merge so `ctx.webServer`
+// is typed here; nothing is loaded at runtime.
+import type {} from '@deepseek-ai/dsh-host-webserver'
 import { AdminApi, Config, resolveConfig, type ResolvedConfig } from './api.ts'
 
 declare module '@deepseek-ai/cordis' {

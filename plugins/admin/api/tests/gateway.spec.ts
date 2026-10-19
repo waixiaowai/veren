@@ -78,6 +78,7 @@ async function createHarness(config: Config = {}): Promise<Harness> {
   const access: AdminAccess = {
     permissions: () => ['admin.users.read', 'admin.users.manage'],
     roles: async () => [],
+    rolesOf: async () => [],
     permissionsOf: async (identity) => (identity.roles.includes('owner') ? ['*'] : ['admin.users.read']),
     assignRole: async () => {},
     revokeRole: async () => {},
@@ -128,6 +129,21 @@ async function createHarness(config: Config = {}): Promise<Harness> {
       },
     } satisfies AdminSchema,
     handler: () => OWNER,
+  })
+  api.register({
+    audience: 'admin',
+    method: 'GET',
+    path: '/search',
+    permission: 'admin.users.read',
+    summary: 'Search with a required query parameter',
+    query: {
+      parse: (value) => {
+        const query = value as { q?: unknown }
+        if (typeof query?.q !== 'string' || query.q.length === 0) throw new Error('q is required')
+        return query
+      },
+    } satisfies AdminSchema,
+    handler: ({ request }) => ({ q: request.query.get('q') }),
   })
 
   const server = createServer((req, res) => {
@@ -227,6 +243,21 @@ describe('admin API gateway', () => {
     const body = await response.json() as { error: { code: string; details?: { field?: string } } }
     expect(body.error.code).toBe('VALIDATION_FAILED')
     expect(body.error.details?.field).toBe('body')
+  })
+
+  it('enforces the route query schema before the handler runs', async () => {
+    harness = await createHarness()
+    const accepted = await fetch(`${harness.base}/api/admin/v1/search?q=hello`, {
+      headers: { cookie: 'admin_session=good' },
+    })
+    expect(accepted.status).toBe(200)
+    expect(await accepted.json()).toEqual({ q: 'hello' })
+
+    const rejected = await fetch(`${harness.base}/api/admin/v1/search`, { headers: { cookie: 'admin_session=good' } })
+    expect(rejected.status).toBe(422)
+    const body = await rejected.json() as { error: { code: string; details?: { field?: string } } }
+    expect(body.error.code).toBe('VALIDATION_FAILED')
+    expect(body.error.details?.field).toBe('query')
   })
 
   it('answers 404 for an unknown path and 405 for a wrong method', async () => {

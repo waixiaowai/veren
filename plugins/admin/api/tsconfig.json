@@ -1,9 +1,10 @@
 {
-  // Package face of `plugins/admin/api`. `plugins/admin/api` 的包配置面。
+  // Package face of `plugins/admin/api`: emit the shipped artifact only.
+  // `plugins/admin/api` 的包配置面：只产出随发行交付的产物。
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"]
+  "include": ["src/**/*.ts"]
 }

@@ -101,17 +101,97 @@ function inspect(dirName, manifest) {
 
 const failures = []
 const summary = []
-for (const entry of readdirSync(pluginsDir, { withFileTypes: true })) {
-  if (!entry.isDirectory()) continue
-  const manifest = readManifest(join(pluginsDir, entry.name))
+
+/**
+ * 工作区里实际存在的包名集合 / the set of package names the workspace really contains.
+ *
+ * 一个组合包依赖的成员若不存在，`pnpm install` 会直接失败，而门禁此前看不见：
+ * 清单本身完全合规，只有解析依赖时才暴露。本集合让门禁在提交前就报出来。
+ *
+ * A bundle depending on a member that does not exist breaks `pnpm install`
+ * outright, and no declaration rule catches it: the manifest is entirely
+ * compliant and the failure only appears when the dependencies resolve. This
+ * set makes the gate report it before the commit.
+ */
+const workspaceNames = new Set()
+
+/**
+ * 递归收集 plugins/ 下的包目录，跳过 node_modules。
+ * plugins/ 下的分组目录可以再嵌套一层（admin/contract、admin/providers/x），
+ * 只扫一层会让新插件静默逃过门禁——这正是本脚本存在的原因，所以它必须随目录
+ * 结构变化而更新。改用 pnpm-workspace.yaml 的 globs 做这件事，最稳妥。
+ *
+ * Recursively collect package dirs under plugins/, skipping node_modules.
+ * A group directory may nest one more level (admin/contract,
+ * admin/providers/x); scanning only one level lets a new plugin pass the gate
+ * silently, which defeats the gate's purpose. Deriving the set from
+ * pnpm-workspace.yaml's globs keeps it correct as the tree grows.
+ *
+ * @param {string} base - directory to scan.
+ * @param {number} [depth] - recursion limit, guarding against a symlink cycle.
+ * @returns {string[]} POSIX-style relative package dirs.
+ */
+function pluginPackageDirs(base, depth = 0) {
+  if (depth > 3) return []
+  const dirs = []
+  for (const entry of readdirSync(base, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === 'node_modules') continue
+    const dir = join(base, entry.name)
+    if (existsSync(join(dir, 'package.json'))) dirs.push(entry.name)
+    else dirs.push(...pluginPackageDirs(dir, depth + 1).map(child => `${entry.name}/${child}`))
+  }
+  return dirs
+}
+
+for (const dirName of pluginPackageDirs(pluginsDir)) {
+  const manifest = readManifest(join(pluginsDir, dirName))
   if (manifest === undefined) continue
-  failures.push(...inspect(entry.name, manifest))
+  failures.push(...inspect(dirName, manifest))
   summary.push({
-    plugin: entry.name,
+    plugin: dirName,
     version: manifest.version,
     peers: Object.keys(manifest.peerDependencies ?? {}).length,
     engines: manifest.engines?.dsh === DSH_RUNTIME_RANGE ? 'ok' : 'missing',
   })
+}
+
+/**
+ * 收集工作区里全部包名，供组合包成员存在性检查使用。
+ * Collect every workspace package name, for the bundle-member existence check.
+ *
+ * @returns {Set<string>} the names / 包名集合
+ */
+function collectWorkspaceNames() {
+  const names = new Set()
+  const dirs = [
+    ...pluginPackageDirs(pluginsDir).map(dir => join(pluginsDir, dir)),
+    ...workspacePackageDirs(),
+  ]
+  for (const dir of dirs) {
+    const manifest = readManifest(dir)
+    if (manifest?.name !== undefined) names.add(manifest.name)
+  }
+  return names
+}
+
+/**
+ * 一个 @veren/* 依赖必须指向工作区里真实存在的包，否则 pnpm install 直接失败。
+ * A @veren/* dependency must name a package the workspace actually contains,
+ * or `pnpm install` fails outright.
+ *
+ * @param {string} dirName - plugin dir, for the message / 插件目录，用于报错
+ * @param {object} manifest - the plugin manifest / 插件清单
+ * @returns {string[]} violation messages / 违规信息
+ */
+function inspectMembers(dirName, manifest) {
+  return Object.keys(manifest.dependencies ?? {})
+    .filter(name => name.startsWith('@veren/') && !workspaceNames.has(name))
+    .map(name => `${dirName}: dependency ${name} is not in this workspace; pnpm install would fail`)
+}
+
+for (const dirName of pluginPackageDirs(pluginsDir)) {
+  const manifest = readManifest(join(pluginsDir, dirName))
+  if (manifest !== undefined) failures.push(...inspectMembers(dirName, manifest))
 }
 
 for (const row of summary) {
@@ -119,21 +199,19 @@ for (const row of summary) {
 }
 
 /**
- * 工作区包目录，含一层分组目录（packages/graph/graph-core 等）。
- * Workspace package dirs, including one grouping level.
+ * 递归收集 packages/ 下的包目录，与 plugins/ 同一把尺子：分组目录可能再嵌套一层，
+ * 只扫一层同样会让新包静默逃过门禁。
+ * Collect package dirs under packages/ recursively, with the same rule as
+ * plugins/: a group directory may nest one more level, and a one-level scan
+ * would let a new package pass the gate silently.
  */
 function workspacePackageDirs() {
   const dirs = []
   for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue
+    if (!entry.isDirectory() || entry.name === 'node_modules') continue
     const dir = join(packagesDir, entry.name)
-    if (existsSync(join(dir, 'package.json'))) {
-      dirs.push(dir)
-      continue
-    }
-    for (const child of readdirSync(dir, { withFileTypes: true })) {
-      if (child.isDirectory() && existsSync(join(dir, child.name, 'package.json'))) dirs.push(join(dir, child.name))
-    }
+    if (existsSync(join(dir, 'package.json'))) dirs.push(dir)
+    else for (const child of pluginPackageDirs(dir, 1)) dirs.push(join(dir, child))
   }
   return dirs
 }

@@ -188,6 +188,10 @@ export class AdminApi extends Service {
       principal = identity === undefined ? undefined : await this.principalOf(identity)
       if (route.permission !== undefined) this.assertPermission(route, principal)
       if (route.scopes !== undefined && route.scopes.length > 0) this.assertScopes(route, principal)
+      // Repeated query keys collapse to the last value; routes that need a
+      // repeated key must read `request.query` themselves.
+      // 重复查询键折叠为最后一个值；需要重复键的路由须自行读取 `request.query`。
+      this.validate(route.query, Object.fromEntries(facts.query), 'query')
 
       const request: AdminRequest = {
         requestId,

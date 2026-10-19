@@ -1,11 +1,22 @@
 {
   // Shared TypeScript face for every `plugins/admin/*` package.
-  // `paths` resolve the sibling packages to their sources, so a package type
-  // checks against live code instead of a built copy.
-  // `plugins/admin/*` 下所有包共享的 TypeScript 配置面；`paths` 指向兄弟包源码，
-  // 因此类型检查面对的是实时源码而非构建副本。
+  //
+  // Two faces extend this file, and they need opposite module resolution:
+  //
+  // - **Package face** (`rootDir: src`, emits `dist/`): sibling packages resolve
+  //   through node_modules to their built `dist/`, so the emit stays inside this
+  //   package's `rootDir`. Sibling sources must never enter this program.
+  // - **Test face** (`noEmit`): resolves siblings to their sources through
+  //   `admin-paths.json`, so a spec is checked against live code and a workspace
+  //   build order mistake cannot hide a type error.
+  //
+  // `plugins/admin/*` 下所有包共享的 TypeScript 配置基础。两个面都继承它，但
+  // 需要相反的模块解析：包面走 node_modules 解析到兄弟包的构建产物，使产物不越出
+  // 本包的 `rootDir`；测试面经 `admin-paths.json` 指向兄弟包源码，让用例对着实时
+  // 代码检查，顺序错了也藏不住类型错误。
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
@@ -21,20 +32,6 @@
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node"],
-    "paths": {
-      "@veren/admin-contract": ["./contract/src/index.ts"],
-      "@veren/admin-kernel": ["./kernel/src/index.ts"],
-      "@veren/admin-api-kernel": ["./api/src/index.ts"],
-      "@veren/admin-data-dsh-kv": ["./providers/data-dsh-kv/src/index.ts"],
-      "@veren/admin-auth-local": ["./providers/auth-local/src/index.ts"],
-      "@veren/admin-access-rbac": ["./providers/access-rbac/src/index.ts"],
-      "@veren/admin-navigation-default": ["./providers/nav-default/src/index.ts"],
-      "@veren/admin-audit-default": ["./providers/audit-default/src/index.ts"],
-      "@veren/admin-docs-openapi": ["./providers/docs-openapi/src/index.ts"],
-      "@veren/admin-ui-contract": ["./ui-contract/src/index.ts"],
-      "@veren/admin-ui-kernel": ["./ui-kernel/src/index.ts"],
-      "@veren/admin-web": ["./web/src/index.ts"]
-    }
+    "types": ["node"]
   }
 }

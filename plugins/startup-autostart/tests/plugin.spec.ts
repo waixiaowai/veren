@@ -12,7 +12,7 @@
  * delivery note, which install the published package from the registry.
  */
 
-import { mkdtempSync, readFile, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -47,16 +47,20 @@ import type { StoredStartupItem } from '../src/storage.ts'
 async function settle(root: string, expected: number): Promise<void> {
   const deadline = Date.now() + 10_000
   while (Date.now() < deadline) {
-    const document = await readFile(join(root, 'startup.json'), 'utf8').catch(() => '')
-    const committed = [...document.matchAll(/"runCount":\s*(\d+)/g)]
-      .map(match => Number(match[1]))
-      .filter(count => count > 0)
-    if (committed.length >= expected) return
+    // The JSON backend writes with an atomic rename, so a reader either sees the
+    // previous document or the whole new one; an absent file simply means the
+    // first write has not landed yet.
+    // JSON 后端用原子改名写入，读者要么看到上一份文档，要么看到整份新文档；文件不存在只表示
+    // 第一次写入还没落地。
+    const document = existsSync(join(root, 'startup.json'))
+      ? readFileSync(join(root, 'startup.json'), 'utf8')
+      : ''
+    const committed = (document.match(/"runCount": [1-9]/g) ?? []).length
+    if (committed >= expected) return
     await new Promise(resolve => setTimeout(resolve, 5))
   }
   throw new Error(`startup-autostart: the drive did not commit ${expected} run stamp(s) within 10s`)
 }
-
 /**
  * Publish a test double for one Host service.
  *
@@ -193,7 +197,21 @@ function appReadyStub(): AppReadyDouble {
   }
 }
 
-/** Mount the storage stack and then the plugin on one real Cordis root. */
+/**
+ * Mount the storage stack and then the plugin on one real Cordis root.
+ *
+ * Activation is awaited, but the startup drive is not: a spec that wants the
+ * drive finished waits for it itself, because only that spec knows whether the
+ * trigger has fired yet.
+ *
+ * 在一个真实 Cordis 根上挂载存储栈，然后挂载插件。
+ *
+ * 这里只等激活完成，不等启动驱动结束：想让驱动跑完的用例自己等，因为只有用例知道触发是否
+ * 已经发生。
+ *
+ * @param options - the storage root, the launcher signal, and a storage stub.
+ * @returns the root context and the recorded Session-layer effects.
+ */
 async function boot(options: {
   readonly root: string
   readonly appReady?: AppReadyDouble
@@ -212,10 +230,8 @@ async function boot(options: {
     ctx.plugin(StorageJson, { root: options.root })
     ctx.plugin(StorageDomain, { backend: 'json' })
   }
-  ctx.plugin(StartupAutostartService)
-  // The drive writes a run stamp for every enabled item, so its completion is
-  // observable in the storage document. 驱动会给每个启用项写一个运行戳记，因此它的结束在存储文档里可观测。
-  await settle(options.root, options.storageDomain === undefined ? 1 : 0)
+  const fiber = ctx.plugin(StartupAutostartService)
+  await fiber
   return { ctx, layer }
 }
 
@@ -224,6 +240,7 @@ describe('startup trigger', () => {
     const root = tempRoot()
     seed(root, [item({ id: 'startup-a', name: 'wake the desk', action: 'new_session', cwd: 'C:/work', message: 'start the day' })])
     const { ctx, layer } = await boot({ root })
+    await settle(root, 1)
 
     expect(layer.calls.created).toHaveLength(1)
     expect(layer.calls.created[0]?.cwd).toBe('C:/work')
@@ -267,12 +284,18 @@ describe('startup trigger', () => {
 
     // Nothing is mounted yet: the plugin activates into an already-ready host.
     const { ctx } = await boot({ root, appReady: ready })
+    await settle(root, 1)
     expect((await ctx.startupAutostart.catalog())[0]?.runCount).toBe(1)
     await ctx.fiber.dispose()
 
     // A reload is a new activated service with its own latch, so it drives
     // again. That is the intended trade: no debounce anywhere, including here.
+    // 重载是一个带自有闩锁的新激活服务，因此它会再驱动一次。这就是权衡所在：哪里都没有防抖。
     const { ctx: another } = await boot({ root, appReady: ready })
+    // The second drive re-runs the same row, so its count is already 2 in the
+    // one shared document; waiting for 2 covers both starts.
+    // 第二轮驱动重跑同一行，因此同一份共享文档里的计数已经是 2；等 2 即覆盖两次启动。
+    await settle(root, 2)
     expect((await another.startupAutostart.catalog())[0]?.runCount).toBe(2)
     await another.fiber.dispose()
   })
@@ -288,7 +311,7 @@ describe('startup trigger', () => {
     ctx.plugin(Storage.default)
     ctx.plugin(StorageJson, { root })
     ctx.plugin(StorageDomain, { backend: 'json' })
-    ctx.plugin(StartupAutostartService)
+    await ctx.plugin(StartupAutostartService)
     await settle(root, 1)
 
     const stored = await ctx.startupAutostart.catalog()
@@ -298,19 +321,23 @@ describe('startup trigger', () => {
   })
 
   it('stays inert and loud-but-harmless when the storage domain cannot open', async () => {
+    const root = tempRoot()
     const ctx = new Context()
     const layer = sessionLayer()
     provideStub(ctx, 'agents', layer.services.agents)
     provideStub(ctx, 'sessions', layer.services.sessions)
     provideStub(ctx, 'sessionController', layer.services.sessionController)
     provideStub(ctx, 'storageDomain', { open: async () => { throw new Error('backend "json" is missing') } })
-    ctx.plugin(StartupAutostartService)
-    await settle(root, 1)
+    await ctx.plugin(StartupAutostartService)
+    // A closed storage domain means no item is ever delivered, so the drive is
+    // over as soon as activation finished. 存储域打不开意味着永不投递，因此激活一结束驱动就结束了。
+    expect(layer.calls.created).toHaveLength(0)
 
     await expect(ctx.startupAutostart.catalog()).rejects.toMatchObject({ code: 'storage_unavailable' })
     await expect(ctx.startupAutostart.create({ name: 'x', action: 'resume_session', sessionId: 's' }))
       .rejects.toMatchObject({ code: 'storage_unavailable' })
     await ctx.fiber.dispose()
+    expect(root).toBeTruthy()
   })
 })
 
@@ -328,6 +355,7 @@ describe('every start runs the item', () => {
       runCount: 3,
     })])
     const { ctx, layer } = await boot({ root })
+    await settle(root, 1)
 
     expect(layer.calls.followup).toHaveLength(1)
     const stored = await ctx.startupAutostart.catalog()
@@ -341,11 +369,16 @@ describe('every start runs the item', () => {
     seed(root, [item({ id: 'startup-a', name: 'both times', action: 'new_session', cwd: 'C:/work' })])
 
     const first = await boot({ root })
+    // Both boots share one storage document, so the second start's stamp lands
+    // in the same file; the wait therefore counts from one onwards.
+    // 两次启动共享同一份存储文档，因此第二次的戳记落在同一个文件里；等待因此从一开始计数。
+    await settle(root, 1)
     expect(first.layer.calls.created).toHaveLength(1)
     expect((await first.ctx.startupAutostart.catalog())[0]?.runCount).toBe(1)
     await first.ctx.fiber.dispose()
 
     const second = await boot({ root })
+    await settle(root, 2)
     expect(second.layer.calls.created).toHaveLength(1)
     expect((await second.ctx.startupAutostart.catalog())[0]?.runCount).toBe(2)
     await second.ctx.fiber.dispose()
@@ -369,6 +402,7 @@ describe('every start runs the item', () => {
       runCount: 7,
     }])
     const { ctx, layer } = await boot({ root })
+    await settle(root, 1)
 
     expect(layer.calls.followup).toHaveLength(1)
     const stored = await ctx.startupAutostart.catalog()
@@ -382,9 +416,12 @@ describe('every start runs the item', () => {
     seed(root, [item({ id: 'startup-a', name: 'off', action: 'new_session', cwd: 'C:/work', enabled: false })])
     const { ctx, layer } = await boot({ root })
 
+    // No enabled item means no run stamp, so the drive's completion is observed
+    // through the drive itself: nothing is delivered and the count stays put.
+    // 没有启用项就没有运行戳记，因此驱动结束由驱动自身表明：什么都不投递，计数不变。
+    await ctx.fiber.dispose()
     expect(layer.calls.created).toHaveLength(0)
     expect((await ctx.startupAutostart.catalog())[0]?.runCount).toBe(0)
-    await ctx.fiber.dispose()
   })
 })
 
@@ -464,6 +501,7 @@ describe('startup management', () => {
       item({ id: 'startup-queue', name: 'queue', action: 'queue_message', sessionId: 'session-q', message: 'read later' }),
     ])
     const { ctx, layer } = await boot({ root })
+    await settle(root, 4)
 
     expect(layer.calls.created).toHaveLength(1)
     expect(layer.calls.created[0]?.workspaceId).toBe('ws-1')
@@ -551,8 +589,11 @@ describe('profiles without the Web session controller', () => {
     ctx.plugin(Storage.default)
     ctx.plugin(StorageJson, { root: options.root })
     ctx.plugin(StorageDomain, { backend: 'json' })
-    ctx.plugin(StartupAutostartService)
-    await settle(root, 1)
+    await ctx.plugin(StartupAutostartService)
+    // All four enabled items commit a run stamp, so waiting for four means the
+    // whole drive finished rather than partially ran.
+    // 四个启用项都会写运行戳记，因此等四个表示整轮驱动跑完，而不是跑了一半。
+    await settle(options.root, 4)
     return { ctx, calls }
   }
 

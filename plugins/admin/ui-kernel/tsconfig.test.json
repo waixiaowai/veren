@@ -1,0 +1,20 @@
+{
+  // Test face shared by every first-level `plugins/admin/<package>`.
+  //
+  // It resolves siblings to their sources through `admin-paths.json`, so no
+  // `rootDir` is declared: the program legitimately spans sibling source trees,
+  // and it emits nothing. `lib` covers the runtime globals the pulled-in vitest,
+  // vite, and cordis declarations mention (WeakRef, private identifiers).
+  //
+  // 第一层包的共享测试面。
+  //
+  // 它经 `admin-paths.json` 指向兄弟包源码，因此这里不声明 `rootDir`：程序本就
+  // 跨越兄弟包源码树，而且它不产出任何文件。`lib` 覆盖被拉进来的 vitest、vite、
+  // cordis 声明里提到的运行时全局（WeakRef、私有标识符）。
+  "extends": ["../tsconfig.base.json", "../admin-paths.json"],
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

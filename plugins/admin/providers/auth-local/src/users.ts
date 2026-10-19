@@ -17,6 +17,11 @@ import {
   type AdminUserView,
 } from '@veren/admin-contract'
 import type { Context } from '@deepseek-ai/cordis'
+// 类型-only 导入：只为拉起 kernel 的 declaration merge，使 ctx.adminData /
+// ctx.adminAccess 在本文件里可用，运行时并不加载它。
+// Type-only import: pulls the kernel's declaration merge so ctx.adminData and
+// ctx.adminAccess are typed here; nothing is loaded at runtime.
+import type {} from '@veren/admin-kernel'
 import { randomUUID } from 'node:crypto'
 import { hashPassword, hashToken, randomToken } from './passwords.ts'
 import {

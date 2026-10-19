@@ -16,7 +16,19 @@ packages:
   # commander/profile is a DSH profile template, not an npm unit; the installer
   # copies it into $DSH_HOME/profiles/commander, so workspace install must skip it.
   - "!packages/commander/profile"
+  # plugins/admin 是一个分组目录，下面的每个包各自是一个可安装单元；只写
+  # `plugins/*` 匹配不到 `plugins/admin/kernel` 这一层，它们会静默不进工作区，
+  # 于是既不安装依赖也不构建不测试。
+  # plugins/admin is a group directory whose members are each an installable
+  # unit; `plugins/*` alone misses `plugins/admin/kernel` one level down, so
+  # those packages silently stay outside the workspace — no dependency install,
+  # no build, no tests.
   - "plugins/*"
+  - "plugins/*/*"
+  # providers 是第三层（plugins/admin/providers/<provider>），同样只靠上面两条匹配不到。
+  # providers are a third level (plugins/admin/providers/<provider>); the two
+  # globs above still miss them.
+  - "plugins/*/*/*"
   - "apps/*"
   - "!apps/veren"
   - "vendor/*"
