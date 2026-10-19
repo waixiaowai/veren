@@ -16,6 +16,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { FORUM_MESSAGE_SOURCE, notificationText, SessionLink } from '../src/session-link.ts'
 import type { NotificationRecord } from '../src/domain.ts'
@@ -48,7 +49,10 @@ function fakeAgent() {
       session: { id: 'session-1' },
       followup: (message: typeof followup[number]) => { followup.push(message) },
       inject: (message: typeof inject[number]) => { inject.push(message) },
-    },
+      // The link only touches `session`, `followup`, and `inject`; the rest of
+      // the Agent face is irrelevant to this seam.
+      // 链接只触及 `session`、`followup` 与 `inject`；Agent 的其余面与此接缝无关。
+    } as unknown as Agent,
   }
 }
 

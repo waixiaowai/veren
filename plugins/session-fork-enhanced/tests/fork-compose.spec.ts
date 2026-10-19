@@ -25,9 +25,9 @@ import {
   forkWorkspace,
   requestedRoute,
   resolveBoundary,
-} from '../src/fork-compose.ts'
-import type { ForkPlan } from '../src/fork-compose.ts'
-import type { ForkRequest, ModelSelectionView } from '../src/types.ts'
+} from '../src/fork-compose.js'
+import type { ForkPlan } from '../src/fork-compose.js'
+import type { ForkRequest, ModelSelectionView } from '../src/types.js'
 
 /** One minimal session event: the layer only reads `type` and `seq`. 最小会话事件：该层只读 type 与 seq。 */
 function event(type: string, seq: number): SessionEvent {
@@ -97,7 +97,7 @@ describe('composePreset / 组合预设', () => {
     const composition = await composePreset(ctx, 'writer')
     expect(composition.agentPreset).toBe('writer')
 
-    await composition.setup?.({} as never)
+    await composition.setup?.({} as never, {} as never)
     expect(mount).toHaveBeenCalledWith(expect.anything(), 'writer')
   })
 
@@ -209,24 +209,26 @@ describe('forkValue / 分叉返回值', () => {
 describe('createForkAgent / 创建子代理', () => {
   /** A context whose `agents.create` records its payload and returns a recording handle. 记录负载并返回记录句柄的上下文。 */
   function host(options: { attach?: () => Promise<void> } = {}) {
+    const created: unknown[] = []
     const appended: unknown[] = []
-    const create = vi.fn(async () => ({
-      agent: { session: { append: (_type: string, _data: unknown) => { appended.push(_data) } } },
-    }))
+    const create = vi.fn(async (payload: Record<string, unknown>) => {
+      created.push(payload)
+      return { agent: { session: { append: (_type: string, _data: unknown) => { appended.push(_data) } } } }
+    })
     const ctx = new Context()
     ctx.provide('agents', { create } as unknown as Context['agents'])
     const workspace = { attachSession: vi.fn(options.attach ?? (async () => {})) }
-    return { ctx, create, appended, workspace }
+    return { ctx, create, created, appended, workspace }
   }
 
   it('creates the child with the seed, inherited count, parent meta, and route', async () => {
-    const { ctx, create } = host()
+    const { ctx, created } = host()
 
     await createForkAgent(ctx, SessionId('child-1'), header({ cwd: 'C:/work' }), 2, plan({
       composition: { agentPreset: 'writer' },
     }))
 
-    const payload = create.mock.calls[0]?.[0] as Record<string, unknown>
+    const payload = created[0] as Record<string, unknown>
     expect(payload).toMatchObject({
       sessionId: 'child-1',
       inheritedEventCount: 3,

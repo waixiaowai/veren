@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createMemoryCompilerHost } from '../src/memory-host'
+import { createMemoryCompilerHost } from '../src/index'
 
 /** Windows 下把反斜杠换成正斜杠,与 TS 内部的路径形态保持一致。
  *  Convert backslashes to forward slashes to match TS's internal path shape. */

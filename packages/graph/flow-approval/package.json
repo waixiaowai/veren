@@ -21,7 +21,7 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --no-fsModuleCache"
+    "test": "vitest run"
   },
   "engines": {
     "dsh": ">=0.2.1-rc.2 <0.3.0"

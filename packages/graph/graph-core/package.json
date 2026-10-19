@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-graph-core",
   "version": "0.1.2",
-  "description": "Use when you need a business-agnostic directed-acyclic-graph execution kernel: it validates a neutral Node/Edge/Graph model, schedules nodes topologically with a concurrency cap, drives a per-node status machine, emits graph lifecycle events over the Cordis event bus, and applies a replaceable failure-propagation strategy; skip it when you want flow semantics (typed nodes, blackboard data) â€?those live in @deepseek-ai/dsh-graph-flow-* on top of this kernel.",
+  "description": "Use when you need a business-agnostic directed-acyclic-graph execution kernel: it validates a neutral Node/Edge/Graph model, schedules nodes topologically with a concurrency cap, drives a per-node status machine, emits graph lifecycle events over the Cordis event bus, and applies a replaceable failure-propagation strategy; skip it when you want flow semantics (typed nodes, blackboard data) - those live in @deepseek-ai/dsh-graph-flow-* on top of this kernel.",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
@@ -22,7 +22,7 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --no-fsModuleCache",
+    "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "engines": {

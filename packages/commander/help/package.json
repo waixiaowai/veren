@@ -15,7 +15,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --no-fsModuleCache"
+    "test": "vitest run"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.4",

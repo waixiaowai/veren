@@ -1,7 +1,7 @@
 {
   "name": "@veren/compiler-host",
   "version": "0.1.0",
-  "description": "Use when a TypeScript build stage needs a ts.CompilerHost service from the context â€?including the in-memory host factory for sources that never touch disk â€?instead of creating a host by hand.",
+  "description": "Use when a TypeScript build stage needs a ts.CompilerHost service from the context - including the in-memory host factory for sources that never touch disk - instead of creating a host by hand.",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -14,7 +14,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --no-fsModuleCache"
+    "test": "vitest run"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.4",

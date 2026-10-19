@@ -1,13 +1,24 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import * as ts from 'typescript'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { apply as applyOptions, name as CompilerOptionsToken } from '@veren/compiler-options'
 import { apply as applyHost, name as CompilerHostToken } from '@veren/compiler-host'
 import { apply as applyProgram, name as ProgramToken } from '@veren/compiler-program'
 import { apply as applyChecker, name as TypeCheckerToken } from '@veren/compiler-type-checker'
-import { Compiler } from '../src/compiler'
-import type { CompileInput, EmitResult, TypeMetadata, TypeMetadataKind } from '../src/types'
-import { DefaultCompiler, apply as applyCompiler, inject, name } from '../src/index'
+import {
+    Compiler,
+    DefaultCompiler,
+    apply as applyCompiler,
+    inject,
+    name,
+    type CompileInput,
+    type EmitResult,
+    type TypeMetadata,
+    type TypeMetadataKind,
+} from '../src/index'
 
 /**
  * 每个用例各自创建的 Context 所产生的 disposer，统一在 afterEach 清理。
@@ -22,13 +33,12 @@ afterEach(async () => {
 
 /**
  * 按依赖顺序搭建完整服务链：options → host → program → checker；
- * rootNames 可为空数组（DefaultCompiler.parse 只返回该 program，
- * 不影响 load 阶段的内存源码）。每次调用都 new 一个 Context，
- * 避免跨用例复用导致 "service already registered"。
+ * rootNames 可为空（DefaultCompiler 在 compile 有输入时会另建 Program）。
+ * 每次调用都 new 一个 Context，避免跨用例复用导致 "service already registered"。
  * Build the full service chain in dependency order: options → host →
- * program → checker; rootNames may be empty (DefaultCompiler.parse just
- * returns the provided program, which does not affect load's in-memory
- * sources). Always a fresh Context so services never collide across tests.
+ * program → checker; rootNames may be empty (DefaultCompiler builds a per-run
+ * Program when compile receives inputs). Always a fresh Context so services
+ * never collide across tests.
  */
 const setupCtx = (options: ts.CompilerOptions = {}, rootNames: readonly string[] = []): Context => {
     const ctx = new Context()
@@ -146,17 +156,21 @@ describe('DefaultCompiler', () => {
         )
     })
 
-    it('load 对缺 content 的输入抛错，消息包含该 fileName 与 未提供 content', () => {
-        const compiler = new DefaultCompiler(setupCtx())
-        let error: unknown
+    it('缺 content 时从磁盘读取；文件不存在时给出明确错误', async () => {
+        const dir = await mkdtemp(join(tmpdir(), 'veren-compiler-'))
         try {
-            compiler.compile([{ fileName: 'missing.ts' }])
-        } catch (e) {
-            error = e
+            const file = join(dir, 'disk.ts')
+            await writeFile(file, 'export interface Disk { y: string }', 'utf8')
+
+            const compiler = new DefaultCompiler(setupCtx())
+            const result = compiler.compile([{ fileName: file }])
+            expect(result.metadata.map((entry) => entry.name)).toContain('Disk')
+
+            const missing = new DefaultCompiler(setupCtx())
+            expect(() => missing.compile([{ fileName: join(dir, 'missing.ts') }])).toThrowError(/无法读取/)
+        } finally {
+            await rm(dir, { recursive: true, force: true })
         }
-        expect(error).toBeInstanceOf(Error)
-        expect((error as Error).message).toContain('missing.ts')
-        expect((error as Error).message).toContain('未提供 content')
     })
 
     it('load 有 content 时产出 SourceFile：fileName 与输入一致，且 setParentNodes 维护 parent 链', () => {
@@ -183,33 +197,88 @@ describe('DefaultCompiler', () => {
         expect(sfDefault.languageVersion).toBe(ts.ScriptTarget.ES2022)
     })
 
-    it('parse 返回上下文中的 program（同一引用）', () => {
+    it('parse([]) 回退到上下文 program；parse(files) 用输入源码新建 program', () => {
         const ctx = setupCtx()
         const compiler = new ProbeCompiler(ctx)
         expect(compiler.parse([])).toBe(ctx.get(ProgramToken))
+
+        const [sf] = compiler.load([{ fileName: 'p.ts', content: 'export interface P { x: number }' }])
+        const program = compiler.parse([sf])
+        expect(program).not.toBe(ctx.get(ProgramToken))
+        expect(program.getSourceFile('p.ts')?.text).toContain('interface P')
+        expect(compiler.checker).toBe(program.getTypeChecker())
     })
 
-    it('直接 compile 会在 load→parse 成功后于 analyze 阶段抛错', () => {
-        // load 用 this.options、parse 用 this.program，因此三个服务都需先提供
-        // load reads this.options and parse reads this.program, so all three services must be provided first
+    it('compile 跑完全程：返回非空 metadata 与可序列化 output', () => {
         const compiler = new DefaultCompiler(setupCtx())
-        expect(() => compiler.compile([{ fileName: 'a.ts', content: 'export const x = 1' }])).toThrowError(
-            'DefaultCompiler.analyze: 尚未实现',
-        )
+        const result = compiler.compile([
+            { fileName: 'a.ts', content: 'export interface A { x: number }\nexport type B = string | number' },
+        ])
+
+        expect(result.metadata.map((entry) => `${entry.kind}:${entry.name}`)).toEqual([
+            'interface:A',
+            'type-alias:B',
+        ])
+        expect(result.output).toBeTypeOf('string')
+        const parsed = JSON.parse(result.output!) as { files: string[]; metadata: TypeMetadata[] }
+        expect(parsed.files).toEqual(['a.ts'])
+        expect(parsed.metadata).toEqual(result.metadata)
+        expect(compiler.getMetadata('a.ts')).toEqual(result.metadata)
     })
 
-    it('仅覆写 analyze 时，默认 collect 抛错', () => {
+    it('同一个 compile 换源码内容，metadata 随之改变', () => {
+        const compiler = new DefaultCompiler(setupCtx())
+        const first = compiler.compile([{ fileName: 'same.ts', content: 'export interface First { a: number }' }])
+        const second = compiler.compile([{ fileName: 'same.ts', content: 'export interface Second { b: string }' }])
+
+        expect(first.metadata.map((entry) => entry.name)).toEqual(['First'])
+        expect(second.metadata.map((entry) => entry.name)).toEqual(['Second'])
+    })
+
+    it('analyze 上报输入源码的语法/语义诊断，诊断随内容变化', () => {
+        const compiler = new DefaultCompiler(setupCtx())
+        const valid = compiler.compile([{ fileName: 'ok.ts', content: 'export interface Ok { x: number }' }])
+        expect(valid.metadata).toHaveLength(1)
+        expect(compiler.hasErrors()).toBe(false)
+
+        compiler.compile([{ fileName: 'bad.ts', content: 'export interface {' }])
+        expect(compiler.getDiagnostics().length).toBeGreaterThan(0)
+        expect(compiler.hasErrors()).toBe(true)
+    })
+
+    it('collect 通过 checker 反解泛型、成员与继承', () => {
+        const compiler = new DefaultCompiler(setupCtx())
+        const result = compiler.compile([
+            {
+                fileName: 'model.ts',
+                content:
+                    'export interface Base { id: number }\n' +
+                    'export interface Box<T extends object> extends Base { value: T; read(): string }',
+            },
+        ])
+
+        const box = result.metadata.find((entry) => entry.name === 'Box')
+        expect(box?.typeParameters?.[0]?.name).toBe('T')
+        expect(box?.members?.map((entry) => `${entry.kind}:${entry.name}`)).toEqual([
+            'property:value',
+            'method:read',
+        ])
+        expect(box?.baseTypes).toEqual(['Base'])
+    })
+
+    it('仅覆写 analyze 且不调用 super 时，默认 collect 没有目标，产出空 metadata', () => {
         const compiler = new AnalyzeOnlyCompiler(setupCtx())
-        expect(() => compiler.compile([{ fileName: 'a.ts', content: 'export const x = 1' }])).toThrowError(
-            'DefaultCompiler.collect: 尚未实现',
-        )
+        const result = compiler.compile([{ fileName: 'a.ts', content: 'export const x = 1' }])
+
+        expect(result.metadata).toEqual([])
     })
 
-    it('覆写 analyze/collect 后，默认 emit 返回空 metadata，且 compile 后查询接口可用', () => {
+    it('覆写 analyze/collect 后，默认 emit 汇总仓库（空）并给出 output', () => {
         const compiler = new NoopStagesCompiler(setupCtx())
         const result = compiler.compile([{ fileName: 'a.ts', content: 'export const x = 1' }])
 
-        expect(result).toEqual({ metadata: [] })
+        expect(result.metadata).toEqual([])
+        expect(result.output).toBe(JSON.stringify({ files: [], metadata: [] }))
         expect(compiler.getMetadata('a.ts')).toEqual([])
     })
 

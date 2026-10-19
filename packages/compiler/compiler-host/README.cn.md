@@ -47,7 +47,7 @@ const host = get(ctx, CompilerHost.name)!    // ts.CompilerHost
 
 ```ts
 import * as ts from 'typescript'
-import { createMemoryCompilerHost } from '../compiler-host/src/memory-host.ts'
+import { createMemoryCompilerHost } from '@veren/compiler-host'
 
 const fileName = '/virtual/sum.ts'
 const source = ts.createSourceFile(
@@ -69,7 +69,7 @@ host.getSourceFile(fileName, ts.ScriptTarget.ES2022) // === source
 | `Config` | Schemastery schema 与 `interface Config` | 校验插件配置。`setParentNodes` 为布尔值，默认 `false`，传入其他类型会抛错；`Config({})` 归一化为 `{ setParentNodes: false }`。 |
 | `inject` | `Token[]` | `['verenCompilerOptions']`：`apply` 执行前编译选项服务必须已存在。 |
 | `apply(ctx, config)` | `(ctx: Context, config: Config) => () => void` | 读取编译选项服务，调用 `ts.createCompilerHost(options, config.setParentNodes)`，并以 `name` 提供宿主。返回的 disposer 用于取消提供。 |
-| `createMemoryCompilerHost(options, sources)` | `(options: ts.CompilerOptions, sources: readonly ts.SourceFile[]) => ts.CompilerHost`，由 `src/memory-host.ts` 导出，**未**从包入口导出 | 优先命中给出的内存 `SourceFile`（`getSourceFile`、`getSourceFileByPath`、`fileExists`、`readFile` 均按 `f.fileName` 精确匹配），其余请求回落到默认的磁盘宿主。 |
+| `createMemoryCompilerHost(options, sources)` | `(options: ts.CompilerOptions, sources: readonly ts.SourceFile[]) => ts.CompilerHost`，从包入口导出 | 优先命中给出的内存 `SourceFile`（`getSourceFile`、`getSourceFileByPath`、`fileExists`、`readFile` 均按 `f.fileName` 精确匹配），其余请求回落到默认的磁盘宿主。 |
 
 ## 开发
 
@@ -87,7 +87,7 @@ packages/compiler/compiler-host
 ├── package.json
 ├── src/
 │   ├── index.ts        # provider entry: name / Config / inject / apply
-│   └── memory-host.ts  # createMemoryCompilerHost (not re-exported from "." yet)
+│   └── memory-host.ts  # createMemoryCompilerHost (re-exported from ".")
 └── test/
     ├── index.test.ts        # 9 cases
     └── memory-host.test.ts  # 8 cases
@@ -101,5 +101,5 @@ packages/compiler/compiler-host
 - 用 `await ctx.plugin(Module, config)` 消费 provider（fiber 异步激活，`await` 之后服务才就绪），或在低层单测中同步直调 `Module.apply(ctx, config)`。
 - 同一个 `Context` 上重复 provide 同名服务会抛 `service already registered`，需要先 dispose 上一次注册。
 - 内存源码的 `fileName` 必须是规范化后的绝对路径。TypeScript 5.9 会把路径规范化为正斜杠，并在大小写不敏感的系统上转小写，而内存映射以规范化后的 `f.fileName` 为键，拼写不一致就会命中失败。若编译过程走模块解析，源码所在目录必须在磁盘上真实存在。
-- `createMemoryCompilerHost` 目前**没有**从 `src/index.ts` 再导出，包的 `exports` 只暴露 `"."`。因此外部消费者只能通过相对源码路径引用它，例如 `../compiler-host/src/memory-host.ts`；当前并不存在可用的 `@veren/compiler-host/memory-host` 导入路径。后续可考虑从入口导出。
+- `createMemoryCompilerHost` 已从 `src/index.ts` 再导出，包外直接 `import { createMemoryCompilerHost } from '@veren/compiler-host'` 即可。包仍只暴露 `"."` 一个入口，没有 `@veren/compiler-host/memory-host` 子路径。
 - 只要后续阶段需要节点上的 parent 链或位置计算，就应保持 `setParentNodes: true`。

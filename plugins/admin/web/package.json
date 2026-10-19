@@ -25,7 +25,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.test.json",
-    "test": "vitest run --no-fsModuleCache"
+    "test": "vitest run"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",

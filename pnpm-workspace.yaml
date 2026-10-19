@@ -30,5 +30,9 @@ packages:
   # globs above still miss them.
   - "plugins/*/*/*"
   - "apps/*"
+  # 编译器外部扩展测试：必须位于 packages/ 之外，验证包入口导出与文档里的继承姿势。
+  # External compiler-extension test: outside packages/ on purpose, proving the
+  # public entry exports and the documented subclassing pattern.
+  - "tests/*"
   - "!apps/veren"
   - "vendor/*"

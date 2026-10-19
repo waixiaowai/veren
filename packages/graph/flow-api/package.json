@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-graph-flow-api",
   "version": "0.1.2",
-  "description": "Use when you write a flow node-type plugin or need the flow semantic-layer vocabulary against the DAG kernel: it declares the type-only surface (FlowDefinition, NodeHandler, branded FlowId/RunId/NodeId, the blackboard contract, the FlowEngine/RunHandle shapes) plus the NodeRegistry token and a registerNodeHandler helper; skip it when you need the engine implementation â€?node plugins must depend only on this package and never on @deepseek-ai/dsh-graph-flow-engine.",
+  "description": "Use when you write a flow node-type plugin or need the flow semantic-layer vocabulary against the DAG kernel: it declares the type-only surface (FlowDefinition, NodeHandler, branded FlowId/RunId/NodeId, the blackboard contract, the FlowEngine/RunHandle shapes) plus the NodeRegistry token and a registerNodeHandler helper; skip it when you need the engine implementation - node plugins must depend only on this package and never on @deepseek-ai/dsh-graph-flow-engine.",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
@@ -22,7 +22,7 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --no-fsModuleCache"
+    "test": "vitest run"
   },
   "engines": {
     "dsh": ">=0.2.1-rc.2 <0.3.0"

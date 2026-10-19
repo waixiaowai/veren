@@ -47,7 +47,7 @@ For sources that never touch disk, build a host with the in-memory factory. The 
 
 ```ts
 import * as ts from 'typescript'
-import { createMemoryCompilerHost } from '../compiler-host/src/memory-host.ts'
+import { createMemoryCompilerHost } from '@veren/compiler-host'
 
 const fileName = '/virtual/sum.ts'
 const source = ts.createSourceFile(
@@ -69,7 +69,7 @@ host.getSourceFile(fileName, ts.ScriptTarget.ES2022) // === source
 | `Config` | Schemastery schema plus `interface Config` | Validates the plugin config. `setParentNodes` is a boolean defaulting to `false`, and a value of another type throws; `Config({})` normalizes to `{ setParentNodes: false }`. |
 | `inject` | `Token[]` | `['verenCompilerOptions']`: the compiler options service must exist before `apply` runs. |
 | `apply(ctx, config)` | `(ctx: Context, config: Config) => () => void` | Reads the compiler options service, calls `ts.createCompilerHost(options, config.setParentNodes)` and provides the host under `name`. The returned disposer unregisters it. |
-| `createMemoryCompilerHost(options, sources)` | `(options: ts.CompilerOptions, sources: readonly ts.SourceFile[]) => ts.CompilerHost`, exported from `src/memory-host.ts` and **not** from the package entry | Serves the given in-memory `SourceFile`s first (matched exactly by `f.fileName` in `getSourceFile`, `getSourceFileByPath`, `fileExists` and `readFile`) and falls back to the default disk host for everything else. |
+| `createMemoryCompilerHost(options, sources)` | `(options: ts.CompilerOptions, sources: readonly ts.SourceFile[]) => ts.CompilerHost`, exported from the package entry | Serves the given in-memory `SourceFile`s first (matched exactly by `f.fileName` in `getSourceFile`, `getSourceFileByPath`, `fileExists` and `readFile`) and falls back to the default disk host for everything else. |
 
 ## Development
 
@@ -87,7 +87,7 @@ packages/compiler/compiler-host
 ├── package.json
 ├── src/
 │   ├── index.ts        # provider entry: name / Config / inject / apply
-│   └── memory-host.ts  # createMemoryCompilerHost (not re-exported from "." yet)
+│   └── memory-host.ts  # createMemoryCompilerHost (re-exported from ".")
 └── test/
     ├── index.test.ts        # 9 cases
     └── memory-host.test.ts  # 8 cases
@@ -101,5 +101,5 @@ Build output goes to `dist/` through `tsc`; `main` and `exports` both point at `
 - Consume the provider with `await ctx.plugin(Module, config)` — the fiber activates asynchronously, so services are ready only after the `await` — or call `Module.apply(ctx, config)` synchronously for low-level unit tests.
 - Providing the same service name twice on one `Context` throws `service already registered`; dispose the previous registration first.
 - In-memory `fileName`s must be canonical absolute paths. TypeScript 5.9 normalizes paths to forward slashes and lowercases them on case-insensitive systems, and the memory map is keyed by the normalized `f.fileName`, so a mismatched spelling misses the map. When compilation goes through module resolution, the containing directory must really exist on disk.
-- `createMemoryCompilerHost` is currently **not** re-exported from `src/index.ts`, and the package `exports` map only exposes `"."`. External consumers therefore have to import the source by relative path, for example `../compiler-host/src/memory-host.ts`; there is no usable `@veren/compiler-host/memory-host` import path today. Exporting it from the entry point is a sensible follow-up.
+- `createMemoryCompilerHost` is re-exported from `src/index.ts`, so external consumers import it directly from `@veren/compiler-host`. The package still exposes only the `"."` entry; there is no `@veren/compiler-host/memory-host` subpath.
 - Keep `setParentNodes: true` whenever later stages need parent links or position computations on the produced nodes.

@@ -1,0 +1,19 @@
+{
+  "name": "@veren-test/compiler-extension",
+  "version": "0.0.0",
+  "description": "Use when verifying that @veren/compiler-compiler can be extended from outside packages/: it exercises the public entry, subclassing, and per-run inputs.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "pnpm --filter @veren/compiler-compiler build && pnpm --filter @veren/compiler-host build && vitest run"
+  },
+  "dependencies": {
+    "@veren/compiler-compiler": "workspace:*",
+    "@veren/compiler-host": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.4"
+  }
+}

@@ -39,7 +39,7 @@
     "@deepseek-ai/cordis": "^4.0.5",
     "@deepseek-ai/dsh-skill": "0.2.1-rc.2",
     "@veren/startup-autostart": "workspace:^",
-    "vitest": "^3.0.0"
+    "vitest": "^5.0.4"
   },
   "license": "MIT"
 }

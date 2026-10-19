@@ -22,7 +22,7 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --no-fsModuleCache",
+    "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "engines": {

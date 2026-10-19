@@ -14,7 +14,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --no-fsModuleCache"
+    "test": "vitest run"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.5"

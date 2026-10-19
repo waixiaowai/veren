@@ -14,7 +14,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --no-fsModuleCache"
+    "test": "vitest run"
   },
   "dependencies": {
     "@veren/core": "workspace:*",

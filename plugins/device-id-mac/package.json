@@ -6,10 +6,25 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }, "./package.json": "./package.json" },
-  "files": ["dist", "README.md", "README.cn.md"],
-  "engines": { "dsh": ">=0.2.1-rc.2 <0.3.0" },
-  "scripts": { "build": "tsc", "test": "vitest run --no-fsModuleCache" },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.cn.md"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run --no-fsModuleCache"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.5"
   },
@@ -20,6 +35,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@types/node": "^26.6.5"
+    "@types/node": "^26.6.5",
+    "vitest": "^5.0.4"
   }
 }
