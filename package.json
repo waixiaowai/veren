@@ -7,7 +7,9 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "cli": "node scripts/commander.mjs",
-    "check:plugins": "node scripts/check-plugin-manifests.mjs"
+    "check:plugins": "node scripts/check-plugin-manifests.mjs",
+    "market:build": "node market/build.mjs",
+    "market:deploy": "node market/deploy.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

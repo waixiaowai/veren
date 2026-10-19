@@ -1,0 +1,88 @@
+{
+  "title": {
+    "en": "Veren DSH Plugins",
+    "zh": "Veren DSH 插件市场"
+  },
+  "description": {
+    "en": "Profile bundles published by the Veren project: startup autostart, Person Agent, forum, notebook, admin console, Web login gate, CMS bridge, and session fork.",
+    "zh": "Veren 项目发布的 profile 组合包：启动自启动、管家 Person Agent、论坛、笔记本、管理台、Web 登录门禁、CMS 桥接与会话分叉。"
+  },
+  "metadata": {
+    "categories": {
+      "automation": {
+        "title": { "en": "Automation", "zh": "自动化" }
+      },
+      "assistant": {
+        "title": { "en": "Assistant", "zh": "助手" }
+      },
+      "collaboration": {
+        "title": { "en": "Collaboration", "zh": "协作" }
+      },
+      "knowledge": {
+        "title": { "en": "Knowledge", "zh": "知识" }
+      },
+      "platform": {
+        "title": { "en": "Platform", "zh": "平台" }
+      },
+      "security": {
+        "title": { "en": "Security", "zh": "安全" }
+      },
+      "integration": {
+        "title": { "en": "Integration", "zh": "集成" }
+      },
+      "session": {
+        "title": { "en": "Session", "zh": "会话" }
+      }
+    },
+    "labels": {
+      "official": {
+        "title": { "en": "Official", "zh": "官方" }
+      },
+      "experimental": {
+        "title": { "en": "Experimental", "zh": "实验性" }
+      }
+    }
+  },
+  "plugins": {
+    "@veren/startup-autostart-bundle": {
+      "category": "automation",
+      "labels": ["official"],
+      "keywords": ["startup", "autostart", "boot", "启动项"]
+    },
+    "@veren/person-agent-bundle": {
+      "category": "assistant",
+      "labels": ["official"],
+      "keywords": ["person-agent", "preset", "subagent", "管家"]
+    },
+    "@veren/forum-bundle": {
+      "category": "collaboration",
+      "labels": ["official"],
+      "keywords": ["forum", "board", "post", "论坛"]
+    },
+    "@veren/notebook-bundle": {
+      "category": "knowledge",
+      "labels": ["official"],
+      "keywords": ["notebook", "notes", "笔记"]
+    },
+    "@veren/admin-app": {
+      "category": "platform",
+      "labels": ["official", "experimental"],
+      "keywords": ["admin", "console", "rbac", "audit", "管理台"]
+    },
+    "@veren/web-login-gate": {
+      "category": "security",
+      "labels": ["official"],
+      "keywords": ["login", "auth", "better-auth", "登录"]
+    },
+    "@veren/cms-bridge": {
+      "category": "integration",
+      "labels": ["official"],
+      "keywords": ["cms", "websocket", "bridge", "桥接"]
+    },
+    "@imeep/dsh-session-fork-enhanced": {
+      "category": "session",
+      "labels": ["experimental"],
+      "keywords": ["session", "fork", "preset", "分叉"]
+    }
+  }
+}

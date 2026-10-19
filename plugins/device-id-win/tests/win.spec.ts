@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Windows platform unit tests (pure parts; command execution is guarded by
  * process.platform so the suite runs on any dev OS).
  * Windows 平台单元测试（纯逻辑部分；命令执行按平台守卫，任意开发机可跑）。
@@ -28,5 +28,10 @@ describe('WindowsPlatform guards | 平台守卫', () => {
     const p = new WindowsPlatform();
     const fp = p.stableFingerprint();
     expect(fp === null || /^[0-9a-f]{64}$/.test(fp)).toBe(true);
-  });
+    // 该用例真的会起 PowerShell 查询 CIM，在负载高的机器上可能超过默认 5 秒；
+    // 给它显式预算，避免并发跑全仓时被误判为失败。
+    // This case really shells out to PowerShell for CIM and can exceed the
+    // default 5s on a loaded machine; an explicit budget keeps a parallel
+    // whole-workspace run from reporting a false failure.
+  }, 30_000);
 });

@@ -1,0 +1,13 @@
+# DSH 插件市场索引源清单 / Source list of the DSH plugin market index
+# 一行一个 npm 包名，只列「bundle」：声明了 dsh.bundle.patch 的包才会出现在索引里。
+# One npm package name per line, bundles only: the index lists just packages that declare dsh.bundle.patch.
+# 生成器按此处顺序输出条目，也就是 Discover 的默认顺序。
+# The generator keeps this order in the index, which is the default order in Discover.
+@veren/startup-autostart-bundle
+@veren/person-agent-bundle
+@veren/forum-bundle
+@veren/notebook-bundle
+@veren/admin-app
+@veren/web-login-gate
+@veren/cms-bridge
+@imeep/dsh-session-fork-enhanced
