@@ -19,9 +19,21 @@ dist-tgz/
 /flow-canvas-panel/
 .dsh-desktop-profile-backup-*/
 
+# 插件市场索引的生成产物与缓存 / generated plugin market index and its cache
+/market/site/
+/market/.plugin-market-cache/
+
 # 临时会话日志与探针 / temporary session logs and probes
 .tmp-*
 *.log
+/tmp-*.ps1
+/scripts-tmp-*
+
+# 根目录随手截的调试图只留本地 / ad-hoc debug screenshots at repo root stay local
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
 
 # 0.1.10 旧版面板调试截图保留在本地 / legacy 0.1.10 panel captures stay local
 packages/graph/flow-canvas-panel/docs/shot-*.png
