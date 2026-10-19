@@ -909,6 +909,9 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(@types/node@26.6.5)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.1)
 
   plugins/notebook:
     dependencies:

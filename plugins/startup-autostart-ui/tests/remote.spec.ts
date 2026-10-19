@@ -24,18 +24,28 @@ function descriptor(endpoint: string) {
   return found
 }
 
+/** The minimal runtime parser every strict codec carries. 每个严格编解码器都带的最小运行时解析器。 */
+interface RuntimeSchema {
+  parse(value: unknown): unknown
+}
+
 /** The endpoint's strict result parser. 端点的严格结果解析器。 */
-function resultSchema(endpoint: string) {
-  const result = descriptor(endpoint).result
+function resultSchema(endpoint: string): RuntimeSchema {
+  // The descriptor's public type exposes the strict branch through `mode`; the
+  // runtime object is the Zod factory the contribution was built with, whose
+  // only contract this spec needs is `parse`.
+  // 描述符的公开类型通过 `mode` 暴露严格分支；运行时对象就是构造 contribution 时的
+  // Zod 工厂，这些测试只需要它的 `parse`。
+  const result = descriptor(endpoint).result as { readonly mode: string, create(): RuntimeSchema }
   if (result.mode !== 'strict') throw new Error(`${endpoint} must declare a strict result`)
   return result.create()
 }
 
 /** The endpoint's request parser. 端点的请求解析器。 */
-function requestSchema(endpoint: string) {
+function requestSchema(endpoint: string): RuntimeSchema {
   const parameter = descriptor(endpoint).parameters[0]
   if (parameter === undefined) throw new Error(`${endpoint} must declare its request parameter`)
-  return parameter.codec.create()
+  return parameter.codec.create() as RuntimeSchema
 }
 
 describe('startup remote contract / 启动项远端约定', () => {
@@ -82,20 +92,23 @@ describe('startup remote contract / 启动项远端约定', () => {
   })
 
   it('requires the item id on update and delete requests', () => {
-    expect(requestSchema('startup/update').safeParse({ name: 'renamed' }).success).toBe(false)
-    expect(requestSchema('startup/update').safeParse({ id: 's1', name: 'renamed', extra: true }).success).toBe(true)
-    expect(requestSchema('startup/delete').safeParse({}).success).toBe(false)
-    expect(requestSchema('startup/delete').safeParse({ id: 's1' }).success).toBe(true)
+    const update = requestSchema('startup/update')
+    const remove = requestSchema('startup/delete')
+
+    expect(() => update.parse({ name: 'renamed' })).toThrow()
+    expect(update.parse({ id: 's1', name: 'renamed', extra: true })).toMatchObject({ id: 's1' })
+    expect(() => remove.parse({})).toThrow()
+    expect(remove.parse({ id: 's1' })).toMatchObject({ id: 's1' })
   })
 
   it('models a run result whose outcome is optional', () => {
     const parse = resultSchema('startup/run')
-    expect(parse.safeParse({ id: 's1' }).success).toBe(true)
-    expect(parse.safeParse({
+    expect(parse.parse({ id: 's1' })).toMatchObject({ id: 's1' })
+    expect(parse.parse({
       id: 's1',
       outcome: { status: 'failed', detail: 'exit 1', at: '2026-01-01T00:00:00.000Z' },
-    }).success).toBe(true)
-    expect(parse.safeParse({ id: 's1', outcome: { status: 'skipped', detail: '', at: '' } }).success).toBe(false)
+    })).toMatchObject({ outcome: { status: 'failed' } })
+    expect(() => parse.parse({ id: 's1', outcome: { status: 'skipped', detail: '', at: '' } })).toThrow()
   })
 
   it('pins the four actions the Host can deliver', () => {

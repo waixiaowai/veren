@@ -10,9 +10,10 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
+import { SessionId, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import { apply, inject, name } from '../src/index.js'
 import type { ConfigShape } from '../src/index.js'
-import { resolveConfig, latestSectionText, snapshotTexts } from './support.js'
+import { fakeAgent, resolveConfig, latestSectionText, snapshotTexts } from './support.js'
 import type { LogSeq, LoggedMessage } from './support.js'
 
 /** One workspace as the renderer consumes it (host Workspace's read-only slice).
@@ -56,26 +57,33 @@ async function install(config: Partial<ConfigShape> = {}) {
     history,
     /** Fire one real waterfall pre-step dispatch; committed messages land in history. 触发一次真实 waterfall pre-step 派发；追加的消息落账到历史。 */
     step: async (): Promise<void> => {
-      const agent = {
-        session: {
-          // 宿主的 seq 是品牌号；历史长度就是下一步的序号。
-          // The host's seq is branded; the history length is the next sequence.
-          seq: history.length as never,
-          eventAt: (seq: LogSeq) => history[Number(seq)],
-          snapshotEvents: () => history,
-        },
-      }
+      // 完整 Agent 面由 support 的 fakeAgent 提供，这里只给出插件可读的日志切片；
+      // 其余成员被触达即失败，避免假实现悄悄放行越界读取。
+      // support.fakeAgent supplies the full Agent face; this test only provides the
+      // log slice the plugin may read, and every other member fails when touched.
+      const agent = fakeAgent({
+        id: SessionId('agent-composition'),
+        seq: SessionLogOffset(history.length),
+        eventAt: (seq: LogSeq) => history[Number(seq)],
+        snapshotEvents: () => history,
+      })
       // 用宿主的真实决策类型收窄，再取 messages：与插件侧同一套写法，不在联合
       // 类型上直接取属性。
       // Narrow with the host's real decision type before reading messages, mirroring
       // the plugin side: the property is never taken off a union.
-      const decision = await ctx.waterfall('agent/pre-step', { agent, signal: new AbortController().signal }, async () =>
-        ({ kind: 'enter', messages: [] })) as PreStepDecision
+      const decision = await ctx.waterfall(
+        'agent/pre-step',
+        { agent, messages: [], turn: 0, step: 0, signal: new AbortController().signal },
+        async () => ({ kind: 'enter', messages: [] }),
+      ) as PreStepDecision
       if (decision.kind === 'reject') return
       for (const message of decision.messages) {
         history.push({
           type: 'user/message',
-          data: { source: message.source as { kind: string }, content: message.content as readonly { type: string, text?: string }[] },
+          seq: SessionSeq(history.length + 1),
+          time: Date.now(),
+          surfaceOp: 'append',
+          data: message,
         })
       }
     },

@@ -11,7 +11,7 @@
 // Typing strategy: the log doubles implement the plugin's own SessionLogView (a
 // read-only projection of the host Session). The only conversion needed is
 // SessionSeq, the host's branded sequence number.
-import { SessionSeq } from '@deepseek-ai/dsh-session'
+import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
 import { renderAgentPreset, renderWorkspace, withHeading } from '../src/render.ts'
 import { renderModelCatalogModel } from '../src/model-catalog.ts'
@@ -158,16 +158,16 @@ describe('lastSnapshotText', () => {
 
   it('从末尾向前找到本插件最近一条快照', () => {
     const events = [snapshotEvent(SOURCE, [{ name: 'Agent Preset List', text: '旧快照' }]), presetEvent('standard'), snapshotEvent(SOURCE, [{ name: 'Agent Preset List', text: '新快照' }])]
-    expect(lastSnapshotText(logView(events), SessionSeq(events.length), SOURCE)).toBe('新快照')
+    expect(lastSnapshotText(logView(events), SessionLogOffset(events.length), SOURCE)).toBe('新快照')
   })
 
   it('忽略其他来源的消息', () => {
     const events = [humanEvent({ type: 'text', text: '人类输入' }), snapshotEvent('other-plugin', [{ name: 'x', text: '别家快照' }])]
-    expect(lastSnapshotText(logView(events), SessionSeq(events.length), SOURCE)).toBeUndefined()
+    expect(lastSnapshotText(logView(events), SessionLogOffset(events.length), SOURCE)).toBeUndefined()
   })
 
   it('空日志返回 undefined', () => {
-    expect(lastSnapshotText(logView([]), SessionSeq(0), SOURCE)).toBeUndefined()
+    expect(lastSnapshotText(logView([]), SessionLogOffset(0), SOURCE)).toBeUndefined()
   })
 })
 
@@ -180,13 +180,13 @@ describe('lastSnapshotSectionText', () => {
       humanEvent({ type: 'text', text: '人类输入' }),
       snapshotEvent(SOURCE, [{ name: 'Workspace List', text: '新工作区' }, { name: 'Agent Preset List', text: '名单' }]),
     ]
-    expect(lastSnapshotSectionText(logView(events), SessionSeq(events.length), SOURCE, 'Workspace List')).toBe('新工作区')
-    expect(lastSnapshotSectionText(logView(events), SessionSeq(events.length), SOURCE, 'Agent Preset List')).toBe('名单')
+    expect(lastSnapshotSectionText(logView(events), SessionLogOffset(events.length), SOURCE, 'Workspace List')).toBe('新工作区')
+    expect(lastSnapshotSectionText(logView(events), SessionLogOffset(events.length), SOURCE, 'Agent Preset List')).toBe('名单')
   })
 
   it('区块从未记录过时返回 undefined', () => {
     const events = [snapshotEvent(SOURCE, [{ name: 'Agent Preset List', text: '名单' }])]
-    expect(lastSnapshotSectionText(logView(events), SessionSeq(events.length), SOURCE, 'Workspace List')).toBeUndefined()
-    expect(lastSnapshotSectionText(logView([]), SessionSeq(0), SOURCE, 'Workspace List')).toBeUndefined()
+    expect(lastSnapshotSectionText(logView(events), SessionLogOffset(events.length), SOURCE, 'Workspace List')).toBeUndefined()
+    expect(lastSnapshotSectionText(logView([]), SessionLogOffset(0), SOURCE, 'Workspace List')).toBeUndefined()
   })
 })

@@ -8,6 +8,7 @@
 // no session info. Config can trim the snapshot.
 import { describe, expect, it, vi } from 'vitest'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import { SessionSeq } from '@deepseek-ai/dsh-session'
 import { apply, renderAgentPreset, renderWorkspace } from '../src/index.js'
 import { resolveConfig, latestSectionText, snapshotTexts } from './support.js'
 import type { LogSeq, LoggedMessage } from './support.js'
@@ -107,7 +108,10 @@ function fakeCtx(options: { presets?: unknown[], workspaces?: unknown[], failLis
       for (const message of result.messages) {
         history.push({
           type: 'user/message',
-          data: { source: message.source as { kind: string }, content: message.content as readonly { type: string, text?: string }[] },
+          seq: SessionSeq(history.length + 1),
+          time: Date.now(),
+          surfaceOp: 'append',
+          data: message,
         })
       }
     },
