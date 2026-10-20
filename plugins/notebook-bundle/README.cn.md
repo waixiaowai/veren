@@ -22,6 +22,13 @@
 两个成员都不声明 `dsh.bundle.patch`，因此本组合包是该技术栈唯一的 profile 层，安装它不会
 重复插行。成员作为普通依赖随行。
 
+## 应用层
+
+profile 提供应用注册表（`ctx.apps`）时，宿主成员还会注册 `notebook` 应用（`/apps/notebook/...`
+下的页面与 `notebook__*` 页面工具）。应用注册表不是本组合包的成员：同时组合一个 app-hosting
+组合包（如 `plugins/app-host-bundle`）即可获得页面；只装宿主则得到纯工具版记事本——该层会
+降级为一条日志警告，不会拖垮 profile。
+
 ## 安装
 
 把组合包安装进目标 profile。测试节点里两个成员包是本地 tarball，因此由

@@ -22,6 +22,11 @@ tools write. Skip it for a headless, ACP, or SDK profile.
 - The `notebook` Remote namespace, mounted by this plugin. The Host service is
   `@veren/notebook`; the page and the tools both call the same Host methods.
 
+This package is the human-facing Web panel only. The model-facing application
+layer — the `/apps/notebook/...` pages and `notebook__*` tools that an agent
+sees — lives in `@veren/notebook` (`src/app.ts`) and needs an app-hosting
+profile; nothing in this package changes for it.
+
 ## Installation
 
 Install the whole stack through `@veren/notebook-bundle`. This package ships as a

@@ -37,6 +37,28 @@ every workspace and in every session.
 note has moved on, the Host refuses with `notebook/conflict` instead of
 overwriting a newer edit.
 
+## The notebook application
+
+Where a host mounts the application registry (`ctx.apps`, that is, an
+app-hosting profile), the plugin also registers the `notebook` application:
+an entry list page and a note detail page under `/apps/notebook/...`, with
+page-scoped tools that carry the `notebook__` prefix. The layer degrades to a
+logged warning where no app registry exists; the global tools above keep
+working either way.
+
+| Page | URL | Page tools |
+| --- | --- | --- |
+| Note list (entry) | `/apps/notebook/list` | `notebook__list_notes`, `notebook__write_note` |
+| Note detail | `/apps/notebook/note/:noteId` | `notebook__read_note`, `notebook__rewrite_note`, `notebook__delete_note` |
+
+Registration is single-entry: `src/app.ts` calls `ctx.apps.register`,
+`ctx.apps.tools(id).define`, and `ctx.apps.pages(id).register` only; the page
+registrar mirrors into the page registry internally, so the app is never
+visible in the catalog without also being resolvable by URL. The whole layer
+tears down in reverse order when the plugin unloads. Sourcing the app requires
+`@veren/app-registry`, `@veren/page-registry`, and `@veren/prompt-page` as
+peers; profiles without them simply skip the layer.
+
 ## Storage
 
 The plugin opens one storage domain named `notebook` with one table, `notes`.

@@ -182,6 +182,8 @@ export const TaskErrorCode = {
   ParentGone: 'task/parent-gone',
   /** 因祖先取消/过期/孤儿而级联进入终态 / cascaded into a terminal state because an ancestor was cancelled/expired/orphaned */
   CascadeCancelled: 'task/cascade-cancelled',
+  /** 存储域打不开，写面整体不可用（≠ task/* 的生命周期码）/ the storage domain cannot open; the write face is down */
+  StorageUnavailable: 'task-center/storage-unavailable',
 } as const
 
 export type TaskErrorCode = (typeof TaskErrorCode)[keyof typeof TaskErrorCode]

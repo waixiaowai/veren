@@ -31,6 +31,22 @@
 `notebook_update` 接受可选的 `expectedUpdatedAt`。传入后，如果笔记在读取之后又被改过，宿主
 会以 `notebook/conflict` 拒绝，而不是覆盖更新的版本。
 
+## 记事本应用
+
+在挂载了应用注册表的宿主里（`ctx.apps`，即 app-hosting profile），插件还会注册 `notebook`
+应用：`/apps/notebook/...` 下的入口列表页与笔记详情页，页面工具带 `notebook__` 前缀。没有
+应用注册表的环境里这一层只降级为一条日志警告；无论哪种情况，上面的全局工具都照常工作。
+
+| 页面 | URL | 页面工具 |
+| --- | --- | --- |
+| 笔记列表（入口） | `/apps/notebook/list` | `notebook__list_notes`、`notebook__write_note` |
+| 笔记详情 | `/apps/notebook/note/:noteId` | `notebook__read_note`、`notebook__rewrite_note`、`notebook__delete_note` |
+
+注册走单入口：`src/app.ts` 只调用 `ctx.apps.register`、`ctx.apps.tools(id).define` 与
+`ctx.apps.pages(id).register`；页面注册器在内部镜像进页面注册表，因此应用绝不会出现在目录里
+却无法按 URL 解析。插件卸载时整层按逆序摘除。应用层以 `@veren/app-registry`、
+`@veren/page-registry`、`@veren/prompt-page` 为 peer 依赖；没有这些包的 profile 直接跳过该层。
+
 ## 存储
 
 插件打开一个名为 `notebook` 的存储域，只有一张 `notes` 表。JSON 后端下文件是

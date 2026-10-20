@@ -31,7 +31,7 @@ type Json = null | boolean | number | string | Json[] | { [key: string]: Json | 
  * A view as the plain, mutable JSON a Tool result carries.
  * 视图作为 Tool 结果所携带的、可变的一般 JSON。
  */
-type JsonShape<T> = T extends readonly (infer Item)[]
+export type JsonShape<T> = T extends readonly (infer Item)[]
   ? JsonShape<Item>[]
   : T extends object
     ? { [K in keyof T]: JsonShape<T[K]> }
@@ -61,7 +61,7 @@ class NotebookToolError extends Error {
 }
 
 /** Canonical list value: list rows without full bodies. */
-const LIST_SCHEMA = {
+export const LIST_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -70,7 +70,7 @@ const LIST_SCHEMA = {
 } as const
 
 /** Canonical single-note value. */
-const NOTE_SCHEMA = {
+export const NOTE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -79,7 +79,7 @@ const NOTE_SCHEMA = {
 } as const
 
 /** Canonical delete value. */
-const DELETE_SCHEMA = {
+export const DELETE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -88,7 +88,7 @@ const DELETE_SCHEMA = {
 } as const
 
 /** Deterministic model content for every canonical tool value. */
-function renderValue(_args: unknown, value: unknown): ContentBlock[] {
+export function renderValue(_args: unknown, value: unknown): ContentBlock[] {
   return [{ type: 'text', text: JSON.stringify(value) }]
 }
 
@@ -245,4 +245,33 @@ export function registerNotebookTools(ctx: Context, port: () => NotebookToolsPor
     ]
     return () => { for (const dispose of disposers.reverse()) dispose() }
   }, 'notebook:tools()')
+}
+
+/**
+ * Run one owner-scoped notebook operation for a tool call: resolve the caller's
+ * preset from the live Agent, project the result onto lossless JSON, and
+ * translate refusals into stable model-facing errors. Shared by the global
+ * `notebook_*` tools and the `notebook` application's page tools.
+ *
+ * 为一次工具调用运行一个按归属限定的记事本操作：从活 Agent 解析调用者的预设，
+ * 把结果投影成无损 JSON，并把拒绝翻译成稳定的模型可见错误。全局 `notebook_*`
+ * 工具与 `notebook` 应用的页面工具共用这一条路径。
+ *
+ * @param ctx - Host context carrying the preset registry.
+ * @param agent - the calling Agent, when the execution has one.
+ * @param run - the operation, receiving the resolved owner.
+ * @returns the operation result as canonical JSON.
+ */
+export async function notebookToolValue<T>(
+  ctx: Context,
+  agent: Agent | undefined,
+  run: (owner: string) => Promise<T>,
+): Promise<JsonShape<T>> {
+  const owner = callerOf(ctx, agent)
+  if (owner === undefined) throw noCaller()
+  try {
+    return jsonOf(await run(owner))
+  } catch (error: unknown) {
+    throw operationError(error)
+  }
 }

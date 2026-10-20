@@ -8,8 +8,8 @@
  * every call. The panel does take an owner because a human is choosing whose
  * notebook to read, which is the requested behaviour rather than a hole.
  *
- * Storage failure degrades rather than throws: a notebook that cannot open its
- * domain reports a stable error and leaves the rest of the Harness untouched.
+ * Storage failure degrades rather than throws; the optional application layer
+ * (`ctx.apps`) degrades the same way, leaving the rest of the Harness untouched.
  *
  * 记事本：每个 agent 预设一本私密、持久的记事本。
  *
@@ -18,23 +18,22 @@
  * 归属参数，而是在每次调用时从活着的 Agent 解析；面板接受归属，因为人本来就要选择看谁的记事本，
  * 这是需求本身，不是漏洞。
  *
- * 存储失败只降级不抛出：打不开域的记事本返回稳定错误，不牵动 Harness 的其余部分。
+ * 存储失败只降级不抛出；可选的应用层（`ctx.apps`）同样降级，不牵动 Harness 的其余部分。
  *
  * @module @veren/notebook
  */
 
-import { Service } from '@deepseek-ai/cordis'
-import type { Context } from '@deepseek-ai/cordis'
+import { Service, type Context } from '@deepseek-ai/cordis'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import z from '@deepseek-ai/schemastery'
-import type { NoteSummary, NoteView, NotebookConfig, NotebookToolsPort, OwnerView } from './types.ts'
+import type { NoteRecord, NoteSummary, NoteView, NotebookConfig, NotebookToolsPort, OwnerView } from './types.ts'
 import { NOTEBOOK_DOMAIN_NAME, notebookDomain, view } from './storage.ts'
 import type { NotebookStore, NotebookTable } from './storage.ts'
 import {
   NotebookError, applyUpdate, buildNote, ensureExpected, noteKey, noteView, notesOf, ownersOf,
   requireOwner, requireOwned, summariesOf, validateCreate, validateUpdate,
 } from './notes.ts'
-import type { NoteRecord } from './types.ts'
+import { registerNotebookApp } from './app.ts'
 import { registerNotebookTools } from './tools.ts'
 // Type-only: pulls the `ctx.agentPresets` service declaration into this face.
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
@@ -56,6 +55,9 @@ declare module '@deepseek-ai/cordis' {
  */
 export const Config = z.object({
   tools: z.object({
+    enabled: z.boolean().default(true),
+  }).default({ enabled: true }),
+  app: z.object({
     enabled: z.boolean().default(true),
   }).default({ enabled: true }),
 })
@@ -87,6 +89,9 @@ export class NotebookService extends TypertRemoteService {
     this.host = ctx
     this.ready = this.openDomain()
     if (config.tools.enabled) registerNotebookTools(ctx, () => this.toolsPort())
+    // Degrades to a warning on its own where no app registry is mounted.
+    // 在没有应用注册表的宿主里自行降级为一条警告。
+    if (config.app.enabled) registerNotebookApp(ctx, () => this.toolsPort())
   }
 
   async [Service.init](): Promise<void> {
@@ -287,14 +292,14 @@ export class NotebookService extends TypertRemoteService {
   }
 }
 
-export { NotebookError } from './notes.ts'
 export {
-  EXCERPT_CHARS, MAX_BODY_CHARS, MAX_TITLE_CHARS, applyUpdate, buildNote, ensureExpected, noteKey,
-  noteSummary, noteView, notesOf, ownersOf, requireOwner, requireOwned, validateCreate, validateUpdate,
+  EXCERPT_CHARS, MAX_BODY_CHARS, MAX_TITLE_CHARS, NotebookError, applyUpdate, buildNote, ensureExpected,
+  noteKey, noteSummary, noteView, notesOf, ownersOf, requireOwner, requireOwned, validateCreate, validateUpdate,
 } from './notes.ts'
 export { NOTEBOOK_DOMAIN_NAME, notebookDomain } from './storage.ts'
+export { APP_DEFINITION, APP_ID, createAppTools, listPage, notePage } from './app.ts'
 export type {
-  NoteRecord, NoteSummary, NoteView, NotebookConfig, NotebookErrorCode, NotebookToolsPort, OwnerView,
+  NoteRecord, NoteSummary, NoteView, NotebookAppConfig, NotebookConfig, NotebookErrorCode, NotebookToolConfig, NotebookToolsPort, OwnerView,
 } from './types.ts'
 
 export default NotebookService

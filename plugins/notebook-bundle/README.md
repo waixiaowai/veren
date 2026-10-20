@@ -27,6 +27,15 @@ Neither member declares `dsh.bundle.patch`, so this bundle is the stack's only
 profile layer and installing it cannot double-insert a row. The members ship as
 plain dependencies.
 
+## Application layer
+
+The Host member now also registers the `notebook` application (pages under
+`/apps/notebook/...` plus `notebook__*` page tools) when the profile provides
+the application registry (`ctx.apps`). That registry is *not* a bundle member:
+compose an app-hosting bundle such as `plugins/app-host-bundle` alongside this
+one to get the pages, or install the Host alone for a tools-only notebook — the
+layer degrades to a logged warning instead of failing the profile.
+
 ## Installation
 
 Install the bundle package into the target profile. In a test node the two member

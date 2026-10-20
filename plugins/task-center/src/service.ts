@@ -504,8 +504,22 @@ export class TaskCenterService extends Service implements TaskCenterContract {
   /**
    * 任务表访问口：惰性建索引，此后所有树查询（子树/直接子/互斥/级联）都走索引，
    * 不做全表扫描。
+   * 重建时机：索引挂在服务实例上，进程重启 = 新实例 = treeIndex 为 undefined =
+   * 首个操作前从 KV 全量重建一次——持久化数据永远先于索引查询落进内存，不存在
+   * “重启后索引为空、静默算错子树”的窗口。成本 O(全部任务数)（含终态），一次性；
+   * 只在激活后首个操作发生。任务总量上万（远超单树 200 上限可积累的常规规模）才需要
+   * 关注；不过滤终态行，因为级联/进度口径都要看到终态后代才能“保留/计数”。
    * The task-table access point: builds the tree index lazily; every tree query
    * afterwards (subtree / direct children / mutex / cascade) goes through it.
+   * Rebuild timing: the index hangs off the service instance, so a process
+   * restart means a fresh instance whose treeIndex is undefined and which
+   * rebuilds once from the KV rows before its first operation — persisted data
+   * always lands in memory ahead of any index query; there is no "empty index
+   * after restart, silently wrong subtree" window. Cost is O(all tasks,
+   * terminal included), once per activation. Only very large totals (tens of
+   * thousands — far beyond what the 200-per-tree cap accumulates in practice)
+   * would make it worth optimizing; terminal rows are kept because cascades
+   * and progress must still see terminal descendants to preserve/count them.
    */
   private tasks(domain: TaskCenterStore): TaskTreeIndex {
     if (this.treeIndex === undefined) {
@@ -701,7 +715,7 @@ export class TaskCenterService extends Service implements TaskCenterContract {
     const domain = await this.ready
     if (domain !== undefined) return domain
     throw new TaskError(
-      'task-center/storage-unavailable',
+      TaskErrorCode.StorageUnavailable,
       `task storage is unavailable${this.storageFailure === undefined ? '' : `: ${this.storageFailure}`}`,
     )
   }

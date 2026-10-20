@@ -830,7 +830,8 @@ stateDiagram-v2
 
 - **互斥的单位是整棵任务树。** 一棵树在同一时刻**至多被一条会话持有 `taken` 任务**：树内有任何 `taken` 节点时，其他会话接取同树**任何**节点（不管哪一层）都被拒（`task/already-taken`）；树内已持有的那条会话可以继续接取同树的任何 `open` 节点（逐个接，不隐式预占，§4.7.2 规则三）。
 - **跨树仍互斥**：同一规范 URL 上，两棵不同任务树不能同时各有一个活跃接取者（`task/another-active`），维持 §4.4 原意。
-- **`task/another-active` 的判定边界**：接取时先查“这条任务的 `ancestorIds` 并上它自己的 id”构成的树内有无 `taken` 节点且 `claimedBy.sessionId` 不是本会话 → 有则 `task/already-taken`（同树别人持有）；再查同 URL 上**其它树**（`ancestorIds` 前缀不相交的根任务）有无未结束任务 → 有则 `task/another-active`（跨树）。两个查询都走 §4.7.1 的两个索引，各一次。
+- **`task/another-active` 的判定边界**：接取时先查“这条任务的 `ancestorIds` 并上它自己的 id”构成的树内有无 `taken` 节点且 `claimedBy.sessionId` 不是本会话 → 有则 `task/already-taken`（同树别人持有）；再查同 URL 上**其它树**（`ancestorIds` 前缀不相交的根任务）有无**活跃接取者**（`taken` 且租约存活）→ 有则 `task/another-active`（跨树）。两个查询都走 §4.7.1 的两个索引，各一次。
+  **为什么跨树口径是“活跃接取者”而不是“未结束任务”**：若按字面的“未结束”（含 `open`）判定，一个 URL 上只要躺着任何一条 `open` 的兄弟树，谁都接不了任何树——先到者永远锁死 URL，且与“只有根任务时行为完全不变”（见本节末）直接矛盾。`another-active` 要防的是“两个写者同时在同一页面实例上干活”，`open` 的任务还没有写者，不构成冲突。
 - **为什么整树一个接取者，而不是每层各自互斥或父子可不同人接**：子任务全在根任务的页面实例里干活（§4.7.4），页面 store 只有一个写者位；允许父子被不同会话同时接取，等于两个写者在同一页面状态上并发，“another-active 要防的事”原样发生在树内。分层互斥是同一个漏洞的松一点版本，还把判定复杂度抬了一层。整树一个接取者规则最短，判定就是两个索引查询。
 
 这条是对 §4.4 既有硬规则的修订（§4.4 已就地加注指向本节）。在“只有根任务”的数据上行为完全不变。
@@ -885,6 +886,8 @@ flowchart TB
 | Agent 执行中调工具现拆（`task_split` → `addSubtask`） | 接取任务后按需拆 | **第 1 阶段做这个** |
 
 理由：模板嵌套让 `send` 的三处同时复杂化——校验要递归（每层都查 URL/限额/幂等）、幂等键要定义树的语义、通知要定义“只发根”的折叠规则；而当前的真实需求（执行中发现任务太大，拆开做）只需要一条工具。先做 `addSubtask(parentId, draft)`（服务面，深浅都走它）+ `task_split`（模型工具，仅当**整棵树**已被调用会话持有 `taken`（树级互斥下的唯一活跃接取者，复用 `task/not-claimant`）时可用，可拆树上**任意** `open` 节点的下一层，受 §4.7.1 安全上限约束），应用侧模板等有真实应用提出需求再设计。
+
+服务面 `addSubtask` 对**已终结的父任务**一律拒绝（`task/invalid-state`，父不存在则 `task/parent-gone`）：级联（§4.7.2 规则二）发生在祖先死亡的那一刻，事后补挂的子任务不会被任何级联扫到——父已 `cancelled` 后还能长出 `open` 子任务，就是一条收件箱永远看不到的悬空工作。
 
 #### 4.7.7 迁移与兼容
 
@@ -1055,7 +1058,7 @@ TASK 块只在任务成功接取并绑定到会话时追加一次；同一 URL �
 | 索引冲突（URL 已有行 / sessionId 已被占用） | 拒绝写行 | `page/index-conflict` |
 | 宿主能力缺失（sessions/agents/tools 注册表） | openUrl/注入失败并给出明确码，不假成功 | `page/host-unavailable` |
 
-> **冻结常量是权威。** 实现里各包的冻结错误码常量表（`app-registry` 的 `AppErrorCode`、`task-center` 的 `TaskErrorCode`、`prompt-page` 的 `PageErrorCode`）比本表更全——例如 `task/not-found`、`task/lease-expired`、`task/draft-invalid`、`task/send-forbidden`、`app/manifest-invalid`、`app/tool-duplicate`、`app/tool-prefix-conflict`、`app/entry-missing`、`app/forbidden`。以常量表为准，本表只列 §5.6 场景相关的核心码；新增码先改常量表再回填本表。
+> **冻结常量是权威。** 实现里各包的冻结错误码常量表（`app-registry` 的 `AppErrorCode`、`task-center` 的 `TaskErrorCode`、`prompt-page` 的 `PageErrorCode`）比本表更全——例如 `task/not-found`、`task/lease-expired`、`task/draft-invalid`、`task/send-forbidden`、`app/manifest-invalid`、`app/tool-duplicate`、`app/tool-prefix-conflict`、`app/entry-missing`、`app/forbidden`。以常量表为准，本表只列 §5.6 场景相关的核心码；新增码先改常量表再回填本表。`task-center` 抛出的全部码——含本表列出的 `task/not-claimant`、`task/orphaned`、`task/invalid-state`、`task/children-active`、`task/subtree-limit`、`task/subtask-target-mismatch`、`task/parent-gone`、`task/cascade-cancelled`，以及存储接缝码 `task-center/storage-unavailable`——均已收录在 `TaskErrorCode` 常量表里（2026-10 逐个核对过，常量表与本节描述完全一致，没有只以字符串字面量抛出的遗漏码）。
 
 这些错误码要出现在工具结果、Web 卡片和日志里，不能只写一句“失败了”。模型的下一步动作应该能从 code 直接推出来：`task/expired` 就放弃，`app/disabled` 就告诉用户去启用，`task/target-gone` 就建议更新应用，`app/page-stale` 就提示重建会话。
 

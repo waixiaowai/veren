@@ -80,6 +80,46 @@ async function growTree(taskCenter: TaskCenterService): Promise<{ root: TaskReco
   return { root, child, grandchild }
 }
 
+describe('重启后索引重建', () => {
+  it('整个 Context 销毁后用同一存储目录重开：子树/级联/互斥/完成校验全部仍正确', async () => {
+    const longLease = () => new Date(Date.now() + HOUR).toISOString()
+    // 先造一棵持久的 R → C → G 树：G 已 done，C 被 s1 持有
+    // / first grow a persistent R → C → G tree: G done, C held by s1
+    const root = tempRoot()
+    const first = await boot(root)
+    const tree = await growTree(first.ctx.taskCenter)
+    await first.ctx.taskCenter.take(tree.grandchild.id, { sessionId: 's1', actor: 'agent', leaseUntil: longLease() })
+    await first.ctx.taskCenter.complete(tree.grandchild.id, { summary: 'leaf done before restart' })
+    await first.ctx.taskCenter.take(tree.child.id, { sessionId: 's1', actor: 'agent', leaseUntil: longLease() })
+    await first.dispose()
+
+    // 全新 Context + 同一目录：内存索引从 KV 重建 / a fresh Context over the same
+    // root: the in-memory index rebuilds from the KV rows
+    const second = await boot(root)
+    const tasks = second.ctx.taskCenter
+    // ① 子树查询（ancestorIds 持久化）：孙的祖先链原样 / subtree query: the
+    // grandchild's ancestor chain survived
+    expect((await tasks.get(tree.grandchild.id))?.ancestorIds).toEqual([tree.root.id, tree.child.id])
+    // ② 完成校验：父 complete 仍被子树状态挡住 / completion check still sees the tree
+    await tasks.take(tree.root.id, { sessionId: 's1', actor: 'agent', leaseUntil: longLease() })
+    expect(await errorOf(tasks.complete(tree.root.id, { summary: 'too early' })))
+      .toBe(TaskErrorCode.ChildrenActive)
+    // ③ 整树互斥：重启前写入的租约仍挡住别的会话 / tree mutex: the pre-restart
+    // lease still blocks another session
+    expect(await errorOf(tasks.take(tree.child.id, { sessionId: 's2', actor: 'agent', leaseUntil: longLease() })))
+      .toBe(TaskErrorCode.AlreadyTaken)
+    // ④ 级联：释放两条租约后取消根 → 非终态子树进 cancelled，done 的孙保留
+    // / cascade: release both leases, then cancel the root — the non-terminal
+    // subtree cascades, the done leaf stays
+    await tasks.release(tree.root.id, 'before the cascade check')
+    await tasks.release(tree.child.id, 'before the cascade check')
+    await tasks.cancel(tree.root.id, 'after restart')
+    expect((await tasks.get(tree.child.id))?.status).toBe('cancelled')
+    expect((await tasks.get(tree.grandchild.id))?.status).toBe('done')
+    await second.dispose()
+  })
+})
+
 describe('建树（§4.7.1）', () => {
   it('父 → 子 → 孙：ancestorIds 从根到父一次定型，根为空数组', async () => {
     const { ctx, dispose } = await boot(tempRoot())

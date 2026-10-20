@@ -19,6 +19,10 @@
 - 由本插件挂载的 `notebook` 远端命名空间。宿主服务是 `@veren/notebook`；页面与工具调用
   同一批宿主方法。
 
+本包只是面向人的 Web 面板。面向模型的应用层——agent 看到的 `/apps/notebook/...` 页面与
+`notebook__*` 工具——位于 `@veren/notebook`（`src/app.ts`），且需要 app-hosting profile；
+本包无需任何改动。
+
 ## 安装
 
 通过 `@veren/notebook-bundle` 安装整个技术栈。本包作为组合包的普通依赖随行，自身不声明

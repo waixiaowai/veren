@@ -762,6 +762,50 @@ This model comes directly from forum: `deliverNotification` writes the row first
 - **schedule** may create tasks ("every day at 9, give me a review task"), but delivery still goes through the task center.
 - **forum** notices are social. If the forum wants someone to "handle a post", it should send a task whose target points at a forum app page URL.
 
+### 4.7 Subtasks
+
+A big task often needs to be split while it is being worked on. A subtask is a complete task record attached under a parent task; it is claimed and completed inside the parent task's page instance, and the inbox shows the root task only. (This section summarises the authoritative Chinese text §4.7; the wording below tracks the implemented behaviour.)
+
+#### 4.7.1 Data shape: `parentId` + `ancestorIds`, arbitrary depth
+
+`TaskRecord` gains two fields, everything else unchanged. `parentId?` is written once at creation and immutable afterwards — no API can change it. `ancestorIds` is the id array from the root to the direct parent (root: `[]`, grandchild: `[root, parent]`), fixed at creation. Together these make cycles structurally impossible: an immutable parent pointer removes "re-parenting", and attach-by-creation removes "creating a cycle" (a new record cannot appear in any existing ancestor chain).
+
+Safety limits (protection, not a design constraint): depth ≤ 8, ≤ 32 direct children per node, ≤ 200 nodes per tree. Any over-limit split fails loud with `task/subtree-limit` carrying `{ kind: 'depth' | 'width' | 'size', limit, actual }` — never a silent truncation. The whole tree's `target.url` must equal the root's (`task/subtask-target-mismatch`). Storage keeps two indexes: single-value on `parentId` (direct children) and multi-value on `ancestorIds` (array containment — one exact lookup fetches the whole subtree; cascades, the completion check and the mutex never scan the table).
+
+#### 4.7.2 State semantics
+
+**Rule 1 — a parent never auto-completes.** `complete` on a parent whose subtree still has a non-terminal descendant is refused (`task/children-active`); no `force` escape exists.
+
+**Rule 2 — a dead parent takes its subtree with it.** When an ancestor enters `cancelled` / `expired` / `orphaned`, one `ancestorIds` prefix query fetches the whole non-terminal subtree, and each row migrates through its own CAS revision (`task/cascade-cancelled`, reason written into every record). For an expired ancestor, `open` descendants expire and `taken` descendants cancel. `done` / `failed` do **not** cascade. Independently surviving children would be unobservable: the inbox shows the root only.
+
+**Rule 3 — leases stay independent; taking is never implicit.** Taking a parent does not pre-claim children; each node has its own lease and is taken one by one.
+
+#### 4.7.3 Mutex: tree-level
+
+The unit of mutual exclusion is the whole task tree. At most one session holds a `taken` node per tree; other sessions are refused on any node of that tree (`task/already-taken`), while the holder keeps taking `open` nodes in its own tree. Cross-tree, the original rule holds: two different trees on one canonical URL cannot have active claimants at the same time (`task/another-active`).
+
+The check is exactly two index queries: ① any `taken` node inside "this task's `ancestorIds` plus its own id" held by another session → `task/already-taken`; ② any **active claimant** (`taken` with a live lease) on another tree of the same URL → `task/another-active`. **Why "active claimant" and not "unfinished task" for the cross-tree check:** read literally, "unfinished" (which includes `open`) would mean a single lying `open` sibling tree locks the whole URL forever, contradicting "behaviour unchanged for single-node trees" below. `another-active` guards against two writers working one page instance; an `open` task has no writer yet and is not a conflict.
+
+#### 4.7.4 Sessions and pages: subtasks have no URL and no Session of their own
+
+The page is the root task's page instance (the URL never changes). The tree renders as an expand/collapse region — active branches expanded by default, terminal branches collapsed into progress badges — and `instanceTitle` always shows the root title. The tree is data, not identity; the 200-node cap bounds rendering.
+
+#### 4.7.5 Inbox and notices: roots only
+
+The inbox shows root tasks only; subtasks create no delivery rows. Read/unread is computed per root task; subtask status changes are not notice sources.
+
+#### 4.7.6 Who creates subtasks: agent-side splitting only in phase 1
+
+`addSubtask(parentId, draft)` is the service face and `task_split` the model tool, available only to the tree's one active claimant (`task/not-claimant` otherwise). Nested send-time templates are deliberately deferred. The service face refuses a **terminal parent** (`task/invalid-state`; missing parent → `task/parent-gone`): a cascade happens at the moment an ancestor dies, so a subtask attached afterwards would be invisible dangling work.
+
+#### 4.7.7 Migration
+
+Additive columns only; old rows without `parentId` are roots and behave exactly as before. Of the eight acceptance scenarios, two change scope: scenario 6's completion check now covers the subtree (empty for single-node trees), and scenario 8's uninstall-orphan sweep must cover whole trees.
+
+#### 4.7.8 Example-app checklist (task-workbench)
+
+Whole-subtree progress badges on the list page (`2/5`); a subtask tree region on the detail page; a `split_task` tool; store/types shaped as a tree; instructions and bilingual copy; publishing never carries nested task templates.
+
 ---
 
 ## 5. From notice to closed loop
