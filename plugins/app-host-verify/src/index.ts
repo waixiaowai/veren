@@ -18,7 +18,12 @@
  */
 import { writeFileSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { PageInstanceKey } from '@veren/prompt-page'
+
+// Module-scope marker: written the moment the Loader imports this module.
+// 模块顶层标记：Loader 一 import 本模块就写。
+try { writeFileSync(new URL('../../../../deepseek/.dsh/profiles/web/app-host-verify-result.json.imported', import.meta.url), new Date().toISOString()) } catch { /* marker only */ }
 
 export const name = 'veren-app-host-verify'
 
@@ -29,13 +34,10 @@ export interface Config {
   run: boolean
 }
 
-export const Config = {
-  type: 'object' as const,
-  properties: {
-    outputPath: { type: 'string', description: '验收结果 JSON 输出路径' },
-    run: { type: 'boolean', default: true, description: '是否执行验证' },
-  },
-} as const
+export const Config: z<Config> = z.object({
+  outputPath: z.string().description('验收结果 JSON 输出路径 / where the verdict JSON is written'),
+  run: z.boolean().default(true).description('是否执行验证 / whether to run the verification'),
+})
 
 export const inject = ['apps', 'pageRegistry', 'taskCenter', 'sessions', 'agents', 'tools']
 export const provide = []
@@ -77,6 +79,10 @@ function sessionContains(agent: { session: { log?: unknown; messages?: unknown }
 }
 
 export const apply = (ctx: Context, config: Config): void => {
+  // Sync activation marker: distinguishes "row never activated" from "async checks failed".
+  // 同步激活标记：区分「行根本没激活」与「异步检查失败」。
+  try { writeFileSync(config.outputPath + '.activated', new Date().toISOString()) } catch (error: unknown) { ctx.logger.error(`app-host-verify: marker failed: ${String(error)}`) }
+  ctx.logger.info('app-host-verify: apply() entered')
   if (!config.run) return
   const checks: Check[] = []
   const agentCreatedPayloads: unknown[] = []
@@ -103,7 +109,25 @@ export const apply = (ctx: Context, config: Config): void => {
       if (!servicesOk) return
 
       // 3+4) 两个真实会话：list 页与 detail 页，工具集合不同
-      const list = await host.pageRegistry!.openUrl('/apps/task-workbench/list')
+      // Row activation has no global ordering: wait until the app's page lands in
+      // the URL index (up to ~8s) before continuing. 行激活无全局顺序：先等应用
+      // 页面落进 URL 索引（最多 ~8s）再继续。
+      let list: { sessionId: string; created: boolean } | undefined
+      for (let waited = 0; ; waited += 200) {
+        try {
+          list = await host.pageRegistry!.openUrl('/apps/task-workbench/list')
+          break
+        } catch {
+          if (waited >= 8000) {
+            // 诊断：注册到底发生了什么（目录/镜像/装配面状态原样落盘）
+            // Diagnostics: dump catalog/mirror/assembly state as-is for the verdict.
+            const catalog = (host.apps as { catalog(): unknown[] }).catalog()
+            const detail0 = JSON.stringify(catalog, (_, value) => typeof value === 'function' ? 'fn' : value)
+            throw new Error(`task-workbench pages never appeared in the URL index; catalog=${detail0?.slice(0, 2000)}`)
+          }
+          await new Promise((resolve) => setTimeout(resolve, 200))
+        }
+      }
       const detail = await host.pageRegistry!.openUrl('/apps/task-workbench/task/1' as PageInstanceKey)
       checks.push(check('3.real-sessions-created', list.created && detail.created,
         `list=${list.sessionId} detail=${detail.sessionId}`))
