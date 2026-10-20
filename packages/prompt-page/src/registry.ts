@@ -84,6 +84,11 @@ export class PageRegistry<S> {
     }
   }
 
+  /** 按名取页面定义 / look up a page definition by name */
+  get(name: string): PageDefinition<S> | undefined {
+    return this.pages.find((page) => page.name === name)
+  }
+
   /** 解析 URL：按注册顺序首个命中；无命中返回 null / resolve by registration order */
   resolve(url: string): PageMatch<S> | null {
     const { path, query } = splitUrl(url)

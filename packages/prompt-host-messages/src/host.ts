@@ -77,6 +77,11 @@ export class MessageHost implements PromptHost {
     if (this.commits.length >= this.compactEvery) this.anchor()
   }
 
+  /** 追加纯文本备注（事件处理器 io.append 的通道）/ append a plain-text note (io.append) */
+  note(text: string): void {
+    this.staged.push({ op: 'append', path: 'notes', entries: [text] })
+  }
+
   /**
    * 同步读取：增量优先，无基线/缺口过大/游标超前回落全量快照。
    * Delta-first sync with snapshot fallback.

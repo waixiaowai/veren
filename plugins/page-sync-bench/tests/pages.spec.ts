@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PageRegistry, mountPage } from '@veren/prompt-page'
-import { detailPage, dispatchTaskTool, listPage, publishPage } from '../src/page.ts'
+import { detailPage, dispatchTaskTool, listPage, publishPage } from '../src/page.tsx'
 import { TaskStore, makeList } from '../src/store.ts'
 import type { TaskItem } from '../src/types.ts'
 

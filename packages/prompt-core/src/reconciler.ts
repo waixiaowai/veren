@@ -17,7 +17,7 @@ function sameType(fiber: Fiber, element: PromptElement): boolean {
 export function reconcileChildren(
   parent: Fiber,
   altChild: Fiber | null,
-  elements: PromptElement[],
+  elements: readonly PromptElement[],
   lane: Lane,
   effects: Effect[],
 ): Fiber | null {
@@ -59,7 +59,9 @@ function beginWork(element: PromptElement, alt: Fiber | undefined, lane: Lane, e
       return cloneSubtree(alt, null) // memo bailout：整棵复用，零 effect
     }
     const fiber: Fiber = { type: element.type, key: element.key, props: element.props, tag: 'component', child: null, sibling: null, parent: null }
-    fiber.child = reconcileChildren(fiber, alt?.child ?? null, component(element.props), lane, effects)
+    const produced = component(element.props)
+    const children = Array.isArray(produced) ? produced : [produced]
+    fiber.child = reconcileChildren(fiber, alt?.child ?? null, children, lane, effects)
     return fiber
   }
 

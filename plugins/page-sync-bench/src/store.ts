@@ -4,6 +4,7 @@
  *
  * 不可变纪律：数组整体替换，绝不原地修改（内核 diff 按内容比较，别名会让旧状态跟着变）。
  */
+import { PageEventBus } from '@veren/prompt-page'
 import type { TaskItem, ToolOutcome } from './types.ts'
 
 /** 任务集合在页面树中的路径 / path of the task collection in the page tree */
@@ -22,6 +23,8 @@ export function makeList(n: number): TaskItem[] {
 export class TaskStore {
   private items: TaskItem[]
   private readonly listeners = new Set<() => void>()
+  /** 领域事件（按钮 → 事件 → 页面监听器改上下文/导航）/ domain events (button → event → page listeners) */
+  readonly events = new PageEventBus()
 
   constructor(initial: TaskItem[] = []) {
     this.items = initial
@@ -55,6 +58,7 @@ export class TaskStore {
       return { ok: false, code: 'invalid_transition', detail: `${id} is ${item.status}, not open` }
     }
     this.replace({ ...item, status: 'taken', ownerId })
+    this.events.emit('task.taken', { id, ownerId }, this.io)
     return { ok: true, detail: `${id} taken by ${ownerId}` }
   }
 
@@ -66,6 +70,7 @@ export class TaskStore {
       return { ok: false, code: 'invalid_transition', detail: `${id} is ${item.status}, not taken` }
     }
     this.replace({ ...item, status: 'done' })
+    this.events.emit('task.completed', { id }, this.io)
     return { ok: true, detail: `${id} completed` }
   }
 
@@ -77,8 +82,12 @@ export class TaskStore {
       return { ok: false, code: 'invalid_transition', detail: `${id} is ${item.status}, not taken` }
     }
     this.replace({ ...item, status: 'open', ownerId: null })
+    this.events.emit('task.abandoned', { id }, this.io)
     return { ok: true, detail: `${id} abandoned` }
   }
+
+  /** io 由页面装配层注入（append → host.note，navigate → 打开另一页会话）*/
+  io = { append: (): void => undefined, navigate: (): void => undefined }
 
   /** 不可变替换一条并通知 / immutably replace one item and notify */
   private replace(next: TaskItem): void {

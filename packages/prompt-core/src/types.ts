@@ -14,9 +14,9 @@ export type Lane = 'sync' | 'transition' | 'background'
 /** 宿主块类型名（如 'static' | 'item' | 'data'）/ host block kind */
 export type HostKind = string
 
-/** 组件：props → 元素列表（返回数组即 Fragment）/ component: props -> elements */
+/** 组件：props → 元素（单个 Fragment 元素或数组均可，reconciler 归一化）/ component: props -> element(s) */
 export interface Component<P = Record<string, unknown>> {
-  (props: P): PromptElement[]
+  (props: P): PromptElement[] | PromptElement
   /** memo 比较器（挂在本体上，reconciler 读取）/ memo comparator attached to the fn */
   __memoCompare?: (a: unknown, b: unknown) => boolean
 }
@@ -47,6 +47,9 @@ export interface Fiber {
   /** 宿主实例（仅 host fiber）/ host instance (host fibers only) */
   instance?: HostInstance
 }
+
+/** 页面树/组件可返回的元素形态 / element or element array */
+export type ElementInput = PromptElement | readonly PromptElement[]
 
 export type EffectTag = 'placement' | 'update' | 'deletion'
 

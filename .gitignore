@@ -22,7 +22,7 @@ dist-tgz/
 # 插件市场索引的生成产物与缓存 / generated plugin market index and its cache
 /market/site/
 /market/.plugin-market-cache/
-
+*.env
 # 临时会话日志与探针 / temporary session logs and probes
 .tmp-*
 *.log

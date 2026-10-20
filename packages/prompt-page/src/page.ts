@@ -4,18 +4,20 @@
  *
  * 校验 URL 模式：必须以 / 开头、仅路径段（无查询串）、:param 名非空且不重复。
  */
-import type { PromptElement } from '@veren/prompt-core'
-import type { PageDefinition, PageParams } from './types.ts'
+import type { ElementInput } from '@veren/prompt-core'
+import type { PageDefinition, PageEventMap, PageParams, PagePresetSpec } from './types.ts'
 
 export function definePage<S>(definition: {
   name: string
   url: string
   description: string
-  tree: (props: PageParams, state: S) => PromptElement[]
+  preset?: PagePresetSpec
+  events?: PageEventMap
+  tree: (props: PageParams, state: S) => ElementInput
   onLoad?: (params: PageParams) => void
   onComplete?: (params: PageParams) => boolean
 }): PageDefinition<S> {
-  const { name, url, description, tree, onLoad, onComplete } = definition
+  const { name, url, description, preset, events, tree, onLoad, onComplete } = definition
   if (name.length === 0 || name.trim() !== name) {
     throw new Error(`[definePage] invalid page name: ${JSON.stringify(name)}`)
   }
@@ -28,6 +30,8 @@ export function definePage<S>(definition: {
   }
   return {
     name, url, description, tree,
+    ...(preset === undefined ? {} : { preset }),
+    ...(events === undefined ? {} : { events }),
     ...(onLoad === undefined ? {} : { onLoad }),
     ...(onComplete === undefined ? {} : { onComplete }),
   }

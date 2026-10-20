@@ -7,7 +7,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { mountPage } from '@veren/prompt-page'
 import { MessageHost } from '@veren/prompt-host-messages'
-import { LIST_CHAT_TOOLS, LIST_SYSTEM_PROMPT, listPage, dispatchTaskTool } from './page.ts'
+import { LIST_CHAT_TOOLS, LIST_SYSTEM_PROMPT, listPage, dispatchTaskTool } from './page.tsx'
 import { TaskStore, makeList } from './store.ts'
 import type { BenchReport, CallUsage, RoundStat } from './types.ts'
 

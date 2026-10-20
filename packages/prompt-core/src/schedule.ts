@@ -4,7 +4,7 @@
  * render 阶段（reconcile）纯函数、可丢弃；commit 阶段原子地交给宿主并 flush。
  * background lane 的 effect 先入 pending 缓冲，随下一次 sync commit 一并落盘。
  */
-import type { Effect, ExternalStore, Fiber, Lane, PromptElement, PromptHost } from './types.ts'
+import type { Effect, ElementInput, ExternalStore, Fiber, Lane, PromptHost } from './types.ts'
 import { reconcileChildren } from './reconciler.ts'
 
 export interface PromptRoot {
@@ -18,11 +18,12 @@ export function createRoot(host: PromptHost): PromptRoot {
   return { host, current: null, pending: [] }
 }
 
-/** 渲染一帧：elements 是页面组件树的顶层 / render one frame from top-level elements */
-export function scheduleRender(root: PromptRoot, elements: PromptElement[], lane: Lane = 'sync'): void {
+/** 渲染一帧：顶层组件树（单个 Fragment 元素或数组均可）/ render one frame */
+export function scheduleRender(root: PromptRoot, elements: ElementInput, lane: Lane = 'sync'): void {
+  const normalized = Array.isArray(elements) ? elements : [elements]
   const rootFiber: Fiber = { type: '⌂root', tag: 'component', props: {}, child: null, sibling: null, parent: null }
   const effects: Effect[] = []
-  rootFiber.child = reconcileChildren(rootFiber, root.current?.child ?? null, elements, lane, effects)
+  rootFiber.child = reconcileChildren(rootFiber, root.current?.child ?? null, normalized, lane, effects)
   root.current = rootFiber
 
   if (lane === 'background') {
@@ -59,7 +60,7 @@ export function commitEffects(host: PromptHost, batch: Effect[]): void {
 export function bindStore<S>(
   root: PromptRoot,
   store: ExternalStore<S>,
-  mapState: (state: S) => PromptElement[],
+  mapState: (state: S) => ElementInput,
   toLane?: (state: S) => Lane,
 ): () => void {
   const render = (): void => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderSync } from '@veren/prompt-host-messages'
-import { TaskListPage, dispatchTaskTool } from '../src/page.ts'
+import { dispatchTaskTool } from '../src/page.tsx'
 import { TaskStore, makeList } from '../src/store.ts'
 import { assemblePageSession } from '../src/driver.ts'
 
@@ -69,8 +69,15 @@ describe('protocol', () => {
     expect(dispatchTaskTool(store, 'take_task', '{"task_id":"t-0"}').ok).toBe(true)
   })
 
-  it('静态面不含任何任务数据', () => {
-    const elements = TaskListPage({ items: makeList(1) })
-    expect(String(elements[0].props.content)).not.toContain('t-0')
+  it('静态块不含任何任务数据（动态 items 属于数据面，允许出现）', () => {
+    const store = new TaskStore(makeList(1))
+    const host = assemblePageSession(store)
+    const sync = host.renderSince(undefined)
+    expect(sync.kind).toBe('snapshot')
+    if (sync.kind === 'snapshot') {
+      const staticNode = sync.nodes.find((node) => node.kind === 'static')
+      expect(staticNode).toBeDefined()
+      expect(staticNode?.kind === 'static' && staticNode.content.includes('t-0')).toBe(false)
+    }
   })
 })
