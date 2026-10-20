@@ -2,6 +2,7 @@
 // Tool implementation: workspace_session_list - conditional session search over
 // one workspace's accounted sessions.
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 // 类型-only import：拉取 workspaceRegistry 的 Context 声明合并与 WorkspaceId 品牌。
 // Type-only imports: pull the workspaceRegistry Context declaration merging and
@@ -66,17 +67,14 @@ function matchesFilters(args: SessionListArgs, facts: { preset?: string, provide
 }
 
 /**
- * 注册 `workspace_session_list`：列出一个工作区账目下的会话，支持按 preset、
- * provider/model 与归档状态检索，创建时间新的在前。
- * Register `workspace_session_list`: list the sessions accounted under one
- * workspace, searchable by preset, provider/model and archive state, newest
- * first.
+ * 构建 `workspace_session_list` 工具定义（不注册）：应用目录复用同一份实现。
+ * Build the `workspace_session_list` tool definition (unregistered): the app
+ * catalog reuses this very implementation.
  * @param ctx - 携带注入能力的宿主上下文。The host context carrying injected capabilities.
  * @param options - 部署开关。The deployment knobs.
  */
-export function registerWorkspaceSessionList(ctx: Context, options: SessionListOptions): () => void {
-  return ctx.tools.register(
-    defineTool({
+export function buildWorkspaceSessionListDefinition(ctx: Context, options: SessionListOptions): ToolDefinition {
+  return defineTool({
       name: 'workspace_session_list',
       description:
         'List the sessions accounted under one workspace, newest first. '
@@ -176,6 +174,15 @@ export function registerWorkspaceSessionList(ctx: Context, options: SessionListO
         kind: 'other',
         rawInput: args,
       }),
-    }),
-  )
+    })
+}
+
+/**
+ * 注册 `workspace_session_list`：把构建器产物注册进宿主工具注册表。
+ * Register `workspace_session_list`: register the builder's product into the host tool registry.
+ * @param ctx - 携带注入能力的宿主上下文。The host context carrying injected capabilities.
+ * @param options - 部署开关。The deployment knobs.
+ */
+export function registerWorkspaceSessionList(ctx: Context, options: SessionListOptions): () => void {
+  return ctx.tools.register(buildWorkspaceSessionListDefinition(ctx, options))
 }

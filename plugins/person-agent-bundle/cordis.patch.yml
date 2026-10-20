@@ -2,19 +2,19 @@
 # Person Agent 组合包：用一个 profile 层装好整栈。
 #
 # This bundle is the ONLY profile layer of the Person Agent stack: none of the
-# five member plugins declares `dsh.bundle.patch`, so the dsh plugin
+# member plugins declares `dsh.bundle.patch`, so the dsh plugin
 # reconciliation activates exactly this layer - installing the bundle can
 # never double-insert a row. Each member rides along as a plain dependency.
-# 本组合包是 Person Agent 技术栈唯一的 profile 层：五个成员插件都不声明
+# 本组合包是 Person Agent 技术栈唯一的 profile 层：各成员插件都不声明
 # `dsh.bundle.patch`，dsh plugin 的 reconciliation 因此只会激活这一层——
 # 安装组合包绝不会重复插行。各成员只作为普通依赖随行。
 #
 # The bundle carries zero runtime code. Each `insert` row resolves by package
 # name from the bundle's own dependencies (pnpm installs them into the profile
-# alongside this bundle), so the five @veren plugins travel together as one
+# alongside this bundle), so the @veren plugins travel together as one
 # installable unit and can be toggled as one from the plugin manager.
 # 组合包零运行时代码。每条 `insert` 行按包名从组合包自身的 dependencies 解析
-# （pnpm 会把它们和组合包一起装进 profile），五个 @veren 插件因此作为一个可
+# （pnpm 会把它们和组合包一起装进 profile），各 @veren 插件因此作为一个可
 # 安装单元随行，并在插件管理页作为一个开关整体启停。
 #
 # One preset, one shape: Person Agent IS the bridge between the human and DSH.
@@ -39,3 +39,14 @@
         presetId: person-agent
         order: 5
         withWeb: true
+    # The app layer: Person Agent as an application (workbench overview +
+    # workspace browser under /apps/person-agent). Strictly additive: the
+    # preset row above is untouched, and a failure here never changes the
+    # preset's runtime behavior.
+    # 应用层：把 Person Agent 暴露为应用（/apps/person-agent 下的工作台概览与
+    # 工作区浏览）。纯追加：上面的预设行原样保留，本行出错也不会改变预设的
+    # 运行行为。
+    - id: person-agent-app
+      name: '@veren/person-agent-app'
+      config:
+        maxListSessions: 200

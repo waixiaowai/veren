@@ -106,12 +106,13 @@ export function guardRemovedCwd(definition: ToolDefinition, toolName: string): T
 type SessionCreateValue = Awaited<ReturnType<Context['sessionController']['create']>>
 
 /**
- * 注册 `session_create`：按预设/模型/标题创建一个普通会话。
- * Register `session_create`: create an ordinary session with preset/model/title.
+ * 构建 `session_create` 工具定义（不注册）：应用目录复用同一份实现。
+ * Build the `session_create` tool definition (unregistered): the app catalog
+ * reuses this very implementation.
  * @param ctx - 携带 sessionController 的宿主上下文。The context carrying sessionController.
  */
-export function registerSessionCreate(ctx: Context): () => void {
-  const definition = defineTool({
+export function buildSessionCreateDefinition(ctx: Context): ToolDefinition {
+  return defineTool({
     name: 'session_create',
     description:
       'Create a new ordinary session in this deployment, optionally with a preset, an initial ' +
@@ -150,7 +151,15 @@ export function registerSessionCreate(ctx: Context): () => void {
       rawInput: args,
     }),
   })
-  return ctx.tools.register(guardRemovedCwd(definition, 'session_create'))
+}
+
+/**
+ * 注册 `session_create`：把构建器产物注册进宿主工具注册表。
+ * Register `session_create`: register the builder's product into the host tool registry.
+ * @param ctx - 携带 sessionController 的宿主上下文。The context carrying sessionController.
+ */
+export function registerSessionCreate(ctx: Context): () => void {
+  return ctx.tools.register(guardRemovedCwd(buildSessionCreateDefinition(ctx), 'session_create'))
 }
 
 /**
@@ -211,13 +220,13 @@ async function decorateCreatedSession(
 }
 
 /**
- * 注册 `session_rename`：改一个会话的标题。
- * Register `session_rename`: retitle one session.
+ * 构建 `session_rename` 工具定义（不注册）：应用目录复用同一份实现。
+ * Build the `session_rename` tool definition (unregistered): the app catalog
+ * reuses this very implementation.
  * @param ctx - 携带 sessionController 的宿主上下文。The context carrying sessionController.
  */
-export function registerSessionRename(ctx: Context): () => void {
-  return ctx.tools.register(
-    defineTool({
+export function buildSessionRenameDefinition(ctx: Context): ToolDefinition {
+  return defineTool({
       name: 'session_rename',
       description: `Rename one existing session by id. ${HINT}`,
       parameters: {
@@ -241,7 +250,15 @@ export function registerSessionRename(ctx: Context): () => void {
         kind: 'other',
         rawInput: args,
       }),
-    }),
-  )
+    })
+}
+
+/**
+ * 注册 `session_rename`：把构建器产物注册进宿主工具注册表。
+ * Register `session_rename`: register the builder's product into the host tool registry.
+ * @param ctx - 携带 sessionController 的宿主上下文。The context carrying sessionController.
+ */
+export function registerSessionRename(ctx: Context): () => void {
+  return ctx.tools.register(buildSessionRenameDefinition(ctx))
 }
 

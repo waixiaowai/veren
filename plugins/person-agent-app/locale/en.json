@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Person Agent App",
+    "description": "Exposes the Person Agent bridge as a Veren application with a workbench overview and workspace browser."
+  }
+}

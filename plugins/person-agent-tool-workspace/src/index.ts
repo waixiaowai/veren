@@ -16,6 +16,11 @@ import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import { registerWorkspaceCreate, registerWorkspaceRename } from './tools.js'
 import { registerWorkspaceSessionList } from './session-list.js'
+// 应用目录收编工具时复用同一份定义：把构建器一并从包根导出（纯追加导出）。
+// The app catalog reuses the same definitions: re-export the builders from the
+// package root (an additive export only).
+export { buildWorkspaceCreateDefinition, buildWorkspaceRenameDefinition } from './tools.js'
+export { buildWorkspaceSessionListDefinition } from './session-list.js'
 
 export const name = 'personAgentToolWorkspace'
 

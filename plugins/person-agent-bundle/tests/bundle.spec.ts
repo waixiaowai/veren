@@ -64,11 +64,20 @@ describe('person-agent-bundle patch', () => {
   const rows = loadRows()
 
   it('inserts exactly one preset row - the bridge has one shape', () => {
-    // 单行：人设与工具常开，不存在第二行、也不存在开关之分。
-    // One row: persona and tools always on - no second row, no toggle split.
-    expect(rows).toHaveLength(1)
-    expect(rows[0]?.name).toBe('@veren/person-agent-preset')
-    expect(rows[0]?.config?.presetId).toBe('person-agent')
+    // 预设行只有一条：人设与工具常开，不存在第二行、也不存在开关之分。
+    // One preset row: persona and tools always on - no second row, no toggle
+    // split. The app row (person-agent-app) is additive and asserted below.
+    const presetRows = rows.filter((row) => row.name === '@veren/person-agent-preset')
+    expect(presetRows).toHaveLength(1)
+    expect(presetRows[0]?.config?.presetId).toBe('person-agent')
+  })
+
+  it('inserts exactly one additive app row for the application layer', () => {
+    // 应用层是纯追加的一行：不改预设行的任何字段。
+    // The application layer is one additive row: no preset field is touched.
+    const appRows = rows.filter((row) => row.name === '@veren/person-agent-app')
+    expect(appRows).toHaveLength(1)
+    expect(appRows[0]?.config?.maxListSessions).toBe(200)
   })
 
   it('carries no tool or persona toggles anymore', () => {
@@ -92,6 +101,7 @@ describe('person-agent-bundle owns the stack\'s only bundle layer', () => {
     'person-agent-reanchor',
     'person-agent-tool-session',
     'person-agent-tool-workspace',
+    'person-agent-app',
   ]
   const bundle = JSON.parse(
     readFileSync(bundleManifestPath, 'utf8'),

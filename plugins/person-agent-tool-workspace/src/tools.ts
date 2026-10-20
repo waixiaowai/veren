@@ -2,6 +2,7 @@
 // Tool implementations: workspace_create / workspace_rename on ctx.tools.
 import { mkdir, stat } from 'node:fs/promises'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 // 类型-only import：拉取 workspaceRegistry 的 Context 声明合并与 WorkspaceId 品牌。
 // Type-only imports: pull the workspaceRegistry Context declaration merging and the WorkspaceId brand.
@@ -40,14 +41,14 @@ async function requireDirectory(path: string): Promise<void> {
 }
 
 /**
- * 注册 `workspace_create`：把一个目录登记为工作区（已存在则复用）。
- * Register `workspace_create`: register a directory as a workspace (reuse when present).
+ * 构建 `workspace_create` 工具定义（不注册）：应用目录复用同一份实现。
+ * Build the `workspace_create` tool definition (unregistered): the app catalog
+ * reuses this very implementation.
  * @param ctx - 携带 workspaceRegistry 的宿主上下文。The host context carrying workspaceRegistry.
  * @param options - 部署开关。The deployment knobs.
  */
-export function registerWorkspaceCreate(ctx: Context, options: WorkspaceCreateOptions): () => void {
-  return ctx.tools.register(
-    defineTool({
+export function buildWorkspaceCreateDefinition(ctx: Context, options: WorkspaceCreateOptions): ToolDefinition {
+  return defineTool({
       name: 'workspace_create',
       description:
         'Register a directory as a workspace so its sessions get their own grouping in the UI. ' +
@@ -104,18 +105,27 @@ export function registerWorkspaceCreate(ctx: Context, options: WorkspaceCreateOp
         kind: 'other',
         rawInput: args,
       }),
-    }),
-  )
+    })
 }
 
 /**
- * 注册 `workspace_rename`：改一个已有工作区的显示标题。
- * Register `workspace_rename`: retitle one existing workspace.
+ * 注册 `workspace_create`：把构建器产物注册进宿主工具注册表。
+ * Register `workspace_create`: register the builder's product into the host tool registry.
+ * @param ctx - 携带 workspaceRegistry 的宿主上下文。The host context carrying workspaceRegistry.
+ * @param options - 部署开关。The deployment knobs.
+ */
+export function registerWorkspaceCreate(ctx: Context, options: WorkspaceCreateOptions): () => void {
+  return ctx.tools.register(buildWorkspaceCreateDefinition(ctx, options))
+}
+
+/**
+ * 构建 `workspace_rename` 工具定义（不注册）：应用目录复用同一份实现。
+ * Build the `workspace_rename` tool definition (unregistered): the app catalog
+ * reuses this very implementation.
  * @param ctx - 携带 workspaceRegistry 的宿主上下文。The host context carrying workspaceRegistry.
  */
-export function registerWorkspaceRename(ctx: Context): () => void {
-  return ctx.tools.register(
-    defineTool({
+export function buildWorkspaceRenameDefinition(ctx: Context): ToolDefinition {
+  return defineTool({
       name: 'workspace_rename',
       description: `Rename one existing workspace by id. ${HINT}`,
       parameters: {
@@ -153,6 +163,14 @@ export function registerWorkspaceRename(ctx: Context): () => void {
         kind: 'other',
         rawInput: args,
       }),
-    }),
-  )
+    })
+}
+
+/**
+ * 注册 `workspace_rename`：把构建器产物注册进宿主工具注册表。
+ * Register `workspace_rename`: register the builder's product into the host tool registry.
+ * @param ctx - 携带 workspaceRegistry 的宿主上下文。The host context carrying workspaceRegistry.
+ */
+export function registerWorkspaceRename(ctx: Context): () => void {
+  return ctx.tools.register(buildWorkspaceRenameDefinition(ctx))
 }

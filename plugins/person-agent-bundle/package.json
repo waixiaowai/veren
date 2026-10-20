@@ -30,6 +30,7 @@
     "test": "vitest run --no-fsModuleCache"
   },
   "dependencies": {
+    "@veren/person-agent-app": "workspace:^",
     "@veren/person-agent-dynamic-context": "workspace:^",
     "@veren/person-agent-preset": "workspace:^",
     "@veren/person-agent-reanchor": "workspace:^",
