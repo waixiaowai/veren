@@ -22,9 +22,15 @@ import z from '@deepseek-ai/schemastery'
 import { TASK_CENTER_DOMAIN_NAME, taskCenterDomain, view } from './storage.ts'
 import type { DeliveryRecord, InboxNotice, TaskCenterStore } from './storage.ts'
 import { registerTaskTools } from './tools.ts'
+import {
+  TERMINAL_STATUSES, TaskError, TaskTreeIndex, checkSubtreeLimits, cascadeStatusOf,
+  rootIdOf, treePathOf,
+} from './tree.ts'
+import type { CascadeKind } from './tree.ts'
 import { TaskErrorCode } from './types.ts'
 import type {
-  TaskCenterContract, TaskDraft, TaskFailure, TaskId, TaskQuery, TaskRecord, TaskResult,
+  TaskCenterContract, TaskDraft, TaskFailure, TaskId, TaskQuery,
+  TaskRecord, TaskResult,
 } from './types.ts'
 
 /** 服务名（ctx.taskCenter / inject 'taskCenter'）/ service name */
@@ -49,13 +55,9 @@ export interface AppSnapshot {
 /** Delayed app lookup; the host (or session A) wires it via {@link setAppResolver}. */
 export type AppResolver = (appId: string) => Promise<AppSnapshot | undefined>
 
-/** One structured refusal: a stable code plus a readable account. */
-export class TaskError extends Error {
-  constructor(readonly code: string, message: string) {
-    super(message)
-    this.name = 'TaskError'
-  }
-}
+// 结构化拒绝（稳定 code + 可选明细）只有 tree.ts 里那一份声明，这里原样再导出。
+// The one structured-refusal class lives in tree.ts; re-exported unchanged here.
+export { TaskError }
 
 /** Config schema (AGENTS: 插件必须用 schemastery 定义 config). */
 export type TaskCenterConfig = { tools: { enabled: boolean } }
@@ -77,8 +79,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-const TERMINAL: ReadonlySet<TaskRecord['status']>
-  = new Set(['done', 'failed', 'expired', 'cancelled', 'orphaned'])
+const TERMINAL: ReadonlySet<TaskRecord['status']> = TERMINAL_STATUSES
 
 function isPast(instant: string | undefined, now: number): boolean {
   if (instant === undefined) return false
@@ -90,6 +91,11 @@ function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+/** 新任务 id（brand 收敛在一处）/ a fresh task id (the brand narrowing lives here only) */
+function newTaskId(): TaskId {
+  return newId('task') as TaskId
+}
+
 export class TaskCenterService extends Service implements TaskCenterContract {
   static inject = ['storageDomain', 'tools']
   static Config = Config
@@ -99,6 +105,8 @@ export class TaskCenterService extends Service implements TaskCenterContract {
   private storageFailure: string | undefined
   private chain: Promise<unknown> = Promise.resolve()
   private resolver: AppResolver | undefined
+  /** 任务树索引（§4.7.1）：随首次访问从存储重建，之后随每次写入增量维护。 */
+  private treeIndex: TaskTreeIndex | undefined
 
   constructor(ctx: Context, config: TaskCenterConfig = { tools: { enabled: true } }) {
     super(ctx, TASK_CENTER_NAME)
@@ -120,10 +128,9 @@ export class TaskCenterService extends Service implements TaskCenterContract {
   async send(draft: TaskDraft): Promise<TaskRecord> {
     return this.write(async (domain) => {
       await this.sweep(domain)
-      const tasks = view(domain.table('tasks'))
       this.validateDraft(draft)
       if (draft.idempotencyKey !== undefined) {
-        const seen = tasks.all().find(row =>
+        const seen = this.tasks(domain).all().find(row =>
           row.appId === draft.target.appId && row.idempotencyKey === draft.idempotencyKey)
         if (seen !== undefined) return seen
       }
@@ -131,7 +138,7 @@ export class TaskCenterService extends Service implements TaskCenterContract {
       const snapshot = await this.resolver?.(draft.target.appId)
       const now = new Date().toISOString()
       const record: TaskRecord = {
-        id: newId('task') as TaskId,
+        id: newTaskId(),
         appId: draft.target.appId,
         kind: draft.kind,
         title: draft.title.trim(),
@@ -148,9 +155,12 @@ export class TaskCenterService extends Service implements TaskCenterContract {
         ...(draft.expiresAt === undefined ? {} : { expiresAt: draft.expiresAt }),
         ...(draft.origin === undefined ? {} : { origin: draft.origin }),
         ...(draft.idempotencyKey === undefined ? {} : { idempotencyKey: draft.idempotencyKey }),
-        schemaVersion: 1,
+        // v2 起所有记录带树字段；send 只创建根任务 / every record carries the tree
+        // fields from v2 on; send creates roots only
+        ancestorIds: [],
+        schemaVersion: 2,
       }
-      await tasks.put(record.id, record)
+      await this.save(domain, record)
       const delivery: DeliveryRecord = {
         id: newId('notice'),
         taskId: record.id,
@@ -166,10 +176,76 @@ export class TaskCenterService extends Service implements TaskCenterContract {
     })
   }
 
+  /**
+   * 在 `parentId` 下新建一条子任务（§4.7.6）。校验顺序：父存在且未终结 →
+   * 调用会话确为整树唯一活跃接取者（可选）→ target.url 与父一致 → 三条安全上限。
+   * 子任务只落任务表，不产生投递行（§4.7.5：收件箱只出现根任务）。
+   * / Create one subtask under `parentId` (§4.7.6). Order of checks: parent
+   * exists and is non-terminal → the calling session is the tree's one active
+   * claimant (optional) → target.url equals the parent's → the three safety
+   * limits. A subtask only lands in the task table; it never creates a
+   * delivery row (§4.7.5: the inbox shows roots only).
+   */
+  async addSubtask(
+    parentId: TaskId,
+    draft: TaskDraft,
+    opts: { readonly claimantSessionId?: string } = {},
+  ): Promise<TaskRecord> {
+    return this.write(async (domain) => {
+      await this.sweep(domain)
+      const index = this.tasks(domain)
+      const parent = index.get(parentId)
+      if (parent === undefined) {
+        throw new TaskError(TaskErrorCode.ParentGone, `parent task ${parentId} does not exist`)
+      }
+      if (TERMINAL_STATUSES.has(parent.status)) {
+        throw new TaskError(TaskErrorCode.InvalidState,
+          `parent task ${parentId} is ${parent.status}; subtasks attach to non-terminal parents only`)
+      }
+      if (opts.claimantSessionId !== undefined) this.assertTreeClaimant(index, parent, opts.claimantSessionId)
+      this.validateDraft(draft)
+      if (draft.target.url !== parent.target.url) {
+        throw new TaskError(TaskErrorCode.SubtaskTargetMismatch,
+          `subtask target ${draft.target.url} must equal the parent target ${parent.target.url}`)
+      }
+      const root = this.require(index.get(rootIdOf(parent)))
+      checkSubtreeLimits(parent, index.directChildren(parent.id).length, index.subtree(root.id).length)
+      const now = new Date().toISOString()
+      const record: TaskRecord = {
+        id: newTaskId(),
+        appId: draft.target.appId,
+        kind: draft.kind,
+        title: draft.title.trim(),
+        ...(draft.body === undefined ? {} : { body: draft.body }),
+        target: draft.target,
+        appVersion: parent.appVersion,
+        pageRevision: parent.pageRevision,
+        assignee: 'local',
+        status: 'open',
+        revision: 1,
+        createdAt: now,
+        updatedAt: now,
+        ...(draft.dueAt === undefined ? {} : { dueAt: draft.dueAt }),
+        ...(draft.expiresAt === undefined ? {} : { expiresAt: draft.expiresAt }),
+        ...(draft.origin === undefined ? {} : { origin: draft.origin }),
+        ...(draft.idempotencyKey === undefined ? {} : { idempotencyKey: draft.idempotencyKey }),
+        // 父指针只在这里写一次；ancestorIds = 父的树路径，随创建定型（§4.7.1）
+        // / the parent pointer is written once here; ancestorIds = the parent's
+        // tree path, fixed at creation
+        parentId,
+        ancestorIds: treePathOf(parent),
+        schemaVersion: 2,
+      }
+      await this.save(domain, record)
+      this.host.emit('task-center/changed', { taskId: record.id, action: 'subtask-added' })
+      return record
+    })
+  }
+
   async list(query: TaskQuery): Promise<readonly TaskRecord[]> {
     return this.write(async (domain) => {
       await this.sweep(domain)
-      return view(domain.table('tasks')).all().filter(row =>
+      return this.tasks(domain).all().filter(row =>
         (query.appId === undefined || row.appId === query.appId)
         && (query.status === undefined || row.status === query.status)
         && (query.assignee === undefined || row.assignee === query.assignee))
@@ -179,21 +255,22 @@ export class TaskCenterService extends Service implements TaskCenterContract {
   async get(id: TaskId): Promise<TaskRecord | undefined> {
     return this.write(async (domain) => {
       await this.sweep(domain)
-      return view(domain.table('tasks')).get(id)
+      return this.tasks(domain).get(id)
     })
   }
 
   async take(id: TaskId, claim: Parameters<TaskCenterContract['take']>[1]): Promise<TaskRecord> {
     return this.write(async (domain) => {
       await this.sweep(domain)
-      const record = this.require(view(domain.table('tasks')).get(id))
+      const index = this.tasks(domain)
+      const record = this.require(index.get(id))
       const sameClaimant = record.status === 'taken' && record.claimedBy !== undefined
         && record.claimedBy.actor === claim.actor && record.claimedBy.sessionId === claim.sessionId
       if (record.status === 'taken' && !sameClaimant && !isPast(record.claimedBy?.leaseUntil, Date.now())) {
         throw new TaskError(TaskErrorCode.AlreadyTaken, `task ${id} is taken until ${record.claimedBy?.leaseUntil}`)
       }
       if (record.status === 'orphaned') {
-        throw new TaskError('task/orphaned', `task ${id} belongs to an uninstalled app`)
+        throw new TaskError(TaskErrorCode.Orphaned, `task ${id} belongs to an uninstalled app`)
       }
       // 已被懒过期判定翻成 expired 的任务不可接取 / a lazily expired task is not claimable
       if (record.status === 'expired') {
@@ -201,9 +278,9 @@ export class TaskCenterService extends Service implements TaskCenterContract {
       }
       // 续租（同一接取者幂等续约）或首次接取；其余状态不可接取 / renew (idempotent) or first take
       if (record.status !== 'open' && !sameClaimant) {
-        throw new TaskError('task/invalid-state', `task ${id} is ${record.status}, not claimable`)
+        throw new TaskError(TaskErrorCode.InvalidState, `task ${id} is ${record.status}, not claimable`)
       }
-      if (!sameClaimant && claim.sessionId !== undefined) this.assertNoActiveOnUrl(domain, record, claim.sessionId)
+      if (!sameClaimant) this.assertTreeMutex(index, record, claim.sessionId)
       const next: TaskRecord = {
         ...record,
         status: 'taken',
@@ -211,7 +288,7 @@ export class TaskCenterService extends Service implements TaskCenterContract {
         updatedAt: new Date().toISOString(),
         claimedBy: { sessionId: claim.sessionId, actor: claim.actor, leaseUntil: claim.leaseUntil },
       }
-      await view(domain.table('tasks')).put(id, next)
+      await this.save(domain, next)
       this.host.emit('task-center/changed', { taskId: id, action: sameClaimant ? 'renewed' : 'taken' })
       return next
     })
@@ -220,10 +297,10 @@ export class TaskCenterService extends Service implements TaskCenterContract {
   async release(id: TaskId, reason: string): Promise<TaskRecord> {
     return this.write(async (domain) => {
       await this.sweep(domain)
-      const tasks = view(domain.table('tasks'))
-      const record = this.require(tasks.get(id))
+      const index = this.tasks(domain)
+      const record = this.require(index.get(id))
       if (record.status !== 'taken') {
-        throw new TaskError('task/invalid-state', `task ${id} is ${record.status}; only taken tasks can be released`)
+        throw new TaskError(TaskErrorCode.InvalidState, `task ${id} is ${record.status}; only taken tasks can be released`)
       }
       // claimedBy 是 readonly：用解构摘除该键，不用 as 断言 / destructure to drop the key, no cast
       const { claimedBy: _dropped, ...kept } = record
@@ -233,7 +310,7 @@ export class TaskCenterService extends Service implements TaskCenterContract {
         revision: record.revision + 1,
         updatedAt: new Date().toISOString(),
       }
-      await tasks.put(id, next)
+      await this.save(domain, next)
       this.host.emit('task-center/changed', { taskId: id, action: `released:${reason}` })
       return next
     })
@@ -242,14 +319,24 @@ export class TaskCenterService extends Service implements TaskCenterContract {
   async complete(id: TaskId, result: TaskResult): Promise<TaskRecord> {
     return this.write(async (domain) => {
       await this.sweep(domain)
-      const tasks = view(domain.table('tasks'))
-      const record = this.require(tasks.get(id))
+      const index = this.tasks(domain)
+      const record = this.require(index.get(id))
       if (record.status === 'done') return record
       if (record.status !== 'taken') {
-        throw new TaskError('task/invalid-state', `task ${id} is ${record.status}; only taken tasks can complete`)
+        throw new TaskError(TaskErrorCode.InvalidState, `task ${id} is ${record.status}; only taken tasks can complete`)
       }
       if (result.summary.trim().length === 0) {
         throw new TaskError(TaskErrorCode.DraftInvalid, 'result.summary is required')
+      }
+      // §4.7.2 规则一：子树里还有非终态后代就拒绝（不级联完成——结果必须由子任务自己的
+      // 接取者写）。校验走 ancestorIds 索引，一次子树查询。
+      // §4.7.2 rule 1: refuse while the subtree has a non-terminal descendant (no
+      // cascade-complete — a result must be written by the subtask's own claimant).
+      // One subtree query over the ancestorIds index.
+      const activeChild = index.activeDescendants(id)[0]
+      if (activeChild !== undefined) {
+        throw new TaskError(TaskErrorCode.ChildrenActive,
+          `subtree of ${id} still has non-terminal descendant ${activeChild.id} (${activeChild.status}); resolve descendants first`)
       }
       const sessionId = record.claimedBy?.sessionId
       const next: TaskRecord = {
@@ -262,8 +349,10 @@ export class TaskCenterService extends Service implements TaskCenterContract {
         revision: record.revision + 1,
         updatedAt: new Date().toISOString(),
       }
-      await tasks.put(id, next)
-      this.host.emit('task-center/completed', { taskId: id, appId: record.appId, result: next.result!, sessionId })
+      await this.save(domain, next)
+      this.host.emit('task-center/completed', {
+        taskId: id, appId: record.appId, result: next.result ?? result, sessionId,
+      })
       return next
     })
   }
@@ -271,12 +360,15 @@ export class TaskCenterService extends Service implements TaskCenterContract {
   async fail(id: TaskId, failure: TaskFailure): Promise<TaskRecord> {
     return this.write(async (domain) => {
       await this.sweep(domain)
-      const tasks = view(domain.table('tasks'))
-      const record = this.require(tasks.get(id))
+      const index = this.tasks(domain)
+      const record = this.require(index.get(id))
       if (record.status === 'failed') return record
       if (record.status !== 'taken') {
-        throw new TaskError('task/invalid-state', `task ${id} is ${record.status}; only taken tasks can fail`)
+        throw new TaskError(TaskErrorCode.InvalidState, `task ${id} is ${record.status}; only taken tasks can fail`)
       }
+      // §4.7.2 规则二：failed 不级联——失败是接取者自己的判断，子树事实保留。
+      // §4.7.2 rule 2: failing does not cascade — the claimant's own judgement;
+      // the subtree's facts are preserved.
       const next: TaskRecord = {
         ...record,
         status: 'failed',
@@ -284,7 +376,7 @@ export class TaskCenterService extends Service implements TaskCenterContract {
         revision: record.revision + 1,
         updatedAt: new Date().toISOString(),
       }
-      await tasks.put(id, next)
+      await this.save(domain, next)
       this.host.emit('task-center/changed', { taskId: id, action: `failed:${failure.code}` })
       return next
     })
@@ -293,13 +385,13 @@ export class TaskCenterService extends Service implements TaskCenterContract {
   async cancel(id: TaskId, reason: string): Promise<TaskRecord> {
     return this.write(async (domain) => {
       await this.sweep(domain)
-      const tasks = view(domain.table('tasks'))
-      const record = this.require(tasks.get(id))
-      if (TERMINAL.has(record.status)) {
-        throw new TaskError('task/invalid-state', `task ${id} is already ${record.status}`)
+      const index = this.tasks(domain)
+      const record = this.require(index.get(id))
+      if (TERMINAL_STATUSES.has(record.status)) {
+        throw new TaskError(TaskErrorCode.InvalidState, `task ${id} is already ${record.status}`)
       }
       if (record.status === 'taken') {
-        throw new TaskError('task/invalid-state', `task ${id} is taken; release it before cancelling`)
+        throw new TaskError(TaskErrorCode.InvalidState, `task ${id} is taken; release it before cancelling`)
       }
       const next: TaskRecord = {
         ...record,
@@ -307,7 +399,11 @@ export class TaskCenterService extends Service implements TaskCenterContract {
         revision: record.revision + 1,
         updatedAt: new Date().toISOString(),
       }
-      await tasks.put(id, next)
+      await this.save(domain, next)
+      // §4.7.2 规则二：父取消 → 整棵子树一次子树查询后逐条级联取消。
+      // §4.7.2 rule 2: cancelling the parent cascades the whole subtree —
+      // one subtree query, then row by row.
+      await this.cascadeSubtree(domain, next, 'cancelled', reason)
       this.host.emit('task-center/changed', { taskId: id, action: `cancelled:${reason}` })
       return next
     })
@@ -328,13 +424,17 @@ export class TaskCenterService extends Service implements TaskCenterContract {
   async pendingDeliveries(): Promise<readonly InboxNotice[]> {
     return this.write(async (domain) => {
       await this.sweep(domain)
-      const tasks = view(domain.table('tasks'))
+      const index = this.tasks(domain)
       const deliveries = view(domain.table('deliveries'))
       const notices: InboxNotice[] = []
       for (const row of deliveries.all()) {
         if (row.state !== 'pending') continue
-        const task = tasks.get(row.taskId)
+        const task = index.get(row.taskId as TaskId)
         if (task === undefined) continue
+        // 收件箱只出现根任务（§4.7.5）；addSubtask 不写投递行，这里是防御性兜底。
+        // The inbox shows roots only (§4.7.5); addSubtask writes no delivery row,
+        // this skip is a defensive belt.
+        if (task.parentId !== undefined) continue
         if (task.status === 'done' || task.status === 'cancelled' || task.status === 'expired') {
           await deliveries.put(row.id, { ...row, state: 'read', lastAt: new Date().toISOString() })
           continue
@@ -375,19 +475,24 @@ export class TaskCenterService extends Service implements TaskCenterContract {
    */
   async markAppOrphaned(appId: string, reason: string): Promise<readonly TaskRecord[]> {
     return this.write(async (domain) => {
-      const tasks = view(domain.table('tasks'))
+      const index = this.tasks(domain)
       const now = new Date().toISOString()
       const changed: TaskRecord[] = []
-      for (const row of tasks.all()) {
+      // 整树口径（§4.7.7 场景 8）：一棵树共享同一个 target/appId，所以遍历到的每个
+      // 非终态节点就是完整的树；每条仍走自己的 CAS revision。
+      // Whole-tree semantics (§4.7.7 scenario 8): a tree shares one target/appId,
+      // so every non-terminal node visited is the complete set; each row still
+      // moves through its own CAS revision.
+      for (const row of index.all()) {
         if (row.appId !== appId || (row.status !== 'open' && row.status !== 'taken')) continue
         // claimedBy 是 readonly：用解构摘除该键，不用 as 断言 / destructure to drop the key, no cast
         const { claimedBy: _dropped, ...kept } = row
         const next: TaskRecord = { ...kept, status: 'orphaned', revision: row.revision + 1, updatedAt: now }
-        await tasks.put(row.id, next)
+        await this.save(domain, next)
         changed.push(next)
       }
       this.host.emit('task-center/changed', {
-        taskId: (changed[0]?.id ?? '') as TaskId,
+        taskId: changed[0]?.id ?? ('' as TaskId),
         action: `orphaned:${reason}`,
       })
       return changed
@@ -395,6 +500,27 @@ export class TaskCenterService extends Service implements TaskCenterContract {
   }
 
   // ---- internals ----
+
+  /**
+   * 任务表访问口：惰性建索引，此后所有树查询（子树/直接子/互斥/级联）都走索引，
+   * 不做全表扫描。
+   * The task-table access point: builds the tree index lazily; every tree query
+   * afterwards (subtree / direct children / mutex / cascade) goes through it.
+   */
+  private tasks(domain: TaskCenterStore): TaskTreeIndex {
+    if (this.treeIndex === undefined) {
+      const index = new TaskTreeIndex()
+      index.rebuild(view(domain.table('tasks')).all())
+      this.treeIndex = index
+    }
+    return this.treeIndex
+  }
+
+  /** 唯一的任务写入口：先落存储，再同步索引 / the single task write path: storage first, then the index */
+  private async save(domain: TaskCenterStore, record: TaskRecord): Promise<void> {
+    await view(domain.table('tasks')).put(record.id, record)
+    this.tasks(domain).put(record)
+  }
 
   private validateDraft(draft: TaskDraft): void {
     const title = draft.title.trim()
@@ -436,42 +562,116 @@ export class TaskCenterService extends Service implements TaskCenterContract {
     }
   }
 
-  private assertNoActiveOnUrl(domain: TaskCenterStore, record: TaskRecord, sessionId: string): void {
-    const clash = view(domain.table('tasks')).all().find(row =>
-      row.id !== record.id && row.target.url === record.target.url && row.status === 'taken'
-      && row.claimedBy?.sessionId === sessionId)
-    if (clash !== undefined) {
-      throw new TaskError(
-        TaskErrorCode.AnotherActive,
-        `session already holds active task ${clash.id} on ${record.target.url}`,
-      )
+  /**
+   * 树级互斥（§4.7.3）：sweep 之后任何 `taken` 节点的租约都还活着，所以判定就是
+   * 两次索引查询——①同树（ancestorIds 前缀一次查询）内有无被别的会话持有的 taken →
+   * `task/already-taken`；②同 URL 上其它树有无活跃接取者 → `task/another-active`。
+   * Tree mutex (§4.7.3): after the sweep every `taken` lease is live, so the
+   * check is exactly two index queries — ① a taken node held by another session
+   * inside the same tree (one ancestorIds prefix query) → `task/already-taken`;
+   * ② an active claimant on another tree of the same url → `task/another-active`.
+   */
+  private assertTreeMutex(index: TaskTreeIndex, record: TaskRecord, sessionId: string | undefined): void {
+    const root = this.require(index.get(rootIdOf(record)))
+    for (const row of index.subtree(root.id)) {
+      if (row.status === 'taken' && row.claimedBy?.sessionId !== sessionId) {
+        throw new TaskError(TaskErrorCode.AlreadyTaken,
+          `task tree ${root.id} is already held by session ${row.claimedBy?.sessionId ?? 'unknown'} (task ${row.id})`)
+      }
+    }
+    // 跨树：同 URL 上其它树（与本树根不同的整棵树）的活跃接取者
+    // / cross-tree: active claimants on other trees of the same url (every tree
+    // whose root differs from ours)
+    const crossTree = index.all().find(row =>
+      row.target.url === record.target.url && row.status === 'taken'
+      && rootIdOf(row) !== root.id)
+    if (crossTree !== undefined) {
+      throw new TaskError(TaskErrorCode.AnotherActive,
+        `another task tree (${crossTree.id}) is already active on ${record.target.url}`)
     }
   }
 
   /**
-   * Lazy sweep: expire past-deadline opens, recycle past-lease takens (§4.4,
-   * §7.5), and mark open/taken tasks of an unregistered app `orphaned` (§7.4
-   * 卸载语义，懒执行：注册表里已经查不到的应用在下次操作时被判孤儿——进程
-   * 关停时 fiber 销毁不会误伤，重启后应用重新注册即自动愈合).
+   * 拆分权限（§4.7.6）：调用会话必须是整棵树当前的唯一活跃接取者。
+   * Split permission (§4.7.6): the calling session must be the tree's one
+   * active claimant.
+   */
+  private assertTreeClaimant(index: TaskTreeIndex, node: TaskRecord, sessionId: string): void {
+    const root = this.require(index.get(rootIdOf(node)))
+    const holder = index.subtree(root.id).find(row => row.status === 'taken')
+    if (holder === undefined || holder.claimedBy?.sessionId !== sessionId) {
+      throw new TaskError(TaskErrorCode.NotClaimant,
+        `task tree ${root.id} is not held by session ${sessionId}`)
+    }
+  }
+
+  /**
+   * 级联（§4.7.2 规则二）：一次子树查询取全部非终态后代，逐条迁移到目标终态，
+   * 每条走自己的 CAS revision，取消理由写进每条记录的 failure。
+   * Cascade (§4.7.2 rule 2): one subtree query for every non-terminal descendant,
+   * migrate each to the target terminal status through its own CAS revision,
+   * writing the reason into each row's failure.
+   */
+  private async cascadeSubtree(
+    domain: TaskCenterStore,
+    ancestor: TaskRecord,
+    kind: CascadeKind | 'expired',
+    reason: string,
+  ): Promise<void> {
+    const index = this.tasks(domain)
+    for (const row of index.activeDescendants(ancestor.id)) {
+      const status = cascadeStatusOf(row.status, kind)
+      // claimedBy 是 readonly：用解构摘除该键，不用 as 断言 / destructure to drop the key, no cast
+      const { claimedBy: _dropped, ...kept } = row
+      const next: TaskRecord = {
+        ...kept,
+        status,
+        failure: {
+          code: TaskErrorCode.CascadeCancelled,
+          message: `ancestor ${ancestor.id} ${kind}: ${reason}`,
+        },
+        revision: row.revision + 1,
+        updatedAt: new Date().toISOString(),
+      }
+      await this.save(domain, next)
+      this.host.emit('task-center/changed', { taskId: row.id, action: `cascaded:${status}` })
+    }
+  }
+
+  /**
+   * Lazy sweep: expire past-deadline opens (cascading into their subtrees),
+   * recycle past-lease takens (§4.4, §7.5), and mark open/taken tasks of an
+   * unregistered app `orphaned` together with their whole subtrees (§7.4,
+   * §4.7.7 场景 8).
+   * 懒清扫：过期到点的 open（并向子树级联）、回收过租的 taken（§4.4、§7.5），
+   * 以及把注册表里已查不到应用的任务连同整棵子树标孤儿（§7.4、§4.7.7 场景 8）。
    */
   private async sweep(domain: TaskCenterStore): Promise<void> {
-    const tasks = view(domain.table('tasks'))
+    const index = this.tasks(domain)
     const resolver = this.resolver
     const now = Date.now()
-    for (const row of tasks.all()) {
+    // 快照 id 后逐条取最新：级联会在遍历中途改写后代，避免拿旧对象回写。
+    // Snapshot ids and re-read each row: the cascade rewrites descendants
+    // mid-iteration, so never write back a stale object.
+    for (const id of index.all().map(row => row.id)) {
+      const row = index.get(id)
+      if (row === undefined) continue
       if ((row.status === 'open' || row.status === 'taken') && resolver !== undefined) {
         if (await resolver(row.appId) === undefined) {
-          const next: TaskRecord = { ...row, status: 'orphaned', revision: row.revision + 1, updatedAt: new Date().toISOString() }
-          delete (next as { claimedBy?: unknown }).claimedBy
-          await tasks.put(row.id, next)
+          const { claimedBy: _dropped, ...kept } = row
+          const next: TaskRecord = { ...kept, status: 'orphaned', revision: row.revision + 1, updatedAt: new Date().toISOString() }
+          await this.save(domain, next)
+          await this.cascadeSubtree(domain, next, 'orphaned', 'app uninstalled')
           this.host.emit('task-center/changed', { taskId: row.id, action: 'orphaned' })
           continue
         }
       }
       if (row.status === 'open' && isPast(row.expiresAt, now)) {
-        await tasks.put(row.id, {
-          ...row, status: 'expired', revision: row.revision + 1, updatedAt: new Date().toISOString(),
-        })
+        const next: TaskRecord = { ...row, status: 'expired', revision: row.revision + 1, updatedAt: new Date().toISOString() }
+        await this.save(domain, next)
+        // 父过期 → 子树里 open 后代 expired、taken 后代 cancelled（§4.7.2 规则二）
+        // / an expired parent expires open descendants and cancels taken ones
+        await this.cascadeSubtree(domain, next, 'expired', 'ancestor expired')
         this.host.emit('task-center/changed', { taskId: row.id, action: 'expired' })
       } else if (row.status === 'taken' && isPast(row.claimedBy?.leaseUntil, now)) {
         // claimedBy 是 readonly：用解构摘除该键，不用 as 断言 / destructure to drop the key, no cast
@@ -479,7 +679,7 @@ export class TaskCenterService extends Service implements TaskCenterContract {
         const next: TaskRecord = {
           ...kept, status: 'open', revision: row.revision + 1, updatedAt: new Date().toISOString(),
         }
-        await tasks.put(row.id, next)
+        await this.save(domain, next)
         this.host.emit('task-center/changed', { taskId: row.id, action: 'lease-expired' })
       }
     }

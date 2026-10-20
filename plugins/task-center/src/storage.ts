@@ -85,6 +85,11 @@ const taskSchema = z.object({
   origin: z.object({ sessionId: z.string().min(1) }).optional(),
   idempotencyKey: z.string().min(1).optional(),
   schemaVersion: z.number().int().min(1),
+  // 子任务两列（§4.7.7）：老数据没有 parentId = 根任务，ancestorIds 缺省补空数组
+  // / the two subtask columns (§4.7.7): missing parentId on old rows = root,
+  // and a missing ancestorIds defaults to []
+  parentId: z.string().min(1).optional(),
+  ancestorIds: z.array(z.string()).default([]),
 })
 
 const deliverySchema = z.object({
@@ -109,7 +114,9 @@ const deliverySchema = z.object({
  */
 export const taskCenterDomain = defineDomain({
   name: 'task_center',
-  version: 1,
+  // v2：加 parentId / ancestorIds 两列（§4.7.7），只有加列，向后兼容
+  // / v2: adds the parentId / ancestorIds columns (§4.7.7); additive only
+  version: 2,
   tables: {
     // TaskRecord 的字段是 readonly 视图，schema 校验的是同一份数据形状（一次性收窄）
     tasks: domainTable<string, TaskRecord>(taskSchema as never),

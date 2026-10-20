@@ -16,7 +16,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ApplicationDefinition, AppId, PageKey, AppCapability } from '@veren/app-registry'
-import type { TaskCenterContract, TaskDraft } from '@veren/task-center'
+import type { TaskCenterContract, TaskDraft, TaskId } from '@veren/task-center'
 import type { PageParams } from '@veren/prompt-page'
 import type { TaskStore } from './store.ts'
 import type { ToolOutcome } from './types.ts'
@@ -41,10 +41,23 @@ export const APP_DEFINITION: ApplicationDefinition = {
 
 // ---- 任务接缝 / the task-channel seam ----
 
+/** 子任务创建选项 / options for creating a subtask */
+export interface SplitOptions {
+  /** 调用会话 id；任务中心用它校验“仅当前接取者可拆”（§4.7.6） */
+  readonly claimantSessionId?: string
+  readonly body?: string
+}
+
 /** 任务通道：send 投递任务；available=false 表示任务中心缺席已降级 / the task channel */
 export interface TaskChannel {
   readonly available: boolean
   send(draft: TaskDraft): Promise<{ ok: true } | { ok: false; degraded: true; detail: string }>
+  /** 现拆子任务（§4.7.6）；任务中心缺席时整个方法缺席，调用方降级 */
+  addSubtask?(
+    parentId: string,
+    title: string,
+    opts?: SplitOptions,
+  ): Promise<{ ok: true } | { ok: false; degraded: true; detail: string }>
 }
 
 /**
@@ -57,12 +70,37 @@ export function createTaskChannel(ctx: Context, logger: { warn(message: string):
   // taskCenter may be inactive: ctx.get('taskCenter') is typed via the merged Context;
   // degrade when absent or send-less, with no casts.
   const taskCenter = ctx.get('taskCenter')
-  const send = taskCenter?.send
-  if (typeof send !== 'function') {
+  if (taskCenter === undefined || typeof taskCenter.send !== 'function') {
     logger.warn('task-workbench: ctx.taskCenter is unavailable; publishes degrade to the local store')
     return { available: false, send: sendDegraded }
   }
-  return { available: true, send: (draft) => send.call(taskCenter, draft).then(() => ({ ok: true }) as const) }
+  const send = taskCenter.send
+  const addSubtask = taskCenter.addSubtask
+  return {
+    available: true,
+    send: (draft) => send.call(taskCenter, draft).then(() => ({ ok: true }) as const),
+    // 服务面的 addSubtask 会校验 target 一致与安全上限；父记录在这里解析，
+    // 工具侧只传 id + 标题。/ the service's addSubtask validates target equality
+    // and the safety limits; the parent record is resolved here, the tool only
+    // passes id + title.
+    ...(typeof addSubtask === 'function' ? {
+      addSubtask: async (parentId: string, title: string, opts?: SplitOptions) => {
+        // 本地 id 是普通 string；跨过 brand 边界只此一处收窄 / local ids are plain
+        // strings; this is the one brand-boundary narrowing
+        const parent = await taskCenter.get(parentId as TaskId)
+        if (parent === undefined) {
+          return { ok: false as const, degraded: true as const, detail: `parent task ${parentId} not found in the task center` }
+        }
+        await addSubtask.call(taskCenter, parent.id, {
+          kind: parent.kind,
+          title,
+          target: parent.target,
+          ...(opts?.body === undefined ? {} : { body: opts.body }),
+        }, { ...(opts?.claimantSessionId === undefined ? {} : { claimantSessionId: opts.claimantSessionId }) })
+        return { ok: true as const }
+      },
+    } : {}),
+  }
 }
 
 /** 降级发送：记录并返回结构化失败，不抛异常 / the degraded send: record, return, never throw */
@@ -132,7 +170,52 @@ export function createAppTools(store: TaskStore, channel: TaskChannel): ToolDefi
       execute: async (args) => asJson(await publishTask(store, channel, args)),
       presentCall: args => presentTaskCall('发布任务', args),
     }),
+    defineTool({
+      name: 'split_task',
+      description: '把一个已接取（taken）任务拆成子任务：在它下面新建一条 open 子任务，继承其目标页面。'
+        + '仅当前接取者可用；任务中心会校验安全上限（深度 8 / 单节点 32 子 / 单树 200 节点），'
+        + '超限返回 task/subtree-limit。Split a taken task: create one open subtask under it. '
+        + 'Parameters: task_id, title.',
+      parameters: {
+        ...TASK_ID_PARAM,
+        title: { type: 'string', description: '子任务标题 / subtask title', required: true },
+      },
+      output: { schema: { type: 'object', additionalProperties: true } as const, render: renderValue },
+      execute: async (args, exec) => asJson(await splitTask(store, channel, args, exec)),
+      presentCall: args => presentTaskCall('拆分子任务', args),
+    }),
   ]
+}
+
+/** 拆分：本地 store 记树形事实，任务中心在场时同步建真正的子任务 / split with degrade */
+async function splitTask(
+  store: TaskStore,
+  channel: TaskChannel,
+  args: { task_id?: string; title?: string },
+  exec: { agent?: { session?: { id?: string } } },
+): Promise<ToolOutcome> {
+  const parentId = requireTaskId({ task_id: args?.task_id })
+  const title = typeof args?.title === 'string' ? args.title.trim() : ''
+  if (title.length === 0) return { ok: false, code: 'draft-invalid', detail: 'title is required' }
+  // 本地门槛：只有被接取的节点能拆（工具跑在接取者页面会话里，即树级互斥下的唯一活跃者）
+  // / local gate: only a taken node splits (the tool runs in the claimant's page
+  // session — the tree mutex's one active claimant)
+  const local = store.splitTask(parentId, title)
+  if (local.outcome !== 'ok') {
+    return local.outcome === 'not-found'
+      ? { ok: false, code: 'task-not-found', detail: 'no such task' }
+      : { ok: false, code: 'bad-task-state', detail: 'only a taken task can be split' }
+  }
+  const channelSplit = channel.addSubtask
+  if (channelSplit === undefined) {
+    return { ok: false, degraded: true, code: 'task-center-unavailable', detail: 'task center unavailable; the split stayed in the local store' }
+  }
+  const outcome = await channelSplit(parentId, title, {
+    claimantSessionId: exec.agent?.session?.id,
+  })
+  return outcome.ok
+    ? { ok: true }
+    : { ok: false, degraded: true, code: 'task-center-unavailable', detail: outcome.detail }
 }
 
 /** 发布需要的能力：注册工具时经 define 的 meta 参数声明（不在工具本体上） */
@@ -166,7 +249,7 @@ async function publishTask(store: TaskStore, channel: TaskChannel, args: { title
 }
 
 /** 校验 task_id 参数 / validate the task_id argument */
-function requireTaskId(args: { task_id: string }): string {
+function requireTaskId(args: { task_id?: string }): string {
   const id = args?.task_id
   if (typeof id !== 'string' || id.length === 0) throw new Error('[task-workbench] task_id is required')
   return id

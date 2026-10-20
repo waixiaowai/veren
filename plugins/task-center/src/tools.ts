@@ -20,7 +20,8 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
-import { TaskError } from './service.ts'
+import { TaskError } from './tree.ts'
+import { TaskErrorCode } from './types.ts'
 import type { TaskCenterService } from './service.ts'
 import type { TaskId, TaskRecord } from './types.ts'
 
@@ -84,7 +85,7 @@ function toolError(error: unknown): never {
 }
 
 /**
- * Register the six task tools in the mounting scope.
+ * Register the task tools in the mounting scope.
  * @param ctx - Context owning the `tools` registry.
  * @param port - resolves the service surface the tools act through.
  */
@@ -222,6 +223,36 @@ export function registerTaskTools(ctx: Context, port: () => TaskCenterService): 
           }
         },
         presentCall: args => present('Cancel task', args.id),
+      })),
+      ctx.tools.register(defineTool({
+        name: 'task_split',
+        description: 'Split work: create one subtask under any open node of the task tree your session holds. '
+          + 'Available only while your session holds the tree\u2019s taken task (task/not-claimant otherwise); '
+          + 'the subtask inherits the parent\u2019s target page. Subtask limits: depth 8, 32 children per node, '
+          + '200 nodes per tree; exceeding them returns task/subtree-limit.',
+        parameters: {
+          parent_id: { type: 'string', required: true, description: 'Task id of the open node to split.' },
+          title: { type: 'string', required: true, description: 'Short title of the new subtask.' },
+          body: { type: 'string', description: 'Optional details for the subtask.' },
+        },
+        output: { schema: TASK_SCHEMA, render: renderValue },
+        async execute(args, exec) {
+          try {
+            const parent = await port().get(args.parent_id as TaskId)
+            if (parent === undefined) throw new TaskError(TaskErrorCode.ParentGone, `task ${args.parent_id} not found`)
+            const kind: TaskRecord['kind'] = parent.kind
+            const subtask = await port().addSubtask(parent.id, {
+              kind,
+              title: args.title,
+              ...(args.body === undefined ? {} : { body: args.body }),
+              target: parent.target,
+            }, { claimantSessionId: callerSession(exec.agent) })
+            return jsonOf({ task: subtask })
+          } catch (error: unknown) {
+            toolError(error)
+          }
+        },
+        presentCall: args => present('Split task', args.parent_id),
       })),
     ]
     return () => { for (const dispose of disposers.reverse()) dispose() }

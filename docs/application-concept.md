@@ -887,9 +887,14 @@ Results carry a summary and references, not bulk content.
 | App uninstalled | Mark tasks `orphaned`; open/complete refused | `task/orphaned` |
 | Target page missing | Task stays `open`; report that the app needs an update | `task/target-gone` |
 | Task expired | Open refused; inbox shows expired | `task/expired` |
-| Already taken by someone else | Open refused; show the claimant | `task/already-taken` |
+| Already taken by someone else | Open refused; show the claimant. With subtasks this also covers "another Session holds a `taken` node anywhere in this task tree" (§4.7.3) | `task/already-taken` |
 | Completing Session is not the claimant | Refuse; return to the claiming Session or use a user action | `task/not-claimant` |
-| Same Session already has an unfinished task | Refuse; complete or release the old task first | `task/another-active` |
+| Another task tree on the same canonical URL already has an active claimant (tree-level mutex, §4.7.3) | Refuse the take on any node of the other tree | `task/another-active` |
+| The subtree still has a non-terminal descendant when the parent completes | Refuse; resolve the descendants first (§4.7.2 rule 1) | `task/children-active` |
+| A subtree safety limit is exceeded (depth ≤ 8, ≤ 32 children per node, ≤ 200 nodes per tree) | Refuse the split, carrying `{ kind: 'depth' \| 'width' \| 'size', limit, actual }` | `task/subtree-limit` |
+| The subtask target differs from its parent's target | Refuse the split | `task/subtask-target-mismatch` |
+| The parent task to split no longer exists | Refuse the split | `task/parent-gone` |
+| An ancestor was cancelled / expired / orphaned | The whole non-terminal subtree cascades into the matching terminal state; the reason is written into each record | `task/cascade-cancelled` |
 | Page tool collides with an existing tool | Fail before creating the Session; no half Session | `page/tool-conflict` |
 | Page references an unknown tool | Fail loud at registration; page marked broken | `page/unknown-tool` |
 | Page tool capability is not granted | Refuse before creating the Session | `app/permission-denied` |

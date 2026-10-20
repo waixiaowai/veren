@@ -156,16 +156,25 @@ describe('lease lifecycle', () => {
     await dispose()
   })
 
-  it('refuses two active tasks on the same URL for one session but not across sessions', async () => {
+  it('keeps tree-level mutex across trees on one url, and leaves other urls alone (§4.7.3)', async () => {
     const { ctx, fiber, dispose } = await boot(tempRoot())
     await fiber
+    // 同 URL 两棵树：一棵有活跃接取者，另一棵整树都接不了（跨树互斥）
+    // / two trees on one url: an active claimant on one blocks the whole other tree
     const one = await ctx.taskCenter.send(draft())
     const two = await ctx.taskCenter.send(draft({ title: 'Second look' }))
     const lease = new Date(Date.now() + HOUR).toISOString()
     await ctx.taskCenter.take(one.id, { sessionId: 's1', actor: 'agent', leaseUntil: lease })
     expect(await errorOf(ctx.taskCenter.take(two.id, { sessionId: 's1', actor: 'agent', leaseUntil: lease })))
       .toBe(TaskErrorCode.AnotherActive)
-    await ctx.taskCenter.take(two.id, { sessionId: 's2', actor: 'agent', leaseUntil: lease })
+    expect(await errorOf(ctx.taskCenter.take(two.id, { sessionId: 's2', actor: 'agent', leaseUntil: lease })))
+      .toBe(TaskErrorCode.AnotherActive)
+    // 不同 URL 的树互不影响 / trees on different urls never interfere
+    const otherUrl = await ctx.taskCenter.send(draft({ target: {
+      url: '/apps/review-workbench/review/pr-43' as PageInstanceKey,
+      appId: 'review-workbench', page: 'review', params: { pr: '43' },
+    } }))
+    await ctx.taskCenter.take(otherUrl.id, { sessionId: 's2', actor: 'agent', leaseUntil: lease })
     await dispose()
   })
 

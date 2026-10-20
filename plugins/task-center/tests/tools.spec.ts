@@ -63,10 +63,10 @@ function draftTask(): Parameters<TaskCenterService['send']>[0] {  return {
 const HOUR = 60 * 60 * 1000
 
 describe('task_* tools', () => {
-  it('registers exactly the six contract tools', () => {
+  it('registers exactly the contract tools', () => {
     const { byName } = boot()
     expect([...byName.keys()].sort()).toEqual([
-      'task_cancel', 'task_complete', 'task_fail', 'task_get', 'task_list', 'task_take',
+      'task_cancel', 'task_complete', 'task_fail', 'task_get', 'task_list', 'task_split', 'task_take',
     ])
   })
 

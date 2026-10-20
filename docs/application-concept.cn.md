@@ -1031,9 +1031,14 @@ TASK 块只在任务成功接取并绑定到会话时追加一次；同一 URL �
 | 应用已卸载 | 任务标 `orphaned`；打开/完成被拒 | `task/orphaned` |
 | 目标页面不存在 | 任务留在 `open`，提示应用需要更新 | `task/target-gone` |
 | 任务已过期 | 打开被拒，收件箱显示已过期 | `task/expired` |
-| 任务已被别人接取 | 打开被拒，显示接取者 | `task/already-taken` |
+| 任务已被别人接取 | 打开被拒，显示接取者；子任务后也覆盖“同树任意层已被别的会话持有”（§4.7.3） | `task/already-taken` |
 | 完成者不是接取者 | 拒绝，提示回到接取会话或走用户动作 | `task/not-claimant` |
-| 同一会话已有未结束任务 | 拒绝，提示先完成或释放旧任务 | `task/another-active` |
+| 同一规范 URL 上另一棵任务树已有活跃接取者（树级互斥，§4.7.3） | 拒绝对另一棵树任意节点的接取 | `task/another-active` |
+| 父任务完成时子树仍有非终态后代 | 拒绝；先处理子任务（§4.7.2 规则一） | `task/children-active` |
+| 超出子树安全上限（深度 ≤ 8、单节点 ≤ 32 子、单树 ≤ 200 节点） | 拒绝拆分，携带 `{ kind: 'depth' \| 'width' \| 'size', limit, actual }` | `task/subtree-limit` |
+| 子任务 target 与父任务不一致 | 拒绝拆分 | `task/subtask-target-mismatch` |
+| 要拆分的父任务已不存在 | 拒绝拆分 | `task/parent-gone` |
+| 祖先被取消/过期/判孤儿 | 整棵非终态子树级联进入对应终态，理由写入每条记录 | `task/cascade-cancelled` |
 | 页面工具和已有工具重名 | 在创建会话之前失败，不留下半条会话 | `page/tool-conflict` |
 | 页面引用了不存在的工具 | 注册期 fail loud，页面标 broken | `page/unknown-tool` |
 | 页面工具能力未授权 | 在创建会话之前拒绝 | `app/permission-denied` |

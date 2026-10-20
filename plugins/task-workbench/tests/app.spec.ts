@@ -19,12 +19,19 @@ import { detailPage, listPage, publishPage } from '../src/pages.tsx'
 /** 假任务中心：记录 send 调用 / a fake task center recording send calls */
 function fakeTaskCenter() {
   const sent: Array<Record<string, unknown>> = []
+  const splits: Array<Record<string, unknown>> = []
   return {
     sent,
+    splits,
     contract: {
       send: async (draft: Record<string, unknown>) => {
         sent.push(draft)
         return { id: 'task-1', status: 'open' }
+      },
+      get: async (id: string) => ({ id, kind: 'task-workbench/publish', target: { url: `/apps/task-workbench/task/${id}`, appId: 'task-workbench', page: 'detail', params: {} } }),
+      addSubtask: async (parentId: string, draft: Record<string, unknown>) => {
+        splits.push({ parentId, draft })
+        return { id: 'task-2', status: 'open', parentId }
       },
     },
   }
@@ -37,6 +44,7 @@ async function install(options: { taskCenter?: boolean } = {}): Promise<{
   pageRegistry: PageRegistryService
   fiber: Fiber
   sent: Array<Record<string, unknown>>
+  splits: Array<Record<string, unknown>>
 }> {
   const ctx = new Context()
   // 缺口 3 收敛后的真实接线：两个注册表服务挂在同一个宿主上下文上，
@@ -55,7 +63,7 @@ async function install(options: { taskCenter?: boolean } = {}): Promise<{
   if (options.taskCenter) ctx.provide('taskCenter', sent.contract as never)
   const fiber = ctx.plugin({ name, inject, apply }, { listSize: 3 })
   await fiber
-  return { ctx, apps, pageRegistry, fiber, sent: sent.sent }
+  return { ctx, apps, pageRegistry, fiber, sent: sent.sent, splits: sent.splits }
 }
 
 const disposers: (() => Promise<void>)[] = []
@@ -107,6 +115,7 @@ describe('应用可被发现与解析', () => {
       'task_workbench__complete_task',
       'task_workbench__abandon_task',
       'task_workbench__publish_task',
+      'task_workbench__split_task',
     ])
   })
 })
@@ -147,6 +156,33 @@ describe('任务接缝', () => {
     expect(await toolOf('abandon_task').execute({ task_id: 't-1' }, {} as never)).toMatchObject({ ok: true })
     expect(await toolOf('complete_task').execute({ task_id: 'ghost' }, {} as never))
       .toMatchObject({ ok: false, code: 'task-not-found' })
+  })
+})
+
+describe('拆分子任务（§4.7.6/§4.7.8）', () => {
+  const toolOf = (apps: AppRegistryService, toolName: string) =>
+    apps.listTools(APP_ID as AppId).find((tool) => tool.name === toolName)!
+
+  it('taskCenter 在场：split_task 走 addSubtask，父 id 与标题透传', async () => {
+    const { apps, fiber, splits } = await install({ taskCenter: true })
+    disposers.push(() => fiber.dispose())
+    // 本地门槛：只有 taken 节点能拆 / local gate: taken nodes only
+    expect(await toolOf(apps, 'split_task').execute({ task_id: 't-1', title: '子步骤' }, {} as never))
+      .toMatchObject({ ok: false, code: 'bad-task-state' })
+    expect(await toolOf(apps, 'take_task').execute({ task_id: 't-1' }, {} as never)).toMatchObject({ ok: true })
+    expect(await toolOf(apps, 'split_task').execute({ task_id: 't-1', title: '子步骤' }, {} as never))
+      .toMatchObject({ ok: true })
+    expect(splits).toHaveLength(1)
+    expect(splits[0]).toMatchObject({ parentId: 't-1', draft: { title: '子步骤' } })
+  })
+
+  it('taskCenter 缺席：split_task 降级（degraded 标记），树形事实留在本地 store', async () => {
+    const { apps, fiber } = await install()
+    disposers.push(() => fiber.dispose())
+    await toolOf(apps, 'take_task').execute({ task_id: 't-1' }, {} as never)
+    const outcome = await toolOf(apps, 'split_task').execute({ task_id: 't-1', title: '子步骤' }, {} as never) as { ok: boolean; degraded?: boolean }
+    expect(outcome.ok).toBe(false)
+    expect(outcome.degraded).toBe(true)
   })
 })
 

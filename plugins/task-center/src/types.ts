@@ -84,6 +84,21 @@ export interface TaskRecord {
   readonly idempotencyKey?: string
   /** 持久化格式版本 / persistence schema version */
   readonly schemaVersion: number
+  /**
+   * 直接父任务 id；缺省 = 根任务（§4.7.1）。只在创建子任务时写一次，之后不可变——
+   * 没有任何接口能改它，环因此结构上不可能。/ direct parent id; absent = root.
+   * Written once at creation, immutable afterwards — no API can change it,
+   * which is what makes cycles structurally impossible.
+   */
+  readonly parentId?: TaskId
+  /**
+   * 从根到直接父的 id 数组（根任务为 `[]`，孙任务为 `[根id, 父id]`），随创建一次定型。
+   * 整棵子树的操作（级联/完成校验/互斥）都走它的前缀查询。
+   * / ids from the root to the direct parent (root: [], grandchild: [root, parent]),
+   * fixed at creation; every whole-subtree operation (cascade, completion check,
+   * tree mutex) is one prefix query over it.
+   */
+  readonly ancestorIds: readonly TaskId[]
 }
 
 /** 发送草稿 / task draft for send() */
@@ -108,6 +123,18 @@ export interface TaskQuery {
 /** TaskCenterService 的方法签名契约 / method-signature contract of TaskCenterService */
 export interface TaskCenterContract {
   send(draft: TaskDraft): Promise<TaskRecord>
+  /**
+   * 在 `parentId` 下新建一条子任务（§4.7.6 第 1 阶段唯一的拆分入口）。
+   * 父指针不可变：本方法永远创建新记录，不做任何改挂。
+   * / create one subtask under `parentId` (the only split entry in phase 1).
+   * The parent pointer is immutable: this always creates a new record,
+   * never re-parents.
+   */
+  addSubtask(
+    parentId: TaskId,
+    draft: TaskDraft,
+    opts?: { readonly claimantSessionId?: string },
+  ): Promise<TaskRecord>
   list(query: TaskQuery): Promise<readonly TaskRecord[]>
   get(id: TaskId): Promise<TaskRecord | undefined>
   /** 接取是 CAS（比较 revision）；写租约 / take is CAS on revision with a lease */
@@ -125,11 +152,11 @@ export const TaskErrorCode = {
   Expired: 'task/expired',
   /** 任务不存在 / task not found */
   NotFound: 'task/not-found',
-  /** 已被别的接取者拿走 / already taken by another claimant */
+  /** 已被别的接取者拿走；子任务后也覆盖“同树已被别的会话持有”（§4.7.3）/ taken by another claimant; after subtasks also "the tree is held by another session" */
   AlreadyTaken: 'task/already-taken',
   /** 租约过期被回收 / lease expired and recycled */
   LeaseExpired: 'task/lease-expired',
-  /** 同一会话已有未结束任务 / another active task on the same page session */
+  /** 同一规范 URL 上其它任务树已有活跃接取者（跨树互斥，§4.7.3）/ another task tree on the same url has an active claimant (cross-tree mutex) */
   AnotherActive: 'task/another-active',
   /** 目标页面已不存在 / target page gone */
   TargetGone: 'task/target-gone',
@@ -139,6 +166,35 @@ export const TaskErrorCode = {
   SendForbidden: 'task/send-forbidden',
   /** 标题/正文/参数超限 / limits exceeded */
   DraftInvalid: 'task/draft-invalid',
+  /** 改写 taken 任务的不是接取者 / the caller is not the claimant */
+  NotClaimant: 'task/not-claimant',
+  /** 任务属于已卸载应用 / task belongs to an uninstalled app */
+  Orphaned: 'task/orphaned',
+  /** 任务处于不允许迁移的状态 / task is in a state that forbids the migration */
+  InvalidState: 'task/invalid-state',
+  /** 父任务完成时子树仍有非终态后代（§4.7.2 规则一）/ the subtree still has non-terminal descendants at parent completion */
+  ChildrenActive: 'task/children-active',
+  /** 超出子树安全上限：深度/宽度/节点数（§4.7.1）/ a subtree safety limit (depth/width/size) is exceeded */
+  SubtreeLimit: 'task/subtree-limit',
+  /** 子任务 target.url 与父任务不一致 / the subtask target.url differs from its parent's */
+  SubtaskTargetMismatch: 'task/subtask-target-mismatch',
+  /** 要拆的父任务已不存在 / the parent task to split no longer exists */
+  ParentGone: 'task/parent-gone',
+  /** 因祖先取消/过期/孤儿而级联进入终态 / cascaded into a terminal state because an ancestor was cancelled/expired/orphaned */
+  CascadeCancelled: 'task/cascade-cancelled',
 } as const
 
 export type TaskErrorCode = (typeof TaskErrorCode)[keyof typeof TaskErrorCode]
+
+/**
+ * `task/subtree-limit` 拒绝时携带的机器可读明细（§4.7.1）。
+ * The machine-readable detail a `task/subtree-limit` refusal carries.
+ */
+export interface SubtreeLimitDetail {
+  /** 超的是哪条上限 / which limit was hit */
+  readonly kind: 'depth' | 'width' | 'size'
+  /** 上限值 / the limit */
+  readonly limit: number
+  /** 触发时的实际值 / the actual value at trigger time */
+  readonly actual: number
+}
