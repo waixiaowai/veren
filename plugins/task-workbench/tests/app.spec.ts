@@ -111,7 +111,7 @@ describe('任务接缝', () => {
     const { apps, fiber } = await install()
     disposers.push(() => fiber.dispose())
     const publish = apps.listTools(APP_ID as AppId).find((tool) => tool.name === 'publish_task')
-    const outcome = await publish?.execute({ title: '评审 PR #7' }, undefined) as { ok: boolean; degraded?: boolean }
+    const outcome = await publish?.execute({ title: '评审 PR #7' }, {} as never) as { ok: boolean; degraded?: boolean }
     expect(outcome.ok).toBe(false)
     expect(outcome.degraded).toBe(true)
   })
@@ -120,7 +120,7 @@ describe('任务接缝', () => {
     const { apps, fiber, sent } = await install({ taskCenter: true })
     disposers.push(() => fiber.dispose())
     const publish = apps.listTools(APP_ID as AppId).find((tool) => tool.name === 'publish_task')
-    const outcome = await publish?.execute({ title: '评审 PR #7' }, undefined) as { ok: boolean }
+    const outcome = await publish?.execute({ title: '评审 PR #7' }, {} as never) as { ok: boolean }
     expect(outcome.ok).toBe(true)
     expect(sent).toHaveLength(1)
     expect(sent[0]).toMatchObject({
@@ -134,13 +134,13 @@ describe('任务接缝', () => {
     disposers.push(() => fiber.dispose())
     const toolOf = (toolName: string) =>
       apps.listTools(APP_ID as AppId).find((tool) => tool.name === toolName)!
-    expect(await toolOf('complete_task').execute({ task_id: 't-1' }, undefined))
+    expect(await toolOf('complete_task').execute({ task_id: 't-1' }, {} as never))
       .toMatchObject({ ok: false, code: 'bad-task-state' })
-    expect(await toolOf('take_task').execute({ task_id: 't-1' }, undefined)).toMatchObject({ ok: true })
-    expect(await toolOf('take_task').execute({ task_id: 't-1' }, undefined))
+    expect(await toolOf('take_task').execute({ task_id: 't-1' }, {} as never)).toMatchObject({ ok: true })
+    expect(await toolOf('take_task').execute({ task_id: 't-1' }, {} as never))
       .toMatchObject({ ok: false, code: 'bad-task-state' })
-    expect(await toolOf('abandon_task').execute({ task_id: 't-1' }, undefined)).toMatchObject({ ok: true })
-    expect(await toolOf('complete_task').execute({ task_id: 'ghost' }, undefined))
+    expect(await toolOf('abandon_task').execute({ task_id: 't-1' }, {} as never)).toMatchObject({ ok: true })
+    expect(await toolOf('complete_task').execute({ task_id: 'ghost' }, {} as never))
       .toMatchObject({ ok: false, code: 'task-not-found' })
   })
 })

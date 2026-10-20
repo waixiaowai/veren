@@ -334,14 +334,21 @@ Tools are defined in the app-level catalog; pages only reference local names:
 
 ```ts
 // The app registers its tool catalog when it activates (illustrative).
+// Tool bodies are DSH `ToolDefinition`s produced by `defineTool` from
+// @deepseek-ai/dsh-tools — no second tool shape. App-side metadata such as
+// capabilities rides the registrar's second argument (recorded, not enforced,
+// in phase 1).
 const tools = ctx.apps.tools('review-workbench')
-tools.define({
-  name: 'read_diff',
-  description: 'Read the diff of the current PR',
-  parameters: { pr: { type: 'string', required: true } },
-  requires: ['files:read'],
-  execute: async (args, exec) => readDiff(args.pr, exec),
-})
+tools.define(
+  defineTool({
+    name: 'read_diff',
+    description: 'Read the diff of the current PR',
+    parameters: { pr: { type: 'string', required: true } },
+    output: { schema: { type: 'object', additionalProperties: true }, render: renderValue },
+    execute: async (args, exec) => readDiff(args.pr, exec),
+  }),
+  { requires: ['files:read'] },
+)
 ```
 
 When a page Session's agent is created or resumed, the page runtime registers the tools for the Session's bound page on `agent.ctx` as part of that create/resume flow:
@@ -1214,13 +1221,11 @@ interface ApplicationRecord {
   readonly brokenReason?: string
 }
 
-/** App tool catalog: definitions at app level; pages reference local names. */
-interface AppToolDefinition {
-  readonly name: string
-  readonly description: string
-  readonly parameters: Record<string, unknown>
-  readonly requires?: readonly AppCapability[]
-  execute(args: unknown, exec: ToolExecution): Promise<unknown>
+/** App tool catalog: DSH's `ToolDefinition` verbatim (a `defineTool` product). */
+type AppToolDefinition = ToolDefinition
+/** App-side metadata rides the registrar, not the DSH type; recorded, not enforced, in phase 1. */
+interface AppToolRegistrar {
+  define(tool: ToolDefinition, meta?: { requires?: readonly AppCapability[] }): () => void
 }
 
 /** Fields a page author writes. */

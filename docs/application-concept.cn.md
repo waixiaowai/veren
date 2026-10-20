@@ -342,15 +342,20 @@ ctx.apps.register({
 页面工具的定义在应用级目录，页面只列本地名：
 
 ```ts
-// 应用激活时注册工具目录（示意）
+// 应用激活时注册工具目录（示意）。工具本体直接用 @deepseek-ai/dsh-tools 的
+// defineTool 产出（DSH ToolDefinition），不另造形状；能力等应用侧元数据走
+// define 的第二个参数，第 1 阶段只记录、不强制。
 const tools = ctx.apps.tools('review-workbench')
-tools.define({
-  name: 'read_diff',
-  description: '读取当前 PR 的 diff',
-  parameters: { pr: { type: 'string', required: true } },
-  requires: ['files:read'],
-  execute: async (args, exec) => readDiff(args.pr, exec),
-})
+tools.define(
+  defineTool({
+    name: 'read_diff',
+    description: '读取当前 PR 的 diff',
+    parameters: { pr: { type: 'string', required: true } },
+    output: { schema: { type: 'object', additionalProperties: true }, render: renderValue },
+    execute: async (args, exec) => readDiff(args.pr, exec),
+  }),
+  { requires: ['files:read'] },
+)
 ```
 
 当一条页面会话的 agent 被创建或恢复时，页面运行时在创建/恢复流程里按会话绑定的页面，把这些工具注册到 `agent.ctx` 上：
@@ -1242,13 +1247,11 @@ interface ApplicationRecord {
   readonly brokenReason?: string
 }
 
-/** 应用工具目录：定义在应用级，页面只引用本地名。 */
-interface AppToolDefinition {
-  readonly name: string
-  readonly description: string
-  readonly parameters: Record<string, unknown>
-  readonly requires?: readonly AppCapability[]
-  execute(args: unknown, exec: ToolExecution): Promise<unknown>
+/** 应用工具目录：直接复用 DSH 的 ToolDefinition（@deepseek-ai/dsh-tools 的 defineTool 产物）。 */
+type AppToolDefinition = ToolDefinition
+/** 能力等应用侧元数据在注册面声明，不塞进 DSH 类型；第 1 阶段只记录不强制。 */
+interface AppToolRegistrar {
+  define(tool: ToolDefinition, meta?: { requires?: readonly AppCapability[] }): () => void
 }
 
 /** 页面作者写的字段。 */

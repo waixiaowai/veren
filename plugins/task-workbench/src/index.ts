@@ -13,9 +13,10 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import type { AppCapability } from '@veren/app-registry'
 import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
-import { APP_DEFINITION, APP_ID, createAppTools, createTaskChannel } from './app.ts'
+import { APP_DEFINITION, APP_ID, createAppTools, createTaskChannel, PUBLISH_TASK_REQUIRES } from './app.ts'
 import { detailPage, listPage, publishPage } from './pages.tsx'
 import { TaskStore, makeList } from './store.ts'
 
@@ -43,10 +44,12 @@ export const apply = (ctx: Context, config: Config): void => {
   //    且镜像面会先摘该应用所有活会话的页面工具（会话保留）
   ctx.effect(() => apps.register(APP_DEFINITION, ctx), 'task-workbench:app')
 
-  // 2) 工具目录先于页面：页面 tools 字段引用的本地名必须已在目录里（fail loud）
+  // 2) 工具目录先于页面：defineTool 产物进应用目录（DSH ToolDefinition 本体，
+  //    字段零转换）；publish 需要 tasks:send 能力，经 define 的 meta 参数声明
   const tools = apps.tools(APP_ID, ctx)
   for (const tool of createAppTools(store, channel)) {
-    ctx.effect(() => tools.define(tool), `task-workbench:tool:${tool.name}`)
+    ctx.effect(() => tools.define(tool, tool.name === 'publish_task' ? { requires: [...PUBLISH_TASK_REQUIRES] as AppCapability[] } : undefined),
+      `task-workbench:tool:${tool.name}`)
   }
 
   // 3) 页面注册：单入口。app-registry 内部镜像进 page-registry（可被 openUrl

@@ -14,6 +14,7 @@
  * @module @veren/page-registry/runtime
  */
 import { PageError, PageErrorCode, canonicalizePageUrl } from '@veren/prompt-page'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { PageInstanceIndex, PageInstanceKey, PageMatch } from '@veren/prompt-page'
 
 /** 运行时看到的应用记录（A 的 AppRecord 的最小面）/ minimal app-record face */
@@ -30,16 +31,16 @@ export interface AppFace {
   get(id: string): RuntimeAppRecord | undefined
 }
 
-/** 应用工具目录面 / app tool catalog face */
-export type ToolsFace = (appId: string) => ReadonlyMap<string, PageToolSpec>
+/** 应用工具目录面：本地名 → DSH `ToolDefinition` 本体 / app tool catalog: local name → DSH definition */
+export type ToolsFace = (appId: string) => ReadonlyMap<string, ToolDefinition>
 
-/** 页面工具规格（A 的 AppToolDefinition 最小面）/ minimal app tool spec */
-export interface PageToolSpec {
-  readonly name: string
-  readonly description: string
-  readonly parameters: Record<string, unknown>
-  readonly execute: (args: unknown, exec: unknown) => Promise<unknown>
-}
+/**
+ * 挂进会话的页面工具：就是 DSH `ToolDefinition` 本体，唯一改动是把 `name`
+ * 换成对外名（`<toolPrefix>__<本地名>`）——字段零删减，不是形状转换。
+ * A mounted page tool IS the DSH definition; only `name` is renamed to the
+ * external form — no field is dropped, so this is not a shape conversion.
+ */
+export type MountedTool = ToolDefinition
 
 /** 任务中心面（B 的 TaskCenterContract.take）/ minimal task-center face */
 export interface TaskFace {
@@ -57,13 +58,7 @@ export interface DeliveryFace {
   mark(deliveryId: string, error?: string): Promise<unknown>
 }
 
-/** 挂进会话的工具（对外名已带前缀）/ a tool as mounted into a session */
-export interface MountedTool {
-  readonly name: string
-  readonly description: string
-  readonly parameters: Record<string, unknown>
-  readonly execute: (args: unknown, exec: unknown) => Promise<unknown>
-}
+/** 挂进会话的工具：就是 DSH `ToolDefinition` 本体（见文件顶部 MountedTool 别名）/ a mounted tool IS the DSH definition */
 
 /**
  * 会话端口：运行时对 DSH 会话机制的全部假设收在这一个面上。
@@ -128,7 +123,7 @@ export function externalToolName(toolPrefix: string, localName: string): string 
   return `${toolPrefix}__${localName}`
 }
 
-/** 把页面声明的本地工具名解析成带前缀的挂载清单 / resolve page tools into mounted specs */
+/** 把页面声明的本地工具名解析成挂载清单：DSH 本体只改 name（§3.4.3）/ resolve local names to mounted DSH definitions */
 function resolveMountedTools(
   app: RuntimeAppRecord,
   match: PageMatch<never>,
@@ -145,7 +140,9 @@ function resolveMountedTools(
     if (spec === undefined) {
       throw new PageError(PageErrorCode.UnknownTool, `page "${match.page.name}" references unknown tool "${localName}" of app "${app.id}"`)
     }
-    return { name: externalToolName(app.toolPrefix, localName), description: spec.description, parameters: spec.parameters, execute: spec.execute }
+    // 唯一允许的"转换"：改名。字段原样保留（含 output/presentCall 等 DSH 契约）。
+    // The one permitted change: the name. Every DSH field is preserved verbatim.
+    return { ...spec, name: externalToolName(app.toolPrefix, localName) }
   })
 }
 

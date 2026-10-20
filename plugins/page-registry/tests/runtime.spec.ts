@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import { Context } from '@deepseek-ai/cordis'
 import { KvPageInstanceIndex, PageError, definePage } from '@veren/prompt-page'
 import type { InstanceKvPort } from '@veren/prompt-page'
@@ -80,7 +81,12 @@ function makeService(options: {
   service.bindPorts({
     sessions: sessions.port,
     ...(options.withApps === false ? {} : { apps: { get: () => app } }),
-    toolsOf: () => new Map([['read', { name: 'read', description: '读材料', parameters: {}, execute: async () => 'ok' }]]),
+    // 目录值就是 DSH ToolDefinition 本体（defineTool 产物）/ the catalog value IS a DSH ToolDefinition
+    toolsOf: () => new Map([['read', defineTool({
+      name: 'read', description: '读材料', parameters: {},
+      output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+      execute: async () => ({ ok: true }),
+    })]]),
     ...(options.tasks === undefined ? {} : { tasks: { take: (id: string, claim: never) => options.tasks!.take(id, claim) } }),
   }, new KvPageInstanceIndex(kv, { sessionExists: (id) => sessions.port.exists(id) }))
   return { service, kv, sessions, dispose }

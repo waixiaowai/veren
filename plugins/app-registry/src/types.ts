@@ -7,6 +7,7 @@
  * This file is the contract between session A (the app-registry implementer)
  * and the other sessions; field semantics follow the design doc §2.3/§3.1/§6.2.
  */
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { PageDefinition } from '@veren/prompt-page'
 
 /** 应用 id：安装后稳定，进入页面 URL、存储域、任务 kind、工具前缀 / stable app identity */
@@ -23,7 +24,8 @@ export const RESERVED_APP_IDS: readonly string[] = ['api', 'apps', 'system', '__
 
 /**
  * 应用定义（运行时权威面）。
- * `requires` 是本应用声明的全局能力；页面工具级的能力检查在 `AppToolDefinition.requires`。
+ * `requires` 是本应用声明的全局能力；页面工具级的能力在 `define(tool, { requires })`
+ * 的注册元参数上声明（工具本体保持纯 DSH `ToolDefinition` 形状）。
  */
 export interface ApplicationDefinition {
   /** 稳定 slug：小写字母开头，仅小写字母/数字/连字符，≤32 字符，不占保留字 */
@@ -55,15 +57,20 @@ export interface AppRecord {
   readonly brokenReason?: string
 }
 
-/** 页面工具定义（应用级目录；最终名 = `<toolPrefix>__<name>`）/ app-scoped tool definition */
-export interface AppToolDefinition {
-  /** 本地名：应用内唯一，≤24 字符 / local name, unique within the app */
-  readonly name: string
-  readonly description: string
-  readonly parameters: Record<string, unknown>
-  /** 调用此工具需要的能力 / capabilities required to call this tool */
+/**
+ * 工具定义直接复用 DSH 的 `ToolDefinition`（`@deepseek-ai/dsh-tools` 的
+ * `defineTool` 产物）：名称/描述/参数/输出契约/执行体只有一种形状，应用目录
+ * 不是第二套工具类型。能力等注册期元数据走 {@link AppToolRegistrar.define}
+ * 的第二个参数，不塞进 DSH 类型。
+ * Tool definitions reuse DSH's `ToolDefinition` verbatim — the app catalog is
+ * not a second tool type. Capability metadata rides the registrar, not DSH.
+ */
+/** 应用工具目录条目：DSH 工具本体 + 注册期元数据 / catalog entry: DSH tool + registration meta */
+export interface AppToolEntry {
+  /** 工具本体（defineTool 产物，未改字段）/ the DSH definition itself, fields untouched */
+  readonly tool: ToolDefinition
+  /** 第 1 阶段只记录不强制的能力声明 / capability declaration, recorded not enforced in phase 1 */
   readonly requires?: readonly AppCapability[]
-  readonly execute: (args: unknown, exec: unknown) => Promise<unknown>
 }
 
 /** 页面注册面：只有应用自己能拿到 / app-scoped page registrar */
@@ -87,8 +94,13 @@ export interface PageMirrorFace {
 
 /** 工具目录注册面 / app-scoped tool registrar */
 export interface AppToolRegistrar {
-  /** 定义工具：本地名重复 fail loud（app/tool-duplicate） */
-  define(tool: AppToolDefinition): () => void
+  /**
+   * 定义工具：本体必须是 `defineTool` 产物；本地名重复 fail loud（app/tool-duplicate）。
+   * `requires` 等应用侧元数据放这里，工具本体保持纯 DSH 形状（第 1 阶段只记录不强制）。
+   * The tool body must come from `defineTool`; app-side metadata rides here so
+   * the DSH shape stays pure (recorded, not enforced, in phase 1).
+   */
+  define(tool: ToolDefinition, meta?: { readonly requires?: readonly AppCapability[] }): () => void
 }
 
 /** 应用侧稳定错误码 / stable application error codes */

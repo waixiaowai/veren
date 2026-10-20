@@ -1086,6 +1086,12 @@ importers:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
         version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
+      '@deepseek-ai/dsh-llm':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-tools':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(9bb9306ec6116b5b4a69855dd05249c5)
       '@veren/prompt-page':
         specifier: workspace:^
         version: link:../../packages/prompt-page
@@ -1628,6 +1634,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
         version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
+      '@deepseek-ai/dsh-llm':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
       '@deepseek-ai/dsh-storage-domain':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-storage@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))
@@ -2180,6 +2189,12 @@ importers:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
         version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
+      '@deepseek-ai/dsh-llm':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-tools':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(9bb9306ec6116b5b4a69855dd05249c5)
       '@veren/app-registry':
         specifier: workspace:^
         version: link:../app-registry

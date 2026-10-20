@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import { Context } from '@deepseek-ai/cordis'
 import type { PageDefinition } from '@veren/prompt-page'
 import { AppErrorCode, AppRegistryError, AppRegistryService } from '../src/index.ts'
@@ -8,6 +9,17 @@ import type { AppId, ApplicationDefinition } from '../src/index.ts'
 /** 最小应用定义 / minimal app definition */
 function appDef(id: string): ApplicationDefinition {
   return { id: id as AppId, name: id, description: `app ${id}`, entry: 'main' as never }
+}
+
+/** defineTool 产物：目录测试通用的最小工具 / minimal defineTool product for catalog tests */
+function makeTool(name: string) {
+  return defineTool({
+    name,
+    description: 'd',
+    parameters: {},
+    output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+    execute: async () => ({}),
+  })
 }
 
 /** 最小页面定义 / minimal page definition */
@@ -32,7 +44,7 @@ describe('fiber 归属与生命周期', () => {
     const fiber = await root.plugin((ctx: Context) => {
       dispose = apps.register(appDef('todo'), ctx)
       apps.pages('todo' as AppId, ctx).register(pageDef('todo', 'main'))
-      apps.tools('todo' as AppId, ctx).define({ name: 'add', description: 'd', parameters: {}, execute: async () => null })
+      apps.tools('todo' as AppId, ctx).define(makeTool('add'))
     })
     expect(apps.catalog()).toHaveLength(1)
     expect(apps.listPages('todo' as AppId)).toHaveLength(1)
@@ -91,7 +103,7 @@ describe('宿主引导工具 app_list / app_pages', () => {
     apps.pages('todo' as AppId).register(pageDef('todo', 'main'))
     apps.register(appDef('ghost-app'))
     const tools = createBootstrapTools(apps)
-    const result = await tools.appList.execute(undefined, undefined) as { apps: Array<Record<string, unknown>> }
+    const result = await tools.appList.execute({}, {} as never) as { apps: Array<Record<string, unknown>> }
     const todo = result.apps.find((app) => app.id === 'todo')
     const ghost = result.apps.find((app) => app.id === 'ghost-app')
     expect(todo).toMatchObject({ state: 'active', entryUrl: '/apps/todo/main', toolPrefix: 'todo' })
@@ -102,10 +114,10 @@ describe('宿主引导工具 app_list / app_pages', () => {
   it('app_pages 返回页面键/URL 模式/入口标记/带前缀的工具名；disabled 返回结构化错误', async () => {
     const apps = new AppRegistryService(new Context())
     apps.register(appDef('todo'))
-    apps.tools('todo' as AppId).define({ name: 'add', description: 'd', parameters: {}, execute: async () => null })
+    apps.tools('todo' as AppId).define(makeTool('add'))
     apps.pages('todo' as AppId).register({ ...pageDef('todo', 'main'), tools: ['add'] } as PageDefinition<never>)
     const tools = createBootstrapTools(apps)
-    const ok = await tools.appPages.execute({ appId: 'todo' }, undefined) as { pages: Array<Record<string, unknown>> }
+    const ok = await tools.appPages.execute({ appId: 'todo' }, {} as never) as { pages: Array<Record<string, unknown>> }
     expect(ok.pages[0]).toMatchObject({
       pageKey: 'todo/main',
       urlPattern: '/apps/todo/main',
@@ -113,16 +125,16 @@ describe('宿主引导工具 app_list / app_pages', () => {
       tools: ['todo__add'],
     })
     apps.disable('todo' as AppId)
-    const disabled = await tools.appPages.execute({ appId: 'todo' }, undefined) as { error: { code: string } }
+    const disabled = await tools.appPages.execute({ appId: 'todo' }, {} as never) as { error: { code: string } }
     expect(disabled.error.code).toBe(AppErrorCode.Disabled)
   })
 
   it('app_pages 入参与未知 appId 都返回结构化错误（不抛异常）', async () => {
     const apps = new AppRegistryService(new Context())
     const tools = createBootstrapTools(apps)
-    const badArgs = (await tools.appPages.execute({}, undefined)) as { error: { code: string } }
+    const badArgs = (await tools.appPages.execute({ appId: '' }, {} as never)) as { error: { code: string } }
     expect(badArgs.error.code).toBe(AppErrorCode.ManifestInvalid)
-    const unknownApp = (await tools.appPages.execute({ appId: 'ghost' }, undefined)) as { error: { code: string } }
+    const unknownApp = (await tools.appPages.execute({ appId: 'ghost' }, {} as never)) as { error: { code: string } }
     expect(unknownApp.error.code).toBe(AppErrorCode.NotFound)
   })
 })

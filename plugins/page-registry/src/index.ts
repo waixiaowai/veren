@@ -18,7 +18,7 @@ export {
 } from './runtime.ts'
 export type {
   AppFace, DeliveryFace, MountedTool, OpenPageOptions, OpenPageResult, PageRuntimePorts, PageSessionPort,
-  PageToolSpec, RuntimeAppRecord, TaskFace, ToolsFace,
+  RuntimeAppRecord, TaskFace, ToolsFace,
 } from './runtime.ts'
 export { registerAppOpenTool } from './tools.ts'
 export type { AppOpenPort } from './tools.ts'

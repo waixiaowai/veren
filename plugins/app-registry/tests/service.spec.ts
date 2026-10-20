@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { PageDefinition } from '@veren/prompt-page'
 import AppRegistryPlugin, { AppRegistryService } from '../src/index.ts'
@@ -20,6 +21,16 @@ function pageDef(appId: string, name: string, path = name): PageDefinition<never
   }
 }
 
+/** defineTool 产物：目录测试通用的最小工具 / minimal defineTool product */
+function makeTool(name = 'read') {
+  return defineTool({
+    name,
+    description: 'd',
+    parameters: {},
+    output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+    execute: async () => ({}),
+  })
+}
 /** 建好服务并注册一个应用（无 fiber 绑定的便捷入口）/ service with one registered app */
 function setup(id = 'todo'): { apps: AppRegistryService; dispose: () => void } {
   const apps = new AppRegistryService(new Context())
@@ -153,7 +164,7 @@ describe('tools 注册面与命名空间', () => {
   it('工具本地名重复 → ToolDuplicate；对外名 = <toolPrefix>__<name>', () => {
     const { apps } = setup('todo')
     const tools = apps.tools('todo' as AppId)
-    const tool = { name: 'add', description: 'd', parameters: {}, execute: async () => null }
+    const tool = makeTool('add')
     tools.define(tool)
     expect(() => tools.define(tool)).toThrowError(AppErrorCode.ToolDuplicate)
     expect(apps.exportToolName('todo' as AppId, 'add')).toBe('todo__add')
@@ -163,7 +174,7 @@ describe('tools 注册面与命名空间', () => {
     const apps = new AppRegistryService(new Context())
     apps.register(appDef('alpha'))
     apps.register(appDef('beta'))
-    const tool = { name: 'read', description: 'd', parameters: {}, execute: async () => null }
+    const tool = makeTool()
     apps.tools('alpha' as AppId).define(tool)
     apps.tools('beta' as AppId).define(tool)
     const [alpha, beta] = [apps.exportToolName('alpha' as AppId, 'read'), apps.exportToolName('beta' as AppId, 'read')]
@@ -188,7 +199,7 @@ describe('缺口 3 收尾：页面镜像面（单入口注册）', () => {
     })
     const definition = appDef('gamma', { entry: 'list' as never })
     const disposeApp = apps.register(definition)
-    apps.tools('gamma' as AppId).define({ name: 'read', description: 'd', parameters: {}, execute: async () => null })
+    apps.tools('gamma' as AppId).define(makeTool())
     const disposePage = apps.pages('gamma' as AppId).register(pageDef('gamma', 'list'))
     expect(mirrored).toEqual(['gamma/list'])
     disposePage()
@@ -203,7 +214,7 @@ describe('缺口 3 收尾：页面镜像面（单入口注册）', () => {
     })
     const definition = appDef('delta', { entry: 'list' as never })
     const disposeApp = apps.register(definition)
-    apps.tools('delta' as AppId).define({ name: 'read', description: 'd', parameters: {}, execute: async () => null })
+    apps.tools('delta' as AppId).define(makeTool())
     expect(() => apps.pages('delta' as AppId).register(pageDef('delta', 'list'))).toThrow('url pattern conflict')
     expect(apps.listPages('delta' as AppId)).toHaveLength(0) // 已回滚
     disposeApp()
@@ -214,7 +225,7 @@ describe('缺口 3 收尾：页面镜像面（单入口注册）', () => {
     const apps = new AppRegistryService(ctx)
     const definition = appDef('epsilon', { entry: 'list' as never })
     const disposeApp = apps.register(definition)
-    apps.tools('epsilon' as AppId).define({ name: 'read', description: 'd', parameters: {}, execute: async () => null })
+    apps.tools('epsilon' as AppId).define(makeTool())
     expect(() => apps.pages('epsilon' as AppId).register(pageDef('epsilon', 'list'))).not.toThrow()
     expect(apps.listPages('epsilon' as AppId)).toHaveLength(1)
     disposeApp()

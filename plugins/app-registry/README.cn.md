@@ -6,7 +6,7 @@ DSH 宿主级应用注册表插件：应用是用户可安装的产品单元（�
 
 ## 当前状态
 
-第 1 阶段已实现。宿主服务 `ctx.apps`（`inject: ['apps']`）提供：`register(definition, ownerContext?) → 注销函数`、`get(id)`、`catalog()`，以及应用作用域注册面 `pages(id, caller?)` / `tools(id, caller?)` —— 两者都校验 fiber 归属（只有注册该应用的插件自己的上下文能拿到）。应用与注册它的插件 fiber 绑定：fiber 销毁即整应用（页面+工具）摘除，且幂等。工具对外名一律 `<toolPrefix>__<本地名>`；`toolPrefix` 缺省由 id 推导且全宿主唯一。宿主引导工具 `app_list` / `app_pages` 经 `createBootstrapTools(service)` 构造（`app_open` 归 page-registry 插件）。冻结契约在 `src/types.ts`，改动必须先报告。
+第 1 阶段已实现。宿主服务 `ctx.apps`（`inject: ['apps']`）提供：`register(definition, ownerContext?) → 注销函数`、`get(id)`、`catalog()`，以及应用作用域注册面 `pages(id, caller?)` / `tools(id, caller?)` —— 两者都校验 fiber 归属（只有注册该应用的插件自己的上下文能拿到）。应用与注册它的插件 fiber 绑定：fiber 销毁即整应用（页面+工具）摘除，且幂等。工具对外名一律 `<toolPrefix>__<本地名>`；`toolPrefix` 缺省由 id 推导且全宿主唯一。工具定义直接复用 DSH 的 `ToolDefinition`（`@deepseek-ai/dsh-tools` 的 `defineTool` 产物）——应用目录不是第二套工具类型。能力等应用侧元数据走 `tools(id, caller?).define(tool, meta)` 的第二参；第 1 阶段只记录、不强制。宿主引导工具 `app_list` / `app_pages` 经 `createBootstrapTools(service)` 构造（`app_open` 归 page-registry 插件）。冻结契约在 `src/types.ts`，改动必须先报告。
 
 ## 常用命令
 

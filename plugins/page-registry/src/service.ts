@@ -80,9 +80,8 @@ function hostPorts(ctx: Context, sessions: PageSessionPort): PageRuntimePorts {
       }
     },
     get toolsOf(): ToolsFace | undefined {
-      // 走 app-registry 的只读目录 listTools（外部名/参数/execute），
-      // 不经过带 fiber 归属校验的 tools(id) 注册面。
-      const apps = (ctx.get('apps') as { listTools?: (id: string) => ReadonlyArray<import('./runtime.ts').PageToolSpec & { externalName: string }> } | undefined)
+      // 走 app-registry 的只读目录 listTools：值就是 DSH ToolDefinition 本体。
+      const apps = (ctx.get('apps') as { listTools?: (id: string) => ReadonlyArray<import('@deepseek-ai/dsh-tools').ToolDefinition & { externalName: string }> } | undefined)
       if (apps?.listTools === undefined) return undefined
       return (appId) => {
         try {

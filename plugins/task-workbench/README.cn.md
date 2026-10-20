@@ -28,7 +28,7 @@ pnpm --filter @veren/task-workbench typecheck
 一个 Veren 应用就是按 `apply` 里四步走完的普通 DSH 插件：
 
 1. **注册应用** —— `ctx.apps.register({ id, name, description, entry, instructions?, toolPrefix? }, ctx)`。第二个参数传你自己的 fiber：插件卸载时整个应用（页面+工具）随之摘除。`entry` 是应用内页面**键**，不是 URL。
-2. **定义工具目录** —— `const tools = ctx.apps.tools(id, ctx)`，逐个 `tools.define({ name, description, parameters, requires?, execute })`。用本地名（≤24 字符，应用内唯一）；注册表对外拼成 `<toolPrefix>__<本地名>`。工具必须先于页面定义：页面 `tools` 字段会对照目录校验（fail loud）。
+2. **定义工具目录** —— `const tools = ctx.apps.tools(id, ctx)`，逐个 `tools.define(defineTool({...}), meta?)`。工具本体一律用 `@deepseek-ai/dsh-tools` 的 `defineTool` 产出（DSH `ToolDefinition`：name/description/parameters/output/execute，参数用逐属性 schema，`required: true` 标必填）；本地名 ≤24 字符、应用内唯一，注册表对外拼成 `<toolPrefix>__<本地名>`。能力等应用侧元数据（如 `requires: ['tasks:send']`）放 define 的第二个参数——工具本体保持纯 DSH 形状（第 1 阶段只记录、不强制）。工具必须先于页面定义：页面 `tools` 字段引用的本地名会对照目录校验（fail loud）。
 3. **定义页面** —— 用 `@veren/prompt-page` 的 `defineAppPage` 写页面（URL 必须是 `/apps/<appId>/...`），再 `ctx.apps.pages(id, ctx).register(page)`。不要声明 `preset`；改声明 `tools`、`instructions`、`instanceTitle`、`pageRevision`。**页面注册是单入口**：app-registry 会自动把页面镜像进 page-registry 的 URL 索引（`openUrl` 才能解析它）；应用作者不要再自己调 `ctx.pageRegistry.registerAppPage`（那是内部原语），镜像失败会回滚并抛错，不会出现"目录可见却打不开"的静默漂移。
 4. **接任务通道（可选）** —— 惰性探测 `ctx.taskCenter`，在场就 `send(draft)`（target 用规范 URL）。任务中心未激活时记录降级、本地继续工作；绝不因此让应用激活失败。
 

@@ -245,10 +245,13 @@ describe('场景 5：两个应用同名工具 → 不同前缀共存', () => {
     const { defineAppPage } = await import('@veren/prompt-page')
     apps.register({ id: 'other-app' as AppId, name: '另一个应用', description: '同名工具共存验证', entry: 'task' as PageKey }, ctx)
     const otherTools = apps.tools('other-app' as AppId, ctx)
-    otherTools.define({
+    // defineTool 产物进目录（与本应用同一正路）/ defineTool product, same path as the host app
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    otherTools.define(defineTool({
       name: 'take_task', description: '另一个应用的 take_task', parameters: {},
-      execute: async () => 'other-ok',
-    })
+      output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+      execute: async () => ({ ok: true }),
+    }))
     const otherPages = apps.pages('other-app' as AppId, ctx)
     otherPages.register(defineAppPage({
       name: 'task', url: '/apps/other-app/task/:taskId', description: '另一应用任务页',
@@ -260,6 +263,11 @@ describe('场景 5：两个应用同名工具 → 不同前缀共存', () => {
     // 详情页挂 complete_task/abandon_task；另一应用挂自己的 take_task——前缀共存
     expect(names).toContain('task_workbench__complete_task')
     expect(names).toContain('other_app__take_task')
+    // DSH ToolDefinition 本体直达模型侧：output 契约字段未在挂载路上丢失
+    const mounted = tools.get('task_workbench__complete_task') as unknown as import('@deepseek-ai/dsh-tools').ToolDefinition
+    expect(mounted?.output?.schema).toBeDefined()
+    expect(mounted?.presentCall).toBeTypeOf('function')
+    expect(mounted?.name).toBe('task_workbench__complete_task')
     expect(a.sessionId).not.toBe(b.sessionId)
   })
 })
