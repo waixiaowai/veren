@@ -14,7 +14,9 @@ import { KvPageInstanceIndex, PageError, PageErrorCode, PageRegistry, canonicali
 import type { InstanceKvPort, PageCatalogEntry, PageDefinition, PageInstanceIndex, PageInstanceRecord, PageInstanceKey, PageMatch, PageParams } from '@veren/prompt-page'
 import { APP_PAGES_DOMAIN_NAME, appPagesDomain, instanceTableView } from './storage.ts'
 import { openPageUrl } from './runtime.ts'
-import type { AppFace, OpenPageOptions, OpenPageResult, PageRuntimePorts, PageSessionPort, RuntimeAppRecord, TaskFace, ToolsFace } from './runtime.ts'
+import type { AppId, AppRecord, AppRegistryService } from '@veren/app-registry'
+import type { TaskId, TaskCenterService } from '@veren/task-center'
+import type { DeliveryFace, OpenPageOptions, OpenPageResult, PageRuntimePorts, PageSessionPort, ToolsFace } from './runtime.ts'
 
 /** 服务名（ctx.pageRegistry / inject 'pageRegistry'）/ service name */
 export const PAGE_REGISTRY_NAME = 'pageRegistry'
@@ -54,56 +56,45 @@ async function openDomain(ctx: Context): Promise<InstanceKvPort | undefined> {
 }
 
 /**
- * 惰性解析 A/B 的宿主面：此刻它们可能还是空壳，缺了就返回 undefined，
+ * 惰性解析 A/B 的宿主面：服务缺席（undefined）就返回 undefined，
  * 由 openUrl 给出明确错误码（app/not-found、page/host-unavailable）。
+ * 服务面直接用 declaration merging 的真实类型（ctx.apps / ctx.taskCenter），
+ * 不再 ctx.get() + 结构断言。
+ * Lazy host faces: absent services resolve to undefined; openUrl reports explicit
+ * codes. The faces come from the declared service surfaces (ctx.apps / ctx.taskCenter),
+ * with no ctx.get() + structural casts.
  */
 function hostPorts(ctx: Context, sessions: PageSessionPort): PageRuntimePorts {
   return {
     sessions,
-    get apps(): AppFace | undefined {
-      // A 的 AppRecord 是 { definition, state, version, toolPrefix } 形；
-      // 运行时面要扁平的 { id, state, toolPrefix, version, instructions }，这里投影。
-      const apps = (ctx.get('apps') as { get?: (id: string) => RuntimeAppRecord extends never ? never : { definition: { id: string; instructions?: string }; state: 'active' | 'disabled' | 'broken'; toolPrefix: string; version: string } | undefined } | undefined)
-      if (apps?.get === undefined) return undefined
-      return {
-        get: (id) => {
-          const record = apps.get!(id)
-          if (record === undefined) return undefined
-          return {
-            id: record.definition.id,
-            state: record.state,
-            toolPrefix: record.toolPrefix,
-            version: record.version,
-            ...(record.definition.instructions === undefined ? {} : { instructions: record.definition.instructions }),
-          }
-        },
-      }
+    get apps(): Pick<AppRegistryService, 'get'> | undefined {
+      // AppRecord 即真实运行时记录：id/instructions 走 definition，不再投影成扁平副本。
+      // AppRecord IS the runtime record: id/instructions live under definition, no flat copy.
+      const apps: AppRegistryService | undefined = ctx.apps
+      return apps?.get === undefined ? undefined : { get: (id) => apps.get(id) }
     },
     get toolsOf(): ToolsFace | undefined {
       // 走 app-registry 的只读目录 listTools：值就是 DSH ToolDefinition 本体。
-      const apps = (ctx.get('apps') as { listTools?: (id: string) => ReadonlyArray<import('@deepseek-ai/dsh-tools').ToolDefinition & { externalName: string }> } | undefined)
+      const apps: AppRegistryService | undefined = ctx.apps
       if (apps?.listTools === undefined) return undefined
       return (appId) => {
         try {
-          return new Map(apps.listTools!(appId).map((tool) => [tool.name, tool]))
+          return new Map(apps.listTools(appId as AppId).map((tool) => [tool.name, tool]))
         } catch {
           return new Map()
         }
       }
     },
-    get tasks(): TaskFace | undefined {
-      const taskCenter = (ctx.get('taskCenter') as { take?: TaskFace['take'] } | undefined)
-      return taskCenter?.take !== undefined ? { take: (id, claim) => taskCenter.take!(id, claim) } : undefined
+    get tasks(): Pick<TaskCenterService, 'take'> | undefined {
+      const taskCenter: TaskCenterService | undefined = ctx.taskCenter
+      return taskCenter?.take === undefined ? undefined : { take: (id, claim) => taskCenter.take(id as TaskId, claim) }
     },
-    get deliveries(): import('./runtime.ts').DeliveryFace | undefined {
-      const taskCenter = (ctx.get('taskCenter') as {
-        pendingDeliveries?: () => Promise<readonly { deliveryId: string; text: string }[]>
-        markDelivered?: (id: string, error?: string) => Promise<unknown>
-      } | undefined)
+    get deliveries(): DeliveryFace | undefined {
+      const taskCenter: TaskCenterService | undefined = ctx.taskCenter
       if (taskCenter?.pendingDeliveries === undefined || taskCenter.markDelivered === undefined) return undefined
       return {
-        pending: () => taskCenter.pendingDeliveries!(),
-        mark: (id, error) => taskCenter.markDelivered!(id, error),
+        pending: () => taskCenter.pendingDeliveries(),
+        mark: (id, error) => taskCenter.markDelivered(id, error),
       }
     },
   }
@@ -112,16 +103,26 @@ function hostPorts(ctx: Context, sessions: PageSessionPort): PageRuntimePorts {
 /**
  * 默认会话端口：贴着宿主 `sessions` / `agents` 服务做能力探测，
  * 缺能力时给 page/host-unavailable，绝不假装成功。
+ *
+ * 已知保留的最小面断言（有意为之）：sessions/agents 的权威类型在
+ * `@deepseek-ai/dsh-session` / `@deepseek-ai/dsh-agent`（branded SessionId），
+ * 本插件不为两个探测点引入这两个依赖；探测面收在下面的最小 face 里。
+ * Deliberate minimal-face assertions: the authoritative types live in
+ * dsh-session/dsh-agent (branded SessionId); this plugin does not take those
+ * dependencies just to probe two services, so the probed faces stay minimal.
  */
 export function createHostSessionPort(ctx: Context): PageSessionPort {
-  const sessions = () => ctx.get('sessions') as {
-    get?: (id: string) => unknown
+  /** 宿主 sessions 服务的最小探测面 / the minimal probed face of the host sessions service */
+  interface SessionsFace {
+    get?: (id: string) => { dispose?: () => void } | undefined
     create?: (id?: string, title?: string) => unknown
-  } | undefined
-  const agentOf = (sessionId: string): { followup?: (message: unknown) => void } | undefined => {
-    const agents = (ctx.get('agents') as unknown as { get?: (id: string) => { followup?: (message: unknown) => void } } | undefined)
-    return agents?.get?.(sessionId)
   }
+  /** 宿主 agents 服务的最小探测面 / the minimal probed face of the host agents service */
+  interface AgentsFace {
+    get?: (id: string) => { followup?: (message: unknown) => void } | undefined
+  }
+  const sessions = (): SessionsFace | undefined => ctx.get('sessions') as SessionsFace | undefined
+  const agents = (): AgentsFace | undefined => ctx.get('agents') as AgentsFace | undefined
   // 会话 → 该会话页面工具的整组注销器：释放/销毁时整组摘除（§3.4.4 兜底）
   // session → the group disposer of that session's page tools; released as a group
   const mounted = new Map<string, () => void>()
@@ -143,20 +144,21 @@ export function createHostSessionPort(ctx: Context): PageSessionPort {
       store.create(sessionId, _title)
     },
     async appendUserMessage(sessionId, text, source) {
-      const agent = agentOf(sessionId)
+      const agent = agents()?.get?.(sessionId)
       if (agent?.followup === undefined) {
         throw new PageError(PageErrorCode.HostUnavailable, `no live agent for session ${sessionId}; cannot append "${source}" block`)
       }
       agent.followup({ role: 'user', content: [{ type: 'text', text }], source: { kind: source } })
     },
     async mountTools(sessionId, tools) {
-      // 宿主面缺失时报 host-unavailable；重挂路径先摘旧组再挂新组
-      const registry = (ctx.get('tools') as { register?: (tool: unknown) => () => void } | undefined)
+      // 宿主面缺失时报 host-unavailable；重挂路径先摘旧组再挂新组。
+      // ctx.tools 是 dsh-tools 的 declaration merging 真实面。
+      const registry = ctx.tools
       if (registry?.register === undefined) {
         throw new PageError(PageErrorCode.HostUnavailable, 'host "tools" registry is unavailable; page tools cannot mount')
       }
       releaseMounted(sessionId)
-      const disposers = tools.map((tool) => registry.register!(tool))
+      const disposers = tools.map((tool) => registry.register(tool))
       mounted.set(sessionId, () => { for (const dispose of disposers.reverse()) dispose() })
     },
     hasTools: (sessionId) => mounted.has(sessionId),
@@ -168,8 +170,7 @@ export function createHostSessionPort(ctx: Context): PageSessionPort {
     async destroy(sessionId) {
       // 工具跟会话走：销毁时整组摘除（§3.4.4 路径 1 的端口侧兜底）
       releaseMounted(sessionId)
-      const store = sessions() as { get?: (id: string) => { dispose?: () => void } } | undefined
-      store?.get?.(sessionId)?.dispose?.()
+      sessions()?.get?.(sessionId)?.dispose?.()
     },
   }
 }

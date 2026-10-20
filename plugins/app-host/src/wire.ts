@@ -14,26 +14,20 @@
  * @module @veren/app-host/wire
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { AppRegistryService } from '@veren/app-registry'
-import type { PageRegistryService } from '@veren/page-registry'
-import type { TaskCenterService } from '@veren/task-center'
+// 类型-only import：只为拉取三个服务的 declaration merging（ctx.apps / ctx.pageRegistry / ctx.taskCenter）
+// type-only import: pulls the declaration merges of the three services on Context
+import type {} from '@veren/app-registry'
+import type {} from '@veren/page-registry'
+import type {} from '@veren/task-center'
 import { createRealSessionPort } from './session-port.ts'
-
-/** 三个服务在 ctx 上的最小面（类型来自各自包，读取走 ctx.get 显式解析） */
-interface HostFaces {
-  readonly apps: AppRegistryService
-  readonly pageRegistry: PageRegistryService
-  readonly taskCenter: TaskCenterService
-}
 
 /** 显式解析三个服务；缺任何一个 fail loud（misconfiguration fails loud）。
  *  服务经属性代理解析（Service 插件注册在 fiber 拓扑上，`ctx.get` 的全局
- *  store 读不到它们）；可选服务才走 `ctx.get`。 */
-export function requireFaces(ctx: Context): HostFaces {
-  const host = ctx as unknown as { apps?: AppRegistryService; pageRegistry?: PageRegistryService; taskCenter?: TaskCenterService }
-  const apps = host.apps
-  const pageRegistry = host.pageRegistry
-  const taskCenter = host.taskCenter
+ *  store 读不到它们）；返回面直接复用 Context 上已声明的真实类型，无结构断言。 */
+export function requireFaces(ctx: Context): Pick<Context, 'apps' | 'pageRegistry' | 'taskCenter'> {
+  const apps = ctx.apps
+  const pageRegistry = ctx.pageRegistry
+  const taskCenter = ctx.taskCenter
   if (apps === undefined || pageRegistry === undefined || taskCenter === undefined) {
     throw new Error('app-host: ctx.apps / ctx.pageRegistry / ctx.taskCenter must be active before the assembly runs; '
       + 'check the profile loader rows (app-registry, page-registry, task-center before app-host)')

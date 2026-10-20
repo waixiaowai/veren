@@ -19,6 +19,9 @@
  */
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
+// 类型-only import：拉取 dsh-agent 的 Agent 类型与 agent/created|disposed 事件 declaration merging
+// type-only import: pulls the Agent type and the agent/created|disposed event merges
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { MountedTool, PageSessionPort } from '@veren/page-registry'
 
 /** focus 接缝：把界面切到某会话（GUI 实现归 H；此处为日志实现） */
@@ -38,23 +41,18 @@ export const PAGE_MESSAGE_SOURCE = 'app/page' as const
 export const TASK_MESSAGE_SOURCE = 'app/task' as const
 export const NOTICE_MESSAGE_SOURCE = 'task-center/notice' as const
 
-/** 宿主 sessions 服务的最小面（结构性声明，不引 harness 运行时依赖） */
+/** 宿主 sessions 服务的最小面（结构探测；权威类型在 @deepseek-ai/dsh-session，
+ *  本插件不为一个探测点引入该依赖）/ minimal sessions face (probed; authoritative
+ *  types live in dsh-session, not worth a dependency for one probe) */
 interface SessionsFace {
   get(id: string): { id?: string } | undefined
   create(id?: string): unknown
   flush?(session: unknown): Promise<boolean> | boolean
 }
 
-/** 活 agent 的最小面：作用域上下文 + 会话 + followup */
-interface AgentFace {
-  readonly ctx: Context
-  readonly session: { readonly id: string }
-  followup(message: unknown): void
-}
-
-/** 宿主 agents 服务的最小面 */
+/** 宿主 agents 服务的最小面 / minimal agents face */
 interface AgentsFace {
-  get(id: string): AgentFace | undefined
+  get(id: string): Agent | undefined
 }
 
 /** 消息源 → MessageSourceMap kind 的白名单（declaration merging 见文件尾） */
@@ -76,7 +74,7 @@ function sourceKind(source: string): PageSourceKind {
 export function createRealSessionPort(ctx: Context, focus: FocusPort = loggingFocus(ctx.logger)): PageSessionPort {
   const sessions = (): SessionsFace | undefined => ctx.get('sessions') as SessionsFace | undefined
   const agents = (): AgentsFace | undefined => ctx.get('agents') as AgentsFace | undefined
-  const agentOf = (sessionId: string): AgentFace | undefined => agents()?.get(sessionId)
+  const agentOf = (sessionId: string): Agent | undefined => agents()?.get(sessionId)
   // 会话 → 该会话当前挂载的注销器（agent 作用域注销器，重挂/清理用）
   const mounted = new Map<string, Array<() => void>>()
   // 会话 → 等待 agent 激活的开场内容（PAGE/TASK/通知块）与工具；
@@ -96,7 +94,7 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = loggingFo
     }
   }
 
-  const followup = (agent: AgentFace, text: string, source: string): void => {
+  const followup = (agent: Agent, text: string, source: string): void => {
     agent.followup(createUserMessage({
       content: [{ type: 'text', text }],
       source: { kind: sourceKind(source) },
@@ -104,7 +102,7 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = loggingFo
   }
 
   /** 把一组工具与排队块挂进某个 agent 作用域（每次挂载即一次整组登记） */
-  const mountOnAgent = (sessionId: string, agent: AgentFace, pending: { tools: readonly MountedTool[]; blocks: Array<{ source: string; text: string }> }): void => {
+  const mountOnAgent = (sessionId: string, agent: Agent, pending: { tools: readonly MountedTool[]; blocks: Array<{ source: string; text: string }> }): void => {
     releaseMounted(sessionId)
     const disposers: Array<() => void> = []
     for (const tool of pending.tools) disposers.push(agent.ctx.tools.register(tool))
@@ -113,19 +111,19 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = loggingFo
   }
 
   // agent 激活：等待队列里的页面工具此刻才真正挂上（只对该 agent 可见），
-  // 排队的 PAGE/TASK/通知块按序 followup 进会话
-  ;(ctx.on as unknown as (event: string, listener: (payload: unknown) => void) => void)('agent/created', (payload: unknown) => {
-    const agent = (payload as { agent?: AgentFace }).agent
+  // 排队的 PAGE/TASK/通知块按序 followup 进会话。
+  // 事件与载荷走 dsh-agent 的 declaration merging 真实类型，无断言。
+  ctx.on('agent/created', ({ agent }) => {
     const sessionId = agent?.session?.id
-    if (agent === undefined || sessionId === undefined) return
+    if (sessionId === undefined) return
     const pending = queued.get(sessionId)
     if (pending === undefined) return
     queued.delete(sessionId)
     mountOnAgent(sessionId, agent, pending)
   })
   // agent 销毁：作用域注册随 fiber 自动消失，这里只清登记
-  ;(ctx.on as unknown as (event: string, listener: (payload: unknown) => void) => void)('agent/disposed', (payload: unknown) => {
-    const sessionId = (payload as { agent?: { session?: { id?: string } } }).agent?.session?.id
+  ctx.on('agent/disposed', ({ agent }) => {
+    const sessionId = agent?.session?.id
     if (sessionId !== undefined) mounted.delete(sessionId)
   })
 

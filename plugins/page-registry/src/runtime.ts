@@ -8,30 +8,27 @@
  * - 两阶段创建：reserve → 建会话/挂工具/写 PAGE → commit；任何一步失败都
  *   清理半成品并删 reserved 行，不留幽灵索引（§3.5.3）。
  *
- * 宿主对接走注入端口（sessions/apps/toolsOf/tasks），缺失时给明确错误码降级，
- * 不反向依赖任何插件包。
+ * 宿主对接走注入端口（sessions/apps/toolsOf/tasks）：apps/tasks 用真实服务面，
+ * 缺失时给明确错误码降级；本包只依赖各服务包的类型出口，不依赖其运行时。
+ * Host access goes through injected ports (sessions/apps/toolsOf/tasks); apps and
+ * tasks reuse the real service faces, degrade with explicit codes when absent.
  *
  * @module @veren/page-registry/runtime
  */
 import { PageError, PageErrorCode, canonicalizePageUrl } from '@veren/prompt-page'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { PageInstanceIndex, PageInstanceKey, PageMatch } from '@veren/prompt-page'
+// 服务面类型只引真正的那一份：应用记录/任务契约来自各自的 declaration merging 出口，
+// 本包不再手写影子副本（同一事实只有一份类型声明）。
+// Service-surface types are imported, never shadowed: the app record and the task
+// contract come from the owning packages' public entries.
+import type { AppRecord } from '@veren/app-registry'
+import type { TaskCenterContract, TaskId, TaskRecord } from '@veren/task-center'
+import type { AppRegistryService } from '@veren/app-registry'
+import type { TaskCenterService } from '@veren/task-center'
 
-/** 运行时看到的应用记录（A 的 AppRecord 的最小面）/ minimal app-record face */
-export interface RuntimeAppRecord {
-  readonly id: string
-  readonly state: 'active' | 'disabled' | 'broken'
-  readonly toolPrefix: string
-  readonly version: string
-  readonly instructions?: string
-}
-
-/** 应用注册表面 / application-registry face */
-export interface AppFace {
-  get(id: string): RuntimeAppRecord | undefined
-}
-
-/** 应用工具目录面：本地名 → DSH `ToolDefinition` 本体 / app tool catalog: local name → DSH definition */
+/** 应用工具目录面：本地名 → DSH `ToolDefinition` 本体（listTools 的投影，非影子副本）
+ * / app tool catalog: local name → DSH definition (a projection of listTools, not a shadow) */
 export type ToolsFace = (appId: string) => ReadonlyMap<string, ToolDefinition>
 
 /**
@@ -48,8 +45,10 @@ export interface TaskFace {
 }
 
 /**
- * 任务通知投递面（B 的 pendingDeliveries/markDelivered 最小面）。
- * The delivery face: the minimal shape of task-center's pendingDeliveries/markDelivered.
+ * 任务通知投递面（B 的 pendingDeliveries/markDelivered 投影）：只留投递必需的
+ * 两个方法与 { deliveryId, text }，避免页面运行时耦合完整 TaskRecord。
+ * The delivery face: a projection of task-center's pendingDeliveries/markDelivered
+ * that keeps only { deliveryId, text }, so the page runtime never couples to TaskRecord.
  */
 export interface DeliveryFace {
   /** 取全部可投递的收件箱通知 / every deliverable pending inbox notice */
@@ -79,12 +78,15 @@ export interface PageSessionPort {
   destroy(sessionId: string): Promise<void>
 }
 
-/** 运行时端口集 / the runtime's injected ports */
+/** 运行时端口集：apps/tasks 直接复用真实服务面（Pick 投影，不另声明）
+ * / the runtime's injected ports; apps/tasks reuse the real service faces */
 export interface PageRuntimePorts {
   readonly sessions: PageSessionPort
-  readonly apps?: AppFace
+  /** 应用注册表真实面（AppRecord）：缺席则 openUrl 给 app/not-found / the real app-registry face */
+  readonly apps?: Pick<AppRegistryService, 'get'>
   readonly toolsOf?: ToolsFace
-  readonly tasks?: TaskFace
+  /** 任务中心真实契约的 take：缺席则任务场景给 page/host-unavailable / the real task contract */
+  readonly tasks?: Pick<TaskCenterContract, 'take'>
   /** 任务通知投递面（§5.2 inbox 注入）；缺席则跳过投递 / delivery face; absent → skip pumping */
   readonly deliveries?: DeliveryFace
   /** 任务租约时长（分钟），缺省 30 / lease minutes, default 30 */
@@ -125,20 +127,20 @@ export function externalToolName(toolPrefix: string, localName: string): string 
 
 /** 把页面声明的本地工具名解析成挂载清单：DSH 本体只改 name（§3.4.3）/ resolve local names to mounted DSH definitions */
 function resolveMountedTools(
-  app: RuntimeAppRecord,
+  app: AppRecord,
   match: PageMatch<never>,
   toolsOf: ToolsFace | undefined,
 ): MountedTool[] {
   const localNames = match.page.tools ?? []
   if (localNames.length === 0) return []
   if (toolsOf === undefined) {
-    throw new PageError(PageErrorCode.UnknownTool, `app "${app.id}" exposes no tool catalog, so page tools cannot mount`)
+    throw new PageError(PageErrorCode.UnknownTool, `app "${app.definition.id}" exposes no tool catalog, so page tools cannot mount`)
   }
-  const catalog = toolsOf(app.id)
+  const catalog = toolsOf(app.definition.id)
   return localNames.map((localName) => {
     const spec = catalog.get(localName)
     if (spec === undefined) {
-      throw new PageError(PageErrorCode.UnknownTool, `page "${match.page.name}" references unknown tool "${localName}" of app "${app.id}"`)
+      throw new PageError(PageErrorCode.UnknownTool, `page "${match.page.name}" references unknown tool "${localName}" of app "${app.definition.id}"`)
     }
     // 唯一允许的"转换"：改名。字段原样保留（含 output/presentCall 等 DSH 契约）。
     // The one permitted change: the name. Every DSH field is preserved verbatim.
@@ -147,19 +149,19 @@ function resolveMountedTools(
 }
 
 /** PAGE 块：页面实例的开场白，写一次不再重写（§3.4.2）/ the one PAGE block */
-export function pageBlock(app: RuntimeAppRecord, match: PageMatch<never>, params: Record<string, string>, tools: readonly MountedTool[]): string {
+export function pageBlock(app: AppRecord, match: PageMatch<never>, params: Record<string, string>, tools: readonly MountedTool[]): string {
   const lines = [
     `PAGE ${match.page.name} ${JSON.stringify(params)}`,
     `本页工具：${tools.map((tool) => tool.name).join('、') || '（无）'}`,
   ]
-  if (app.instructions !== undefined) lines.push(`应用说明：${app.instructions}`)
+  if (app.definition.instructions !== undefined) lines.push(`应用说明：${app.definition.instructions}`)
   if (match.page.instructions !== undefined) lines.push(`说明：${match.page.instructions}`)
   return lines.join('\n')
 }
 
 /** TASK 块：任务成功接取后追加一次（§5.4）/ the TASK block, appended once */
-export function taskBlock(taskId: string, task: unknown): string {
-  const title = typeof (task as { title?: unknown })?.title === 'string' ? (task as { title: string }).title : taskId
+export function taskBlock(taskId: string, task: TaskRecord | undefined): string {
+  const title = typeof task?.title === 'string' ? task.title : taskId
   return `TASK ${taskId} ${title}\n完成后用 task_complete 回报结果；做不下去用 task_fail 带稳定错误码回报。`
 }
 
@@ -177,7 +179,8 @@ export async function openPageUrl(
   const key = canonicalizePageUrl(url)
   const appId = appIdOf(key)
   if (appId === undefined) throw new PageError(PageErrorCode.UrlInvalid, `url ${key} carries no /apps/<appId> segment`)
-  const app = ports.apps?.get(appId)
+  // URL 段是字符串，AppId 是 brand：跨边界在此一次性收窄 / url segment → branded AppId at this boundary
+  const app = ports.apps?.get(appId as AppRecord['definition']['id'])
   if (ports.apps === undefined || app === undefined) {
     throw new PageError(PageErrorCode.AppNotFound, `app "${appId}" is not registered`)
   }
@@ -214,7 +217,8 @@ async function takeTask(ports: PageRuntimePorts, taskId: string, sessionId: stri
     throw new PageError(PageErrorCode.HostUnavailable, `task center is not available; cannot open task ${taskId}`)
   }
   const leaseUntil = new Date(Date.now() + (ports.leaseMinutes ?? 30) * 60_000).toISOString()
-  const task = await ports.tasks.take(taskId, { sessionId, actor: actor ?? 'local', leaseUntil })
+  // 字符串任务 id 在此一次收窄为 brand / plain task id narrows to the brand here
+  const task = await ports.tasks.take(taskId as TaskId, { sessionId, actor: actor ?? 'local', leaseUntil })
   await ports.sessions.appendUserMessage(sessionId, taskBlock(taskId, task), 'app/task')
 }
 
@@ -252,7 +256,7 @@ async function createPageSession(
   index: PageInstanceIndex,
   ports: PageRuntimePorts,
   key: PageInstanceKey,
-  app: RuntimeAppRecord,
+  app: AppRecord,
   match: PageMatch<never>,
   options: OpenPageOptions,
 ): Promise<OpenPageResult> {
@@ -260,8 +264,8 @@ async function createPageSession(
   const sessionId = ports.sessions.mintId()
   try {
     await index.reserve(key, sessionId, {
-      appId: app.id,
-      page: `${app.id}/${match.page.name}`,
+      appId: app.definition.id,
+      page: `${app.definition.id}/${match.page.name}`,
       instanceTitle: instanceTitleOf(match, params),
       pageRevision: match.page.pageRevision ?? 1,
       params,

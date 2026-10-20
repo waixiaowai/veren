@@ -19,10 +19,7 @@ export interface AppOpenPort {
   openUrl(url: string, options?: { taskId?: string }): Promise<{ sessionId: string; created: boolean; title: string }>
 }
 
-/** 宿主工具注册表的最小面（避免反向依赖 dsh-tools 运行时类型）/ minimal tools-registry face */
-interface ToolsRegistryFace {
-  register(tool: unknown): () => void
-}
+
 
 /** 目录返回值渲染成 JSON 文本 / render the open result as JSON text */
 function renderValue(_args: unknown, value: unknown): ContentBlock[] {
@@ -35,8 +32,10 @@ function renderValue(_args: unknown, value: unknown): ContentBlock[] {
  * @param port - 解析 openUrl 服务面 / resolves the service surface
  */
 export function registerAppOpenTool(ctx: Context, port: () => AppOpenPort): void {
-  const registry = ctx.get('tools') as ToolsRegistryFace | undefined
-  if (registry === undefined) {
+  // ctx.tools 是 dsh-tools 的 declaration merging 真实面，不再 ctx.get() + 断言。
+  // ctx.tools is the declared dsh-tools service face; no ctx.get() + cast.
+  const registry = ctx.tools
+  if (registry?.register === undefined) {
     ctx.logger.warn('page-registry: no "tools" registry; app_open is not registered')
     return
   }
