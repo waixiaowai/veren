@@ -42,6 +42,7 @@ import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import { randomUUID } from 'node:crypto'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
 import { composeForkPlan, createForkAgent, forkValue, resolveBoundary } from './fork-compose.js'
 import { TOOL_NAME, normalizeArguments } from './fork-request.js'
@@ -96,22 +97,19 @@ async function observeSource(ctx: Context, request: { sessionId: string }) {
  */
 export async function forkWithOptions(ctx: Context, rawArgs: unknown): Promise<ForkValue> {
   const request = normalizeArguments(rawArgs)
-  const observation = await observeSource(ctx, request)
-  try {
-    const boundary = resolveBoundary(request, observation.events)
-    const plan = await composeForkPlan(ctx, request, observation.header, observation.events, observation.projections, boundary)
-    // 子代理 id：宿主规定的 `session-` 前缀 + 随机 UUID。
-    // The child id: the host-mandated `session-` prefix plus a random UUID.
-    const childId = `session-${randomUUID()}` as SessionId
-    await createForkAgent(ctx, childId, observation.header, boundary, plan)
-    return forkValue(request, childId, boundary, plan)
-  } finally {
-    // 观察句柄是宿主资源，必须无条件释放，分叉失败也不得泄漏。
-    // The observation handle is a host resource; release it unconditionally so
-    // a failed fork never leaks it.
-    const dispose = (observation as { [Symbol.dispose]?: () => void })[Symbol.dispose]
-    dispose?.call(observation)
-  }
+  // 观察句柄是宿主资源（`SessionObservation extends Disposable`），用 `using`
+  // 无条件释放；`observeSource` 抛错发生在绑定之前，不会误释放。
+  // The observation handle is a host resource (`SessionObservation extends
+  // Disposable`); `using` releases it unconditionally. A throw from
+  // `observeSource` happens before the binding, so nothing is disposed twice.
+  using observation = await observeSource(ctx, request)
+  const boundary = resolveBoundary(request, observation.events)
+  const plan = await composeForkPlan(ctx, request, observation.header, observation.events, observation.projections, boundary)
+  // 子代理 id：宿主规定的 `session-` 前缀 + 随机 UUID。
+  // The child id: the host-mandated `session-` prefix plus a random UUID.
+  const childId = `session-${randomUUID()}` as SessionId
+  await createForkAgent(ctx, childId, observation.header, boundary, plan)
+  return forkValue(request, childId, boundary, plan)
 }
 
 /**
@@ -125,37 +123,36 @@ export async function forkWithOptions(ctx: Context, rawArgs: unknown): Promise<F
  *   The resolved plugin config (no tunables yet).
  */
 export const apply = (ctx: Context, _config: Config): void => {
-  ctx.effect(() => ctx.tools.register({
+  ctx.effect(() => ctx.tools.register(defineTool({
     name: TOOL_NAME,
     description: 'Fork one existing session: copy an exact completed-turn prefix (its full context) into a new '
       + 'session and optionally continue that branch under a different agent preset and/or provider model. '
       + 'Omitting every option behaves like session_fork. Session ids appear in the working-memory snapshot.',
     parameters: {
-      type: 'object',
-      properties: {
-        sessionId: { type: 'string', description: 'The source session id.' },
-        atSeq: { type: 'integer', description: 'Exact inclusive source event seq; omit for the latest completed turn.' },
-        presetId: { type: 'string', description: 'Agent preset id for the new branch; omitted inherits the source preset.' },
-        provider: { type: 'string', description: 'Provider id for the new branch; required together with model.' },
-        model: { type: 'string', description: 'Model id for the new branch; required together with provider.' },
-        reasoningEffort: { type: 'string', description: 'Optional adapter-owned reasoning effort for that route.' },
-      },
-      required: ['sessionId'],
+      sessionId: { type: 'string', required: true, description: 'The source session id.' },
+      atSeq: { type: 'integer', description: 'Exact inclusive source event seq; omit for the latest completed turn.' },
+      presetId: { type: 'string', description: 'Agent preset id for the new branch; omitted inherits the source preset.' },
+      provider: { type: 'string', description: 'Provider id for the new branch; required together with model.' },
+      model: { type: 'string', description: 'Model id for the new branch; required together with provider.' },
+      reasoningEffort: { type: 'string', description: 'Optional adapter-owned reasoning effort for that route.' },
     },
+    // output 契约：与 `ForkValue` 的真实返回形态一致——扁平对象（非
+    // `{note}` 类包装值），必填六键 + 两个可选项；`execute` 直接返回该值。
+    // Output contract: mirrors the real `ForkValue` return — a flat object
+    // (not a `{note}`-style wrapper) with six required keys plus two options.
     output: {
       schema: {
         type: 'object',
         properties: {
-          sessionId: { type: 'string' },
-          sourceSessionId: { type: 'string' },
-          atSeq: { type: 'integer' },
-          inheritedEventCount: { type: 'integer' },
+          sessionId: { type: 'string', required: true },
+          sourceSessionId: { type: 'string', required: true },
+          atSeq: { type: 'integer', required: true },
+          inheritedEventCount: { type: 'integer', required: true },
           agentPreset: { type: 'string' },
-          provider: { type: 'string' },
-          model: { type: 'string' },
+          provider: { type: 'string', required: true },
+          model: { type: 'string', required: true },
           reasoningEffort: { type: 'string' },
         },
-        required: ['sessionId', 'sourceSessionId', 'atSeq', 'inheritedEventCount', 'provider', 'model'],
         additionalProperties: false,
       },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
@@ -169,5 +166,5 @@ export const apply = (ctx: Context, _config: Config): void => {
       kind: 'other',
       rawInput: args,
     }),
-  }), 'session-fork-enhanced.tool')
+  })), 'session-fork-enhanced.tool')
 }
