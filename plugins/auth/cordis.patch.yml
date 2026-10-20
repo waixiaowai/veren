@@ -22,16 +22,17 @@
     routes:
       web_login_gate: json
 
-# The gate itself. `distIndex` is workspace knowledge of the composing
-# application, exactly like the `frontend-static` row's anchor — supply it via
-# `!!js`, never a hardcoded deployment path.
-# 门禁本体。`distIndex` 是组合应用的工作区知识，与 `frontend-static` 行的锚点
-# 一致——用 `!!js` 提供，绝不硬编码部署路径。
+# The gate itself. `distIndex` is resolved by the plugin from the running
+# runtime's `@deepseek-ai/dsh-web-frontend` package, so packaged desktops,
+# source checkouts, and test nodes all work without a deployment path. Set it
+# explicitly only when the deployment replaces that frontend.
+# 门禁本体。`distIndex` 由插件从运行中 runtime 的 `@deepseek-ai/dsh-web-frontend`
+# 包解析，因此打包桌面端、源码检出与测试节点都无需部署路径即可工作。仅在部署
+# 替换该前端时显式设置。
 - insert:
     - id: web-login-gate
       name: '@veren/web-login-gate'
       config:
-        distIndex: !!js "require('node:path').join(process.env.DSH_WEB_DIST ?? '.', 'index.html')"
         sessionDays: 7
         rateLimit:
           window: 60

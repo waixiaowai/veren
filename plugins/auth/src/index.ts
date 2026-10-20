@@ -15,6 +15,8 @@
  * @module @veren/web-login-gate
  */
 
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { DomainError } from '@deepseek-ai/dsh-storage-domain'
@@ -24,6 +26,36 @@ import { LOGIN_GATE_DOMAIN_NAME, loginGateDomain } from './domain.js'
 import type { LoginGateDomain } from './domain.js'
 import { installGate, resolveListenerFacts } from './gate.js'
 import type { GateWebServer } from './gate.js'
+
+/**
+ * Locate the Web frontend's index through the runtime that composes it.
+ *
+ * The profile plugin and the frontend live in different package trees, so a
+ * fixed relative path cannot work across a packaged desktop (app.asar), a
+ * source checkout, and a test node. DSH resolves `@deepseek-ai/*` from the
+ * running runtime, which makes the frontend package locatable from here; a
+ * deployment that replaces the frontend still overrides `config.distIndex`.
+ *
+ * 通过组合它的运行时定位 Web 前端入口。
+ *
+ * profile 插件与前端位于不同的包树，固定相对路径无法同时适用于打包桌面端
+ * （app.asar）、源码检出和测试节点。DSH 从运行中的 runtime 解析
+ * `@deepseek-ai/*`，因此这里可以定位前端包；替换前端的部署仍可用
+ * `config.distIndex` 覆盖。
+ *
+ * @returns the absolute index path, or `''` when the frontend is absent.
+ */
+function defaultDistIndex(): string {
+  try {
+    return join(
+      dirname(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-web-frontend/package.json')),
+      'dist',
+      'index.html',
+    )
+  } catch {
+    return ''
+  }
+}
 
 /** Service token, doubling as the plugin display name. 服务令牌，兼作插件显示名。 */
 export const name = 'web-login-gate'
@@ -40,13 +72,13 @@ export const inject = ['webServer', 'connection', 'storageDomain', 'credentials'
 /** Normalized plugin config. 归一化的插件配置。 */
 export interface Config {
   /**
-   * Absolute path of index.html inside the frontend dist root — the same
-   * anchor `frontend-static` receives, typically supplied via a `!!js`
-   * expression in the profile patch.
-   * 前端 dist 根内 index.html 的绝对路径——与 `frontend-static` 接收的锚点
-   * 相同，通常由 profile patch 的 `!!js` 表达式提供。
+   * Absolute path of index.html inside the frontend dist root. Omit it to let
+   * the plugin locate the running runtime's `@deepseek-ai/dsh-web-frontend`
+   * package; set it when the deployment replaces that frontend.
+   * 前端 dist 根内 index.html 的绝对路径。省略时插件会定位运行中 runtime 的
+   * `@deepseek-ai/dsh-web-frontend` 包；部署替换该前端时再显式设置。
    */
-  distIndex: string
+  distIndex?: string
   /**
    * Explicit listener origin override for host builds without
    * `webServer.getOrigin()`/`protocol` (e.g. 0.2.0-rc.2). When absent on such
@@ -84,7 +116,7 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
-  distIndex: z.string().required(),
+  distIndex: z.string().default(defaultDistIndex()),
   sessionDays: z.natural().min(1).max(365).default(7),
   rateLimit: z.object({
     window: z.natural().min(1).default(60),
@@ -187,10 +219,19 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   if (config.admin !== undefined && config.admin !== null) {
     await bootstrapAdmin(auth, domain, config.admin)
   }
+  const distIndex = config.distIndex === undefined || config.distIndex === ''
+    ? defaultDistIndex()
+    : config.distIndex
+  if (distIndex === '') {
+    throw new Error(
+      'web-login-gate: cannot locate @deepseek-ai/dsh-web-frontend/dist/index.html; '
+      + 'set config.distIndex to the Web frontend entry of this deployment',
+    )
+  }
   installGate(ctx, {
     webServer,
     connection: ctx.connection,
     auth,
-    distIndex: config.distIndex,
+    distIndex,
   }, origin)
 }
