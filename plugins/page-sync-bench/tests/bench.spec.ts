@@ -1,21 +1,26 @@
-﻿import { describe, expect, it } from 'vitest'
-import { MessageHost, renderSync } from '@veren/prompt-host-messages'
-import { TaskListPage, dispatchTool } from '../src/page.ts'
+import { describe, expect, it } from 'vitest'
+import { renderSync } from '@veren/prompt-host-messages'
+import { TaskListPage, dispatchTaskTool } from '../src/page.ts'
 import { TaskStore, makeList } from '../src/store.ts'
 import { assemblePageSession } from '../src/driver.ts'
-import type { TaskItem } from '../src/types.ts'
 
 describe('store', () => {
-  it('鎸夐挳鐘舵€佽縼绉绘牎楠岋細open鈫抰aken鈫抎one锛岄潪娉曡縼绉?fail loud', () => {
+  it('按钮状态迁移校验：open→taken→done / taken→open，非法迁移 fail loud', () => {
     const store = new TaskStore(makeList(5))
     expect(store.takeTask('t-1', 'model').ok).toBe(true)
     expect(store.takeTask('t-1', 'model')).toMatchObject({ ok: false, code: 'invalid_transition' })
     expect(store.completeTask('t-1').ok).toBe(true)
     expect(store.completeTask('t-1')).toMatchObject({ ok: false, code: 'invalid_transition' })
-    expect(store.takeTask('t-999', 'model')).toMatchObject({ ok: false, code: 'task_not_found' })
+    expect(store.abandonTask('t-1')).toMatchObject({ ok: false, code: 'invalid_transition' })
+
+    const store2 = new TaskStore(makeList(5))
+    store2.takeTask('t-2', 'u-1')
+    expect(store2.abandonTask('t-2').ok).toBe(true)
+    expect(store2.getState().find((task) => task.id === 't-2')).toMatchObject({ status: 'open', ownerId: null })
+    expect(store2.takeTask('t-999', 'u-1')).toMatchObject({ ok: false, code: 'task_not_found' })
   })
 
-  it('涓嶅彲鍙樼邯寰嬶細getState 寮曠敤鍦ㄦ棤鍙樺寲鏃朵繚鎸佺ǔ瀹氾紙memo bailout 渚濊禆锛?, () => {
+  it('不可变纪律：getState 引用在无变化时保持稳定（memo bailout 依赖）', () => {
     const store = new TaskStore(makeList(3))
     const before = store.getState()
     store.takeTask('t-0', 'u-1')
@@ -24,19 +29,19 @@ describe('store', () => {
   })
 })
 
-describe('page + host integration (缁勪欢鍖栧叏閾捐矾)', () => {
-  it('鍚屽唴瀹归噸澶嶆覆鏌?鈫?memo bailout 鈫?闆?op锛涘彉鍖?鈫?浠呭樊閲?splice', () => {
+describe('page + host integration (组件化全链路)', () => {
+  it('同内容重复渲染 → memo bailout → 零 op；变化 → 仅差量 splice', () => {
     const store = new TaskStore(makeList(3))
     const host = assemblePageSession(store)
     const vMount = host.currentVersion
-    const opsOf = (): number => {
+    const opCount = (): number => {
       const sync = host.renderSince(vMount)
       return sync.kind === 'patch' ? sync.ops.length : Number.POSITIVE_INFINITY
     }
-    expect(opsOf()).toBe(0) // 鎸傝浇鍚庢棤鍙樺寲
+    expect(opCount()).toBe(0)
 
-    store.takeTask('t-1', 'u-1') // 瑙﹀彂閲嶆覆鏌?鈫?浠?1 鏉?splice
-    expect(opsOf()).toBe(1)
+    store.takeTask('t-1', 'u-1')
+    expect(opCount()).toBe(1)
 
     const sync = host.renderSince(vMount)
     expect(sync.kind).toBe('patch')
@@ -45,41 +50,27 @@ describe('page + host integration (缁勪欢鍖栧叏閾捐矾)', () => {
     }
   })
 
-  it('TaskListPage 鏄粍浠讹細杈撳嚭闈欐€佸ご + keyed 浠诲姟琛?, () => {
-    const elements = TaskListPage({ items: makeList(2) })
-    expect(elements[0].type).toBe('static')
-    expect(elements[1].key).toBe('t-0')
-    expect(elements[2].type).toBe('item')
-  })
-
-  it('鍏ㄩ噺蹇収妯″紡锛歳enderSince(undefined) 鎼哄甫闈欐€佸ご涓庨泦鍚?, () => {
+  it('全量快照模式：renderSince(undefined) 携带静态头与集合', () => {
     const store = new TaskStore(makeList(2))
     const host = assemblePageSession(store)
     const sync = host.renderSince(undefined)
     expect(sync.kind).toBe('snapshot')
     const text = renderSync(sync)
     expect(text.startsWith('SNAPSHOT v')).toBe(true)
-    expect(text).toContain('"content":"浠诲姟涓績 路 鍒楄〃椤?')
+    expect(text).toContain('"content":"任务中心 · 列表页"')
   })
 })
 
 describe('protocol', () => {
-  it('dispatch锛欽SON 瑙ｆ瀽澶辫触涓庢湭鐭ュ伐鍏疯繑鍥炵粨鏋勫寲閿欒', () => {
+  it('dispatchTaskTool：JSON 解析失败与未知工具返回结构化错误', () => {
     const store = new TaskStore(makeList(3))
-    expect(dispatchTool(store, 'take_task', 'not-json')).toMatchObject({ ok: false, code: 'bad_arguments' })
-    expect(dispatchTool(store, 'nope', '{}')).toMatchObject({ ok: false, code: 'unknown_tool' })
-    expect(dispatchTool(store, 'take_task', '{"task_id":"t-0"}').ok).toBe(true)
+    expect(dispatchTaskTool(store, 'take_task', 'not-json')).toMatchObject({ ok: false, code: 'bad_arguments' })
+    expect(dispatchTaskTool(store, 'nope', '{}')).toMatchObject({ ok: false, code: 'unknown_tool' })
+    expect(dispatchTaskTool(store, 'take_task', '{"task_id":"t-0"}').ok).toBe(true)
   })
 
-  it('宸ュ叿琛ㄩ潤鎬侊細绯荤粺鎻愮ず璇嶄笉鍚换浣曚换鍔℃暟鎹?, () => {
+  it('静态面不含任何任务数据', () => {
     const elements = TaskListPage({ items: makeList(1) })
     expect(String(elements[0].props.content)).not.toContain('t-0')
-  })
-})
-
-describe('types', () => {
-  it('TaskItem 缁撴瀯鍐掔儫', () => {
-    const task: TaskItem = makeList(1)[0]
-    expect(task.id).toBe('t-0')
   })
 })

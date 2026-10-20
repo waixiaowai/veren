@@ -717,6 +717,22 @@ importers:
         specifier: ^5.0.4
         version: 5.0.4(@types/node@26.6.5)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
 
+  packages/prompt-page:
+    dependencies:
+      '@veren/prompt-core':
+        specifier: workspace:^
+        version: link:../prompt-core
+      '@veren/prompt-host-messages':
+        specifier: workspace:^
+        version: link:../prompt-host-messages
+    devDependencies:
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^5.0.4
+        version: 5.0.4(@types/node@26.6.5)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
+
   packages/yaml-parser:
     dependencies:
       '@deepseek-ai/schemastery':
@@ -1596,6 +1612,9 @@ importers:
       '@veren/prompt-host-messages':
         specifier: workspace:^
         version: link:../../packages/prompt-host-messages
+      '@veren/prompt-page':
+        specifier: workspace:^
+        version: link:../../packages/prompt-page
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5

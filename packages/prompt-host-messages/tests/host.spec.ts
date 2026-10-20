@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MessageHost } from '../src/host.ts'
-import { renderSync } from '../src/render.ts'
+import { MessageHost, renderSync } from '../src/index.ts'
 import type { HostInstance } from '@veren/prompt-core'
 
 function item(key: string, value: unknown): HostInstance {

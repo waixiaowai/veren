@@ -22,10 +22,11 @@ export interface Patch {
   ops: Op[]
 }
 
-/** 全量快照节点（静态块 / keyed 集合）/ snapshot node */
+/** 全量快照节点（静态块 / keyed 集合 / data 字段）/ snapshot node */
 export type SnapshotNode =
   | { kind: 'static'; content: string }
   | { kind: 'keyed'; path: string; items: unknown[] }
+  | { kind: 'data'; path: string; value: unknown }
 
 /** 全量快照 / full snapshot */
 export interface Snapshot {

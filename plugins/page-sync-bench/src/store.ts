@@ -69,6 +69,17 @@ export class TaskStore {
     return { ok: true, detail: `${id} completed` }
   }
 
+  /** 按钮语义：放弃任务（taken → open）/ abandon-task button */
+  abandonTask(id: string): ToolOutcome {
+    const item = this.items.find((task) => task.id === id)
+    if (!item) return { ok: false, code: 'task_not_found', detail: `no task ${id}` }
+    if (item.status !== 'taken') {
+      return { ok: false, code: 'invalid_transition', detail: `${id} is ${item.status}, not taken` }
+    }
+    this.replace({ ...item, status: 'open', ownerId: null })
+    return { ok: true, detail: `${id} abandoned` }
+  }
+
   /** 不可变替换一条并通知 / immutably replace one item and notify */
   private replace(next: TaskItem): void {
     this.items = this.items.map((task) => (task.id === next.id ? next : task))

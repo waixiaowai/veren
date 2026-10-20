@@ -1,18 +1,28 @@
 /**
- * MessageHost：append-only 消息日志宿主 / append-only message-log host
+ * MessageHost：append-only 消息日志宿主 + 字节稳定渲染
+ * MessageHost: append-only message-log host + byte-stable rendering
  *
  * LLM 特有策略全在这层（内核不知道）：
  * - placement/update → 结构化 op 进缓冲；flush 合批并推进版本
- * - update 的物理不可实现（历史不可改）→ 策略化为“下一次补丁以新值重申”（splice 语义天然幂等）
+ * - update 的物理不可实现（历史不可改）→ 策略化为“下一次补丁以新值重申”（splice/set 天然幂等）
  * - deletion → splice 无 entity / remove op；集合状态同步剔除
  * - renderSince(cursor)：增量优先；无基线/缺口过大/游标超前 → 全量快照
  */
+import { canonicalJson } from '@veren/prompt-core'
 import type { HostInstance, PromptHost } from '@veren/prompt-core'
 import type { Op, SnapshotNode, Sync } from './types.ts'
 
 interface Commit {
   version: number
   ops: Op[]
+}
+
+/** 渲染同步消息（信封固定，仅数据字面量变）/ render one sync message (fixed envelope) */
+export function renderSync(sync: Sync): string {
+  if (sync.kind === 'patch') {
+    return `PATCH v${sync.fromVersion}->v${sync.toVersion} {"ops":[${sync.ops.map(canonicalJson).join(',')}]}`
+  }
+  return `SNAPSHOT v${sync.version} {"nodes":[${sync.nodes.map(canonicalJson).join(',')}]}`
 }
 
 export interface MessageHostOptions {
@@ -29,6 +39,7 @@ export class MessageHost implements PromptHost {
   private staged: Op[] = []
   private readonly statics: string[] = []
   private readonly collections = new Map<string, Map<string, unknown>>()
+  private readonly fields = new Map<string, unknown>()
   private readonly maxPatchGap: number
   private readonly compactEvery: number
 
@@ -56,6 +67,7 @@ export class MessageHost implements PromptHost {
     const op = this.toOp('deletion', instance)
     if (op !== null) this.staged.push(op)
   }
+
   /** flush：合批边界，推进版本 / batch boundary; bump version */
   flush(): void {
     if (this.staged.length === 0) return
@@ -78,6 +90,16 @@ export class MessageHost implements PromptHost {
       .filter((commit) => commit.version > cursor)
       .flatMap((commit) => commit.ops)
     return { kind: 'patch', fromVersion: cursor, toVersion: this.version, ops }
+  }
+
+  /** 日志统计（compact 策略的输入）/ log stats (input for the compaction policy) */
+  logStats(): { entries: number; approxTokens: number; versionsSinceAnchor: number } {
+    const ops = this.commits.flatMap((commit) => commit.ops)
+    return {
+      entries: ops.length + this.staged.length,
+      approxTokens: Math.ceil(Buffer.byteLength(canonicalJson(ops)) / 3),
+      versionsSinceAnchor: this.commits.length,
+    }
   }
 
   /** 压实：清空补丁链 / drop the patch chain */
@@ -110,7 +132,11 @@ export class MessageHost implements PromptHost {
       return { op: 'splice', path, id: String(instance.key), entity: instance.props.value }
     }
     if (instance.kind === 'data') {
-      if (tag === 'deletion') return { op: 'remove', path }
+      if (tag === 'deletion') {
+        this.fields.delete(path)
+        return { op: 'remove', path }
+      }
+      this.fields.set(path, instance.props.value)
       return { op: 'set', path, value: instance.props.value }
     }
     return null // 未知块类型：宿主忽略（策略位）
@@ -125,9 +151,12 @@ export class MessageHost implements PromptHost {
     return bucket
   }
 
-  /** 从集合状态重建快照树 / rebuild snapshot nodes from mirrored state */
+  /** 从镜像状态重建快照树 / rebuild snapshot nodes from mirrored state */
   private snapshotNodes(): SnapshotNode[] {
     const nodes: SnapshotNode[] = this.statics.map((content) => ({ kind: 'static', content }))
+    for (const [path, value] of this.fields) {
+      nodes.push({ kind: 'data', path, value })
+    }
     for (const [path, bucket] of this.collections) {
       nodes.push({ kind: 'keyed', path, items: [...bucket.values()] })
     }
