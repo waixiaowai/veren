@@ -1282,6 +1282,28 @@ Four items need confirmation; the remaining questions from the previous revision
 
 ---
 
+## 10. Framework gap fixes (G1–G11)
+
+> **Compact version.** This section distills the framework gaps that four independent application efforts (`task-workbench`, `forum`, `notebook`, `person-agent`) each hit, deduplicated. The authoritative, fully argued specification — per-gap problem statement, proposed API shapes with illustrative code, rejected alternatives, blast radius, phasing, and relation to existing decisions — is **§10 of the Chinese document** ([application-concept.cn.md](application-concept.cn.md)); details there are not yet mirrored here.
+
+| ID | Gap | Fix (one line) | Phase |
+| --- | --- | --- | --- |
+| G1 | Bundle patches insert rows by id across bundles with no dedup contract (`forum-bundle` + `app-host-bundle` both insert `app-host`) | Loader: same-id same-name insert is idempotent skip; same-id different-name fails loud with `loader/row-id-conflict` | P0 |
+| G2 | No optional injection: a hard `inject: ['apps']` kills the whole plugin when the framework is absent | Add cordis `optionalInject` **and** promote person-agent's three-package shape (`<app>` / `<app>-app` / `<app>-bundle`) to the **official form** for new apps | P0 |
+| G3 | `defineTool` output.schema demands canonical wrapper values; bare returns compile fine but break the contract | Derive `execute` return type from schema top-level keys; registration-time assertion with `tool/output-contract` | P1 |
+| G4 | Global tools (`notebook_list`) vs page tools (`notebook__list_notes`) confuse the model | Reserve `__` for page tools (global names may not contain it); registration-time name checks; deprecation cycle for existing global names | P1 |
+| G5 | No first-class stateless page: tool-driven pages are forced into `PageDefinition<never>` + `as never` | Make `tree` optional; omitting it yields a stateless page with an official placeholder tree | P1 (after G6) |
+| G6 | Branded ids (`AppId`/`PageKey`) can only be built with `as` | Official validated constructors `asAppId` / `asPageKey` / generic `brandOf`, fail loud on invalid | P1 (before G5) |
+| G7 | No official pattern for async data feeding a synchronous `tree` (person-agent hand-rolled refresh + cache) | Optional `load(params)` on the page definition; runtime loads once at session create/restore, `refresh(sessionId)` diffs into the existing SNAPSHOT/PATCH channel | P1 |
+| G8 | No declarative `registerApp({ tools, pages })`; tool-before-page ordering is a manual convention | Declarative entry that fixes the ordering internally; raw primitives stay for tests | P2 (after G9) |
+| G9 | No official way to reuse another package's existing tool in an app catalog (person-agent had to patch two packages) | Tool packages export builders; catalog gains a `register(tool, meta)` adoption entry sharing define's validation | P2 (before G8) |
+| G10 | `requires` is recorded but never enforced | Enforce at mount: `requires ⊆ app permissions`, else refuse session creation (`app/permission-denied`); decide together with §9.2 item 1 | P2 |
+| G11 | `pageRevision` is dead weight since §9.1.1 abolished session reuse | **Verdict: repurpose, do not delete.** Becomes an upgrade notice: on open, a revision delta prepends a `PAGE upgraded` line and emits `app/page-revision-changed`; rewrites §7.3 / §9.2.4 as "notify, don't block" | P2 |
+
+Merge/split judgment: none of the eleven are merged — the near pairs (G3/G4 both tool-naming-adjacent; G8/G9 both assembly) fix different layers with different blast radii, and G8's dependency on G9 only falls out of a clean sequence if they stay separate.
+
+---
+
 ## Appendix A: Illustrative interfaces
 
 ```ts

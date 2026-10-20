@@ -1414,6 +1414,297 @@ Cordis 插件运行在同一个宿主进程里，拿到 `ctx` 就能碰所有服
 
 ---
 
+## 10. 框架缺口与修复规格（G1–G11）
+
+> **来源与性质**：本节把 `task-workbench`、`forum`、`notebook`、`person-agent` 四次独立应用化撞出来的框架缺口去重整理，逐条给出修复规格。文中代码全部是**示意**，最终实现以各包契约为准。编号 G1–G11 在后续修复会话中直接引用，不再各自重新理解一遍。
+
+### 10.0 总表与依赖顺序
+
+| 编号 | 一句话 | 阶段 | 状态 |
+| --- | --- | --- | --- |
+| G1 | bundle patch 跨组合包行 id 无去重契约 | P0 | 待修 |
+| G2 | 应用层无可选注入形态，框架缺席 = 插件不激活 | P0 | 待修 |
+| G3 | `defineTool` output.schema 契约类型上拦不住裸返回 | P1 | 待修 |
+| G4 | 全局工具与页面工具命名易混淆 | P1 | 待修 |
+| G5 | 无"无状态页面"一等形态，逼出 `as never` | P1 | 待修 |
+| G6 | brand id 只能靠 `as` 构造 | P1 | 待修 |
+| G7 | 缺"异步数据源同步进同步 tree"的官方样板 | P1 | 待修 |
+| G8 | 缺声明式 `registerApp({ tools, pages })` | P2 | 待修 |
+| G9 | 缺"复用别包既有工具"的官方模式 | P2 | 待修 |
+| G10 | `requires` 只记录不拦截 | P2 | 待修 |
+| G11 | `pageRevision` 随 §9.1.1 变成摆设 → **改用途，不删** | P2 | 待修 |
+
+依赖关系（先修的在后修的之前）：
+
+```mermaid
+flowchart LR
+  G6["G6 brand 构造助手"] --> G5["G5 无状态页面"]
+  G9["G9 既有工具收录"] --> G8["G8 registerApp"]
+  G1["G1 patch id 去重"]
+  G2["G2 可选注入 + 三包形态"]
+  G3["G3 output 契约"]
+  G4["G4 工具命名规则"]
+  G7["G7 异步数据源样板"]
+  G10["G10 requires 强制"]
+  G11["G11 pageRevision 改用途"]
+```
+
+**合并/拆分判断**：G1–G11 **不合并**。表面相近的几对其实修的是不同层：G3（工具返回值契约）与 G4（模型可见工具名）都关于工具，但一个改类型面、一个改注册期校验，合在一起会让两个修复互相等对方；G8（注册 API 形状）与 G9（工具来源）同属"应用装配"但改动面分别是 app-registry 与各工具包的导出，且 G8 依赖 G9 先行，拆开才排得出顺序。G11 严格说不是缺口而是决策，单列是因为它有完整的"删还是改"论证需要留档。
+
+### 10.1 G1（P0）：bundle patch 跨组合包的行 id 去重契约
+
+**问题陈述**：`forum-bundle` 与 `app-host-bundle` 都 `insert` 了 `id: app-host` 的行，同装时同一行插入两次，Loader 对 insert 是纯追加，行为未定义。四次应用化里 forum 撞到；不修，任何两个都引应用框架的组合包组合起来都可能双插，且是否报错取决于 Loader 内部实现的偶然。
+
+**建议方案**（示意）：Loader 对 `insert` 加按 id 的幂等规则，目标列表内已存在同 id 行时：
+
+```text
+同名（name 相同）→ 幂等跳过，记一条 debug 日志（"row already inserted by <patch>"）
+异名           → fail loud，稳定错误码 loader/row-id-conflict，
+                 载荷 { id, existing: <name>, incoming: <name>, patch: <patchPath> }
+```
+
+这是"声明式去重"：组合包作者只要给行写稳定 id，跨组合包同装就在构造上安全。
+
+**取舍**：被否方案是"只写文档约定：行 id 加 bundle 前缀保证全局唯一"。否掉的理由：两个 bundle 各自带 `app-host` 是**合理**需求（各自成套安装），前缀化治不了"同 id 不同名仍双插"，还把去重责任推给每个作者；且与"misconfiguration fails loud"的既有纪律相悖——静默双插正是 misconfiguration。
+
+**影响面**：DSH Loader 的 patch 合并逻辑（deepseek/deepseek-harness）。四个已上线应用**不需要**改（它们是受益方）。测试：loader-smoke 补组合用例——两 bundle 同装、id 同名（断言单行生效）与 id 异名（断言报错码）。
+
+**落地阶段与依赖**：P0，无前置。**与既有决策的关系**：不改任何结论，把 forum-bundle 注释里"reconciliation 只激活这一层"的**文档约定**升级为**机制**。
+
+### 10.2 G2（P0）：可选注入 + 应用层独立成包（升格为官方形态）
+
+**问题陈述**：cordis 的 `inject` 全是硬依赖，`person-agent-tool-*` 与 `task-workbench` 都硬 `inject: ['apps']`——应用框架缺席时整个插件不激活，连与框架无关的核心功能一起陪葬。person-agent 撞到并用实践给出了解法；不修，每个新应用都要么接受"框架没了全没"，要么各自再发明一次包拆分。
+
+**建议方案**：两条腿，缺一不可，并**升格为官方形态**（新应用默认长这样，不是"一种可行做法"）：
+
+1. **cordis 增加可选注入**（示意）：
+
+```ts
+export const inject = ['slots']                    // 硬依赖，缺席不激活
+export const optionalInject = ['apps']             // 可选：缺席照常激活
+export const apply = (ctx: Context) => {
+  const apps = ctx.peek('apps')                    // Service | undefined
+  // 应用层注册只在 apps 存在时执行；否则插件以"无应用"形态运行
+}
+```
+
+2. **官方应用包结构 = 三包**（示意）：
+
+```text
+<app>/            核心包：Service、数据、领域逻辑；不依赖应用框架
+<app>-app/        应用层包：inject ['apps']（硬），注册页面/工具目录/任务通道
+<app>-bundle/     组合包：cordis.patch.yml + dependencies，统一插行
+```
+
+规则：**应用层必须独立成包，且该包可以整包不装**——核心照常工作，装上 `-app` 才成为应用。`optionalInject` 解决"框架在但个别服务/接缝缺失"的降级；拆包解决"框架整个不在"的隔离——两者回答的是不同的问题。
+
+**取舍**：被否方案是"给所有应用插件统一加 `optionalInject`，不拆包"。否掉的理由：那会把故障从"包不激活"（边界清晰、插件页可见）变成"包激活但半残"——运行期 `undefined` 散布进每个 apply 分支，测的是组合爆炸。包边界是一次性、可测试、在插件管理页可见的隔离；person-agent 已经验证了这条路的成本可接受。反过来，只拆包不加 `optionalInject` 也不够：框架在但版本漂移（接缝没装配）时，硬 inject 仍会整包哑掉，需要一个显式的降级面。
+
+**影响面**：cordis 核心（optionalInject 语义）；四个已上线应用**需要**跟着改包结构（task-workbench、notebook、forum 把应用层拆出 `-app` 包；person-agent 已是目标形态，基本不动）。测试：可选服务缺席的 composition 测试（核心激活、应用层不挂、无 inject 等待告警）。
+
+**落地阶段与依赖**：P0，无前置（`optionalInject` 与包拆分可并行做）。**与既有决策的关系**：与 AGENTS.md"inject 依赖的是能力（Service）"一致，只是增加 optional 变体；§2.4"一个组合包一个应用"不变——三个包仍是同一个应用的多实现插件。
+
+### 10.3 G3（P1）：`defineTool` 的 output.schema 契约要在类型上成立
+
+**问题陈述**：`output.schema` 要求返回 canonical 包装值（如 `{note}` / `{notes}`），直接返回裸视图**不报错但违背契约**，静态类型完全拦不住。notebook 撞到；不修，每个写工具的人都会先写出"能跑但错"的版本，等渲染面出怪相才回头查。
+
+**建议方案**（示意）：类型与运行期双层收紧：
+
+```ts
+// 类型层：execute 的返回类型由 output.schema 的顶层包装键推导，
+// 裸返回直接编译错误
+defineTool({
+  output: { schema: s => s.object({ note: NoteView }) },   // 顶层键 note
+  execute: async (args) => ({ note: await getNote(args.id) })
+  //       ^ 若返回 NoteView，此处类型不匹配
+})
+
+// 运行期：注册时对 schema 顶层键做一次断言（不是每轮调用），
+// 违背抛稳定错误码 tool/output-contract，载荷 { tool, expectedKeys, actualKeys }
+```
+
+**取舍**：被否方案是"放宽契约，允许裸返回"。否掉的理由：`render`（renderValue）靠包装键定位要渲染的值，放宽后渲染契约失效，等于把 G3 换成一个新的、更含糊的缺口。运行期只做注册期断言而非逐调用校验，是为了不给工具热路径加开销；逐调用校验留为 debug 开关。
+
+**影响面**：`@deepseek-ai/dsh-tools` 类型面 + notebook 等调用点改写。四个应用**需要**跟着改（凡是被 defineTool 收录的工具）。测试：类型级断言（expectTypeOf 裸返回不通过）+ 注册期断言 spec。
+
+**落地阶段与依赖**：P1，无前置。**与既有决策的关系**：无冲突；是"禁止类型逃逸"纪律在工具面的落实。
+
+### 10.4 G4（P1）：全局工具与页面工具的命名混淆
+
+**问题陈述**：notebook 同时暴露全局 `notebook_list` 和页面级 `notebook__list_notes`，模型两个都可能调，不报错、结果偏一点。不修，每个既有全局工具的应用化都会复刻这个混淆。
+
+**建议方案**：把 §3.4.3 的前缀规则补上**全局侧的约束**并落到注册期校验（示意）：
+
+```text
+1. 全局宿主工具名禁止包含 "__"（双下划线是页面工具的保留分隔符）；
+   违背在注册时抛 tool/name-reserved-separator。
+2. 页面工具最终名必须是 <toolPrefix>__<local>，页面注册时校验。
+3. 页面 instructions 里引用的工具名必须是最终名；页面注册时扫描
+   instructions 文本，出现本应用本地名而非最终名时告警（第 1 步只告警）。
+4. 已存在的全局工具（notebook_list 等）改名走废弃周期：先并行暴露
+   带前缀名，PAGE 块与描述标注推荐名，一个版本后摘除旧名。
+```
+
+**取舍**：被否方案是"全局工具也带前缀"。否掉的理由：`app_list`、`task_complete` 是引导带（§3.3），短名是刻意的 schema 稳定性与缓存友好；加前缀解决混淆的代价是全模型面改名。保留分隔符 + 校验是更便宜的隔离。
+
+**影响面**：app-registry 注册校验 + notebook 改名。四个应用**需要**跟着改（凡有全局工具与页面工具并存的）。测试：注册期命名冲突/分隔符 spec；模型侧无自动化，靠真机清单第 4 项（工具作用域互斥）覆盖。
+
+**落地阶段与依赖**：P1，无前置。**与既有决策的关系**：细化 §3.4.3 与 §6.2 命名空间清单（加一条"双下划线保留"），不改方向。
+
+### 10.5 G5（P1）：无状态页面的一等形态
+
+**问题陈述**：`defineAppPage` 强制 `tree`，纯工具驱动页面只能落 `PageDefinition<never>`，于是到处 `pages.register(page as never)`——**框架自己逼人违反"禁止 as"规范**。task-workbench 撞到；不修，每个工具驱动型应用都带着这层类型谎言。
+
+**建议方案**（示意）：`tree` 变为可选，缺省即"无状态页面"：
+
+```ts
+// 无状态页面：不写 tree，运行时用官方占位树（一段说明 PAGE 文案的组件）
+defineAppPage({
+  name: 'console',
+  url: '/console',
+  description: '工具驱动的控制台页',
+  tools: ['run_query', 'export_result'],
+  instructions: '本页没有界面状态，全部通过页面工具操作。',
+  // tree: 省略 —— S 推导为 undefined，不再是 never
+})
+```
+
+实现上 `defineAppPage<S = undefined>` 用重载区分有 tree / 无 tree 两个形态，注册器接受 `AppPageDefinition`（两者的联合），`as never` 在类型上消失。
+
+**取舍**：被否方案是"tree 允许返回 undefined 但字段保留"。否掉的理由：那是半可选项——作者仍要写 `tree: () => undefined` 这类无意义字段，和现状只有 fifty steps 的差别；一等形态的价值恰恰在"不写"。
+
+**影响面**：`packages/prompt-page` 类型 + page-registry 注册器。四个应用**需要**跟着改（删掉各自的 `as never`）。测试：无 tree 页面的注册、打开、PAGE 块生成 spec。
+
+**落地阶段与依赖**：P1，**依赖 G6**（无状态页面的 id/key 构造要用 brand 助手，先有构造入口才谈得上消除 as）。**与既有决策的关系**：消除"框架逼人用 as"与 AGENTS.md 规范的直接冲突。
+
+### 10.6 G6（P1）：brand id 的官方构造入口
+
+**问题陈述**：`AppId`/`PageKey` 是 brand 类型，但构造只能 `as`，与"禁止用 as"的规范正面冲突。四个应用全都撞到；不修，每处跨边界 id 都是一次无人校验的类型谎言。
+
+**建议方案**（示意）：提供校验型构造助手，非法值 fail loud：
+
+```ts
+// @veren/app-registry（或 core）导出
+export function asAppId(s: string): AppId {
+  // slug 规则校验（§2.3：小写字母开头、字符集、≤32、保留字），非法抛
+  // app/id-invalid，载荷 { value, reason }
+}
+export function asPageKey(app: AppId, name: string): PageKey // 校验应用内命名
+// 通用形态：brandOf<T>(tag, value, validate) —— 其余 brand id 复用
+```
+
+"零运行时开销"的精神保留：校验只在**构造边界**发生一次，之后仍是纯 string 的 brand。
+
+**取舍**：被否方案是"放宽 brand 为普通 string"。否掉的理由：跨边界 id 用 brand 是 AGENTS.md 既有决策，放宽等于放弃 URL/存储域/工具前缀的构造性防撞。次选"构造函数返回 Result 类型"也被否：所有调用点都要拆包判错，而 slug 非法在应用化场景里永远是程序错误，抛错更诚实。
+
+**影响面**：app-registry（或新助手模块）导出 + 四个应用替换全部 `as AppId` / `as PageKey`。测试：校验规则表驱动 spec（合法/非法样本）。
+
+**落地阶段与依赖**：P1，**先于 G5 落地**。**与既有决策的关系**：不改既有决策，是给"跨边界 id 用 brand"补上缺失的官方构造面。
+
+### 10.7 G7（P1）：异步数据源进同步 tree 的官方样板
+
+**问题陈述**：`tree(params, state)` 是同步的，但页面数据几乎总在异步源（存储、别的 Service）里；没有官方模式，person-agent 只能自建 refresh + cache，四个应用各写一套。不修，每页都有一份手搓的装载/刷新/竞态处理。
+
+**建议方案**（示意）：页面定义新增可选 `load`，运行时在会话创建/恢复时装载一次，结果作为 state 初值：
+
+```ts
+defineAppPage({
+  // ...
+  load: async (params) => readTask(params.id),        // 失败抛 → 页面标 crashed
+  tree: (params, state) => <TaskView task={state} />, // state 是 load 的结果
+})
+// 刷新 = pageRuntime.refresh(sessionId)：重跑 load、按引用/浅比较 diff，
+// 增量以既有 SNAPSHOT/PATCH 通道进同步消息；load 进行中旧 state 保持可见
+```
+
+错误处理沿用既有页面崩溃路径：load 抛错记 `page/crashed`，新码 `page/load-failed`，页面面板显示重试；不做自动轮询（要不要轮询是应用自己的事，走 ctx.effect 订阅源变化后调 refresh）。
+
+**取舍**：被否方案是"把 tree 改成 async"。否掉的理由：页面渲染是同步 SNAPSHOT/PATCH 增量管线，async tree 意味着每次渲染都要挂起-恢复，缓存失效、消息顺序、竞态全部翻新，成本与收益完全不成比例。次选"让应用继续自建"也被否：refresh+cache 的竞态（装载中打开、刷新中刷新）每家自己踩一遍，正是要收编的样板。
+
+**影响面**：packages/prompt-page（load 语义）+ page-registry（refresh 面）。四个应用**需要**跟着改（person-agent 的自建实现收编为该模式的调用方）。测试：load 失败降级、刷新 diff、装载中打开的竞态 spec。
+
+**落地阶段与依赖**：P1，无硬前置（建议在 G5 之后做，共用页面定义改版）。**与既有决策的关系**：无冲突；是 §1.1 "页面树在 store 变化时重新渲染"模型的官方化补全。
+
+### 10.8 G8（P2）：声明式 `registerApp`
+
+**问题陈述**：现在要求"工具先于页面"靠调用方手工排序，register 的内部顺序是隐式契约，装反了报错信息离病因很远。
+
+**建议方案**（示意）：
+
+```ts
+ctx.apps.registerApp({
+  definition: { id: 'review-workbench', name: '…', entry: 'inbox', /* … */ },
+  tools: (t) => { t.define(readDiff, { requires: ['files:read'] }) },
+  pages: (p) => { p.register(reviewPage); p.register(inboxPage) },
+})
+// 内部固定顺序：建目录 → 跑 tools → 跑 pages；单 fiber，disposer 逆序
+```
+
+**取舍**：被否方案是"只把调用顺序写进文档"。否掉的理由：顺序契约靠人记正是这批缺口里最典型的"不报错但错了"来源；既然 G9 已把工具来源收拢，包一层声明式入口的边际成本很小。保留底层 `register`/`define` 原语给测试和特殊场景。
+
+**影响面**：app-registry 加一个入口函数；四个应用**建议**跟着改写（不改也能跑，属效率项）。测试：声明式入口的顺序保证与逆序清理 spec（复用既有 registry dispose 测试基建）。
+
+**落地阶段与依赖**：P2，**依赖 G9**（tools 回调里要能收录既有工具，否则声明式入口一开始就不够用）。
+
+### 10.9 G9（P2）：复用别包既有工具进应用目录
+
+**问题陈述**：`ctx.apps.tools(id).define` 只收 `defineTool` 产物，而 defineTool 藏在各工具包内部；person-agent 想复用既有工具，只能去改两个包加 builder 导出——跨包边界被框架的一个封装决定卡住。
+
+**建议方案**（示意），两层：
+
+```ts
+// 1）工具包导出 builder（主）：工具定义成为可复用的公共面
+//    person-agent-tool-session 导出 buildSessionTool(options): ToolDefinition
+// 2）目录收录口（辅）：把外部既有 ToolDefinition 原样收进应用目录
+ctx.apps.tools('person-agent').register(existingTool, { requires: ['sessions:read'] })
+```
+
+`register` 与 `define` 的差别只在语义（收录 vs 定义），校验与去重共用一套；收录的工具名仍过 §10.4 的命名校验。
+
+**取舍**：被否方案是"让应用自己重新实现一遍需要的工具"。否掉的理由：重复实现是漂移之源——同名工具两处行为渐渐不一致，模型和人都会被坑。次选"目录直接接受任何函数"也被否：丢掉 ToolDefinition 的 schema 契约（G3 的成果）。
+
+**影响面**：相关工具包（person-agent-tool-* 等）导出 builder + app-registry 加 register 口。四个应用中 person-agent **需要**跟着改（回退它对两个包的手工补丁），其余不受影响。测试：收录工具的去重、命名校验、dispose spec。
+
+**落地阶段与依赖**：P2，无前置（是 G8 的前置）。
+
+### 10.10 G10（P2）：`requires` 从"只记录"到"拦截"
+
+**问题陈述**：`requires` 目前注册时只记录不校验，写代码的人会以为有约束，实际没有——典型的"不报错但错了"。
+
+**建议方案**：挂载时强制：页面会话创建前检查每个工具的 `requires ⊆ 应用 permissions`，缺任何一项拒绝创建（复用既有错误码 `app/permission-denied`，载荷列出缺失能力）。与 §9.2 待拍板第 1 项（预设能力交集）**合并为同一次决策**：同一挂载点、同一次交集运算（应用授权 × 预设允许），一次做完比分两波改挂载路径便宜。
+
+**取舍**：被否方案是"维持只记录 + 文档警示"。否掉的理由：只记录的权限等于没有权限，而挂载点检查的实现成本很低（一个集合差）。放宽为"缺能力时摘掉该工具继续挂"也被否：页面声明的 `tools` 是页面契约的一部分，静默缺工具比拒绝打开更难排查。
+
+**影响面**：page-registry 挂载路径 + profile 应用记录（授权存储，§6.4 安装时授予）。四个应用**需要**跟着改（补齐 permissions 声明，否则以前能打开的页面现在被拒——这是**有意的** fail loud）。测试：能力缺失拒绝、全授予放行的 spec。
+
+**落地阶段与依赖**：P2，无技术前置；排期上与 §9.2.1 的拍板绑定。
+
+### 10.11 G11（P2）：`pageRevision` 的明确判断——**改用途，不删**
+
+**问题陈述**：§9.1.1 取消会话复用后，`pageRevision` 原本的用途（旧会话复用前的兼容判断）不存在了，作者却还在认真维护一个不再影响任何行为的字段。
+
+**明确判断**：**保留，换用途：从"拦截复用的兼容闸"改为"应用升级的契约变化提示"。**
+
+新语义（示意）：打开 URL 新建会话时，比较该 URL 索引行（或任务记录快照）里的 `pageRevision` 与当前页面定义；不同则在 PAGE 块之前追加一行：
+
+```text
+PAGE upgraded rev 2 -> 5：该 URL 上次打开的是旧页面契约；工具名、参数或说明可能已变。
+```
+
+同时发 `app/page-revision-changed` 事件（载荷 `{ appId, page, url, from, to }`），供应用监听做数据迁移。理由：
+
+- **为什么不是删**：删掉之后，"页面契约变了"这件事在新建会话语义下就没有任何载体了——`appVersion` 不能替代它（版本号不变契约也可能变，§7.3 最初区分两者的原因仍然成立），任务记录的 `appVersion`/`pageRevision` 快照和 `task/app-upgraded` 提示链也一并失去判据。
+- **为什么降格为提示不拦截**：打开一律新建后，新会话天然用新版本，没有需要拦截的分叉；拦截权已经没有对象。它从"错了会错杀复用的硬闸"降为"提示性元数据"，维护负担随之降到可接受。
+- 老字段不迁移：索引行与任务快照里的 `pageRevision` 原样可用，只是读者从"复用判断"换成"升级提示"。
+
+**取舍**：被否方案一是"直接删"（理由见上）；二是"恢复它拦截新建"（等于部分恢复 §9.1.1 已放弃的复用语义，与用户决策正面冲突，不议）。
+
+**影响面**：page-registry 打开路径加一次比较 + 一行 PAGE 前缀 + 一个事件；task-center 不改（快照字段已有）。四个应用**不需要**改（维护规则不变：不兼容变化 +1）。测试：rev 快照差异产生 `PAGE upgraded` 行与事件的 spec；无差异无行的 spec。
+
+**落地阶段与依赖**：P2，无前置。**与既有决策的关系**：**改写 §7.3 与 §9.2.4**——两节基于"复用"的升级分叉随 §9.1.1 已失效，本条把它们改写为"提示不拦截"的最终结论；§9.1.1 的用户决策本身不动。
+
+---
+
 ## 附录 A：示意接口（不是最终代码）
 
 ```ts
