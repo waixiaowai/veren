@@ -41,9 +41,13 @@ interface Calls {
 }
 
 /** A fake Agent recording the inbox operations the plugin performs on it. */
-function fakeAgent(sessionId: string, calls: Calls) {
+function fakeAgent(
+  sessionId: string,
+  calls: Calls,
+  header: { readonly origin?: 'subagent'; readonly delegationDepth?: number } = {},
+) {
   return {
-    session: { id: sessionId },
+    session: { id: sessionId, header },
     followup: (message: { content: readonly { readonly text: string }[] }) => {
       calls.followup.push({ sessionId, text: message.content[0]?.text ?? '' })
     },
@@ -51,13 +55,15 @@ function fakeAgent(sessionId: string, calls: Calls) {
 }
 
 /** Session-layer doubles: deliveries are recorded, persistence always confirms. */
-function sessionLayer(calls: Calls): { readonly agents: object; readonly sessions: object } {
+function sessionLayer(calls: Calls, resumeRejects = false): { readonly agents: object; readonly sessions: object } {
   return {
     agents: {
       withoutInitiator: <T>(work: () => T): T => work(),
       get: () => undefined,
-      resume: async ({ resumeSessionId }: { resumeSessionId: string }) =>
-        ({ agent: fakeAgent(resumeSessionId, calls) }),
+      resume: async ({ resumeSessionId }: { resumeSessionId: string }) => {
+        if (resumeRejects) throw new Error(`session ${resumeSessionId} no longer exists`)
+        return { agent: fakeAgent(resumeSessionId, calls) }
+      },
     },
     sessions: { flush: async () => { calls.flush += 1; return true } },
   }
@@ -89,9 +95,10 @@ function provideStub<K extends string & keyof Context>(ctx: Context, name: K, va
 async function boot(
   dirs: ReturnType<typeof sandbox>,
   config: Partial<Config> = {},
+  resumeRejects = false,
 ): Promise<{ ctx: Context; calls: Calls }> {
   const calls: Calls = { followup: [], flush: 0 }
-  const layer = sessionLayer(calls)
+  const layer = sessionLayer(calls, resumeRejects)
   const ctx = new Context()
   provideStub(ctx, 'agents', layer.agents)
   provideStub(ctx, 'sessions', layer.sessions)
@@ -174,6 +181,22 @@ describe('unclean-exit recovery', () => {
     // 即使没有投递，标记也已认领：至多恢复一次。
     expect(claimBootFlag(dirs.stateDir, 'probe', '2026-01-02T00:00:00.000Z').unclean).toBe(false)
   })
+
+  it('skips a recorded session that no longer resolves, without throwing', async () => {
+    const dirs = sandbox()
+    claimBootFlag(dirs.stateDir, 'boot-crashed', '2026-01-01T00:00:00.000Z')
+    saveLastSession(dirs.stateDir, { sessionId: 'session-gone', at: '2026-01-01T00:05:00.000Z' })
+
+    // The resume path rejects (deleted or deprecated session): the boot must
+    // stay up, deliver nothing, and keep the at-most-once claim.
+    // resume 路径拒绝（会话已删或已废弃）：启动不崩、什么都不投、认领仍然生效。
+    const { ctx, calls } = await boot(dirs, {}, true)
+    await settle(ctx)
+    expect(ctx.startupRecovery.recoveryReport()).toMatchObject({ unclean: true, delivered: false })
+    expect(calls.followup).toHaveLength(0)
+    await ctx.fiber.dispose()
+    expect(claimBootFlag(dirs.stateDir, 'probe', '2026-01-02T00:00:00.000Z').unclean).toBe(false)
+  })
 })
 
 describe('last active session recording', () => {
@@ -186,6 +209,41 @@ describe('last active session recording', () => {
     // 事件载荷类型点名完整 Agent；替身只带记录路径读的成员，收窄放在发射处。
     ctx.emit('agent/created', payload as never)
     expect(readLastSession(dirs.stateDir)?.sessionId).toBe('session-live')
+    await ctx.fiber.dispose()
+  })
+
+  it('never records a subagent child, so recovery cannot target it', async () => {
+    const dirs = sandbox()
+    const { ctx } = await boot(dirs)
+    const calls: Calls = { followup: [], flush: 0 }
+    // A subagent child announces first (origin and delegation depth both say
+    // so), a top-level session announces second: the recorder must keep the
+    // second, because that is the session the user works in.
+    // 子代理先上报（origin 与 delegationDepth 双重标记），顶层会话后上报：记录器
+    // 必须留下后者，因为那才是用户干活的主会话。
+    ctx.emit('agent/created', { agent: fakeAgent('session-child', calls, { origin: 'subagent', delegationDepth: 1 }), source: 'startup' as const } as never)
+    expect(readLastSession(dirs.stateDir)?.sessionId).not.toBe('session-child')
+    ctx.emit('agent/created', { agent: fakeAgent('session-top', calls), source: 'resume' as const } as never)
+    ctx.emit('agent/created', { agent: fakeAgent('session-child-2', calls, { origin: 'subagent', delegationDepth: 2 }), source: 'startup' as const } as never)
+    expect(readLastSession(dirs.stateDir)?.sessionId).toBe('session-top')
+    await ctx.fiber.dispose()
+  })
+
+  it('still records a forked session: a fork is a top-level user session', async () => {
+    const dirs = sandbox()
+    const { ctx } = await boot(dirs)
+    const calls: Calls = { followup: [], flush: 0 }
+    // parentSession marks fork lineage, not delegation; the fork the user
+    // drives is exactly where a recovery prompt belongs.
+    // parentSession 标记 fork 血缘，不是委派；用户驱动的 fork 正是恢复提示该去的地方。
+    const forked = {
+      session: { id: 'session-fork', header: { parentSession: 'session-parent' } },
+      followup: (message: { content: readonly { readonly text: string }[] }) => {
+        calls.followup.push({ sessionId: 'session-fork', text: message.content[0]?.text ?? '' })
+      },
+    }
+    ctx.emit('agent/created', { agent: forked, source: 'resume' as const } as never)
+    expect(readLastSession(dirs.stateDir)?.sessionId).toBe('session-fork')
     await ctx.fiber.dispose()
   })
 })

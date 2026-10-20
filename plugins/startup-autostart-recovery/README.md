@@ -21,8 +21,9 @@ Recovers the work an unclean DeepSeek Harness shutdown interrupted. Use this plu
 
 ## Known limits
 
-- The last active session is whatever `agent/created` reported last, including subagent sessions; the plugin cannot enumerate sessions any other way without host changes.
-- A delivery that fails is logged and not retried in this boot (at-most-once semantics).
+- The recovery target is the last **top-level** session the `agent/created` event reported. Subagent children are excluded by their durable session header (`origin: 'subagent'`, positive `delegationDepth`); a forked session counts as top-level because the user drives it directly. If every active session during a run was a subagent (no top-level session after the last clean start), the record points at none and no recovery prompt is delivered.
+- `stateDir/last-session.json` names the session the prompt was addressed to, so a misdirected recovery is always traceable by reading that file.
+- A recorded session that no longer resolves (deleted or deprecated) is skipped with one log line; the boot is never failed and nothing is delivered.
 
 ## Development
 

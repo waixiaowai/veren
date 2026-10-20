@@ -152,9 +152,22 @@ export class StartupRecoveryService extends Service {
     return disableAutostart(this.startupFolder)
   }
 
-  /** Record every session that becomes active, for the next unclean recovery. */
+  /**
+   * Record every top-level session that becomes active, for the next unclean
+   * recovery.
+   *
+   * The `agent/created` payload itself does not mark children, but the live
+   * session's durable header does: `origin: 'subagent'` and a positive
+   * `delegationDepth` name a subagent child. Recording such a session would
+   * send the recovery prompt where the user never looks, so those are skipped;
+   * a forked session (parentSession set) is still a top-level user session and
+   * stays recorded.
+   */
   private recordSessions(ctx: Context): void {
     const dispose = ctx.on('agent/created', ({ agent }) => {
+      const header = agent.session.header
+      if (header.origin === 'subagent') return
+      if ((header.delegationDepth ?? 0) > 0) return
       saveLastSession(this.stateDir, { sessionId: agent.session.id, at: new Date().toISOString() })
     })
     this.ctx.effect(() => dispose, 'startup-autostart-recovery.record-sessions')
@@ -185,9 +198,14 @@ export class StartupRecoveryService extends Service {
         await this.ctx.agents.withoutInitiator(() => this.deliver(last.sessionId, cause))
         delivered = true
       } catch (error: unknown) {
-        // 至多一次语义：认领已完成，投递失败只记录，不会在本次启动重试。
+        // 至多一次语义：认领已完成，投递失败只记录，不会在本次启动重试。会话已
+        // 被删除或废弃时走同一条路径：跳过并留下明确的日志，不报错、不乱发。
         // At-most-once: the claim is done, a failed delivery is logged only.
-        this.ctx.logger.warn(`startup-autostart-recovery: the recovery prompt was not delivered: ${String(error)}`)
+        // A deleted or deprecated recorded session takes the same path: skip
+        // with an explicit log line, no throw, no stray delivery.
+        this.ctx.logger.warn(
+          `startup-autostart-recovery: the recovery prompt was not delivered to ${last.sessionId}: ${String(error)}`,
+        )
       }
     }
     // exactOptionalPropertyTypes：可选成员按有无分别构造，而不是先 undefined 再补。
