@@ -25,9 +25,9 @@
 import { randomUUID } from 'node:crypto'
 import { defineToken } from '@veren/core'
 import { ImError } from './contract.ts'
-import type { ImMessage, ImPersonContact } from './contract.ts'
+import type { ImMessage, ImPersonClaim, ImPersonContact } from './contract.ts'
 import type { ImLogger } from './bindings.ts'
-import type { ImPersonAddressRow, ImPersonRow, ImPersonStore } from './store.ts'
+import type { ImPersonAddressRow, ImPersonIntakeRow, ImPersonRow, ImPersonStore } from './store.ts'
 
 /** One way a person can be reached, as the model and the user see it. */
 export interface ImPersonAddressView {
@@ -38,6 +38,9 @@ export interface ImPersonAddressView {
   displayName?: string
 }
 
+/** How trustworthy a person's name is. */
+export type ImPersonIdentityStatus = 'verified' | 'self-reported' | 'unverified'
+
 /** One person's profile plus every reachable address. */
 export interface ImPersonView {
   id: string
@@ -47,12 +50,25 @@ export interface ImPersonView {
   contacts: ImPersonContact[]
   bio?: string
   notes?: string
+  /** Self-reported name; unverified and never equal to `realName`. */
+  claimedName?: string
+  /** Self-reported contact details; unverified. */
+  claimedContacts: ImPersonContact[]
+  /** When the self-report was recorded. */
+  claimedAt?: number
+  /**
+   * Where the person's name stands: `verified` when a human recorded a real
+   * name, `self-reported` when only the person's own statement exists, and
+   * `unverified` otherwise.
+   * 名字的可信来源：人录入了真名是 verified，只有对方自述是 self-reported，其余是 unverified。
+   */
+  identityStatus: ImPersonIdentityStatus
   addresses: ImPersonAddressView[]
   updatedAt: number
 }
 
 /** Which field made a person an exact match. */
-export type ImPersonMatchField = 'id' | 'realName' | 'displayName' | 'alias' | 'contact' | 'address'
+export type ImPersonMatchField = 'id' | 'realName' | 'displayName' | 'alias' | 'contact' | 'address' | 'claimedName' | 'claimedContact'
 
 /** One exact match, including the evidence a caller must show the user. */
 export interface ImPersonMatch {
@@ -102,6 +118,18 @@ export interface ImPersonSaveRequest {
   contacts?: ImPersonContact[]
   bio?: string
   notes?: string
+  /** Drop the unverified self-report; use after recording authoritative values. */
+  clearClaim?: boolean
+}
+
+/** One self-report to record; the store adds the source and recording time. */
+export interface ImPersonClaimInput {
+  name?: string
+  contacts?: ImPersonContact[]
+  provider: string
+  accountId: string
+  conversationId: string
+  messageId: string
 }
 
 /** Construction options; the store and clock are injectable for tests. */
@@ -137,6 +165,8 @@ const PRECEDENCE: Record<ImPersonMatchField, number> = {
   alias: 3,
   contact: 4,
   address: 5,
+  claimedName: 6,
+  claimedContact: 7,
 }
 
 /** Normalize text for comparison: NFKC, trim, collapse spaces, case-fold. */
@@ -214,6 +244,7 @@ function toAddressView(row: ImPersonAddressRow): ImPersonAddressView {
 
 /** Copy a profile and its addresses into one public view. */
 function viewOf(row: ImPersonRow, addresses: ImPersonAddressRow[]): ImPersonView {
+  const claim = row.claim
   return {
     id: row.id,
     displayName: row.display_name,
@@ -222,6 +253,12 @@ function viewOf(row: ImPersonRow, addresses: ImPersonAddressRow[]): ImPersonView
     contacts: row.contacts.map(contact => ({ ...contact })),
     ...(row.bio === undefined ? {} : { bio: row.bio }),
     ...(row.notes === undefined ? {} : { notes: row.notes }),
+    ...(claim?.name === undefined ? {} : { claimedName: claim.name }),
+    claimedContacts: claim === undefined ? [] : claim.contacts.map(contact => ({ ...contact })),
+    ...(claim === undefined ? {} : { claimedAt: claim.at }),
+    identityStatus: row.real_name !== undefined
+      ? 'verified'
+      : claim === undefined ? 'unverified' : 'self-reported',
     addresses: addresses
       .map(toAddressView)
       .sort((left, right) => `${left.provider}\u0000${left.accountId}\u0000${left.conversationId}`
@@ -358,7 +395,41 @@ function applyProfile(row: ImPersonRow, request: ImPersonSaveRequest, now: numbe
     if (notes === '') delete next.notes
     else next.notes = notes
   }
+  if (request.clearClaim === true) delete next.claim
   return next
+}
+
+/**
+ * Validate one self-report and stamp its provenance. An empty report is
+ * rejected: recording "nothing" would look like a successful answer.
+ * 校验一条自述并盖章来源。空自述被拒绝：记录「什么都没说」会被误当成已回答。
+ */
+function claimOf(input: ImPersonClaimInput, now: number): ImPersonClaim {
+  const name = input.name === undefined ? undefined : oneLine(input.name)
+  if (name !== undefined && (name === '' || name.length > MAX_NAME_CHARS)) {
+    throw new ImError('IM_INVALID_REQUEST', `claimed name must be 1-${MAX_NAME_CHARS} characters`)
+  }
+  const contacts = cleanContacts(input.contacts ?? [])
+  if (name === undefined && contacts.length === 0) {
+    throw new ImError('IM_INVALID_REQUEST', 'a self-report needs a name or a contact')
+  }
+  const provider = input.provider.trim()
+  const accountId = input.accountId.trim()
+  const conversationId = input.conversationId.trim()
+  const messageId = input.messageId.trim()
+  if (provider === '' || accountId === '' || conversationId === '' || messageId === '') {
+    throw new ImError('IM_INVALID_REQUEST', 'provider, accountId, conversationId, and messageId are required')
+  }
+  return {
+    ...(name === undefined ? {} : { name }),
+    contacts,
+    source: 'self-report',
+    provider,
+    accountId,
+    conversationId,
+    messageId,
+    at: now,
+  }
 }
 
 /**
@@ -589,6 +660,53 @@ export class ImPeople {
     return this.viewOfPerson(updated.id)
   }
 
+  /**
+   * Record one unverified self-report on a person. Authoritative fields are
+   * never touched, and the first report wins: a later observation cannot
+   * rewrite what the person said about themselves.
+   * 在一个人身上记录一条未核实自述。权威字段永不被改动，且第一条自述生效：之后的观察不能
+   * 改写对方说过的身份。
+   */
+  recordClaim(personId: string, input: ImPersonClaimInput): Promise<ImPersonView> {
+    return this.write(() => this.claimNow(personId, input))
+  }
+
+  /** Claim body, run under the write chain. */
+  private async claimNow(personId: string, input: ImPersonClaimInput): Promise<ImPersonView> {
+    const person = this.store.getPerson(personId)
+    if (person === undefined) throw new ImError('IM_NOT_FOUND', `unknown person: ${personId}`)
+    if (person.claim !== undefined) {
+      this.logger.info?.(`[im:people] person ${personId} already carries a self-report; kept the first one`)
+      return this.viewOfPerson(personId)
+    }
+    const now = this.now()
+    const updated: ImPersonRow = { ...person, claim: claimOf(input, now), updated_at: now }
+    await this.store.putPerson(updated)
+    return this.viewOfPerson(personId)
+  }
+
+  /** Read one person by id, when present. */
+  person(personId: string): ImPersonView | undefined {
+    const row = this.store.getPerson(personId)
+    if (row === undefined) return undefined
+    return viewOf(row, this.store.personAddresses().filter(address => address.person_id === personId))
+  }
+
+  /** Read one person's automatic-intake record, when they were asked. */
+  intakeOf(personId: string): ImPersonIntakeRow | undefined {
+    return this.store.getIntake(personId)
+  }
+
+  /** Read every automatic-intake record, for the audit view. */
+  intakes(): ImPersonIntakeRow[] {
+    return this.store.intakes()
+  }
+
+  /** Persist one automatic-intake record through the people write chain. */
+  recordIntake(row: ImPersonIntakeRow): Promise<void> {
+    return this.write(() => this.store.putIntake(row))
+  }
+
   /** Drop every address of one account after the account is removed. */
   removeAddressesOf(accountId: string): Promise<void> {
     return this.write(() => this.store.deletePersonAddressesOf(accountId))
@@ -677,6 +795,8 @@ export class ImPeople {
       ...(view.realName === undefined ? [] : [view.realName]),
       ...view.aliases,
       ...view.contacts.map(contact => contact.value),
+      ...(view.claimedName === undefined ? [] : [view.claimedName]),
+      ...view.claimedContacts.map(contact => contact.value),
       ...view.addresses.flatMap(address => [address.externalId, address.conversationId]),
     ]
     return values.some(value => normalizeText(value).includes(query))
@@ -709,6 +829,18 @@ export class ImPeople {
         }
       }
     }
+    if (view.claimedName !== undefined && normalizeText(view.claimedName) === normalized) {
+      return { person: view, matchedBy: 'claimedName', matchedValue: view.claimedName }
+    }
+    for (const contact of view.claimedContacts) {
+      if (contactMatches(contact, normalized)) {
+        return {
+          person: view,
+          matchedBy: 'claimedContact',
+          matchedValue: `${contact.kind}:${contact.value}`,
+        }
+      }
+    }
     for (const address of view.addresses) {
       if (normalizeText(address.externalId) === normalized
         || normalizeText(address.conversationId) === normalized) {
@@ -733,6 +865,8 @@ export class ImPeople {
         ...(view.realName === undefined ? [] : [view.realName]),
         ...view.aliases,
         ...view.contacts.map(contact => contact.value),
+        ...(view.claimedName === undefined ? [] : [view.claimedName]),
+        ...view.claimedContacts.map(contact => contact.value),
       ]
       let score = Number.POSITIVE_INFINITY
       for (const name of names) {

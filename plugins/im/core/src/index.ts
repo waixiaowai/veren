@@ -28,11 +28,14 @@ import type { ImBindingSettings, ImMessage } from './contract.ts'
 import { ImStorage } from './store.ts'
 import { ImPeople, ImPeopleToken } from './people.ts'
 import { ImRouter, ImRouterToken } from './router.ts'
+import { STRANGER_INTAKE_ASK, STRANGER_INTAKE_DEFAULTS } from './intake.ts'
+import type { ImStrangerIntakeConfig } from './intake.ts'
 import type { ImCredentialStore, ImLogger, ImSessionGateway } from './router.ts'
 
 export * from './contract.ts'
 export * from './people.ts'
 export * from './router.ts'
+export * from './intake.ts'
 export {
   IM_DOMAIN_NAME, ImStorage, conversationKey, imDomain, parseSettings, personAddressKey,
 } from './store.ts'
@@ -41,7 +44,9 @@ export type {
   ImBindingRow,
   ImBindingStore,
   ImConversationRow,
+  ImIntakeStatus,
   ImPersonAddressRow,
+  ImPersonIntakeRow,
   ImPersonRow,
   ImPersonStore,
   ImStore,
@@ -302,11 +307,23 @@ export interface Config {
   autoCreateSession: boolean
   /** Maximum wait for one Session turn to finish. */
   replyTimeoutMs: number
+  /**
+   * Automatic stranger-intake question. `enabled: false` is the total switch:
+   * no question is sent and no intake row is written.
+   * 自动陌生人询问。`enabled: false` 是总开关：一条都不发，也不写 intake 记录。
+   */
+  strangerIntake: ImStrangerIntakeConfig
 }
 /** Configuration schema. */
 export const Config: z<Config> = z.object({
   autoCreateSession: z.boolean().default(false),
   replyTimeoutMs: z.number().default(120_000),
+  strangerIntake: z.object({
+    enabled: z.boolean().default(STRANGER_INTAKE_DEFAULTS.enabled),
+    replyWindowMs: z.number().min(1).default(STRANGER_INTAKE_DEFAULTS.replyWindowMs),
+    maxAsksPerHour: z.number().min(1).default(STRANGER_INTAKE_DEFAULTS.maxAsksPerHour),
+    minAskIntervalMs: z.number().min(0).default(STRANGER_INTAKE_DEFAULTS.minAskIntervalMs),
+  }),
 })
 /**
  * Apply the IM core plugin.
@@ -325,6 +342,10 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   const people = new ImPeople({ store: storage, logger })
   await seedPeople(people, storage, logger)
   ctx.effect(() => ctx.provide(ImPeopleToken, people), 'im:people')
+  ctx.logger.info(
+    `im: stranger intake is ${config.strangerIntake.enabled ? 'enabled' : 'disabled'}`
+    + ` (ask: ${STRANGER_INTAKE_ASK})`,
+  )
   const gateway = new DshSessionGateway(ctx, config.replyTimeoutMs)
   ctx.effect(() => () => gateway.dispose(), 'im:gateway')
   // The registry starts delivering as soon as a provider registers, so messages
@@ -349,7 +370,10 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
     credentials: new DshCredentialStore(ctx),
     people,
     logger,
-    config: { autoCreateSession: config.autoCreateSession },
+    config: {
+      autoCreateSession: config.autoCreateSession,
+      strangerIntake: config.strangerIntake,
+    },
   })
   const liveRouter = router
   for (const { providerId, message } of early.splice(0)) void liveRouter.handle(providerId, message)

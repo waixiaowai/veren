@@ -1,6 +1,6 @@
 /**
- * Durable IM tables: accounts, conversations, bindings, people, and person
- * addresses.
+ * Durable IM tables: accounts, conversations, bindings, people, person
+ * addresses, and stranger-intake records.
  *
  * The store deliberately persists no online status and no creation time. Online
  * status is a live provider fact; creation time is not part of the V1 contract.
@@ -20,7 +20,13 @@ import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import { ImError } from './contract.ts'
-import type { ImBinding, ImBindingSettings, ImConversation, ImPersonContact } from './contract.ts'
+import type {
+  ImBinding,
+  ImBindingSettings,
+  ImConversation,
+  ImPersonClaim,
+  ImPersonContact,
+} from './contract.ts'
 
 /** One `im_accounts` row. `status` is intentionally absent. */
 export interface ImAccountRow {
@@ -63,6 +69,8 @@ export interface ImPersonRow {
   contacts: ImPersonContact[]
   bio?: string
   notes?: string
+  /** Unverified self-report; authoritative name fields stay separate. */
+  claim?: ImPersonClaim
   updated_at: number
 }
 
@@ -81,6 +89,35 @@ export interface ImPersonAddressRow {
   external_id: string
   display_name?: string
   updated_at: number
+}
+
+/** Lifecycle of one automatic self-introduction request. */
+export type ImIntakeStatus = 'asked' | 'answered' | 'declined' | 'expired'
+
+/**
+ * One `im_person_intakes` row: the audit trail and the once-per-person gate for
+ * the automatic stranger-intake question. The row records exactly what was
+ * sent, to which address, when, and what the reply produced (or why it was
+ * abandoned).
+ * 一行 `im_person_intakes`：自动陌生人询问的审计记录与「每人一次」闸门。记录实际发了什么、
+ * 发给哪个地址、何时发的，以及回复产出了什么（或为何放弃）。
+ */
+export interface ImPersonIntakeRow {
+  person_id: string
+  provider: string
+  account_id: string
+  conversation_id: string
+  status: ImIntakeStatus
+  asked_at: number
+  ask_message_id: string
+  ask_text: string
+  /** When the intake reached a terminal state; absent while `asked`. */
+  settled_at?: number
+  /** What a successful self-report contained. */
+  outcome?: 'name' | 'contact' | 'both'
+  reply_message_id?: string
+  /** One-line excerpt of the reply, kept for audit only. */
+  reply_excerpt?: string
 }
 
 const accountSchema = z.object({
@@ -112,6 +149,17 @@ const contactSchema = z.object({
   label: z.string().optional(),
 })
 
+const claimSchema = z.object({
+  name: z.string().min(1).optional(),
+  contacts: z.array(contactSchema),
+  source: z.literal('self-report'),
+  provider: z.string().min(1),
+  accountId: z.string().min(1),
+  conversationId: z.string().min(1),
+  messageId: z.string().min(1),
+  at: z.number(),
+})
+
 const personSchema = z.object({
   id: z.string().min(1),
   display_name: z.string().min(1),
@@ -120,6 +168,7 @@ const personSchema = z.object({
   contacts: z.array(contactSchema),
   bio: z.string().optional(),
   notes: z.string().optional(),
+  claim: claimSchema.optional(),
   updated_at: z.number(),
 })
 
@@ -133,7 +182,31 @@ const personAddressSchema = z.object({
   updated_at: z.number(),
 })
 
-/** Authoritative IM storage domain. */
+const intakeSchema = z.object({
+  person_id: z.string().min(1),
+  provider: z.string().min(1),
+  account_id: z.string().min(1),
+  conversation_id: z.string().min(1),
+  status: z.enum(['asked', 'answered', 'declined', 'expired']),
+  asked_at: z.number(),
+  ask_message_id: z.string().min(1),
+  ask_text: z.string().min(1),
+  settled_at: z.number().optional(),
+  outcome: z.enum(['name', 'contact', 'both']).optional(),
+  reply_message_id: z.string().min(1).optional(),
+  reply_excerpt: z.string().min(1).optional(),
+})
+
+/**
+ * Authoritative IM storage domain.
+ *
+ * Version stays 1: every added person field is optional and a missing table
+ * reads as empty, so a file written before the intake feature still opens
+ * without discarding records. Bumping the version would reject that file
+ * instead of migrating it.
+ * 版本保持 1：新增的人员字段都是可选的，缺失的表读作空表，因此采集功能之前写下的文件仍能
+ * 打开且不丢记录。提升版本会直接拒绝该文件，而不是迁移它。
+ */
 export const imDomain = defineDomain({
   name: 'im',
   version: 1,
@@ -143,6 +216,7 @@ export const imDomain = defineDomain({
     bindings: domainTable<string, ImBindingRow>(bindingSchema),
     people: domainTable<string, ImPersonRow>(personSchema),
     person_addresses: domainTable<string, ImPersonAddressRow>(personAddressSchema),
+    person_intakes: domainTable<string, ImPersonIntakeRow>(intakeSchema),
   },
 })
 
@@ -184,8 +258,13 @@ export interface ImPersonStore {
   getPersonAddress(provider: string, accountId: string, externalId: string): ImPersonAddressRow | undefined
   personAddresses(): ImPersonAddressRow[]
   putPersonAddress(row: ImPersonAddressRow): Promise<void>
-  /** Drop every address of one removed account; person profiles stay. */
+  /** Drop every address of one removed account; person profiles and intakes stay. */
   deletePersonAddressesOf(accountId: string): Promise<void>
+  /** One person's automatic-intake record, when they were asked. */
+  getIntake(personId: string): ImPersonIntakeRow | undefined
+  /** Every automatic-intake record, for the audit view. */
+  intakes(): ImPersonIntakeRow[]
+  putIntake(row: ImPersonIntakeRow): Promise<void>
 }
 
 /** Stable key for one conversation row. */
@@ -350,6 +429,18 @@ export class ImStorage implements ImBindingStore {
     }
   }
 
+  getIntake(personId: string): ImPersonIntakeRow | undefined {
+    return this.table('person_intakes').get(personId)
+  }
+
+  intakes(): ImPersonIntakeRow[] {
+    return [...this.table('person_intakes').entries()].map(([, row]) => row)
+  }
+
+  async putIntake(row: ImPersonIntakeRow): Promise<void> {
+    await this.table('person_intakes').put(row.person_id, row)
+  }
+
   getBinding(id: string): ImBinding | undefined {
     const row = this.table('bindings').get(id)
     return row === undefined ? undefined : toBinding(row)
@@ -383,7 +474,7 @@ export class ImStorage implements ImBindingStore {
   }
 
   /** Resolve the open domain or fail loudly. */
-  private table<K extends 'accounts' | 'conversations' | 'bindings' | 'people' | 'person_addresses'>(name: K) {
+  private table<K extends 'accounts' | 'conversations' | 'bindings' | 'people' | 'person_addresses' | 'person_intakes'>(name: K) {
     const domain = this.domain
     if (domain === undefined) {
       throw new ImError('IM_INTERNAL', 'IM storage is not open')

@@ -157,16 +157,19 @@ export function registerImTools(ctx: Context, router: ImRouter): void {
       ctx.tools.register(defineTool({
         name: 'im_send',
         description: 'Send one content block. Name exactly one target: person (id, exact nickname, real '
-          + 'name, remark, or contact), bindingId, or accountId + conversationId. There is no implicit '
-          + 'current conversation. With person, accountId/provider only narrow the address. The router '
-          + 'sends only an exact, unique match; on IM_AMBIGUOUS or IM_NOT_FOUND it does NOT send. In that '
-          + 'case show the candidates/suggestions and ask the user instead of guessing. A successful send '
-          + 'returns recipient evidence (matchedBy/matchedValue) to show the user. Text is segmented by '
-          + 'the provider limit; unsupported media fails with IM_UNSUPPORTED.',
+          + 'name, remark, contact, address, or a self-reported claimedName), bindingId, or accountId + '
+          + 'conversationId. There is no implicit current conversation. With person, accountId/provider '
+          + 'only narrow the address. The router sends only an exact, unique match; on IM_AMBIGUOUS or '
+          + 'IM_NOT_FOUND it does NOT send. In that case show the candidates/suggestions and ask the user '
+          + 'instead of guessing. A successful send returns recipient evidence (matchedBy/matchedValue '
+          + 'plus identityStatus) to show the user: claimedName means the person called themselves that, '
+          + 'not that the name was verified. Text is segmented by the provider limit; unsupported media '
+          + 'fails with IM_UNSUPPORTED.',
         parameters: {
           person: {
             type: 'string',
-            description: 'Recipient person: id, exact nickname, real name, alias/remark, contact, or address.',
+            description: 'Recipient person: id, exact nickname, real name, alias/remark, contact, address, '
+              + 'or an unverified claimedName. When matchedBy is claimedName, tell the user it is self-reported.',
           },
           provider: { type: 'string', description: 'With person: only this provider, for example wechat.' },
           bindingId: { type: 'string', description: 'Target binding.' },

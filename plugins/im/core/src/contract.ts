@@ -110,6 +110,38 @@ export interface ImPersonContact {
   label?: string
 }
 /**
+ * One identity statement a person made about themselves.
+ *
+ * A claim is evidence, never verification: it lives beside `realName`,
+ * `displayName`, `aliases`, and `contacts`, which only a human (through
+ * `im_person_save`) or a provider profile may set. Sending by a claimed name is
+ * reported as `matchedBy: 'claimedName'`; a claimed name that collides with
+ * another person stays ambiguous and is never silently chosen.
+ * 一个人对自己身份的自述。
+ *
+ * 自述只是证据，不是核实：它与 realName、displayName、aliases、contacts 并列保存，后者只能由人
+ * （通过 im_person_save）或 provider 档案设置。按自述名发送会以 matchedBy: 'claimedName' 报告依据；
+ * 与其他人重名时保持歧义，绝不静默选中。
+ */
+export interface ImPersonClaim {
+  /** The name the person used for themselves; unverified. */
+  name?: string
+  /** Contact details the person offered; unverified. */
+  contacts: ImPersonContact[]
+  /** Where the claim came from. V1 records one provider self-report. */
+  source: 'self-report'
+  /** Provider whose conversation produced the claim. */
+  provider: string
+  /** Account that received the claim. */
+  accountId: string
+  /** Conversation the claim arrived in. */
+  conversationId: string
+  /** Inbound message the claim was read from. */
+  messageId: string
+  /** Epoch milliseconds when the claim was recorded. */
+  at: number
+}
+/**
  * One normalized content block.
  *
  * V1 WeChat produces and consumes text only; the other variants are the

@@ -36,8 +36,11 @@ DeepSeek Harness 的渠道无关 IM 契约、注册表、存储与 active-bindin
 - `ImBinding`：`id`、`accountId`、`conversationId`、`sessionId`、`active`、`settings`
 - `ImBindingSettings`：`presetId`、`provider`、`model`、`reasoning`
 - `ImPersonContact`：`kind`（`wechat` / `email` / `phone` / `other`）、`value`、`label?`
+- `ImPersonClaim`：未核实自述（`name?`、`contacts`、`source`、provider/account/conversation、
+  message id、时间）
 - `ImPersonView`：`id`、`displayName`、`realName?`、`aliases`、`contacts`、`bio?`、
-  `notes?`、`addresses`、`updatedAt`
+  `notes?`、`claimedName?`、`claimedContacts`、`claimedAt?`、`identityStatus`、
+  `addresses`、`updatedAt`
 - `ImPersonMatch`：人员加上匹配证据（`matchedBy`、`matchedValue`）
 - `ImPersonResolution`：`matched` / `ambiguous` / `not-found`
 - `ImError`：`code`、可选 `providerCode`、可选 JSON-safe `details`
@@ -81,6 +84,31 @@ provider 身份与能力放在 `ImProvider` 描述符上（`id`、`displayName`�
 provider 可以通过 `imPeople` 服务（`ctx.imPeople.observeConversation` / `.save`）贡献地址，无需修改
 `ImService`。微信 V1 无法枚举通讯录，见 `@veren/im-wechat`。
 
+## 自动陌生人采集
+
+当一条消息来自目录无法识别的地址时，路由层会在路由该消息之前向发送者发一条固定询问。典型情况是
+新的微信 `wxid`，显示名仍是裸 id；已经有人录入昵称、真名、别名、简介、备注或额外联系方式的人
+不会被询问。
+
+- 每个人只问一次。连发多条不会产生第二条询问；拒绝或未回答之后也不会重复问。持久化的
+  `im_person_intakes` 行既是闸门也是审计记录：保存确切文案、账号、会话、询问消息 id 与时间。
+- 回复解析是确定性且刻意狭窄的：只接受整行姓名、少量明确前缀（`我叫`、`叫我`、`名字是`、
+  `my name is` 等），或不会认错的电话/邮箱/微信号。问候、身份描述（如「我是学生」）、长句、
+  表情以及任何不确定内容一律丢弃；错误猜测永远不会写进名单。明确拒绝（`不方便`、`不用了`）
+  会立即记为 `declined`；其余回答在 `replyWindowMs` 内仍可被接受，超时后记为 `expired`。
+- 收集到的数据是 `ImPersonClaim`，绝不写进 `realName`，绝不写进 aliases，也绝不改名
+  `displayName`。视图暴露 `claimedName`、`claimedContacts`、`claimedAt` 与
+  `identityStatus: 'self-reported'`。`im_person_save` 仍是权威来源，它的 `realName`、别名与
+  联系方式不会被自述改动；`clearClaim: true` 可以删掉错误的自述。
+- 自述名参与精确匹配，证据为 `matchedBy: 'claimedName'`（联系方式为 `claimedContact`），
+  但永远不会被提升为已核实真名。与其他人重名时解析返回 `IM_AMBIGUOUS`；路由层不发送并返回
+  两个候选，陌生人无法被误当成熟人。
+- 发送节奏按账号限制：`maxAsksPerHour`（默认 10）与 `minAskIntervalMs`（默认 10 秒）。
+  被限流跳过时会记日志且不写 intake 行，因此之后的消息仍可再问。本仓库没有 iLink 公开的限流
+  契约；`ret=-2` 按投递拒绝处理（它可能是频率控制，也可能是 context token 失效）。
+- 总开关是插件配置里的 `strangerIntake.enabled`（默认 `true`）。关闭后一条都不发，也不写
+  intake 记录。当前状态与确切文案可通过 `im_intake` 和插件启动日志查看。
+
 ## 存储
 
 存储域为 `im`，版本 1：
@@ -89,8 +117,11 @@ provider 可以通过 `imPeople` 服务（`ctx.imPeople.observeConversation` / `
 im_accounts(id, provider, token_ref, owner_id)
 im_conversations(account_id, conversation_id, kind, title)
 im_bindings(id, account_id, conversation_id, session_id, active, settings_json)
-im_people(id, display_name, real_name, aliases, contacts, bio, notes, updated_at)
+im_people(id, display_name, real_name, aliases, contacts, bio, notes, claim?, updated_at)
 im_person_addresses(person_id, provider, account_id, conversation_id, external_id, display_name, updated_at)
+im_person_intakes(person_id, provider, account_id, conversation_id, status,
+                  asked_at, ask_message_id, ask_text, settled_at?, outcome?,
+                  reply_message_id?, reply_excerpt?)
 ```
 
 不持久化在线状态与创建时间。`token_ref` 只是凭据引用；Secret 只进 `ctx.credentials`。
@@ -100,7 +131,9 @@ im_person_addresses(person_id, provider, account_id, conversation_id, external_i
 - name：`im`
 - inject：`storageDomain`、`credentials`、`agents`
 - provide：`im`（`ImRegistry`）、`imRouter`（`ImRouter`）与 `imPeople`（`ImPeople`）
-- config：`autoCreateSession`（默认 `false`）、`replyTimeoutMs`（默认 `120000`）
+- config：`autoCreateSession`（默认 `false`）、`replyTimeoutMs`（默认 `120000`）、
+  `strangerIntake.enabled`（默认 `true`）、`strangerIntake.replyWindowMs`（默认 `120000`）、
+  `strangerIntake.maxAsksPerHour`（默认 `10`）、`strangerIntake.minAskIntervalMs`（默认 `10000`）
 
 DSH 会话桥以 source kind `im-message` 投递一条 `createUserMessage`，收集该 turn 的
 `assistant/message` 文本，并在 `turn/end` 结算。
@@ -114,6 +147,8 @@ DSH 会话桥以 source kind `im-message` 投递一条 `createUserMessage`，收
   Session 的 GUI 里操作不在 V1 范围内。
 - 目录只知道 provider 暴露或人录入的信息，不是全局通讯录，也不会自动跨渠道合并身份：同一个人在
   两个渠道上，需要先用 `im_person_save` 把两个地址挂到同一个人身上。
+- 采集解析不理解任意自然语言。写在句子中间的姓名不会被记录；在人工录入权威值，或对方用受支持
+  的说法回答之前，这个人保持未核实状态。
 
 ## 命令
 

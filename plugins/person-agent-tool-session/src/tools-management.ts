@@ -3,6 +3,7 @@
 // Session management tools: session_create / session_rename / session_fork
 // over the host Session business API (ctx.sessionController).
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 // 类型-only import：拉取 sessionController 与 workspaceRegistry 的声明合并。
@@ -14,71 +15,86 @@ import {
   optionalModelSelection,
   requireTitle,
 } from './types.js'
-import type { SessionCreateArgs, SessionCreateResult, SessionForkArgs, SessionLocationArgs, SessionRenameArgs } from './types.js'
+import type { SessionCreateArgs, SessionCreateResult, SessionForkArgs, SessionRenameArgs } from './types.js'
 
 /** 工具描述共用提示：id 可在工作记忆快照里查到。Shared description hint. */
 const HINT = 'Session ids appear in the working-memory snapshot.'
 
-/** 会话位置：已登记工作区或普通 cwd。A session location: a registered workspace or a plain cwd. */
-export type SessionLocation = { readonly workspaceId: WorkspaceId } | { readonly cwd: string }
-
 /**
- * 把目标 cwd 解析成已登记的工作区；匹配不到（或路径无法解析）时保留普通 cwd。
- * Resolve a target cwd to a registered workspace; fall back to the plain cwd
- * when no workspace owns it (or the path cannot be resolved).
+ * 解析新会话的工作区：显式 id 优先；缺省继承调用方会话所在的工作区。
+ * Resolve the new session's workspace: an explicit id wins; otherwise inherit
+ * the workspace of the calling session.
  *
- * 工作区分组按 canonical cwd 精确匹配，所以这里只接受注册表返回的精确记录：
- * 子目录不会被强行挂到父工作区，否则会把任务的工作目录改写成工作区根。
- * Workspace grouping matches the canonical cwd exactly, so only an exact
- * registry record is accepted: a subdirectory is never attached to its parent
- * workspace, which would rewrite the task's working directory.
+ * 调用方没有工作区时显性失败，绝不退回部署默认目录造成未分组会话。
+ * A caller without a workspace fails loud instead of falling back to the
+ * deployment default directory and creating an ungrouped session.
  * @param ctx - 携带 workspaceRegistry 的宿主上下文。The context carrying workspaceRegistry.
- * @param cwd - 目标目录；省略时返回 undefined。The target directory; undefined when omitted.
- * @returns 位置片段，或没有 cwd 时的 undefined。The location fragment, or undefined without a cwd.
+ * @param requested - 模型显式给出的 workspace id。The explicit workspace id, when supplied.
+ * @param callerSessionId - 调用方会话 id；未知时为 undefined。The calling session id, or undefined.
+ * @returns 新会话要挂靠的工作区 id。The workspace id the new session joins.
  */
-export async function resolveSessionLocation(
+export function resolveWorkspaceId(
   ctx: Context,
-  cwd: string | undefined,
-): Promise<SessionLocation | undefined> {
-  if (cwd === undefined) return undefined
-  try {
-    const workspace = await ctx.workspaceRegistry.resolveByPath(cwd)
-    if (workspace !== undefined) return { workspaceId: workspace.id }
-  } catch {
-    // 未登记、路径不存在或无法 realpath：保持宿主原有的普通 cwd 行为（未分组）。
-    // Unregistered, missing, or unresolvable: keep the host's plain-cwd
-    // behavior (ungrouped).
+  requested: string | undefined,
+  callerSessionId: SessionId | undefined,
+): WorkspaceId {
+  if (requested !== undefined) return requested as WorkspaceId
+  const owning = callerSessionId === undefined
+    ? undefined
+    : ctx.workspaceRegistry.list().find(workspace => workspace.sessionIds.includes(callerSessionId))
+  if (owning === undefined) {
+    throw new SessionToolError(
+      'SESSION_CREATE_WORKSPACE_UNKNOWN',
+      'the calling session has no workspace; pass workspaceId explicitly',
+      { callerSessionId },
+    )
   }
-  return { cwd }
+  return owning.id
 }
 
 /**
- * 解析新会话位置：workspaceId 显式指定且与 cwd 互斥；只有单独给 cwd 时才按
- * 路径匹配已登记工作区。
- * Resolve the new-session location: an explicit workspaceId is exclusive with
- * cwd; only a lone cwd is matched to a registered workspace by path.
- *
- * session_create 与 session_dispatch.newSession 都调用这里，所以互斥判断与
- * cwd 命中规则不会分叉。
- * session_create and session_dispatch.newSession both call this function, so the
- * exclusivity check and cwd matching cannot diverge.
- * @param ctx - 携带 workspaceRegistry 的宿主上下文。The context carrying workspaceRegistry.
- * @param args - 位置参数。The location arguments.
- * @returns 位置片段；两者都省略时为 undefined。The location fragment, or undefined when both are omitted.
+ * 读取已删除的 cwd 参数（顶层或 newSession 内层）。
+ * Read the removed cwd argument (top level or inside newSession).
+ * @param args - 原始工具参数。The raw tool arguments.
+ * @returns cwd 值；未提供时为 undefined。The cwd value, or undefined.
  */
-export async function resolveSessionLocationArgs(
-  ctx: Context,
-  args: SessionLocationArgs,
-): Promise<SessionLocation | undefined> {
-  if (args.workspaceId !== undefined && args.cwd !== undefined) {
-    throw new SessionToolError(
-      'SESSION_CREATE_LOCATION_CONFLICT',
-      'workspaceId and cwd are mutually exclusive',
-      { workspaceId: args.workspaceId, cwd: args.cwd },
-    )
+function removedCwd(args: unknown): unknown {
+  if (typeof args !== 'object' || args === null) return undefined
+  const record = args as Record<string, unknown>
+  if (record.cwd !== undefined) return record.cwd
+  const nested = record.newSession
+  return typeof nested === 'object' && nested !== null
+    ? (nested as Record<string, unknown>).cwd
+    : undefined
+}
+
+/**
+ * 在 schema 校验之前拒绝已删除的 cwd，并明确指向 workspaceId。
+ * Reject the removed cwd before schema validation and point at workspaceId.
+ *
+ * defineTool 的校验在进入用户 execute 之前运行，所以这层包装是唯一能给出
+ * 面向 workspaceId 的自定义错误的挂点。
+ * defineTool validates before the user execute runs, so this wrapper is the only
+ * place that can return a custom error pointing at workspaceId.
+ * @param definition - 已定义的创建工具。The defined creation tool.
+ * @param toolName - 模型看到的工具名。The model-facing tool name.
+ * @returns 带 cwd 守卫的工具定义。The definition guarded against cwd.
+ */
+export function guardRemovedCwd(definition: ToolDefinition, toolName: string): ToolDefinition {
+  return {
+    ...definition,
+    async execute(args, exec) {
+      const cwd = removedCwd(args)
+      if (cwd !== undefined) {
+        throw new SessionToolError(
+          'SESSION_CREATE_CWD_REMOVED',
+          `cwd is no longer accepted by ${toolName}; pass workspaceId instead`,
+          { cwd, tool: toolName },
+        )
+      }
+      return await definition.execute(args, exec)
+    },
   }
-  if (args.workspaceId !== undefined) return { workspaceId: args.workspaceId as WorkspaceId }
-  return await resolveSessionLocation(ctx, args.cwd)
 }
 
 /** 宿主 create 的返回形状（本文件内复用，避免再声明一遍）。 */
@@ -91,65 +107,65 @@ type SessionCreateValue = Awaited<ReturnType<Context['sessionController']['creat
  * @param ctx - 携带 sessionController 的宿主上下文。The context carrying sessionController.
  */
 export function registerSessionCreate(ctx: Context): () => void {
-  return ctx.tools.register(
-    defineTool({
-      name: 'session_create',
-      description:
-        'Create a new ordinary session in this deployment, optionally with a preset, an initial ' +
-        'provider/model, a title, and a workspace or working directory. The new session starts ' +
-        'empty and is not switched to; report its id to the user. ' + HINT,
-      parameters: {
-        title: { type: 'string', description: 'Display title for the new session; auto-titling applies when omitted.' },
-        presetId: { type: 'string', description: 'Agent preset id; the deployment default when omitted.' },
-        provider: { type: 'string', description: 'Provider id; required together with model.' },
-        model: { type: 'string', description: 'Model id; required together with provider.' },
-        workspaceId: { type: 'string', description: 'Workspace to attach; mutually exclusive with cwd.' },
-        cwd: {
-          type: 'string',
-          description: 'Working directory for the new session; a registered workspace owning this exact path is attached automatically, otherwise the session stays ungrouped. Mutually exclusive with workspaceId.',
-        },
+  const definition = defineTool({
+    name: 'session_create',
+    description:
+      'Create a new ordinary session in this deployment, optionally with a preset, an initial ' +
+      'provider/model, and a title. The session always joins a workspace: pass workspaceId, or omit it ' +
+      'to inherit the calling session\'s workspace. cwd is not accepted. The new session starts empty ' +
+      'and is not switched to; report its id to the user. ' + HINT,
+    parameters: {
+      title: { type: 'string', description: 'Display title for the new session; auto-titling applies when omitted.' },
+      presetId: { type: 'string', description: 'Agent preset id; the deployment default when omitted.' },
+      provider: { type: 'string', description: 'Provider id; required together with model.' },
+      model: { type: 'string', description: 'Model id; required together with provider.' },
+      workspaceId: {
+        type: 'string',
+        description: 'Workspace the new session joins, by id from the working-memory snapshot. Omit it to inherit the calling session\'s workspace; creation fails with SESSION_CREATE_WORKSPACE_UNKNOWN when the caller has none. cwd is not accepted: pass workspaceId instead.',
       },
-      output: {
-        // 无损 JSON 输出：结果小而稳定，模型直接读原始值。
-        // Lossless JSON output: results are small and stable; the model reads
-        // the raw value directly.
-        schema: { type: 'json' },
-        render: (_args, value) => [{ type: 'text' as const, text: JSON.stringify(value) }],
-      },
-      async execute(args): Promise<SessionCreateResult> {
-        const request = await buildCreateRequest(ctx, args)
-        const created = await ctx.sessionController.create(request)
-        // 创建成功后再按需补装模型选择与标题；失败时新会话保留，错误显性返回。
-        // Model selection and title are installed after a successful create; on
-        // failure the new session is kept and the error surfaces as-is.
-        return await decorateCreatedSession(ctx, args, created)
-      },
-      presentCall: (args) => ({
-        card: 'generic',
-        title: 'Create session',
-        kind: 'other',
-        rawInput: args,
-      }),
+    },
+    output: {
+      // 无损 JSON 输出：结果小而稳定，模型直接读原始值。
+      // Lossless JSON output: results are small and stable; the model reads
+      // the raw value directly.
+      schema: { type: 'json' },
+      render: (_args, value) => [{ type: 'text' as const, text: JSON.stringify(value) }],
+    },
+    async execute(args, exec): Promise<SessionCreateResult> {
+      const request = buildCreateRequest(ctx, args, exec.agent?.id)
+      const created = await ctx.sessionController.create(request)
+      // 创建成功后再按需补装模型选择与标题；失败时新会话保留，错误显性返回。
+      // Model selection and title are installed after a successful create; on
+      // failure the new session is kept and the error surfaces as-is.
+      return await decorateCreatedSession(ctx, args, created)
+    },
+    presentCall: (args) => ({
+      card: 'generic',
+      title: 'Create session',
+      kind: 'other',
+      rawInput: args,
     }),
-  )
+  })
+  return ctx.tools.register(guardRemovedCwd(definition, 'session_create'))
 }
 
 /**
- * 把创建参数翻译成宿主请求（位置解析交给共享解析器）。
- * Translate create arguments into the host request (location resolution is
- * delegated to the shared resolver).
+ * 把创建参数翻译成宿主请求（工作区由共享解析器决定）。
+ * Translate create arguments into the host request (the shared resolver owns
+ * the workspace decision).
  * @param ctx - 携带 workspaceRegistry 的宿主上下文。The context carrying workspaceRegistry.
  * @param args - 模型给出的创建参数。The model-supplied create arguments.
+ * @param callerSessionId - 调用方会话 id。The calling session id.
  * @returns 宿主 create 请求。The host create request.
  */
-async function buildCreateRequest(
+function buildCreateRequest(
   ctx: Context,
   args: SessionCreateArgs,
-): Promise<Parameters<Context['sessionController']['create']>[0]> {
+  callerSessionId: SessionId | undefined,
+): Parameters<Context['sessionController']['create']>[0] {
   optionalModelSelection(args)
-  const location = await resolveSessionLocationArgs(ctx, args)
   return {
-    ...(location === undefined ? {} : location),
+    workspaceId: resolveWorkspaceId(ctx, args.workspaceId, callerSessionId),
     ...(args.presetId === undefined ? {} : { agentPreset: args.presetId }),
   }
 }

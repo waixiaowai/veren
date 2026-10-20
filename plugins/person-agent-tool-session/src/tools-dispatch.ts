@@ -1,17 +1,8 @@
-// 会话派发工具：session_dispatch——把提示投进目标会话后**立即返回**，目标真正静止
-// 时再由 watch.ts 的看守把它的收尾输出作为结算通知投回调用方。
-// Session dispatch tool: session_dispatch delivers one prompt into a target
-// session and returns AT ONCE; when the target is genuinely quiescent, the guard
-// in watch.ts delivers its closing output back to the caller as a settlement
-// notice.
-//
-// 它取代了旧的 session_prompt：后者的 wait: true 会阻塞调用方直到目标空闲（实测
-// 阻塞过 16 分钟），而它的 wait: false 正是本工具的非阻塞子集——同一个派活动作没有
-// 理由存在两个工具。
-// It replaces the former session_prompt: that call's `wait: true` blocked the
-// caller until the target went idle (16 minutes was observed), while its
-// `wait: false` was exactly the non-blocking subset of this tool - one dispatch
-// action has no reason to exist as two tools.
+// 会话派发工具：把提示投进目标会话后立即返回；目标静止后由 watch.ts 的看守
+// 把收尾输出作为结算通知投回调用方。它取代了会阻塞的 session_prompt。
+// Session dispatch tool: deliver a prompt into a target and return at once; the
+// guard in watch.ts reports the closing output once the target is quiescent. It
+// replaces the blocking session_prompt.
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import { emitAgentEvent } from '@deepseek-ai/dsh-agent'
@@ -23,7 +14,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import { createDispatchPrompt } from './notice.js'
-import { resolveSessionLocationArgs } from './tools-management.js'
+import { guardRemovedCwd, resolveWorkspaceId } from './tools-management.js'
 import { SessionToolError } from './types.js'
 import type { NewSessionArgs, SessionDispatchArgs, SessionDispatchResult } from './types.js'
 import type { SettlementWatch } from './watch.js'
@@ -85,9 +76,14 @@ export function requirePrompt(prompt: string): string {
  * newSession is required.
  * @param ctx - 宿主上下文。The host context.
  * @param args - 工具参数。The tool arguments.
+ * @param callerSessionId - 调用方会话 id，用于继承工作区。The caller session id, used to inherit the workspace.
  * @returns 目标会话 id。The target session id.
  */
-async function resolveTarget(ctx: Context, args: SessionDispatchArgs): Promise<SessionId> {
+async function resolveTarget(
+  ctx: Context,
+  args: SessionDispatchArgs,
+  callerSessionId: SessionId,
+): Promise<SessionId> {
   const sessionId = args.sessionId?.trim() ?? ''
   const created = args.newSession
   if (sessionId !== '' && created !== undefined) {
@@ -101,28 +97,33 @@ async function resolveTarget(ctx: Context, args: SessionDispatchArgs): Promise<S
     throw new SessionToolError('SESSION_DISPATCH_TARGET_MISSING', 'provide sessionId or newSession', {})
   }
   if (created === undefined) return SessionId(sessionId)
-  return await createTarget(ctx, created)
+  return await createTarget(ctx, created, callerSessionId)
 }
 
 /**
- * 新建目标会话；位置参数交给共享解析器，失败收敛成稳定的创建错误。
- * Create the target session; the shared resolver owns the location and failures
+ * 新建目标会话；工作区由共享解析器决定，失败收敛成稳定的创建错误。
+ * Create the target session; the shared resolver owns the workspace and failures
  * collapse into a stable create error.
  *
- * workspaceId 直接指定挂靠工作区，cwd 仅在精确命中已登记工作区时自动归类；
- * 两者互斥。session_create 与本工具共用该解析器，行为不会分叉。
- * workspaceId names the workspace directly, while a cwd is grouped only on an
- * exact registered-workspace match; the two are mutually exclusive.
- * session_create shares this resolver, so the creation paths cannot diverge.
+ * workspaceId 直接指定工作区；省略时继承调用方会话的工作区。session_create
+ * 与本工具共用该解析器，行为不会分叉。
+ * workspaceId names the workspace directly; omitted it inherits the calling
+ * session's workspace. session_create shares this resolver, so the creation
+ * paths cannot diverge.
  * @param ctx - 宿主上下文。The host context.
  * @param created - 新建参数。The creation arguments.
+ * @param callerSessionId - 调用方会话 id。The calling session id.
  * @returns 新会话 id。The new session id.
  */
-async function createTarget(ctx: Context, created: NewSessionArgs): Promise<SessionId> {
-  const location = await resolveSessionLocationArgs(ctx, created)
+async function createTarget(
+  ctx: Context,
+  created: NewSessionArgs,
+  callerSessionId: SessionId,
+): Promise<SessionId> {
+  const workspaceId = resolveWorkspaceId(ctx, created.workspaceId, callerSessionId)
   try {
     const value = await ctx.sessionController.create({
-      ...(location === undefined ? {} : location),
+      workspaceId,
       ...created.agentPreset === undefined ? {} : { agentPreset: created.agentPreset },
     })
     return value.sessionId
@@ -140,7 +141,7 @@ async function createTarget(ctx: Context, created: NewSessionArgs): Promise<Sess
  * @returns 精确卸载函数。The exact disposer.
  */
 export function registerSessionDispatch(ctx: Context, watch: SettlementWatch): () => void {
-  return ctx.tools.register(defineTool({
+  const definition = defineTool({
     name: 'session_dispatch',
     description:
       'Hand a prompt to another session and return immediately; this call never waits for that session. '
@@ -162,15 +163,11 @@ export function registerSessionDispatch(ctx: Context, watch: SettlementWatch): (
       newSession: {
         type: 'object',
         additionalProperties: false,
-        description: 'Create a fresh session instead of naming an existing one. Provide either sessionId or newSession, not both.',
+        description: 'Create a fresh session in a workspace instead of naming an existing one. Pass workspaceId, or omit it to inherit this session\'s workspace; cwd is not accepted. Provide either sessionId or newSession, not both.',
         properties: {
           workspaceId: {
             type: 'string',
-            description: 'Workspace the new session belongs to, as an id from the working-memory snapshot. Prefer this over cwd: the session is guaranteed to appear in that workspace group. Mutually exclusive with cwd.',
-          },
-          cwd: {
-            type: 'string',
-            description: 'Working directory when no workspace id is known. A registered workspace owning this exact path is attached automatically; any mismatch leaves the session in the ungrouped bucket, so prefer workspaceId. Mutually exclusive with workspaceId. Defaults to the deployment default.',
+            description: 'Workspace the new session joins, by id from the working-memory snapshot. Omit it to inherit this session\'s workspace; creation fails with SESSION_CREATE_WORKSPACE_UNKNOWN when this session has none. cwd is not accepted: pass workspaceId instead.',
           },
           agentPreset: { type: 'string', description: 'Agent preset the new session runs. Defaults to the configured default.' },
         },
@@ -219,7 +216,7 @@ export function registerSessionDispatch(ctx: Context, watch: SettlementWatch): (
       // report the argument error, never a target-resolution error.
       const prompt = requirePrompt(args.prompt)
       const reporting = args.report !== false
-      const targetSessionId = await resolveTarget(ctx, args)
+      const targetSessionId = await resolveTarget(ctx, args, caller.id)
       // resolveAgent 会按需恢复目标会话；找不到是稳定的会话域错误。
       // resolveAgent resumes the target on demand; a miss is a stable Session-domain error.
       const found = await ctx.sessionController.resolveAgent(targetSessionId)
@@ -281,7 +278,8 @@ export function registerSessionDispatch(ctx: Context, watch: SettlementWatch): (
       kind: 'other',
       rawInput: args,
     }),
-  }))
+  })
+  return ctx.tools.register(guardRemovedCwd(definition, 'session_dispatch'))
 }
 
 /**

@@ -18,7 +18,8 @@ active-binding router).
 | `im_unbind` | Remove one binding, or remove an account and its credential |
 | `im_send` | Send one content block to a person, a binding, or an explicit account + conversation |
 | `im_people` | List or search the people directory (profile plus reachable addresses) |
-| `im_person_save` | Create or enrich a person and optionally attach an address |
+| `im_person_save` | Create or enrich a person, optionally attach an address, clear a bad self-report |
+| `im_intake` | Read the automatic stranger-intake switch, counts, and recent audit records |
 | `im_settings` | Change a binding's preset/provider/model/reasoning |
 | `im_list` | Read accounts, bindings, or conversations |
 
@@ -74,6 +75,7 @@ user:
     "displayName": "明明",
     "matchedBy": "realName",
     "matchedValue": "杨明明",
+    "identityStatus": "verified",
     "provider": "wechat",
     "accountId": "acc-1",
     "conversationId": "p2p:wxid-yang"
@@ -81,8 +83,20 @@ user:
 }
 ```
 
-`matchedBy` is one of `id`, `realName`, `displayName`, `alias`, `contact`, or
-`address`.
+`matchedBy` is one of `id`, `realName`, `displayName`, `alias`, `contact`,
+`address`, `claimedName`, or `claimedContact`. `identityStatus` is `verified`,
+`self-reported`, or `unverified`.
+
+## Self-reported identity is not verified identity
+
+`im_people` shows `claimedName` / `claimedContacts` / `claimedAt` with
+`identityStatus: "self-reported"` when the automatic stranger question collected
+an answer. That is the person's own statement. It must never be presented as a
+verified `realName`, and `im_person_save` is how a human promotes or corrects it.
+A claimed name works as a send key (`matchedBy: "claimedName"`), but a collision
+with another person is still `IM_AMBIGUOUS` and sends nothing. `im_intake`
+returns the switch state and the exact question that was sent, plus who received
+it and when.
 
 ## Sending by name is fail-closed
 

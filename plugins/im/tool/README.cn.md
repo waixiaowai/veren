@@ -16,7 +16,8 @@
 | `im_unbind` | 删除一条绑定，或移除账号及其凭据 |
 | `im_send` | 向人、binding 或显式 account + conversation 发送一个内容块 |
 | `im_people` | 列出或搜索人员目录（档案加可达地址） |
-| `im_person_save` | 创建或补充人员，可选挂接一个地址 |
+| `im_person_save` | 创建或补充人员，可选挂接一个地址，或清除错误的自述 |
+| `im_intake` | 读取自动陌生人询问的开关、计数与最近审计记录 |
 | `im_settings` | 修改 binding 的 preset/provider/model/reasoning |
 | `im_list` | 读取 accounts、bindings 或 conversations |
 
@@ -67,6 +68,7 @@
     "displayName": "明明",
     "matchedBy": "realName",
     "matchedValue": "杨明明",
+    "identityStatus": "verified",
     "provider": "wechat",
     "accountId": "acc-1",
     "conversationId": "p2p:wxid-yang"
@@ -74,7 +76,17 @@
 }
 ```
 
-`matchedBy` 取值：`id`、`realName`、`displayName`、`alias`、`contact`、`address`。
+`matchedBy` 取值：`id`、`realName`、`displayName`、`alias`、`contact`、`address`、
+`claimedName`、`claimedContact`。`identityStatus` 取值：`verified`、`self-reported`、
+`unverified`。
+
+## 自报身份不是已核实身份
+
+自动陌生人询问收到回答后，`im_people` 会显示 `claimedName` / `claimedContacts` /
+`claimedAt`，并带 `identityStatus: "self-reported"`。这只是对方自己的说法，绝不能当成已核实
+`realName` 展示；人要提升或纠正它，走 `im_person_save`。自述名可以作为发送键
+（`matchedBy: "claimedName"`），但与其他人重名时仍然是 `IM_AMBIGUOUS`，一条都不发。
+`im_intake` 返回开关状态、实际发出的确切文案，以及发给了谁、什么时候发的。
 
 ## 按名字发送是失败关闭的
 

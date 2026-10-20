@@ -7,14 +7,16 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 
 /**
- * 新会话的位置：显式工作区或普通目录，二选一。
- * Where a new session lives: an explicit workspace or a plain directory, never both.
+ * 新会话的工作区：显式 id，或省略后继承调用方会话的工作区。
+ * The new session's workspace: an explicit id, or the calling session's
+ * workspace when omitted.
  */
 export interface SessionLocationArgs {
-  /** 挂靠的工作区 id（与 cwd 二选一）。The workspace to attach (mutually exclusive with cwd). */
+  /**
+   * 挂靠的工作区 id；省略时继承调用方会话的工作区。
+   * Workspace to attach; omitted inherits the calling session's workspace.
+   */
   workspaceId?: string
-  /** 新会话的工作目录（与 workspaceId 二选一）。The working directory (mutually exclusive with workspaceId). */
-  cwd?: string
 }
 
 /** `session_create` 的模型参数。Model-facing arguments of `session_create`. */
@@ -186,7 +188,8 @@ declare module '@deepseek-ai/cordis' {
 /** 工具层稳定错误码。Stable tool-layer error codes. */
 export type SessionToolErrorCode =
   | 'SESSION_TITLE_EMPTY'
-  | 'SESSION_CREATE_LOCATION_CONFLICT'
+  | 'SESSION_CREATE_WORKSPACE_UNKNOWN'
+  | 'SESSION_CREATE_CWD_REMOVED'
   | 'SESSION_MODEL_SELECTION_INCOMPLETE'
   | 'SESSION_DISPATCH_NO_CALLER'
   | 'SESSION_DISPATCH_PROMPT_EMPTY'

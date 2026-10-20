@@ -42,8 +42,11 @@ The contract is the source of truth:
   `settings`
 - `ImBindingSettings`: `presetId`, `provider`, `model`, `reasoning`
 - `ImPersonContact`: `kind` (`wechat` / `email` / `phone` / `other`), `value`, `label?`
+- `ImPersonClaim`: an unverified self-report (`name?`, `contacts`, `source`,
+  provider/account/conversation, message id, time)
 - `ImPersonView`: `id`, `displayName`, `realName?`, `aliases`, `contacts`, `bio?`,
-  `notes?`, `addresses`, `updatedAt`
+  `notes?`, `claimedName?`, `claimedContacts`, `claimedAt?`, `identityStatus`,
+  `addresses`, `updatedAt`
 - `ImPersonMatch`: the person plus the evidence (`matchedBy`, `matchedValue`)
 - `ImPersonResolution`: `matched` / `ambiguous` / `not-found`
 - `ImError`: `code`, optional `providerCode`, optional JSON-safe `details`
@@ -106,6 +109,45 @@ enumerate its own contacts may contribute addresses through the `imPeople`
 service (`ctx.imPeople.observeConversation` / `.save`) without changing
 `ImService`. WeChat V1 cannot enumerate contacts; see `@veren/im-wechat`.
 
+## Automatic stranger intake
+
+When a message arrives from an address the directory cannot identify, the
+router sends one fixed question to the sender before routing the message. The
+typical case is a new WeChat `wxid` whose display name is still the raw id; a
+person with a human-recorded nickname, real name, alias, bio, notes, or extra
+contact is never asked.
+
+- The question is sent once per person. A burst of messages cannot produce a
+  second question, and a declined or unanswered question is never repeated.
+  The persisted `im_person_intakes` row is the gate and the audit record: it
+  stores the exact text, account, conversation, ask message id, and time.
+- The reply parser is deterministic and deliberately narrow. It accepts a
+  whole-line name, a small set of explicit prefixes (`我叫`, `叫我`, `名字是`,
+  `my name is`, and so on), or an unmistakable phone/email/WeChat id. Greetings,
+  roles such as "我是学生", prose, emoji, and anything uncertain are discarded;
+  a wrong guess is never written. A clear refusal (`不方便`, `不用了`) settles
+  the intake as `declined`; otherwise an answer is still accepted until
+  `replyWindowMs` elapses, after which the record is `expired`.
+- The collected data is an `ImPersonClaim`, never `realName`, never an alias,
+  and never a rename of `displayName`. The view exposes `claimedName`,
+  `claimedContacts`, `claimedAt`, and `identityStatus: 'self-reported'`.
+  `im_person_save` remains authoritative; its `realName`/aliases/contacts are
+  untouched by a claim, and `clearClaim: true` removes a bad self-report.
+- A claimed name participates in exact matching as `matchedBy: 'claimedName'`
+  (contacts as `claimedContact`). It is never promoted to a verified name. If it
+  collides with another person, resolution returns `IM_AMBIGUOUS`; the router
+  sends nothing and returns both candidates, so a stranger cannot be mistaken
+  for a known contact.
+- Wire-level pacing is per account: `maxAsksPerHour` (default 10) and
+  `minAskIntervalMs` (default 10 seconds). A skipped request is logged and is
+  not recorded, so it may be asked on a later message. The iLink protocol has no
+  published rate-limit contract in this repository; `ret=-2` is treated as a
+  rejection (it may be frequency control or a stale context token).
+- The total switch is `strangerIntake.enabled` in the plugin config (default
+  `true`). When false, the router sends nothing and writes no intake row. The
+  current state and the exact question are visible through `im_intake` and in
+  the plugin startup log.
+
 ## Storage
 
 The storage domain is `im`, version 1:
@@ -114,8 +156,11 @@ The storage domain is `im`, version 1:
 im_accounts(id, provider, token_ref, owner_id)
 im_conversations(account_id, conversation_id, kind, title)
 im_bindings(id, account_id, conversation_id, session_id, active, settings_json)
-im_people(id, display_name, real_name, aliases, contacts, bio, notes, updated_at)
+im_people(id, display_name, real_name, aliases, contacts, bio, notes, claim?, updated_at)
 im_person_addresses(person_id, provider, account_id, conversation_id, external_id, display_name, updated_at)
+im_person_intakes(person_id, provider, account_id, conversation_id, status,
+                  asked_at, ask_message_id, ask_text, settled_at?, outcome?,
+                  reply_message_id?, reply_excerpt?)
 ```
 
 No online status and no creation time are persisted. `token_ref` is only a
@@ -128,7 +173,10 @@ credential reference; secrets live in `ctx.credentials`.
 - provides: `im` (`ImRegistry`), `imRouter` (`ImRouter`), and `imPeople`
   (`ImPeople`)
 - config: `autoCreateSession` (default `false`), `replyTimeoutMs` (default
-  `120000`)
+  `120000`), `strangerIntake.enabled` (default `true`),
+  `strangerIntake.replyWindowMs` (default `120000`),
+  `strangerIntake.maxAsksPerHour` (default `10`),
+  `strangerIntake.minAskIntervalMs` (default `10000`)
 
 The DSH session bridge delivers one `createUserMessage` with source kind
 `im-message`, captures that turn's `assistant/message` text, and settles at
@@ -148,6 +196,9 @@ The DSH session bridge delivers one `createUserMessage` with source kind
   a global address book, and it does not merge identities across channels
   automatically: one human with two providers is two addresses on one person
   only after `im_person_save` links them.
+- The intake parser does not understand arbitrary prose. A name written inside a
+  sentence is not recorded; the person stays unverified until a human saves the
+  authoritative value or the person answers in a supported form.
 
 ## Commands
 

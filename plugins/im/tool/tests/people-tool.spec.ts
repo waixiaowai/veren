@@ -131,6 +131,27 @@ describe('im_person_save tool', () => {
     expect(result.ok).toBe(false)
     expect(recordOf(result.error).code).toBe('IM_INVALID_REQUEST')
   })
+
+  it('clears an unverified self-report through clearClaim', async () => {
+    const { tools, people } = await setup()
+    const created = recordOf(await tools.call('im_person_save', {
+      accountId: 'acc-1',
+      conversationId: 'p2p:wxid-yang',
+      displayName: '明明',
+    }))
+    const id = recordOf(created.person).id as string
+    await people.recordClaim(id, {
+      name: '杨明明',
+      provider: 'fake',
+      accountId: 'acc-1',
+      conversationId: 'p2p:wxid-yang',
+      messageId: 'm-1',
+    })
+    const cleared = recordOf(await tools.call('im_person_save', { personId: id, clearClaim: true }))
+    expect(cleared.ok).toBe(true)
+    expect(recordOf(cleared.person).claimedName).toBeUndefined()
+    expect(recordOf(cleared.person).identityStatus).toBe('unverified')
+  })
 })
 
 describe('im_send by person', () => {
@@ -199,5 +220,40 @@ describe('im_send by person', () => {
     }))
     expect(result.ok).toBe(false)
     expect(recordOf(result.error).code).toBe('IM_INVALID_REQUEST')
+  })
+
+  it('sends to a claimed name and reports its unverified source', async () => {
+    const { tools, people, fake } = await setup()
+    const created = recordOf(await tools.call('im_person_save', {
+      accountId: 'acc-1',
+      conversationId: 'p2p:wxid-unknown',
+    }))
+    await people.recordClaim(recordOf(created.person).id as string, {
+      name: '杨明明',
+      provider: 'fake',
+      accountId: 'acc-1',
+      conversationId: 'p2p:wxid-unknown',
+      messageId: 'm-1',
+    })
+    const result = recordOf(await tools.call('im_send', { person: '杨明明', text: '在吗' }))
+    expect(result.ok).toBe(true)
+    expect(recordOf(result.recipient)).toMatchObject({
+      matchedBy: 'claimedName',
+      matchedValue: '杨明明',
+      identityStatus: 'self-reported',
+      claimedName: '杨明明',
+    })
+    expect(fake.sent).toHaveLength(1)
+  })
+})
+
+describe('im_intake tool', () => {
+  it('reports the switch and the exact question without changing anything', async () => {
+    const { tools } = await setup()
+    const status = recordOf(await tools.call('im_intake', {}))
+    expect(status.ok).toBe(true)
+    expect(status.enabled).toBe(false)
+    expect(status.askText).toContain('怎么称呼')
+    expect(status.counts).toEqual({ asked: 0, answered: 0, declined: 0, expired: 0 })
   })
 })

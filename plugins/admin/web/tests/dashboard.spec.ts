@@ -25,7 +25,11 @@ interface AuditEntry {
 }
 
 type SummarizeUsers = (users: { items?: readonly UserView[] } | null) => { total: number; active: number; inactive: number }
-type SummarizeCapabilities = (catalog: { capabilities?: readonly CapabilityState[] } | null) => { ready: number; total: number }
+type SummarizeCapabilities = (catalog: { capabilities?: readonly CapabilityState[] } | null) => {
+  ready: number
+  total: number
+  states: readonly CapabilityState[]
+}
 type AuditSummary = (
   page: { items?: readonly AuditEntry[] } | null,
   options: { now: Date; limit: number },
@@ -57,18 +61,20 @@ describe('summarizeUsers', () => {
 })
 
 describe('summarizeCapabilities', () => {
-  it('counts capabilities that have an active provider', () => {
-    expect(summarizeCapabilities({
+  it('counts capabilities that have an active provider and keeps the states', () => {
+    const summary = summarizeCapabilities({
       capabilities: [
         { capability: 'data', active: { id: 'pg' } },
         { capability: 'settings', active: null },
         { capability: 'auth' },
       ],
-    })).toEqual({ ready: 1, total: 3 })
+    })
+    expect(summary).toMatchObject({ ready: 1, total: 3 })
+    expect(summary.states).toHaveLength(3)
   })
 
   it('tolerates an absent catalog', () => {
-    expect(summarizeCapabilities(null)).toEqual({ ready: 0, total: 0 })
+    expect(summarizeCapabilities(null)).toEqual({ ready: 0, total: 0, states: [] })
   })
 })
 

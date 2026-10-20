@@ -18,10 +18,13 @@ import type {
   ImSendResult,
 } from './contract.ts'
 import { ImBindings } from './bindings.ts'
+import { ImStrangerIntake } from './intake.ts'
+import type { ImIntakeStatusView, ImStrangerIntakeConfig } from './intake.ts'
 import type { ImPeople } from './people.ts'
 import type {
   ImPersonAddressFilter,
   ImPersonAddressView,
+  ImPersonIdentityStatus,
   ImPersonMatch,
   ImPersonMatchField,
   ImPersonQuery,
@@ -60,6 +63,12 @@ export interface ImUnbindAccountResult {
 export interface ImRouterConfig {
   /** Create a Session and an active binding when an inbound conversation has none. */
   autoCreateSession: boolean
+  /**
+   * Automatic stranger-intake question. Omitted means disabled: a router built
+   * without this option sends no unsolicited question.
+   * 自动陌生人询问。省略即关闭：未提供此选项的 router 不会主动发问。
+   */
+  strangerIntake?: ImStrangerIntakeConfig
 }
 /** Router construction options. */
 export interface ImRouterOptions extends ImBindingsOptions {
@@ -67,6 +76,8 @@ export interface ImRouterOptions extends ImBindingsOptions {
   /** Durable, provider-neutral people directory. */
   people: ImPeople
   config: ImRouterConfig
+  /** Clock for intake windows and rate limits; defaults to `Date.now`. */
+  now?: () => number
 }
 
 /** One person-targeted send request; the target is a person, not an address. */
@@ -87,6 +98,10 @@ export interface ImPersonRecipient {
   displayName: string
   matchedBy: ImPersonMatchField
   matchedValue: string
+  /** Whether the matched name is verified, self-reported, or unverified. */
+  identityStatus: ImPersonIdentityStatus
+  /** Present when the person has a self-reported name. */
+  claimedName?: string
   provider: string
   accountId: string
   conversationId: string
@@ -114,6 +129,8 @@ export interface ImPersonSaveInput {
   contacts?: ImPersonContact[]
   bio?: string
   notes?: string
+  /** Drop the unverified self-report; use after recording authoritative values. */
+  clearClaim?: boolean
 }
 /** Router service token, consumed by @veren/im-tool. */
 export const ImRouterToken = defineToken<ImRouter>('imRouter')
@@ -191,6 +208,7 @@ export class ImRouter {
   private readonly config: ImRouterConfig
   private readonly bindings: ImBindings
   private readonly people: ImPeople
+  private readonly intake: ImStrangerIntake
   private readonly conversationChains = new Map<string, Promise<unknown>>()
   /**
    * @param options - storage, registry, session gateway, credentials, people, and config.
@@ -203,6 +221,20 @@ export class ImRouter {
     this.config = options.config
     this.people = options.people
     this.bindings = new ImBindings(options)
+    this.intake = new ImStrangerIntake({
+      people: options.people,
+      logger: options.logger,
+      // A router without an explicit intake section stays silent; only the
+      // plugin (which owns the config surface) turns it on by default.
+      // 未显式配置 intake 的 router 保持静默；只有拥有配置面的插件才默认开启。
+      config: options.config.strangerIntake ?? { enabled: false },
+      send: request => this.send({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        content: { type: 'text', text: request.text },
+      }),
+      ...(options.now === undefined ? {} : { now: options.now }),
+    })
   }
   /** One registered provider, by id. */
   getProvider(id: string): ImProvider {
@@ -241,6 +273,10 @@ export class ImRouter {
   resolvePerson(query: string, filter: ImPersonAddressFilter = {}): ImPersonResolution {
     return this.people.resolve(query, filter)
   }
+  /** The automatic-intake switch, counts, and recent audit records. */
+  intakeStatus(limit?: number): ImIntakeStatusView {
+    return this.intake.status(limit)
+  }
   /** Create or enrich one person. An unknown account fails loudly. */
   async savePerson(request: ImPersonSaveInput): Promise<ImPersonView> {
     const base: ImPersonSaveRequest = {
@@ -251,6 +287,7 @@ export class ImRouter {
       ...(request.contacts === undefined ? {} : { contacts: request.contacts }),
       ...(request.bio === undefined ? {} : { bio: request.bio }),
       ...(request.notes === undefined ? {} : { notes: request.notes }),
+      ...(request.clearClaim === undefined ? {} : { clearClaim: request.clearClaim }),
     }
     const address = request.address
     if (address === undefined) return this.people.save(base)
@@ -336,6 +373,8 @@ export class ImRouter {
         displayName: match.person.displayName,
         matchedBy: match.matchedBy,
         matchedValue: match.matchedValue,
+        identityStatus: match.person.identityStatus,
+        ...(match.person.claimedName === undefined ? {} : { claimedName: match.person.claimedName }),
         provider: address.provider,
         accountId: address.accountId,
         conversationId: address.conversationId,
@@ -420,13 +459,18 @@ export class ImRouter {
       // Directory bookkeeping must never drop a message: a storage failure is
       // reported, then routing proceeds.
       // 目录记账绝不能丢消息：存储失败只记日志，路由继续。
+      let person: ImPersonView | undefined
       try {
-        await this.people.observeMessage(providerId, message)
+        person = await this.people.observeMessage(providerId, message)
       } catch (error: unknown) {
         this.logger.error(
           `[im:${providerId}] inbound sender could not be recorded in the people directory: ${errorMessage(error)}`,
         )
       }
+      // Intake runs before routing and owns its own failure containment: the
+      // fixed question is not an agent turn.
+      // 采集在路由之前运行，并自行收敛失败：固定询问不是 agent turn。
+      await this.intake.handle(providerId, message, person)
       return this.route(providerId, message)
     })
   }
@@ -522,10 +566,16 @@ export class ImRouter {
       this.logger.warn(`[im:people] addresses of ${accountId} were not removed: ${errorMessage(error)}`)
     }
   }
-  /** The known display name of one conversation's sender, when the directory has it. */
+  /** The known sender label, marking a self-reported name as unverified. */
   private knownSenderName(providerId: string, message: ImMessage): string | undefined {
     try {
-      return this.people.viewAt(providerId, message.accountId, message.conversationId)?.displayName
+      const person = this.people.viewAt(providerId, message.accountId, message.conversationId)
+      if (person === undefined) return undefined
+      if (person.identityStatus === 'self-reported' && person.claimedName !== undefined
+        && person.displayName === message.sender.id) {
+        return `${person.claimedName}（自称）`
+      }
+      return person.displayName
     } catch (error: unknown) {
       this.logger.warn(`[im:people] sender lookup failed: ${errorMessage(error)}`)
       return undefined

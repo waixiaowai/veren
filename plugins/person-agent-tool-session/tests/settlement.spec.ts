@@ -272,11 +272,11 @@ describe('session_dispatch 结算 / settlement', () => {
 
     const receipt = await env.run(
       'session_dispatch',
-      { newSession: { cwd: 'C:/work', agentPreset: 'person-agent' }, prompt: 'start fresh' },
+      { newSession: { workspaceId: 'ws-1', agentPreset: 'person-agent' }, prompt: 'start fresh' },
       { agent: caller },
     )
     expect(receipt).toMatchObject({ sessionId: 'created-1', reporting: true })
-    expect(env.created).toEqual([{ cwd: 'C:/work', agentPreset: 'person-agent' }])
+    expect(env.created).toEqual([{ workspaceId: 'ws-1', agentPreset: 'person-agent' }])
   })
 
   it('看守容量上限被拒绝', async () => {

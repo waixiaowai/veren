@@ -150,6 +150,11 @@ export class WechatApi {
     }
     const rejection = rejectedCode(response)
     if (rejection !== undefined) {
+      // iLink uses `-2` both for a stale context token and for frequency
+      // control; the provider cannot tell them apart from this response, so it
+      // reports a rejection and lets the caller decide whether to retry.
+      // iLink 的 `-2` 既可能是 context token 失效，也可能是频率控制；provider 无法从该响应区分，
+      // 因此报告投递拒绝，由调用方决定是否重试。
       throw new ImError('IM_SEND_REJECTED', 'wechat rejected the text message', { providerCode: rejection })
     }
     return { id: clientId, sentAt: Date.now() }

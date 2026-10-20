@@ -958,7 +958,7 @@ export function shellView(ui, options) {
 export const DASHBOARD_AUDIT_LIMIT = 200
 
 /** How many audit rows the dashboard mini table shows. 仪表盘迷你表显示的行数。 */
-const DASHBOARD_AUDIT_ROWS = 7
+const DASHBOARD_AUDIT_ROWS = 8
 
 /**
  * Whether two instants fall on the same local calendar day.
@@ -992,12 +992,12 @@ export function summarizeUsers(users) {
  * Count capabilities that have an active provider.
  *
  * @param catalog - capability catalog 能力目录
- * @returns ready and total counts 就绪数与总数
+ * @returns ready and total counts plus the states themselves 就绪数、总数与状态本身
  */
 export function summarizeCapabilities(catalog) {
   const states = Array.isArray(catalog?.capabilities) ? catalog.capabilities : []
   const ready = states.filter((state) => state?.active !== null && state?.active !== undefined).length
-  return { ready, total: states.length }
+  return { ready, total: states.length, states }
 }
 
 /**
@@ -1171,9 +1171,36 @@ export function dashboardView(ui, data) {
       ]))),
     ])
 
+  const capabilityRows = capabilities.states.slice(0, 8).map((state) => el('tr', {}, [
+    el('td', { text: asText(state.capability) }),
+    el('td', { text: asText(state.active?.id) }),
+    el('td', {}, [healthBadge(ui, state.health?.status)]),
+  ]))
+  const capabilityPanel = capabilityRows.length === 0
+    ? undefined
+    : el('section', { class: 'panel dashboard-panel dashboard-capabilities' }, [
+      el('div', { class: 'panel-head' }, [
+        el('h2', { class: 'panel-title', text: ui.t('dashboard.capabilityHealth') }),
+        el('a', {
+          class: 'link',
+          href: ui.href('/system/capabilities'),
+          dataset: { route: '/system/capabilities' },
+          text: ui.t('dashboard.viewAll'),
+        }),
+      ]),
+      el('div', { class: 'table-wrap dashboard-table' }, [
+        el('table', { class: 'table table-compact' }, [
+          el('thead', {}, [el('tr', {}, ['capabilities.capability', 'capabilities.provider', 'capabilities.health']
+            .map((key) => el('th', { scope: 'col', text: ui.t(key) })))]),
+          el('tbody', {}, capabilityRows),
+        ]),
+      ]),
+    ])
+
   const grid = el('div', { class: quickPanel === undefined ? 'dashboard-grid is-single' : 'dashboard-grid' }, [
     auditPanel,
     ...quickPanel === undefined ? [] : [quickPanel],
+    ...capabilityPanel === undefined ? [] : [capabilityPanel],
   ])
 
   return el('section', { class: 'page' }, [
@@ -1690,24 +1717,30 @@ function resultBadge(ui, result) {
  * @param data - capability catalog 能力目录
  * @returns the page 页面
  */
+/**
+ * One health badge.
+ *
+ * @param ui - view helpers 视图助手
+ * @param status - health status enum 健康状态枚举
+ * @returns the badge 角标
+ */
+function healthBadge(ui, status) {
+  const key = HEALTH_KEYS[status]
+  return el('span', {
+    class: `badge ${HEALTH_TONES[status] ?? 'muted'}`,
+    text: key === undefined ? asText(status) : ui.t(key),
+  })
+}
+
 export function capabilitiesView(ui, data) {
   const catalog = data.catalog ?? {}
   const states = Array.isArray(catalog.capabilities) ? catalog.capabilities : []
-  const rows = states.map((state) => {
-    const status = state.health?.status
-    const key = HEALTH_KEYS[status]
-    return el('tr', {}, [
-      el('td', { text: asText(state.capability) }),
-      el('td', { text: asText(state.active?.id) }),
-      el('td', {}, [
-        el('span', {
-          class: `badge ${HEALTH_TONES[status] ?? 'muted'}`,
-          text: key === undefined ? asText(status) : ui.t(key),
-        }),
-      ]),
-      el('td', { text: ui.t(state.essential === true ? 'common.yes' : 'common.no') }),
-    ])
-  })
+  const rows = states.map((state) => el('tr', {}, [
+    el('td', { text: asText(state.capability) }),
+    el('td', { text: asText(state.active?.id) }),
+    el('td', {}, [healthBadge(ui, state.health?.status)]),
+    el('td', { text: ui.t(state.essential === true ? 'common.yes' : 'common.no') }),
+  ]))
   const columns = ['capabilities.capability', 'capabilities.provider', 'capabilities.health', 'capabilities.essential']
   return el('section', { class: 'page' }, [pageHeader(ui, 'capabilities.title', undefined, 'capabilities.description'), dataTable(ui, columns, rows)])
 }

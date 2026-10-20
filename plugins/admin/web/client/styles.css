@@ -667,6 +667,12 @@ body {
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* The capability health table spans both columns under the audit + actions row.
+ * 能力健康表横跨审计与快捷操作下方的两列。 */
+.dashboard-capabilities {
+  grid-column: 1 / -1;
+}
+
 .dashboard-panel {
   display: flex;
   flex-direction: column;

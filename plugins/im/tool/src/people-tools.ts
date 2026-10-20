@@ -79,9 +79,11 @@ export function registerPeopleTools(ctx: Context, router: ImRouter): void {
         name: 'im_people',
         description: 'List or search the known people directory. Each record has a nickname '
           + '(displayName), optional realName, aliases/remarks, contacts (wechat/email/phone/other), '
-          + 'bio, and reachable addresses (provider + accountId + conversationId). Call this before '
-          + 'im_send when the user names someone. This tool only browses: im_send performs the exact '
-          + 'match and refuses ambiguity.',
+          + 'bio, and reachable addresses (provider + accountId + conversationId). A person may also '
+          + 'carry claimedName/claimedContacts from the automatic stranger question: that is the '
+          + 'person\'s own unverified statement, shown with identityStatus=self-reported, and must '
+          + 'never be presented as a verified realName. Call this before im_send when the user names '
+          + 'someone. This tool only browses: im_send performs the exact match and refuses ambiguity.',
         parameters: {
           query: {
             type: 'string',
@@ -131,6 +133,10 @@ export function registerPeopleTools(ctx: Context, router: ImRouter): void {
           },
           bio: { type: 'string', description: 'Short description: role, relationship, context.' },
           notes: { type: 'string', description: 'Free-form notes kept with the person.' },
+          clearClaim: {
+            type: 'boolean',
+            description: 'Drop the unverified self-reported claim; use after correcting it with realName/alias.',
+          },
         },
         output: OUTPUT,
         async execute(args) {
@@ -163,8 +169,28 @@ export function registerPeopleTools(ctx: Context, router: ImRouter): void {
               ...(contacts === undefined ? {} : { contacts }),
               ...(args.bio === undefined ? {} : { bio: args.bio }),
               ...(args.notes === undefined ? {} : { notes: args.notes }),
+              ...(args.clearClaim === undefined ? {} : { clearClaim: args.clearClaim }),
             })
             return ok({ person })
+          })
+        },
+      })),
+      ctx.tools.register(defineTool({
+        name: 'im_intake',
+        description: 'Read the automatic stranger-intake switch and its audit trail. Returns enabled, '
+          + 'the exact askText, replyWindowMs, per-account rate limits, status counts, and recent '
+          + 'records (who, which account/conversation, when, what was sent, reply outcome). It is '
+          + 'read-only: change strangerIntake.enabled in the im plugin config to switch it off. A '
+          + 'self-reported name appears as claimedName with identityStatus=self-reported; never treat '
+          + 'it as a verified realName.',
+        parameters: {
+          limit: { type: 'number', description: 'Recent records to return; default 20, maximum 100.' },
+        },
+        output: OUTPUT,
+        async execute(args) {
+          return run(async () => {
+            const status = router.intakeStatus(args.limit)
+            return ok({ ...status })
           })
         },
       })),

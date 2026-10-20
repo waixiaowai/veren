@@ -4,6 +4,7 @@ import type {
   ImBindingStore,
   ImConversationRow,
   ImPersonAddressRow,
+  ImPersonIntakeRow,
   ImPersonRow,
   ImPersonStore,
 } from '../src/store.ts'
@@ -16,6 +17,7 @@ export class MemoryStore implements ImBindingStore, ImPersonStore {
   readonly bindingRows = new Map<string, ImBinding>()
   readonly personRows = new Map<string, ImPersonRow>()
   readonly addressRows = new Map<string, ImPersonAddressRow>()
+  readonly intakeRows = new Map<string, ImPersonIntakeRow>()
 
   getAccount(id: string): ImAccountRow | undefined {
     return this.accountRows.get(id)
@@ -111,5 +113,17 @@ export class MemoryStore implements ImBindingStore, ImPersonStore {
     for (const [key, row] of [...this.addressRows]) {
       if (row.account_id === accountId) this.addressRows.delete(key)
     }
+  }
+
+  getIntake(personId: string): ImPersonIntakeRow | undefined {
+    return this.intakeRows.get(personId)
+  }
+
+  intakes(): ImPersonIntakeRow[] {
+    return [...this.intakeRows.values()]
+  }
+
+  async putIntake(row: ImPersonIntakeRow): Promise<void> {
+    this.intakeRows.set(row.person_id, row)
   }
 }
