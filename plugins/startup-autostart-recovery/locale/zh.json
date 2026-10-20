@@ -1,0 +1,7 @@
+{
+  "recovery.stateDir": "恢复状态目录覆盖（启动标记与最近活跃会话）",
+  "recovery.crashLogDir": "桌面崩溃日志目录覆盖",
+  "recovery.autostartFolder": "Windows 启动文件夹覆盖（登录自启动条目写入位置）",
+  "recovery.autostartCommand": "启动 DeepSeek Harness 的命令行（仅开启登录自启动时必填）",
+  "recovery.recoveryEnabled": "异常退出后，下次启动是否投递恢复提示词"
+}

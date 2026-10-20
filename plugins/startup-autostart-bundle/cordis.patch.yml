@@ -31,6 +31,13 @@
     # 宿主服务：启动触发器、启动项存储以及 `startup` Remote 接口。
     - id: startup-autostart
       name: '@veren/startup-autostart'
+    # Crash recovery: detects an unclean shutdown on the next start, quotes the
+    # real crash cause honestly, and delivers one recovery prompt to the last
+    # active session; also owns the opt-in Windows logon-autostart entry.
+    # 崩溃恢复：下次启动检测异常退出、如实引用真实崩溃原因，并向最近活跃会话投递
+    # 一次恢复提示；同时负责默认关闭的 Windows 登录自启动条目。
+    - id: startup-autostart-recovery
+      name: '@veren/startup-autostart-recovery'
     # Model-facing tools: let agents manage startup items through the Host.
     # 面向模型的工具：让智能体通过宿主服务管理启动项。
     - id: tool-startup-autostart

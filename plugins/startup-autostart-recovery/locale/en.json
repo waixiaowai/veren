@@ -1,0 +1,7 @@
+{
+  "recovery.stateDir": "Recovery state directory override (boot flag and last active session)",
+  "recovery.crashLogDir": "Desktop crash-log directory override",
+  "recovery.autostartFolder": "Windows Startup folder override for the logon-autostart entry",
+  "recovery.autostartCommand": "Command line that starts DeepSeek Harness (required only to enable logon autostart)",
+  "recovery.recoveryEnabled": "Whether an unclean shutdown delivers the recovery prompt at the next start"
+}

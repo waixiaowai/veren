@@ -5,17 +5,18 @@ Configuration-only DSH bundle that installs and composes the full Startup Autost
 | Member plugin | Role |
 | --- | --- |
 | `@veren/startup-autostart` | Host: startup trigger, item storage, and the `startup` Remote API |
+| `@veren/startup-autostart-recovery` | Crash recovery: detects an unclean shutdown at the next start, quotes the real cause, delivers one recovery prompt, owns the opt-in Windows logon-autostart entry |
 | `@veren/startup-autostart-tool` | Model-facing tools: agents manage startup items through the Host |
 | `@veren/startup-autostart-skill` | Guidance skill: teaches when to create an item, which action fits, and how the run rules behave |
 | `@veren/startup-autostart-ui` | Web UI: the "startup items" sidebar page, talking to the Host |
 
-Use this bundle when a profile needs the whole stack as one installable, one-toggle unit. Skip it when you want only the headless Host (`@veren/startup-autostart` alone), or prefer listing the four plugins row by row in your own patch.
+Use this bundle when a profile needs the whole stack as one installable, one-toggle unit. Skip it when you want only the headless Host (`@veren/startup-autostart` alone), or prefer listing the five plugins row by row in your own patch.
 
 ## The stack's only bundle layer
 
-The four member plugins ship as **plain dependencies** — none declares `dsh.bundle.patch` and none carries a `cordis.patch.yml`. After a `dsh plugin add`, the reconciliation therefore activates exactly one new layer: this bundle's patch. A member plugin can never double-insert a row behind your back.
+The five member plugins ship as **plain dependencies** — none declares `dsh.bundle.patch` and none carries a `cordis.patch.yml`. After a `dsh plugin add`, the reconciliation therefore activates exactly one new layer: this bundle's patch. A member plugin can never double-insert a row behind your back.
 
-The patch inserts **four rows in dependency order**: the Host first (it owns the startup trigger, storage and the `startup` Remote namespace), then the tools, then the guidance skill, then the UI. No row carries configuration — every member ships its own defaults. The tests in `tests/bundle.spec.ts` guard both invariants: four ordered, config-free rows, and no member exposing a bundle.
+The patch inserts **five rows in dependency order**: the Host first (it owns the startup trigger, storage and the `startup` Remote namespace), then the crash-recovery plugin (it reuses the Host's message source), then the tools, then the guidance skill, then the UI. No row carries configuration — every member ships its own defaults. The tests in `tests/bundle.spec.ts` guard both invariants: five ordered, config-free rows, and no member exposing a bundle.
 
 ## The guidance skill
 
@@ -42,7 +43,7 @@ $env:DSH_HOME='<test-node-dir>'
 dsh plugin --profile web add <path-to-tarball>
 ```
 
-The bundle must appear in the profile's `dsh.profile.bundles`; its dependencies install alongside it so all four rows resolve by package name.
+The bundle must appear in the profile's `dsh.profile.bundles`; its dependencies install alongside it so all five rows resolve by package name.
 
 ## Tests
 
