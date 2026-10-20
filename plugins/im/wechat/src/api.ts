@@ -42,20 +42,20 @@ export interface WechatApiOptions {
 }
 /** Tencent iLink client. */
 export class WechatApi {
-  readonly #baseUrl: string
-  readonly #botType: string
-  readonly #fetch: typeof fetch
-  readonly #longPollTimeoutMs: number
+  private readonly baseUrl: string
+  private readonly botType: string
+  private readonly fetch: typeof fetch
+  private readonly longPollTimeoutMs: number
 
   constructor(options: WechatApiOptions = {}) {
-    this.#baseUrl = normalizeBaseUrl(options.baseUrl ?? WEIXIN_BASE_URL, WEIXIN_BASE_URL)
-    this.#botType = options.botType ?? WEIXIN_BOT_TYPE
-    this.#fetch = options.fetchImpl ?? fetch
-    this.#longPollTimeoutMs = options.longPollTimeoutMs ?? WEIXIN_LONG_POLL_MS
+    this.baseUrl = normalizeBaseUrl(options.baseUrl ?? WEIXIN_BASE_URL, WEIXIN_BASE_URL)
+    this.botType = options.botType ?? WEIXIN_BOT_TYPE
+    this.fetch = options.fetchImpl ?? fetch
+    this.longPollTimeoutMs = options.longPollTimeoutMs ?? WEIXIN_LONG_POLL_MS
   }
   /** Ask iLink for a QR challenge. */
   async beginLogin(signal?: AbortSignal): Promise<{ qrcode: string; qrUrl: string }> {
-    const response = await this.#request('POST', `ilink/bot/get_bot_qrcode?bot_type=${encodeURIComponent(this.#botType)}`, {
+    const response = await this.request('POST', `ilink/bot/get_bot_qrcode?bot_type=${encodeURIComponent(this.botType)}`, {
       body: { local_token_list: [] },
       timeoutMs: QR_TIMEOUT_MS,
       ...(signal === undefined ? {} : { signal }),
@@ -76,8 +76,8 @@ export class WechatApi {
     if (verifyCode !== undefined && verifyCode.trim() !== '') {
       endpoint += `&verify_code=${encodeURIComponent(verifyCode.trim())}`
     }
-    const response = await this.#request('GET', endpoint, {
-      timeoutMs: this.#longPollTimeoutMs,
+    const response = await this.request('GET', endpoint, {
+      timeoutMs: this.longPollTimeoutMs,
       authenticated: false,
       ...(signal === undefined ? {} : { signal }),
     })
@@ -90,10 +90,10 @@ export class WechatApi {
   async getUpdates(token: string, cursor: string, signal?: AbortSignal): Promise<{ messages: WechatMessage[]; cursor: string }> {
     let response: Record<string, unknown>
     try {
-      response = await this.#request('POST', 'ilink/bot/getupdates', {
+      response = await this.request('POST', 'ilink/bot/getupdates', {
         token,
         body: { get_updates_buf: cursor, base_info: baseInfo() },
-        timeoutMs: this.#longPollTimeoutMs,
+        timeoutMs: this.longPollTimeoutMs,
         ...(signal === undefined ? {} : { signal }),
       })
     } catch (error: unknown) {
@@ -125,7 +125,7 @@ export class WechatApi {
     const clientId = `im-wechat-${randomUUID()}`
     let response: Record<string, unknown>
     try {
-      response = await this.#request('POST', 'ilink/bot/sendmessage', {
+      response = await this.request('POST', 'ilink/bot/sendmessage', {
         token,
         timeoutMs: REQUEST_TIMEOUT_MS,
         body: {
@@ -157,13 +157,13 @@ export class WechatApi {
 
   /** Start the notification stream for one account. */
   async notifyStart(token: string, signal?: AbortSignal): Promise<void> {
-    await this.#notify('ilink/bot/msg/notifystart', token, 'notifystart', signal)
+    await this.notify('ilink/bot/msg/notifystart', token, 'notifystart', signal)
   }
 
   /** Stop the notification stream; a stale login has nothing left to stop. */
   async notifyStop(token: string): Promise<void> {
     try {
-      await this.#notify('ilink/bot/msg/notifystop', token, 'notifystop')
+      await this.notify('ilink/bot/msg/notifystop', token, 'notifystop')
     } catch (error: unknown) {
       if (error instanceof ImError && error.code === 'IM_AUTH_REQUIRED') return
       throw error
@@ -171,8 +171,8 @@ export class WechatApi {
   }
 
   /** Shared notification endpoint handling. */
-  async #notify(endpoint: string, token: string, label: string, signal?: AbortSignal): Promise<void> {
-    const response = await this.#request('POST', endpoint, {
+  private async notify(endpoint: string, token: string, label: string, signal?: AbortSignal): Promise<void> {
+    const response = await this.request('POST', endpoint, {
       token,
       body: { base_info: baseInfo() },
       timeoutMs: REQUEST_TIMEOUT_MS,
@@ -188,12 +188,12 @@ export class WechatApi {
   }
 
   /** One authenticated JSON request against the trusted iLink base. */
-  async #request(
+  private async request(
     method: 'GET' | 'POST',
     endpoint: string,
     options: { body?: Record<string, unknown>; token?: string; timeoutMs: number; authenticated?: boolean; signal?: AbortSignal },
   ): Promise<Record<string, unknown>> {
-    const url = new URL(endpoint, this.#baseUrl)
+    const url = new URL(endpoint, this.baseUrl)
     assertTrustedUrl(url)
     const controller = new AbortController()
     let timedOut = false
@@ -215,7 +215,7 @@ export class WechatApi {
         headers['X-WECHAT-UIN'] = randomBytes(4).toString('base64')
         if (options.token !== undefined) headers.Authorization = `Bearer ${options.token}`
       }
-      const response = await this.#fetch(url, {
+      const response = await this.fetch(url, {
         method,
         headers,
         ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
