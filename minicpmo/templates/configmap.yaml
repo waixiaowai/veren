@@ -36,27 +36,41 @@ data:
     }
 
     # ---------- 1. 系统依赖 / system packages ----------
-    if [ ! -f "$STAGE/apt.done" ]; then
+    # 容器重启会丢掉 apt 装的包（只有 /workspace 持久），所以按"命令在不在"判断，
+    # 不能靠标记文件。The container layer is ephemeral, so probe for the binaries.
+    if ! command -v cmake >/dev/null 2>&1 || ! command -v gcc >/dev/null 2>&1 \
+       || ! command -v ffmpeg >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1; then
       say "apt: installing toolchain (build-essential cmake git python3 ffmpeg)"
       export DEBIAN_FRONTEND=noninteractive
-      apt-get update -qq -o Acquire::Retries=5 > "$LOGS/apt.log" 2>&1
-      if apt-get install -y -qq -o Acquire::Retries=5 --no-install-recommends \
+      # 国内直连 archive.ubuntu.com 很慢，先换清华源；失败则回退官方源。
+      # archive.ubuntu.com is slow from CN: switch to the TUNA mirror and fall back.
+      cp /etc/apt/sources.list /tmp/sources.list.orig 2>/dev/null
+      sed -i 's|http://archive.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g; s|http://security.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list 2>/dev/null
+      if ! apt-get update -qq -o Acquire::Retries=5 > "$LOGS/apt.log" 2>&1; then
+        say "apt: TUNA mirror failed, falling back to default sources"
+        cp /tmp/sources.list.orig /etc/apt/sources.list 2>/dev/null
+        apt-get update -qq -o Acquire::Retries=5 >> "$LOGS/apt.log" 2>&1
+      fi
+      if ! apt-get install -y -qq -o Acquire::Retries=5 --no-install-recommends \
            build-essential cmake git python3 python3-venv python3-pip \
            ffmpeg curl ca-certificates libssl-dev pkg-config >> "$LOGS/apt.log" 2>&1; then
-        touch "$STAGE/apt.done"
-        say "apt: done"
-      else
         tail_lines "$LOGS/apt.log" 60
         die "apt install failed"
       fi
+      command -v cmake >/dev/null 2>&1 || apt-get install -y -qq cmake >> "$LOGS/apt.log" 2>&1
+      command -v cmake >/dev/null 2>&1 || die "cmake still missing after install"
+      say "apt: done"
     else
-      say "apt: cached"
+      say "apt: toolchain present"
     fi
 
     # ---------- 2. 源码 / sources ----------
     clone_repo() {
       local url="$1" dir="$2" branch="$3"
-      [ -d "$dir/.git" ] && { say "src: $dir cached"; return 0; }
+      if git -C "$dir" rev-parse --verify HEAD >/dev/null 2>&1; then
+        say "src: $dir cached"
+        return 0
+      fi
       for base in "$GH_PROXY/https://github.com/" "https://github.com/"; do
         say "src: cloning $url via $base"
         rm -rf "$dir"
@@ -77,11 +91,12 @@ data:
       say "build: cmake configure (GGML_CUDA=ON, sm_89)"
       cd "$OMNI"
       rm -rf build
-      if ! cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON \
+      if ! cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DLLAMA_CURL=OFF \
              -DCMAKE_CUDA_ARCHITECTURES=89 > "$LOGS/build.log" 2>&1; then
         say "build: configure failed with sm_89, retrying with default arch list"
         rm -rf build
-        cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON >> "$LOGS/build.log" 2>&1 \
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DLLAMA_CURL=OFF \
+          >> "$LOGS/build.log" 2>&1 \
           || { tail_lines "$LOGS/build.log" 60; die "cmake configure failed"; }
       fi
       say "build: compiling llama-server (this takes a while)"
@@ -117,19 +132,58 @@ data:
     fi
 
     # ---------- 5. 权重 / model weights ----------
-    LLM="$MODELS/MiniCPM-o-4_5-$QUANT.gguf"
-    if [ ! -f "$LLM" ]; then
-      say "models: downloading $QUANT GGUFs (about 12 GB, hf-mirror)"
-      export HF_ENDPOINT
-      "$VENV/bin/hf" download openbmb/MiniCPM-o-4_5-gguf \
-          --include "MiniCPM-o-4_5-$QUANT.gguf" "audio/*.gguf" "tts/*.gguf" \
-                    "token2wav-gguf/*.gguf" "vision/MiniCPM-o-4_5-vision-F16.gguf" \
-          --local-dir "$MODELS" > "$LOGS/model.log" 2>&1 \
-        || { tail_lines "$LOGS/model.log" 40; die "model download failed"; }
-      say "models: done"
-    else
-      say "models: cached"
-    fi
+    # 用 curl 直连文件 + 断点续传 + 双源（hf-mirror 优先，ModelScope 兜底）。
+    # The hf client died on SSL EOF; curl with resume + a second mirror is sturdier.
+    remote_size() {
+      curl -sIL --max-time 30 "$1" 2>/dev/null \
+        | tr -d '\r' | awk 'tolower($1)=="content-length:"{print $2}' | tail -1
+    }
+    fetch_one() {
+      local rel="$1" out="$MODELS/$1" hf ms url want have rc try
+      mkdir -p "$(dirname "$out")"
+      hf="https://hf-mirror.com/openbmb/MiniCPM-o-4_5-gguf/resolve/main/$rel"
+      ms="https://modelscope.cn/models/OpenBMB/MiniCPM-o-4_5-gguf/resolve/master/$rel"
+      for url in "$ms" "$hf" "$ms" "$hf"; do
+        want=$(remote_size "$url")
+        have=0; [ -f "$out" ] && have=$(stat -c %s "$out" 2>/dev/null || echo 0)
+        if [ -n "$want" ] && [ "$have" = "$want" ]; then
+          say "models: ok $rel"
+          return 0
+        fi
+        for try in 1 2 3; do
+          rc=0
+          say "models: $rel try=$try"
+          if [ "$have" -gt 0 ]; then
+            curl -L --fail --retry 5 --retry-all-errors --retry-delay 3 \
+                 --connect-timeout 20 -C - -o "$out" "$url" >> "$LOGS/model.log" 2>&1 || rc=$?
+          else
+            curl -L --fail --retry 5 --retry-all-errors --retry-delay 3 \
+                 --connect-timeout 20 -o "$out" "$url" >> "$LOGS/model.log" 2>&1 || rc=$?
+          fi
+          have=$(stat -c %s "$out" 2>/dev/null || echo 0)
+          want=$(remote_size "$url")
+          if [ -n "$want" ] && [ "$have" = "$want" ]; then
+            say "models: done $rel"
+            return 0
+          fi
+          say "models: incomplete $rel rc=$rc have=$have want=$want"
+        done
+      done
+      return 1
+    }
+
+    for rel in "MiniCPM-o-4_5-$QUANT.gguf" \
+               "audio/MiniCPM-o-4_5-audio-F16.gguf" \
+               "tts/MiniCPM-o-4_5-tts-F16.gguf" \
+               "tts/MiniCPM-o-4_5-projector-F16.gguf" \
+               "token2wav-gguf/encoder.gguf" \
+               "token2wav-gguf/flow_matching.gguf" \
+               "token2wav-gguf/flow_extra.gguf" \
+               "token2wav-gguf/hifigan2.gguf" \
+               "token2wav-gguf/prompt_cache.gguf" \
+               "vision/MiniCPM-o-4_5-vision-F16.gguf"; do
+      fetch_one "$rel" || { tail_lines "$LOGS/model.log" 40; die "model download failed: $rel"; }
+    done
 
     # ---------- 6. 配置 / config ----------
     CFG="$DEMO/config.json"

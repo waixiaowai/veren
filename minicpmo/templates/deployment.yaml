@@ -4,6 +4,8 @@ metadata:
   name: minicpmo
   labels:
     app: minicpmo
+  annotations:
+    applications.app.bytetrade.io/gpu-inject: "minicpmo"
 spec:
   replicas: {{ (index .Values.workloads "minicpmo").replicaCount }}
   strategy:
@@ -40,9 +42,11 @@ spec:
           requests:
             cpu: "2"
             memory: 8Gi
+            nvidia.com/gpumem: "14336"
           limits:
             cpu: "8"
             memory: 24Gi
+            nvidia.com/gpumem: "14336"
         volumeMounts:
         - name: app-data
           mountPath: /workspace

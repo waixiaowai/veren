@@ -27,3 +27,4 @@
 - [DSH 通用 AI 后台管理平台设计方案（草案）](./admin-system-design.cn.md)：面向 DSH 插件开发者与后台平台架构师；预备知识：DSH profile/bundle、Cordis Service、Agent/Session、HTTP、RBAC、前端插件化、数据库/ORM 与常用后端中间件。
 - [场景预设设计（草案）](./scene-preset-design.cn.md)：面向 DSH 插件开发者与 Agent 产品设计者；预备知识：Cordis、Agent Preset、系统提示词、工具注册。
 - [DSH 插件市场索引源](./plugin-market-source.cn.md)：面向负责发布与分发的插件开发者、部署运维；预备知识：DSH profile/bundle、pnpm workspace、nginx 静态站点。
+- [应用（Application）概念设计（草案）](./application-concept.cn.md)：面向 DSH 插件开发者、页面运行时维护者与 Agent 产品设计者；预备知识：Cordis 插件与 Service、Agent Preset、DSH Session、`@veren/prompt-page` 页面模型、组合包安装。
