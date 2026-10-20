@@ -59,6 +59,16 @@ const PACKAGES = [
   ['plugins/auth', '@veren/web-login-gate'],
   ['plugins/session-fork-enhanced', '@imeep/dsh-session-fork-enhanced'],
   ['plugins/cms-bridge', '@veren/cms-bridge'],
+  // Person Agent stack: packed so @veren/person-agent-bundle installs from the
+  // same local tarball set as the other bundles.
+  // 管家栈：打包进同一套本地 tarball，让 @veren/person-agent-bundle 与其他组合包一致安装。
+  ['plugins/person-agent-app', '@veren/person-agent-app'],
+  ['plugins/person-agent-bundle', '@veren/person-agent-bundle'],
+  ['plugins/person-agent-dynamic-context', '@veren/person-agent-dynamic-context'],
+  ['plugins/person-agent-preset', '@veren/person-agent-preset'],
+  ['plugins/person-agent-reanchor', '@veren/person-agent-reanchor'],
+  ['plugins/person-agent-tool-session', '@veren/person-agent-tool-session'],
+  ['plugins/person-agent-tool-workspace', '@veren/person-agent-tool-workspace'],
 ]
 
 /** Parse `--out <dir>` / 解析 `--out <目录>` */
