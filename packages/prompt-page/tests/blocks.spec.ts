@@ -33,20 +33,16 @@ describe('definePage.events（声明形状；事件系统归 cordis）', () => {
   })
 })
 
-describe('buildPagePreset（动态声明，不用 yml）', () => {
-  const page = definePage({
+describe('buildPagePreset（迁移期兼容；新代码不注册页面预设）', () => {
+  // 页面定义不再携带 preset；旧调用方经 LegacyPresetCarrier 直接给声明
+  const legacy = {
     name: 'task-detail',
-    url: '/task-detail/:taskId',
     description: '详情页',
     preset: { systemPrompt: '详情页人设', order: 12 },
-    events: {
-      'task.completed': (_payload, io) => { io.append('done') },
-    },
-    tree: () => [],
-  })
+  }
 
   it('persona.prefix = preset.systemPrompt；工具行/工作记忆行按声明组装', () => {
-    const preset = buildPagePreset(page, {
+    const preset = buildPagePreset(legacy, {
       presetId: 'page.task-detail',
       toolRows: [{ id: 'task-tools', name: '@veren/task-tools' }],
       contextRowName: '@veren/task-center-detail',
@@ -64,7 +60,18 @@ describe('buildPagePreset（动态声明，不用 yml）', () => {
   })
 
   it('无 preset.systemPrompt → fail loud', () => {
-    const bare = { ...page, preset: undefined }
-    expect(() => buildPagePreset(bare)).toThrow(/no preset.systemPrompt/)
+    const bare = { ...legacy, preset: undefined }
+    expect(() => buildPagePreset(bare as never)).toThrow(/no preset.systemPrompt/)
+  })
+
+  it('PageDefinition 已无 preset 字段：definePage 输入里的 preset 被忽略', () => {
+    const page = definePage({
+      name: 'p',
+      url: '/p',
+      description: 'x',
+      preset: { systemPrompt: 'ignored' },
+      tree: () => [],
+    })
+    expect('preset' in page).toBe(false)
   })
 })

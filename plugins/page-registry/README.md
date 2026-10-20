@@ -23,3 +23,11 @@ Host-level **Service plugin** owning the page registry for LLM page-sessions —
 ```bash
 pnpm --filter @veren/page-registry test
 ```
+
+## Instance index & page runtime (phase 1)
+
+- `service.instances`: persistent `PageInstanceIndex` (`app_pages` storage domain, two-phase reserve/commit, survives restart, invalidates rows whose session is gone).
+- `service.openUrl(url, { taskId })`: canonicalize -> app check -> index hit = resume & focus, miss = reserve -> create session -> mount `<toolPrefix>__<local>` tools -> one PAGE block -> commit -> focus; task flow takes first, then appends a TASK block. Stable codes: app/not-found, app/disabled, page/stale, page/not-found, task/expired, page/session-create-failed, page/tool-conflict, page/index-unavailable.
+- `registerAppPage(appId, page)`: app-scoped registration (pairs with app-registry's `ctx.apps.pages(id)`); the `page.<name>` preset path stays deprecated.
+- `app_open` host tool registered via `registerAppOpenTool`.
+

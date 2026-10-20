@@ -1,0 +1,221 @@
+/**
+ * 页面实例与 URL 契约 / page-instance & url contract
+ *
+ * 应用侧（app-registry）与任务侧（task-center）共用的最小面集中在这里；
+ * prompt-page 不 import 任何插件包——插件来实现本文件的接口（依赖方向：插件 → 本包）。
+ * The minimal face shared by the two plugins lives here; plugins depend on this
+ * package, never the reverse (no import cycles).
+ *
+ * 归属：本文件的实现（URL 索引读写、规范化函数体）由会话 C 完成；第 0 步只锁签名。
+ * Implementation (index storage, canonicalizer body) belongs to session C.
+ */
+import { normalizePath } from './registry.ts'
+
+/** 规范 URL：页面实例的主键（brand，零运行时开销）/ canonical url, the page-instance primary key */
+export type PageInstanceKey = string & { readonly __brand: 'PageInstanceKey' }
+
+/** 应用 id（最小字符串面；完整契约在 @veren/app-registry）/ app id minimal string face */
+export type AppIdString = string
+
+/**
+ * URL 规范化函数签名（§3.5.1：路径规范化、查询串参与身份、query 按 key/value
+ * 排序、去空查询串、拒绝片段）。实现在下方。
+ * Signature of the canonicalizer; the implementation follows below.
+ */
+export type CanonicalizePageUrl = (input: string) => PageInstanceKey
+
+/**
+ * URL 规范化（§3.5.1）：
+ * 1. 拒绝片段（`#...` 不是页面身份的一部分）；
+ * 2. 路径规范化：补前导 `/`、去尾 `/`（根除外）、折叠空段、每段解码后按
+ *    RFC 3986 重新编码（percent 编码统一）；不做 host/scheme 规范化；
+ * 3. 查询串参与身份：按 key 排序（同 key 多值再按 value 排序），去空查询串。
+ * 规范 URL 是索引、任务、通知共用的那一份；失败 fail loud（page/url-invalid）。
+ * Canonicalizes per §3.5.1; fails loud on malformed input.
+ */
+export const canonicalizePageUrl: CanonicalizePageUrl = (input: string): PageInstanceKey => {
+  const fail = (why: string): never => {
+    throw new PageError(PageErrorCode.UrlInvalid, `canonicalizePageUrl: ${why}: ${JSON.stringify(input)}`)
+  }
+  if (typeof input !== 'string' || input.length === 0) fail('url must be a non-empty string')
+  if (input.includes('#')) fail('fragment is not part of a page identity')
+  const queryIndex = input.indexOf('?')
+  const rawPath = queryIndex === -1 ? input : input.slice(0, queryIndex)
+  const rawQuery = queryIndex === -1 ? '' : input.slice(queryIndex + 1)
+  // 路径：拆段 → 解码 → 重编码（统一 percent 形态）；根路径保持 "/"
+  const segments = normalizePath(rawPath).split('/').filter((segment) => segment.length > 0)
+  const path = `/${segments.map((segment) => {
+    try {
+      return encodeURIComponent(decodeURIComponent(segment))
+    } catch {
+      return fail('path segment has malformed percent-encoding')
+    }
+  }).join('/')}`
+  // 查询：key 排序（同 key 按 value），空查询串去掉
+  const pairs = [...new URLSearchParams(rawQuery)].sort((a, b) =>
+    a[0] === b[0] ? (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0) : a[0] < b[0] ? -1 : 1,
+  )
+  const queryString = new URLSearchParams(pairs).toString()
+  return `${path}${queryString.length > 0 ? `?${queryString}` : ''}` as PageInstanceKey
+}
+
+// ---- 结构化错误（稳定 code）/ structured errors with stable codes ----
+
+/**
+ * 页面侧稳定错误码（§5.6）。错误码常量冻结；本表是会话 C 对 §5.6 的落地，
+ * 新增码先报告。Stable page-side codes; frozen — report before adding.
+ */
+export const PageErrorCode = {
+  /** URL 不合法 / url failed canonicalization */
+  UrlInvalid: 'page/url-invalid',
+  /** URL 没有命中任何已注册页面 / url matched no registered page */
+  PageNotFound: 'page/not-found',
+  /** 页面契约版本已变，不静默复用旧会话（§7.3）/ page contract revision changed */
+  Stale: 'page/stale',
+  /** 页面工具与既有工具重名 / page tool name conflicts with an existing tool */
+  ToolConflict: 'page/tool-conflict',
+  /** 页面引用了不存在的工具 / page references an unknown tool */
+  UnknownTool: 'page/unknown-tool',
+  /** 索引不可用（存储失败）/ instance index unavailable */
+  IndexUnavailable: 'page/index-unavailable',
+  /** 索引冲突：URL 已有行 / sessionId 已被占用 / index conflict on url or sessionId */
+  IndexConflict: 'page/index-conflict',
+  /** 会话创建失败 / session creation failed */
+  SessionCreateFailed: 'page/session-create-failed',
+  /** 宿主能力缺失（sessions/agents 等）/ host capability missing */
+  HostUnavailable: 'page/host-unavailable',
+  /** 应用未注册 / app not registered */
+  AppNotFound: 'app/not-found',
+  /** 应用被禁用或损坏 / app disabled or broken */
+  AppDisabled: 'app/disabled',
+  /** 任务已过期 / task expired before take */
+  TaskExpired: 'task/expired',
+} as const
+
+export type PageErrorCode = (typeof PageErrorCode)[keyof typeof PageErrorCode]
+
+/** 带稳定 code 的结构化错误 / a structured error carrying a stable code */
+export class PageError extends Error {
+  /**
+   * @param code - 稳定错误码 / stable machine-readable code
+   * @param message - 人读说明 / human-readable account
+   */
+  constructor(readonly code: PageErrorCode, message: string) {
+    super(message)
+    this.name = 'PageError'
+  }
+}
+
+/** 页面实例状态：reserved（两阶段创建中）→ live / instance states */
+export type PageInstanceState = 'reserved' | 'live'
+
+/** 一条页面实例记录 / one page-instance record */
+export interface PageInstanceRecord {
+  /** 规范 URL（主键，唯一）/ canonical url (unique) */
+  readonly url: PageInstanceKey
+  readonly state: PageInstanceState
+  readonly appId: AppIdString
+  /** 页面键：`appId/pageName` / page key */
+  readonly page: string
+  /** 对应的 DSH 会话（唯一）/ bound session id (unique) */
+  readonly sessionId: string
+  /** 会话列表里展示的实例标题 / instance title shown in session lists */
+  readonly instanceTitle: string
+  /** 创建时的页面契约版本 / page contract revision at creation */
+  readonly pageRevision: number
+  /** 参数快照 / params snapshot */
+  readonly params: Readonly<Record<string, string>>
+  /** 创建时的应用版本 / app version at creation */
+  readonly appVersion: string
+  readonly createdAt: string
+  readonly lastOpenedAt: string
+}
+
+/**
+ * 页面实例索引：规范 URL → 会话（§3.5）。
+ * 两阶段创建：reserve 写 reserved 行 → commit 翻 live；fail/forget 清理，
+ * 保证会话创建失败不留幽灵索引。实现由会话 C 提供（持久化在 app-pages 域）。
+ */
+export interface PageInstanceIndex {
+  /** 查规范 URL 对应的实例 / look up by canonical url */
+  lookup(url: PageInstanceKey): Promise<PageInstanceRecord | undefined>
+  /** 写 reserved 行（两阶段第一步）/ write a reserved row */
+  reserve(url: PageInstanceKey, sessionId: string, snapshot: InstanceSnapshot): Promise<PageInstanceRecord>
+  /** reserved → live（两阶段第二步）/ flip a reserved row to live */
+  commit(url: PageInstanceKey, sessionId: string): Promise<PageInstanceRecord>
+  /** 创建失败：删除 reserved 行，不留幽灵索引 / creation failed: drop the reserved row */
+  fail(url: PageInstanceKey, reason: string): Promise<void>
+  /** 会话已被删除：忘记这一行（下次打开重建）/ session gone: forget the row */
+  forget(url: PageInstanceKey): Promise<void>
+  /** 按应用列实例（分组/卸载清理用）/ list instances of one app */
+  listByApp(appId: AppIdString): Promise<readonly PageInstanceRecord[]>
+  /**
+   * 启动清扫：删掉会话已不在的 reserved 残留行，返回被删 URL（§3.5.3/§7.5）。
+   * 没有会话存活探测能力时返回空数组（确认不了就不删，不假装做了）。
+   * Startup sweep: drop reserved rows whose session is gone; without a
+   * liveness probe it drops nothing (no confirmation, no pretend).
+   */
+  sweepReserved(): Promise<readonly PageInstanceKey[]>
+}
+
+/** reserve 时的快照入参 / snapshot accepted by reserve() */
+export interface InstanceSnapshot {
+  readonly appId: AppIdString
+  readonly page: string
+  readonly instanceTitle: string
+  readonly pageRevision: number
+  readonly params: Readonly<Record<string, string>>
+  readonly appVersion: string
+}
+
+// ---- 应用作用域 URL 形态校验 / app-scoped url shape validation ----
+
+/** 页面 URL 统一前缀 / the one page-url prefix */
+export const APPS_URL_PREFIX = '/apps'
+
+/** 应用 id 保留字 / reserved app ids */
+export const RESERVED_APP_IDS: readonly string[] = ['api', 'apps', 'system', '__global__']
+
+const APP_SLUG_RE = /^[a-z][a-z0-9-]{0,31}$/
+
+/** 应用 id 是否合法 slug / whether an app id is a valid slug */
+export function isValidAppId(id: string): boolean {
+  return APP_SLUG_RE.test(id) && !RESERVED_APP_IDS.includes(id)
+}
+
+/**
+ * 校验页面 URL 模式为 `/apps/<appId>/<应用内路径>` 形态（保留 `:param` 规则）。
+ * 应用内路径不能以 `apps` 段开头；查询串不允许出现在模式里。
+ * Validates the `/apps/<appId>/...` pattern shape; keeps `:param` rules.
+ * @throws Error 形态不合法时 / on an invalid shape
+ */
+export function assertAppUrlPattern(pageName: string, url: string): void {
+  const fail = (why: string): never => {
+    throw new Error(`[page-url] page "${pageName}" ${why}: ${JSON.stringify(url)}`)
+  }
+  if (!url.startsWith(`${APPS_URL_PREFIX}/`)) fail(`url must start with ${APPS_URL_PREFIX}/<appId>/`)
+  if (url.includes('?') || url.includes('#')) fail('url pattern must not carry a query or fragment')
+  const segments = normalizePath(url).split('/').filter((segment) => segment.length > 0)
+  const appId = segments[1]!
+  if (!isValidAppId(appId)) fail(`has an invalid app id segment ${JSON.stringify(appId)}`)
+  if (segments[2] === 'apps') fail('app-internal path must not start with the "apps" segment')
+  const paramNames = new Set<string>()
+  for (const segment of segments.slice(2)) {
+    if (!segment.startsWith(':')) continue
+    const paramName = segment.slice(1)
+    if (paramName.length === 0 || paramNames.has(paramName)) {
+      fail(`has an invalid or duplicate :param ${JSON.stringify(segment)}`)
+    }
+    paramNames.add(paramName)
+  }
+}
+
+/** `/apps/<appId>/<应用内路径>` 是否合法形态 / whether a url has a valid app-scoped shape */
+export function isAppUrlPattern(url: string): boolean {
+  try {
+    assertAppUrlPattern('check', url)
+    return true
+  } catch {
+    return false
+  }
+}

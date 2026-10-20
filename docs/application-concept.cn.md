@@ -276,6 +276,9 @@ const dispose = pages.register({
 
 `PageDefinition` 的字段要跟着调整：**删除 `preset` 字段**（页面不再带系统提示词），新增 `tools`、`instructions`、`instanceTitle`、`pageRevision`。`tools` 里写的是应用工具目录里的本地名，不是挂到模型面前的最终名；最终名在挂载时由前缀拼出来（§3.4.3）。`instructions` 是页面给模型的说明，不是系统提示词。迁移期旧页面没有 `pageRevision` 时按 `1` 处理，`instanceTitle` 缺省时用 `description` 兜底。
 
+> **第 1 阶段落地形态（收尾会话 E 补记）：页面注册只有一个入口。**
+> 应用作者只调 `ctx.apps.pages(id).register(page)` 一次；app-registry 内部通过页面镜像面自动把同一条页面写进 page-registry 的注册表（`registerAppPage` 是内部原语，应用作者不再调用）。镜像失败（如 URL 模式冲突）会回滚应用侧登记并原样抛错，因此"目录可见却无法被 openUrl 解析"的静默漂移在构造上消失；残留漂移（如镜像面未装配）由 `pageRegistry.auditAppPages(apps)` 审计发现。宿主未装配镜像面时注册只告警，不崩。
+
 ### 3.2 入口页面：应用定义里写页面键
 
 入口不是 URL，也不是“第一个注册的页面”，而是应用定义里显式写的 `entry`：
@@ -290,7 +293,7 @@ ctx.apps.register({
 })
 ```
 
-激活应用时，注册表检查 `entry` 对应的页面是否存在；不存在就 fail loud（`app/entry-missing`），应用标记为 `broken`，并在工具栏下拉和应用列表里显示原因。**不允许“自动取第一个页面”当入口**：那会让页面注册顺序变成隐式契约，重排一次注册就换了首页。
+激活应用时，注册表检查 `entry` 对应的页面是否存在；不存在就报 `app/entry-missing`，应用标记为 `broken`（第 1 阶段实现取"注册期不抛到宿主启动"的取态：入口页缺失只标 broken 并给出原因，页面注册后自动愈合为 active；`app_list`/`app_pages` 对 broken 应用返回该原因），并在工具栏下拉和应用列表里显示原因。**不允许"自动取第一个页面"当入口**：那会让页面注册顺序变成隐式契约，重排一次注册就换了首页。
 
 入口的对外 URL 是 `/apps/<appId>/<entry 的路径>`；在工具栏选中应用 = 打开这个 URL 对应的页面实例会话（见 §8.2）。
 
@@ -482,7 +485,8 @@ review_workbench__complete_task
 
 - **重启**：索引是持久的，同一个 URL 直接找回原会话；归档会话会被恢复，删除会话会让行失效。
 - **删除**：会话被删除后，打开 URL 时发现 `ctx.sessions.get` 找不到，删行并重建；`orphaned` 行保留来源信息，便于解释“这条页面属于哪个应用”。
-- **索引丢失/损坏**：会话日志里的 `app/page` 事件是事实来源。启动时如果索引域为空或版本不兼容，触发一次重建：扫描会话目录中带 `app/page` 事件的会话，按事件里的规范 URL 重建行，选择最新的非 stale 会话；重建完成前，打开 URL 会等待或返回 `page/index-rebuilding`，避免重复建会话。
+- **reserved 启动清扫（已实现）**：启动时对 `reserved` 行做一次存活探测（会话不在即删，`KvPageInstanceIndex.sweepReserved`）；没有会话探测能力时不动任何行——确认不了就不删，不假装做了。
+- **索引丢失/损坏**：会话日志里的 `app/page` 事件是事实来源。启动时如果索引域为空或版本不兼容，触发一次重建：扫描会话目录中带 `app/page` 事件的会话，按事件里的规范 URL 重建行，选择最新的非 stale 会话；重建完成前，打开 URL 会等待或返回 `page/index-rebuilding`，避免重复建会话。**第 1 阶段未实现**：页面运行时的会话端口没有"枚举会话/读会话日志"的面，做不了真实重建；已归入第 2 阶段，待宿主暴露会话枚举后补。
 - **重建的成本**：需要遍历会话目录一次，代价随会话数增长；这是低频故障路径，可以接受。日常打开只走索引。
 
 #### 3.5.5 和 forum `SessionLink` 的对照
@@ -799,7 +803,7 @@ stateDiagram-v2
 
 第 1 阶段只做 `inbox`。`wake` 会花 token、会在用户没看着的时候改动会话，必须由用户显式开启，默认关闭。
 
-第 1 阶段没有独立 Web 收件箱时，投递钩子只有一个：任务中心的宿主钩子（会话开始或下一轮 pre-step）向任务中心取“发给这个人、还没投递”的通知，注进会话。示例应用的列表页也读同一份任务列表。
+第 1 阶段没有独立 Web 收件箱；投递钩子已实现为**页面运行时的投递泵**：页面会话创建或恢复时，向任务中心取"发给这个人、还没投递"的通知（`pendingDeliveries`），逐条作为用户消息注入，并回报投递结果（`markDelivered`，成功翻 `delivered`、失败保持 `pending` 并记原因）。投递泵失败只降级，不阻塞页面打开；`wake` 与独立收件箱面板是第 2 阶段的事。
 
 ### 5.3 从通知到页面：完整时序
 
@@ -900,6 +904,14 @@ TASK 块只在任务成功接取并绑定到会话时追加一次；同一 URL �
 | 应用升级导致页面契约不兼容 | 不静默复用旧会话；提示重建（§7.3） | `app/page-stale` |
 | 任务目标的应用已升级 | 提示查看旧会话或用新版本打开；任务保持 `open` | `task/app-upgraded` |
 | 会话绑定释放失败 | 记录并重试；会话标“需对账” | `page/binding-release-failed` |
+| 完成者会话与接取记录不一致（工具层校验） | 拒绝改写 taken 任务 | `task/not-claimant` |
+| 任务处于不允许迁移的状态 | 拒绝并说明当前状态 | `task/invalid-state` |
+| 任务中心存储域打开失败 | 所有写操作拒绝，降级为不可用而非假成功 | `task-center/storage-unavailable` |
+| URL 规范化失败（畸形输入/片段） | fail loud，不产生实例 | `page/url-invalid` |
+| 索引冲突（URL 已有行 / sessionId 已被占用） | 拒绝写行 | `page/index-conflict` |
+| 宿主能力缺失（sessions/agents/tools 注册表） | openUrl/注入失败并给出明确码，不假成功 | `page/host-unavailable` |
+
+> **冻结常量是权威。** 实现里各包的冻结错误码常量表（`app-registry` 的 `AppErrorCode`、`task-center` 的 `TaskErrorCode`、`prompt-page` 的 `PageErrorCode`）比本表更全——例如 `task/not-found`、`task/lease-expired`、`task/draft-invalid`、`task/send-forbidden`、`app/manifest-invalid`、`app/tool-duplicate`、`app/tool-prefix-conflict`、`app/entry-missing`、`app/forbidden`。以常量表为准，本表只列 §5.6 场景相关的核心码；新增码先改常量表再回填本表。
 
 这些错误码要出现在工具结果、Web 卡片和日志里，不能只写一句“失败了”。模型的下一步动作应该能从 code 直接推出来：`task/expired` 就放弃，`app/disabled` 就告诉用户去启用，`task/target-gone` 就建议更新应用，`app/page-stale` 就提示重建会话。
 
@@ -1128,6 +1140,14 @@ Cordis 插件运行在同一个宿主进程里，拿到 `ctx` 就能碰所有服
 
 明确不做：工具栏应用下拉的完整交互（第 2 阶段）、侧栏应用分组（第 2 阶段）、应用启动器/应用首页、跨应用任务、权限强制、多用户、任务附件。
 
+> **第 1 阶段完成状态（收尾会话 E 记录）。** 上列范围与八个验收场景已全部实现并验收通过，
+> 逐条结论、四个对接缺口（任务通知投递、应用禁用/卸载语义执行者、页面注册单入口、工具释放）
+> 的修复情况与遗留风险见 [phase1-acceptance.cn.md](phase1-acceptance.cn.md)。与正文的两处实现
+> 取态差异已在 §3.2（入口缺失标 broken 不抛宿主启动）与 §3.1（页面注册单入口镜像）就地更新；
+> 另两处如实标注：索引重建扫描因第 1 阶段会话端口没有"枚举会话/读 app/page 事件"的面而
+> **未实现，归入第 2 阶段**（§3.5.4）；`reserved` 残留行的启动清扫已实现（`sweepReserved`，
+> 需要会话存活探测，确认不了就不删）。
+
 ### 8.2 第 2 阶段：GUI 入口与可读性
 
 - **工具栏应用下拉**：完整交互按 §3.8 实现；第 2 阶段把它接进新会话行和会话头部，并接上 URL 索引。
@@ -1324,3 +1344,23 @@ interface TaskDraft {
 - 会话创建与恢复：[DSH session-controller](../deepseek/deepseek-harness/packages/api/session-controller/src/client/contract/sessions.ts)
 - 会话标题事件：[DSH known event types](../deepseek/deepseek-harness/packages/core/session/src/known-event-types.ts)
 - 面板选择（非浏览器路由）：[DSH ui-layout](../deepseek/deepseek-harness/packages/client/ui-layout/src/client/service.ts)
+
+---
+
+## 附录 C：实现分工与文件归属（第 1 阶段工作合同）
+
+> 本节是给后续并行实现会话看的合同：谁的文件是谁的；跨目录改动必须先报告，得到确认后再动。
+
+| 目录 | 归属 |
+| --- | --- |
+| `plugins/app-registry/**` | 会话 A（应用注册表实现） |
+| `plugins/task-center/**` | 会话 B（任务中心实现） |
+| `packages/prompt-page/**`、`plugins/page-registry/**` | 会话 C（页面契约运行时与 URL 索引） |
+| `plugins/task-workbench/**`（示例应用，尚未创建） | 会话 D（参考实现与验收载体） |
+
+共享文件与修改规则：
+
+- root `package.json`、`pnpm-workspace.yaml`、`pnpm-lock.yaml` **只有第 0 步（契约与接线）可以改**；A/B/C/D 一律不许改，需要新依赖或新 workspace 成员时，先报告并等第 0 步统一处理，避免并发改 lock 冲突。
+- 跨包引用只走第 0 步铺好的依赖声明与契约导出：应用侧契约在 `plugins/app-registry/src/types.ts`，任务侧在 `plugins/task-center/src/types.ts`，页面实例/URL 契约在 `packages/prompt-page/src/contract.ts`（`PageInstanceKey`、`CanonicalizePageUrl`、`PageInstanceIndex`、`PageInstanceRecord`、`/apps` URL 校验器）。`prompt-page` 不 import 任何插件包。
+- 不改 `plugins/page-sync-bench/**`（保留为基准）；其 `preset` 声明在迁移期被 `definePage` 忽略，属已知事实，不是回归。
+- `plugins/app-registry` 与 `plugins/task-center` 的 `service.ts` 是会话 A/B 各自的实现落点；双方 `types.ts` 里已导出的契约常量（错误码等）要改动时也必须先报告。

@@ -1,0 +1,34 @@
+{
+  "name": "@veren/app-registry",
+  "description": "Use when DSH plugins need to install an application as a user-facing product unit: owns the host-level application registry (stable id, entry page, tool prefix, capabilities), the app-scoped page/tool registrars, and application lifecycle records; skip it for plain capability plugins that never expose pages or tasks.",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {},
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.0",
+    "@veren/prompt-page": "workspace:^"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@veren/prompt-page": "workspace:^",
+    "typescript": "^5.6.0",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}

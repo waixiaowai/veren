@@ -1,8 +1,8 @@
 /**
  * 类型定义（只放类型）/ Type definitions (types only)
  *
- * 页面运行时的形状：一页 = 一个会话；页面经 PageRegistry 以唯一 URL 注册。
- * 静态面（系统提示词/工具/skills）归 DSH preset；本包只管动态上下文与生命周期钩子。
+ * 页面运行时的形状：一页 = 一个会话；页面经应用作用域注册表以唯一 URL 注册。
+ * 页面不再绑定预设；应用/实例/工具契约见 contract.ts 与两个插件的 types.ts。
  */
 import type { PromptElement } from '@veren/prompt-core'
 import type { MessageHost } from '@veren/prompt-host-messages'
@@ -10,7 +10,13 @@ import type { MessageHost } from '@veren/prompt-host-messages'
 /** URL 参数：路径参数 + query 合并（path 优先）/ path params + query (path wins) */
 export type PageParams = Record<string, string>
 
-/** 页面的动态 preset 声明（系统提示词等静态面）/ dynamic preset declaration (static face) */
+/**
+ * @deprecated 页面不再绑定预设（页面 = 用户自选会话上的动态层）。
+ * 本类型仅为 page-sync-bench 等迁移期消费方的 `buildPagePreset` 保留；
+ * 新代码禁止使用（应用说明走 `ApplicationDefinition.instructions`，
+ * 页面说明走 `PageDefinition.instructions`，都不是系统提示词）。
+ * Legacy preset spec kept only for migration-era `buildPagePreset` callers.
+ */
 export interface PagePresetSpec {
   /** 系统提示词（→ persona.prefix）/ system prompt (→ persona.prefix) */
   readonly systemPrompt: string
@@ -37,20 +43,27 @@ export type PageEventHandler = (payload: unknown, io: PageIO) => void
 export type PageEventMap = Readonly<Record<string, PageEventHandler>>
 
 /**
- * 页面定义（瘦身后）：
- * - 静态面经 preset 字段动态声明（DSH preset 注册，参考 person-agent-preset），不用 yml
- * - events 声明页面级事件监听（键名 = cordis 事件名，处理器拿 PageIO 改上下文/导航）
- * - 本定义负责唯一 URL、描述、组件树、生命周期钩子
+ * 页面定义（应用作用域）：
+ * - **preset 字段已删除**：页面不再绑定预设，静态面归用户自选的会话配置（§2.2）
+ * - 新增 tools/instructions/instanceTitle/pageRevision（§3.1）；
+ *   `tools` 写应用工具目录里的本地名，最终名在挂载时拼前缀（§3.4.3）
+ * - 应用作用域注册时 URL 必须是 `/apps/<appId>/...` 形态（见 contract.ts 的校验器）
  */
 export interface PageDefinition<S> {
-  /** 页面唯一名（preset 约定：page.<name>）/ unique page name (preset convention: page.<name>) */
+  /** 页面唯一名（应用内唯一；全局页面键为 `appId/name`）/ unique page name */
   readonly name: string
-  /** 唯一 URL 模式：/xx/:param（仅路径段，查询串属于实际 URL）/ unique url pattern (path only) */
+  /** 唯一 URL 模式：/apps/<appId>/xx/:param（仅路径段，查询串属于实际 URL）/ unique url pattern */
   readonly url: string
   /** 面向目录/入口的描述 / catalog-facing description */
   readonly description: string
-  /** 动态 preset 声明 / dynamic preset declaration */
-  readonly preset?: PagePresetSpec
+  /** 本页挂载的工具（应用工具目录的本地名）/ local tool names from the app tool catalog */
+  readonly tools?: readonly string[]
+  /** 本页给模型的说明；随 PAGE 块附上，不是系统提示词 / page note, not a system prompt */
+  readonly instructions?: string
+  /** 实例标题函数；缺省用 description 兜底（§3.6.1）/ instance title, falls back to description */
+  readonly instanceTitle?: (params: PageParams) => string
+  /** 页面契约版本：URL/参数/工具名/说明不兼容变化时 +1；缺省按 1（§7.3）/ page contract revision */
+  readonly pageRevision?: number
   /** 事件监听：键名 = cordis 事件名（ctx.emit 触发）/ listeners keyed by cordis event name */
   readonly events?: PageEventMap
   /** 组件树：params = 路径参数+query，state = 权威 store 状态 / component tree */

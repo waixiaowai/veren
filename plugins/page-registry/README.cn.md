@@ -23,3 +23,11 @@
 ```bash
 pnpm --filter @veren/page-registry test
 ```
+
+## 实例索引与页面运行时（第 1 阶段）
+
+- `service.instances`：持久化 `PageInstanceIndex`（`app_pages` 存储域；reserve/commit 两阶段；重启后仍命中；会话被删自动失效重建）。
+- `service.openUrl(url, { taskId })`：规范化 URL → 校验应用 → 索引命中即恢复聚焦，未命中则 reserve → 建会话 → 挂 `<toolPrefix>__<本地名>` 工具 → 写一次 PAGE 块 → commit → 聚焦；任务场景先 take 再追加 TASK 块。稳定错误码：app/not-found、app/disabled、page/stale、page/not-found、task/expired、page/session-create-failed、page/tool-conflict、page/index-unavailable。
+- `registerAppPage(appId, page)`：应用作用域注册（与 app-registry 的 `ctx.apps.pages(id)` 对接）；`page.<name>` 预设路径保持废弃。
+- 宿主工具 `app_open` 经 `registerAppOpenTool` 注册。
+

@@ -1,0 +1,42 @@
+{
+  "name": "@veren/task-workbench",
+  "description": "Reference Veren application: registers the task-workbench app (entry page, three /apps/task-workbench pages, app-scoped tools) and forwards publishes to the host task center with graceful degrade; use it as the template for writing new Veren applications, not as a library.",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {},
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.0",
+    "@veren/app-registry": "workspace:^",
+    "@veren/page-registry": "workspace:^",
+    "@veren/prompt-page": "workspace:^",
+    "@veren/task-center": "workspace:^"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@veren/app-registry": "workspace:^",
+    "@veren/page-registry": "workspace:^",
+    "@veren/prompt-core": "workspace:^",
+    "@veren/prompt-page": "workspace:^",
+    "@veren/task-center": "workspace:^",
+    "typescript": "^5.6.0",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}

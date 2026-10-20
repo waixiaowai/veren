@@ -9,6 +9,7 @@
 import { createElement } from '@veren/prompt-core'
 import type { ElementInput, Entity, PromptElement } from '@veren/prompt-core'
 import type { PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
+import { assertAppUrlPattern } from './contract.ts'
 import type { PageDefinition, PageEventMap, PageIO, PageParams, PagePresetSpec } from './types.ts'
 
 export type { PageEventMap, PageIO, PagePresetSpec } from './types.ts'
@@ -19,13 +20,18 @@ export function definePage<S>(definition: {
   name: string
   url: string
   description: string
+  /** @deprecated 页面不再绑定预设；此输入被忽略（仅为 page-sync-bench 迁移期编译兼容保留）。 */
   preset?: PagePresetSpec
   events?: PageEventMap
+  tools?: readonly string[]
+  instructions?: string
+  instanceTitle?: (params: PageParams) => string
+  pageRevision?: number
   tree: (props: PageParams, state: S) => ElementInput
   onLoad?: (params: PageParams) => void
   onComplete?: (params: PageParams) => boolean
 }): PageDefinition<S> {
-  const { name, url, description, preset, events, tree, onLoad, onComplete } = definition
+  const { name, url, description, events, tools, instructions, instanceTitle, pageRevision, tree, onLoad, onComplete } = definition
   if (name.length === 0 || name.trim() !== name) {
     throw new Error(`[definePage] invalid page name: ${JSON.stringify(name)}`)
   }
@@ -38,10 +44,29 @@ export function definePage<S>(definition: {
   }
   return {
     name, url, description, tree,
-    ...(preset === undefined ? {} : { preset }),
+    ...(tools === undefined ? {} : { tools }),
+    ...(instructions === undefined ? {} : { instructions }),
+    ...(instanceTitle === undefined ? {} : { instanceTitle }),
+    ...(pageRevision === undefined ? {} : { pageRevision }),
     ...(events === undefined ? {} : { events }),
     ...(onLoad === undefined ? {} : { onLoad }),
     ...(onComplete === undefined ? {} : { onComplete }),
+  }
+}
+
+/**
+ * 应用作用域的页面定义：在 definePage 之上强制 `/apps/<appId>/...` URL 形态，
+ * 并补齐契约缺省：pageRevision 缺省 1，tools 缺省 []（§3.1、§6.1）。
+ * 应用注册器（app-registry）的注册路径应使用本函数或等效校验。
+ * App-scoped definePage: enforces the /apps url shape and contract defaults.
+ */
+export function defineAppPage<S>(definition: Parameters<typeof definePage<S>>[0]): PageDefinition<S> {
+  assertAppUrlPattern(definition.name, definition.url)
+  const page = definePage(definition)
+  return {
+    ...page,
+    tools: page.tools ?? [],
+    pageRevision: page.pageRevision ?? 1,
   }
 }
 
@@ -92,9 +117,21 @@ export interface BuildPagePresetOptions {
   readonly contextRowConfig?: Record<string, unknown>
 }
 
-/** 构建页面 preset 定义（直接产出注册表的 PresetDefinition）/ build the registry's PresetDefinition */
-export function buildPagePreset<S>(page: PageDefinition<S>, options: BuildPagePresetOptions = {}): PresetDefinition {
-  const presetSpec = page.preset
+/** 迁移期载体：preset 不再在 PageDefinition 上，旧调用方直接传这个形状 / legacy carrier shape */
+export interface LegacyPresetCarrier {
+  readonly name: string
+  readonly description: string
+  readonly preset: PagePresetSpec
+}
+
+/**
+ * @deprecated 构建页面 preset 定义（迁移期兼容，§8.4）。新代码不注册页面预设。
+ */
+export function buildPagePreset<S>(
+  page: PageDefinition<S> | LegacyPresetCarrier,
+  options: BuildPagePresetOptions = {},
+): PresetDefinition {
+  const presetSpec = 'preset' in page && page.preset !== undefined ? page.preset : undefined
   if (presetSpec === undefined) {
     throw new Error(`[buildPagePreset] page "${page.name}" has no preset.systemPrompt`)
   }

@@ -1316,3 +1316,23 @@ Keep the model-facing tool surface narrow: globally only `app_list` / `app_pages
 - Session creation and recovery: [DSH session-controller](../deepseek/deepseek-harness/packages/api/session-controller/src/client/contract/sessions.ts)
 - Session title events: [DSH known event types](../deepseek/deepseek-harness/packages/core/session/src/known-event-types.ts)
 - Panel selection (not browser routing): [DSH ui-layout](../deepseek/deepseek-harness/packages/client/ui-layout/src/client/service.ts)
+
+---
+
+## Appendix C: Implementation Ownership & File Boundaries (Phase 1 working contract)
+
+> This section is the contract for the parallel implementation sessions: each directory has one owner; any cross-directory change must be reported and approved first.
+
+| Directory | Owner |
+| --- | --- |
+| `plugins/app-registry/**` | Session A (application registry) |
+| `plugins/task-center/**` | Session B (task center) |
+| `packages/prompt-page/**`, `plugins/page-registry/**` | Session C (page contract runtime & URL index) |
+| `plugins/task-workbench/**` (sample app, not yet created) | Session D (reference implementation) |
+
+Shared files and modification rules:
+
+- Root `package.json`, `pnpm-workspace.yaml`, and `pnpm-lock.yaml` **may only be changed by step 0 (contract & wiring)**; sessions A/B/C/D must report first and wait for step 0 to apply dependency/workspace changes, avoiding concurrent lock-file conflicts.
+- Cross-package references go only through the dependencies and contract exports laid down in step 0: app-side contracts in `plugins/app-registry/src/types.ts`, task-side in `plugins/task-center/src/types.ts`, page-instance/URL contracts in `packages/prompt-page/src/contract.ts`. `prompt-page` never imports plugin packages.
+- Do not touch `plugins/page-sync-bench/**` (kept as the benchmark); its `preset` declarations are ignored by `definePage` during migration — a known fact, not a regression.
+- `service.ts` in each new plugin is the implementation site for sessions A/B; changing exported contract constants (error codes, etc.) in either `types.ts` also requires reporting first.
