@@ -127,9 +127,12 @@ export const listPage: PageDefinition<TaskItem[]> = definePage({
   description: '任务中心列表页：浏览全部任务，接取/完成任务',
   preset: { systemPrompt: LIST_SYSTEM_PROMPT, order: 10 },
   events: {
-    'task.taken': (payload, io) => { io.append(`任务 ${String((payload as { id: string }).id)} 已被接取`) },
-    'task.completed': (payload, io) => { io.append(`任务 ${String((payload as { id: string }).id)} 已完成`) },
-    'task.abandoned': (payload, io) => { io.append(`任务 ${String((payload as { id: string }).id)} 已放弃`) },
+    'task-center/changed': (payload, io) => {
+      const change = payload as { type: string; id: string }
+      if (change.type === 'task.taken') io.append(`任务 ${change.id} 已被接取`)
+      if (change.type === 'task.completed') io.append(`任务 ${change.id} 已完成`)
+      if (change.type === 'task.abandoned') io.append(`任务 ${change.id} 已放弃`)
+    },
   },
   tree: (_params, items) => <TaskListPage items={items} />,
 })

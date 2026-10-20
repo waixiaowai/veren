@@ -3,12 +3,16 @@
  * Authoritative task store: pure domain semantics + subscriptions (versioning belongs to the host layer)
  *
  * 不可变纪律：数组整体替换，绝不原地修改（内核 diff 按内容比较，别名会让旧状态跟着变）。
+ * 领域事件经构造注入的 emit 回调发出——由消费方接到 cordis 事件系统（ctx.emit），
+ * 本包不自建事件总线。
  */
-import { PageEventBus } from '@veren/prompt-page'
 import type { TaskItem, ToolOutcome } from './types.ts'
 
 /** 任务集合在页面树中的路径 / path of the task collection in the page tree */
 export const TASKS_PATH = 'tasks'
+
+/** 领域事件发射器（消费方接 ctx.emit）/ domain event emitter (consumer wires to ctx.emit) */
+export type DomainEventEmit = (event: string, payload: Record<string, unknown>) => void
 
 /** 构造 n 条初始任务 / build an initial list of n tasks */
 export function makeList(n: number): TaskItem[] {
@@ -23,11 +27,11 @@ export function makeList(n: number): TaskItem[] {
 export class TaskStore {
   private items: TaskItem[]
   private readonly listeners = new Set<() => void>()
-  /** 领域事件（按钮 → 事件 → 页面监听器改上下文/导航）/ domain events (button → event → page listeners) */
-  readonly events = new PageEventBus()
+  private emitEvent: DomainEventEmit | undefined
 
-  constructor(initial: TaskItem[] = []) {
+  constructor(initial: TaskItem[] = [], emitEvent?: DomainEventEmit) {
     this.items = initial
+    this.emitEvent = emitEvent
   }
 
   getState(): TaskItem[] {
@@ -58,7 +62,7 @@ export class TaskStore {
       return { ok: false, code: 'invalid_transition', detail: `${id} is ${item.status}, not open` }
     }
     this.replace({ ...item, status: 'taken', ownerId })
-    this.events.emit('task.taken', { id, ownerId }, this.io)
+    this.emitEvent?.('task.taken', { id, ownerId })
     return { ok: true, detail: `${id} taken by ${ownerId}` }
   }
 
@@ -70,7 +74,7 @@ export class TaskStore {
       return { ok: false, code: 'invalid_transition', detail: `${id} is ${item.status}, not taken` }
     }
     this.replace({ ...item, status: 'done' })
-    this.events.emit('task.completed', { id }, this.io)
+    this.emitEvent?.('task.completed', { id })
     return { ok: true, detail: `${id} completed` }
   }
 
@@ -82,12 +86,17 @@ export class TaskStore {
       return { ok: false, code: 'invalid_transition', detail: `${id} is ${item.status}, not taken` }
     }
     this.replace({ ...item, status: 'open', ownerId: null })
-    this.events.emit('task.abandoned', { id }, this.io)
+    this.emitEvent?.('task.abandoned', { id })
     return { ok: true, detail: `${id} abandoned` }
   }
 
-  /** io 由页面装配层注入（append → host.note，navigate → 打开另一页会话）*/
-  io = { append: (): void => undefined, navigate: (): void => undefined }
+  /**
+   * 注入事件发射器（挂载方把领域事件接到会话作用域的 ctx.emit）。
+   * Inject the emitter; the mounter bridges domain events to ctx.emit in its own scope.
+   */
+  setEventEmitter(emit: DomainEventEmit): void {
+    this.emitEvent = emit
+  }
 
   /** 不可变替换一条并通知 / immutably replace one item and notify */
   private replace(next: TaskItem): void {

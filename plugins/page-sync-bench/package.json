@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/page-registry": "workspace:^",
     "@veren/prompt-core": "workspace:^",
     "@veren/prompt-host-messages": "workspace:^",
     "@veren/prompt-page": "workspace:^"

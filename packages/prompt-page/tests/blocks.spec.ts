@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Data, Keyed, PageEventBus, Static, buildPagePreset, definePage } from '../src/index.ts'
+import { Data, Keyed, Static, buildPagePreset, definePage } from '../src/index.ts'
 
 describe('TSX 块组件', () => {
   it('Static/Data/Keyed 产出宿主块元素', () => {
@@ -14,26 +14,22 @@ describe('TSX 块组件', () => {
   })
 })
 
-describe('PageEventBus', () => {
-  it('分发与取消订阅；处理器异常不断链', () => {
-    const bus = new PageEventBus()
-    const seen: string[] = []
-    const off = bus.on('task.completed', (payload, io) => {
-      seen.push(`a:${String((payload as { id: string }).id)}`)
-      io.append('已记录')
-    })
-    bus.on('task.completed', () => {
-      throw new Error('boom')
-    })
-    bus.on('task.completed', () => { seen.push('c') })
+describe('definePage.events（声明形状；事件系统归 cordis）', () => {
+  it('处理器拿 PageIO：append 可调用（接线由消费方 ctx.on 完成）', () => {
     const appended: string[] = []
-    bus.emit('task.completed', { id: 't-1' }, { append: (text) => appended.push(text), navigate: () => undefined })
-    expect(seen).toEqual(['a:t-1', 'c'])
-    expect(appended).toEqual(['已记录'])
-
-    off()
-    bus.emit('task.completed', { id: 't-2' }, { append: () => undefined, navigate: () => undefined })
-    expect(seen).toEqual(['a:t-1', 'c', 'c'])
+    const page = definePage({
+      name: 'p',
+      url: '/p',
+      description: 'x',
+      events: {
+        'task.completed': (payload, io) => { io.append(`${String((payload as { id: string }).id)} done`) },
+      },
+      tree: () => [],
+    })
+    const handler = page.events?.['task.completed']
+    expect(handler).toBeDefined()
+    handler?.({ id: 't-1' } as never, { append: (text) => appended.push(text), navigate: () => undefined })
+    expect(appended).toEqual(['t-1 done'])
   })
 })
 

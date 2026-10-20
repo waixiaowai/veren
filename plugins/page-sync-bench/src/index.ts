@@ -18,7 +18,9 @@ import z from '@deepseek-ai/schemastery'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
-import { PageRegistry, buildPagePreset, mountPage } from '@veren/prompt-page'
+import type {} from '@veren/page-registry'
+import { buildPagePreset, mountPage } from '@veren/prompt-page'
+import type { PageSession } from '@veren/prompt-page'
 import { renderSync } from '@veren/prompt-host-messages'
 import { detailPage, dispatchTaskTool, listPage, LIST_CHAT_TOOLS, publishPage } from './page.tsx'
 import { TaskStore, makeList } from './store.ts'
@@ -32,6 +34,24 @@ export const SOURCE = 'page-sync-bench'
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'page-sync-bench': { kind: 'page-sync-bench' }
+  }
+}
+
+/** 领域事件载荷（一次按钮迁移）/ payload of one task-center migration */
+export interface TaskCenterChanged {
+  type: 'task.taken' | 'task.completed' | 'task.abandoned'
+  id: string
+  ownerId?: string
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * 任务中心领域事件：按钮状态迁移后由 tools 行在会话作用域发出，
+     * 页面声明的 events 监听同一事件名（handler 拿 PageIO 改上下文/导航）。
+     * @mode emit
+     */
+    'task-center/changed'(payload: TaskCenterChanged): void
   }
 }
 
@@ -49,7 +69,7 @@ export const Config: z<Config> = z.object({
   page: z.string().default('task-list').description('context 角色挂载的页面名 / page name for the context role'),
 })
 
-export const inject = ['tools', 'agentPresets']
+export const inject = ['tools', 'agentPresets', 'pageRegistry']
 export const provide = []
 
 /** 渲染工具输出为模型内容 / render tool output as model content */
@@ -58,10 +78,7 @@ function renderValue(_args: unknown, value: unknown): ContentBlock[] {
 }
 
 /** 页面运行时（composition 作用域创建，context 作用域消费；同进程共享）*/
-const pageRuntime: {
-  store?: TaskStore
-  registry?: PageRegistry<TaskItem[]>
-} = {}
+const pageRuntime: { store?: TaskStore } = {}
 
 export const apply = async (ctx: Context, config: Config): Promise<void> => {
   if (config.role === 'tools') return applyTools(ctx)
@@ -69,13 +86,13 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   return applyComposition(ctx, config)
 }
 
-/** 顶层：注册表 + 动态注册三个页面 preset / top-level: registry + dynamic preset registration */
+/** 顶层：向注入的 PageRegistryService 注册页面 + 动态注册三个页面 preset */
 async function applyComposition(ctx: Context, config: Config): Promise<void> {
   const store = new TaskStore(makeList(config.listSize))
-  const registry = new PageRegistry<TaskItem[]>()
-  for (const page of [listPage, detailPage, publishPage]) registry.register(page)
+  const registry = ctx.pageRegistry
+  const pageDisposers = [listPage, detailPage, publishPage].map((page) => registry.register(page))
+  ctx.effect(() => () => { for (const dispose of pageDisposers.reverse()) dispose() }, 'page-sync-bench:pages')
   pageRuntime.store = store
-  pageRuntime.registry = registry
 
   const selfName = 'tool-page-sync-bench'
   for (const page of [listPage, detailPage, publishPage]) {
@@ -88,11 +105,56 @@ async function applyComposition(ctx: Context, config: Config): Promise<void> {
     ctx.effect(() => unregister, `page-preset:${page.name}`)
   }
   registerPageTools(ctx, store)
+
+  // 页面目录 + 打开页面：经注入的 PageRegistryService 解析 / catalog + open via the injected service
+  let activeSession: PageSession<TaskItem[]> | null = null
+  ctx.effect(() => {
+    const disposers: (() => void)[] = []
+    disposers.push(ctx.tools.register(defineTool({
+      name: 'page_catalog',
+      description: '列出全部已注册页面（name/url/description）。List every registered page.',
+      parameters: {},
+      output: { schema: { type: 'object', additionalProperties: true } as const, render: renderValue },
+      async execute() {
+        return {
+          pages: registry.catalog().map((entry) => ({ name: entry.name, url: entry.url, description: entry.description })),
+          active: activeSession?.page.name ?? '',
+        }
+      },
+      presentCall: () => ({ card: 'generic' as const, title: '页面目录', kind: 'read' as const }),
+    })))
+    disposers.push(ctx.tools.register(defineTool({
+      name: 'open_page',
+      description: '打开一个页面 URL（关闭当前页面会话，路径参数+query 注入指针）。'
+        + 'Open a page url (closes the active page-session; path params + query become the pointer).',
+      parameters: {
+        url: { type: 'string', required: true, description: '页面 URL，如 /task-detail/t-12?focus=chat' },
+      },
+      output: { schema: { type: 'object', additionalProperties: true } as const, render: renderValue },
+      async execute(args: Record<string, unknown>) {
+        const url = String(args.url)
+        const match = registry.resolve<TaskItem[]>(url)
+        if (match === null) return { ok: false, page: url, pointer: '' }
+        activeSession?.unsubscribe()
+        activeSession = mountPage<TaskItem[]>({ page: match.page, store, params: match.params })
+        return { ok: true, page: activeSession.page.name, pointer: activeSession.pointerMessage }
+      },
+      presentCall: () => ({ card: 'generic' as const, title: '打开页面', kind: 'other' as const }),
+    })))
+    return () => { for (const dispose of disposers.reverse()) dispose() }
+  }, 'page-sync-bench:pages-tools')
 }
 
-/** tools 子行：注册页面按钮 / tools row: register the page buttons */
+/** tools 子行：注册页面按钮 + 把领域事件接到会话作用域的 cordis 事件 */
 function applyTools(ctx: Context): void {
   const store = pageRuntime.store ?? new TaskStore(makeList(150))
+  store.setEventEmitter((event, payload) => {
+    // Events 声明合并的类型面在此处解析异常（运行时分发正确）——接缝处一次签名断言
+    ;(ctx.emit as (name: string, payload: TaskCenterChanged) => void)('task-center/changed', {
+      type: event,
+      ...payload,
+    } as TaskCenterChanged)
+  })
   registerPageTools(ctx, store)
 }
 
@@ -127,21 +189,24 @@ function registerPageTools(ctx: Context, store: TaskStore): void {
 /** context 子行（会话挂载激活）：bindStore + pre-step 注入增量 + 事件监听 */
 function applyContext(ctx: Context, config: Config): void {
   const store = pageRuntime.store
-  const registry = pageRuntime.registry
-  const page = registry?.get(config.page)
-  if (store === undefined || registry === undefined || page === undefined) {
+  const page = ctx.pageRegistry.get<TaskItem[]>(config.page)
+  if (store === undefined || page === undefined) {
     // misconfiguration fails loud：composition 角色必须先挂载
     throw new Error(`[page-sync-bench] context role requires composition mounted first (page: ${config.page})`)
   }
 
   const session = mountPage({ page, store })
-  const eventsDisposers = Object.entries(page.events ?? {}).map(([event, handler]) =>
-    store.events.on(event, (payload) => {
-      handler(payload, {
-        append: (text) => session.host.note(text),
-        navigate: (url) => session.host.note(`NAVIGATE ${url}`),
-      })
-    }))
+  const io = {
+    append: (text: string) => session.host.note(text),
+    navigate: (url: string) => session.host.note(`NAVIGATE ${url}`),
+  }
+  // 页面声明的事件监听接到 cordis 事件（ctx.emit 由 tools 行在本会话作用域发出）
+  const eventDisposers = Object.entries(page.events ?? {}).map(([event, handler]) => {
+    // 接缝断言：动态事件名 + 页面声明的处理器（cordis 事件面在此统一接入）
+    const register = ctx.on as unknown as (name: string, listener: (payload: TaskCenterChanged) => void) => () => void
+    return register(event, (payload) => { handler(payload as TaskCenterChanged, io) })
+  })
+  const eventDisposersRef = { current: eventDisposers }
 
   let delivered: number | undefined
   ctx.on('agent/pre-step', async ({ agent, signal }: { agent: Agent; signal: AbortSignal }, next: () => Promise<PreStepDecision>) => {
@@ -161,7 +226,7 @@ function applyContext(ctx: Context, config: Config): void {
   }, { prepend: true })
 
   ctx.effect(() => () => {
-    for (const dispose of eventsDisposers.reverse()) dispose()
+    for (const dispose of eventDisposersRef.current.reverse()) dispose()
     session.unsubscribe()
   }, 'page-sync-bench:context')
 }

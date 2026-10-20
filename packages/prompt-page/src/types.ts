@@ -18,16 +18,28 @@ export interface PagePresetSpec {
   readonly order?: number
 }
 
-/** 事件处理器形状 / event handler shape */
-export type PageEventHandler = (payload: unknown, io: import('./events.ts').PageIO) => void
+/**
+ * 事件处理器的 IO 面：改上下文（append）/ 导航（navigate）。
+ * 事件系统本身用宿主自带的 cordis 事件（ctx.emit / ctx.on，declaration merging），
+ * 本包不另造总线；这里只定义页面声明处理器时拿到的 IO 形状。
+ */
+export interface PageIO {
+  /** 改上下文：追加一条消息（host 结构化 append）/ append one note to the context */
+  append(text: string): void
+  /** 打开另一个页面（新会话 + 指针）/ open another page session */
+  navigate(url: string): void
+}
 
-/** 页面的事件监听声明形状 / event-listener map shape */
+/** 事件处理器形状 / event handler shape */
+export type PageEventHandler = (payload: never, io: PageIO) => void
+
+/** 页面的事件监听声明形状 / event-listener map shape（键名 = cordis 事件名）*/
 export type PageEventMap = Readonly<Record<string, PageEventHandler>>
 
 /**
  * 页面定义（瘦身后）：
  * - 静态面经 preset 字段动态声明（DSH preset 注册，参考 person-agent-preset），不用 yml
- * - events 声明页面级事件监听（按钮 → 事件 → 改上下文/导航）
+ * - events 声明页面级事件监听（键名 = cordis 事件名，处理器拿 PageIO 改上下文/导航）
  * - 本定义负责唯一 URL、描述、组件树、生命周期钩子
  */
 export interface PageDefinition<S> {
@@ -39,8 +51,8 @@ export interface PageDefinition<S> {
   readonly description: string
   /** 动态 preset 声明 / dynamic preset declaration */
   readonly preset?: PagePresetSpec
-  /** 事件监听：按钮/领域事件 → 改上下文或导航 / event listeners */
-  readonly events?: Readonly<Record<string, (payload: unknown, io: import('./events.ts').PageIO) => void>>
+  /** 事件监听：键名 = cordis 事件名（ctx.emit 触发）/ listeners keyed by cordis event name */
+  readonly events?: PageEventMap
   /** 组件树：params = 路径参数+query，state = 权威 store 状态 / component tree */
   readonly tree: (params: PageParams, state: S) => import('@veren/prompt-core').ElementInput
   /** 生命周期：挂载后调用（预留：首帧上下文装载）/ called after mount */
