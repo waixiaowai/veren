@@ -1,0 +1,30 @@
+{
+  "name": "@veren/app-host-verify",
+  "description": "Use only in an isolated DSH test profile to verify the app-host assembly against the real host: this probe plugin runs the six phase-2 checks (services resolve, agent/created payload shape, agent-scoped tool visibility across two real sessions, reopen-reuses-session, task notice lands in a real session log) and writes a JSON verdict; never install it in a product profile.",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {},
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.0",
+    "@veren/app-registry": "workspace:^",
+    "@veren/page-registry": "workspace:^",
+    "@veren/task-center": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@veren/app-registry": "workspace:^",
+    "@veren/page-registry": "workspace:^",
+    "@veren/task-center": "workspace:^",
+    "typescript": "^5.6.0"
+  },
+  "license": "MIT"
+}
