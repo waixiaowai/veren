@@ -156,12 +156,21 @@ export function registerImTools(ctx: Context, router: ImRouter): void {
       })),
       ctx.tools.register(defineTool({
         name: 'im_send',
-        description: 'Send one content block to an explicit IM target. Name either bindingId or '
-          + 'accountId + conversationId; there is no implicit current conversation. Text is segmented '
-          + 'by the provider limit; unsupported media fails with IM_UNSUPPORTED.',
+        description: 'Send one content block. Name exactly one target: person (id, exact nickname, real '
+          + 'name, remark, or contact), bindingId, or accountId + conversationId. There is no implicit '
+          + 'current conversation. With person, accountId/provider only narrow the address. The router '
+          + 'sends only an exact, unique match; on IM_AMBIGUOUS or IM_NOT_FOUND it does NOT send. In that '
+          + 'case show the candidates/suggestions and ask the user instead of guessing. A successful send '
+          + 'returns recipient evidence (matchedBy/matchedValue) to show the user. Text is segmented by '
+          + 'the provider limit; unsupported media fails with IM_UNSUPPORTED.',
         parameters: {
+          person: {
+            type: 'string',
+            description: 'Recipient person: id, exact nickname, real name, alias/remark, contact, or address.',
+          },
+          provider: { type: 'string', description: 'With person: only this provider, for example wechat.' },
           bindingId: { type: 'string', description: 'Target binding.' },
-          accountId: { type: 'string', description: 'Explicit target account.' },
+          accountId: { type: 'string', description: 'Explicit target account, or a person address filter.' },
           conversationId: { type: 'string', description: 'Explicit target conversation.' },
           text: { type: 'string', description: 'Text to send.' },
           files: {
@@ -184,12 +193,38 @@ export function registerImTools(ctx: Context, router: ImRouter): void {
             const content = args.text !== undefined
               ? { type: 'text' as const, text: args.text }
               : await fileContentOf(requireString(files[0], 'files[0]'))
+            const reply = args.replyTo === undefined ? {} : { replyToMessageId: args.replyTo }
+            if (args.person !== undefined) {
+              if (args.bindingId !== undefined || args.conversationId !== undefined) {
+                throw new ImError(
+                  'IM_INVALID_REQUEST',
+                  'person cannot be combined with bindingId or conversationId; use accountId/provider to narrow it',
+                )
+              }
+              const sent = await router.sendToPerson({
+                person: requireString(args.person, 'person'),
+                ...(args.provider === undefined ? {} : { provider: args.provider }),
+                ...(args.accountId === undefined ? {} : { accountId: args.accountId }),
+                content,
+                ...reply,
+              })
+              return ok({
+                delivered: true,
+                messageId: sent.result.id,
+                sentAt: sent.result.sentAt,
+                ...(sent.result.uncertain === undefined ? {} : { uncertain: sent.result.uncertain }),
+                recipient: sent.recipient,
+              })
+            }
+            if (args.provider !== undefined) {
+              throw new ImError('IM_INVALID_REQUEST', 'provider is only valid together with person')
+            }
             const result = await router.send({
               ...(args.bindingId === undefined ? {} : { bindingId: args.bindingId }),
               ...(args.accountId === undefined ? {} : { accountId: args.accountId }),
               ...(args.conversationId === undefined ? {} : { conversationId: args.conversationId }),
               content,
-              ...(args.replyTo === undefined ? {} : { replyToMessageId: args.replyTo }),
+              ...reply,
             })
             return ok({
               messageId: result.id,

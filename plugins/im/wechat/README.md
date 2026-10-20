@@ -59,6 +59,23 @@ Supported statuses: `wait`, `scaned`, `need_verifycode`, `confirmed`, `expired`,
 - Outbound text is split at 1,800 UTF-16 code units without cutting a surrogate
   pair.
 
+## People and contacts
+
+iLink V1 exposes no address-book endpoint. This provider calls only
+`get_bot_qrcode`, `get_qrcode_status`, `getupdates`, `sendmessage`,
+`notifystart`, and `notifystop`; there is no friend-list or contact-detail API,
+so it cannot pull the WeChat contacts list. Inbound messages carry only
+`from_user_id` plus content, with no nickname.
+
+Consequence: the `@veren/im` people directory fills from messages actually
+received and from direct conversations already in storage. Such a person starts
+with the raw WeChat id as their display name and as a `wechat` contact. Real
+names, remarks, and other contact methods must be recorded with
+`im_person_save`. Only then can a request such as "send a WeChat message to
+杨明明" resolve to an address. The directory is therefore a growing list of
+people we have seen or recorded, never a complete copy of the WeChat address
+book.
+
 ## Sending errors
 
 | Condition | Result |

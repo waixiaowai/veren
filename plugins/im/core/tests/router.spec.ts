@@ -11,6 +11,7 @@ import type {
   ImService,
 } from '../src/contract.ts'
 import { ImRegistry } from '../src/contract.ts'
+import { ImPeople } from '../src/people.ts'
 import { ImRouter } from '../src/router.ts'
 import type { ImCredentialStore, ImLogger, ImSessionGateway } from '../src/router.ts'
 import { MemoryStore } from './memory-store.ts'
@@ -127,16 +128,19 @@ function setup(options: { autoCreateSession?: boolean; gateway?: TestGateway; re
     registry.register({ id: 'fake', displayName: 'Fake', features: FEATURES, service })
   }
   let counter = 0
+  const newId = (prefix: string): string => `${prefix}-${++counter}`
+  const people = new ImPeople({ store, logger, newId })
   router = new ImRouter({
     store,
     registry,
     gateway,
     credentials,
+    people,
     logger,
     config: { autoCreateSession: options.autoCreateSession ?? false },
-    newId: prefix => `${prefix}-${++counter}`,
+    newId,
   })
-  return { ctx, store, service: service as TestService, gateway, removed, registry, router }
+  return { ctx, store, people, service: service as TestService, gateway, removed, registry, router }
 }
 
 async function seedAccount(store: MemoryStore): Promise<void> {
@@ -291,5 +295,157 @@ describe('ImRouter', () => {
   it('reports IM_NOT_FOUND when no provider is registered', () => {
     const { router } = setup({ registerProvider: false })
     expect(() => router.resolveProvider()).toThrowError(expect.objectContaining({ code: 'IM_NOT_FOUND' }))
+  })
+
+  it('sends to a person and reports exactly who matched', async () => {
+    const { router, store, people, service } = setup()
+    await seedAccount(store)
+    await people.save({
+      address: { provider: 'fake', accountId: 'acc', conversationId: 'p2p:u1', externalId: 'u1' },
+      displayName: '明明',
+      realName: '杨明明',
+      aliases: ['杨总'],
+    })
+    const sent = await router.sendToPerson({
+      person: '杨总',
+      content: { type: 'text', text: '在吗' },
+    })
+    expect(service.sent).toHaveLength(1)
+    expect(service.sent[0]?.target).toEqual({ accountId: 'acc', conversationId: 'p2p:u1' })
+    expect(sent.recipient).toMatchObject({
+      displayName: '明明',
+      matchedBy: 'alias',
+      matchedValue: '杨总',
+      accountId: 'acc',
+      conversationId: 'p2p:u1',
+    })
+  })
+
+  it('refuses two people with the same name and sends nothing', async () => {
+    const { router, store, people, service } = setup()
+    await seedAccount(store)
+    await people.save({
+      address: { provider: 'fake', accountId: 'acc', conversationId: 'p2p:u1', externalId: 'u1' },
+      displayName: '杨明明',
+    })
+    await people.save({
+      address: { provider: 'fake', accountId: 'acc', conversationId: 'p2p:u2', externalId: 'u2' },
+      displayName: '杨明明',
+    })
+    await expect(router.sendToPerson({
+      person: '杨明明',
+      content: { type: 'text', text: '在吗' },
+    })).rejects.toMatchObject({
+      code: 'IM_AMBIGUOUS',
+      details: { query: '杨明明', status: 'ambiguous' },
+    })
+    expect(service.sent).toHaveLength(0)
+  })
+
+  it('reports not-found with suggestions and sends nothing', async () => {
+    const { router, store, people, service } = setup()
+    await seedAccount(store)
+    await people.save({
+      address: { provider: 'fake', accountId: 'acc', conversationId: 'p2p:u1', externalId: 'u1' },
+      displayName: '杨明明',
+    })
+    await expect(router.sendToPerson({
+      person: '杨明',
+      content: { type: 'text', text: '在吗' },
+    })).rejects.toMatchObject({
+      code: 'IM_NOT_FOUND',
+      details: { query: '杨明', status: 'not-found' },
+    })
+    expect(service.sent).toHaveLength(0)
+  })
+
+  it('refuses a person with more than one reachable address', async () => {
+    const { router, store, people, service } = setup()
+    await seedAccount(store)
+    const person = await people.save({
+      address: { provider: 'fake', accountId: 'acc', conversationId: 'p2p:u1', externalId: 'u1' },
+      displayName: '杨明明',
+    })
+    await people.save({
+      personId: person.id,
+      address: { provider: 'fake', accountId: 'acc', conversationId: 'p2p:u2', externalId: 'u2' },
+    })
+    await expect(router.sendToPerson({
+      person: '杨明明',
+      content: { type: 'text', text: '在吗' },
+    })).rejects.toMatchObject({ code: 'IM_AMBIGUOUS', details: { reason: 'address' } })
+    expect(service.sent).toHaveLength(0)
+  })
+
+  it('reports IM_NO_ADDRESS instead of guessing another account', async () => {
+    const { router, store, people, service } = setup()
+    await seedAccount(store)
+    await store.putAccount({ id: 'acc-2', provider: 'fake', token_ref: 'im/y' })
+    await people.save({
+      address: { provider: 'fake', accountId: 'acc', conversationId: 'p2p:u1', externalId: 'u1' },
+      displayName: '杨明明',
+    })
+    await expect(router.sendToPerson({
+      person: '杨明明',
+      accountId: 'acc-2',
+      content: { type: 'text', text: '在吗' },
+    })).rejects.toMatchObject({ code: 'IM_NO_ADDRESS' })
+    expect(service.sent).toHaveLength(0)
+  })
+
+  it('pins an address query and never redirects it to another address', async () => {
+    const { router, store, people, service } = setup()
+    await seedAccount(store)
+    await store.putAccount({ id: 'acc-2', provider: 'fake', token_ref: 'im/y' })
+    const person = await people.save({
+      address: { provider: 'fake', accountId: 'acc', conversationId: 'p2p:u1', externalId: 'u1' },
+      displayName: '杨明明',
+    })
+    await people.save({
+      personId: person.id,
+      address: { provider: 'fake', accountId: 'acc-2', conversationId: 'p2p:u2', externalId: 'u2' },
+    })
+    await expect(router.sendToPerson({
+      person: 'p2p:u1',
+      accountId: 'acc-2',
+      content: { type: 'text', text: '在吗' },
+    })).rejects.toMatchObject({ code: 'IM_NO_ADDRESS' })
+    expect(service.sent).toHaveLength(0)
+  })
+
+  it('registers an inbound sender in the directory before routing', async () => {
+    const { router, store, people } = setup()
+    await seedAccount(store)
+    await router.handle('fake', message('m1'))
+    const listed = people.list()
+    expect(listed).toHaveLength(1)
+    expect(listed[0]?.displayName).toBe('u1')
+    expect(listed[0]?.addresses).toEqual([{
+      provider: 'fake',
+      accountId: 'acc',
+      conversationId: 'p2p:u1',
+      externalId: 'u1',
+    }])
+  })
+
+  it('shows the known sender name in the routed prompt', async () => {
+    const { router, store, gateway, people } = setup()
+    await seedAccount(store)
+    await router.link({ accountId: 'acc', conversationId: 'p2p:u1', sessionId: 's1', active: true })
+    const person = people.list()[0]
+    expect(person).toBeDefined()
+    await people.save({ personId: person!.id, displayName: '杨明明' })
+    await router.handle('fake', message('m1'))
+    expect(gateway.asks[0]?.prompt).toContain('sender: 杨明明 (u1)')
+  })
+
+  it('keeps person profiles but drops addresses when an account is removed', async () => {
+    const { router, store, people } = setup()
+    await seedAccount(store)
+    await router.link({ accountId: 'acc', conversationId: 'p2p:u1', sessionId: 's1' })
+    expect(people.list()[0]?.addresses).toHaveLength(1)
+    await router.unbindAccount('acc')
+    expect(people.list()).toHaveLength(1)
+    expect(people.list()[0]?.addresses).toHaveLength(0)
   })
 })

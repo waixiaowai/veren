@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { ImRegistry, ImRouter } from '@veren/im'
+import { ImPeople, ImRegistry, ImRouter } from '@veren/im'
 import { createFakeProvider } from '../../testkit/src/index.ts'
 import { registerImTools } from '../src/tools.ts'
 import { TestStore } from './test-store.ts'
@@ -28,6 +28,8 @@ function setup() {
   const fake = createFakeProvider({ id: 'fake' })
   const registry = new ImRegistry(ctx, () => {})
   registry.register(fake.provider)
+  const logger = { warn() {}, error() {} }
+  const people = new ImPeople({ store, logger })
   const router = new ImRouter({
     store,
     registry,
@@ -36,7 +38,8 @@ function setup() {
       async ask() { return undefined },
     },
     credentials: { async remove() {} },
-    logger: { warn() {}, error() {} },
+    people,
+    logger,
     config: { autoCreateSession: false },
   })
   const tools = new ToolTable()

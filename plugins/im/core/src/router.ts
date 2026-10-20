@@ -12,11 +12,23 @@ import type {
   ImBindRequest,
   ImMessage,
   ImMessageContent,
+  ImPersonContact,
   ImProvider,
   ImRegistry,
   ImSendResult,
 } from './contract.ts'
 import { ImBindings } from './bindings.ts'
+import type { ImPeople } from './people.ts'
+import type {
+  ImPersonAddressFilter,
+  ImPersonAddressView,
+  ImPersonMatch,
+  ImPersonMatchField,
+  ImPersonQuery,
+  ImPersonResolution,
+  ImPersonSaveRequest,
+  ImPersonView,
+} from './people.ts'
 import type {
   ImBindingsOptions,
   ImBindPollResult,
@@ -52,7 +64,56 @@ export interface ImRouterConfig {
 /** Router construction options. */
 export interface ImRouterOptions extends ImBindingsOptions {
   credentials: ImCredentialStore
+  /** Durable, provider-neutral people directory. */
+  people: ImPeople
   config: ImRouterConfig
+}
+
+/** One person-targeted send request; the target is a person, not an address. */
+export interface ImPersonSendRequest {
+  /** Person id, or any exact name, alias, contact, or address. */
+  person: string
+  /** Restrict reachable addresses to one provider, for example `wechat`. */
+  provider?: string
+  /** Restrict reachable addresses to one account. */
+  accountId?: string
+  content: ImMessageContent
+  replyToMessageId?: string
+}
+
+/** The exact recipient a person-targeted send resolved to. */
+export interface ImPersonRecipient {
+  personId: string
+  displayName: string
+  matchedBy: ImPersonMatchField
+  matchedValue: string
+  provider: string
+  accountId: string
+  conversationId: string
+}
+
+/** One person-targeted send result, including the evidence shown to the user. */
+export interface ImPersonSendResult {
+  result: ImSendResult
+  recipient: ImPersonRecipient
+}
+
+/** One directory write; the account's provider fills in a missing provider. */
+export interface ImPersonSaveInput {
+  personId?: string
+  address?: {
+    accountId: string
+    conversationId: string
+    provider?: string
+    externalId?: string
+    displayName?: string
+  }
+  displayName?: string
+  realName?: string
+  aliases?: string[]
+  contacts?: ImPersonContact[]
+  bio?: string
+  notes?: string
 }
 /** Router service token, consumed by @veren/im-tool. */
 export const ImRouterToken = defineToken<ImRouter>('imRouter')
@@ -63,15 +124,17 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 /** Turn renderer: source section first, message body second. */
-function renderPrompt(providerId: string, message: ImMessage): string {
-  const sender = message.sender.name ?? message.sender.id
+function renderPrompt(providerId: string, message: ImMessage, knownName?: string): string {
+  const sender = knownName === undefined || knownName === message.sender.id
+    ? message.sender.name ?? message.sender.id
+    : `${knownName} (${message.sender.id})`
   return [
     '[Source]',
     `provider: ${providerId}`,
     `account: ${message.accountId}`,
     `conversation: ${message.conversationId}`,
     `sender: ${sender}`,
-    `time: ${new Date(message.sentAt).toISOString()}`,
+    `time: new Date(message.sentAt).toISOString()`,
     '',
     '[Message]',
     contentToPrompt(message.content),
@@ -113,6 +176,12 @@ function degradeContent(features: ImProvider['features'], content: ImMessageCont
       return content
   }
 }
+/** Whether one resolved address still satisfies the caller's provider/account filter. */
+function addressAccepted(address: ImPersonAddressView, filter: ImPersonAddressFilter): boolean {
+  return (filter.provider === undefined || address.provider === filter.provider)
+    && (filter.accountId === undefined || address.accountId === filter.accountId)
+}
+
 /** Route inbound messages and expose the binding/tool operations. */
 export class ImRouter {
   private readonly registry: ImRegistry
@@ -121,9 +190,10 @@ export class ImRouter {
   private readonly logger: ImLogger
   private readonly config: ImRouterConfig
   private readonly bindings: ImBindings
+  private readonly people: ImPeople
   private readonly conversationChains = new Map<string, Promise<unknown>>()
   /**
-   * @param options - storage, registry, session gateway, credentials, and config.
+   * @param options - storage, registry, session gateway, credentials, people, and config.
    */
   constructor(options: ImRouterOptions) {
     this.registry = options.registry
@@ -131,6 +201,7 @@ export class ImRouter {
     this.credentials = options.credentials
     this.logger = options.logger
     this.config = options.config
+    this.people = options.people
     this.bindings = new ImBindings(options)
   }
   /** One registered provider, by id. */
@@ -157,8 +228,119 @@ export class ImRouter {
     return this.bindings.pollBind(bindId)
   }
   /** Bind or re-bind one conversation to one Session. */
-  link(request: ImLinkRequest): Promise<ImBinding> {
-    return this.bindings.link(request)
+  async link(request: ImLinkRequest): Promise<ImBinding> {
+    const binding = await this.bindings.link(request)
+    await this.observePerson(binding.accountId, binding.conversationId)
+    return binding
+  }
+  /** List or search the people directory; never sends. */
+  listPeople(request: ImPersonQuery = {}): ImPersonView[] {
+    return this.people.list(request)
+  }
+  /** Resolve one name without sending; exposes ambiguity to the caller. */
+  resolvePerson(query: string, filter: ImPersonAddressFilter = {}): ImPersonResolution {
+    return this.people.resolve(query, filter)
+  }
+  /** Create or enrich one person. An unknown account fails loudly. */
+  async savePerson(request: ImPersonSaveInput): Promise<ImPersonView> {
+    const base: ImPersonSaveRequest = {
+      ...(request.personId === undefined ? {} : { personId: request.personId }),
+      ...(request.displayName === undefined ? {} : { displayName: request.displayName }),
+      ...(request.realName === undefined ? {} : { realName: request.realName }),
+      ...(request.aliases === undefined ? {} : { aliases: request.aliases }),
+      ...(request.contacts === undefined ? {} : { contacts: request.contacts }),
+      ...(request.bio === undefined ? {} : { bio: request.bio }),
+      ...(request.notes === undefined ? {} : { notes: request.notes }),
+    }
+    const address = request.address
+    if (address === undefined) return this.people.save(base)
+    const account = this.bindings.account(address.accountId)
+    if (account === undefined) throw new ImError('IM_NOT_FOUND', `unknown account: ${address.accountId}`)
+    const provider = address.provider ?? account.provider
+    if (provider !== account.provider) {
+      throw new ImError(
+        'IM_INVALID_REQUEST',
+        `account ${address.accountId} belongs to ${account.provider}, not ${provider}`,
+      )
+    }
+    return this.people.save({
+      ...base,
+      address: {
+        provider,
+        accountId: address.accountId,
+        conversationId: address.conversationId,
+        ...(address.externalId === undefined ? {} : { externalId: address.externalId }),
+        ...(address.displayName === undefined ? {} : { displayName: address.displayName }),
+      },
+    })
+  }
+  /**
+   * Send to a person, resolving the name first. Exactly one person and one
+   * address are required; every other outcome refuses before any provider call.
+   * 按人发送，先解析名字。必须恰好一个人、一个地址；其他结果都在调用 provider 前拒绝。
+   */
+  async sendToPerson(request: ImPersonSendRequest): Promise<ImPersonSendResult> {
+    const filter: ImPersonAddressFilter = {
+      ...(request.provider === undefined ? {} : { provider: request.provider }),
+      ...(request.accountId === undefined ? {} : { accountId: request.accountId }),
+    }
+    if (request.provider !== undefined) this.registry.get(request.provider)
+    if (request.accountId !== undefined) {
+      const account = this.bindings.account(request.accountId)
+      if (account === undefined) throw new ImError('IM_NOT_FOUND', `unknown account: ${request.accountId}`)
+      if (request.provider !== undefined && account.provider !== request.provider) {
+        throw new ImError(
+          'IM_INVALID_REQUEST',
+          `account ${request.accountId} belongs to ${account.provider}, not ${request.provider}`,
+        )
+      }
+    }
+    const match = this.matchOf(request.person, this.people.resolve(request.person, filter))
+    // A query that named an address is pinned to that address. If the caller's
+    // filter excludes it, refuse instead of silently sending to another address.
+    // 查询点名了某个地址时就锁定该地址。若调用方的过滤条件排除了它，直接拒绝，绝不改发另一个地址。
+    const addresses = match.address === undefined
+      ? this.people.addressesOf(match.person.id, filter)
+      : addressAccepted(match.address, filter) ? [match.address] : []
+    if (addresses.length === 0) {
+      throw new ImError('IM_NO_ADDRESS', `no reachable address for ${match.person.displayName}`, {
+        details: {
+          query: request.person,
+          person: match.person,
+          ...(request.provider === undefined ? {} : { provider: request.provider }),
+          ...(request.accountId === undefined ? {} : { accountId: request.accountId }),
+        },
+      })
+    }
+    if (addresses.length > 1) {
+      throw new ImError('IM_AMBIGUOUS', `${match.person.displayName} has more than one reachable address`, {
+        details: {
+          query: request.person,
+          reason: 'address',
+          person: match.person,
+          addresses,
+        },
+      })
+    }
+    const address = addresses[0]!
+    const result = await this.send({
+      accountId: address.accountId,
+      conversationId: address.conversationId,
+      content: request.content,
+      ...(request.replyToMessageId === undefined ? {} : { replyToMessageId: request.replyToMessageId }),
+    })
+    return {
+      result,
+      recipient: {
+        personId: match.person.id,
+        displayName: match.person.displayName,
+        matchedBy: match.matchedBy,
+        matchedValue: match.matchedValue,
+        provider: address.provider,
+        accountId: address.accountId,
+        conversationId: address.conversationId,
+      },
+    }
   }
   /** Remove one conversation binding. */
   unbindBinding(bindingId: string): Promise<void> {
@@ -193,6 +375,7 @@ export class ImRouter {
       }
       await this.credentials.remove(accountId)
       await this.bindings.removeAccountRows(accountId)
+      await this.clearPersonAddresses(accountId)
       try {
         await provider.service.start()
       } catch (error: unknown) {
@@ -202,6 +385,7 @@ export class ImRouter {
     }
     await this.credentials.remove(accountId)
     await this.bindings.removeAccountRows(accountId)
+    await this.clearPersonAddresses(accountId)
     return { removed: true, revoked: false, ...(warning === undefined ? {} : { warning }) }
   }
   /** Replace fields of one binding's settings. */
@@ -232,7 +416,19 @@ export class ImRouter {
    */
   handle(providerId: string, message: ImMessage): Promise<void> {
     const key = `${providerId}\u0000${message.accountId}\u0000${message.conversationId}`
-    return this.serialize(key, () => this.route(providerId, message))
+    return this.serialize(key, async () => {
+      // Directory bookkeeping must never drop a message: a storage failure is
+      // reported, then routing proceeds.
+      // 目录记账绝不能丢消息：存储失败只记日志，路由继续。
+      try {
+        await this.people.observeMessage(providerId, message)
+      } catch (error: unknown) {
+        this.logger.error(
+          `[im:${providerId}] inbound sender could not be recorded in the people directory: ${errorMessage(error)}`,
+        )
+      }
+      return this.route(providerId, message)
+    })
   }
   /** Resolve a send target from the exactly-one target form. */
   private targetOf(request: ImRouterSendRequest): { accountId: string; conversationId: string } {
@@ -271,7 +467,7 @@ export class ImRouter {
       }
       const answer = await this.gateway.ask({
         sessionId: binding.sessionId,
-        prompt: renderPrompt(providerId, message),
+        prompt: renderPrompt(providerId, message, this.knownSenderName(providerId, message)),
         source: {
           providerId,
           accountId: message.accountId,
@@ -288,6 +484,51 @@ export class ImRouter {
       })
     } catch (error: unknown) {
       this.logger.error(`[im:${providerId}] inbound handling failed: ${errorMessage(error)}`)
+    }
+  }
+  /** Turn a resolution into one match or a refusal carrying its evidence. */
+  private matchOf(query: string, resolution: ImPersonResolution): ImPersonMatch {
+    if (resolution.status === 'matched') return resolution.match
+    if (resolution.status === 'ambiguous') {
+      throw new ImError('IM_AMBIGUOUS', `more than one person matches "${query}"`, {
+        details: { query, status: 'ambiguous', candidates: resolution.candidates },
+      })
+    }
+    throw new ImError('IM_NOT_FOUND', `no person matches "${query}"`, {
+      details: { query, status: 'not-found', suggestions: resolution.suggestions },
+    })
+  }
+  /** Record one conversation's address under its account's provider. */
+  private async observePerson(accountId: string, conversationId: string): Promise<void> {
+    const account = this.bindings.account(accountId)
+    if (account === undefined) return
+    try {
+      await this.people.observeConversation({
+        provider: account.provider,
+        accountId,
+        conversationId,
+      })
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[im:people] ${accountId}/${conversationId} could not be recorded: ${errorMessage(error)}`,
+      )
+    }
+  }
+  /** Remove one account's addresses; profiles and names stay for a later rebind. */
+  private async clearPersonAddresses(accountId: string): Promise<void> {
+    try {
+      await this.people.removeAddressesOf(accountId)
+    } catch (error: unknown) {
+      this.logger.warn(`[im:people] addresses of ${accountId} were not removed: ${errorMessage(error)}`)
+    }
+  }
+  /** The known display name of one conversation's sender, when the directory has it. */
+  private knownSenderName(providerId: string, message: ImMessage): string | undefined {
+    try {
+      return this.people.viewAt(providerId, message.accountId, message.conversationId)?.displayName
+    } catch (error: unknown) {
+      this.logger.warn(`[im:people] sender lookup failed: ${errorMessage(error)}`)
+      return undefined
     }
   }
   /** Serialize one conversation's inbound processing. */

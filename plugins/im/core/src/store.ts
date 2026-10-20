@@ -1,12 +1,13 @@
 /**
- * Durable IM tables: accounts, conversations, and bindings.
+ * Durable IM tables: accounts, conversations, bindings, people, and person
+ * addresses.
  *
  * The store deliberately persists no online status and no creation time. Online
  * status is a live provider fact; creation time is not part of the V1 contract.
  * The active-pointer invariant is enforced by the router inside one serialized
  * write, because the KV domain has no partial unique index.
  *
- * 持久化的 IM 表：账号、会话与绑定。
+ * 持久化的 IM 表：账号、会话、绑定、人员与人员地址。
  *
  * 存储刻意不持久化在线状态与创建时间：在线状态是 provider 的现场事实，创建时间不属于 V1 契约。
  * active 指针不变量由路由层在同一个串行写事务里维护，因为 KV 域没有部分唯一索引。
@@ -19,7 +20,7 @@ import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import { ImError } from './contract.ts'
-import type { ImBinding, ImBindingSettings, ImConversation } from './contract.ts'
+import type { ImBinding, ImBindingSettings, ImConversation, ImPersonContact } from './contract.ts'
 
 /** One `im_accounts` row. `status` is intentionally absent. */
 export interface ImAccountRow {
@@ -47,6 +48,41 @@ export interface ImBindingRow {
   settings_json: string
 }
 
+/**
+ * One `im_people` row: a human the directory knows, independent of any one
+ * provider. Names and contacts are identity data; reachability lives in
+ * `im_person_addresses`.
+ * 一行 `im_people`：目录认识的人，独立于单一 provider。姓名与联系方式属于身份数据；
+ * 可达性放在 `im_person_addresses`。
+ */
+export interface ImPersonRow {
+  id: string
+  display_name: string
+  real_name?: string
+  aliases: string[]
+  contacts: ImPersonContact[]
+  bio?: string
+  notes?: string
+  updated_at: number
+}
+
+/**
+ * One `im_person_addresses` row: a provider-scoped address that can receive a
+ * message for one person. `external_id` is the provider's own user id; the
+ * conversation id is kept because sending ultimately targets a conversation.
+ * 一行 `im_person_addresses`：某人在某个 provider 上可收消息的地址。`external_id` 是
+ * provider 自己的用户 id；保留 conversation id，因为发送最终以会话为目标。
+ */
+export interface ImPersonAddressRow {
+  person_id: string
+  provider: string
+  account_id: string
+  conversation_id: string
+  external_id: string
+  display_name?: string
+  updated_at: number
+}
+
 const accountSchema = z.object({
   id: z.string().min(1),
   provider: z.string().min(1),
@@ -70,6 +106,33 @@ const bindingSchema = z.object({
   settings_json: z.string(),
 })
 
+const contactSchema = z.object({
+  kind: z.enum(['wechat', 'email', 'phone', 'other']),
+  value: z.string().min(1),
+  label: z.string().optional(),
+})
+
+const personSchema = z.object({
+  id: z.string().min(1),
+  display_name: z.string().min(1),
+  real_name: z.string().optional(),
+  aliases: z.array(z.string()),
+  contacts: z.array(contactSchema),
+  bio: z.string().optional(),
+  notes: z.string().optional(),
+  updated_at: z.number(),
+})
+
+const personAddressSchema = z.object({
+  person_id: z.string().min(1),
+  provider: z.string().min(1),
+  account_id: z.string().min(1),
+  conversation_id: z.string().min(1),
+  external_id: z.string().min(1),
+  display_name: z.string().optional(),
+  updated_at: z.number(),
+})
+
 /** Authoritative IM storage domain. */
 export const imDomain = defineDomain({
   name: 'im',
@@ -78,6 +141,8 @@ export const imDomain = defineDomain({
     accounts: domainTable<string, ImAccountRow>(accountSchema),
     conversations: domainTable<string, ImConversationRow>(conversationSchema),
     bindings: domainTable<string, ImBindingRow>(bindingSchema),
+    people: domainTable<string, ImPersonRow>(personSchema),
+    person_addresses: domainTable<string, ImPersonAddressRow>(personAddressSchema),
   },
 })
 
@@ -106,9 +171,36 @@ export interface ImBindingStore {
   activeBinding(accountId: string, conversationId: string): ImBinding | undefined
 }
 
+/**
+ * Storage seam for the people directory. Kept separate from
+ * {@link ImBindingStore} so binding tests do not implement people persistence.
+ * 人员目录的存储缝隙。与 {@link ImBindingStore} 分开，绑定测试无需实现人员持久化。
+ */
+export interface ImPersonStore {
+  getPerson(id: string): ImPersonRow | undefined
+  people(): ImPersonRow[]
+  putPerson(row: ImPersonRow): Promise<void>
+  /** One address, looked up by the provider's own user id. */
+  getPersonAddress(provider: string, accountId: string, externalId: string): ImPersonAddressRow | undefined
+  personAddresses(): ImPersonAddressRow[]
+  putPersonAddress(row: ImPersonAddressRow): Promise<void>
+  /** Drop every address of one removed account; person profiles stay. */
+  deletePersonAddressesOf(accountId: string): Promise<void>
+}
+
 /** Stable key for one conversation row. */
 export function conversationKey(accountId: string, conversationId: string): string {
   return `${accountId}\u0000${conversationId}`
+}
+
+/**
+ * Stable key for one person address. A provider user id is unique per account,
+ * so the same sender observed twice updates one row instead of cloning a person.
+ * 人员地址的稳定键。provider 用户 id 在账号内唯一，因此同一个发送者被观察两次是更新一行，
+ * 而不是克隆出第二个人。
+ */
+export function personAddressKey(provider: string, accountId: string, externalId: string): string {
+  return `${provider}\u0000${accountId}\u0000${externalId}`
 }
 
 /**
@@ -224,6 +316,40 @@ export class ImStorage implements ImBindingStore {
     }
   }
 
+  getPerson(id: string): ImPersonRow | undefined {
+    return this.table('people').get(id)
+  }
+
+  people(): ImPersonRow[] {
+    return [...this.table('people').entries()].map(([, row]) => row)
+  }
+
+  async putPerson(row: ImPersonRow): Promise<void> {
+    await this.table('people').put(row.id, row)
+  }
+
+  getPersonAddress(provider: string, accountId: string, externalId: string): ImPersonAddressRow | undefined {
+    return this.table('person_addresses').get(personAddressKey(provider, accountId, externalId))
+  }
+
+  personAddresses(): ImPersonAddressRow[] {
+    return [...this.table('person_addresses').entries()].map(([, row]) => row)
+  }
+
+  async putPersonAddress(row: ImPersonAddressRow): Promise<void> {
+    await this.table('person_addresses').put(
+      personAddressKey(row.provider, row.account_id, row.external_id),
+      row,
+    )
+  }
+
+  async deletePersonAddressesOf(accountId: string): Promise<void> {
+    const table = this.table('person_addresses')
+    for (const [key, row] of [...table.entries()]) {
+      if (row.account_id === accountId) await table.delete(key)
+    }
+  }
+
   getBinding(id: string): ImBinding | undefined {
     const row = this.table('bindings').get(id)
     return row === undefined ? undefined : toBinding(row)
@@ -257,7 +383,7 @@ export class ImStorage implements ImBindingStore {
   }
 
   /** Resolve the open domain or fail loudly. */
-  private table<K extends 'accounts' | 'conversations' | 'bindings'>(name: K) {
+  private table<K extends 'accounts' | 'conversations' | 'bindings' | 'people' | 'person_addresses'>(name: K) {
     const domain = this.domain
     if (domain === undefined) {
       throw new ImError('IM_INTERNAL', 'IM storage is not open')

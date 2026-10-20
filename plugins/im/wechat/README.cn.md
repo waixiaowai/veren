@@ -51,6 +51,17 @@ export const Config = {
   它不记录日志，也不由工具返回。
 - 出站文字按 1,800 UTF-16 码元分段，且不切断代理对。
 
+## 人与通讯录
+
+iLink V1 没有通讯录接口。本 provider 只调用 `get_bot_qrcode`、`get_qrcode_status`、`getupdates`、
+`sendmessage`、`notifystart`、`notifystop`；没有好友列表或联系人详情接口，因此拉不到微信通讯录。
+入站消息只带 `from_user_id` 与内容，没有昵称。
+
+后果：`@veren/im` 的人员目录只能从实际收到的消息和已存储的私聊会话里累积。这样进来的人，显示名
+一开始就是裸微信 id，联系方式里也只有一条 `wechat` id。真名、备注与其他联系方式必须用
+`im_person_save` 录入；只有录入之后，「微信发送消息给杨明明」才能解析到地址。所以这份目录是
+「见过或记录过的人」的增量名单，永远不是微信通讯录的完整副本。
+
 ## 发送错误
 
 | 条件 | 结果 |

@@ -1,14 +1,17 @@
 /**
- * @veren/im plugin entry: registry, router, storage, and the DSH session bridge.
+ * @veren/im plugin entry: registry, router, storage, people directory, and the
+ * DSH session bridge.
  * The core package owns no channel-specific code. It opens the durable IM
- * domain, constructs the registry and router, publishes the router under
- * `imRouter`, and hands inbound messages to the active-binding router. The
- * model-facing `im_*` tools are registered by @veren/im-tool.
+ * domain, constructs the people directory, the registry, and the router,
+ * publishes them under `imPeople` and `imRouter`, and hands inbound messages to
+ * the active-binding router. The model-facing `im_*` tools are registered by
+ * @veren/im-tool.
  *
- * @veren/im 插件入口：注册表、路由、存储与 DSH 会话桥。
+ * @veren/im 插件入口：注册表、路由、存储、人员目录与 DSH 会话桥。
  *
- * 核心包不含任何渠道特判。它打开持久化 IM 域，构造注册表与路由，把路由发布为 `imRouter`，
- * 并把入站消息交给 active-binding 路由。面向模型的 `im_*` 工具由 @veren/im-tool 注册。
+ * 核心包不含任何渠道特判。它打开持久化 IM 域，构造人员目录、注册表与路由，把它们发布为
+ * `imPeople` 与 `imRouter`，并把入站消息交给 active-binding 路由。面向模型的 `im_*` 工具由
+ * @veren/im-tool 注册。
  *
  * @module @veren/im
  */
@@ -23,13 +26,26 @@ import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { ImError, ImRegistry, ImToken, imCredentialKey } from './contract.ts'
 import type { ImBindingSettings, ImMessage } from './contract.ts'
 import { ImStorage } from './store.ts'
+import { ImPeople, ImPeopleToken } from './people.ts'
 import { ImRouter, ImRouterToken } from './router.ts'
 import type { ImCredentialStore, ImLogger, ImSessionGateway } from './router.ts'
 
 export * from './contract.ts'
+export * from './people.ts'
 export * from './router.ts'
-export { IM_DOMAIN_NAME, ImStorage, conversationKey, imDomain, parseSettings } from './store.ts'
-export type { ImAccountRow, ImBindingRow, ImBindingStore, ImConversationRow, ImStore } from './store.ts'
+export {
+  IM_DOMAIN_NAME, ImStorage, conversationKey, imDomain, parseSettings, personAddressKey,
+} from './store.ts'
+export type {
+  ImAccountRow,
+  ImBindingRow,
+  ImBindingStore,
+  ImConversationRow,
+  ImPersonAddressRow,
+  ImPersonRow,
+  ImPersonStore,
+  ImStore,
+} from './store.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -243,12 +259,43 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/**
+ * Seed the people directory from conversations that are already persisted.
+ *
+ * A stored direct conversation is a known address even before its next message,
+ * so binding history survives a restart. Failures are logged per row: one bad
+ * row must not stop the plugin from loading the rest of the directory.
+ * 用已持久化的会话为人员目录播种。
+ *
+ * 已存储的私聊会话在下一条消息到来前就是已知地址，因此绑定历史能跨重启保留。逐行记录失败：
+ * 一行有问题不能阻止插件加载目录的其余部分。
+ */
+async function seedPeople(people: ImPeople, storage: ImStorage, logger: ImLogger): Promise<void> {
+  for (const row of storage.conversations()) {
+    if (row.kind !== 'direct') continue
+    const account = storage.getAccount(row.account_id)
+    if (account === undefined) continue
+    try {
+      await people.observeConversation({
+        provider: account.provider,
+        accountId: row.account_id,
+        conversationId: row.conversation_id,
+        ...(row.title === undefined ? {} : { displayName: row.title }),
+      })
+    } catch (error: unknown) {
+      logger.warn(
+        `[im:people] stored conversation ${row.account_id}/${row.conversation_id} was not seeded: ${messageOf(error)}`,
+      )
+    }
+  }
+}
+
 /** Plugin name. */
 export const name = 'im'
 /** Host services the core needs. */
 export const inject = ['storageDomain', 'credentials', 'agents'] as const
 /** Services this plugin provides. */
-export const provide = [ImToken, ImRouterToken] as const
+export const provide = [ImToken, ImRouterToken, ImPeopleToken] as const
 /** Plugin configuration. */
 export interface Config {
   /** Auto-create a Session for an inbound conversation without an active binding. */
@@ -275,6 +322,9 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
     warn: message => ctx.logger.warn(message),
     error: message => ctx.logger.error(message),
   }
+  const people = new ImPeople({ store: storage, logger })
+  await seedPeople(people, storage, logger)
+  ctx.effect(() => ctx.provide(ImPeopleToken, people), 'im:people')
   const gateway = new DshSessionGateway(ctx, config.replyTimeoutMs)
   ctx.effect(() => () => gateway.dispose(), 'im:gateway')
   // The registry starts delivering as soon as a provider registers, so messages
@@ -297,6 +347,7 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
     registry,
     gateway,
     credentials: new DshCredentialStore(ctx),
+    people,
     logger,
     config: { autoCreateSession: config.autoCreateSession },
   })

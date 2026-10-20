@@ -14,6 +14,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { ImRouterToken } from '@veren/im'
+import { registerPeopleTools } from './people-tools.ts'
 import { registerImTools } from './tools.ts'
 
 /** Plugin name. */
@@ -44,4 +45,5 @@ export const Config: z<Config> = z.object({
 export const apply = (ctx: Context, config: Config): void => {
   if (!config.enabled) return
   registerImTools(ctx, ctx.imRouter)
+  registerPeopleTools(ctx, ctx.imRouter)
 }

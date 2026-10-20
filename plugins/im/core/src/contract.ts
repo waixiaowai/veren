@@ -24,6 +24,8 @@ export type ImErrorCode =
   | 'IM_BIND_PENDING'
   | 'IM_BIND_EXPIRED'
   | 'IM_NOT_FOUND'
+  | 'IM_AMBIGUOUS'
+  | 'IM_NO_ADDRESS'
   | 'IM_SEND_REJECTED'
   | 'IM_RATE_LIMITED'
   | 'IM_DELIVERY_UNCERTAIN'
@@ -35,21 +37,24 @@ export class ImError extends Error {
   readonly code: ImErrorCode
   /** Provider-native code, when the provider has one. */
   readonly providerCode?: string
+  /** JSON-safe machine-readable fields (candidates, suggestions, and so on). */
+  readonly details?: Readonly<Record<string, unknown>>
 
   /**
    * @param code - stable machine-readable reason.
    * @param message - human-readable account of the failure.
-   * @param options - optional cause and provider-native code.
+   * @param options - optional cause, provider-native code, and structured details.
    */
   constructor(
     code: ImErrorCode,
     message: string,
-    options: { cause?: unknown; providerCode?: string } = {},
+    options: { cause?: unknown; providerCode?: string; details?: Record<string, unknown> } = {},
   ) {
     super(message, { cause: options.cause })
     this.name = 'ImError'
     this.code = code
     if (options.providerCode !== undefined) this.providerCode = options.providerCode
+    if (options.details !== undefined) this.details = options.details
   }
 }
 /** One reachable identity inside a provider. */
@@ -86,6 +91,23 @@ export interface ImUser {
   id: string
   /** Optional display name. */
   name?: string
+}
+/**
+ * One contact method stored on a person record.
+ *
+ * This is identity data a human gave us (WeChat id, email, phone, or another
+ * handle); it is searchable and shown back to the model, but only a provider
+ * address can actually receive a message.
+ * 人员记录上的一种联系方式。
+ *
+ * 这是人提供的身份信息（微信号、邮箱、电话或其他账号），可搜索、会展示给模型；但真正能收消息的
+ * 只有 provider 地址。
+ */
+export interface ImPersonContact {
+  kind: 'wechat' | 'email' | 'phone' | 'other'
+  value: string
+  /** Optional qualifier, for example "工作" / "personal". */
+  label?: string
 }
 /**
  * One normalized content block.

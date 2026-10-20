@@ -39,7 +39,15 @@ export function ok(value: Record<string, unknown>): JsonValue {
 export function fail(error: unknown): JsonValue {
   const code = error instanceof ImError ? error.code : 'IM_INTERNAL'
   const message = error instanceof ImError ? error.message : 'the IM operation failed'
-  return jsonOf({ ok: false, error: { code, message } })
+  const details = error instanceof ImError ? error.details : undefined
+  return jsonOf({
+    ok: false,
+    error: {
+      code,
+      message,
+      ...(details === undefined ? {} : { details: { ...details } }),
+    },
+  })
 }
 
 /** Run one tool body, converting failures into the failure result. */
