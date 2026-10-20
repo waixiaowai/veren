@@ -33,9 +33,12 @@
 
 ## 记事本应用
 
-在挂载了应用注册表的宿主里（`ctx.apps`，即 app-hosting profile），插件还会注册 `notebook`
-应用：`/apps/notebook/...` 下的入口列表页与笔记详情页，页面工具带 `notebook__` 前缀。没有
-应用注册表的环境里这一层只降级为一条日志警告；无论哪种情况，上面的全局工具都照常工作。
+插件把应用注册表（`ctx.apps`）声明为**硬 inject**（G13）：在挂载了应用注册表的宿主里，
+插件注册 `notebook` 应用——`/apps/notebook/...` 下的入口列表页与笔记详情页，页面工具带
+`notebook__` 前缀。应用框架缺席时整个插件保持 pending（不会半激活）；过去"探测到 apps
+缺席就只跑全局工具"的降级通道在真实宿主上从未生效（属性守卫按属主归因，访问本身就抛），
+真正的"框架缺席也照常工作"隔离属 G2 的拆包工作。`app.enabled` 配置项仍是显式开关：
+关掉时应用层不注册，全局工具照常工作。
 
 | 页面 | URL | 页面工具 |
 | --- | --- | --- |
@@ -43,9 +46,10 @@
 | 笔记详情 | `/apps/notebook/note/:noteId` | `notebook__read_note`、`notebook__rewrite_note`、`notebook__delete_note` |
 
 注册走单入口：`src/app.ts` 只调用 `ctx.apps.register`、`ctx.apps.tools(id).define` 与
-`ctx.apps.pages(id).register`；页面注册器在内部镜像进页面注册表，因此应用绝不会出现在目录里
+`ctx.apps.pages(id).register`，三步收在单个 `ctx.effect` 里，任何一步失败都逆序回滚已完成的
+步骤（不留半接线）；页面注册器在内部镜像进页面注册表，因此应用绝不会出现在目录里
 却无法按 URL 解析。插件卸载时整层按逆序摘除。应用层以 `@veren/app-registry`、
-`@veren/page-registry`、`@veren/prompt-page` 为 peer 依赖；没有这些包的 profile 直接跳过该层。
+`@veren/page-registry`、`@veren/prompt-page` 为 peer 依赖。
 
 ## 存储
 

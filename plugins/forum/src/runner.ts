@@ -25,7 +25,7 @@ import { DEFAULT_EVERY_MINUTES, SEED_TAGS } from './config.ts'
 import type { ForumConfig } from './config.ts'
 import type { ForumStore } from './storage.ts'
 import { view } from './storage.ts'
-import { generatePost } from './compose.ts'
+import type { ComposeInput, PostDraft } from './compose.ts'
 
 /** One preset's live auto-post setting, as the panel reads and writes it. */
 export interface AutoPostSettings {
@@ -70,31 +70,44 @@ export function runnerTablesOf(domain: ForumStore): RunnerTables {
   return { autoPost: view(domain.table(AUTO_POST_TABLE)) }
 }
 
+/** The injected faces the runner uses, supplied by the owning service (G13: pure parameters, no ctx probing). 运行器用到的注入面，由所属服务显式提供（G13：纯参数，不探测 ctx）。 */
+export interface RunnerFaces {
+  /** The open forum domain, or undefined while storage is down. */
+  readonly domain: () => ForumStore | undefined
+  /** One drafting call through the injected `llm` and default-model faces. */
+  readonly draft: (input: ComposeInput) => Promise<PostDraft>
+}
+
 /**
  * Own one preset's due decision and the tick that drives every preset.
  *
  * The runner holds no Session and posts through the service's own write path,
  * so an automatic post is indistinguishable from a manual one in every table
- * it touches.
+ * it touches. Its storage and model faces arrive as explicit parameters from
+ * the owning service (G13): it never probes ctx for sibling services.
  */
 export class AutoPostRunner {
   /** The plugin's own reference to the owning Context; the base class keeps its own protected. */
   private readonly host: Context
+  private readonly faces: RunnerFaces
   private timer: (() => void) | undefined
   private ticking = false
   private stopped = false
 
   /**
-   * @param host - Host services; `llm` and `storageDomain` are read lazily.
+   * @param host - Host services; only `effect` and `logger` are used here.
    * @param world - the forum operations an automatic post performs.
    * @param config - validated plugin configuration.
+   * @param faces - the injected storage and drafting faces, passed as parameters.
    */
   constructor(
     host: Context,
     private readonly world: () => AutoPostWorld,
     private readonly config: ForumConfig,
+    faces: RunnerFaces,
   ) {
     this.host = host
+    this.faces = faces
   }
 
   /** Begin ticking. Idempotent: a second call keeps the first timer. */
@@ -211,7 +224,7 @@ export class AutoPostRunner {
       }
       const existing = await world.posts(board.id, 8)
       const tags = await world.tags()
-      const draft = await generatePost(this.host, {
+      const draft = await this.faces.draft({
         preset,
         board,
         recent: existing,
@@ -261,13 +274,9 @@ export class AutoPostRunner {
     }
   }
 
-  /** The open forum domain, when storage came up. */
+  /** The open forum domain, or undefined while storage is down; the face is a constructor parameter (G13). 打开的论坛域，存储不可用时为 undefined；该面是构造参数（G13）。 */
   private domain(): ForumStore | undefined {
-    try {
-      return this.host.get('storageDomain')?.get('forum') as ForumStore | undefined
-    } catch {
-      return undefined
-    }
+    return this.faces.domain()
   }
 
   /** The open forum domain, or a structured refusal. */

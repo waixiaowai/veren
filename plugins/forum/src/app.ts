@@ -2,19 +2,21 @@
  * The forum application: definition, single-entry registration.
  *
  * One entry point registers the whole app in dependency order — definition,
- * then tools, then pages — every step as a `ctx.effect`, so unmounting the
- * owning fiber disposes pages, tools, and the app in reverse order. Pages go
- * through `ctx.apps.pages(id).register()` only: app-registry mirrors each page
- * into the page registry internally, and calling `pageRegistry.registerAppPage`
- * by hand would create the "visible in the catalog but unresolvable" drift the
- * single-entry design forbids.
+ * then tools, then pages — inside a single `ctx.effect` whose body rolls back
+ * finished steps on failure, so unmounting the owning fiber disposes pages,
+ * tools, and the app in reverse order and a failed mount leaves nothing
+ * behind. Pages go through `ctx.apps.pages(id).register()` only: app-registry
+ * mirrors each page into the page registry internally, and calling
+ * `pageRegistry.registerAppPage` by hand would create the "visible in the
+ * catalog but unresolvable" drift the single-entry design forbids.
  *
  * 论坛应用：定义与单入口注册。
  *
- * 一个入口按依赖顺序注册整个应用——先定义、再工具、后页面——每步都是 `ctx.effect`，因此卸载
- * 所属 fiber 时按逆序摘除页面、工具与应用。页面只走 `ctx.apps.pages(id).register()`：app-registry
- * 会在内部镜像进页面注册表；再手工调 `pageRegistry.registerAppPage` 会造出「目录可见却解析不到」
- * 的漂移，这正是单入口设计所禁止的。
+ * 一个入口按依赖顺序注册整个应用——先定义、再工具、后页面——收在单个 `ctx.effect`
+ * 里，体内失败即逆序回滚已完成步骤，因此卸载所属 fiber 按逆序摘除页面、工具与应用，
+ * 装配失败也不留残渣。页面只走 `ctx.apps.pages(id).register()`：app-registry
+ * 会在内部镜像进页面注册表；再手工调 `pageRegistry.registerAppPage` 会造出「目录
+ * 可见却解析不到」的漂移，这正是单入口设计所禁止的。
  *
  * @module @veren/forum/app
  */
@@ -48,25 +50,48 @@ export const FORUM_APP_DEFINITION: ApplicationDefinition = {
 }
 
 /**
- * Register the forum app: definition, tools, then pages, each as an effect of
- * the owning fiber so teardown is the exact reverse.
- * 注册论坛应用：先定义、再工具、后页面，每步都是所属 fiber 的 effect，卸载即精确逆序。
+ * Register the forum app in one effect: definition, tools, then pages. When a
+ * later step fails the body rolls every finished step back in reverse — the
+ * wiring is all-or-nothing, never a half-registered app. Disposing the owning
+ * fiber disposes the whole group in reverse order. Pages go through
+ * `ctx.apps.pages(id).register()` only: app-registry mirrors each page into
+ * the page registry internally, and calling `pageRegistry.registerAppPage` by
+ * hand would create the "visible in the catalog but unresolvable" drift the
+ * single-entry design forbids.
+ *
+ * 一个 effect 注册论坛应用：先定义、再工具、后页面。后一步失败时，函数体把已完成的
+ * 步骤逆序回滚——接线要么全接上、要么什么也没接，绝不留半个应用。卸载所属 fiber 时
+ * 整组逆序清理。页面只走 `ctx.apps.pages(id).register()`：app-registry 会在内部
+ * 镜像进页面注册表；再手工调 `pageRegistry.registerAppPage` 会造出「目录可见却解析
+ * 不到」的漂移，这正是单入口设计所禁止的。
+ *
  * @param ctx - the fiber context that owns the app.
  * @param port - resolves the service surface the app tools act through.
  */
 export function registerForumApp(ctx: Context, port: () => ForumToolsPort): void {
   const apps = ctx.apps
-  ctx.effect(() => apps.register(FORUM_APP_DEFINITION, ctx), 'forum:app')
-  // 2) Tools before pages: page registration validates every referenced tool.
-  //    工具先于页面：页面注册会校验引用的每个工具都已在目录里。
-  const tools = apps.tools(FORUM_APP_ID, ctx)
-  for (const tool of createForumAppTools(ctx, port)) {
-    ctx.effect(() => tools.define(tool), `forum:app-tool:${tool.name}`)
-  }
-  // 3) Pages: the single entry — app-registry mirrors into the page registry.
-  //    页面：单入口——app-registry 内部镜像进页面注册表。
-  const pages = apps.pages(FORUM_APP_ID, ctx)
-  for (const page of [catalogPage, postPage]) {
-    ctx.effect(() => pages.register(page), `forum:app-page:${page.name}`)
-  }
+  ctx.effect(() => {
+    const disposers: Array<() => void> = []
+    try {
+      // 1) Definition first; bound to this fiber.
+      //    先定义；绑定到本 fiber。
+      disposers.push(apps.register(FORUM_APP_DEFINITION, ctx))
+      // 2) Tools before pages: page registration validates every referenced tool.
+      //    工具先于页面：页面注册会校验引用的每个工具都已在目录里。
+      const tools = apps.tools(FORUM_APP_ID, ctx)
+      for (const tool of createForumAppTools(ctx, port)) {
+        disposers.push(tools.define(tool))
+      }
+      // 3) Pages: the single entry — app-registry mirrors into the page registry.
+      //    页面：单入口——app-registry 内部镜像进页面注册表。
+      const pages = apps.pages(FORUM_APP_ID, ctx)
+      for (const page of [catalogPage, postPage]) {
+        disposers.push(pages.register(page))
+      }
+    } catch (error: unknown) {
+      for (const dispose of disposers.reverse()) dispose()
+      throw error
+    }
+    return () => { for (const dispose of disposers.reverse()) dispose() }
+  }, 'forum:app')
 }

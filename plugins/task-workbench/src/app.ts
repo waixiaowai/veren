@@ -8,7 +8,8 @@
  * - `requires` 等应用侧元数据走 define 的第二个参数，不塞进 DSH 类型；
  *   第 1 阶段只记录、不强制。
  * - 任务接缝按 task-center 冻结契约（TaskDraft/TaskCenterContract）编写；
- *   ctx.taskCenter 缺席时不崩：记录降级，发布回落到本地 store。
+ *   taskCenter 是声明的硬 inject（G13）：发布与拆分直接走注入的服务面，
+ *   没有任何"缺席即降级"的运行期探测——那条通道在真实宿主上从未生效过。
  * @module @veren/task-workbench
  */
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -48,68 +49,44 @@ export interface SplitOptions {
   readonly body?: string
 }
 
-/** 任务通道：send 投递任务；available=false 表示任务中心缺席已降级 / the task channel */
+/**
+ * 把注入的任务中心服务面收窄成工具要用的两个动作。taskCenter 是声明的硬
+ * inject，通道没有"可用性"开关：send/addSubtask 的失败原样抛出，由工具
+ * 执行器的错误路径上报（fail loud），不再有降级标记。
+ * Narrow the injected task-center service face to the two actions the tools
+ * need. taskCenter is a declared hard inject, so the channel has no
+ * "availability" switch: send/addSubtask failures propagate and reach the tool
+ * executor's error path (fail loud) — no degraded marker.
+ */
 export interface TaskChannel {
-  readonly available: boolean
-  send(draft: TaskDraft): Promise<{ ok: true } | { ok: false; degraded: true; detail: string }>
-  /** 现拆子任务（§4.7.6）；任务中心缺席时整个方法缺席，调用方降级 */
-  addSubtask?(
-    parentId: string,
-    title: string,
-    opts?: SplitOptions,
-  ): Promise<{ ok: true } | { ok: false; degraded: true; detail: string }>
+  send(draft: TaskDraft): Promise<void>
+  /** 现拆子任务（§4.7.6）；服务面会校验 target 一致与安全上限 */
+  addSubtask(parentId: string, title: string, opts?: SplitOptions): Promise<void>
 }
 
-/**
- * 从上下文惰性解析 ctx.taskCenter；缺席或没有 send 方法 → 降级通道（不抛错）。
- * Resolve ctx.taskCenter lazily; absent or send-less → a degraded channel.
- */
-export function createTaskChannel(ctx: Context, logger: { warn(message: string): void }): TaskChannel {
-  // taskCenter 可能未激活：走 declaration merging 的真实类型 ctx.get('taskCenter')
-  // （返回 undefined | TaskCenterService），缺席或没有 send 方法时降级，零断言。
-  // taskCenter may be inactive: ctx.get('taskCenter') is typed via the merged Context;
-  // degrade when absent or send-less, with no casts.
-  const taskCenter = ctx.get('taskCenter')
-  if (taskCenter === undefined || typeof taskCenter.send !== 'function') {
-    logger.warn('task-workbench: ctx.taskCenter is unavailable; publishes degrade to the local store')
-    return { available: false, send: sendDegraded }
-  }
-  const send = taskCenter.send
-  const addSubtask = taskCenter.addSubtask
+/** 从注入的服务面构建通道：纯参数，不触碰 ctx / build the channel from the injected face: pure parameters */
+export function createTaskChannel(taskCenter: TaskCenterContract): TaskChannel {
   return {
-    available: true,
-    send: (draft) => send.call(taskCenter, draft).then(() => ({ ok: true }) as const),
+    send: async (draft) => { await taskCenter.send(draft) },
     // 服务面的 addSubtask 会校验 target 一致与安全上限；父记录在这里解析，
     // 工具侧只传 id + 标题。/ the service's addSubtask validates target equality
     // and the safety limits; the parent record is resolved here, the tool only
     // passes id + title.
-    ...(typeof addSubtask === 'function' ? {
-      addSubtask: async (parentId: string, title: string, opts?: SplitOptions) => {
-        // 本地 id 是普通 string；跨过 brand 边界只此一处收窄 / local ids are plain
-        // strings; this is the one brand-boundary narrowing
-        const parent = await taskCenter.get(parentId as TaskId)
-        if (parent === undefined) {
-          return { ok: false as const, degraded: true as const, detail: `parent task ${parentId} not found in the task center` }
-        }
-        await addSubtask.call(taskCenter, parent.id, {
-          kind: parent.kind,
-          title,
-          target: parent.target,
-          ...(opts?.body === undefined ? {} : { body: opts.body }),
-        }, { ...(opts?.claimantSessionId === undefined ? {} : { claimantSessionId: opts.claimantSessionId }) })
-        return { ok: true as const }
-      },
-    } : {}),
+    addSubtask: async (parentId, title, opts) => {
+      // 本地 id 是普通 string；跨过 brand 边界只此一处收窄 / local ids are plain
+      // strings; this is the one brand-boundary narrowing
+      const parent = await taskCenter.get(parentId as TaskId)
+      if (parent === undefined) {
+        throw new Error(`[task-workbench] parent task ${parentId} not found in the task center`)
+      }
+      await taskCenter.addSubtask(parent.id, {
+        kind: parent.kind,
+        title,
+        target: parent.target,
+        ...(opts?.body === undefined ? {} : { body: opts.body }),
+      }, { ...(opts?.claimantSessionId === undefined ? {} : { claimantSessionId: opts.claimantSessionId }) })
+    },
   }
-}
-
-/** 降级发送：记录并返回结构化失败，不抛异常 / the degraded send: record, return, never throw */
-function sendDegraded(draft: TaskDraft): Promise<{ ok: false; degraded: true; detail: string }> {
-  return Promise.resolve({
-    ok: false,
-    degraded: true,
-    detail: `task center unavailable; task "${draft.title}" kept in the local store only`,
-  })
 }
 
 // ---- 应用级工具 / app-scoped tools（defineTool 本体）----
@@ -163,7 +140,7 @@ export function createAppTools(store: TaskStore, channel: TaskChannel): ToolDefi
     defineTool({
       name: 'publish_task',
       description: '发布一个新任务到宿主任务中心（收件人收到通知后打开任务 URL 处理）。'
-        + '标题必填；任务中心缺席时降级为仅写入本应用列表页，并返回 degraded 标记。'
+        + '标题必填；本地列表同步落一条，任务中心投递失败会以工具错误上报。'
         + 'Publish a new task to the host task center. Parameters: title.',
       parameters: { title: { type: 'string', description: '任务标题', required: true } },
       output: { schema: { type: 'object', additionalProperties: true } as const, render: renderValue },
@@ -187,7 +164,7 @@ export function createAppTools(store: TaskStore, channel: TaskChannel): ToolDefi
   ]
 }
 
-/** 拆分：本地 store 记树形事实，任务中心在场时同步建真正的子任务 / split with degrade */
+/** 拆分：本地 store 记树形事实，任务中心同步建真正的子任务 / split: local facts plus a real subtask */
 async function splitTask(
   store: TaskStore,
   channel: TaskChannel,
@@ -206,16 +183,13 @@ async function splitTask(
       ? { ok: false, code: 'task-not-found', detail: 'no such task' }
       : { ok: false, code: 'bad-task-state', detail: 'only a taken task can be split' }
   }
-  const channelSplit = channel.addSubtask
-  if (channelSplit === undefined) {
-    return { ok: false, degraded: true, code: 'task-center-unavailable', detail: 'task center unavailable; the split stayed in the local store' }
-  }
-  const outcome = await channelSplit(parentId, title, {
+  // 任务中心是硬 inject：addSubtask 失败（上限/互斥等）原样抛给工具执行器。
+  // taskCenter is a hard inject: addSubtask failures (limits, mutex) propagate
+  // to the tool executor.
+  await channel.addSubtask(parentId, title, {
     claimantSessionId: exec.agent?.session?.id,
   })
-  return outcome.ok
-    ? { ok: true }
-    : { ok: false, degraded: true, code: 'task-center-unavailable', detail: outcome.detail }
+  return { ok: true }
 }
 
 /** 发布需要的能力：注册工具时经 define 的 meta 参数声明（不在工具本体上） */
@@ -228,12 +202,12 @@ function presentTaskCall(title: string, args: unknown): { card: 'generic'; title
   return { card: 'generic' as const, title, kind: 'other' as const, ...(args === undefined ? {} : { rawInput: args }) }
 }
 
-/** 发布：先落本地列表，再尝试任务中心；降级返回 degraded 标记 / publish with degrade */
+/** 发布：先落本地列表，再投递任务中心；失败原样抛出（fail loud）/ publish locally then forward; failures propagate */
 async function publishTask(store: TaskStore, channel: TaskChannel, args: { title: string }): Promise<ToolOutcome> {
   const title = typeof args?.title === 'string' ? args.title.trim() : ''
   if (title.length === 0) return { ok: false, code: 'draft-invalid', detail: 'title is required' }
   const item = store.publishLocal(title)
-  const outcome = await channel.send({
+  await channel.send({
     kind: 'task-workbench/publish' as TaskDraft['kind'],
     title,
     target: {
@@ -243,9 +217,7 @@ async function publishTask(store: TaskStore, channel: TaskChannel, args: { title
       params: { taskId: item.id } as Readonly<Record<string, string>>,
     },
   })
-  return outcome.ok
-    ? { ok: true }
-    : { ok: false, degraded: true, code: 'task-center-unavailable', detail: outcome.detail }
+  return { ok: true }
 }
 
 /** 校验 task_id 参数 / validate the task_id argument */

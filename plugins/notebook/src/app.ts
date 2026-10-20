@@ -5,16 +5,19 @@
  *
  * Single-entry registration: `ctx.apps.pages(id).register(page)` mirrors every
  * page into the page registry internally, so this file never calls
- * `ctx.pageRegistry.registerAppPage` itself. Where no app registry is active
- * (headless profiles) the whole layer degrades to a warning and the global
- * `notebook_*` tools keep working.
+ * `ctx.pageRegistry.registerAppPage` itself. The app registry (`ctx.apps`) is a
+ * declared hard inject of the owning service (G13): where the application
+ * framework is absent the whole plugin stays pending instead of half-activating
+ * — the framework-absent isolation this layer needs is G2's package split, not
+ * a runtime probe.
  *
  * 记事本应用层：`notebook` 应用、它的两个页面与应用级页面工具，经宿主应用注册表
  * （`ctx.apps`）注册，写法与 task-workbench 一致。
  *
  * 单入口注册：`ctx.apps.pages(id).register(page)` 会在内部把页面镜像进页面注册表，
- * 因此本文件绝不直接调用 `ctx.pageRegistry.registerAppPage`。在没有应用注册表的环境
- * （无头 profile）里，整层降级为一条警告，全局 `notebook_*` 工具照常工作。
+ * 因此本文件绝不直接调用 `ctx.pageRegistry.registerAppPage`。应用注册表（`ctx.apps`）
+ * 是所属服务声明的硬 inject（G13）：应用框架缺席时整个插件保持 pending，而不是半激活——
+ * 这层"框架缺席也能激活"的隔离属 G2 的拆包工作，不是运行期探测。
  *
  * @module @veren/notebook/app
  */
@@ -197,30 +200,31 @@ function deleteNoteTool(ctx: Context, port: () => NotebookToolsPort): ToolDefini
 // ---- 单入口注册 / the single-entry registration ----
 
 /**
- * Register the whole application (definition → tools → pages) in one effect.
- * `ctx.apps.pages(id).register()` mirrors each page into the page registry, so
- * there is exactly one registration path. When no app registry is active the
- * layer degrades to a warning; disposing reverses pages → tools → definition.
+ * Register the whole application (definition → tools → pages) in one effect
+ * whose body rolls back every finished step when a later one fails — no
+ * half-wired "app present, pages missing" state. Disposing reverses
+ * pages → tools → definition.
  *
- * 在一个 effect 里注册整个应用（定义 → 工具 → 页面）。`ctx.apps.pages(id).register()`
- * 会把每个页面镜像进页面注册表，注册路径只有这一条。应用注册表缺席时整层降级为警告；
- * 卸载按 页面 → 工具 → 定义 逆序清理。
+ * 在一个 effect 里注册整个应用（定义 → 工具 → 页面）；体内任何一步失败都把已完成的
+ * 步骤逆序回滚，不留"应用在、页面缺"的半接线状态。卸载按 页面 → 工具 → 定义 逆序清理。
  *
  * @param ctx - the context owning the registration (its fiber tears the app down).
  * @param port - resolves the notebook surface the page tools act through.
  */
 export function registerNotebookApp(ctx: Context, port: () => NotebookToolsPort): void {
+  const apps = ctx.apps
   ctx.effect(() => {
-    const apps = ctx.get('apps')
-    if (apps === undefined) {
-      ctx.logger.warn('notebook: ctx.apps is unavailable, so the notebook application layer is skipped')
-      return () => undefined
+    const disposers: Array<() => void> = []
+    try {
+      disposers.push(apps.register(APP_DEFINITION, ctx))
+      const tools = apps.tools(APP_ID, ctx)
+      for (const tool of createAppTools(ctx, port)) disposers.push(tools.define(tool))
+      const pages = apps.pages(APP_ID, ctx)
+      for (const page of [listPage, notePage]) disposers.push(pages.register(page))
+    } catch (error: unknown) {
+      for (const dispose of disposers.reverse()) dispose()
+      throw error
     }
-    const disposers = [apps.register(APP_DEFINITION, ctx)]
-    const tools = apps.tools(APP_ID, ctx)
-    for (const tool of createAppTools(ctx, port)) disposers.push(tools.define(tool))
-    const pages = apps.pages(APP_ID, ctx)
-    for (const page of [listPage, notePage]) disposers.push(pages.register(page))
     return () => { for (const dispose of disposers.reverse()) dispose() }
   }, 'notebook:app()')
 }

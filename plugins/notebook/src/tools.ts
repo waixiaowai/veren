@@ -23,6 +23,11 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import { NotebookError } from './notes.ts'
 import type { NotebookToolsPort } from './types.ts'
+// Type-only: pulls the `ctx.agentPresets` service declaration into this face
+// (a declared hard inject of the owning service; read directly, never probed).
+// 仅类型导入：把 `ctx.agentPresets` 的服务声明拉进本文件（所属服务的硬 inject，
+// 直接读取，绝不探测）。
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 
 /** The lossless-JSON union, spelled locally for the tool-result boundary. */
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json | undefined }
@@ -116,14 +121,18 @@ function noCaller(): NotebookToolError {
 }
 
 /**
- * Resolve the calling preset from the live Agent.
+ * Resolve the calling preset from the live Agent. `agentPresets` is a declared
+ * hard inject of the owning service, so the merged face is read directly —
+ * no runtime probing (G13).
+ * 从活 Agent 解析调用者的预设。`agentPresets` 是所属服务声明的硬 inject，
+ * 直接读声明合并的真实服务面——不做运行期探测（G13）。
  * @param ctx - Host context carrying the preset registry.
  * @param agent - the calling Agent, when the execution has one.
  * @returns the caller's preset id, or `undefined` outside an agent.
  */
 function callerOf(ctx: Context, agent: Agent | undefined): string | undefined {
   if (agent === undefined) return undefined
-  return ctx.get('agentPresets')?.composedPreset(agent.ctx) ?? agent.session.header.agentPreset
+  return ctx.agentPresets.composedPreset(agent.ctx) ?? agent.session.header.agentPreset
 }
 
 /**

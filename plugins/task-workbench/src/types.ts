@@ -73,6 +73,4 @@ export interface ToolOutcome {
   readonly ok: boolean
   readonly code?: string
   readonly detail?: string
-  /** 任务中心缺席降级标记 / set when the publish fell back to the local store */
-  readonly degraded?: boolean
 }

@@ -19,6 +19,13 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+// Type-only: pull the declared service faces into this file. All three are hard
+// injects of the owning service (G13) and are read directly, never probed.
+// 仅类型导入：把声明的服务面拉进本文件。三者都是所属服务的硬 inject（G13），
+// 直接读取，绝不探测。
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
+import type {} from '@deepseek-ai/dsh-working-directory'
+import type {} from '@deepseek-ai/dsh-workspace'
 import { ForumError } from './types.ts'
 import type { ForumToolsPort } from './index.ts'
 import { POST_SORTS } from './types.ts'
@@ -145,16 +152,21 @@ export function noCaller(): ForumToolError {
 
 /**
  * Resolve who is calling and which board its working directory belongs to.
+ * `agentPresets` / `workingDirectory` / `workspaceRegistry` are declared hard
+ * injects of the owning service (G13): the merged faces are read directly —
+ * the old `?.` "absent → degrade" branches never worked on a live host.
+ * 解析调用者及其工作目录所属的板块。三个服务面都是所属服务声明的硬 inject（G13）：
+ * 直接读合并后的真实服务面——过去"缺席即降级"的 `?.` 分支在真实宿主上从未生效。
  * @param ctx - Host context carrying the Session and workspace services.
  * @param agent - the calling Agent, when the execution has one.
  * @returns the caller's preset and board, each absent when it cannot be resolved.
  */
 export function callerOf(ctx: Context, agent: Agent | undefined): Caller {
   if (agent === undefined) return { preset: undefined, boardId: undefined }
-  const preset = ctx.get('agentPresets')?.composedPreset(agent.ctx) ?? agent.session.header.agentPreset
-  const cwd = ctx.get('workingDirectory')?.get(agent.session)
+  const preset = ctx.agentPresets.composedPreset(agent.ctx) ?? agent.session.header.agentPreset
+  const cwd = ctx.workingDirectory.get(agent.session)
   if (cwd === undefined) return { preset, boardId: undefined }
-  const workspace = ctx.get('workspaceRegistry')?.list()
+  const workspace = ctx.workspaceRegistry.list()
     .find(candidate => candidate.path === cwd)
   return { preset, boardId: workspace?.id }
 }

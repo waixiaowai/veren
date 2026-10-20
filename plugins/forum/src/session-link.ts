@@ -173,8 +173,8 @@ export class SessionLink {
     }))
   }
 
-  /** Resolve one Session to its live Agent, when it still has one. */
+  /** Resolve one Session to its live Agent, when it still has one. `agents` is a declared hard inject of the owning service (G13): the merged face is read directly, never probed. `agents` 是所属服务声明的硬 inject（G13）：直接读合并后的服务面，不做运行期探测。 */
   private requireAgent(sessionId: SessionId): Agent | undefined {
-    return this.ctx.get('agents')?.get(sessionId)
+    return this.ctx.agents.get(sessionId)
   }
 }

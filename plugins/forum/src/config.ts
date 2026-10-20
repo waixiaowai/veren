@@ -55,6 +55,13 @@ export interface ForumConfig {
   tools: ForumToolConfig
   /** Opt-in auto-posting; empty by default, so every preset stays silent. */
   autoPost: AutoPostConfig
+  /**
+   * The Web GUI URL printed in every notice so the recipient can point the user
+   * at the panel. Empty by default: the URL is a deployment fact, declared here
+   * explicitly instead of probed from a sibling service at runtime (G13); the
+   * genuinely-optional face behind it is G2's optionalInject territory.
+   */
+  panelUrl: string
 }
 
 /** Default tick length in seconds. */
@@ -85,6 +92,7 @@ export const Config = z.object({
       everyMinutes: z.number().min(1).default(DEFAULT_EVERY_MINUTES),
     })).default([]),
   }).default({ tickSeconds: DEFAULT_TICK_SECONDS, maxPerHour: DEFAULT_MAX_PER_HOUR, presets: [] }),
+  panelUrl: z.string().default(''),
 })
 
 /** Build the tag vocabulary the runner's prompt offers when a board has none yet. */

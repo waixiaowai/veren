@@ -18,6 +18,12 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+// Type-only: pulls the `ctx.agentDefaultModel` service declaration into this
+// face. It is a declared hard inject of the owning service (G13) and arrives
+// here as a parameter, never probed.
+// 仅类型导入：把 `ctx.agentDefaultModel` 的服务声明拉进本文件。它是所属服务声明
+// 的硬 inject（G13），以参数传入，不做运行期探测。
+import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type { BoardView, PostView } from './types.ts'
 import { ForumError } from './types.ts'
 import { normalizeTags } from './domain.ts'
@@ -130,19 +136,29 @@ export async function collectText(chunks: AsyncIterable<{ readonly type: string;
 }
 
 /**
- * Draft one post with the deployment's configured model.
- * @param ctx - Host context carrying `llm` and `agentDefaultModel`.
+ * Draft one post with the deployment's configured model. The `llm` and default
+ * model faces arrive as explicit parameters from the owning service (both are
+ * declared hard injects, G13); "no default model configured" remains a
+ * value-level refusal, not a service-absence probe.
+ * 用部署配置的模型起草一个帖子。`llm` 与默认模型面由所属服务以参数显式传入（均为
+ * 声明的硬 inject，G13）；"未配置默认模型"仍是值层面的拒绝，不是服务缺席探测。
+ * @param model - the injected default-model face.
+ * @param llm - the injected llm face.
  * @param input - the preset, the board, and the board's current content.
  * @returns the validated draft.
  * @throws ForumError when no model or provider is configured, or the reply is unusable.
  */
-export async function generatePost(ctx: Context, input: ComposeInput): Promise<PostDraft> {
-  const selection = ctx.get('agentDefaultModel')?.currentSelection()
+export async function generatePost(
+  model: Context['agentDefaultModel'],
+  llm: Context['llm'],
+  input: ComposeInput,
+): Promise<PostDraft> {
+  const selection = model.currentSelection()
   if (selection === undefined) {
     throw new ForumError('forum/not-auto-postable', 'no default model is configured, so auto-posting cannot draft a post.')
   }
   const prompt = composePrompt(input)
-  const text = await collectText(ctx.llm.stream({
+  const text = await collectText(llm.stream({
     provider: selection.provider,
     model: selection.model,
     system: prompt.system,

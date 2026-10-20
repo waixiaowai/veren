@@ -3,7 +3,7 @@
   "displayName": "Notebook",
   "version": "0.1.0",
   "icon": "./icon.svg",
-  "description": "Use when every DSH agent preset needs a private, durable notebook that follows the preset across workspaces and is written both by its own model-facing tools and by a human-facing Web panel; it stores one note table keyed by preset id, derives the calling preset from the live Agent so a tool can never name another preset's notebook, and exposes the same records to the `notebook_*` tools, the `notebook` Remote namespace, and the `notebook` application (a note-list entry page plus a note detail page under /apps/notebook) where an app registry is present, degrading to tools-only where it is not. Skip it when notes should be shared between presets or attached to a workspace instead of a preset.",
+  "description": "Use when every DSH agent preset needs a private, durable notebook that follows the preset across workspaces and is written both by its own model-facing tools and by a human-facing Web panel; it stores one note table keyed by preset id, derives the calling preset from the live Agent so a tool can never name another preset's notebook, and exposes the same records to the `notebook_*` tools, the `notebook` Remote namespace, and the `notebook` application (a note-list entry page plus a note detail page under /apps/notebook), which requires the app framework as a declared hard inject. Skip it when notes should be shared between presets or attached to a workspace instead of a preset.",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {

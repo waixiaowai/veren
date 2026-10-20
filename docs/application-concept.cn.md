@@ -1518,6 +1518,15 @@ export const apply = (ctx: Context): void => {
 - `app-host`：三步装配收进单个 `ctx.effect('app-host:wire')`；**回滚在 `wireAppHost` 内实现**（规格示意把回滚寄托在 effect 机制上，实际 cordis effect 不回滚 setup 体内的前序步骤，故用 try/catch + 逆序独立回滚，每个回滚步互不阻断，原始错误优先透出）。`sessions`/`agents` 走声明过的 inject + declaration merging 真实面，探测面接口删除；`@deepseek-ai/dsh-session` 补进 peer+dev。
 - 回滚测试：`app-host/tests/assembly.spec.ts` 注入一个会失败的镜像面，断言 resolver 已回滚（send 不再被 send-forbidden 拦截）、端口未绑定（openUrl 给 page/host-unavailable）、镜像面不在场（注册只告警不镜像）。
 
+**落地记录（2026-10-21 续，应用层四个包）**：
+
+- 扫描结果：四个应用包共有 **13 处**运行期探测/幻觉降级，全部拆除——`task-workbench` 1 处（`createTaskChannel` 惰性 `ctx.get('taskCenter')` + `typeof send !== 'function'` 形状探测，即真机炸掉的那处）；`notebook` 2 处（`registerNotebookApp` 探测 `ctx.get('apps')` 缺席告警跳过；`callerOf` 探测 `agentPresets`）；`forum` 7 处（`callerOf` 探测 `agentPresets`/`workingDirectory`/`workspaceRegistry` 三处 `?.`；`compose.generatePost` 探测 `agentDefaultModel`；`session-link.requireAgent` 探测 `agents`；`runner.domain()` try/catch 探测 `storageDomain` 且带 `as` 类型逃逸；`webUrl()` try/catch 探测 `webApp`）；`person-agent-app` 3 处（`views.ts` 三个分区各自探测 `apps`/`workspaceRegistry`/`taskCenter`）。它们的共同假设——"服务缺席则降级"——在真实宿主上从未生效（守卫按属主归因，访问本身就抛），是幻觉不是能力。
+- 换法：**服务依赖一律显式 `inject`**（task-workbench 增 `taskCenter`；notebook 增 `apps`；forum 增 `workingDirectory`/`workspaceRegistry`/`agentDefaultModel`；person-agent-app 增 `workspaceRegistry`/`taskCenter`），然后走 declaration merging 的真实服务面（`ctx.taskCenter.send` 等），没有发明 `optionalInject`；**兄弟能力走参数显式传递**（task-workbench 的 `createTaskChannel(taskCenter)`、forum 的 `generatePost(model, llm, input)` 与 `AutoPostRunner` 的 `RunnerFaces { domain, draft }`、person-agent-app 的 `OverviewFaces`）。没有自造 `unknown`/`Record` 逃逸；runner 的 `as ForumStore` 一并删除。
+- **接线全有或全无**：task-workbench / forum / person-agent-app / notebook 的应用面（定义 → 工具 → 页面）收进单个 `ctx.effect`，体内 try/catch + 逆序回滚（与 app-host 同型——cordis effect 不回滚 setup 体内前序步骤）。测试：`task-workbench/tests/app.spec.ts` 注入"第三页镜像抛错"的镜像面，断言应用、工具目录、已镜像页面全部回滚（catalog 为空、listTools/listPages 抛错、page-registry 无残留），换健康镜像面后同上下文可重装。
+- **降级语义的处置（本轮最容易做错的地方）**：所有"服务缺席即降级"分支都**删除**而不是平移——它们从未生效过。保留的只有两条**值层面**的失败语义：task-center 读取失败与"未配置默认模型"（`currentSelection() === undefined`）仍显式返回不可用/拒绝，这是运行错误与配置缺失，不是服务缺席探测。
+- **报告给 G2 的三条**（本轮不改包结构）：① `notebook` 的应用层——全局工具在无应用框架的部署里照常可用是真实需求，硬 inject 会让整个插件在 headless 不激活；应按 G2 拆出 `-app` 包。② `forum` 的通知面板 URL——过去 try/catch 探测 `webApp`，属真正的"可选装饰性依赖"；本轮改为显式配置项 `panelUrl`（默认 `''`），G2 的 `optionalInject` 落地后可换回声明式可选注入。③ `person-agent-app` 对 `workspaceRegistry`/`taskCenter` 的"缺席显示不可用"诉求同理归 G2。`notebook-bundle` 的 README 仍描述旧的降级行为，属四包之外，留给 G2 改。
+- 测试：四包用例数不变（task-workbench 23 / notebook 23 / person-agent-app 10 / forum 76），替换了依赖旧降级形态的用例（taskCenter 缺席 ×2 → 回滚用例 + 父任务缺失 fail-loud 用例；notebook apps 缺席 → `app.enabled=false` 配置开关用例；person-agent 缺席 ×2 → 读取失败/空注册表用例），全部走真实 cordis composition 路径。
+
 **落地阶段与依赖**：P0 第一位，无前置；G2、G1 及全部 P1/P2 排在它之后。**与既有决策的关系**：推翻正文 §8.2"宿主装配层（已落地）"对松对接形态的描述与 phase1 报告"设计站得住"的对接结论——该报告第七节自己已指出"四个服务之间全是松对接"是设计低估的成本，本条把观察升格为规格。
 
 ### 10.2 G1（P0-3）：bundle patch 跨组合包的行 id 去重契约

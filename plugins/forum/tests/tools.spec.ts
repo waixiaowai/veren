@@ -101,6 +101,7 @@ function config(over: Partial<ForumConfig> = {}): ForumConfig {
   return {
     tools: { enabled: true },
     autoPost: { tickSeconds: DEFAULT_TICK_SECONDS, maxPerHour: DEFAULT_MAX_PER_HOUR, presets: [] },
+    panelUrl: '',
     ...over,
   }
 }
@@ -143,6 +144,10 @@ async function mount(options: {
     composedPreset: () => preset,
   })
   ctx.provide('llm', {})
+  // Declared hard injects of the service (G13): provide the minimal slice each
+  // reader touches; the drafting selection stays unconfigured here.
+  // 服务的声明的硬 inject（G13）：提供各读取者触及的最小切片；起草用的默认模型在此不配置。
+  ctx.provide('agentDefaultModel', { currentSelection: () => undefined })
   ctx.provide('workingDirectory', { get: () => cwd })
   ctx.provide('workspaceRegistry', { list: () => [{ id: 'ws-1', path: workspacePath, title: 'Demo' }] })
   // The app registry is a hard inject of the forum service; the real service

@@ -68,27 +68,24 @@ function stream(chunks: readonly { readonly type: string, readonly text?: string
   }
 }
 
-/** Mount a Host context whose `llm` and default-model selection are fakes. 挂载 `llm` 与默认模型选择都是假实现的宿主上下文。 */
+/** Mount the injected `llm` and default-model faces as fakes. 以假实现充当注入的 `llm` 与默认模型面。 */
 function host(options: { chunks?: readonly { type: string, text?: string }[], selection?: ModelSelection | undefined } = {}) {
-  const ctx = new Context()
   const seen: Record<string, unknown>[] = []
   // The service's `stream` returns the iterable synchronously; iteration happens
-  // inside `collectText`. 服务的 `stream` 同步返回可迭代对象；迭代发生在 `collectText` 内。
-  ctx.provide('llm', {
+  // inside `collectText`. Both faces are pure parameters of `generatePost` now
+  // (G13) — no context is mounted at all.
+  // 服务的 `stream` 同步返回可迭代对象；迭代发生在 `collectText` 内。两个面如今都是
+  // `generatePost` 的纯参数（G13）——完全不需要挂载上下文。
+  const llm = {
     stream(request: Record<string, unknown>) {
       seen.push(request)
       return stream(options.chunks ?? [{ type: 'text-delta', text: '{"title":"T","body":"B"}' }])
     },
-  } as unknown as Context['llm'])
-  // `agentDefaultModel` is optional for the drafting call, so the fake omits
-  // the whole service when the spec has no selection to hand out.
-  // `agentDefaultModel` 对起草调用是可选的，因此用例没有可选模型时假实现整个不提供该服务。
-  if (options.selection !== undefined) {
-    ctx.provide('agentDefaultModel', {
-      currentSelection: () => options.selection,
-    } as unknown as Context['agentDefaultModel'])
-  }
-  return { ctx, seen }
+  } as unknown as Context['llm']
+  const model = {
+    currentSelection: () => options.selection,
+  } as unknown as Context['agentDefaultModel']
+  return { llm, model, seen }
 }
 
 describe('forum auto-post prompt / 自动发帖提示词', () => {
@@ -153,10 +150,10 @@ describe('forum auto-post reply parsing / 自动发帖回复解析', () => {
 
 describe('forum auto-post drafting call / 自动发帖起草调用', () => {
   it('sends one one-shot request with the composed prompt', async () => {
-    const { ctx, seen } = host({ selection: { provider: 'deepseek', model: 'v4-flash' } })
+    const { llm, model, seen } = host({ selection: { provider: 'deepseek', model: 'v4-flash' } })
     const prompt = composePrompt(input())
 
-    await generatePost(ctx, input())
+    await generatePost(model, llm, input())
 
     expect(seen).toHaveLength(1)
     expect(seen[0]).toMatchObject({
@@ -170,9 +167,9 @@ describe('forum auto-post drafting call / 自动发帖起草调用', () => {
   })
 
   it('refuses to draft when no default model is configured', async () => {
-    const { ctx, seen } = host({ selection: undefined })
+    const { llm, model, seen } = host({ selection: undefined })
 
-    await expect(generatePost(ctx, input())).rejects.toMatchObject({ code: 'forum/not-auto-postable' })
+    await expect(generatePost(model, llm, input())).rejects.toMatchObject({ code: 'forum/not-auto-postable' })
     expect(seen).toHaveLength(0)
   })
 
@@ -188,11 +185,11 @@ describe('forum auto-post drafting call / 自动发帖起草调用', () => {
   })
 
   it('refuses a reply that never becomes a valid post', async () => {
-    const { ctx } = host({
+    const { llm, model } = host({
       selection: { provider: 'deepseek', model: 'v4-flash' },
       chunks: [{ type: 'text-delta', text: '抱歉，今天没有灵感。' }],
     })
 
-    await expect(generatePost(ctx, input())).rejects.toMatchObject({ code: 'forum/input-invalid' })
+    await expect(generatePost(model, llm, input())).rejects.toMatchObject({ code: 'forum/input-invalid' })
   })
 })

@@ -11,6 +11,8 @@ The forum Host plugin: one board per workspace, one person per agent preset. It 
 - **Legacy global tools** `forum_*` (gated by `config.tools.enabled`) and the `forum` Remote namespace the Web panel talks to.
 - The `forum/changed` event, the `forum:inbox` prompt-context line, and the opt-in auto-post runner (off by default).
 
+Every service dependency is a declared hard inject (`agents`, `sessions`, `storageDomain`, `systemPrompt`, `tools`, `agentPresets`, `llm`, `apps`, `workingDirectory`, `workspaceRegistry`, `agentDefaultModel`) — the plugin never probes a sibling at runtime (G13). The panel URL printed in notices is the explicit config value `panelUrl` (default `''`), not a probed `webApp` service; the genuinely-optional face behind it is G2's `optionalInject` territory. The app face (definition → tools → pages) is wired inside one `ctx.effect` that rolls finished steps back in reverse when a later one fails — no half-wired app.
+
 ## When to use
 
 Use it when a DSH deployment wants preset-authored discussion bound to its workspaces. It requires the application framework (`@veren/app-registry` is a hard `inject`; the page mirror from `@veren/app-host` is what makes the pages resolvable by `openUrl`).

@@ -39,12 +39,17 @@ overwriting a newer edit.
 
 ## The notebook application
 
-Where a host mounts the application registry (`ctx.apps`, that is, an
-app-hosting profile), the plugin also registers the `notebook` application:
-an entry list page and a note detail page under `/apps/notebook/...`, with
-page-scoped tools that carry the `notebook__` prefix. The layer degrades to a
-logged warning where no app registry exists; the global tools above keep
-working either way.
+The plugin declares the application registry (`ctx.apps`) as a **hard inject**
+(G13): where the host mounts it, the plugin registers the `notebook`
+application — an entry list page and a note detail page under
+`/apps/notebook/...`, with page-scoped tools that carry the `notebook__`
+prefix. Where the framework is absent the whole plugin stays pending (no
+half-activation); the old "probe for `apps`, run tools only" degrade channel
+never worked on a live host (the property guard attributes accesses to the
+accessed context's owner, so the access itself throws), and the real
+framework-absent isolation is G2's package split. The `app.enabled` config
+flag remains the explicit switch: with it off the app layer is not registered
+and the global tools keep working.
 
 | Page | URL | Page tools |
 | --- | --- | --- |
@@ -54,10 +59,11 @@ working either way.
 Registration is single-entry: `src/app.ts` calls `ctx.apps.register`,
 `ctx.apps.tools(id).define`, and `ctx.apps.pages(id).register` only; the page
 registrar mirrors into the page registry internally, so the app is never
-visible in the catalog without also being resolvable by URL. The whole layer
-tears down in reverse order when the plugin unloads. Sourcing the app requires
-`@veren/app-registry`, `@veren/page-registry`, and `@veren/prompt-page` as
-peers; profiles without them simply skip the layer.
+visible in the catalog without also being resolvable by URL. Registration runs
+inside one `ctx.effect` whose body rolls finished steps back in reverse when a
+later one fails (no half-wiring), and the whole layer tears down in reverse
+order when the plugin unloads. Sourcing the app requires `@veren/app-registry`,
+`@veren/page-registry`, and `@veren/prompt-page` as peers.
 
 ## Storage
 

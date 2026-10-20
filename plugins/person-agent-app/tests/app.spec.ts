@@ -1,10 +1,11 @@
 /**
  * 组合测试：真实 cordis Context + 真实 AppRegistryService/PageRegistryService，
  * 锁定验收面：目录可发现、入口 URL 可解析、页面 URL 前缀、工具外部名前缀、
- * 单入口一致性、卸载清理、taskCenter/workspaceRegistry 缺席降级。
+ * 单入口一致性、卸载清理、读取失败的显式降级（服务本身都是硬 inject）。
  * Composition tests: real cordis Context with real registries; locks catalog
  * discovery, entry-url resolution, url prefixes, tool external-name prefixes,
- * single-entry consistency, teardown, and the absent-service degrade paths.
+ * single-entry consistency, teardown, and explicit read-failure degrade (all
+ * services are hard injects).
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -14,51 +15,65 @@ import PageRegistryPlugin, { PageRegistryService } from '@veren/page-registry'
 import { apply, inject, name } from '../src/index.ts'
 import { APP_DEFINITION, APP_ID } from '../src/app.ts'
 import { buildOverviewSnapshot } from '../src/views.ts'
+import type { OverviewFaces } from '../src/views.ts'
 
 /** 假任务中心：open 列表可编程 / a fake task center with a programmable open list */
-function fakeTaskCenter(openTitles: string[]) {
+function fakeTaskCenter(options: { openTitles?: string[]; failList?: boolean } = {}) {
   return {
-    list: async () => openTitles.map((title, index) => ({ id: `t-${index + 1}`, title, status: 'open' })),
+    list: async () => {
+      if (options.failList === true) throw new Error('storage backend down')
+      return (options.openTitles ?? []).map((title, index) => ({ id: `t-${index + 1}`, title, status: 'open' }))
+    },
   }
 }
 
 /** 假工作区注册表 / a fake workspace registry */
-function fakeWorkspaceRegistry() {
+function fakeWorkspaceRegistry(rows: Array<{ id: string; title: string; sessionIds: string[] }> = [
+  { id: 'ws-1', title: '主工作区', sessionIds: ['s-1', 's-2'] },
+  { id: 'ws-2', title: '副工作区', sessionIds: [] },
+]) {
   return {
     archivedSessionIds: ['s-archived'],
-    list: () => [
-      { id: 'ws-1', title: '主工作区', sessionIds: ['s-1', 's-2'] },
-      { id: 'ws-2', title: '副工作区', sessionIds: [] },
-    ],
+    list: () => rows,
   }
 }
 
-/** 挂好真实注册表与应用插件 / mount real registries plus the app plugin */
-async function install(options: { taskCenter?: string[]; workspaces?: boolean } = {}): Promise<{
+/** 挂好真实注册表与应用插件（三个数据面服务总是真实提供：它们是硬 inject）。
+ * Mount real registries plus the app plugin (the three data faces are always
+ * provided for real: they are hard injects). */
+async function install(options: {
+  openTitles?: string[]
+  failList?: boolean
+  workspaces?: Array<{ id: string; title: string; sessionIds: string[] }>
+} = {}): Promise<{
   ctx: Context
+  faces: OverviewFaces
   apps: AppRegistryService
   pageRegistry: PageRegistryService
   fiber: Fiber
 }> {
   const ctx = new Context()
-  // 两个注册表服务挂在同一个宿主上下文上，镜像面靠 ctx.get('pageRegistry') 解析。
-  // Both registries live on the same host context; the mirror resolves via ctx.get.
+  // 两个注册表服务挂在同一个宿主上下文上，镜像面由测试显式接上（app-host 语义）。
+  // Both registries live on one host context; the mirror is wired explicitly.
   const hostCtx = new Context()
   const apps = new AppRegistryService(hostCtx)
   const pageRegistry = new PageRegistryService(hostCtx)
   ctx.provide('apps', apps)
   ctx.provide('pageRegistry', pageRegistry)
-  // 装配接线（app-host 的镜像面语义，测试里显式接）
-  // Assembly wiring (app-host's mirror-face semantics, wired explicitly in tests).
   apps.setPageMirror({
     registerAppPage: (appId: never, page: never) => pageRegistry.registerAppPage(appId, page),
     releaseApp: (appId: never) => pageRegistry.releaseApp(appId),
   })
-  if (options.workspaces) ctx.provide('workspaceRegistry', fakeWorkspaceRegistry() as never)
-  if (options.taskCenter !== undefined) ctx.provide('taskCenter', fakeTaskCenter(options.taskCenter) as never)
+  ctx.provide('workspaceRegistry', fakeWorkspaceRegistry(options.workspaces) as never)
+  ctx.provide('taskCenter', fakeTaskCenter(options) as never)
   const fiber = ctx.plugin({ name, inject, apply }, { maxListSessions: 50 })
   await fiber
-  return { ctx, apps, pageRegistry, fiber }
+  const faces: OverviewFaces = {
+    apps: ctx.apps,
+    workspaces: ctx.workspaceRegistry,
+    tasks: ctx.taskCenter,
+  }
+  return { ctx, faces, apps, pageRegistry, fiber }
 }
 
 const disposers: (() => Promise<void>)[] = []
@@ -135,45 +150,54 @@ describe('生命周期', () => {
   })
 })
 
-describe('真实数据与优雅降级', () => {
-  it('taskCenter 缺席：tasks 区显式不可用，不抛异常', async () => {
-    const { ctx, fiber } = await install({ workspaces: true })
+describe('真实数据与读取失败降级', () => {
+  it('taskCenter 读取失败：tasks 区显式不可用，不抛异常（服务本身是硬 inject，缺席不是可能的失败）', async () => {
+    const { faces, fiber } = await install({ failList: true, workspaces: undefined })
     disposers.push(() => fiber.dispose())
-    const snapshot = await buildOverviewSnapshot(ctx)
+    const snapshot = await buildOverviewSnapshot(faces)
     expect(snapshot.tasks.available).toBe(false)
     expect(snapshot.tasks.openCount).toBeNull()
-    expect(snapshot.tasks.detail).toContain('not installed')
+    expect(snapshot.tasks.detail).toContain('task center read failed')
+    expect(snapshot.tasks.detail).toContain('storage backend down')
+    // 数据面服务都在场：目录与工作区两区照常给真实数据。
+    // The data faces are all present: catalog and workspaces give real rows.
+    expect(snapshot.catalog.available).toBe(true)
+    expect(snapshot.workspaces.available).toBe(true)
   })
 
   it('taskCenter 在场：open 计数来自真实 list 查询', async () => {
-    const { ctx, fiber } = await install({ taskCenter: ['评审 PR', '整理清单'] })
+    const { faces, fiber } = await install({ openTitles: ['评审 PR', '整理清单'] })
     disposers.push(() => fiber.dispose())
-    const snapshot = await buildOverviewSnapshot(ctx)
+    const snapshot = await buildOverviewSnapshot(faces)
     expect(snapshot.tasks.available).toBe(true)
     expect(snapshot.tasks.openCount).toBe(2)
   })
 
-  it('workspaceRegistry 在场/缺席：workspaces 区分别给出真实行与显式不可用', async () => {
-    const withWorkspaces = await install({ workspaces: true })
+  it('workspaceRegistry 在场：workspaces 区给出真实行；注册表为空时给出空行', async () => {
+    const withWorkspaces = await install()
     disposers.push(() => withWorkspaces.fiber.dispose())
-    const present = await buildOverviewSnapshot(withWorkspaces.ctx)
+    const present = await buildOverviewSnapshot(withWorkspaces.faces)
     expect(present.workspaces.available).toBe(true)
     expect(present.workspaces.rows).toEqual([
       { id: 'ws-1', title: '主工作区', sessions: 2 },
       { id: 'ws-2', title: '副工作区', sessions: 0 },
     ])
-    const without = await install()
-    disposers.push(() => without.fiber.dispose())
-    const absent = await buildOverviewSnapshot(without.ctx)
-    expect(absent.workspaces.available).toBe(false)
-    expect(absent.workspaces.rows).toEqual([])
+    const empty = await install({ workspaces: [] })
+    disposers.push(() => empty.fiber.dispose())
+    const none = await buildOverviewSnapshot(empty.faces)
+    expect(none.workspaces.available).toBe(true)
+    expect(none.workspaces.rows).toEqual([])
   })
 
   it('OverviewSource：current 在刷新前显式不可用，refresh 后换成真实快照', async () => {
-    const { ctx, fiber } = await install({ taskCenter: ['唯一任务'], workspaces: true })
+    const { ctx, fiber } = await install({ openTitles: ['唯一任务'] })
     disposers.push(() => fiber.dispose())
     const { OverviewSource } = await import('../src/views.ts')
-    const source = new OverviewSource(ctx)
+    const source = new OverviewSource({
+      apps: ctx.apps,
+      workspaces: ctx.workspaceRegistry,
+      tasks: ctx.taskCenter,
+    })
     expect(source.current().tasks.detail).toContain('not refreshed')
     await source.refresh()
     expect(source.current().tasks.openCount).toBe(1)

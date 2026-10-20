@@ -8,8 +8,11 @@
  * every call. The panel does take an owner because a human is choosing whose
  * notebook to read, which is the requested behaviour rather than a hole.
  *
- * Storage failure degrades rather than throws; the optional application layer
- * (`ctx.apps`) degrades the same way, leaving the rest of the Harness untouched.
+ * Storage failure degrades rather than throws. The application layer requires
+ * the app framework as a declared hard inject (`apps`): where the framework is
+ * absent the whole plugin stays pending — the tools-only isolation that used to
+ * be a runtime probe was never real on a live host (G13) and belongs to G2's
+ * package split.
  *
  * 记事本：每个 agent 预设一本私密、持久的记事本。
  *
@@ -18,7 +21,9 @@
  * 归属参数，而是在每次调用时从活着的 Agent 解析；面板接受归属，因为人本来就要选择看谁的记事本，
  * 这是需求本身，不是漏洞。
  *
- * 存储失败只降级不抛出；可选的应用层（`ctx.apps`）同样降级，不牵动 Harness 的其余部分。
+ * 存储失败只降级不抛出。应用层把应用框架声明为硬 inject（`apps`）：框架缺席时整个插件
+ * 保持 pending——过去"运行期探测 apps 缺席则只跑工具"的降级在真实宿主上从未生效（G13），
+ * 真正的隔离属 G2 的拆包工作。
  *
  * @module @veren/notebook
  */
@@ -71,7 +76,12 @@ export const Config = z.object({
  * Remote namespace instead, and every owner-scoped read is a plain table query.
  */
 export class NotebookService extends TypertRemoteService {
-  static inject = ['storageDomain', 'tools', 'agentPresets']
+  // `apps` is the application registry: the notebook exposes itself as an app
+  // (pages + app-scoped tools) and therefore requires the app framework as a
+  // hard inject (G13) — no runtime probing, no absent-degrade branch.
+  // `apps` 是应用注册表：记事本把自己暴露为一个应用（页面 + 应用级工具），
+  // 因此把应用框架声明为硬 inject（G13）——不做运行期探测，没有缺席降级分支。
+  static inject = ['storageDomain', 'tools', 'agentPresets', 'apps']
   static Config = Config
 
   /** The plugin's own reference to the owning Context. */
@@ -89,8 +99,9 @@ export class NotebookService extends TypertRemoteService {
     this.host = ctx
     this.ready = this.openDomain()
     if (config.tools.enabled) registerNotebookTools(ctx, () => this.toolsPort())
-    // Degrades to a warning on its own where no app registry is mounted.
-    // 在没有应用注册表的宿主里自行降级为一条警告。
+    // The app face requires the framework: `apps` is a declared hard inject, so
+    // this line only runs where the framework is present.
+    // 应用面依赖应用框架：`apps` 是声明的硬 inject，因此这一行只在框架在场时执行。
     if (config.app.enabled) registerNotebookApp(ctx, () => this.toolsPort())
   }
 

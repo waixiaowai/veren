@@ -1,14 +1,15 @@
 /**
- * 数据面：概览快照的构建与缓存。全部读真实服务面，任何缺席服务都显式降级。
- * The data plane: overview snapshot building and caching. Every read hits a
- * real service face; any absent service degrades explicitly.
- *
+ * 数据面：概览快照的构建与缓存。三个服务面都是所属插件声明的硬 inject（G13），
+ * 以参数显式传入——这里不做任何运行期探测，也没有"服务缺席"分支。
  * - `ctx.apps.catalog()` / `ctx.workspaceRegistry.list()` 是同步内存读；
  * - `ctx.taskCenter.list()` 是异步读：页面 tree 是同步纯函数，所以任务区走
- *   「刷新 + 缓存」——拿不到就显示不可用，绝不假装有数据。
- * - `ctx.apps.catalog()` / `ctx.workspaceRegistry.list()` are sync in-memory
- *   reads; `ctx.taskCenter.list()` is async, and the page tree is a sync pure
- *   function, so the tasks section is refresh-and-cache — never faked.
+ *   「刷新 + 缓存」——读取失败显式标注不可用，绝不假装有数据。
+ * The data plane: overview snapshot building and caching. All three service
+ * faces are hard injects of the owning plugin (G13) and arrive as explicit
+ * parameters — no runtime probing, no "service absent" branch.
+ * - `apps.catalog()` / `workspaces.list()` are sync in-memory reads;
+ * - `tasks.list()` is async, and the page tree is a sync pure function, so the
+ *   tasks section is refresh-and-cache — a failed read is reported, never faked.
  * @module @veren/person-agent-app
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -17,6 +18,13 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@veren/app-registry'
 import type {} from '@veren/task-center'
 import type {} from '@deepseek-ai/dsh-workspace'
+
+/** 概览页依赖的三个服务面：全部来自声明的 inject，纯参数传递（G13）/ the three injected service faces */
+export interface OverviewFaces {
+  readonly apps: Context['apps']
+  readonly workspaces: Context['workspaceRegistry']
+  readonly tasks: Context['taskCenter']
+}
 
 /** 应用目录行 / one catalog row */
 export interface AppCatalogRow {
@@ -33,13 +41,13 @@ export interface WorkspaceRow {
   readonly sessions: number
 }
 
-/** 通用分区：available=false 时 rows 恒为空 / a section: rows stay empty when unavailable */
+/** 通用分区 / a section */
 export interface Section<T> {
   readonly available: boolean
   readonly rows: readonly T[]
 }
 
-/** 待办任务区：openCount 只有在任务中心在场且读取成功时才有值 / the tasks section */
+/** 待办任务区：openCount 只有在读取成功时才有值 / the tasks section */
 export interface TasksSection {
   readonly available: boolean
   readonly openCount: number | null
@@ -53,12 +61,8 @@ export interface OverviewSnapshot {
   readonly tasks: TasksSection
 }
 
-/** 应用目录分区（ctx.apps 缺席 → 不可用）/ the catalog section (no ctx.apps → unavailable) */
-function catalogSection(ctx: Context): Section<AppCatalogRow> {
-  const apps = ctx.get('apps')
-  if (apps === undefined) {
-    return { available: false, rows: [] }
-  }
+/** 应用目录分区（apps 是硬 inject，读取本身不会缺席）/ the catalog section */
+function catalogSection(apps: Context['apps']): Section<AppCatalogRow> {
   const rows = apps.catalog().map((record) => ({
     id: record.definition.id,
     name: record.definition.name,
@@ -68,13 +72,9 @@ function catalogSection(ctx: Context): Section<AppCatalogRow> {
   return { available: true, rows }
 }
 
-/** 工作区分区（注册表缺席 → 不可用）/ the workspace section (no registry → unavailable) */
-function workspaceSection(ctx: Context): Section<WorkspaceRow> {
-  const registry = ctx.get('workspaceRegistry')
-  if (registry === undefined) {
-    return { available: false, rows: [] }
-  }
-  const rows = registry.list().map((workspace) => ({
+/** 工作区分区（注册表是硬 inject，读取本身不会缺席）/ the workspace section */
+function workspaceSection(workspaces: Context['workspaceRegistry']): Section<WorkspaceRow> {
+  const rows = workspaces.list().map((workspace) => ({
     id: workspace.id,
     title: workspace.title,
     sessions: workspace.sessionIds.length,
@@ -83,16 +83,14 @@ function workspaceSection(ctx: Context): Section<WorkspaceRow> {
 }
 
 /**
- * 待办任务分区：任务中心缺席或读取失败都显式降级，不抛异常。
- * The tasks section: absent task center or a failed read degrades explicitly.
+ * 待办任务分区：读取失败显式降级为不可用，不抛异常（服务缺席不是可能的失败，
+ * 只处理读取本身的错误）。
+ * The tasks section: a failed read degrades explicitly; service absence is not
+ * a possible failure, so only read errors are handled.
  */
-async function tasksSection(ctx: Context): Promise<TasksSection> {
-  const taskCenter = ctx.get('taskCenter')
-  if (taskCenter === undefined || typeof taskCenter.list !== 'function') {
-    return { available: false, openCount: null, detail: 'task center is not installed in this deployment' }
-  }
+async function tasksSection(tasks: Context['taskCenter']): Promise<TasksSection> {
   try {
-    const open = await taskCenter.list({ status: 'open' })
+    const open = await tasks.list({ status: 'open' })
     return { available: true, openCount: open.length, detail: 'live from the task center' }
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : String(error)
@@ -101,14 +99,14 @@ async function tasksSection(ctx: Context): Promise<TasksSection> {
 }
 
 /**
- * 组装一次概览快照：全部真实数据，缺席服务显示不可用。
- * Assemble one overview snapshot: real data only; absent services read unavailable.
+ * 组装一次概览快照：全部真实数据，读取失败显示不可用。
+ * Assemble one overview snapshot: real data only; failed reads read unavailable.
  */
-export async function buildOverviewSnapshot(ctx: Context): Promise<OverviewSnapshot> {
+export async function buildOverviewSnapshot(faces: OverviewFaces): Promise<OverviewSnapshot> {
   return {
-    catalog: catalogSection(ctx),
-    workspaces: workspaceSection(ctx),
-    tasks: await tasksSection(ctx),
+    catalog: catalogSection(faces.apps),
+    workspaces: workspaceSection(faces.workspaces),
+    tasks: await tasksSection(faces.tasks),
   }
 }
 
@@ -122,14 +120,16 @@ function emptySnapshot(): OverviewSnapshot {
 }
 
 /**
- * 概览数据源：页面 tree 同步读缓存，onLoad 触发异步刷新。
+ * 概览数据源：页面 tree 同步读缓存，onLoad 触发异步刷新。三个服务面由装配处
+ * 以参数显式传入，本类不接触 ctx。
  * The overview source: the page tree reads the cache synchronously; onLoad
- * triggers an async refresh.
+ * triggers an async refresh. The three service faces are passed in explicitly
+ * by the assembly; this class never touches ctx.
  */
 export class OverviewSource {
   private snapshot: OverviewSnapshot = emptySnapshot()
 
-  constructor(private readonly ctx: Context) {}
+  constructor(private readonly faces: OverviewFaces) {}
 
   /** 最新已知快照（引用稳定，可能尚未刷新）/ the latest known snapshot (stable, maybe stale) */
   current(): OverviewSnapshot {
@@ -138,6 +138,6 @@ export class OverviewSource {
 
   /** 重新读取全部服务面并换掉快照引用 / re-read every service face and swap the snapshot */
   async refresh(): Promise<void> {
-    this.snapshot = await buildOverviewSnapshot(this.ctx)
+    this.snapshot = await buildOverviewSnapshot(this.faces)
   }
 }

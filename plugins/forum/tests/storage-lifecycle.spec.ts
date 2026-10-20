@@ -66,6 +66,12 @@ async function boot(root: string): Promise<Context> {
   provideStub(ctx, 'tools', { register: () => () => {} })
   provideStub(ctx, 'agentPresets', { list: async () => [] })
   provideStub(ctx, 'llm', {})
+  // Declared hard injects of the service (G13): minimal slices for the paths
+  // these specs drive (no board resolution, no drafting selection).
+  // 服务的声明的硬 inject（G13）：为这些用例驱动的路径提供最小切片（无板块解析、无起草选择）。
+  provideStub(ctx, 'workingDirectory', { get: () => undefined })
+  provideStub(ctx, 'workspaceRegistry', { list: () => [] })
+  provideStub(ctx, 'agentDefaultModel', { currentSelection: () => undefined })
   // The app registry is a hard inject of the forum service; the real service
   // keeps the app registration under test honest. The registry service is
   // constructed on its own host context, as the real host assembly does.

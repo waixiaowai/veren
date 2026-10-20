@@ -11,6 +11,13 @@
 - **既有全局工具** `forum_*`（由 `config.tools.enabled` 控制）与 Web 面板通信的 `forum` Remote 命名空间。
 - `forum/changed` 事件、`forum:inbox` 提示词上下文行，以及可选的自动发帖运行器（默认关闭）。
 
+全部服务依赖都是声明的硬 inject（`agents`、`sessions`、`storageDomain`、`systemPrompt`、
+`tools`、`agentPresets`、`llm`、`apps`、`workingDirectory`、`workspaceRegistry`、
+`agentDefaultModel`）——插件绝不在运行期探测兄弟服务（G13）。通知文本里印的面板 URL 是
+显式配置项 `panelUrl`（默认 `''`），不是探测 `webApp` 服务得来的；其背后真正"可选依赖"
+的机制属 G2 的 `optionalInject`。应用面（定义 → 工具 → 页面）收在单个 `ctx.effect` 里接线，
+后一步失败即逆序回滚已完成步骤——不留半个应用。
+
 ## 何时使用
 
 部署需要「预设撰写的、绑定工作区的讨论区」时使用。它依赖应用框架（`@veren/app-registry` 是硬注入；`@veren/app-host` 的页面镜像面让页面能被 `openUrl` 解析）。

@@ -24,7 +24,7 @@ import { PageRegistryService } from '@veren/page-registry'
 import type { PageDefinition } from '@veren/prompt-page'
 import { expectPagesRegisteredOnce, mountAppHost } from '@veren/test-support'
 import type { AppHost } from '@veren/test-support'
-import NotebookService from '../src/index.ts'
+import NotebookService, { Config } from '../src/index.ts'
 import { APP_DEFINITION, APP_ID } from '../src/app.ts'
 import type { NoteSummary, NoteView } from '../src/types.ts'
 
@@ -45,8 +45,8 @@ afterEach(async () => {
   hosts.length = 0
 })
 
-/** 挂共享宿主（注册表 + 镜像面 + 临时目录上的真实存储）并启动记事本服务。Mount the shared host (registries + mirror + real storage over a temp dir) and start the notebook service. */
-async function mount(): Promise<{
+/** 挂共享宿主并启动配置驱动的记事本服务。Mount the shared host and start the notebook service with a resolved config. */
+async function mountWithConfig(appEnabled: boolean): Promise<{
   host: AppHost
   fiber: Fiber
   apps: AppRegistryService
@@ -54,19 +54,24 @@ async function mount(): Promise<{
 }> {
   const host = await mountAppHost({ storage: true })
   hosts.push(host)
-  const fiber: Fiber = await host.ctx.plugin(NotebookService)
+  const fiber: Fiber = await host.ctx.plugin(NotebookService, Config({
+    tools: { enabled: true },
+    app: { enabled: appEnabled },
+  }))
   if (host.apps === undefined || host.pageRegistry === undefined) {
     throw new Error('registries were not mounted')
   }
   return { host, fiber, apps: host.apps, pageRegistry: host.pageRegistry }
 }
 
-/** 挂不带注册表的宿主（测 apps 缺席降级）。Mount a host without the registries (the apps-absent degrade path). */
-async function mountWithoutApps(): Promise<{ host: AppHost; fiber: Fiber }> {
-  const host = await mountAppHost({ registries: false, storage: true })
-  hosts.push(host)
-  const fiber: Fiber = await host.ctx.plugin(NotebookService)
-  return { host, fiber }
+/** 挂共享宿主（注册表 + 镜像面 + 临时目录上的真实存储）并启动记事本服务。Mount the shared host (registries + mirror + real storage over a temp dir) and start the notebook service. */
+async function mount(): Promise<{
+  host: AppHost
+  fiber: Fiber
+  apps: AppRegistryService
+  pageRegistry: PageRegistryService
+}> {
+  return mountWithConfig(true)
 }
 
 /** The execution context one tool call carries. 一次工具调用携带的执行上下文。 */
@@ -179,10 +184,15 @@ describe('生命周期 / lifecycle', () => {
     expect(pageRegistry.resolve('/apps/notebook/note/n-1')).toBeNull()
   })
 
-  it('apps 缺席：服务照常激活，仅降级为全局工具', async () => {
-    const { host, fiber } = await mountWithoutApps()
+  it('config.app.enabled=false：应用层不注册，全局工具照常（显式配置，非运行期探测）', async () => {
+    // 应用框架是声明的硬 inject（G13），"apps 缺席照常激活"的降级通道并不存在；
+    // 真正的开关是配置：关掉应用层，全局 `notebook_*` 工具照常登记。
+    // The app framework is a declared hard inject (G13); no "activate without
+    // apps" degrade channel exists. The real switch is config: with the app
+    // layer off, the global `notebook_*` tools still register.
+    const { host, apps, fiber } = await mountWithConfig(false)
 
-    expect(host.ctx.get('apps')).toBeUndefined()
+    expect(apps.catalog()).toHaveLength(0)
     // 全局工具照常登记进宿主工具表：恰好五条、全部带 notebook 前缀。
     // Global tools still land in the host tool table: exactly five, all
     // carrying the notebook prefix.

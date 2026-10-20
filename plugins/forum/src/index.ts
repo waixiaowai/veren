@@ -47,12 +47,22 @@ import { inboxLine, mergePeople, notificationView } from './views.ts'
 import type { ForumRunnerPort, ForumToolsPort } from './ports.ts'
 import type { AutoPostSettings, AutoPostSnapshot } from './runner.ts'
 import { AutoPostRunner } from './runner.ts'
+import { generatePost } from './compose.ts'
 import { registerForumTools } from './tools.ts'
 import { registerForumApp } from './app.ts'
 import { Config } from './config.ts'
 import type { ForumConfig } from './config.ts'
-// Type-only: pulls the `ctx.agentPresets` service declaration into this face.
+// Type-only: pulls the declared service faces (`ctx.agentPresets`,
+// `ctx.workingDirectory`, `ctx.workspaceRegistry`, `ctx.agentDefaultModel`)
+// into this file. All are declared hard injects of this service (G13) and are
+// read directly, never probed.
+// 仅类型导入：把声明的服务面（`ctx.agentPresets` / `ctx.workingDirectory` /
+// `ctx.workspaceRegistry` / `ctx.agentDefaultModel`）拉进本文件。它们都是本服务
+// 声明的硬 inject（G13），直接读取，绝不探测。
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
+import type {} from '@deepseek-ai/dsh-working-directory'
+import type {} from '@deepseek-ai/dsh-workspace'
+import type {} from '@deepseek-ai/dsh-agent-default-model'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -87,10 +97,17 @@ const HOT_LIMIT = 200
  * Remote namespace instead, and Sessions through `ctx.agents` when present.
  */
 export class ForumService extends TypertRemoteService {
-  // `apps` is the application registry: the forum exposes itself as an app
-  // (pages + app-scoped tools) and therefore requires the app framework.
-  // `apps` 是应用注册表：论坛把自己暴露为一个应用（页面 + 应用级工具），因此依赖应用框架。
-  static inject = ['agents', 'sessions', 'storageDomain', 'systemPrompt', 'tools', 'agentPresets', 'llm', 'apps']
+  // Every member is a declared hard inject (G13): the service never probes a
+  // sibling at runtime. `apps` is the application registry (the forum exposes
+  // itself as an app); `workingDirectory` / `workspaceRegistry` resolve the
+  // caller's board; `agentDefaultModel` feeds the auto-post drafting call.
+  // 每一项都是声明的硬 inject（G13）：服务绝不在运行期探测兄弟服务。`apps` 是应用
+  // 注册表（论坛把自己暴露为一个应用）；`workingDirectory` / `workspaceRegistry`
+  // 解析调用者的板块；`agentDefaultModel` 供自动发帖起草调用使用。
+  static inject = [
+    'agents', 'sessions', 'storageDomain', 'systemPrompt', 'tools', 'agentPresets',
+    'llm', 'apps', 'workingDirectory', 'workspaceRegistry', 'agentDefaultModel',
+  ]
   static Config = Config
 
   /**
@@ -115,7 +132,10 @@ export class ForumService extends TypertRemoteService {
     super(ctx, 'forum', { namespace: 'forum' })
     this.host = ctx
     this.ready = this.openDomain()
-    this.link = new SessionLink(ctx, () => this.webUrl())
+    // The panel URL is a declared config value, not a probed sibling service
+    // (G13); see ForumConfig.panelUrl.
+    // 面板 URL 是声明的配置值，不是运行期探测的兄弟服务（G13）；见 ForumConfig.panelUrl。
+    this.link = new SessionLink(ctx, () => config.panelUrl)
     this.watchSessions()
     ctx.systemPrompt.context({
       name: 'forum:inbox',
@@ -127,7 +147,13 @@ export class ForumService extends TypertRemoteService {
     // The app face (catalog + pages + forum__* app tools) rides the same port.
     // 应用面（目录 + 页面 + forum__* 应用工具）走同一端口。
     registerForumApp(ctx, () => this.toolsPort())
-    this.runner = new AutoPostRunner(ctx, () => this.runnerPort(), config)
+    // Storage and drafting faces are constructor parameters (G13): the runner
+    // never probes ctx for the domain or the model.
+    // 存储与起草面是构造参数（G13）：运行器绝不探测 ctx 拿域或模型。
+    this.runner = new AutoPostRunner(ctx, () => this.runnerPort(), config, {
+      domain: () => this.current,
+      draft: (input) => generatePost(this.host.agentDefaultModel, this.host.llm, input),
+    })
   }
 
   async [Service.init](): Promise<void> {
@@ -539,15 +565,6 @@ export class ForumService extends TypertRemoteService {
       throw new ForumError('forum/not-auto-postable', 'the auto-post runner is not ready yet; retry after startup finishes.')
     }
     return this.runner
-  }
-
-  /** The Web GUI URL printed in every notice, or `''` outside the Web profile. */
-  private webUrl(): string {
-    try {
-      return this.host.get('webApp')?.getAdvertisedUrl() ?? ''
-    } catch {
-      return ''
-    }
   }
 
   /** The narrow surface the model-facing tools read and write. */

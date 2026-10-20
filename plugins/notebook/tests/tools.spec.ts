@@ -23,7 +23,7 @@ import type { Fiber } from '@deepseek-ai/cordis'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
-import NotebookService from '../src/index.ts'
+import NotebookService, { Config } from '../src/index.ts'
 import type { NoteSummary, NoteView } from '../src/types.ts'
 
 /** The registry member the tools register through. 工具注册所经过的注册表成员。 */
@@ -80,12 +80,21 @@ async function mount() {
     list: async () => [],
     composedPreset: (agentContext: { preset?: string }) => agentContext.preset,
   })
+  // `apps` is a declared hard inject of the service (G13): provide the minimal
+  // slice and switch the app layer off by config — this spec drives the global
+  // tools only.
+  // `apps` 是服务声明的硬 inject（G13）：提供最小切片，并用配置关掉应用层——本用例
+  // 只驱动全局工具。
+  ctx.provide('apps', {} as never)
 
   await ctx.plugin(Storage.default)
   await ctx.plugin(StorageJson, { root: tempRoot() })
   await ctx.plugin(StorageDomain, { backend: 'json' })
 
-  const fiber: Fiber = ctx.plugin(NotebookService)
+  const fiber: Fiber = ctx.plugin(NotebookService, Config({
+    tools: { enabled: true },
+    app: { enabled: false },
+  }))
   await fiber
   return { ctx, fiber, tools }
 }

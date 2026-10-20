@@ -2,7 +2,7 @@
   "name": "@veren/person-agent-app",
   "displayName": "管家-应用",
   "version": "0.1.0",
-  "description": "Use when a DSH deployment hosts the Person Agent bridge and needs it visible as a first-class Veren application: registers the person-agent app (a personal workbench overview page plus a workspace browser page under /apps/person-agent) in the host app catalog, reusing the existing session and workspace maintenance tool implementations as app-scoped page tools, with the task center degrading gracefully when absent; skip it when the Person Agent must stay a pure preset with no app pages.",
+  "description": "Use when a DSH deployment hosts the Person Agent bridge and needs it visible as a first-class Veren application: registers the person-agent app (a personal workbench overview page plus a workspace browser page under /apps/person-agent) in the host app catalog, reusing the existing session and workspace maintenance tool implementations as app-scoped page tools, with every data face (app catalog, workspace registry, task center) declared as a hard inject; skip it when the Person Agent must stay a pure preset with no app pages.",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
