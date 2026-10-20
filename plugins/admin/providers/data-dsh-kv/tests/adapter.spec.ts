@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { AdminError, type AdminDatabase, type AdminTable } from '@veren/admin-contract'
-import { createKvDatabase } from '../src/adapter.ts'
+import { createKvDatabase, recordKey } from '../src/adapter.ts'
 import { FakeDomain } from './fake-domain.ts'
 
 /** One typed record shape used by the specs. 用例使用的单个记录形状。 */
@@ -54,7 +54,7 @@ describe('record storage', () => {
     expect(notes.find('missing')).toBeUndefined()
     expect(notes.list().map((note) => note.id).sort()).toEqual(['n1', 'n2'])
     expect(notes.size).toBe(2)
-    expect([...domain.records.keys()]).toEqual(['notes:n1', 'notes:n2'])
+    expect([...domain.records.keys()]).toEqual([recordKey('notes', 'n1'), recordKey('notes', 'n2')])
 
     await expect(notes.remove('n1')).resolves.toBe(true)
     await expect(notes.remove('n1')).resolves.toBe(false)
@@ -85,6 +85,18 @@ describe('record storage', () => {
     expect(roles.list()).toHaveLength(1)
     expect(users.size).toBe(1)
     expect(roles.size).toBe(1)
+  })
+
+  it('stores path-safe keys for collections and ids the JSON backend used to reject', async () => {
+    const domain = new FakeDomain()
+    const database = createKvDatabase({ domain })
+    const odd = database.table<Note>('admin/user:list')
+    await odd.save({ id: 'a:b/c.d/中文', text: 'odd' })
+
+    expect(odd.find('a:b/c.d/中文')).toMatchObject({ text: 'odd' })
+    const keys = [...domain.records.keys()]
+    expect(keys).toEqual([recordKey('admin/user:list', 'a:b/c.d/中文')])
+    expect(keys[0]).toMatch(/^[0-9a-f]+_[0-9a-f]+$/)
   })
 
   it('rejects a record whose id is missing or not a string', async () => {

@@ -15,7 +15,6 @@
 import { createServer, type Server } from 'node:http'
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { AdminEntity, AdminTable, ProviderManifest } from '@veren/admin-contract'
 import { AdminApi } from '@veren/admin-api-kernel'
 import { AdminKernel } from '@veren/admin-kernel'
 import { apply as applyAccess } from '@veren/admin-access-rbac'
@@ -24,35 +23,7 @@ import { apply as applyNav } from '@veren/admin-navigation-default'
 import { apply as applyAudit } from '@veren/admin-audit-default'
 import { apply as applyDocs } from '@veren/admin-docs-openapi'
 import { webRoutes } from '../../web/src/handlers.ts'
-
-/** Manifest helper for the in-memory data provider. 内存数据 provider 的清单辅助函数。 */
-function dataManifest(): ProviderManifest {
-  return { id: 'memory-data', capability: 'data', contract: '^1.0', priority: 0, label: 'memory' }
-}
-
-/** In-memory data provider whose read model mirrors the KV adapter contract. 读模型与 KV 适配器契约一致的内存数据 provider。 */
-function memoryDatabase() {
-  const tables = new Map<string, Map<string, AdminEntity>>()
-  const table = <T extends AdminEntity>(name: string): AdminTable<T> => {
-    const rows = tables.get(name) ?? new Map<string, AdminEntity>()
-    tables.set(name, rows)
-    return {
-      find: (id: string) => rows.get(id) as T | undefined,
-      list: () => [...rows.values()] as T[],
-      save: async (record: T) => {
-        rows.set(record.id, record)
-      },
-      remove: async (id: string) => rows.delete(id),
-      size: rows.size,
-    }
-  }
-  return {
-    features: { transactions: false, secondaryIndexes: false, fullText: false },
-    table,
-    transaction: async (work: (uow: { table: typeof table }) => Promise<unknown>) => work({ table }),
-    health: async () => ({ status: 'ok' as const }),
-  }
-}
+import { dataManifest, memoryDatabase } from './memory-data.ts'
 
 /** One running platform. 一个运行中的平台。 */
 interface Platform {
@@ -65,7 +36,7 @@ interface Platform {
 async function startPlatform(): Promise<Platform> {
   const ctx = new Context()
   const kernel = new AdminKernel(ctx, { essential: [] })
-  kernel.register(dataManifest(), memoryDatabase() as never)
+  kernel.register(dataManifest(), memoryDatabase())
   const api = new AdminApi(ctx, { rateLimit: { window: 60, max: 10_000 } })
 
   applyAccess(ctx, {})

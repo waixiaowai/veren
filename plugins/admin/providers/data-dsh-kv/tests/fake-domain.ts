@@ -19,7 +19,7 @@ import type { RecordsTableName } from '../src/domain.ts'
 
 /** One fake domain: a record map plus a switchable failure. 单个假 domain：记录表加可切换的失败状态。 */
 export class FakeDomain implements KvDomainHandle {
-  /** Stored records, keyed `${collection}:${id}`. 存储记录，键为 `${collection}:${id}`。 */
+  /** Stored records, keyed by the adapter's path-safe composite key. 存储记录，键为适配器的 path-safe 复合键。 */
   readonly records = new Map<string, AdminEntity>()
 
   /** How many times `close()` ran; the plugin must close the domain on dispose. `close()` 的调用次数；插件必须在卸载时关闭 domain。 */

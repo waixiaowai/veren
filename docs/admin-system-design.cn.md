@@ -336,7 +336,8 @@ plugins/admin/
   ui-kernel/         @veren/admin-ui-kernel
   api/               @veren/admin-api-kernel
   providers/
-    data-drizzle/    @veren/admin-data-drizzle（PG/MySQL/SQLite）
+    data-postgres/   @veren/admin-data-postgres（PostgreSQL，已交付默认）
+    data-drizzle/    @veren/admin-data-drizzle（多引擎，未来）
     data-mongodb/    @veren/admin-data-mongodb（可选）
     data-dsh-kv/     @veren/admin-data-dsh-kv（兼容嵌入式）
     auth-better/     @veren/admin-auth-better
@@ -547,15 +548,16 @@ UI 契约：
 
 | 引擎 | 适配器 | 驱动/ORM | 适用 |
 |---|---|---|---|
-| PostgreSQL | `admin-data-drizzle` | Drizzle + `pg` | 生产首选；事务/jsonb/索引/全文 |
-| MySQL | `admin-data-drizzle` | Drizzle + `mysql2` | 常见生产环境 |
-| SQLite | `admin-data-drizzle` | Drizzle + `better-sqlite3` | 本机/单机默认，零外部服务依赖 |
+| PostgreSQL | `admin-data-postgres` | `pg` | 已交付生产默认；事务/jsonb/索引 |
+| MySQL | `admin-data-drizzle` | Drizzle + `mysql2` | 未来；常见生产环境 |
+| SQLite | `admin-data-drizzle` | Drizzle + `better-sqlite3` | 未来；本机/单机默认 |
 | MongoDB | `admin-data-mongodb` | 官方 `mongodb` 驱动 | 文档模型/已有 Mongo 环境 |
 | DSH KV | `admin-data-dsh-kv` | DSH storage domain | 嵌入式兼容/迁移，不作为生产默认 |
 
 ORM 选择：
 
-- **SQL 用 Drizzle**：TypeScript 原生、类型安全、支持 PG/MySQL/SQLite、迁移明确，适合做 Repository/UoW 的底层。
+- **已交付的 PostgreSQL 适配器直接使用 `pg`**：`AdminDatabase` 端口只有一小组固定操作，ORM 只会增加映射与迁移机制，并不会在边界上买来类型安全。schema 引导是 PostgreSQL advisory lock 下的幂等 DDL。
+- **Drizzle 仍是未来多引擎适配器（`admin-data-drizzle`，MySQL/SQLite）的首选底层**：TypeScript 原生、类型安全、迁移明确，适合 Repository/UoW。
 - **MongoDB 用官方驱动**：Drizzle 不覆盖 Mongo；官方驱动 + Zod 校验更直接，事务需要 replica set。
 - **Prisma 作为可选适配器**：如果团队更熟悉 Prisma，可作为 `admin-data-prisma` 实现同一 `Database` 契约；不让 ORM 泄漏到业务模块。
 - **一个部署一个主引擎**：不要在同一个 admin 实例混用 PG + Mongo；跨能力不做跨库 join，只走契约/API。
@@ -567,15 +569,18 @@ ORM 选择：
 
 | 能力 | 表/集合示例 | 关键索引 |
 |---|---|---|
-| auth | `auth_users`、`auth_sessions`、`auth_tokens` | email、session hash、token hash |
-| access | `access_roles`、`access_bindings` | subject、role |
-| audit | `audit_entries` | at、actor、action、result |
+| auth | `veren_users`、`veren_sessions`、`veren_tokens` | 唯一 `(lower(email))`、唯一 `(token_hash)`、唯一 `(secret_hash)`、`user_id` |
+| access | `veren_roles`、`veren_bindings` | 唯一 `(user_id, role_id)`、`role_id` |
+| audit | `veren_audit` | `(at DESC)`、`(actor_id, at DESC)`、`(action)`、`(result)` |
+| 其他集合 | `veren_records` | 主键 `(collection, id)`、`(collection)` |
 | tasks | `tasks`、`task_events`、`task_outbox` | status+assignee+due、task_id+seq、outbox status+next_attempt |
 | assist | `assist_jobs`、`assist_suggestions` | task_id、status |
 | attachments | `attachments` | owner、task_id、created_at |
 | notifications | `notifications` | user_id+read_at |
 | jobs | `jobs` | status、next_run_at |
 | api | `idempotency`、`preferences` | actor+key、subject |
+
+已交付的 `admin-data-postgres` 表把完整记录放在 JSONB `data` 列，并把需要索引的字段投影为可空列，因为 `AdminDatabase` 端口按调用方交来的值存储记录且只校验 `id`。未知集合共享以 `(collection, id)` 为键的 `veren_records`。
 
 规则：
 
@@ -603,8 +608,8 @@ ORM 选择：
 
 #### 5.7.4 迁移
 
-- 每个 provider 拥有自己的 migration 目录和版本；SQL 用 Drizzle Kit，Mongo 用独立 runner，KV 用 domain version。
-- `_admin_migrations` 记录已应用版本；启动时获取迁移锁（PG advisory lock / MySQL GET_LOCK / SQLite transaction）。
+- 每个 provider 拥有自己的 migration 目录和版本；已交付的 PostgreSQL 适配器使用 PostgreSQL advisory lock 串行化的幂等启动引导（`CREATE ... IF NOT EXISTS`、`ADD COLUMN IF NOT EXISTS`），`migrateOnBoot` 可配置。未来 SQL 适配器用 Drizzle Kit，Mongo 用独立 runner，KV 用 domain version。
+- 使用版本化迁移 runner 时由 `_admin_migrations` 记录已应用版本；幂等引导不保留历史。
 - `database.migrateOnBoot` 默认 true；生产可以改为部署任务执行。
 - 迁移前自动备份/要求备份；破坏性迁移必须显式确认；失败停止启动，不带着半套 schema 服务。
 - provider 替换必须声明 `migrateFrom`/`migrateTo`；没有迁移就拒绝自动替换。
@@ -612,9 +617,10 @@ ORM 选择：
 #### 5.7.5 DSH KV 兼容
 
 - `admin-data-dsh-kv` 实现同一 `Database`/Repository 端口，用于嵌入式、零配置、旧数据迁移。
+- 键段按 UTF-8 十六进制编码并以 `_` 连接，因此 JSON 后端的 path-safe 规则接受任意集合名与 id；早期的 `:` 键不可读。
 - 明确限制：无跨表事务、无二级索引、查询需扫描、并发写弱；只适合小数据/单机。
 - `bootstrap.features`/能力目录暴露 `transactions: false`、`secondaryIndexes: false`，任务/审计用 reconciliation 兜底。
-- 不作为生产默认；大规模部署推荐 PG/MySQL，文档型选 Mongo。
+- 不作为生产默认；大规模部署使用已交付的 PostgreSQL 适配器（MySQL 为未来适配器），文档型选 Mongo。
 
 ### 5.8 通用后端组件库
 

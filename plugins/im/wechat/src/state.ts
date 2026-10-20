@@ -17,6 +17,7 @@
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { imCredentialKey } from '@veren/im'
+import type { LoggerService } from '@deepseek-ai/cordis'
 import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 
 /** One persisted per-account state file. */
@@ -47,13 +48,6 @@ export interface WechatSecretStore {
   remove(accountId: string): Promise<void>
 }
 
-/** Logger surface used by the provider. */
-export interface WechatLogger {
-  info?(message: string): void
-  warn(message: string): void
-  error(message: string): void
-}
-
 /** Provider construction options. */
 export interface WechatProviderOptions {
   dataDir: string
@@ -65,7 +59,8 @@ export interface WechatProviderOptions {
   longPollTimeoutMs?: number
   /** Delay between QR status polls; tests shorten it. */
   pollIntervalMs?: number
-  logger: WechatLogger
+  /** Host logger; the plugin passes `ctx.logger`. / 宿主日志器；插件传入 `ctx.logger`。 */
+  logger: LoggerService
   secrets: WechatSecretStore
 }
 

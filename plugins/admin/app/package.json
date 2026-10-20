@@ -30,6 +30,7 @@
     "@veren/admin-audit-default": "workspace:^",
     "@veren/admin-auth-local": "workspace:^",
     "@veren/admin-data-dsh-kv": "workspace:^",
+    "@veren/admin-data-postgres": "workspace:^",
     "@veren/admin-docs-openapi": "workspace:^",
     "@veren/admin-icons-default": "workspace:^",
     "@veren/admin-kernel": "workspace:^",

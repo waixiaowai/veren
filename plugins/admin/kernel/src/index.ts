@@ -21,11 +21,19 @@ import type {
   AdminSettings,
 } from '@veren/admin-contract'
 import type { AdminKernel } from './plugin.ts'
+import type { AdminReadiness } from './registry.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** The kernel: registration, catalog, health and the boot gate. 内核：注册、目录、健康与启动门禁。 */
     admin: AdminKernel
+    /**
+     * Published once every essential capability has a provider. Injecting it
+     * orders consumers after the provider rows.
+     *
+     * 全部必需能力都有 provider 后发布。注入它会把消费方排在 provider 行之后。
+     */
+    adminReadiness: AdminReadiness
     /** Stable `data` façade. 稳定的 `data` façade。 */
     adminData: AdminDatabase
     /** Stable `auth` façade. 稳定的 `auth` façade。 */

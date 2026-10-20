@@ -1,0 +1,10 @@
+{
+  // Package face of `plugins/admin/providers/data-postgres`: emit `src` only.
+  // `plugins/admin/providers/data-postgres` 的包配置面：只产出 `src`。
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"]
+}

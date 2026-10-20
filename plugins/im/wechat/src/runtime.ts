@@ -12,12 +12,12 @@
  */
 
 import { ImError } from '@veren/im'
+import type { LoggerService } from '@deepseek-ai/cordis'
 import type { ImAccount, ImBindAttempt, ImBindChallenge, ImBindStatus } from '@veren/im'
 import { WechatApi, WechatTimeoutError, normalizeBaseUrl } from './api.ts'
 import { WechatStateStore } from './state.ts'
 import type {
   WechatLoginStatus,
-  WechatLogger,
   WechatMessage,
   WechatSecretStore,
   WechatSecrets,
@@ -33,7 +33,7 @@ export interface WechatBindAttemptOptions {
   api: WechatApi
   now: () => number
   pollIntervalMs?: number
-  logger: WechatLogger
+  logger: LoggerService
   /** Persist the confirmed account and start its monitor. */
   activate(response: WechatLoginStatus): Promise<ImAccount>
 }
@@ -62,7 +62,7 @@ export class WechatBindAttempt implements ImBindAttempt {
   readonly #controller = new AbortController()
   readonly #api: WechatApi
   readonly #now: () => number
-  readonly #logger: WechatLogger
+  readonly #logger: LoggerService
   readonly #activate: (response: WechatLoginStatus) => Promise<ImAccount>
   readonly #pollIntervalMs: number
   readonly #waiters: Array<{ resolve(account: ImAccount): void; reject(error: unknown): void }> = []

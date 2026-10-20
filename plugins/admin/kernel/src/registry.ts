@@ -65,6 +65,36 @@ function pick(registrations: readonly Registration[]): Registration | undefined 
   return winner
 }
 
+/**
+ * Snapshot published once every essential capability has an active provider.
+ *
+ * 全部必需能力都有激活 provider 后发布的快照。
+ */
+export interface AdminReadiness {
+  /** Contract version the kernel negotiated at boot. 内核启动时协商的契约版本。 */
+  readonly contractVersion: string
+  /** Essential capabilities, all active at publication time. 发布时全部激活的必需能力。 */
+  readonly essentials: readonly CapabilityName[]
+}
+
+/**
+ * Build the readiness snapshot, or `undefined` while any required capability
+ * still lacks a provider.
+ *
+ * 构建就绪快照；仍有必需能力缺少 provider 时返回 `undefined`。
+ *
+ * @param essential - capability names that must be served 必须被服务的能力名
+ * @param has - active-provider predicate 激活 provider 判定
+ * @returns the readiness value, or `undefined` when a provider is missing 就绪值；缺 provider 时为 `undefined`
+ */
+export function readinessOf(
+  essential: readonly CapabilityName[],
+  has: (capability: CapabilityName) => boolean,
+): AdminReadiness | undefined {
+  if (essential.some((capability) => !has(capability))) return undefined
+  return { contractVersion: ADMIN_CONTRACT_VERSION, essentials: [...essential] }
+}
+
 /** The registry itself; one instance per kernel. 注册表本体；每个内核一个实例。 */
 export class CapabilityRegistry {
   /** Registrations per capability, in registration order. 逐能力的注册项，按注册顺序。 */

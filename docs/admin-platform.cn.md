@@ -23,9 +23,9 @@ provider。
 ├─────────────────────────────────────────────────────────────────┤
 │ admin-kernel       注册表、协商、façade、启动门禁                  │
 ├──────────┬──────────┬──────────┬──────────┬─────────────────────┤
-│ data-kv  │ auth     │ access   │ nav      │ audit / docs        │
+│ data-pg  │ auth     │ access   │ nav      │ audit / docs        │
 └──────────┴──────────┴──────────┴──────────┴─────────────────────┘
-                   DSH 存储域（profile 的 storage 组）
+        PostgreSQL（默认）或 DSH 存储域（回退）
 ```
 
 ## 包
@@ -35,7 +35,8 @@ provider。
 | `@veren/admin-contract` | 稳定 Host 类型：能力、错误、数据端口、路由词汇、能力接口 |
 | `@veren/admin-kernel` | provider 注册表、优先级/版本协商、façade、目录、健康、启动门禁 |
 | `@veren/admin-api-kernel` | 唯一 HTTP 网关：认证、CSRF、权限、限流、校验、审计、OpenAPI |
-| `@veren/admin-data-dsh-kv` | `data`，基于单个 DSH 存储域（事务降级） |
+| `@veren/admin-data-postgres` | `data`，基于 PostgreSQL：`veren_` 表、真实事务（推荐默认） |
+| `@veren/admin-data-dsh-kv` | `data`，基于单个 DSH 存储域（嵌入式回退，事务降级） |
 | `@veren/admin-auth-local` | `auth`：初始化、登录、会话、用户、API token |
 | `@veren/admin-access-rbac` | `access`：内置与自定义角色、绑定、防自锁 |
 | `@veren/admin-navigation-default` | `navigation`：默认菜单贡献 |
@@ -64,11 +65,16 @@ provider。
 ## 数据路径
 
 `api.adminData` 暴露 `table<T>(name)`：同步的 `find`/`list`/`size`，异步的
-`save`/`remove`。内嵌适配器把所有集合放在一个 DSH 存储域（`admin_data`，单表
-`records`，键为 `<集合>:<id>`），并报告 `features.transactions = false`。
+`save`/`remove`。两个 provider 实现它：
 
-`transaction(work)` 通过一条 promise 链串行化，因此并发事务不会交错，但**不回滚**：失败时
-先前的写入保留，错误继续向上抛出。需要原子性的场景应运行在 SQL 引擎上。
+- `admin-data-postgres`（优先级 10，默认）：`veren_` 前缀表、为同步读取维护的写穿内存
+  镜像、真实的 `BEGIN`/`COMMIT` 事务，以及由 PostgreSQL advisory lock 串行化的幂等
+  schema 引导。它报告 `features.transactions = true`。
+- `admin-data-dsh-kv`（优先级 0，回退）：单个 DSH 存储域（`admin_data`，单表
+  `records`），键段按十六进制编码并以 `_` 连接，因此 JSON 后端接受。`transaction`
+  串行化但**不回滚**，并报告 `features.transactions = false`。
+
+禁用一行并启用另一行即可切换后端；消费方仍面对同一个 `ctx.adminData` façade。
 
 ## 安装
 
@@ -77,9 +83,14 @@ dsh plugin --profile admin add @veren/admin-app
 dsh --profile admin --host 127.0.0.1 --port 3081 --no-open
 ```
 
-profile 必须提供 `webServer`、`storage`（至少一个后端）与 `storageDomain`。
-`admin-data-dsh-kv` 默认 `{ backend: 'json' }`；若 profile 的后端名不同，请在其行上设置
-`storage.backend`。后端缺失会显式加载失败，并列出该后端名与已注册名称。
+profile 必须提供 `webServer`，以及一个在 `admin-data-postgres` 行上配置的可达
+PostgreSQL 数据库（`host`、`port`、`user`、`password`、`database`，可选 `schema`、
+`ssl`、`maxConnections`、`connectTimeoutMs`、`migrateOnBoot`）。数据库与登录必须在
+首次启动前存在；schema 幂等引导。
+
+JSON 回退还需要 `storage`（至少一个后端）与 `storageDomain`。`admin-data-dsh-kv` 默认
+`{ backend: 'json' }`；若 profile 的后端名不同，请在其行上设置 `storage.backend`。
+后端缺失会显式加载失败，并列出该后端名与已注册名称。
 
 打开 `/admin`，完成首次初始化，仪表盘即出现。
 
@@ -129,16 +140,16 @@ pnpm check:plugins
 | 设计 | 实现 |
 |---|---|
 | 从 `package.json` 的 `dsh.admin.provider` / `dsh.admin.ui` 扫描 provider | provider 与包通过 `ctx.admin.register` / `ctx.adminUi.register` 自行注册 |
-| `auth-better` + `data-drizzle`（默认 SQLite） | `auth-local` + `data-dsh-kv`；SQL 适配器为后续工作 |
+| `auth-better` + `data-drizzle`（默认 SQLite） | `auth-local` + `data-postgres`（默认），`data-dsh-kv` 回退；Drizzle/MySQL/SQLite 适配器为后续工作 |
 | `/api/openapi.json` | `/api/public/v1/openapi.json`（受众前缀路由） |
 | 支持 `Idempotency-Key` | 未实现；CORS 仅声明允许该请求头 |
 | 带 TTL 的 setup token | 无用户时 setup 开放 |
 | `ctx.admin.registerModule(descriptor)` | 模块直接注册路由与导航 |
 | provider 热替换含 drain 与回滚 | 按优先级实时替换，无 drain，无自动回滚 |
-| 集合 `auth_users`、`access_roles`、`audit_entries` 等 | `admin_users`、`admin_roles`、`admin_audit` 等 |
+| 集合 `auth_users`、`access_roles`、`audit_entries` 等 | PostgreSQL 表 `veren_users`、`veren_roles`、`veren_audit` 等，其他集合进 `veren_records` |
 
 ## 推迟到 P1 及以后
 
-任务、表单、AI 协助、附件、通知、后台作业与设置 provider；带真实事务的 SQL（Drizzle）与
-MongoDB 适配器；provider drain/回滚；provider 与 UI 包的 package.json 声明扫描；端到端
-限定到 terminal 路由的 API token scope；口令重置与 MFA。
+任务、表单、AI 协助、附件、通知、后台作业与设置 provider；带真实事务的多引擎 SQL
+（Drizzle/MySQL/SQLite）与 MongoDB 适配器；provider drain/回滚；provider 与 UI 包的
+package.json 声明扫描；端到端限定到 terminal 路由的 API token scope；口令重置与 MFA。

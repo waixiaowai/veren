@@ -35,13 +35,24 @@ import {
   type ProviderManifest,
 } from '@veren/admin-contract'
 import { createFacade } from './facades.ts'
-import { CapabilityRegistry, probeHealth } from './registry.ts'
+import { CapabilityRegistry, probeHealth, readinessOf } from './registry.ts'
 
 /** Every capability in catalog order: essentials first, then optionals. 目录顺序的全部能力：先必需后可选。 */
 export const CAPABILITY_ORDER: readonly CapabilityName[] = [...ESSENTIAL_CAPABILITIES, ...OPTIONAL_CAPABILITIES]
 
 /** Service name this plugin provides. 本插件提供的服务名。 */
 export const name = 'admin'
+
+/**
+ * Service published once every essential capability has an active provider.
+ *
+ * Consumers list it in `inject` to be ordered after the provider rows even when
+ * the loader mounts rows concurrently.
+ *
+ * 全部必需能力都有激活 provider 后发布的服务。消费方在 `inject` 中声明它，即使 loader
+ * 并发挂载各行，也会排在 provider 行之后加载。
+ */
+export const ADMIN_READINESS_SERVICE = 'adminReadiness' as const
 
 /** Kernel configuration. 内核配置。 */
 export interface Config {
@@ -90,6 +101,9 @@ export class AdminKernel extends Service {
   /** Latest health verdict per capability, refreshed by {@link refreshHealth}. 逐能力的最新健康结论，由 {@link refreshHealth} 刷新。 */
   private readonly healthByCapability = new Map<CapabilityName, HealthReport>()
 
+  /** Whether the one-way readiness service has been published. 单向就绪服务是否已发布。 */
+  private readinessPublished = false
+
   /**
    * @param ctx - owning Cordis context 所属 Cordis 上下文
    * @param config - validated kernel config 已校验的内核配置
@@ -99,17 +113,28 @@ export class AdminKernel extends Service {
     this.essential = resolveEssential(config.essential ?? [])
     this.registry = new CapabilityRegistry(ADMIN_CONTRACT_VERSION)
     this.mountFacades()
+    // A deployment whose essential set is already empty is ready immediately.
+    // 必需集合本就为空的部署立即就绪。
+    this.publishReadiness()
   }
 
   /**
    * Register one provider implementation.
+   *
+   * Publishes `adminReadiness` as soon as this registration completes the
+   * essential set, so waiting consumers activate after this call returns.
+   *
+   * 注册一个 provider 实现。一旦本次注册补全必需集合就发布 `adminReadiness`，因此等待中
+   * 的消费方会在本调用返回后激活。
    *
    * @param manifest - provider declaration provider 声明
    * @param implementation - the capability implementation 能力实现
    * @returns the disposer removing this registration 移除该注册项的 disposer
    */
   register(manifest: ProviderManifest, implementation: object): () => void {
-    return this.registry.register(manifest, implementation)
+    const dispose = this.registry.register(manifest, implementation)
+    this.publishReadiness()
+    return dispose
   }
 
   /**
@@ -197,7 +222,7 @@ export class AdminKernel extends Service {
    * @throws AdminError `ESSENTIAL_CAPABILITY_MISSING` listing every gap 列出全部缺口的错误
    */
   ready(): void {
-    const missing = this.essential.filter((capability) => !this.has(capability))
+    const missing = this.missingEssential()
     if (missing.length === 0) return
     throw new AdminError(
       'ESSENTIAL_CAPABILITY_MISSING',
@@ -207,6 +232,31 @@ export class AdminKernel extends Service {
         registered: CAPABILITY_ORDER.filter((capability) => this.has(capability)),
       },
     )
+  }
+
+  /**
+   * Publish the one-way readiness service once every essential capability has
+   * an active provider. Consumers that inject it stay pending until then,
+   * which is what makes startup ordering independent of loader concurrency.
+   *
+   * 一旦所有必需能力都有激活 provider 就发布单向就绪服务。注入它的消费方在此前保持
+   * pending，因此启动顺序与 loader 的并发无关。
+   */
+  private publishReadiness(): void {
+    if (this.readinessPublished) return
+    const readiness = readinessOf(this.essential, (capability) => this.has(capability))
+    if (readiness === undefined) return
+    this.ctx.effect(() => this.ctx.provide(ADMIN_READINESS_SERVICE, readiness), 'admin-kernel: readiness')
+    this.readinessPublished = true
+  }
+
+  /**
+   * Essential capabilities without an active provider. 缺少激活 provider 的必需能力。
+   *
+   * @returns the missing names, in essential order 按必需顺序排列的缺失名称
+   */
+  private missingEssential(): CapabilityName[] {
+    return this.essential.filter((capability) => !this.has(capability))
   }
 
   /**

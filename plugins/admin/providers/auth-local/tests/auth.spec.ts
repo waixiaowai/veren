@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { AdminError, type AdminAccess, type AdminIdentity, type ProviderManifest } from '@veren/admin-contract'
 import { AdminKernel } from '@veren/admin-kernel'
 import { LocalAuth, resolveAuthConfig } from '../src/provider.ts'
+import { authRoutes } from '../src/index.ts'
 import type { BindingRecord } from '@veren/admin-access-rbac'
 
 /** Manifest helper for the fake providers. 伪 provider 的清单辅助函数。 */
@@ -170,6 +171,57 @@ describe('local auth provider', () => {
     await expect(auth.login({ email: 'alice@example.com', password: 'alice pass 2' })).resolves.toBeTruthy()
     await expect(auth.updateUser(created.id, { password: 'short' }))
       .rejects.toMatchObject({ code: 'VALIDATION_FAILED' })
+  })
+
+  it('changes the signed-in password, keeping the current session and revoking the others', async () => {
+    const first = await auth.setup({ email: 'owner@example.com', password: 'correct horse', name: 'Owner' })
+    const second = await auth.login({ email: 'owner@example.com', password: 'correct horse' })
+    const keepSessionId = first.session.id
+
+    await expect(auth.changePassword(first.principal.userId, {
+      currentPassword: 'wrong horse',
+      newPassword: 'another horse 2',
+      keepSessionId,
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'WRONG_PASSWORD' } })
+
+    await expect(auth.changePassword(first.principal.userId, {
+      currentPassword: 'correct horse',
+      newPassword: 'correct horse',
+      keepSessionId,
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'UNCHANGED' } })
+
+    await expect(auth.changePassword(first.principal.userId, {
+      currentPassword: 'correct horse',
+      newPassword: 'short',
+      keepSessionId,
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'TOO_SHORT' } })
+
+    const changed = await auth.changePassword(first.principal.userId, {
+      currentPassword: 'correct horse',
+      newPassword: 'another horse 2',
+      keepSessionId,
+    })
+    expect(changed.revokedSessions).toBe(1)
+
+    // The session that made the change survives; the other one is gone.
+    // 发起改密的会话保留；另一个会话失效。
+    expect(await auth.authenticate({ sessionId: first.sessionToken })).toBeDefined()
+    expect(await auth.authenticate({ sessionId: second.sessionToken })).toBeUndefined()
+
+    await expect(auth.login({ email: 'owner@example.com', password: 'correct horse' }))
+      .rejects.toMatchObject({ code: 'AUTH_REQUIRED' })
+    await expect(auth.login({ email: 'owner@example.com', password: 'another horse 2' }))
+      .resolves.toMatchObject({ principal: { email: 'owner@example.com' } })
+  })
+
+  it('registers an audited self-service password route without a permission gate', () => {
+    const routes = authRoutes(auth, resolveAuthConfig({ sessionDays: 7, idleHours: 12, passwordMinLength: 8 }))
+    const route = routes.find((entry) => entry.method === 'POST' && entry.path === '/me/password')
+    expect(route).toBeDefined()
+    expect(route?.audience).toBe('admin')
+    expect(route?.permission).toBeUndefined()
+    expect(route?.audit).toBe(true)
+    expect(route?.action).toBe('auth.changePassword')
   })
 
   it('refuses to delete the last owner', async () => {

@@ -15,7 +15,7 @@ behind the kernel façades.
 
 | Name | Essential | Default provider in `@veren/admin-app` |
 |---|---|---|
-| `data` | yes | `@veren/admin-data-dsh-kv` |
+| `data` | yes | `@veren/admin-data-postgres` (fallback: `@veren/admin-data-dsh-kv`) |
 | `auth` | yes | `@veren/admin-auth-local` |
 | `access` | yes | `@veren/admin-access-rbac` |
 | `navigation` | yes | `@veren/admin-navigation-default` |

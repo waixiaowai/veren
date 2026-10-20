@@ -5,7 +5,7 @@ import { WechatApi } from '../src/api.ts'
 import { WechatStateStore } from '../src/state.ts'
 import { WEIXIN_FEATURES, WechatProvider, splitText } from '../src/provider.ts'
 import {
-  MemorySecrets, bodyOf, hangUntilAbort, jsonResponse, mockFetch, removeDir, seedAccount, tempDir, until,
+  MemorySecrets, bodyOf, hangUntilAbort, jsonResponse, mockFetch, removeDir, seedAccount, tempDir, testLogger, until,
 } from './support.ts'
 import type { FetchHandler } from './support.ts'
 
@@ -26,7 +26,7 @@ async function setup(handler: FetchHandler, options: { longPollTimeoutMs?: numbe
     longPollTimeoutMs: options.longPollTimeoutMs ?? 20,
     pollIntervalMs: 5,
     qrTtlMs: 60_000,
-    logger: { warn() {}, error() {} },
+    logger: testLogger(),
   })
   return { root, provider, secrets }
 }

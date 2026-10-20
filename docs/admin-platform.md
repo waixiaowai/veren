@@ -25,9 +25,9 @@ the implementation deliberately does not do yet.
 ├─────────────────────────────────────────────────────────────────┤
 │ admin-kernel       registry, negotiation, façades, boot gate     │
 ├──────────┬──────────┬──────────┬──────────┬─────────────────────┤
-│ data-kv  │ auth     │ access   │ nav      │ audit / docs        │
+│ data-pg  │ auth     │ access   │ nav      │ audit / docs        │
 └──────────┴──────────┴──────────┴──────────┴─────────────────────┘
-                   DSH storage domain (profile's storage group)
+        PostgreSQL (default) or DSH storage domain (fallback)
 ```
 
 ## Packages
@@ -37,7 +37,8 @@ the implementation deliberately does not do yet.
 | `@veren/admin-contract` | Stable Host types: capabilities, errors, data port, route vocabulary, capability interfaces |
 | `@veren/admin-kernel` | Provider registry, priority/version negotiation, façades, catalog, health, boot gate |
 | `@veren/admin-api-kernel` | The one HTTP gateway: auth, CSRF, permissions, limits, validation, audit, OpenAPI |
-| `@veren/admin-data-dsh-kv` | `data` over one DSH storage domain (degraded transactions) |
+| `@veren/admin-data-postgres` | `data` over PostgreSQL: `veren_` tables, real transactions (recommended default) |
+| `@veren/admin-data-dsh-kv` | `data` over one DSH storage domain (embedded fallback, degraded transactions) |
 | `@veren/admin-auth-local` | `auth`: setup, login, sessions, users, API tokens |
 | `@veren/admin-access-rbac` | `access`: built-in + custom roles, bindings, anti-lockout |
 | `@veren/admin-navigation-default` | `navigation`: default menu contributions |
@@ -66,14 +67,19 @@ code maps to a fixed HTTP status.
 ## The data path
 
 `api.adminData` exposes `table<T>(name)` with synchronous `find`/`list`/`size`
-and asynchronous `save`/`remove`. The embedded adapter stores every collection in
-one DSH storage domain (`admin_data`, one `records` table, keys
-`<collection>:<id>`) and reports `features.transactions = false`.
+and asynchronous `save`/`remove`. Two providers implement it:
 
-`transaction(work)` serializes work through one promise chain so concurrent
-transactions never interleave, but it does **not** roll back: a failure leaves
-earlier writes in place and propagates the error. Anything needing atomicity
-should run on a SQL engine.
+- `admin-data-postgres` (priority 10, default): `veren_`-prefixed tables, a
+  write-through in-memory mirror for synchronous reads, real `BEGIN`/`COMMIT`
+  transactions, and an idempotent schema bootstrap serialized by a PostgreSQL
+  advisory lock. It reports `features.transactions = true`.
+- `admin-data-dsh-kv` (priority 0, fallback): one DSH storage domain (`admin_data`,
+  one `records` table), key segments hex-encoded and joined with `_` so the JSON
+  backend accepts them. `transaction(work)` serializes work but does **not** roll
+  back, and reports `features.transactions = false`.
+
+Switch backends by disabling one patch row and enabling the other; consumers
+keep the same `ctx.adminData` façade.
 
 ## Install
 
@@ -82,7 +88,13 @@ dsh plugin --profile admin add @veren/admin-app
 dsh --profile admin --host 127.0.0.1 --port 3081 --no-open
 ```
 
-The profile must provide `webServer`, `storage` (with at least one backend) and
+The profile must provide `webServer` and a reachable PostgreSQL database
+configured on the `admin-data-postgres` row (`host`, `port`, `user`, `password`,
+`database`; optionally `schema`, `ssl`, `maxConnections`, `connectTimeoutMs`,
+`migrateOnBoot`). The database and login must exist before the first boot; the
+schema bootstraps idempotently.
+
+The JSON fallback additionally needs `storage` (with at least one backend) and
 `storageDomain`. `admin-data-dsh-kv` defaults to `{ backend: 'json' }`; set
 `storage.backend` on its row when the profile names the backend differently. A
 missing backend fails the load loudly, naming it and the registered names.
@@ -142,17 +154,18 @@ P0 slice, and some details intentionally differ:
 | Design | Implementation |
 |---|---|
 | Providers discovered from `package.json` `dsh.admin.provider` / `dsh.admin.ui` | Providers and packs self-register through `ctx.admin.register` / `ctx.adminUi.register` |
-| `auth-better` + `data-drizzle` (SQLite default) | `auth-local` + `data-dsh-kv`; SQL adapters are follow-up work |
+| `auth-better` + `data-drizzle` (SQLite default) | `auth-local` + `data-postgres` (default) with `data-dsh-kv` fallback; Drizzle/MySQL/SQLite adapters are follow-up work |
 | `/api/openapi.json` | `/api/public/v1/openapi.json` (audience-prefixed routing) |
 | `Idempotency-Key` support | Not implemented; CORS only advertises the header |
 | Setup token with TTL | Setup is open while no user exists |
 | `ctx.admin.registerModule(descriptor)` | Modules register routes and navigation directly |
 | Provider hot-swap with drain + rollback | Live priority swap without drain; no automatic rollback |
-| Collections `auth_users`, `access_roles`, `audit_entries`, … | `admin_users`, `admin_roles`, `admin_audit`, … |
+| Collections `auth_users`, `access_roles`, `audit_entries`, … | PostgreSQL tables `veren_users`, `veren_roles`, `veren_audit`, … plus `veren_records` for other collections |
 
 ## Deferred to P1 and later
 
 Tasks, forms, AI assist, attachments, notifications, background jobs and settings
-providers; SQL (Drizzle) and MongoDB adapters with real transactions; provider
-drain/rollback; package-declaration scanning for providers and UI packs; API
-tokens scoped to terminal routes end-to-end; password reset and MFA.
+providers; multi-engine SQL (Drizzle/MySQL/SQLite) and MongoDB adapters with real
+transactions; provider drain/rollback; package-declaration scanning for providers
+and UI packs; API tokens scoped to terminal routes end-to-end; password reset and
+MFA.

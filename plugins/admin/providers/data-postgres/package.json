@@ -1,0 +1,47 @@
+{
+  "name": "@veren/admin-data-postgres",
+  "displayName": "Admin Data (PostgreSQL)",
+  "version": "0.1.0",
+  "description": "Use when an admin deployment needs the recommended production data backend: it implements the AdminDatabase port over PostgreSQL with veren_-prefixed tables, idempotent startup schema bootstrap under an advisory lock, write-through in-memory reads (the port is synchronous), and real multi-record transactions; skip it for embedded or zero-config deployments that should keep the DSH storage-domain JSON backend.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.cn.md"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "dependencies": {
+    "@veren/admin-contract": "workspace:^",
+    "@veren/admin-kernel": "workspace:^",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@types/pg": "^8.23.1",
+    "@veren/admin-contract": "workspace:^",
+    "@veren/admin-kernel": "workspace:^",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}

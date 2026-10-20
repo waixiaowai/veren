@@ -12,6 +12,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import QRCode from 'qrcode'
+import type { LoggerService } from '@deepseek-ai/cordis'
 import { ImError } from '@veren/im'
 import type {
   ImAccount,
@@ -33,7 +34,6 @@ import {
 import { WechatBindAttempt, delay, messageIdOf, splitText, storeConfirmedAccount, textOf } from './runtime.ts'
 import { WechatStateStore } from './state.ts'
 import type {
-  WechatLogger,
   WechatMessage,
   WechatProviderOptions,
   WechatSecrets,
@@ -67,7 +67,7 @@ export class WechatProvider implements ImService {
   readonly #api: WechatApi
   readonly #stateStore: WechatStateStore
   readonly #secrets: WechatSecretStore
-  readonly #logger: WechatLogger
+  readonly #logger: LoggerService
   readonly #now: () => number
   readonly #baseUrl: string
   readonly #qrTtlMs: number

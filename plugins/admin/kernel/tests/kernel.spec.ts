@@ -110,6 +110,48 @@ describe('AdminKernel boot gate', () => {
   })
 })
 
+describe('readiness service', () => {
+  it('holds inject consumers pending until every essential capability has a provider', async () => {
+    const ctx = new Context()
+    const kernel = new AdminKernel(ctx, { essential: [] })
+    let applied = 0
+    const consumer = ctx.plugin({
+      inject: ['adminReadiness'],
+      apply: () => {
+        applied += 1
+      },
+    })
+
+    await consumer
+    expect(applied).toBe(0)
+    expect(ctx.get('adminReadiness')).toBeUndefined()
+
+    for (const capability of ['data', 'auth', 'access', 'navigation'] as const) {
+      kernel.register(manifest({ id: `p-${capability}`, capability }), {})
+      await consumer
+      expect(applied).toBe(0)
+    }
+
+    kernel.register(manifest({ id: 'p-audit', capability: 'audit' }), {})
+    await consumer
+    expect(applied).toBe(1)
+    expect(ctx.adminReadiness.contractVersion).toBe('1.0.0')
+    expect(ctx.adminReadiness.essentials).toEqual(['data', 'auth', 'access', 'navigation', 'audit'])
+  })
+
+  it('publishes once and keeps the latch after a provider is removed', async () => {
+    const ctx = new Context()
+    const kernel = new AdminKernel(ctx, { essential: [] })
+    const disposers = (['data', 'auth', 'access', 'navigation', 'audit'] as const).map((capability) =>
+      kernel.register(manifest({ id: `p-${capability}`, capability }), {}))
+
+    expect(ctx.get('adminReadiness')).toBeDefined()
+    for (const dispose of disposers) dispose()
+    expect(ctx.get('adminReadiness')).toBeDefined()
+    expect(() => kernel.ready()).toThrow(/data, auth, access, navigation, audit/)
+  })
+})
+
 describe('capability façades', () => {
   it('resolves the active provider on every call', async () => {
     const ctx = new Context()

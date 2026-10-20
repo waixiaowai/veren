@@ -22,6 +22,7 @@ import {
   adminManifest,
   bootstrap,
   capabilities,
+  changePassword,
   createRole,
   createUser,
   deleteUser,
@@ -42,6 +43,7 @@ import {
   auditView,
   authView,
   capabilitiesView,
+  changePasswordView,
   dashboardView,
   el,
   emptyView,
@@ -193,8 +195,11 @@ function toast(message) {
  * @returns the message to show 要显示的文本
  */
 function messageOf(error) {
-  if (error?.code === 'VALIDATION_FAILED' && error?.details?.reason === 'UNCHANGED') {
-    return t('users.passwordUnchanged')
+  if (error?.code === 'VALIDATION_FAILED') {
+    const reason = error?.details?.reason
+    if (reason === 'UNCHANGED') return t('users.passwordUnchanged')
+    if (reason === 'WRONG_PASSWORD') return t('auth.wrongPassword')
+    if (reason === 'TOO_SHORT') return t('auth.passwordTooShort')
   }
   return error?.message ?? String(error)
 }
@@ -434,7 +439,28 @@ function withShell(content) {
     children: content,
     onCycleTheme: cycleTheme,
     onToggleLocale: toggleLocale,
+    onChangePassword: openChangePassword,
     onSignOut: signOut,
+  })
+}
+
+/**
+ * Open the self-service password dialog.
+ *
+ * The server keeps the session that asks and revokes the user's other sessions, so a
+ * successful change never signs the operator out of the tab they are using.
+ *
+ * 打开自助修改密码对话框。
+ *
+ * 服务端保留发起请求的会话并吊销该用户的其它会话，因此改密成功不会把操作者从当前标签页
+ * 踢出。
+ */
+function openChangePassword() {
+  changePasswordView(ui(), {
+    onSubmit: guard(async (values) => {
+      await changePassword({ currentPassword: values.currentPassword, newPassword: values.newPassword })
+      toast(t('auth.passwordChanged'))
+    }),
   })
 }
 

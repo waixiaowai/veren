@@ -21,13 +21,11 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { DshWechatSecrets } from './state.ts'
 import { WEIXIN_BASE_URL, WEIXIN_BOT_TYPE } from './api.ts'
 import { WEIXIN_FEATURES, WechatProvider } from './provider.ts'
-import type { WechatLogger } from './state.ts'
 
 export { WEIXIN_BASE_URL, WEIXIN_BOT_TYPE, WEIXIN_LONG_POLL_MS } from './api.ts'
 export { WechatApi, WechatTimeoutError, normalizeBaseUrl, normalizeQrUrl } from './api.ts'
 export { DshWechatSecrets, WechatStateStore, parseSecrets } from './state.ts'
 export type {
-  WechatLogger,
   WechatLoginStatus,
   WechatMessage,
   WechatProviderOptions,
@@ -71,11 +69,6 @@ export const Config: z<Config> = z.object({
  * @param config - validated plugin configuration.
  */
 export const apply = (ctx: Context, config: Config): void => {
-  const logger: WechatLogger = {
-    info: message => ctx.logger.info(message),
-    warn: message => ctx.logger.warn(message),
-    error: message => ctx.logger.error(message),
-  }
   const dataDir = config.dataDir.trim() === ''
     ? join(resolveDshHome(), 'im', 'wechat')
     : resolve(config.dataDir)
@@ -83,7 +76,7 @@ export const apply = (ctx: Context, config: Config): void => {
     dataDir,
     botType: config.botType,
     baseUrl: config.baseUrl,
-    logger,
+    logger: ctx.logger,
     secrets: new DshWechatSecrets(ctx.credentials),
   })
   ctx.effect(() => ctx.im.register({
@@ -94,7 +87,7 @@ export const apply = (ctx: Context, config: Config): void => {
   }), 'im-wechat:register')
   ctx.effect(() => {
     void provider.start().catch((error: unknown) => {
-      logger.error(`[im:wechat] runtime failed to start: ${error instanceof Error ? error.message : String(error)}`)
+      ctx.logger.error(`[im:wechat] runtime failed to start: ${error instanceof Error ? error.message : String(error)}`)
     })
     return () => provider.stop()
   }, 'im-wechat:runtime')

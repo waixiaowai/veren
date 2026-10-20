@@ -169,6 +169,9 @@ export const updateUser = (id, patch) => request('PATCH', `${ADMIN}/users/${enco
 /** Delete one user. 删除一个用户。 */
 export const deleteUser = (id) => request('DELETE', `${ADMIN}/users/${encodeURIComponent(id)}`)
 
+/** Change the signed-in user's own password. 修改当前登录用户自己的密码。 */
+export const changePassword = (input) => request('POST', `${ADMIN}/me/password`, input)
+
 /** Every role. 全部角色。 */
 export const listRoles = () => request('GET', `${ADMIN}/roles`)
 

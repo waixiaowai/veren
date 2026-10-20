@@ -10,6 +10,8 @@
   `refreshHealth`、`ready`。
 - 稳定 façade：`ctx.adminData`、`ctx.adminAuth`、`ctx.adminAccess`、
   `ctx.adminNavigation`、`ctx.adminAudit`、`ctx.adminSettings`、`ctx.adminDocs`。
+- `ctx.adminReadiness` — 全部必需能力都有激活 provider 后发布。消费方在 `inject`
+  中声明它，即排在 provider 行之后；服务名以 `ADMIN_READINESS_SERVICE` 导出。
 
 façade 是**每次访问**都解析当前 provider 的 `Proxy`，因此进行中的请求与实时 UI 订阅都能
 跨 provider 替换存活。symbol 与 `then` 不会被转发（façade 不能被当成 thenable）。
@@ -34,8 +36,12 @@ façade 对象。
 `features` 是逐能力布尔值，始终由目录推导（不单独存储）。
 
 `ready()` 在 `data`、`auth`、`access`、`navigation`、`audit` 以及配置追加项中列出全部缺口，
-并抛出 `ESSENTIAL_CAPABILITY_MISSING`。`@veren/admin-web` 在 `apply` 中调用它，这就是组合包
-里 Web 行必须最后的原因。
+并抛出 `ESSENTIAL_CAPABILITY_MISSING`。
+
+最后一个必需 provider 注册时，`register()` 立即发布 `adminReadiness`。`@veren/admin-web`
+注入该服务，因此 Cordis 会让 Web 行保持 pending，直到 provider 行执行完毕——即使 loader
+并发挂载各行，也与 patch 的行顺序无关。该服务是单向启动闩锁：之后移除 provider 不会撤回；
+实时门禁仍是 `ready()`（`@veren/admin-web` 在 `apply` 中依然调用它）。
 
 ## 配置
 

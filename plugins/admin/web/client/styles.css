@@ -545,15 +545,47 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  padding: 2px 4px;
+  margin: -2px -4px;
 }
 
-.picker-group-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.picker-group-header:hover {
+  background: var(--admin-surface);
+}
+
+.picker-group-header:focus-visible {
+  outline: 2px solid var(--admin-accent);
+  outline-offset: 1px;
+}
+
+.picker-group-name {
+  flex: 1;
   font-size: 0.85rem;
   font-weight: 600;
-  cursor: pointer;
+}
+
+/* Chevron: a CSS-drawn arrow that points down when expanded and right when
+ * collapsed, so the affordance matches the state without a second icon asset.
+ * 箭头：展开朝下、折叠朝右，纯 CSS 绘制，因此无需第二个图标资源即可表达状态。 */
+.picker-chevron {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--admin-muted);
+  border-bottom: 1.5px solid var(--admin-muted);
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+}
+
+.picker-group.is-collapsed .picker-chevron {
+  transform: rotate(-45deg);
+}
+
+.picker-items[hidden] {
+  display: none;
 }
 
 .picker-items {

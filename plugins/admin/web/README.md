@@ -48,10 +48,13 @@ mounted.
 
 ## Boot gate
 
-`apply` calls `ctx.admin.ready()` before registering anything, so a profile
-missing `data`, `auth`, `access`, `navigation` or `audit` fails to start instead
-of serving a broken shell. This is why the web row must be last in the bundle
-patch.
+`inject` includes the kernel's `adminReadiness` service, which is published only
+after every essential capability has an active provider. Cordis therefore holds
+`apply` pending until the provider rows have registered, whatever order the
+loader mounts them in; no profile-level sequencing shim is needed. `apply` then
+calls `ctx.admin.ready()` as the live check, so a profile missing `data`, `auth`,
+`access`, `navigation` or `audit` still fails to serve instead of exposing a
+broken shell.
 
 ## Known limitations
 

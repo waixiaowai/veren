@@ -1,8 +1,20 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Context } from '@deepseek-ai/cordis'
+import type { LoggerService } from '@deepseek-ai/cordis'
 import { WechatStateStore } from '../src/state.ts'
 import type { WechatSecretStore, WechatSecrets, WechatState } from '../src/state.ts'
+
+/**
+ * A silent but genuine host logger for provider specs.
+ * Cordis' built-in exporter only buffers, so nothing reaches stdout.
+ *
+ * 供 provider 测试使用的静默真实宿主日志器；cordis 内置导出器只写缓冲区，不会输出到 stdout。
+ */
+export function testLogger(): LoggerService {
+  return new Context().logger
+}
 
 /** In-memory credential seam for provider specs. */
 export class MemorySecrets implements WechatSecretStore {

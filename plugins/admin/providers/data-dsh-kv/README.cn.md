@@ -4,6 +4,9 @@ DSH 后台平台的 `data` 能力 provider，由单个自声明的 DSH 存储域
 `@veren/admin-contract` 的 `AdminDatabase` 并向内核注册自身，因此所有消费方仍然只
 面对稳定的 `ctx.adminData` façade，看不到底层介质。
 
+这是嵌入式/零配置回退方案。推荐的生产后端是 `@veren/admin-data-postgres`；优先级 `0`
+让该 provider 可以接管，而无需改动本包。
+
 ## 提供什么
 
 - 在 `src/adapter.ts` 中基于结构化 KV 句柄实现的 `AdminDatabase`（`table`、
@@ -24,16 +27,20 @@ DSH 后台平台的 `data` 能力 provider，由单个自声明的 DSH 存储域
 |---|---|
 | domain | `admin_data`，版本 `1`，布局 `per-record` |
 | 表 | `records` |
-| 键 | `` `${collection}:${id}` `` |
+| 键 | `` `<hex(collection)>_<hex(id)>` `` |
 | 值 | 存储的记录对象 |
+
+两个键段都是其 UTF-8 字节的小写十六进制，并用 `_` 连接。十六进制只用 `[0-9a-f]`，满足
+JSON 后端 per-record 布局的 path-safe 规则（`/^[a-zA-Z0-9_-]+$/`），且不会与 `_` 分隔符
+冲突，因此包含 `:`、`/`、`.` 或非 ASCII 文本的集合名与 id 都能存储而不会串入另一个集合。
 
 记录 schema 是只要求 `id: string` 的宽松对象，因为各能力独立拥有并演进其余字段。
 缺失 `id` 的手工编辑或截断文档仍会让 domain 打开显式失败，而不是被静默跳过。
 
-集合是虚拟的：一个仓库就是单表内 `` `${collection}:` `` 这个键前缀，因此新增能力
-既不需要 schema 变更，也不需要迁移。集合 `admin_users` 中的 `find('u1')` 读取键
-`admin_users:u1`；`list()` 与 `size` 只统计该前缀下的键，所以 `admin_user` 与
-`admin_users` 永远不会看到彼此的记录。
+集合是虚拟的：一个仓库就是单表内 `` `<hex(collection)>_` `` 这个键前缀，因此新增能力
+既不需要 schema 变更，也不需要迁移。集合 `admin_users` 中的 `find('u1')` 读取
+`('admin_users', 'u1')` 对应的键；`list()` 与 `size` 只统计该前缀下的键，所以
+`admin_user` 与 `admin_users` 永远不会看到彼此的记录。
 
 介质（`json`、`sqlite` 等）由 storage group 的 `backend`/`routes` 配置决定；本插件
 从不直接打开后端。
@@ -91,7 +98,9 @@ KV 没有二级索引，因此每次调用都遍历表的键快照并按前缀�
   必须在 `save` 之前校验自己的字段。
 - **`find`/`list` 信任命名空间。** 值只是被窄化为所请求的实体类型，并未解析；以另一种
   形状存储的记录会原样返回。
-- **集合名不得包含 `:`。** 分隔符定义前缀，若集合名是 `a:b`，就会混入集合 `a`。
+- **不迁移旧键格式。** 早期版本写入 `${collection}:${id}` 键，JSON 后端会以非 path-safe
+  拒绝它。本版本不读取这些键；以 SQLite 介质存储过的记录需要重新导入。新键采用上面的
+  十六进制形式。
 - **同一 domain 名只能打开一次。** 存储设施会拒绝 `admin_data` 的第二次打开；同一进程
   内的两个部署不得同时加载本插件。
 - **没有迁移导入器。** 清单未声明 `migrations` 源；搬迁记录属于消费方的任务。

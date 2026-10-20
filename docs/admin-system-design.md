@@ -336,7 +336,8 @@ plugins/admin/
   ui-kernel/         @veren/admin-ui-kernel
   api/               @veren/admin-api-kernel
   providers/
-    data-drizzle/    @veren/admin-data-drizzle (PG/MySQL/SQLite)
+    data-postgres/   @veren/admin-data-postgres (PostgreSQL, shipped default)
+    data-drizzle/    @veren/admin-data-drizzle (multi-engine, future)
     data-mongodb/    @veren/admin-data-mongodb (optional)
     data-dsh-kv/     @veren/admin-data-dsh-kv (embedded compatibility)
     auth-better/     @veren/admin-auth-better
@@ -547,15 +548,21 @@ UI contract:
 
 | Engine | Adapter | Driver/ORM | Fit |
 |---|---|---|---|
-| PostgreSQL | `admin-data-drizzle` | Drizzle + `pg` | Production default; transactions/jsonb/indexes/full-text |
-| MySQL | `admin-data-drizzle` | Drizzle + `mysql2` | Common production environment |
-| SQLite | `admin-data-drizzle` | Drizzle + `better-sqlite3` | Local/single-machine default, no external service |
+| PostgreSQL | `admin-data-postgres` | `pg` | Shipped production default; transactions/jsonb/indexes |
+| MySQL | `admin-data-drizzle` | Drizzle + `mysql2` | Future; common production environment |
+| SQLite | `admin-data-drizzle` | Drizzle + `better-sqlite3` | Future; local/single-machine default |
 | MongoDB | `admin-data-mongodb` | Official `mongodb` driver | Document model/existing Mongo environment |
 | DSH KV | `admin-data-dsh-kv` | DSH storage domain | Embedded compatibility/migration, not production default |
 
 ORM choice:
 
-- **SQL uses Drizzle**: TypeScript-native, type-safe, supports PG/MySQL/SQLite, explicit migrations, and fits a Repository/UoW base.
+- **The shipped PostgreSQL adapter uses `pg` directly** against the
+  `AdminDatabase` port: the port has a small fixed operation set, so an ORM adds
+  mapping and migration machinery without buying type safety at the boundary.
+  Schema bootstrap is idempotent DDL under a PostgreSQL advisory lock.
+- **Drizzle remains the preferred base for the future multi-engine adapter**
+  (`admin-data-drizzle`, MySQL/SQLite): TypeScript-native, type-safe, explicit
+  migrations, and a Repository/UoW fit.
 - **MongoDB uses the official driver**: Drizzle does not cover Mongo; the official driver + Zod validation is direct, and transactions require a replica set.
 - **Prisma is an optional adapter**: teams familiar with Prisma can implement `admin-data-prisma` against the same `Database` contract; the ORM never leaks into business modules.
 - **One primary engine per deployment**: do not mix PG + Mongo in one admin instance; no cross-capability joins, only contracts/APIs.
@@ -567,15 +574,21 @@ Each capability provider owns its tables/collections with a consistent prefix:
 
 | Capability | Tables/collections | Key indexes |
 |---|---|---|
-| auth | `auth_users`, `auth_sessions`, `auth_tokens` | email, session hash, token hash |
-| access | `access_roles`, `access_bindings` | subject, role |
-| audit | `audit_entries` | at, actor, action, result |
+| auth | `veren_users`, `veren_sessions`, `veren_tokens` | unique `(lower(email))`, unique `(token_hash)`, unique `(secret_hash)`, `user_id` |
+| access | `veren_roles`, `veren_bindings` | unique `(user_id, role_id)`, `role_id` |
+| audit | `veren_audit` | `(at DESC)`, `(actor_id, at DESC)`, `(action)`, `(result)` |
+| other collections | `veren_records` | primary key `(collection, id)`, `(collection)` |
 | tasks | `tasks`, `task_events`, `task_outbox` | status+assignee+due, task_id+seq, outbox status+next_attempt |
 | assist | `assist_jobs`, `assist_suggestions` | task_id, status |
 | attachments | `attachments` | owner, task_id, created_at |
 | notifications | `notifications` | user_id+read_at |
 | jobs | `jobs` | status, next_run_at |
 | api | `idempotency`, `preferences` | actor+key, subject |
+
+The shipped `admin-data-postgres` tables store the complete record in a JSONB
+`data` column and project the indexed fields into nullable columns, because the
+`AdminDatabase` port stores records as handed in and validates only `id`.
+Unknown collections share `veren_records` keyed by `(collection, id)`.
 
 Rules:
 
@@ -603,18 +616,19 @@ The `Database` contract exposes `transaction(fn)`; repositories take the current
 
 #### 5.7.4 Migrations
 
-- Each provider owns its migration directory and version; SQL uses Drizzle Kit, Mongo uses a dedicated runner, KV uses domain versions.
-- `_admin_migrations` records applied versions; startup takes a migration lock (PG advisory lock / MySQL GET_LOCK / SQLite transaction).
+- Each provider owns its migration directory and version; the shipped PostgreSQL adapter uses an idempotent startup bootstrap (`CREATE ... IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`) serialized by a PostgreSQL advisory lock, with `migrateOnBoot` configurable. Future SQL adapters use Drizzle Kit, Mongo uses a dedicated runner, KV uses domain versions.
+- `_admin_migrations` records applied versions when a versioned migration runner is used; the idempotent bootstrap keeps no history.
 - `database.migrateOnBoot` defaults true; production may run migrations as a deployment job.
 - Back up before migration or require a backup; destructive migrations require explicit confirmation; failure stops boot, never serves a half-migrated schema.
 - Provider replacement declares `migrateFrom`/`migrateTo`; without migration, automatic replacement is refused.
 
 #### 5.7.5 DSH KV compatibility
 
-- `admin-data-dsh-kv` implements the same `Database`/Repository ports for embedded, zero-config, or legacy migration.
+- `admin-data-dsh-kv` implements the same `Database`/`Repository` ports for embedded, zero-config, or legacy migration.
+- Key segments are hex-encoded UTF-8 joined with `_`, so the JSON backend's path-safe rule accepts every collection name and id; earlier `:` keys are not readable.
 - Explicit limits: no cross-table transactions, no secondary indexes, scan-based queries, weaker concurrent writes; small data/single machine only.
 - `bootstrap.features`/capability catalog expose `transactions: false` and `secondaryIndexes: false`; tasks/audit use reconciliation.
-- Not the production default; large deployments use PG/MySQL, document workloads use Mongo.
+- Not the production default; large deployments use the shipped PostgreSQL adapter (MySQL is a future adapter), document workloads use Mongo.
 
 ### 5.8 Common backend library
 

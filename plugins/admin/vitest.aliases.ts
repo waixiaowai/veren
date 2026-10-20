@@ -24,6 +24,7 @@ export const adminAliases: Record<string, string> = {
   '@veren/admin-kernel': source('./kernel/src/index.ts'),
   '@veren/admin-api-kernel': source('./api/src/index.ts'),
   '@veren/admin-data-dsh-kv': source('./providers/data-dsh-kv/src/index.ts'),
+  '@veren/admin-data-postgres': source('./providers/data-postgres/src/index.ts'),
   '@veren/admin-auth-local': source('./providers/auth-local/src/index.ts'),
   '@veren/admin-access-rbac': source('./providers/access-rbac/src/index.ts'),
   '@veren/admin-navigation-default': source('./providers/nav-default/src/index.ts'),

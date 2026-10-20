@@ -5,6 +5,7 @@
       "@veren/admin-kernel": ["./kernel/src/index.ts"],
       "@veren/admin-api-kernel": ["./api/src/index.ts"],
       "@veren/admin-data-dsh-kv": ["./providers/data-dsh-kv/src/index.ts"],
+      "@veren/admin-data-postgres": ["./providers/data-postgres/src/index.ts"],
       "@veren/admin-auth-local": ["./providers/auth-local/src/index.ts"],
       "@veren/admin-access-rbac": ["./providers/access-rbac/src/index.ts"],
       "@veren/admin-navigation-default": ["./providers/nav-default/src/index.ts"],

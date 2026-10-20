@@ -43,9 +43,11 @@
 
 ## 启动门禁
 
-`apply` 在注册任何东西之前调用 `ctx.admin.ready()`，因此缺少 `data`、`auth`、`access`、
-`navigation` 或 `audit` 的 profile 会启动失败，而不是对外提供一个坏掉的壳。这就是组合包
-里 Web 行必须最后的原因。
+`inject` 包含内核的 `adminReadiness` 服务；该服务只在全部必需能力都有激活 provider 后发布。
+因此无论 loader 以什么顺序挂载，Cordis 都会让 `apply` 保持 pending，直到 provider 行注册
+完毕——不再需要 profile 级排序垫片。随后 `apply` 调用 `ctx.admin.ready()` 做实时校验，缺少
+`data`、`auth`、`access`、`navigation` 或 `audit` 的 profile 仍然无法对外服务，而不是暴露
+一个坏掉的壳。
 
 ## 已知限制
 

@@ -12,7 +12,7 @@ façade 之后的可替换实现。
 
 | 名称 | 必需 | `@veren/admin-app` 中的默认 provider |
 |---|---|---|
-| `data` | 是 | `@veren/admin-data-dsh-kv` |
+| `data` | 是 | `@veren/admin-data-postgres`（回退：`@veren/admin-data-dsh-kv`） |
 | `auth` | 是 | `@veren/admin-auth-local` |
 | `access` | 是 | `@veren/admin-access-rbac` |
 | `navigation` | 是 | `@veren/admin-navigation-default` |

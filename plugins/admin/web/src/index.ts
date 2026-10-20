@@ -23,7 +23,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import z from '@deepseek-ai/schemastery'
 import { sendEmpty } from '@veren/admin-api-kernel'
-import type {} from '@veren/admin-kernel'
+// 值导入：同时拉起 admin-kernel 的声明合并，使 `ctx.admin` 与各 façade 在这里有类型。
+// Value import: also pulls admin-kernel's declaration merge so `ctx.admin` and
+// the façades are typed here.
+import { ADMIN_READINESS_SERVICE } from '@veren/admin-kernel'
 import { webRoutes } from './handlers.ts'
 import { contentTypeFor, INDEX_SECURITY_HEADERS, resolveWithin, sendFile } from './static.ts'
 
@@ -32,20 +35,29 @@ export const name = 'admin-web'
 
 /**
  * Services this plugin needs before it may load: the kernel, the gateway, the
- * HTTP carrier, the UI registry and the navigation façade.
+ * HTTP carrier, the UI registry, the readiness latch and the navigation façade.
+ *
+ * `adminReadiness` is published by the kernel only after every essential
+ * capability has an active provider. Cordis keeps this plugin pending until
+ * then, so the boot gate runs after the provider rows no matter how the loader
+ * schedules them — no profile-level sequencing shim is needed.
  *
  * `adminNavigation` is listed because the bootstrap handler reads
  * `ctx.adminNavigation.tree(principal)` at request time; Cordis rejects every
  * service access a plugin did not declare, with
  * `cannot get property "adminNavigation" without inject`.
  *
- * 本插件加载前需要的服务：内核、网关、HTTP 载体、UI 注册表与导航 façade。
+ * 本插件加载前需要的服务：内核、网关、HTTP 载体、UI 注册表、就绪闩锁与导航 façade。
+ *
+ * `adminReadiness` 由内核在全部必需能力都有激活 provider 后才发布；Cordis 会让本插件
+ * 保持 pending，因此无论 loader 如何调度，启动门禁都排在 provider 行之后——不再需要
+ * profile 级排序垫片。
  *
  * 必须声明 `adminNavigation`：bootstrap 处理器在请求时读取
  * `ctx.adminNavigation.tree(principal)`，而 Cordis 会拒绝任何未声明的服务访问，报
  * `cannot get property "adminNavigation" without inject`。
  */
-export const inject = ['admin', 'adminApi', 'webServer', 'adminUi', 'adminNavigation'] as const
+export const inject = ['admin', 'adminApi', 'webServer', 'adminUi', 'adminNavigation', ADMIN_READINESS_SERVICE] as const
 
 /** Web carrier configuration. Web 载体配置。 */
 export interface Config {
@@ -81,8 +93,10 @@ function packTarget(pathname: string, prefix: string): { packId: string; relativ
  * @param config - validated config 已校验配置
  */
 export function apply(ctx: Context, config: Config): void {
-  // Boot gate: an admin profile without auth/access/nav/audit/data must not serve.
-  // 启动门禁：缺少 auth/access/nav/audit/data 的后台 profile 不得对外服务。
+  // Boot gate: `adminReadiness` already ordered this row after the providers.
+  // Keep the live check so a restart caused by provider removal still fails loud.
+  // 启动门禁：`adminReadiness` 已把本行排在 provider 之后；保留实时校验，使 provider
+  // 移除导致的重启同样显式失败。
   ctx.admin.ready()
   const mountPath = (config.mountPath ?? '/admin').replace(/\/+$/, '')
 

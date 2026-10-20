@@ -54,6 +54,14 @@ const en = {
   'auth.emailPlaceholder': 'admin@example.com',
   'auth.passwordPlaceholder': 'Enter your password',
   'auth.namePlaceholder': 'Display name',
+  'auth.changePassword': 'Change password',
+  'auth.currentPassword': 'Current password',
+  'auth.currentPasswordPlaceholder': 'Enter your current password',
+  'auth.newPassword': 'New password',
+  'auth.passwordRule': 'Must differ from the current password',
+  'auth.passwordChanged': 'Password changed',
+  'auth.wrongPassword': 'Current password is incorrect',
+  'auth.passwordTooShort': 'The new password is too short',
 
   // Dashboard 仪表盘
   'dashboard.title': 'Dashboard',
@@ -160,6 +168,8 @@ const en = {
   'permPicker.all': 'Select all',
   'permPicker.none': 'Clear all',
   'permPicker.invert': 'Invert',
+  'permPicker.toggleGroup': 'Expand or collapse',
+  'permPicker.selectGroup': 'Select all in this section',
 }
 
 /** Chinese dictionary; same keys as {@link en}. 中词典；键与 {@link en} 完全一致。 */
@@ -203,6 +213,14 @@ const zh = {
   'auth.emailPlaceholder': 'admin@example.com',
   'auth.passwordPlaceholder': '请输入密码',
   'auth.namePlaceholder': '请输入姓名',
+  'auth.changePassword': '修改密码',
+  'auth.currentPassword': '当前密码',
+  'auth.currentPasswordPlaceholder': '请输入当前密码',
+  'auth.newPassword': '新密码',
+  'auth.passwordRule': '不能与当前密码相同',
+  'auth.passwordChanged': '密码已修改',
+  'auth.wrongPassword': '当前密码不正确',
+  'auth.passwordTooShort': '新密码长度不足',
 
   // 仪表盘
   'dashboard.title': '仪表盘',
@@ -309,6 +327,8 @@ const zh = {
   'permPicker.all': '全选',
   'permPicker.none': '全不选',
   'permPicker.invert': '反选',
+  'permPicker.toggleGroup': '展开或折叠',
+  'permPicker.selectGroup': '全选本组',
 }
 
 /**

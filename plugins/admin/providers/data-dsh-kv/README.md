@@ -5,6 +5,10 @@ self-declared DSH storage domain. It implements `AdminDatabase` from
 `@veren/admin-contract` and registers itself with the kernel, so every consumer
 keeps talking to the stable `ctx.adminData` façade and never sees the medium.
 
+This is the embedded / zero-config fallback. The recommended production backend
+is `@veren/admin-data-postgres`; priority `0` lets that provider take over
+without touching this package.
+
 ## What it provides
 
 - `AdminDatabase` (`table`, `transaction`, `health`, `features`) implemented in
@@ -27,19 +31,26 @@ One domain, one table, one document per record:
 |---|---|
 | domain | `admin_data`, version `1`, layout `per-record` |
 | table | `records` |
-| key | `` `${collection}:${id}` `` |
+| key | `` `<hex(collection)>_<hex(id)>` `` |
 | value | the stored record object |
+
+Both key segments are lower-case hex of their UTF-8 bytes and are joined with
+`_`. Hex uses only `[0-9a-f]`, which satisfies the JSON backend's per-record
+path-safe rule (`/^[a-zA-Z0-9_-]+$/`) and cannot collide with the `_` separator,
+so a collection name or id containing `:`, `/`, `.`, or non-ASCII text is stored
+without aliasing into another collection.
 
 The record schema is a loose object that only requires `id: string`, because
 each capability owns and evolves the rest of its fields independently. A
 hand-edited or truncated document without an `id` still fails the domain open
 loudly instead of being skipped silently.
 
-Collections are virtual: a repository is the key prefix `` `${collection}:` ``
-inside the single table, so adding a capability needs no schema change and no
-migration. `find('u1')` in collection `admin_users` reads key
-`admin_users:u1`; `list()` and `size` only consider keys under that prefix, so
-`admin_user` and `admin_users` never see each other's records.
+Collections are virtual: a repository is the key prefix
+`` `<hex(collection)>_` `` inside the single table, so adding a capability needs
+no schema change and no migration. `find('u1')` in collection `admin_users`
+reads the key for `('admin_users', 'u1')`; `list()` and `size` only consider
+keys under that prefix, so `admin_user` and `admin_users` never see each other's
+records.
 
 The medium (`json`, `sqlite`, …) is decided by the storage group's
 `backend`/`routes` configuration; this plugin never opens a backend directly.
@@ -108,8 +119,10 @@ corrupt medium). The kernel publishes the verdict through
   validate its own fields before `save`.
 - **`find`/`list` trust the namespace.** Values are narrowed to the requested
   entity type, not parsed; a record stored under another shape comes back as-is.
-- **Collection names must not contain `:`.** The separator defines the prefix,
-  so `a:b` as a collection name would alias into collection `a`.
+- **No migration from the old key format.** Earlier releases wrote
+  `${collection}:${id}` keys, which the JSON backend rejected as non-path-safe.
+  Those keys are not read by this version; records stored under a SQLite medium
+  must be re-imported. New keys are the hex form above.
 - **One open per domain name.** The storage facility rejects a second open of
   `admin_data`; two deployments in one process must not both load this plugin.
 - **No migration importer.** The manifest declares no `migrations` sources;

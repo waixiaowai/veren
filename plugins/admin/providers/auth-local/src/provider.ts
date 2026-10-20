@@ -243,6 +243,69 @@ export class LocalAuth implements AdminAuth {
     }
   }
 
+  /**
+   * Change the signed-in user's own password after proving the current one.
+   *
+   * The session that made the request survives (an operator who just proved the old
+   * password should not be thrown out), while every other session of that user is
+   * revoked: a password change is exactly the moment a stolen cookie must stop
+   * working. Minimum length and the `UNCHANGED` rule are the same ones the admin
+   * reset uses.
+   *
+   * 在证明当前口令后修改当前登录用户自己的密码。
+   *
+   * 发起请求的会话保留（刚证明过旧口令的操作者不该被踢出），该用户的其它会话全部吊销：
+   * 改密正是被盗 Cookie 必须失效的时刻。最小长度与 `UNCHANGED` 规则与管理员重置一致。
+   *
+   * @param userId - the signed-in user 当前登录用户
+   * @param input - current password, new password and the session to keep 旧口令、新口令与要保留的会话
+   * @returns how many other sessions were revoked 被吊销的其它会话数
+   * @throws AdminError `NOT_FOUND` for an unknown user, `VALIDATION_FAILED` with
+   *   `details.reason` of `WRONG_PASSWORD`, `TOO_SHORT` or `UNCHANGED`
+   */
+  async changePassword(
+    userId: string,
+    input: { readonly currentPassword: string; readonly newPassword: string; readonly keepSessionId?: string },
+  ): Promise<{ readonly revokedSessions: number }> {
+    const user = userTable(this.ctx).find(userId)
+    if (user === undefined) {
+      throw new AdminError('NOT_FOUND', `user '${userId}' does not exist`, { userId })
+    }
+    if (!(await verifyPassword(input.currentPassword, user.passwordHash))) {
+      throw new AdminError('VALIDATION_FAILED', 'the current password is incorrect', {
+        field: 'currentPassword',
+        reason: 'WRONG_PASSWORD',
+      })
+    }
+    if (input.newPassword.length < this.config.passwordMinLength) {
+      throw new AdminError(
+        'VALIDATION_FAILED',
+        `the new password must be at least ${this.config.passwordMinLength} characters`,
+        { field: 'newPassword', minLength: this.config.passwordMinLength, reason: 'TOO_SHORT' },
+      )
+    }
+    await this.assertPasswordChange(userId, input.newPassword)
+    await updateUser(this.ctx, { minLength: this.config.passwordMinLength }, userId, { password: input.newPassword })
+    return { revokedSessions: await this.revokeSessionsExcept(userId, input.keepSessionId) }
+  }
+
+  /**
+   * Drop every session of one user except the given one.
+   *
+   * @param userId - owning user id 所属用户 id
+   * @param keepSessionId - session to keep, when known 要保留的会话（已知时）
+   * @returns how many sessions were removed 移除的会话数
+   */
+  private async revokeSessionsExcept(userId: string, keepSessionId: string | undefined): Promise<number> {
+    let revoked = 0
+    for (const record of sessionTable(this.ctx).list()) {
+      if (record.userId !== userId || record.id === keepSessionId) continue
+      await sessionTable(this.ctx).remove(record.id)
+      revoked += 1
+    }
+    return revoked
+  }
+
   /** @param id - user id 用户 id */
   async deleteUser(id: string): Promise<void> {
     await deleteUser(this.ctx, id)

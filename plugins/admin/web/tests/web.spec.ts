@@ -115,4 +115,23 @@ describe('plugin declaration', () => {
   it('declares the navigation façade the bootstrap handler reads', () => {
     expect(inject).toContain('adminNavigation')
   })
+
+  // The readiness latch is what serializes this row after the providers; the
+  // profile-level `adminReadyGate` shim must not be part of the contract.
+  // 就绪闩锁负责把本行排在 provider 之后；profile 级的 `adminReadyGate` 垫片不得进入契约。
+  it('declares the kernel readiness latch instead of a profile shim', () => {
+    expect(inject).toContain('adminReadiness')
+    expect(inject).not.toContain('adminReadyGate')
+  })
+
+  it('keeps every service the web row reads in inject', () => {
+    expect(inject).toEqual(expect.arrayContaining([
+      'admin',
+      'adminApi',
+      'webServer',
+      'adminUi',
+      'adminNavigation',
+      'adminReadiness',
+    ]))
+  })
 })

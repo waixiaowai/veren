@@ -11,9 +11,12 @@
 #
 # Row order is a dependency order, not a preference:
 #   kernel → gateway → data/access → auth → nav/audit/docs → ui → web
-# The web row runs the boot gate (`admin.ready()`) and therefore must be last.
+# The web row injects `adminReadiness`, which the kernel publishes only after
+# every essential capability has a provider, so it activates after the provider
+# rows even when the loader mounts rows concurrently.
 # 行顺序是依赖顺序而非偏好：内核 → 网关 → 数据/授权 → 认证 → 导航/审计/文档 →
-# UI → Web。Web 行执行启动门禁（`admin.ready()`），因此必须最后。
+# UI → Web。Web 行注入 `adminReadiness`，内核只在全部必需能力都有 provider 后才发布
+# 它，因此即使 loader 并发挂载各行，Web 行也会在 provider 行之后激活。
 - insert:
     # Capability registry, version negotiation, façades and the boot gate.
     # 能力注册表、版本协商、façade 与启动门禁。
@@ -25,12 +28,27 @@
     - id: admin-api-kernel
       name: '@veren/admin-api-kernel'
 
-    # Embedded `data` provider over the DSH storage domain. The profile's
-    # storage group must register the backend named in `storage.backend`.
-    # 基于 DSH storage domain 的内嵌 `data` provider。profile 的 storage 组必须
-    # 注册 `storage.backend` 指定的后端。
+    # Recommended production `data` provider: PostgreSQL. Connection values come
+    # from profile config (`host`, `port`, `user`, `password`, `database`,
+    # optionally `schema`/`ssl`/`maxConnections`); the package holds no
+    # credentials. The schema bootstraps idempotently on load.
+    # 推荐的生产 `data` provider：PostgreSQL。连接值来自 profile 配置（`host`、
+    # `port`、`user`、`password`、`database`，可选 `schema`/`ssl`/`maxConnections`）；
+    # 包内不含凭据。schema 在加载时幂等引导。
+    - id: admin-data-postgres
+      name: '@veren/admin-data-postgres'
+
+    # Embedded fallback over the DSH storage domain (JSON backend). Enable this
+    # row and disable the PostgreSQL row to run without an external database;
+    # it needs a `storage` group and `storageDomain` in the profile.
+    # 基于 DSH storage domain（JSON 后端）的嵌入回退。禁用 PostgreSQL 行并启用本行
+    # 即可在没有外部数据库时运行；它需要 profile 提供 `storage` 组与 `storageDomain`。
     - id: admin-data-dsh-kv
       name: '@veren/admin-data-dsh-kv'
+      disabled: true
+      config:
+        storage:
+          backend: json
 
     # `access`: role catalog, bindings, anti-lockout.
     # `access`：角色目录、绑定、防自锁。

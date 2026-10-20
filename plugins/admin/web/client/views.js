@@ -378,7 +378,11 @@ function permissionGroupField(ui, spec) {
   }
 
   const groupNodes = groups.map((group) => {
-    const toggle = el('input', { type: 'checkbox', class: 'picker-toggle' })
+    const toggle = el('input', {
+      type: 'checkbox',
+      class: 'picker-toggle',
+      'aria-label': `${ui.t('permPicker.selectGroup')}: ${ui.t(group.labelKey)}`,
+    })
     const count = el('span', { class: 'picker-group-count' })
     toggle.addEventListener('change', () => {
       for (const permission of group.permissions) {
@@ -403,12 +407,40 @@ function permissionGroupField(ui, spec) {
         ]),
       ])
     })
-    const header = el('header', { class: 'picker-group-header' }, [
-      el('label', { class: 'picker-group-title' }, [toggle, el('span', { text: ui.t(group.labelKey) })]),
-      count,
-    ])
+    const itemsId = `perm-group-${group.id}`
+    const itemsNode = el('div', { class: 'picker-items', id: itemsId }, items)
+    const chevron = el('span', { class: 'picker-chevron', 'aria-hidden': 'true' })
+    const header = el('header', {
+      class: 'picker-group-header',
+      role: 'button',
+      tabindex: '0',
+      'aria-expanded': 'true',
+      'aria-controls': itemsId,
+      'aria-label': `${ui.t('permPicker.toggleGroup')}: ${ui.t(group.labelKey)}`,
+    }, [chevron, toggle, el('span', { class: 'picker-group-name', text: ui.t(group.labelKey) }), count])
+    const section = el('section', { class: 'picker-group' }, [header, itemsNode])
+    const setCollapsed = (collapsed) => {
+      section.classList.toggle('is-collapsed', collapsed)
+      itemsNode.hidden = collapsed
+      header.setAttribute('aria-expanded', collapsed ? 'false' : 'true')
+    }
+    header.addEventListener('click', (event) => {
+      // The checkbox is the one hit area inside the header that must only change
+      // selection; everything else in the row folds the section.
+      // 复选框是标题行里唯一只改变选择的命中区；行内其它位置都折叠小节。
+      if (event.target.closest('input') !== null) return
+      setCollapsed(!section.classList.contains('is-collapsed'))
+    })
+    header.addEventListener('keydown', (event) => {
+      // Only the header itself folds; a focused checkbox keeps its own Space behaviour.
+      // 只有标题本身负责折叠；焦点在复选框上时保留其自身的空格行为。
+      if (event.target !== header) return
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      event.preventDefault()
+      setCollapsed(!section.classList.contains('is-collapsed'))
+    })
     sections.push({ id: group.id, toggle, count })
-    return el('section', { class: 'picker-group' }, [header, el('div', { class: 'picker-items' }, items)])
+    return section
   })
 
   const toolbar = el('div', { class: 'picker-toolbar' }, [
@@ -578,6 +610,42 @@ export function authView(ui, options) {
 }
 
 /**
+ * Self-service password dialog: the old password proves ownership, the new one must
+ * satisfy the same policy the admin reset enforces.
+ *
+ * 自助修改密码对话框：旧口令用于证明身份，新口令必须满足与管理员重置相同的策略。
+ *
+ * @param ui - view helpers 视图助手
+ * @param options - submit callback 提交回调
+ */
+export function changePasswordView(ui, options) {
+  openModal(ui, {
+    titleKey: 'auth.changePassword',
+    fields: [
+      {
+        name: 'currentPassword',
+        labelKey: 'auth.currentPassword',
+        type: 'password',
+        autocomplete: 'current-password',
+        required: true,
+        placeholderKey: 'auth.currentPasswordPlaceholder',
+      },
+      {
+        name: 'newPassword',
+        labelKey: 'auth.newPassword',
+        type: 'password',
+        autocomplete: 'new-password',
+        required: true,
+        placeholderKey: 'users.passwordPlaceholder',
+        hintKey: 'auth.passwordRule',
+      },
+    ],
+    confirmKey: 'auth.changePassword',
+    onConfirm: (values) => options.onSubmit?.(values),
+  })
+}
+
+/**
  * One sidebar link for a navigation node.
  *
  * @param ui - view helpers 视图助手
@@ -633,6 +701,11 @@ function topBar(ui, options, sidebar) {
     iconOf(ui, 'logout'),
     el('span', { class: 'button-label', text: ui.t('auth.signOut') }),
   ])
+  const changePassword = el('button', {
+    class: 'button ghost',
+    type: 'button',
+    onclick: options.onChangePassword,
+  }, [iconOf(ui, 'key'), el('span', { class: 'button-label', text: ui.t('auth.changePassword') })])
   return el('header', { class: 'topbar' }, [
     menu,
     el('div', { class: 'topbar-title', text: ui.t('app.title') }),
@@ -640,6 +713,7 @@ function topBar(ui, options, sidebar) {
       el('span', { class: 'user-chip', text: options.userName }),
       theme,
       locale,
+      changePassword,
       signOut,
     ]),
   ])

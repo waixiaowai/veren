@@ -1,0 +1,12 @@
+{
+  // Test face shared by every `plugins/admin/providers/<provider>` package.
+  // It resolves siblings to their sources and emits nothing.
+  //
+  // providers 第三层包共享的测试面。它把兄弟包解析到源码，且不产出文件。
+  "extends": ["../../tsconfig.base.json", "../../admin-paths.json"],
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

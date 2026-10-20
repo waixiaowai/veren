@@ -1,16 +1,27 @@
 /**
  * The `data` capability port implemented over one DSH storage-domain table.
  *
- * Every capability record lives at key `${collection}:${id}` inside the single
- * `records` table; a repository is a collection prefix over that key space, so
- * adding a capability needs no schema change and no migration. Reads are
- * synchronous because the domain handle keeps validated state in memory;
- * writes resolve after the domain reports durability.
+ * Every capability record lives at a composite key inside the single `records`
+ * table; a repository is a collection prefix over that key space, so adding a
+ * capability needs no schema change and no migration. Reads are synchronous
+ * because the domain handle keeps validated state in memory; writes resolve
+ * after the domain reports durability.
+ *
+ * Both key segments are hex-encoded UTF-8 and joined with `_`. Hex uses only
+ * `[0-9a-f]`, which satisfies the JSON backend's per-record path-safe rule
+ * (`/^[a-zA-Z0-9_-]+$/`) and can never collide with the `_` separator, so a
+ * collection name or id containing `:`, `/`, `.` or non-ASCII text is stored
+ * without aliasing into another collection.
  *
  * 基于单个 DSH storage-domain 表实现的 `data` 能力端口。每条能力记录位于唯一
- * `records` 表中的 `${collection}:${id}` 键上；仓库就是该键空间上的一个集合前缀，
- * 因此新增能力既不需要 schema 变更，也不需要迁移。读取同步返回，因为 domain 句柄在
- * 内存中保留已校验状态；写入在 domain 报告持久化后 resolve。
+ * `records` 表中的复合键上；仓库就是该键空间上的一个集合前缀，因此新增能力既不需要
+ * schema 变更，也不需要迁移。读取同步返回，因为 domain 句柄在内存中保留已校验状态；
+ * 写入在 domain 报告持久化后 resolve。
+ *
+ * 两个键段都按 UTF-8 做十六进制编码并用 `_` 连接。十六进制只用 `[0-9a-f]`，满足 JSON
+ * 后端 per-record 布局的 path-safe 规则（`/^[a-zA-Z0-9_-]+$/`），且绝不可能与 `_`
+ * 分隔符冲突，因此包含 `:`、`/`、`.` 或非 ASCII 文本的集合名与 id 都能存储而不会串入
+ * 另一个集合。
  *
  * @module @veren/admin-data-dsh-kv/adapter
  */
@@ -26,8 +37,32 @@ import {
 } from '@veren/admin-contract'
 import type { RecordsTableName } from './domain.ts'
 
-/** Separator between collection name and record id in one key. 键内集合名与记录 id 的分隔符。 */
-export const KEY_SEPARATOR = ':'
+/**
+ * Separator between the two hex-encoded key segments. `_` is path-safe and
+ * cannot occur inside hex, so a prefix match is also a collection match.
+ *
+ * 两个十六进制键段之间的分隔符。`_` 满足 path-safe 且不会出现在十六进制中，因此前缀
+ * 匹配等价于集合匹配。
+ */
+export const KEY_SEPARATOR = '_'
+
+/**
+ * Encode one key segment into lower-case hex.
+ *
+ * Hex keeps arbitrary collection names and ids (including `:`, `/`, `.`, and
+ * non-ASCII text) inside the JSON backend's path-safe alphabet. No decoding is
+ * required: every stored record carries its own `id` in the value.
+ *
+ * 把一个键段编码为小写十六进制。十六进制把任意集合名与 id（含 `:`、`/`、`.` 与非
+ * ASCII 文本）限制在 JSON 后端的 path-safe 字符集内。无需解码：每条记录的 `id` 都在
+ * 值里。
+ *
+ * @param value - collection name or record id 集合名或记录 id
+ * @returns the hex-encoded segment 十六进制编码后的键段
+ */
+export function encodeKeySegment(value: string): string {
+  return Buffer.from(value, 'utf8').toString('hex')
+}
 
 /**
  * One table handle exactly as this adapter consumes it: the structural subset
@@ -98,12 +133,12 @@ export const DATA_FEATURES: DataFeatures = {
 
 /** Key of one record inside the records table. 记录在 records 表中的键。 */
 export function recordKey(collection: string, id: string): string {
-  return `${collection}${KEY_SEPARATOR}${id}`
+  return `${encodeKeySegment(collection)}${KEY_SEPARATOR}${encodeKeySegment(id)}`
 }
 
 /** Key prefix owning every record of one collection. 拥有单个集合全部记录的键前缀。 */
 export function collectionPrefix(collection: string): string {
-  return `${collection}${KEY_SEPARATOR}`
+  return `${encodeKeySegment(collection)}${KEY_SEPARATOR}`
 }
 
 /**
