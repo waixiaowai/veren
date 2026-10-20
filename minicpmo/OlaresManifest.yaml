@@ -1,0 +1,45 @@
+olaresManifest.version: '0.12.0'
+olaresManifest.type: app
+apiVersion: v3
+metadata:
+  name: minicpmo
+  appid: minicpmo
+  title: MiniCPM-o 4.5
+  description: Full-duplex omni model (vision + speech) served by llama.cpp-omni with CUDA.
+  icon: https://app.cdn.olares.com/appstore/default/defaulticon.webp
+  version: 0.1.0
+  categories:
+  - AI
+spec:
+  versionName: "4.5"
+  supportArch:
+  - amd64
+  accelerator:
+  - mode: nvidia
+    supportMultiCard: false
+    supportMultiNodes: false
+    requiredCpu: "2"
+    limitedCpu: "8"
+    requiredMemory: 8Gi
+    limitedMemory: 24Gi
+    requiredDisk: 20Gi
+    limitedDisk: 60Gi
+    requiredGPUMemory: 14Gi
+    limitedGPUMemory: 20Gi
+entrances:
+- name: minicpmo
+  host: minicpmo-svc
+  port: 8006
+  title: MiniCPM-o 4.5
+  authLevel: private
+  invisible: false
+permission:
+  appData: true
+options:
+  apiTimeout: 0
+  dependencies:
+  - name: olares
+    version: '>=1.12.6-0'
+    type: system
+workloadReplicas:
+  minicpmo: 1

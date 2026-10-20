@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minicpmo
+  labels:
+    app: minicpmo
+spec:
+  replicas: {{ (index .Values.workloads "minicpmo").replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: minicpmo
+  template:
+    metadata:
+      labels:
+        app: minicpmo
+    spec:
+      containers:
+      - name: minicpmo
+        image: nvidia/cuda:12.8.1-devel-ubuntu22.04
+        command: ["/bin/bash", "/opt/minicpmo/start.sh"]
+        env:
+        - name: WORKSPACE
+          value: /workspace
+        - name: MODEL_QUANT
+          value: Q8_0
+        - name: GATEWAY_PORT
+          value: "8006"
+        - name: GATEWAY_PROTO
+          value: "http"
+        - name: HF_ENDPOINT
+          value: https://hf-mirror.com
+        - name: PIP_INDEX
+          value: https://pypi.tuna.tsinghua.edu.cn/simple
+        ports:
+        - name: http
+          containerPort: 8006
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            cpu: "8"
+            memory: 24Gi
+        volumeMounts:
+        - name: app-data
+          mountPath: /workspace
+        - name: setup
+          mountPath: /opt/minicpmo
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8006
+          initialDelaySeconds: 60
+          periodSeconds: 20
+          timeoutSeconds: 10
+          failureThreshold: 180
+      volumes:
+      - name: app-data
+        hostPath:
+          path: {{ .Values.userspace.appData }}
+          type: DirectoryOrCreate
+      - name: setup
+        configMap:
+          name: minicpmo-setup
+          defaultMode: 0755

@@ -1,0 +1,209 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minicpmo-setup
+  labels:
+    app: minicpmo
+data:
+  start.sh: |
+    #!/bin/bash
+    # 首次启动编译 llama.cpp-omni(CUDA)、下载 Q8_0 权重，之后常驻运行。
+    # First boot builds llama.cpp-omni with CUDA and downloads the GGUF weights,
+    # then supervises the demo. Everything is cached under /workspace.
+    set -uo pipefail
+
+    W="${WORKSPACE:-/workspace}"
+    QUANT="${MODEL_QUANT:-Q8_0}"
+    PIP_INDEX="${PIP_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+    GH_PROXY="${GH_PROXY:-https://ghfast.top}"
+
+    SRC="$W/src"
+    OMNI="$SRC/llama.cpp-omni"
+    DEMO="$SRC/MiniCPM-o-Demo"
+    MODELS="$W/models/MiniCPM-o-4_5-gguf"
+    VENV="$W/venv"
+    LOGS="$W/logs"
+    STAGE="$W/.stage"
+
+    mkdir -p "$SRC" "$W/models" "$LOGS" "$STAGE" "$W/data"
+
+    say() { echo "[minicpmo] $(date -u +%H:%M:%S) $*"; }
+    die() { say "FATAL: $*"; exit 1; }
+
+    tail_lines() {
+      local f="$1" n="${2:-40}"
+      if [ -f "$f" ]; then echo "----- tail $f -----"; tail -n "$n" "$f"; fi
+    }
+
+    # ---------- 1. 系统依赖 / system packages ----------
+    if [ ! -f "$STAGE/apt.done" ]; then
+      say "apt: installing toolchain (build-essential cmake git python3 ffmpeg)"
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -qq -o Acquire::Retries=5 > "$LOGS/apt.log" 2>&1
+      if apt-get install -y -qq -o Acquire::Retries=5 --no-install-recommends \
+           build-essential cmake git python3 python3-venv python3-pip \
+           ffmpeg curl ca-certificates libssl-dev pkg-config >> "$LOGS/apt.log" 2>&1; then
+        touch "$STAGE/apt.done"
+        say "apt: done"
+      else
+        tail_lines "$LOGS/apt.log" 60
+        die "apt install failed"
+      fi
+    else
+      say "apt: cached"
+    fi
+
+    # ---------- 2. 源码 / sources ----------
+    clone_repo() {
+      local url="$1" dir="$2" branch="$3"
+      [ -d "$dir/.git" ] && { say "src: $dir cached"; return 0; }
+      for base in "$GH_PROXY/https://github.com/" "https://github.com/"; do
+        say "src: cloning $url via $base"
+        rm -rf "$dir"
+        if git clone --depth 1 -b "$branch" "$base$url" "$dir" >> "$LOGS/git.log" 2>&1; then
+          say "src: ok $dir"
+          return 0
+        fi
+      done
+      tail_lines "$LOGS/git.log" 40
+      die "git clone failed for $url"
+    }
+    clone_repo "tc-mb/llama.cpp-omni.git" "$OMNI" "feat/web-demo"
+    clone_repo "OpenBMB/MiniCPM-o-Demo.git" "$DEMO" "Comni"
+
+    # ---------- 3. 编译 llama-server (CUDA) / build ----------
+    BIN="$OMNI/build/bin/llama-server"
+    if [ ! -x "$BIN" ]; then
+      say "build: cmake configure (GGML_CUDA=ON, sm_89)"
+      cd "$OMNI"
+      rm -rf build
+      if ! cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON \
+             -DCMAKE_CUDA_ARCHITECTURES=89 > "$LOGS/build.log" 2>&1; then
+        say "build: configure failed with sm_89, retrying with default arch list"
+        rm -rf build
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON >> "$LOGS/build.log" 2>&1 \
+          || { tail_lines "$LOGS/build.log" 60; die "cmake configure failed"; }
+      fi
+      say "build: compiling llama-server (this takes a while)"
+      if ! cmake --build build --target llama-server -j"$(nproc)" >> "$LOGS/build.log" 2>&1; then
+        tail_lines "$LOGS/build.log" 60
+        die "llama-server build failed"
+      fi
+      [ -x "$BIN" ] || die "build produced no $BIN"
+      say "build: done -> $BIN"
+    else
+      say "build: cached"
+    fi
+
+    # ---------- 4. Python 环境 / venv ----------
+    if [ ! -x "$VENV/bin/python" ]; then
+      say "python: creating venv"
+      python3 -m venv "$VENV" || die "venv creation failed"
+    fi
+    if [ ! -f "$STAGE/pip.done" ]; then
+      say "python: installing torch + demo requirements"
+      "$VENV/bin/pip" install -q -i "$PIP_INDEX" --upgrade pip > "$LOGS/pip.log" 2>&1
+      "$VENV/bin/pip" install -i "$PIP_INDEX" \
+          "torch==2.8.0" "torchaudio==2.8.0" >> "$LOGS/pip.log" 2>&1 \
+        || { tail_lines "$LOGS/pip.log" 40; die "torch install failed"; }
+      "$VENV/bin/pip" install -i "$PIP_INDEX" -r "$DEMO/requirements.txt" >> "$LOGS/pip.log" 2>&1 \
+        || { tail_lines "$LOGS/pip.log" 40; die "requirements install failed"; }
+      "$VENV/bin/pip" install -i "$PIP_INDEX" "huggingface_hub[cli]" >> "$LOGS/pip.log" 2>&1 \
+        || die "huggingface_hub install failed"
+      touch "$STAGE/pip.done"
+      say "python: done"
+    else
+      say "python: cached"
+    fi
+
+    # ---------- 5. 权重 / model weights ----------
+    LLM="$MODELS/MiniCPM-o-4_5-$QUANT.gguf"
+    if [ ! -f "$LLM" ]; then
+      say "models: downloading $QUANT GGUFs (about 12 GB, hf-mirror)"
+      export HF_ENDPOINT
+      "$VENV/bin/hf" download openbmb/MiniCPM-o-4_5-gguf \
+          --include "MiniCPM-o-4_5-$QUANT.gguf" "audio/*.gguf" "tts/*.gguf" \
+                    "token2wav-gguf/*.gguf" "vision/MiniCPM-o-4_5-vision-F16.gguf" \
+          --local-dir "$MODELS" > "$LOGS/model.log" 2>&1 \
+        || { tail_lines "$LOGS/model.log" 40; die "model download failed"; }
+      say "models: done"
+    else
+      say "models: cached"
+    fi
+
+    # ---------- 6. 配置 / config ----------
+    CFG="$DEMO/config.json"
+    python3 - "$CFG" "$DEMO/config.example.json" "$OMNI" "$MODELS" "$QUANT" <<'PY'
+    import json, sys
+    cfg_path, example, omni, models, quant = sys.argv[1:6]
+    try:
+        with open(example) as f:
+            cfg = json.load(f)
+    except Exception:
+        cfg = {}
+    cfg["backend"] = "cpp"
+    cpp = cfg.setdefault("cpp_backend", {})
+    for k, v in {
+        "llamacpp_root": omni,
+        "model_dir": models,
+        "llm_model": "MiniCPM-o-4_5-%s.gguf" % quant,
+        "cpp_server_port": 19080,
+        "ctx_size": 8192,
+        "n_gpu_layers": 99,
+    }.items():
+        cpp[k] = v
+    svc = cfg.setdefault("service", {})
+    for k, v in {
+        "gateway_port": 8006,
+        "worker_base_port": 22440,
+        "num_workers": 1,
+        "data_dir": "data",
+    }.items():
+        svc[k] = v
+    with open(cfg_path, "w") as f:
+        json.dump(cfg, f, indent=4)
+    print("[minicpmo] config written:", cfg_path, "backend=cpp quant=" + quant)
+    PY
+    [ -f "$CFG" ] || die "config.json not written"
+
+    # ---------- 7. 启动 / run ----------
+    cd "$DEMO" || die "demo dir missing"
+    : > "$LOGS/worker.log"
+    : > "$LOGS/gateway.log"
+
+    say "run: starting worker (GPU 0, port 22440)"
+    CUDA_VISIBLE_DEVICES=0 "$VENV/bin/python" worker.py \
+        --port 22440 --gpu-id 0 --worker-index 0 > "$LOGS/worker.log" 2>&1 &
+
+    say "run: waiting for model load (up to 20 min)"
+    ok=0
+    for i in $(seq 1 600); do
+      if curl -sf -m 5 http://127.0.0.1:22440/health 2>/dev/null \
+           | grep -q '"model_loaded":[[:space:]]*true'; then
+        ok=1; break
+      fi
+      if [ $((i % 15)) -eq 0 ]; then
+        say "run: still loading (${i} checks)"
+      fi
+      sleep 2
+    done
+    if [ "$ok" -ne 1 ]; then
+      tail_lines "$LOGS/worker.log" 80
+      die "worker never became ready"
+    fi
+    say "run: worker ready"
+
+    say "run: starting gateway on :8006"
+    "$VENV/bin/python" gateway.py --port 8006 --workers localhost:22440 --http \
+        > "$LOGS/gateway.log" 2>&1 &
+
+    sleep 5
+    if curl -sf -m 5 http://127.0.0.1:8006/health > /dev/null 2>&1; then
+      say "run: gateway ready"
+    else
+      say "run: gateway not ready yet (see logs)"
+    fi
+
+    say "run: streaming logs to stdout"
+    tail -n +1 -F "$LOGS/worker.log" "$LOGS/gateway.log" 2>/dev/null &
+    wait
