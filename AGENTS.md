@@ -120,5 +120,8 @@ import type { } from '@deepseek-ai/dsh-tools';
 // ctx.tools
 ```
 
-- 特别注意：优先使用完整的类型面，不要创建别名，别名层只会增加漂移风险
+- 特别注意：优先使用完整的类型面，不要创建别名，别名层只会增加漂移风险。具体三条：
+  - 禁止 `any` / `unknown` / `Record` 形式的类型逃逸（DSH 官方类型自带的照用，不为"干净"去改 DSH 的类型面）
+  - 类型能复用就复用：declaration merging 暴露的服务面（`ctx.apps` / `ctx.taskCenter` …）直接用，禁止 `ctx.get('x') as {…}` 把服务面重新手写一遍
+  - 禁止同一类型多处声明（影子副本）：跨包用 `import type` 引真正那份；依赖不够就补 `workspace:^`（peer+dev），不是再抄一份
 - 特别注意：禁止任何修改~/.dsh 目录下的任何文件，所有的插件不能安装到~/.dsh目录切记，特别是执行 dsh plugin 命令时，一定要确保 DSH_HOME 对不对，一旦搞错，会彻底崩溃，因为你在dsh desktop下工作，崩溃等于自杀

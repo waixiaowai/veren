@@ -35,6 +35,11 @@ function jsonOf<T extends object>(value: T): { [K in keyof T]: JsonValue } {
   return JSON.parse(JSON.stringify(value)) as { [K in keyof T]: JsonValue }
 }
 
+/** Serialize an array result onto the json-array a Tool result carries (§tool schema `items: json`). */
+function jsonArrayOf<T>(value: readonly T[]): JsonValue[] {
+  return JSON.parse(JSON.stringify(value)) as JsonValue[]
+}
+
 /** Canonical tool output shapes. */
 const LIST_SCHEMA = { type: 'object', additionalProperties: false, properties: { tasks: { type: 'array', required: true, items: { type: 'json' } } } } as const
 const TASK_SCHEMA = { type: 'object', additionalProperties: false, properties: { task: { type: 'json', required: true } } } as const
@@ -101,10 +106,11 @@ export function registerTaskTools(ctx: Context, port: () => TaskCenterService): 
         output: { schema: LIST_SCHEMA, render: renderValue },
         async execute(args) {
           try {
-            return jsonOf({ tasks: await port().list({
+            // 序列化即收窄为 json 数组（output schema `items: json`），不经过 as unknown / one serialization step, no unknown cast
+            return { tasks: jsonArrayOf(await port().list({
               ...(args.status === undefined ? {} : { status: args.status as TaskRecord['status'] }),
               ...(args.appId === undefined ? {} : { appId: args.appId }),
-            }) }) as unknown as { tasks: JsonValue[] }
+            })) }
           } catch (error: unknown) {
             toolError(error)
           }

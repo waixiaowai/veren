@@ -225,13 +225,14 @@ export class TaskCenterService extends Service implements TaskCenterContract {
       if (record.status !== 'taken') {
         throw new TaskError('task/invalid-state', `task ${id} is ${record.status}; only taken tasks can be released`)
       }
+      // claimedBy 是 readonly：用解构摘除该键，不用 as 断言 / destructure to drop the key, no cast
+      const { claimedBy: _dropped, ...kept } = record
       const next: TaskRecord = {
-        ...record,
+        ...kept,
         status: 'open',
         revision: record.revision + 1,
         updatedAt: new Date().toISOString(),
       }
-      delete (next as { claimedBy?: unknown }).claimedBy
       await tasks.put(id, next)
       this.host.emit('task-center/changed', { taskId: id, action: `released:${reason}` })
       return next
@@ -379,8 +380,9 @@ export class TaskCenterService extends Service implements TaskCenterContract {
       const changed: TaskRecord[] = []
       for (const row of tasks.all()) {
         if (row.appId !== appId || (row.status !== 'open' && row.status !== 'taken')) continue
-        const next: TaskRecord = { ...row, status: 'orphaned', revision: row.revision + 1, updatedAt: now }
-        delete (next as { claimedBy?: unknown }).claimedBy
+        // claimedBy 是 readonly：用解构摘除该键，不用 as 断言 / destructure to drop the key, no cast
+        const { claimedBy: _dropped, ...kept } = row
+        const next: TaskRecord = { ...kept, status: 'orphaned', revision: row.revision + 1, updatedAt: now }
         await tasks.put(row.id, next)
         changed.push(next)
       }
@@ -472,10 +474,11 @@ export class TaskCenterService extends Service implements TaskCenterContract {
         })
         this.host.emit('task-center/changed', { taskId: row.id, action: 'expired' })
       } else if (row.status === 'taken' && isPast(row.claimedBy?.leaseUntil, now)) {
+        // claimedBy 是 readonly：用解构摘除该键，不用 as 断言 / destructure to drop the key, no cast
+        const { claimedBy: _dropped, ...kept } = row
         const next: TaskRecord = {
-          ...row, status: 'open', revision: row.revision + 1, updatedAt: new Date().toISOString(),
+          ...kept, status: 'open', revision: row.revision + 1, updatedAt: new Date().toISOString(),
         }
-        delete (next as { claimedBy?: unknown }).claimedBy
         await tasks.put(row.id, next)
         this.host.emit('task-center/changed', { taskId: row.id, action: 'lease-expired' })
       }

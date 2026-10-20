@@ -103,6 +103,25 @@ export interface AppToolRegistrar {
   define(tool: ToolDefinition, meta?: { readonly requires?: readonly AppCapability[] }): () => void
 }
 
+/**
+ * 错误 details 的闭集字段：机器可读上下文全部是字符串 id/url/名字，
+ * 不用 `Record<string, unknown>` 逃逸。
+ * Closed details fields: machine-readable context is always a string id/url/name;
+ * no `Record<string, unknown>` escape hatch.
+ */
+export interface AppErrorDetails {
+  readonly appId?: string
+  readonly url?: string
+  readonly page?: string
+  readonly tool?: string
+  readonly id?: string
+  readonly field?: string
+  readonly toolPrefix?: string
+  readonly existingApp?: string
+  readonly newApp?: string
+  readonly face?: string
+}
+
 /** 应用侧稳定错误码 / stable application error codes */
 export const AppErrorCode = {
   /** 应用已禁用 / app is disabled */

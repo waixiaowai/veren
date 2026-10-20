@@ -7,6 +7,8 @@ import type { PageInstanceRecord } from '@veren/prompt-page'
 import PageRegistryPlugin, { PageRegistryService } from '../src/index.ts'
 import { externalToolName } from '../src/runtime.ts'
 import type { MountedTool, PageSessionPort } from '../src/runtime.ts'
+import type { AppRecord } from '@veren/app-registry'
+import type { TaskRecord } from '@veren/task-center'
 
 /** 内存 KV（与 app-pages 域表同形），可跨"重启"复用 */
 function memKv(): InstanceKvPort & { readonly map: Map<string, PageInstanceRecord> } {
@@ -77,7 +79,14 @@ function makeService(options: {
   const dispose = service.register(taskPage(options.pageRevision) as never)
   const kv = memKv()
   const sessions = fakeSessions()
-  const app = { id: 'demo', state: options.appState ?? 'active', toolPrefix: 'demo', version: '1.0.0' }
+  // 端口直接复用真实服务面：app 假件是完整 AppRecord / the app fake is a full AppRecord
+  const app: AppRecord = {
+    definition: { id: 'demo' as never, name: 'Demo', description: 'demo app', entry: 'task' as never },
+    owner: 'test',
+    version: '1.0.0',
+    toolPrefix: 'demo',
+    state: options.appState ?? 'active',
+  }
   service.bindPorts({
     sessions: sessions.port,
     ...(options.withApps === false ? {} : { apps: { get: () => app } }),
@@ -87,7 +96,7 @@ function makeService(options: {
       output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
       execute: async () => ({ ok: true }),
     })]]),
-    ...(options.tasks === undefined ? {} : { tasks: { take: (id: string, claim: never) => options.tasks!.take(id, claim) } }),
+    ...(options.tasks === undefined ? {} : { tasks: { take: (id: never, claim: never) => options.tasks!.take(String(id), claim) as Promise<TaskRecord> } }),
   }, new KvPageInstanceIndex(kv, { sessionExists: (id) => sessions.port.exists(id) }))
   return { service, kv, sessions, dispose }
 }
@@ -231,7 +240,7 @@ describe('任务闭环（§5.3：先 take 再追加 TASK 块）', () => {
     const ctx = new Context()
     const service = new PageRegistryService(ctx)
     service.register(taskPage() as never)
-    service.bindPorts({ sessions: fakeSessions().port, apps: { get: () => ({ id: 'demo', state: 'active', toolPrefix: 'demo', version: '1.0.0' }) } }) // 不注入索引 → UnavailableIndex
+    service.bindPorts({ sessions: fakeSessions().port, apps: { get: () => ({ definition: { id: 'demo' as never, name: 'Demo', description: 'd', entry: 'task' as never }, owner: 'test', version: '1.0.0', toolPrefix: 'demo', state: 'active' }) } }) // 不注入索引 → UnavailableIndex
     await expect(service.openUrl('/apps/demo/task/1'))
       .rejects.toMatchObject({ code: 'page/index-unavailable' })
   })

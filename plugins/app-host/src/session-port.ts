@@ -113,13 +113,14 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = loggingFo
   // agent 激活：等待队列里的页面工具此刻才真正挂上（只对该 agent 可见），
   // 排队的 PAGE/TASK/通知块按序 followup 进会话。
   // 事件与载荷走 dsh-agent 的 declaration merging 真实类型，无断言。
-  ctx.on('agent/created', ({ agent }) => {
+  ctx.on('agent/created', ({ agent }): undefined => {
     const sessionId = agent?.session?.id
-    if (sessionId === undefined) return
+    if (sessionId === undefined) return undefined
     const pending = queued.get(sessionId)
-    if (pending === undefined) return
+    if (pending === undefined) return undefined
     queued.delete(sessionId)
     mountOnAgent(sessionId, agent, pending)
+    return undefined
   })
   // agent 销毁：作用域注册随 fiber 自动消失，这里只清登记
   ctx.on('agent/disposed', ({ agent }) => {

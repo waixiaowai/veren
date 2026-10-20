@@ -52,9 +52,10 @@ export interface TaskChannel {
  * Resolve ctx.taskCenter lazily; absent or send-less → a degraded channel.
  */
 export function createTaskChannel(ctx: Context, logger: { warn(message: string): void }): TaskChannel {
-  // taskCenter 可能未激活：能力探测而非类型断言（降级不崩）
-  // taskCenter may be inactive: capability-probe instead of asserting the type
-  const taskCenter = (ctx as { get(name: string): unknown }).get('taskCenter') as TaskCenterContract | undefined
+  // taskCenter 可能未激活：走 declaration merging 的真实面 ctx.taskCenter，
+  // 缺席或没有 send 方法时能力探测降级，不用 as 断言。
+  // taskCenter may be inactive: probe the declared face ctx.taskCenter, degrade without casts.
+  const taskCenter: TaskCenterContract | undefined = ctx.taskCenter
   const send = taskCenter?.send
   if (typeof send !== 'function') {
     logger.warn('task-workbench: ctx.taskCenter is unavailable; publishes degrade to the local store')
