@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Page Registry">
+  <defs>
+    <linearGradient id="pr-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3d7dff"/>
+      <stop offset="1" stop-color="#1b4bd8"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded tile, same visual language as startup-autostart -->
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#pr-body)"/>
+  <!-- Back page: the stack of registered pages -->
+  <path d="M22 14h14l8 8v6" fill="none" stroke="#bcd2ff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Front page with folded corner: a page entry -->
+  <path d="M16 24h14l8 8v18H16z" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M30 24v8h8" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Indexed content lines resolved by the registry -->
+  <path d="M22 40h12M22 46h8" stroke="#ffd45e" stroke-width="4" stroke-linecap="round"/>
+</svg>
