@@ -1,5 +1,5 @@
 - 所有的代码及注释都是给人看的，保证良好的可读性和可维护性，注释要求中英文双语
-- **真机/宿主级验证只有一条路**：本文件「稳定测试节点」一节的配方。人工禁止自建 `~/.dsh_test/*` 之类临时节点（该目录仅限 e2e 自动化脚本创建与清理，见「一次性测试节点」）；禁止自创启动命令。实际命令与本节不符时，先回来改这一节，不许就地绕过
+- **一切宿主级验证/测试只走一条路**：本文件「稳定测试节点」一节（源码 + `deepseek\.dsh`）。禁止使用 `~/.dsh_test/*` 或任何以 tarball 安装出来的临时节点，人工与脚本均不例外；禁止自创启动命令。实际命令与本节不符时，先回来改这一节，不许就地绕过
 - apps|cargos|packages/**/package.json|Cargo.toml必须提供description英文说明，提供的判断是否使用这个package的依据，只什么情况下使用，不要怎么用
 - apps|cargos|packages/** 怎么用: 每个包提供中文/英文双语的开发使用文档README.md和README.cn.md
 - docs: 对外的面向开发者|用户等各种用户的手册|教程文档的存放位置，面向不同的人群，要根据人群的特征，编写易于阅读和理解的规范的文档，每个文档都有中英两个文件，如README.md英文+README.cn.md中文
@@ -96,39 +96,13 @@ export function apply(ctx: Context): void { ... }
   - 构建（一次性）: `pnpm --dir deepseek\deepseek-harness run build`；`.dsh-build` 目录为空 = client 产物未构建，直接起会失败
   - 启动: `$env:DSH_HOME='C:\Users\imeep\Documents\cursour\deepseek\.dsh'; pnpm --dir deepseek\deepseek-harness dsh web --port 3080 --no-open`（`dsh web` 默认就是 web profile，不要再传 `--profile`，会报 "select a profile only once"；启动报核心行被兼容检查禁用时，按日志对每个包执行 `dsh plugin --profile web allow-version <pkg>@<ver> --dsh-version <runtime> --accept-risk`）
   - 开发循环（改源码自动重编）: `pnpm --dir deepseek\deepseek-harness run dev:web -- --port 3080 --no-open`（与 `pnpm run build` 互斥，不可并行）
-  - 装插件: `pnpm --dir deepseek\deepseek-harness dsh plugin --profile web add <本仓库插件路径>`（源码版 CLI 支持本地路径安装；我们的包 engines.dsh `>=0.2.1-rc.2 <0.3.0` 恰好匹配，装组合包如 `plugins\app-host-bundle`，成员包不单独装）；`workspace:^` 依赖在路径安装时解析失败就退到 tarball + `scripts/repack.mjs` 重写依赖
-  - 装前先写 profile `.npmrc`（四行见下方「新建/安装一次性测试节点」第 1 步，authToken 指到真实来源文件）：专用 `store-dir` + `package-import-method=copy`，断开与桌面的 inode 共享
+  - 装插件: `pnpm --dir deepseek\deepseek-harness dsh plugin --profile web add <本仓库插件路径>`（源码版 CLI 支持本地路径安装；我们的包 engines.dsh `>=0.2.1-rc.2 <0.3.0` 恰好匹配，装组合包如 `plugins\app-host-bundle`，成员包不单独装）；`workspace:^` 依赖在路径安装时解析失败时的**唯一例外**才是 tarball + `scripts/repack.mjs` 重写依赖（装的目标仍是稳定节点的 web profile，不是临时节点）
+  - 装前先写 profile `.npmrc`（专用 `store-dir` + `package-import-method=copy` + `@veren:registry=https://npm.veren.top/`，断开与桌面的 inode 共享；authToken 从 `C:\Users\imeep\.dsh\profiles\desktop\.npmrc` 的 `//npm.veren.top/:_authToken` 键**只读复制**，不写明文进文档）
   - 隔离结论: 该 home 与 `~/.dsh`、54224 桌面版**无共享状态**（profile/storages/凭据全在 dev home 内）；唯一例外：`~/.agents`（设计上的共享 agents 根，只读）与 pnpm store（靠上面的 `.npmrc` 隔离）
   - 三个坑: ① client 产物未构建；② `workspace:^` 路径安装解析失败；③ pnpm 11 build-script 审批（安装报 `pendingBuilds` → Web 插件页 Allow scripts and retry）叠加核心行兼容检查（`allow-version --accept-risk`）
-- dsh_test_1、dsh_test_2 已清理删除：仓库内如再引用即过期，需订正
-
-- 一次性测试节点（**仅限 e2e 自动化脚本创建、使用并清理；人工禁止手动创建**，手动验证一律走上面的稳定节点）
-目录：DSH_HOME=~/.dsh_test/编号；密钥从 ~/.dsh/.credentials.yaml **只读复制**出去（复制允许，回写 ~/.dsh 禁止）
-创建/清理责任人：发起 e2e 的会话负责按下方流程创建并在测试结束后删除整个节点目录
-
-## 新建/安装一次性测试节点（**仅 e2e 自动化脚本使用，人工禁止执行**；必须按此顺序，顺序不能反）
-
-1. 先写 profile `.npmrc`，四行缺一不可（authToken 只读复制，不写明文进文档）：
-```ini
-store-dir=<节点目录>\.pnpm-store
-package-import-method=copy
-@veren:registry=https://npm.veren.top/
-//npm.veren.top/:_authToken=<从 C:\Users\imeep\.dsh\profiles\desktop\.npmrc 的同名键只读复制；该键不存在时向用户索取并说明用途与权限范围>
-```
-2. 再初始化 profile（`dsh plugin --profile web version-exemptions` 即可完成初始化，不跑 pnpm）
-3. 再安装（`dsh plugin --profile web add <tarball>`）
-4. 插件要作为 profile 层加载，`package.json` 必须声明：
-```json
-"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
-```
-patch 文件是 loader 行数组（见 plugins\auth\cordis.patch.yml、plugins\person-agent-bundle\cordis.patch.yml）；缺此声明 = 只装成普通依赖，宿主不加载。成员插件禁止自带 bundle：只作为普通依赖随组合包（如 person-agent-bundle）安装，由组合包统一插入配置行，避免 reconciliation 激活重复层
-5. 装完两项校验：
-```powershell
-# a. bundle 选择列表必须含本插件
-Get-Content <节点目录>\profiles\web\package.json | Select-String 'bundles' -Context 0,5
-# b. 与 ~/.dsh 零共享 inode（不得出现 \.dsh\profiles\desktop 路径）
-fsutil hardlink list "<节点目录>\profiles\web\node_modules\@deepseek-ai\dsh-client-modules\lib\client.js"
-```
+  - 装完校验: `Get-Content C:\Users\imeep\Documents\cursour\deepseek\.dsh\profiles\web\package.json | Select-String 'bundles' -Context 0,5`（列表须含所装组合包）；`fsutil hardlink list <…>\profiles\web\node_modules\@deepseek-ai\dsh-client-modules\lib\client.js`（不得出现 `\.dsh\profiles\desktop` 路径）
+  - 插件要作为 profile 层加载，`package.json` 必须声明 `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }`（patch 是 loader 行数组，见 plugins\auth\cordis.patch.yml）；缺此声明 = 只装成普通依赖，宿主不加载。成员插件禁止自带 bundle：只作为普通依赖随组合包（如 `app-host-bundle`）安装，由组合包统一插入配置行
+  - e2e 自动化（同样只用源码，不装任何节点）: `pnpm --dir deepseek\deepseek-harness test:e2e`（即 `vitest run --config vitest.e2e.config.ts`，真实 API、无凭据自跳过）；要起真实 Loader 组合用测试基建 `packages\test-support\loader-smoke`（源码零构建执行、隔离临时目录、自动清理）；确需隔离 home 时，用**同一份源码 + 脚本创建的临时 `DSH_HOME` 目录**（测完删除），绝不 tarball 装节点、绝不 `dsh plugin add` 到临时节点
 
 ## DSH profile 操作规范（防桌面白屏）
 
@@ -136,7 +110,7 @@ fsutil hardlink list "<节点目录>\profiles\web\node_modules\@deepseek-ai\dsh-
 
 1. **agent 会话跑在桌面端进程里，崩溃 = 自杀**。对任何 profile（含测试节点）执行 pnpm 前，先 `fsutil hardlink list <目标文件>` 确认与 `~/.dsh` 无共享 inode
 2. **禁止修改 `~/.dsh` 下任何文件**；所有插件禁止安装到 `~/.dsh`；执行 `dsh plugin` 前必须核对 `DSH_HOME` 指向测试节点目录并打印确认
-3. 每个测试节点/一次性节点必须使用**自己的专用 store**（`store-dir`）+ `package-import-method=copy`，禁止使用全局 `AppData\Local\pnpm\store`；禁止把节点重链进与桌面相同的 store
+3. 每个测试 profile 必须使用**自己的专用 store**（`store-dir`）+ `package-import-method=copy`，禁止使用全局 `AppData\Local\pnpm\store`；禁止把 profile 重链进与桌面相同的 store
 4. 桌面端在跑 → 禁止对 `DSH_HOME=~/.dsh` 做任何写操作（`dsh plugin add|remove`、GUI 插件管理器、`pnpm install|add|rebuild`、改 `dsh.profile.bundles`）
 5. 必须改 `~/.dsh` → 先完全退出桌面端（含托盘），改完冷启动；启动后 3~5 秒内不写 profile
 6. 任何 profile 写入之后 → 立刻 Ctrl+R 重载窗口
