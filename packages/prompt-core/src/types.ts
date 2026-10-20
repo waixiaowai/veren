@@ -8,6 +8,11 @@
 
 export type Key = string
 
+/** 实体铁律：id 稳定（React key 思想）/ Entity rule: stable id (React key) */
+export interface Entity {
+  id: string
+}
+
 /** 调度优先级 / scheduling lane */
 export type Lane = 'sync' | 'transition' | 'background'
 

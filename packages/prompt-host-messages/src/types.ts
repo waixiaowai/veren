@@ -1,11 +1,9 @@
 /**
  * 消息协议类型（宿主层私有：内核不知道这些存在）/ message protocol types (host-owned)
  */
+import type { Entity } from '@veren/prompt-core'
 
-/** 实体铁律：id 稳定 / entity rule: stable id */
-export interface Entity {
-  id: string
-}
+export type { Entity }
 
 /** 四种消息操作 / four message ops */
 export type Op =

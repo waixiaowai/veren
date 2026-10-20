@@ -31,7 +31,7 @@ export interface PageIO {
 }
 
 /** 事件处理器形状 / event handler shape */
-export type PageEventHandler = (payload: never, io: PageIO) => void
+export type PageEventHandler = (payload: unknown, io: PageIO) => void
 
 /** 页面的事件监听声明形状 / event-listener map shape（键名 = cordis 事件名）*/
 export type PageEventMap = Readonly<Record<string, PageEventHandler>>

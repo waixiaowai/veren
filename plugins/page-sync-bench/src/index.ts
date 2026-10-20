@@ -203,8 +203,8 @@ function applyContext(ctx: Context, config: Config): void {
   // 页面声明的事件监听接到 cordis 事件（ctx.emit 由 tools 行在本会话作用域发出）
   const eventDisposers = Object.entries(page.events ?? {}).map(([event, handler]) => {
     // 接缝断言：动态事件名 + 页面声明的处理器（cordis 事件面在此统一接入）
-    const register = ctx.on as unknown as (name: string, listener: (payload: TaskCenterChanged) => void) => () => void
-    return register(event, (payload) => { handler(payload as TaskCenterChanged, io) })
+    const emitter = ctx as unknown as { on(name: string, listener: (payload: TaskCenterChanged) => void): () => void }
+    return emitter.on(event, (payload) => { handler(payload, io) })
   })
   const eventDisposersRef = { current: eventDisposers }
 

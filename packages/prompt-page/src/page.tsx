@@ -7,7 +7,8 @@
  * - 事件处理器形状（键名 = cordis 事件名）
  */
 import { createElement } from '@veren/prompt-core'
-import type { ElementInput, PromptElement } from '@veren/prompt-core'
+import type { ElementInput, Entity, PromptElement } from '@veren/prompt-core'
+import type { PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
 import type { PageDefinition, PageEventMap, PageIO, PageParams, PagePresetSpec } from './types.ts'
 
 export type { PageEventMap, PageIO, PagePresetSpec } from './types.ts'
@@ -74,47 +75,30 @@ export function Data(props: { path: string; value: unknown }): PromptElement[] {
 }
 
 /** keyed 集合块：按 id 对位，变化 → splice op / keyed collection: keyed by id */
-export function Keyed<T extends { id: string }>(props: { path: string; items: readonly T[] }): PromptElement[] {
+export function Keyed<T extends Entity>(props: { path: string; items: readonly T[] }): PromptElement[] {
   return props.items.map((item) => createElement('item', { key: item.id, path: props.path, value: item }))
 }
 
 // ---- 动态 preset 构建（参考 person-agent-preset）/ dynamic preset builder ----
 
-/** preset 子插件行 / one child plugin row */
-export interface PresetPluginRow {
-  readonly id: string
-  readonly name: string
-  readonly disabled?: boolean
-  readonly config?: Record<string, unknown>
-}
-
-/** PresetDefinition 结构（结构兼容 dsh-agent-preset-registry）/ structurally-compatible preset definition */
-export interface PresetDefinitionShape {
-  readonly id: string
-  readonly name: string
-  readonly description: string
-  readonly order: number
-  readonly plugins: readonly PresetPluginRow[]
-}
-
 export interface BuildPagePresetOptions {
   /** preset id 缺省 page.<name> / defaults to page.<name> */
   readonly presetId?: string
   /** 工具/技能插件行（工具插件、skill 行等）/ tool & skill rows */
-  readonly toolRows?: readonly PresetPluginRow[]
+  readonly toolRows?: readonly PresetDefinition['plugins'][number][]
   /** 页面工作记忆行的包名（页面插件自身）/ package name of the page working-memory row */
   readonly contextRowName?: string
   /** 工作记忆行的配置（如 role/page 选择）/ config for the working-memory row */
   readonly contextRowConfig?: Record<string, unknown>
 }
 
-/** 构建页面 preset 定义 / build the page's preset definition */
-export function buildPagePreset<S>(page: PageDefinition<S>, options: BuildPagePresetOptions = {}): PresetDefinitionShape {
+/** 构建页面 preset 定义（直接产出注册表的 PresetDefinition）/ build the registry's PresetDefinition */
+export function buildPagePreset<S>(page: PageDefinition<S>, options: BuildPagePresetOptions = {}): PresetDefinition {
   const presetSpec = page.preset
   if (presetSpec === undefined) {
     throw new Error(`[buildPagePreset] page "${page.name}" has no preset.systemPrompt`)
   }
-  const plugins: PresetPluginRow[] = [
+  const plugins: PresetDefinition['plugins'] = [
     {
       id: 'persona',
       name: '@deepseek-ai/dsh-persona',

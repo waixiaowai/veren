@@ -6,6 +6,7 @@
  */
 import { bindStore, createRoot, scheduleRender } from '@veren/prompt-core'
 import { MessageHost, renderSync } from '@veren/prompt-host-messages'
+import type { MessageHostOptions } from '@veren/prompt-host-messages'
 import { formatPath } from './registry.ts'
 import type { PageDefinition, PageParams, PageSession } from './types.ts'
 
@@ -13,8 +14,8 @@ export interface MountOptions<S> {
   page: PageDefinition<S>
   store: import('@veren/prompt-core').ExternalStore<S>
   params?: PageParams
-  /** 透传给 MessageHost 的选项 / forwarded to MessageHost */
-  hostOptions?: { maxPatchGap?: number; compactEvery?: number }
+  /** 透传给 MessageHost 的选项（复用其选项类型）/ forwarded MessageHost options */
+  hostOptions?: MessageHostOptions
 }
 
 export function mountPage<S>(options: MountOptions<S>): PageSession<S> {

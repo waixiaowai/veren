@@ -10,18 +10,18 @@ import { TASKS_PATH } from './store.ts'
 import type { PageDefinition } from '@veren/prompt-page'
 import type { TaskItem, ToolOutcome } from './types.ts'
 
-/** 页面静态工具（OpenAI function 形状；归 preset 挂载，本包只声明）/ static page tool (preset-mounted) */
+/**
+ * 页面静态工具（与 @deepseek-ai/dsh-tools 的 ToolSchema 同形；该类型未公开导出，故本地声明）。
+ * Page tool shaped like dsh-tools' ToolSchema (not publicly exported, so declared locally).
+ */
 export interface PageTool {
   readonly name: string
   readonly description: string
   readonly parameters: Record<string, unknown>
 }
 
-/** chat API 用的 OpenAI 格式（由扁平工具派生）/ OpenAI chat format derived from flat tools */
-export const LIST_CHAT_TOOLS: {
-  type: 'function'
-  function: { name: string; description: string; parameters: Record<string, unknown> }
-}[] = [
+/** chat API 用的 OpenAI wire 格式 / OpenAI wire format */
+export const LIST_CHAT_TOOLS: { type: 'function'; function: PageTool }[] = [
   {
     type: 'function',
     function: {
