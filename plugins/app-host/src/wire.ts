@@ -8,11 +8,13 @@
  *   注册的镜像面（含卸载摘工具）；
  * - `pageRegistry.bindPorts({...})` ← 全部端口**纯参数**传入（G13 规则 2）：
  *   真实会话端口 + apps/tasks/toolsOf/deliveries/releaseLeases 能力面。
- *   pageRegistry 不再自己摸兄弟服务（守卫按属主归因，摸了就炸）。
+ *   pageRegistry 不再自己摸兄弟服务（守卫按属主归因，摸了就炸）；
+ * - 宿主工具 `app_list` / `app_pages` / `app_open` 由本装配 `ctx.tools.register`
+ *   挂进真实工具表（第三轮真机验证补上的丢失步骤）。
  *
- * **全成或全回滚**：三步收在同一个 try 块里，任一步抛错即逆序撤销已执行的前序
- * 步骤再重抛（G13 规则 3）——系统要么处于"三步全接上"，要么"什么也没接"。
- * All-or-nothing: the three steps share one try block; any failure rolls the
+ * **全成或全回滚**：各步收在同一个 try 块里，任一步抛错即逆序撤销已执行的前序
+ * 步骤再重抛（G13 规则 3）——系统要么处于"全部接上"，要么"什么也没接"。
+ * All-or-nothing: the steps share one try block; any failure rolls the
  * earlier ones back in reverse before rethrowing — the system is either fully
  * wired or not wired at all, never half-wired.
  *
@@ -26,20 +28,23 @@ import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
 import type {} from '@veren/task-center'
 import type { AppId } from '@veren/app-registry'
+import { createBootstrapTools } from '@veren/app-registry'
+import { createAppOpenTool } from '@veren/page-registry'
 import { createRealSessionPort } from './session-port.ts'
 
-/** 显式解析三个服务；缺任何一个 fail loud（misconfiguration fails loud）。
+/** 显式解析三个服务与工具注册表；缺任何一个 fail loud（misconfiguration fails loud）。
  *  服务经属性代理解析（本插件声明了 inject，属主合法）；返回面直接复用
  *  Context 上已声明的真实类型，无结构断言。 */
-export function requireFaces(ctx: Context): Pick<Context, 'apps' | 'pageRegistry' | 'taskCenter'> {
+export function requireFaces(ctx: Context): Pick<Context, 'apps' | 'pageRegistry' | 'taskCenter' | 'tools'> {
   const apps = ctx.apps
   const pageRegistry = ctx.pageRegistry
   const taskCenter = ctx.taskCenter
-  if (apps === undefined || pageRegistry === undefined || taskCenter === undefined) {
-    throw new Error('app-host: ctx.apps / ctx.pageRegistry / ctx.taskCenter must be active before the assembly runs; '
+  const tools = ctx.tools
+  if (apps === undefined || pageRegistry === undefined || taskCenter === undefined || tools === undefined) {
+    throw new Error('app-host: ctx.apps / ctx.pageRegistry / ctx.taskCenter / ctx.tools must be active before the assembly runs; '
       + 'check the profile loader rows (app-registry, page-registry, task-center before app-host)')
   }
-  return { apps, pageRegistry, taskCenter }
+  return { apps, pageRegistry, taskCenter, tools }
 }
 
 /**
@@ -50,7 +55,33 @@ export function requireFaces(ctx: Context): Pick<Context, 'apps' | 'pageRegistry
  * the error rethrows — no half-wired state is ever left behind.
  */
 export function wireAppHost(ctx: Context): () => void {
-  const { apps, pageRegistry, taskCenter } = requireFaces(ctx)
+  const { apps, pageRegistry, taskCenter, tools } = requireFaces(ctx)
+
+  // 宿主引导工具（app_list / app_pages，归 app-registry）与 app_open（归
+  // page-registry）的工具本体在这里构造——**注册**发生在本装配的最后一步，
+  // 注册得到的注销器全程握在手里：后续任何一步失败或装配整体卸载时逆序摘除。
+  // Host bootstrap tools (app_list / app_pages, owned by app-registry) and
+  // app_open (owned by page-registry) are built here — the *registration* is
+  // the assembly's final step; the disposers are held so any later failure or
+  // the assembly's own unload removes them in reverse order.
+  const bootstrap = createBootstrapTools(apps)
+  const appOpen = createAppOpenTool(() => pageRegistry)
+  // 装配持有的全部注册注销器（工具行 + 回填镜像行），逆序撤销
+  // / every registration disposer the assembly holds (tool rows + backfilled
+  // mirror rows), undone in reverse.
+  const disposers: Array<() => void> = []
+
+  /** 逆序摘掉已注册的行（回滚与卸载共用）/ undo registered rows in reverse */
+  const undoRegistrations = (): void => {
+    for (const dispose of disposers.reverse()) {
+      try {
+        dispose()
+      } catch (error: unknown) {
+        ctx.logger.error(`app-host: rollback register failed: ${String(error)}`)
+      }
+    }
+    disposers.length = 0
+  }
 
   // 1) 应用事实 → 任务中心：发送方校验 + 卸载懒孤儿判定都经这里查注册表
   taskCenter.setAppResolver(async (appId) => {
@@ -66,8 +97,58 @@ export function wireAppHost(ctx: Context): () => void {
       releaseApp: (appId) => pageRegistry.releaseApp(appId),
     })
 
-    // 3) pageRegistry 的全部端口纯参数传入（G13 规则 2）；本插件 inject 拥有
-    //    apps/taskCenter，能力面由这里穿过公开接口交给 pageRegistry
+    // 2b) 回填镜像：真实 Loader 按 inject 就绪并发激活行——应用插件（如
+    //     task-workbench）可能先于本装配注册页面，彼时镜像未在，注册走了
+    //     "只告警"分支，页面从此对 openUrl 不可见（第四轮真机失败点）。这里把
+    //     目录里所有应用的所有页面补镜像一遍：已在 page-registry 的页面跳过
+    //     （幂等，正常路径的注册不受影响）；补镜像的注销器由本装配持有，
+    //     回滚/卸载时逆序摘除。已知取舍：应用在装配之后卸载时，回填行会留到
+    //     装配卸载才摘——彼时 openUrl 已被 app/not-found 拒绝，不会误开。
+    // 2b) Backfill the mirror: the real Loader activates rows concurrently by
+    //     inject-readiness — an app plugin (e.g. task-workbench) may register
+    //     pages before this assembly installs the mirror; that registration hit
+    //     the warn-only branch and stayed invisible to openUrl (the round-4
+    //     live failure). Mirror every page of every cataloged app here: pages
+    //     already in page-registry are skipped (idempotent; the normal path is
+    //     untouched); backfill disposers are held by this assembly and removed
+    //     in reverse on rollback/unload. Known tradeoff: if an app uninstalls
+    //     after the assembly ran, its backfilled row lingers until the assembly
+    //     unloads — openUrl already rejects via app/not-found by then.
+    for (const record of apps.catalog()) {
+      for (const page of apps.listPages(record.definition.id)) {
+        // 幂等键是 pageKey（<appId>/<本地名>）：本地名跨应用重名（两个应用都有
+        // "list"），按裸名判存在会把别的应用的页面误当成自己的。
+        // The idempotency key is the pageKey (<appId>/<localName>): local names
+        // collide across apps (every app has a "list"), so a bare-name check
+        // would mistake another app's page for this one.
+        if (pageRegistry.get(`${record.definition.id}/${page.name}`) !== undefined) continue
+        disposers.push(pageRegistry.registerAppPage(record.definition.id, page))
+      }
+    }
+
+    // 3) 宿主工具注册：app_list / app_pages / app_open 挂进真实工具表。
+    //    没有这一步，模型侧永远看不到这三个工具（第三轮真机验证的失败点）——
+    //    注册行必须发生，注销器留在装配手里，失败/卸载时逆序摘除。
+    //    注册放在 bindPorts **之前**：bindPorts 没有解绑面（整体替换语义），
+    //    让它是最后一步，失败时已注册的工具行可被整体摘掉，端口侧天然留在
+    //    "从未绑定"状态——不留半接线。
+    // 3) Host tool registration: app_list / app_pages / app_open land in the
+    //    real tool table. Without this step the model never sees the three
+    //    tools (the round-3 live failure) — the registration must happen, its
+    //    disposers stay with the assembly, and removal is reverse on failure
+    //    or unload. It runs *before* bindPorts: bindPorts has no unbind face
+    //    (wholesale-replace semantics), so making it the last step means a
+    //    failure strips every registered tool row while the port side stays
+    //    naturally "never bound" — no half-wired state.
+    for (const tool of [bootstrap.appList, bootstrap.appPages, appOpen]) {
+      disposers.push(tools.register(tool))
+    }
+
+    // 4) pageRegistry 的全部端口纯参数传入（G13 规则 2）；本插件 inject 拥有
+    //    apps/taskCenter，能力面由这里穿过公开接口交给 pageRegistry。
+    // 4) pageRegistry's ports arrive as pure parameters (G13 rule 2); this
+    //    plugin owns apps/taskCenter via inject and hands their capability
+    //    faces through public interfaces to pageRegistry.
     pageRegistry.bindPorts({
       sessions: createRealSessionPort(ctx),
       apps,
@@ -94,18 +175,22 @@ export function wireAppHost(ctx: Context): () => void {
       },
     })
   } catch (error: unknown) {
-    // 逆序回滚已执行步骤（G13 规则 3）。每个回滚步独立捕获：某步的撤销失败
-    // 不得吞掉原始错误，也不得阻断其余回滚——原始错误优先透出。
-    // Roll executed steps back in reverse (G13 rule 3). Each undo is caught
-    // independently: a failing undo must not mask the original error nor block
-    // the remaining rollbacks — the original error rethrows.
+    // 逆序回滚已执行步骤（G13 规则 3）：工具行最先摘（注册最晚），然后镜像
+    // 面、resolver。每个回滚步独立捕获：某步的撤销失败不得吞掉原始错误，
+    // 也不得阻断其余回滚——原始错误优先透出。
+    // Roll executed steps back in reverse (G13 rule 3): tool rows go first
+    // (registered last), then the mirror, then the resolver. Each undo is
+    // caught independently: a failing undo must not mask the original error
+    // nor block the remaining rollbacks — the original error rethrows.
+    undoRegistrations()
     try { apps.setPageMirror(undefined) } catch (e: unknown) { ctx.logger.error(`app-host: rollback setPageMirror failed: ${String(e)}`) }
     try { taskCenter.setAppResolver(undefined) } catch (e: unknown) { ctx.logger.error(`app-host: rollback setAppResolver failed: ${String(e)}`) }
     throw error
   }
 
   return () => {
-    taskCenter.setAppResolver(undefined)
+    undoRegistrations()
     apps.setPageMirror(undefined)
+    taskCenter.setAppResolver(undefined)
   }
 }

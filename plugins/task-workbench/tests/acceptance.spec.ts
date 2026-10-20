@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 第 1 阶段验收（docs/application-concept.cn.md §8.1 八场景）。
  * Phase-1 acceptance: the eight §8.1 scenarios end to end.
  *
@@ -272,7 +272,7 @@ describe('场景 2：/task/1 → 会话 A；/task/2 → 会话 B；A 原样保�
     // A 的工具仍挂着（键 = task_workbench__* 且带会话分组的实现按名字记录）
     expect([...tools.keys()].filter((name) => name.startsWith('task_workbench__')).length).toBeGreaterThan(0)
     // A 的 PAGE 块还在
-    expect(store.messages(a.sessionId).some((m) => m.startsWith('PAGE detail'))).toBe(true)
+    expect(store.messages(a.sessionId).some((m) => m.startsWith('PAGE task-workbench/detail'))).toBe(true)
   })
 })
 
@@ -299,7 +299,7 @@ describe('场景 3：整机重启（真实落盘）→ 索引仍指向最新活�
     const deprecatedRow = after.find((row) => row.state === 'deprecated' && row.sessionId === a.sessionId)
     expect(deprecatedRow?.state).toBe('deprecated')
     // 新会话的 PAGE 块与页面工具照常
-    expect(second.store.messages(b.sessionId).some((m) => m.startsWith('PAGE detail'))).toBe(true)
+    expect(second.store.messages(b.sessionId).some((m) => m.startsWith('PAGE task-workbench/detail'))).toBe(true)
     expect([...second.tools.keys()].filter((name) => name.startsWith('task_workbench__')).length).toBeGreaterThan(0)
   })
 })
@@ -443,7 +443,7 @@ describe('场景 8：卸载 → 工具摘掉、会话保留、任务 orphaned；
     const rows = await second.pages.instances.listByApp('task-workbench')
     expect(rows.find((row) => row.url === '/apps/task-workbench/task/1' && row.state === 'live')?.sessionId).toBe(reopened.sessionId)
     expect(rows.some((row) => row.state === 'deprecated' && row.sessionId === a.sessionId)).toBe(true)
-    expect(second.store.messages(a.sessionId).some((m) => m.startsWith('PAGE detail'))).toBe(true)
+    expect(second.store.messages(a.sessionId).some((m) => m.startsWith('PAGE task-workbench/detail'))).toBe(true)
     // 新会话的页面工具照常挂载
     expect(second.tools.has('task_workbench__complete_task')).toBe(true)
   })

@@ -103,7 +103,8 @@ describe('应用可发现与可解析 / discoverable and resolvable', () => {
     const entryKey = APP_DEFINITION.entry
     const entry = apps.listPages(APP_ID).find((page) => page.name === entryKey)
     expect(entry?.url).toBe('/apps/notebook/list')
-    expect(pageRegistry.resolve('/apps/notebook/list')?.page.name).toBe('list')
+    // pageKey 命名（见 registerAppPage）/ pageKey naming (see registerAppPage)
+    expect(pageRegistry.resolve('/apps/notebook/list')?.page.name).toBe('notebook/list')
     const match = pageRegistry.resolve('/apps/notebook/note/n-7?focus=chat')
     expect(match?.params).toEqual({ noteId: 'n-7', focus: 'chat' })
 
@@ -158,10 +159,11 @@ describe('应用工具 / app tools', () => {
   it('单入口注册一致：应用目录的页面与 page-registry 可解析的页面一一对应', async () => {
     const { apps, pageRegistry, fiber } = await mount()
 
-    const listed = apps.listPages(APP_ID).map((page) => page.name).sort()
+    const listed = apps.listPages(APP_ID).map((page) => `${APP_ID}/${page.name}`).sort()
     const resolved = apps.listPages(APP_ID)
       .map((page) => pageRegistry.resolve(page.url)?.page.name)
       .sort()
+    // pageKey 命名（见 registerAppPage）/ pageKey naming (see registerAppPage)
     expect(resolved).toEqual(listed)
     // 断言助手：双向核对（每页可解析且名字一致；前缀下没有目录外页面）。
     // Assertion helper: both directions (each page resolves with the same

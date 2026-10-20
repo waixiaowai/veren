@@ -96,7 +96,8 @@ describe('应用可被发现与解析', () => {
     const entry = apps.listPages(APP_ID as AppId).find((page) => page.name === entryKey)
     expect(entry?.url).toBe('/apps/task-workbench/list')
     // 子注册表解析：入口与实例化详情页都能命中 / the child registry resolves both
-    expect(pageRegistry.resolve('/apps/task-workbench/list')?.page.name).toBe('list')
+    // pageKey 命名（见 registerAppPage）/ pageKey naming (see registerAppPage)
+    expect(pageRegistry.resolve('/apps/task-workbench/list')?.page.name).toBe('task-workbench/list')
     const match = pageRegistry.resolve('/apps/task-workbench/task/t-12?focus=chat')
     expect(match?.params).toEqual({ taskId: 't-12', focus: 'chat' })
   })

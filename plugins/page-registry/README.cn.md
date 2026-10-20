@@ -28,8 +28,8 @@ pnpm --filter @veren/page-registry test
 
 - `service.instances`：持久化 `PageInstanceIndex`（`app_pages` 存储域；reserve/commit 两阶段；重启后仍命中；会话被删自动失效重建）。
 - `service.openUrl(url, { taskId })`：规范化 URL → 校验应用 → 一律新建页面会话（同 URL 旧会话先废弃）→ 挂 `<toolPrefix>__<本地名>` 工具 → 写一次 PAGE 块 → commit → 聚焦；任务场景先 take 再追加 TASK 块。稳定错误码：app/not-found、app/disabled、page/not-found、task/expired、page/session-create-failed、page/tool-conflict、page/index-unavailable、page/host-unavailable。
-- `registerAppPage(appId, page)`：应用作用域注册（与 app-registry 的 `ctx.apps.pages(id)` 对接）；`page.<name>` 预设路径保持废弃。
-- 宿主工具 `app_open` 经 `registerAppOpenTool(ctx, tools, port)` 注册——工具注册表是注入参数（G13），不从上下文探测。
+- `registerAppPage(appId, page)`：应用作用域注册（与 app-registry 的 `ctx.apps.pages(id)` 对接）；`page.<name>` 预设路径保持废弃。页面以 **pageKey（`<appId>/<本地名>`）** 为名登记——本地名跨应用必然重名，按裸名登记会让第二个应用在 duplicate-name 上失败。
+- 宿主工具 `app_open` 的本体由 `createAppOpenTool(port)` 构造；注册由宿主装配层（app-host）在它唯一的"全成或全回滚"接线 effect 里 `ctx.tools.register` 完成（G13）——本模块不再自带 effect。
 
 ## 显式接线（G13）
 

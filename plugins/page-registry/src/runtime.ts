@@ -283,7 +283,11 @@ async function createPageSession(
   try {
     await index.reserve(key, sessionId, {
       appId: app.definition.id,
-      page: `${app.definition.id}/${match.page.name}`,
+      // 应用页的 match.page.name 已是 pageKey（<appId>/<本地名>，见
+      // registerAppPage）；裸名路径（raw register）保留旧的前缀拼接。
+      // app pages already carry the pageKey as their name (registerAppPage);
+      // the raw-register path keeps the legacy prefixing.
+      page: match.page.name.includes('/') ? match.page.name : `${app.definition.id}/${match.page.name}`,
       instanceTitle: instanceTitleOf(match, params),
       pageRevision: match.page.pageRevision ?? 1,
       params,

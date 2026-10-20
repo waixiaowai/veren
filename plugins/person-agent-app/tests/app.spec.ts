@@ -98,8 +98,10 @@ describe('应用可被发现与解析', () => {
     disposers.push(() => fiber.dispose())
     const entry = apps.listPages(APP_ID).find((page) => page.name === APP_DEFINITION.entry)
     expect(entry?.url).toBe('/apps/person-agent/overview')
-    expect(pageRegistry.resolve('/apps/person-agent/overview')?.page.name).toBe('overview')
-    expect(pageRegistry.resolve('/apps/person-agent/workspaces')?.page.name).toBe('workspaces')
+    // 应用页以 pageKey（<appId>/<本地名>）登记（见 registerAppPage）
+    // app pages register under their pageKey (see registerAppPage)
+    expect(pageRegistry.resolve('/apps/person-agent/overview')?.page.name).toBe('person-agent/overview')
+    expect(pageRegistry.resolve('/apps/person-agent/workspaces')?.page.name).toBe('person-agent/workspaces')
   })
 
   it('所有页面 URL 都是 /apps/person-agent/...，不绑定预设，revision ≥ 1', async () => {

@@ -73,7 +73,9 @@ describe('forum app discovery and resolution', () => {
     disposers.push(() => fiber.dispose())
     const entry = apps.listPages(FORUM_APP_ID).find((page) => page.name === FORUM_ENTRY_KEY)
     expect(entry?.url).toBe('/apps/forum/catalog')
-    expect(pageRegistry.resolve('/apps/forum/catalog')?.page.name).toBe('catalog')
+    // 应用页以 pageKey（<appId>/<本地名>）登记（见 registerAppPage）
+    // app pages register under their pageKey (see registerAppPage)
+    expect(pageRegistry.resolve('/apps/forum/catalog')?.page.name).toBe(`${FORUM_APP_ID}/catalog`)
     const match = pageRegistry.resolve('/apps/forum/post/p-12?focus=chat')
     expect(match?.params).toEqual({ postId: 'p-12', focus: 'chat' })
   })
@@ -105,7 +107,8 @@ describe('forum app discovery and resolution', () => {
     for (const page of listed) {
       const match = pageRegistry.resolve(page.url)
       expect(match, `page "${page.name}" (${page.url}) must be resolvable`).not.toBeNull()
-      expect(match?.page.name).toBe(page.name)
+      // pageKey 命名（见 registerAppPage）/ pageKey naming (see registerAppPage)
+      expect(match?.page.name).toBe(`${FORUM_APP_ID}/${page.name}`)
     }
     // And nothing under the app prefix resolves without a catalog entry:
     // the mirror never drifts in either direction.

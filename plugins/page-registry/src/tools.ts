@@ -10,10 +10,8 @@
  *
  * @module @veren/page-registry/tools
  */
-import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type {} from '@deepseek-ai/dsh-tools'
 
 /** app_open 需要的最小服务面 / the minimal service face app_open needs */
 export interface AppOpenPort {
@@ -28,20 +26,20 @@ function renderValue(_args: unknown, value: unknown): ContentBlock[] {
 }
 
 /**
- * 注册 `app_open` 到给定工具注册表；返回的 effect 卸载时逆序摘除。
- * 工具注册表由调用方（声明了 `inject: ['tools']` 的插件）作为参数传入（G13
- * 规则 2）：本函数不摸 ctx 上的兄弟服务，也没有"缺席即告警"的降级分支——
- * 注册表不在场是装配错误，直接 fail loud。
- * Register `app_open` into the given tool registry; the effect disposes it in
- * reverse on unload. The registry arrives as a parameter from a plugin that
- * declares `inject: ['tools']` (G13 rule 2): no sibling probing, and a missing
- * registry is a misconfiguration that fails loud instead of warn-and-skip.
- * @param ctx - 宿主上下文（effect 挂载）/ host context (effect mounting)
- * @param tools - 注入的工具注册表 / the injected tool registry
+ * 构造 `app_open` 工具本体（defineTool 产物，零形状转换）。注册时机归装配层：
+ * app-host 在它**唯一的整组接线 effect** 里 `ctx.tools.register` 本工具，与
+ * app_list / app_pages 一起登记、一起逆序摘除——本函数不再自带 ctx.effect，
+ * 否则整组"全成或全回滚"的约定就会被拆成多个 effect（G13 规则 3）。
+ * Build the `app_open` tool body (a `defineTool` product, zero conversion).
+ * Registration timing belongs to the assembly layer: app-host registers this
+ * tool via `ctx.tools.register` inside its single all-or-nothing wiring effect,
+ * together with app_list / app_pages — registered as one group, removed in
+ * reverse as one group. This function no longer opens its own ctx.effect,
+ * which would split the all-or-nothing contract across effects (G13 rule 3).
  * @param port - 解析 openUrl 服务面 / resolves the service surface
  */
-export function registerAppOpenTool(ctx: Context, tools: Context['tools'], port: () => AppOpenPort): void {
-  ctx.effect(() => tools.register(defineTool({
+export function createAppOpenTool(port: () => AppOpenPort): ReturnType<typeof defineTool> {
+  return defineTool({
     name: 'app_open',
     description: 'Open an application page URL (for example /apps/review-workbench/task/1) or take a task '
       + 'with taskId. It always creates a fresh page session with the page\u2019s tools mounted and returns it; '
@@ -57,5 +55,5 @@ export function registerAppOpenTool(ctx: Context, tools: Context['tools'], port:
       return await port().openUrl(args.url, args.taskId === undefined ? {} : { taskId: args.taskId })
     },
     presentCall: args => ({ card: 'generic' as const, title: '打开页面', kind: 'other' as const, ...(args === undefined ? {} : { rawInput: args }) }),
-  })), 'page-registry:app_open')
+  })
 }

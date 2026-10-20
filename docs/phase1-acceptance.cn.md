@@ -32,7 +32,7 @@ pending/failed）：**
 | --- | --- | --- |
 | A. 三服务 + 装配行 | **PASS** | inventory 中 `app-registry`/`page-registry`/`task-center`/**`app-host`** 四行全部 `active`；启动无任何 "waiting for inject" 告警。上一轮死在 `bindPorts` 守卫的装配行本轮激活，显式接线修复成立。 |
 | B. 四应用注册 | **PASS（注册面）/ FAIL（目录工具）** | `forum`/`forum-ui`/`notebook`/`notebook-ui`/`person-agent-preset`/`person-agent-app`/`task-workbench` 七行全部 `active`（apply 无抛错＝register/pages 注册成功）；真实会话工具清单含 `forum_*`×6、`notebook_*`×6、`task_*`×7。但 `app_list`/`app_pages`/`app_open` 三个模型面工具**一个都不在**（见下）。 |
-| C. `agent/created` 载荷形状 | **部分验证（替身假设一处证伪）** | 真实签名（`packages/core/agent/src/runtime-types.ts:261`）：payload = `{ agent: Agent; source: SessionStartSource; signal? }`，`agent`/`source` 键与替身一致；`agent.session` 真实存在（`Session`），`source` 取值 `startup`/`resume`。**但 `agent/created` 是运行时 serial 事件，不落会话日志**——清单 2"会话日志里看到载荷"的前提不成立；真实宿主消费它只能 `ctx.on`（app-host `session-port.ts:111` 即如此）。 |
+| C. `agent/created` 载荷形状 | **部分验证（替身假设一处证伪）** | 真实签名（`packages/core/agent/src/runtime-types.ts:261`）：payload = `{ agent: Agent; source: SessionStartSource; signal? }`，`agent`/`source` 键与替身一致；`agent.session` 真实存在（`Session`），`source` 取值 `startup`/`resume`。**但 `agent/created` 是运行时 serial 事件，不落会话日志**——清单 2"会话日志里看到载荷"的前提不成立；真实宿主消费它只能 `ctx.on`（app-host `session-port.ts:111` 即如此）。**清单 2 的观测方式已改**（AGENTS.md 同步）：探针插件 `ctx.on('agent/created', …)` 监听并把载荷写文件，不再是"看会话日志"。 |
 | D. 工具作用域隔离 | **未验（被 app_open 缺失阻塞）** | 页面会话唯一创建入口是 `app_open`，工具不在场即无法创建页面会话。 |
 | E. 任务通知落真实日志 | **未验（同被阻塞）** | `taskCenter.send` 无 remote 面，发送方也是应用侧/模型侧；通知投递目标页开不出来。 |
 | F. 页面工具随会话释放 | **未验（同被阻塞）** | 同 D。 |
@@ -51,6 +51,42 @@ D/E/F 三项的阻塞根因是这一层，不再是 G13 的探测/守卫问题�
 **宿主与端口**：验完已关，`Get-NetTCPConnection -LocalPort 3080` 确认释放；验证用无头 Chrome（临时
 user-data-dir）已全部结束，9222 不再监听。`~/.dsh` 零改动自证：递归扫描该目录 79307 个文件，全部
 mtime ≤ 2026-10-21 02:19:57（本轮开始前），或为本 GUI 会话自身的日志——本轮没有任何命令指向它。
+
+### 第四轮真机验证（2026-10-21 03:00–03:35，引导工具接线 + pageKey 命名空间修复后）
+
+**验证基线 = 主工作树**（`fix(app-host)` 提交前的工作树；`pnpm -r --workspace-concurrency=1 test` 全绿）。
+安装照配方：`scripts/pack-local-plugins.mjs` 重打 37 个 tarball → `dist-tgz` 同步 → profile
+`pnpm install --force` + **删除 `node_modules\@veren` 强制重链**（同一 `file:` 路径 + 同版本号下
+`--force` 不会因内容变化重取，必须核对安装产物内容自证新代码落位）；`fsutil hardlink list` 对
+`@veren\app-host\src\wire.ts`、`@veren\page-registry\src\tools.ts` 各只列出自身一个路径，零共享 inode。
+
+**本轮修复（两个，第二个是真机新暴露）**：
+
+1. **引导工具注册缺失（第三轮失败点）**：`createBootstrapTools`（app_list/app_pages）与
+   `createAppOpenTool`（app_open，由 `registerAppOpenTool` 收敛为纯本体工厂）由 app-host 装配在
+   `wireAppHost` 的单个 effect 里 `ctx.tools.register`，注销器由装配持有，失败逆序回滚、卸载逆序摘除。
+2. **真机新暴露——页面镜像的两个连带缺陷**：① 真实 Loader 按 inject 就绪**并发**激活行，应用插件
+   （task-workbench）可能先于 app-host 装配注册页面，注册走了"只告警"分支，页面从此对 openUrl 不可见
+   （单测 sequential boot 掩盖了这一点）→ 装配在镜像面就位后**回填**目录里所有应用的页面（幂等）；
+   ② page-registry 按裸名登记页面，本地名（list/detail…）跨应用必然重名——notebook/list 先注册后，
+   task-workbench/list 被吞 → 应用页改以 **pageKey（`<appId>/<本地名>`）** 为名登记
+   （`PageRegistryService.registerAppPage`），幂等检查、审计、索引行同步对齐。
+
+**A–F 逐项（真实宿主 `dsh web --port 3080 --no-open` + CDP 无头 Chrome 驱动真实模型会话）**：
+
+| 项 | 结论 | 一句依据 |
+| --- | --- | --- |
+| A. 服务 + 装配行 | **PASS** | 启动无 "waiting for inject"；app-host 激活且三个引导工具全部出现在真实会话工具清单（模型实测调用成功）。 |
+| B. 应用注册 + 目录工具 | **PASS** | 真实会话实测：`app_list` 返回 active 应用目录；`app_pages` 返回 task-workbench 3 页；`app_open` 成功创建页面会话。 |
+| C. `agent/created` 观测 | **PASS（改法生效）** | 观测方式已改为探针 `ctx.on` 监听（AGENTS.md 清单 2 已同步改写）；消费面 `session-port.ts` 的 `ctx.on('agent/created')` 在真实宿主按预期工作（页面工具入队/挂载路径活跃）。 |
+| D. 工具作用域隔离 | **PASS（间接）/ GUI 入口缺** | 创建者会话实测工具清单 52 个，**零** `task_workbench__*` 页面工具——页面工具没有泄漏进兄弟会话；页面会话级互斥已由 `assembly.spec.ts` 真实 cordis 子上下文测试覆盖。页面会话本身尚不能从聊天 UI 进入（H 阶段 GUI 入口），逐会话问答留待 GUI。 |
+| E. 任务通知落真实会话 | **FAIL（阻塞点明确）** | `app_open` 的 taskId 接取路径在真机执行（`taskId=nonexistent` 返回 `task not found`，接取真实发生）；但**端到端不可验**：真实宿主没有可达的任务发送方（`task_list` 为空；`publish_task` 只挂在 publish 页会话上，而页面会话在 GUI 里尚不可进入 → 没有任何 agent 能执行发送），投递泵无料可泵。补齐 H 阶段的页面会话入口后同一配方可直接复验。 |
+| F. 工具随会话释放（重开新建） | **PASS** | 同 URL 重开 `/apps/task-workbench/task/1` 返回全新 sessionId（`ea3d5e75…`，与旧 `8031b2b1…` 不同）；磁盘 `app_pages.json`：live 行指向最新会话，旧 sessionId 行 `state=deprecated`（notebook 重开同样验证）。 |
+
+**宿主与端口**：验完已关；`Get-NetTCPConnection` 确认 3080/9222 均无监听；验证用无头 Chrome
+（临时 user-data-dir）进程与临时目录已清理。`~/.dsh` 零改动自证：递归 79311 个文件数量与本轮基线
+一致（零新增），期间仅桌面实例自身在会话开始时刻（02:40:08）写的日志/workspace 文件有 mtime 变化
+——本轮没有任何命令指向 `~/.dsh`。
 
 ### 第二轮真机验证（2026-10-21 凌晨，探测式对接被证伪的一轮）
 

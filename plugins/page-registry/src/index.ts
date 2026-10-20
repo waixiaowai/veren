@@ -20,7 +20,7 @@ export type {
   DeliveryFace, MountedTool, OpenPageOptions, OpenPageResult, PageRuntimePorts, PageSessionPort,
   ToolsFace,
 } from './runtime.ts'
-export { registerAppOpenTool } from './tools.ts'
+export { createAppOpenTool } from './tools.ts'
 export type { AppOpenPort } from './tools.ts'
 
 declare module '@deepseek-ai/cordis' {

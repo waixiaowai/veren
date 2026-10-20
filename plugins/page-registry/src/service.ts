@@ -138,12 +138,22 @@ export class PageRegistryService extends Service {
   /**
    * 应用作用域注册（对接 A 的 `ctx.apps.pages(id)`）：URL 必须已是
    * `/apps/<appId>/...` 形态；这是 `page.<name>` 预设路径的替代入口。
+   * 页面在注册表里以 pageKey（`<appId>/<本地名>`，§3.4.3 的全局页面身份）为名：
+   * 本地名（list/detail…）跨应用必然重名，全局按裸名登记会让第二个应用在
+   * duplicate-name 上炸掉或被幂等检查跳过——第四轮真机 task-workbench 失败点。
+   * App-scoped registration (pairs with app-registry's `ctx.apps.pages(id)`):
+   * the url must already be `/apps/<appId>/...`. Pages register under their
+   * pageKey (`<appId>/<localName>`, the §3.4.3 global page identity): local
+   * names (list/detail…) necessarily collide across apps, and registering them
+   * bare makes the second app explode on duplicate-name or get silently
+   * skipped by idempotency checks — the round-4 live task-workbench failure.
    */
   registerAppPage(appId: string, page: PageDefinition<never>): () => void {
     if (!page.url.startsWith(`/apps/${appId}/`)) {
       throw new PageError(PageErrorCode.UrlInvalid, `page "${page.name}" of app "${appId}" must register under /apps/${appId}/, got ${page.url}`)
     }
-    return this.registry.register(page)
+    const scoped: PageDefinition<never> = { ...page, name: `${appId}/${page.name}` }
+    return this.registry.register(scoped)
   }
 
   /** 解析 URL：路径参数 + query 合并（path 优先）/ resolve a url to a page match */
@@ -205,7 +215,9 @@ export class PageRegistryService extends Service {
     for (const record of apps.catalog()) {
       const appId = record.definition.id
       for (const page of record.listPages?.(appId) ?? []) {
-        if (this.registry.get(page.name) === undefined) {
+        // 应用页以 pageKey（<appId>/<name>）登记，见 registerAppPage
+        // app pages register under their pageKey, see registerAppPage
+        if (this.registry.get(`${appId}/${page.name}`) === undefined) {
           drift.push({ appId, page: page.name, url: page.url, problem: 'missing-in-page-registry' })
           continue
         }

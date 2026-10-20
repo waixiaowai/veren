@@ -31,7 +31,10 @@ export function expectPagesRegisteredOnce(
   for (const page of pages) {
     const match = pageRegistry.resolve(page.url)
     expect(match, `page "${page.name}" (${page.url}) must be resolvable`).not.toBeNull()
-    expect(match?.page.name, `resolved page for ${page.url} must be "${page.name}"`).toBe(page.name)
+    // 应用页在 page-registry 里以 pageKey（<appId>/<本地名>）为名（见
+    // PageRegistryService.registerAppPage）/ app pages are named by their
+    // pageKey in page-registry (see PageRegistryService.registerAppPage)
+    expect(match?.page.name, `resolved page for ${page.url} must be "${appId}/${page.name}"`).toBe(`${appId}/${page.name}`)
   }
   const catalogUrls = pages.map((page) => page.url).sort()
   const mirroredUrls = pageRegistry.catalog()

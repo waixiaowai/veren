@@ -28,8 +28,8 @@ pnpm --filter @veren/page-registry test
 
 - `service.instances`: persistent `PageInstanceIndex` (`app_pages` storage domain, two-phase reserve/commit, survives restart, invalidates rows whose session is gone).
 - `service.openUrl(url, { taskId })`: canonicalize -> app check -> open a fresh page session (same-URL predecessor deprecated first) -> mount `<toolPrefix>__<local>` tools -> one PAGE block -> commit -> focus; task flow takes first, then appends a TASK block. Stable codes: app/not-found, app/disabled, page/not-found, task/expired, page/session-create-failed, page/tool-conflict, page/index-unavailable, page/host-unavailable.
-- `registerAppPage(appId, page)`: app-scoped registration (pairs with app-registry's `ctx.apps.pages(id)`); the `page.<name>` preset path stays deprecated.
-- `app_open` host tool registered via `registerAppOpenTool(ctx, tools, port)` — the tool registry is an injected parameter (G13), not probed from the context.
+- `registerAppPage(appId, page)`: app-scoped registration (pairs with app-registry's `ctx.apps.pages(id)`); the `page.<name>` preset path stays deprecated. Pages register under their **pageKey** (`<appId>/<localName>`) — local names collide across apps, bare names would make the second app fail on duplicate-name.
+- `app_open` tool body built by `createAppOpenTool(port)`; the host assembly (`app-host`) registers it into `ctx.tools` inside its single all-or-nothing wiring effect (G13) — this module no longer opens its own effect.
 
 ## Explicit wiring (G13)
 

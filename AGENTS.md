@@ -105,7 +105,7 @@ export function apply(ctx: Context): void { ... }
   - e2e 自动化（同样只用源码，不装任何节点）: `pnpm --dir deepseek\deepseek-harness test:e2e`（即 `vitest run --config vitest.e2e.config.ts`，真实 API、无凭据自跳过）；要起真实 Loader 组合用测试基建 `packages\test-support\loader-smoke`（源码零构建执行、隔离临时目录、自动清理）；确需隔离 home 时，用**同一份源码 + 脚本创建的临时 `DSH_HOME` 目录**（测完删除），绝不 tarball 装节点、绝不 `dsh plugin add` 到临时节点
   - 真机验证清单（原 `@veren/app-host-verify` 探针已删，自动化部分收编进 `plugins\app-host\tests\assembly.spec.ts`；以下各项**只能在真实宿主里人肉验**，照抄执行）：
     1. 服务解析：装好组合包启动后，在宿主日志确认 `apps`/`pageRegistry`/`taskCenter` 三个服务都激活（无 inject 等待告警）；看什么——启动日志无 "waiting for inject" 行；通过标准——web 插件页三服务 enabled。
-    2. `agent/created` 真实载荷形状：新建一个会话并随便发一句话；看什么——会话日志里 `agent/created` 事件载荷含 `agent`/`source` 键且 `agent.session.id` 与会话一致；通过标准——键齐全、id 对得上（替身假设作废的判据）。
+    2. `agent/created` 真实载荷形状：**它是运行时 serial 事件，不落会话日志**——别去会话日志里找（那个前提已被第三轮真机验证证伪）。观测方式：写一个一次性探针插件（或在临时诊断插件里）`ctx.on('agent/created', ...)` 监听并把载荷 JSON 写进文件（如 `deepseek\.dsh\storages\` 下的诊断目录），新建一个会话并随便发一句话后读该文件；看什么——载荷含 `agent`/`source` 键且 `agent.session.id` 与会话一致（真实签名见 `packages/core/agent/src/runtime-types.ts`）；通过标准——键齐全、id 对得上。
     3. 真实会话创建：浏览器打开 `/apps/task-workbench/task/1` 与 `/list`；看什么——`app-pages` 存储域里出现两条 live 实例行、sessionId 互不相同；通过标准——两行 state=live 且分别属于两个会话。
     4. 工具作用域互斥：两个会话各自问 agent"你有哪些工具"；看什么——list 页会话只见 `task_workbench__take_task` 系、detail 页会话只见 `abandon_task`/`complete_task` 系，交叉不可见；通过标准——同名工具集合不跨会话出现。
     5. 重开同 URL 总是新建（§9.1 反转）：同一 URL 再开一次；看什么——新建会话、旧会话标废弃（工具摘除、索引指向新会话）；通过标准——`app-pages` 里该 URL 的 live 行 sessionId 变为新会话，旧 sessionId 行 state=deprecated（自动化已有，真机复核持久化跨重启）。
