@@ -65,6 +65,30 @@ const LOCALE_KEY = 'admin.locale'
 /** Theme cycle order. 主题循环顺序。 */
 const THEME_ORDER = ['light', 'dark', 'system']
 
+/** Sidebar preference key. 侧栏偏好键。 */
+const SIDEBAR_KEY = 'admin.sidebar'
+
+/** Tokens a theme pack must define in v2; a missing one is reported once. 主题包在 v2 必须定义的 token；缺失会在控制台报告一次。 */
+const REQUIRED_TOKENS = [
+  '--admin-bg',
+  '--admin-surface',
+  '--admin-surface-2',
+  '--admin-surface-3',
+  '--admin-border',
+  '--admin-border-strong',
+  '--admin-text',
+  '--admin-muted',
+  '--admin-subtle',
+  '--admin-accent',
+  '--admin-accent-text',
+  '--admin-ok',
+  '--admin-warn',
+  '--admin-danger',
+  '--admin-info',
+  '--admin-radius',
+  '--admin-shadow',
+]
+
 /** SPA mount path, derived from this module's own URL instead of a literal. 由本模块自身 URL 推导的 SPA 挂载路径，而非字面量。 */
 const BASE = new URL('../', import.meta.url).pathname.replace(/\/+$/, '')
 
@@ -75,6 +99,15 @@ const ROUTES = {
   '/roles': 'roles',
   '/audit': 'audit',
   '/system/capabilities': 'capabilities',
+}
+
+/** Client route to the page-title locale key. 客户端路由到页面标题语言键。 */
+const TITLES = {
+  '/': 'dashboard.title',
+  '/users': 'users.title',
+  '/roles': 'roles.title',
+  '/audit': 'audit.title',
+  '/system/capabilities': 'capabilities.title',
 }
 
 /** Permission each non-dashboard view requires. 每个非仪表盘视图所需的权限。 */
@@ -104,6 +137,8 @@ const state = {
   locales: [],
   icons: {},
   data: {},
+  sidebar: false,
+  warnedTheme: false,
 }
 
 /**
@@ -167,6 +202,16 @@ function applyTheme() {
   const theme = runtime.listThemes()[0]
   const tokens = theme === undefined ? {} : current === 'dark' ? theme.dark : theme.light
   for (const [name, value] of Object.entries(tokens ?? {})) element.style.setProperty(name, String(value))
+  // A theme pack that omits contract tokens would silently fall back to the
+  // stylesheet defaults, which is exactly the mismatch the v2 contract forbids.
+  // 省略契约 token 的主题包会静默落回样式表默认值，这正是 v2 契约要禁止的失配。
+  if (theme !== undefined && state.warnedTheme === false) {
+    const missing = REQUIRED_TOKENS.filter((name) => tokens?.[name] === undefined)
+    if (missing.length > 0) {
+      state.warnedTheme = true
+      console.warn(`[admin] theme '${theme.id}' is missing contract tokens: ${missing.join(', ')}`)
+    }
+  }
 }
 
 /** Replace the whole screen. 整体替换屏幕内容。 */
@@ -433,15 +478,26 @@ function withShell(content) {
   return shellView(ui(), {
     nav: state.bootstrap.nav,
     path: state.route,
+    pageTitle: t(TITLES[state.route] ?? 'app.title'),
     userName: state.bootstrap.user.name || state.bootstrap.user.email,
+    userMeta: state.bootstrap.user.email ?? '',
     theme: scheme(),
     localeLabel: nextLocaleLabel(),
+    collapsed: state.sidebar,
     children: content,
     onCycleTheme: cycleTheme,
     onToggleLocale: toggleLocale,
+    onToggleSidebar: toggleSidebar,
     onChangePassword: openChangePassword,
     onSignOut: signOut,
   })
+}
+
+/** Toggle the sidebar between the label rail and the icon rail. 在完整侧栏与图标轨之间切换。 */
+function toggleSidebar() {
+  state.sidebar = !state.sidebar
+  store(SIDEBAR_KEY, state.sidebar ? 'collapsed' : 'expanded')
+  repaint()
 }
 
 /**
@@ -498,6 +554,10 @@ function render() {
 
 /** Repaint the current screen, auth or app. 重绘当前屏幕（认证屏或应用）。 */
 function repaint() {
+  // `lang` drives locale-aware typography (uppercase English captions, no
+  // letter-spacing for Chinese) and screen-reader pronunciation.
+  // `lang` 驱动按语言变化的排版（英文分组标签大写、中文不加字距）与读屏发音。
+  document.documentElement.lang = state.locale
   if (state.bootstrap === null) paintAuth()
   else render()
 }
@@ -546,6 +606,7 @@ async function start() {
   document.body.append(toasts)
   if (location.pathname === BASE) history.replaceState({ path: '/' }, '', `${BASE}/`)
   state.route = routePath()
+  document.documentElement.lang = state.locale
   paint(loadingView(ui()))
   await loadPacks(publicManifest)
   applyTheme()
@@ -555,4 +616,5 @@ async function start() {
 bindEvents()
 state.theme = THEME_ORDER.includes(restore(THEME_KEY)) ? restore(THEME_KEY) : 'system'
 state.locale = restore(LOCALE_KEY) ?? (navigator.language?.startsWith('zh') ? 'zh' : 'en')
+state.sidebar = restore(SIDEBAR_KEY) === 'collapsed'
 void start()

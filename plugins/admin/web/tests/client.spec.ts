@@ -16,7 +16,7 @@ const CLIENT_ROOT = fileURLToPath(new URL('../client/', import.meta.url))
 
 describe('SPA assets', () => {
   it('ships the shell and the modules it loads', () => {
-    for (const file of ['/index.html', '/app.js', '/api.js', '/runtime.js', '/views.js', '/styles.css']) {
+    for (const file of ['/index.html', '/app.js', '/api.js', '/runtime.js', '/views.js', '/styles.css', '/scheme-boot.js']) {
       const path = resolveWithin(CLIENT_ROOT, file)
       expect(path, `${file} must resolve inside the client root`).toBe(resolve(CLIENT_ROOT, file.slice(1)))
       expect(existsSync(path as string), `${file} must exist`).toBe(true)

@@ -211,15 +211,18 @@ function formatDate(value, locale) {
 }
 
 /**
- * One page header with an optional action slot.
+ * One page header: title, optional one-line description and an optional action.
  *
  * @param ui - view helpers 视图助手
  * @param titleKey - locale key 语言键
  * @param action - optional action node 可选操作节点
+ * @param descriptionKey - optional locale key for the description 描述的可选语言键
  * @returns the header 头部
  */
-function pageHeader(ui, titleKey, action) {
-  const header = el('header', { class: 'page-header' }, [el('h1', { class: 'page-title', text: ui.t(titleKey) })])
+function pageHeader(ui, titleKey, action, descriptionKey) {
+  const heading = el('div', { class: 'page-heading' }, [el('h1', { class: 'page-title', text: ui.t(titleKey) })])
+  if (descriptionKey !== undefined) heading.append(el('p', { class: 'page-desc', text: ui.t(descriptionKey) }))
+  const header = el('header', { class: 'page-header' }, [heading])
   if (action !== undefined) header.append(el('div', { class: 'page-actions' }, [action]))
   return header
 }
@@ -499,7 +502,37 @@ export function loadingView(ui) {
  * @returns the state node 状态节点
  */
 export function emptyView(ui, key = 'app.empty') {
-  return el('p', { class: 'state state-empty', text: ui.t(key) })
+  return emptyState(ui, { titleKey: key })
+}
+
+/**
+ * One empty or no-match state: icon, title, one sentence and optional actions.
+ *
+ * A no-match state is not the same fact as an empty collection, so callers pass
+ * their own title/hint instead of reusing one generic sentence. The icon defaults
+ * to the inbox for "nothing here yet"; search results pass the magnifier.
+ *
+ * 空态或“无命中”态：图标、标题、一句话说明与可选操作。
+ *
+ * “没有命中”与“集合为空”是两个不同事实，因此调用方传入各自的标题与提示，而不是共用
+ * 一句通用文案。图标默认用收件箱表示“暂无内容”，搜索结果则用放大镜。
+ *
+ * @param ui - view helpers 视图助手
+ * @param options - title, hint, icon and optional action nodes 标题、提示、图标与可选操作
+ * @returns the state node 状态节点
+ */
+export function emptyState(ui, options = {}) {
+  const titleKey = options.titleKey ?? 'app.empty'
+  const hintKey = options.hintKey ?? 'app.emptyHint'
+  const node = el('div', { class: 'state state-empty' }, [
+    el('span', { class: 'state-icon' }, [iconOf(ui, options.icon ?? 'inbox')]),
+    el('p', { class: 'state-title', text: ui.t(titleKey) }),
+    el('p', { class: 'state-text', text: ui.t(hintKey) }),
+  ])
+  if (Array.isArray(options.actions) && options.actions.length > 0) {
+    node.append(el('div', { class: 'state-actions' }, options.actions))
+  }
+  return node
 }
 
 /**
@@ -646,6 +679,72 @@ export function changePasswordView(ui, options) {
 }
 
 /**
+ * Sidebar sections, in display order.
+ *
+ * The navigation data model stays a flat, permission-filtered list (a provider
+ * contributes `{ path, labelKey, icon }`), so grouping lives in the shell: a known
+ * path maps into its section and anything a newer provider adds falls into
+ * "general" instead of disappearing.
+ *
+ * 侧栏分组，按展示顺序排列。
+ *
+ * 导航数据模型仍是扁平的、按权限裁剪的列表（provider 只贡献 `{ path, labelKey, icon }`），
+ * 因此分组留在外壳里：已知路径归入对应分组，更新的 provider 新增的路径落入「通用」而不是
+ * 消失。
+ */
+const NAV_SECTIONS = [
+  { id: 'overview', labelKey: 'nav.section.overview', paths: ['/'] },
+  { id: 'access', labelKey: 'nav.section.access', paths: ['/users', '/roles'] },
+  { id: 'observability', labelKey: 'nav.section.observability', paths: ['/audit'] },
+  { id: 'system', labelKey: 'nav.section.system', paths: ['/system'] },
+]
+
+/**
+ * Test whether one navigation path belongs to a section's path list.
+ *
+ * @param path - navigation path 导航路径
+ * @param paths - section path prefixes 分组路径前缀
+ * @returns true when it belongs 属于该分组时为 true
+ */
+function inSection(path, paths) {
+  return paths.some((candidate) => (candidate === '/'
+    ? path === '/'
+    : path === candidate || path.startsWith(`${candidate}/`)))
+}
+
+/**
+ * Group navigation nodes into sidebar sections.
+ *
+ * @param nav - flat navigation nodes 扁平导航节点
+ * @returns non-empty sections in display order 按展示顺序的非空分组
+ */
+export function groupNavigation(nav) {
+  const nodes = Array.isArray(nav) ? nav : []
+  const placed = new Set()
+  const sections = []
+  for (const section of NAV_SECTIONS) {
+    const members = nodes.filter((node) => !placed.has(node) && inSection(String(node?.path ?? ''), section.paths))
+    if (members.length === 0) continue
+    for (const node of members) placed.add(node)
+    sections.push({ id: section.id, labelKey: section.labelKey, nodes: members })
+  }
+  const rest = nodes.filter((node) => !placed.has(node))
+  if (rest.length > 0) sections.push({ id: 'general', labelKey: 'nav.section.general', nodes: rest })
+  return sections
+}
+
+/**
+ * First visible character of a display name, for the avatar.
+ *
+ * @param name - display name or email 显示名或邮箱
+ * @returns one uppercase character 一个大写字符
+ */
+function initialOf(name) {
+  const text = String(name ?? '').trim()
+  return text === '' ? '?' : [...text][0].toUpperCase()
+}
+
+/**
  * One sidebar link for a navigation node.
  *
  * @param ui - view helpers 视图助手
@@ -668,21 +767,27 @@ function navLink(ui, node, path) {
 }
 
 /**
- * The top bar: menu toggle, title, identity, theme, locale and sign-out.
+ * The top bar: mobile menu toggle, breadcrumb, theme, locale and the avatar menu.
  *
  * @param ui - view helpers 视图助手
  * @param options - shell options 外壳选项
  * @param sidebar - sidebar node to toggle 要切换的侧栏节点
+ * @param userMenu - avatar menu node 头像菜单节点
  * @returns the header 顶栏
  */
-function topBar(ui, options, sidebar) {
-  const menu = el('button', {
+function topBar(ui, options, sidebar, userMenu) {
+  const menuToggle = el('button', {
     class: 'icon-button menu-toggle',
     type: 'button',
     'aria-label': ui.t('app.title'),
     'aria-controls': 'admin-sidebar',
     onclick: () => sidebar.classList.toggle('is-open'),
   }, [iconOf(ui, 'menu')])
+  const breadcrumb = el('nav', { class: 'breadcrumb', 'aria-label': ui.t('app.breadcrumb') }, [
+    el('span', { class: 'breadcrumb-app', text: ui.t('app.title') }),
+    el('span', { class: 'breadcrumb-sep', 'aria-hidden': 'true', text: '/' }),
+    el('span', { class: 'breadcrumb-page', text: options.pageTitle ?? ui.t('app.title') }),
+  ])
   const theme = el('button', {
     class: 'icon-button',
     type: 'button',
@@ -697,51 +802,145 @@ function topBar(ui, options, sidebar) {
     'aria-label': ui.t('locale.toggle'),
     onclick: options.onToggleLocale,
   }, [iconOf(ui, 'globe'), el('span', { class: 'locale-tag', text: options.localeLabel })])
-  const signOut = el('button', { class: 'button ghost', type: 'button', onclick: options.onSignOut }, [
-    iconOf(ui, 'logout'),
-    el('span', { class: 'button-label', text: ui.t('auth.signOut') }),
-  ])
-  const changePassword = el('button', {
-    class: 'button ghost',
-    type: 'button',
-    onclick: options.onChangePassword,
-  }, [iconOf(ui, 'key'), el('span', { class: 'button-label', text: ui.t('auth.changePassword') })])
   return el('header', { class: 'topbar' }, [
-    menu,
-    el('div', { class: 'topbar-title', text: ui.t('app.title') }),
-    el('div', { class: 'topbar-actions' }, [
-      el('span', { class: 'user-chip', text: options.userName }),
-      theme,
-      locale,
-      changePassword,
-      signOut,
-    ]),
+    menuToggle,
+    breadcrumb,
+    el('div', { class: 'topbar-actions' }, [theme, locale, userMenu]),
   ])
 }
 
 /**
  * Sidebar, top bar and scrollable content.
  *
+ * The sidebar keeps its grouping, collapse state and user card here; the content
+ * region stays a single scroll container so pages never fight the shell for
+ * scrolling.
+ *
+ * 侧栏、顶栏与可滚动内容区。
+ *
+ * 分组、折叠状态与用户卡都留在侧栏里；内容区仍是唯一的滚动容器，页面因此不必和外壳争夺
+ * 滚动权。
+ *
  * @param ui - view helpers 视图助手
- * @param options - navigation, identity, active path and callbacks 导航、身份、当前路径与回调
+ * @param options - navigation, identity, active path, collapse state and callbacks
+ *   导航、身份、当前路径、折叠状态与回调
  * @returns the shell 外壳
  */
 export function shellView(ui, options) {
   const nav = Array.isArray(options.nav) ? options.nav : []
+  const sections = groupNavigation(nav)
+  const collapsed = options.collapsed === true
+
+  const avatar = () => el('span', { class: 'avatar', 'aria-hidden': 'true', text: initialOf(options.userName) })
+  const menu = el('div', { class: 'menu', role: 'menu', 'aria-label': ui.t('app.userMenu') }, [
+    el('button', {
+      class: 'menu-item',
+      type: 'button',
+      role: 'menuitem',
+      onclick: () => {
+        closeUserMenu()
+        options.onChangePassword?.()
+      },
+    }, [iconOf(ui, 'key'), el('span', { text: ui.t('auth.changePassword') })]),
+    el('div', { class: 'menu-sep', role: 'separator' }),
+    el('button', {
+      class: 'menu-item danger',
+      type: 'button',
+      role: 'menuitem',
+      onclick: () => {
+        closeUserMenu()
+        options.onSignOut?.()
+      },
+    }, [iconOf(ui, 'logout'), el('span', { text: ui.t('auth.signOut') })]),
+  ])
+  const avatarButton = el('button', {
+    class: 'icon-button avatar-button',
+    type: 'button',
+    'aria-haspopup': 'menu',
+    'aria-expanded': 'false',
+    'aria-label': ui.t('app.userMenu'),
+    onclick: toggleUserMenu,
+  }, [avatar()])
+  const userCard = el('button', {
+    class: 'user-card',
+    type: 'button',
+    'aria-haspopup': 'menu',
+    'aria-expanded': 'false',
+    onclick: toggleUserMenu,
+  }, [
+    avatar(),
+    el('span', { class: 'user-card-text' }, [
+      el('span', { class: 'user-card-name', text: options.userName }),
+      el('span', { class: 'user-card-meta', text: options.userMeta ?? '' }),
+    ]),
+  ])
+
+  /** Open or close the avatar menu, keeping both triggers' ARIA state in sync. 开合头像菜单，并同步两个触发器的 ARIA 状态。 */
+  function toggleUserMenu() {
+    const open = menu.classList.toggle('is-open')
+    for (const trigger of [avatarButton, userCard]) trigger.setAttribute('aria-expanded', String(open))
+    // Focus the first item so the menu is operable without a pointer. 聚焦首项，菜单无需指针即可操作。
+    if (open) menu.querySelector('.menu-item')?.focus()
+  }
+
+  /**
+   * Close the avatar menu.
+   *
+   * @param restoreFocus - return focus to the avatar button 把焦点交回头像按钮
+   */
+  function closeUserMenu(restoreFocus = false) {
+    if (!menu.classList.contains('is-open')) return
+    menu.classList.remove('is-open')
+    for (const trigger of [avatarButton, userCard]) trigger.setAttribute('aria-expanded', 'false')
+    if (restoreFocus) avatarButton.focus()
+  }
+
+  const brand = el('div', { class: 'brand' }, [
+    el('span', { class: 'brand-mark' }, [iconOf(ui, 'shield')]),
+    el('span', { class: 'brand-name', text: ui.t('app.title') }),
+    el('button', {
+      class: 'icon-button sidebar-toggle',
+      type: 'button',
+      title: ui.t(collapsed ? 'app.expandSidebar' : 'app.collapseSidebar'),
+      'aria-label': ui.t(collapsed ? 'app.expandSidebar' : 'app.collapseSidebar'),
+      'aria-expanded': String(!collapsed),
+      onclick: options.onToggleSidebar,
+    }, [el('span', { class: 'chevron', 'aria-hidden': 'true' })]),
+  ])
+  const navNode = el('nav', { class: 'nav', 'aria-label': ui.t('app.title') }, sections.map((section) => el('div', { class: 'nav-section' }, [
+    el('p', { class: 'nav-section-label', text: ui.t(section.labelKey) }),
+    section.nodes.map((node) => navLink(ui, node, options.path)),
+  ])))
   const sidebar = el('aside', { class: 'sidebar', id: 'admin-sidebar' }, [
-    el('div', { class: 'brand' }, [iconOf(ui, 'shield'), el('span', { text: ui.t('app.title') })]),
-    el('nav', { class: 'nav', 'aria-label': ui.t('app.title') }, nav.map((node) => navLink(ui, node, options.path))),
+    brand,
+    navNode,
+    el('div', { class: 'sidebar-foot' }, [userCard]),
   ])
   sidebar.addEventListener('click', (event) => {
     if (event.target.closest('a') !== null) sidebar.classList.remove('is-open')
+    closeUserMenu()
   })
-  return el('div', { class: 'shell' }, [
+
+  const shell = el('div', { class: collapsed ? 'shell is-collapsed' : 'shell' }, [
     sidebar,
     el('div', { class: 'main' }, [
-      topBar(ui, options, sidebar),
+      topBar(ui, options, sidebar, el('div', { class: 'user-menu-wrap' }, [avatarButton, menu])),
       el('main', { class: 'content', id: 'admin-content' }, [options.children]),
     ]),
   ])
+  // Light dismiss: a click anywhere outside the menu closes it. The listener lives
+  // on the shell, so it dies with the shell on the next repaint.
+  // 轻量关闭：菜单外任意点击关闭。监听器挂在 shell 上，下次重绘时随外壳一起消失。
+  shell.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null
+    if (target === null) return
+    if (target.closest('.user-menu-wrap') !== null || target.closest('.user-card') !== null) return
+    closeUserMenu()
+  })
+  shell.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeUserMenu(true)
+  })
+  return shell
 }
 
 /**
@@ -783,7 +982,7 @@ export function dashboardView(ui, data) {
     { key: 'dashboard.audit', value: countOf(data.audit, 'items') },
   ]
   return el('section', { class: 'page' }, [
-    pageHeader(ui, 'dashboard.title'),
+    pageHeader(ui, 'dashboard.title', undefined, 'dashboard.description'),
     el('div', { class: 'panel' }, [
       el('h2', { class: 'panel-title', text: ui.t('dashboard.welcome') }),
       el('p', { class: 'panel-text', text: [user.name, user.email].filter(Boolean).join(' · ') || DASH }),
@@ -983,13 +1182,13 @@ export function usersView(ui, data) {
     // No user at all and no match are different facts, so they get different copy.
     // “一个用户都没有”与“没有命中”是两件事，因此使用不同文案。
     results.replaceChildren(matches.length === 0 && users.length > 0
-      ? el('p', { class: 'state', text: ui.t('users.searchEmpty') })
+      ? emptyState(ui, { icon: 'search', titleKey: 'users.searchEmpty', hintKey: 'app.searchHint' })
       : dataTable(ui, columns, matches.map((user) => userRow(ui, user, roleLabel, actions))))
   }
   search.addEventListener('input', render)
   render()
   return el('section', { class: 'page' }, [
-    pageHeader(ui, 'users.title', create),
+    pageHeader(ui, 'users.title', create, 'users.description'),
     el('div', { class: 'toolbar' }, [search]),
     results,
   ])
@@ -1190,7 +1389,7 @@ export function rolesView(ui, data) {
   const rows = roles.map((role) => roleRow(ui, role, actions, permissions))
   const columns = ['roles.name', '', 'roles.permissions', 'roles.builtIn', '']
   return el('section', { class: 'page' }, [
-    pageHeader(ui, 'roles.title', create),
+    pageHeader(ui, 'roles.title', create, 'roles.description'),
     dataTable(ui, columns, rows),
   ])
 }
@@ -1257,13 +1456,13 @@ export function auditView(ui, data) {
   const render = () => {
     const matches = filterAudit(items, search.value)
     results.replaceChildren(matches.length === 0 && items.length > 0
-      ? el('p', { class: 'state', text: ui.t('audit.searchEmpty') })
+      ? emptyState(ui, { icon: 'search', titleKey: 'audit.searchEmpty', hintKey: 'app.searchHint' })
       : dataTable(ui, columns, matches.map((entry) => auditRow(ui, entry))))
   }
   search.addEventListener('input', render)
   render()
   const section = el('section', { class: 'page' }, [
-    pageHeader(ui, 'audit.title'),
+    pageHeader(ui, 'audit.title', undefined, 'audit.description'),
     el('div', { class: 'toolbar' }, [search]),
     results,
   ])
@@ -1321,5 +1520,5 @@ export function capabilitiesView(ui, data) {
     ])
   })
   const columns = ['capabilities.capability', 'capabilities.provider', 'capabilities.health', 'capabilities.essential']
-  return el('section', { class: 'page' }, [pageHeader(ui, 'capabilities.title'), dataTable(ui, columns, rows)])
+  return el('section', { class: 'page' }, [pageHeader(ui, 'capabilities.title', undefined, 'capabilities.description'), dataTable(ui, columns, rows)])
 }

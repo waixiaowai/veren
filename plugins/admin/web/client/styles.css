@@ -1,55 +1,110 @@
 /**
- * Stylesheet of the admin SPA.
+ * Stylesheet of the admin SPA — Quiet Console.
  *
  * Every colour, radius and shadow comes from a `--admin-*` custom property, so a
  * theme pack changes values while this file keeps owning layout. The `:root`
- * blocks below are fallbacks with the same values as the default theme pack:
- * they keep the app readable when the theme pack fails to load, and a loaded
- * theme overrides them because packs write inline properties on `<html>`.
+ * blocks below are fallbacks with the same values as the default theme pack: they
+ * keep the app readable when the theme pack fails to load, and a loaded theme
+ * overrides them because packs write inline properties on `<html>`. Derived
+ * tones are computed from those tokens, never hard-coded twice.
  *
- * 后台 SPA 的样式表。所有颜色、圆角与阴影都来自 `--admin-*` 自定义属性，因此主题包改变
- * 取值，而本文件继续拥有布局。下面的 `:root` 块是与默认主题包取值相同的兜底：主题包加载
- * 失败时应用仍可读；主题包加载后会在 `<html>` 上写入内联属性，从而覆盖这些兜底。
+ * 后台 SPA 的样式表——「静默控制台」。所有颜色、圆角与阴影都来自 `--admin-*` 自定义
+ * 属性，因此主题包改变取值，而本文件继续拥有布局。下面的 `:root` 块是与默认主题包取值
+ * 相同的兜底：主题包加载失败时应用仍可读；主题包加载后会在 `<html>` 上写入内联属性，从而
+ * 覆盖这些兜底。派生色调一律由这些 token 计算，绝不重复硬编码。
  *
  * No external fonts, images or URLs: the page must render on an offline host.
  * 不引用外部字体、图片或 URL：页面必须能在离线宿主上渲染。
  */
 
-/* Fallback tokens, light scheme. 兜底 token，亮色方案。 */
+/* ---- Fallback tokens, light scheme 兜底 token：亮色 ---- */
 :root {
   color-scheme: light;
   --admin-bg: #f7f8fa;
   --admin-surface: #ffffff;
-  --admin-surface-2: #eef1f5;
-  --admin-border: #cfd6de;
-  --admin-text: #141a21;
-  --admin-muted: #55616f;
+  --admin-surface-2: #f1f3f6;
+  --admin-surface-3: #ffffff;
+  --admin-border: #e3e7ec;
+  --admin-border-strong: #cbd3dd;
+  --admin-text: #171a1f;
+  --admin-muted: #5b6472;
+  --admin-subtle: #6b7484;
   --admin-accent: #1b5fc1;
   --admin-accent-text: #ffffff;
-  --admin-danger: #b3261e;
-  --admin-radius: 10px;
-  --admin-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 10px 24px rgba(15, 23, 42, 0.08);
-  /* SPA-internal badge tones; not part of the theme pack contract. 仅 SPA 内部的角标色调，不属于主题包契约。 */
-  --admin-ok: #1f7a4d;
-  --admin-warn: #9a6700;
+  --admin-ok: #15803d;
+  --admin-warn: #8a5a00;
+  --admin-danger: #b42318;
+  --admin-info: #1a6fa8;
+  --admin-radius: 8px;
+  --admin-shadow: 0 8px 24px rgb(16 24 40 / 0.12), 0 2px 6px rgb(16 24 40 / 0.06);
 }
 
-/* Fallback tokens, dark scheme. 兜底 token，暗色方案。 */
+/* ---- Fallback tokens, dark scheme 兜底 token：暗色 ---- */
 :root[data-scheme='dark'] {
   color-scheme: dark;
-  --admin-bg: #0e1319;
-  --admin-surface: #151c24;
-  --admin-surface-2: #1d2731;
-  --admin-border: #2c3846;
-  --admin-text: #e8eef6;
-  --admin-muted: #a8b6c6;
+  --admin-bg: #0b0e12;
+  --admin-surface: #11151b;
+  --admin-surface-2: #171d25;
+  --admin-surface-3: #1d2530;
+  --admin-border: #242c37;
+  --admin-border-strong: #36424f;
+  --admin-text: #e9eef5;
+  --admin-muted: #a2aebf;
+  --admin-subtle: #808da0;
   --admin-accent: #6ea8fe;
   --admin-accent-text: #08111d;
-  --admin-danger: #ff9b91;
-  --admin-radius: 10px;
-  --admin-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 14px 30px rgba(0, 0, 0, 0.45);
-  --admin-ok: #6ee7a8;
-  --admin-warn: #f2c46d;
+  --admin-ok: #5fd39b;
+  --admin-warn: #e5b567;
+  --admin-danger: #ff8f85;
+  --admin-info: #7cc4e8;
+  --admin-radius: 8px;
+  --admin-shadow: 0 10px 28px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.4);
+}
+
+/* ---- Derived tokens and layout metrics 派生 token 与布局度量 ---- */
+:root {
+  --admin-radius-sm: calc(var(--admin-radius) - 4px);
+  --admin-radius-lg: calc(var(--admin-radius) + 4px);
+  --admin-ring: color-mix(in oklab, var(--admin-accent) 55%, transparent);
+  --admin-surface-hover: color-mix(in oklab, var(--admin-text) 4%, var(--admin-surface));
+  --admin-accent-soft: color-mix(in oklab, var(--admin-accent) 12%, var(--admin-surface));
+  --admin-ok-soft: color-mix(in oklab, var(--admin-ok) 12%, var(--admin-surface));
+  --admin-warn-soft: color-mix(in oklab, var(--admin-warn) 14%, var(--admin-surface));
+  --admin-danger-soft: color-mix(in oklab, var(--admin-danger) 12%, var(--admin-surface));
+  --admin-info-soft: color-mix(in oklab, var(--admin-info) 12%, var(--admin-surface));
+
+  /* Spacing scale, 4px base. 间距阶梯，4px 基准。 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+
+  /* Density. 密度。 */
+  --admin-sidebar-width: 248px;
+  --admin-sidebar-rail: 64px;
+  --admin-topbar-height: 52px;
+  --admin-control: 32px;
+  --admin-control-sm: 28px;
+  --admin-control-lg: 36px;
+  --admin-row: 36px;
+
+  /* Type scale, 14px base. 字号阶梯，14px 基准。 */
+  --font-mono: ui-monospace, SFMono-Regular, 'Cascadia Mono', Consolas, 'Liberation Mono', monospace;
+}
+
+@supports not (color: color-mix(in oklab, red, blue)) {
+  :root {
+    --admin-ring: var(--admin-accent);
+    --admin-surface-hover: var(--admin-surface-2);
+    --admin-accent-soft: var(--admin-surface-2);
+    --admin-ok-soft: var(--admin-surface-2);
+    --admin-warn-soft: var(--admin-surface-2);
+    --admin-danger-soft: var(--admin-surface-2);
+    --admin-info-soft: var(--admin-surface-2);
+  }
 }
 
 *,
@@ -67,9 +122,10 @@ body {
   margin: 0;
   background: var(--admin-bg);
   color: var(--admin-text);
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans SC', sans-serif;
-  font-size: 15px;
-  line-height: 1.5;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Helvetica Neue',
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', 'Source Han Sans SC', sans-serif;
+  font-size: 14px;
+  line-height: 21px;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -82,62 +138,202 @@ body {
 /* ---- Shell layout 外壳布局 ---- */
 .shell {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: var(--admin-sidebar-width) minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
+  transition: grid-template-columns 160ms ease;
+}
+
+.shell.is-collapsed {
+  grid-template-columns: var(--admin-sidebar-rail) minmax(0, 1fr);
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 16px 12px;
+  gap: var(--sp-4);
+  min-width: 0;
+  padding: var(--sp-3) var(--sp-2);
   background: var(--admin-surface);
   border-inline-end: 1px solid var(--admin-border);
-  overflow-y: auto;
+  overflow: hidden auto;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 4px 8px 14px;
-  font-weight: 650;
-  letter-spacing: 0.01em;
+  gap: var(--sp-2);
+  min-height: 32px;
+  padding-inline: var(--sp-2);
+  font-weight: 600;
+}
+
+.brand-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: var(--admin-accent);
+  background: var(--admin-accent-soft);
+  border-radius: var(--admin-radius);
+}
+
+.brand-mark .icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.brand-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 15px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Collapse control: a CSS-drawn chevron that flips with the shell state.
+ * 折叠控件：纯 CSS 绘制的箭头，随外壳状态翻转。 */
+.sidebar-toggle {
+  flex: none;
+  margin-inline-start: auto;
+}
+
+.chevron {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(135deg);
+  transition: transform 160ms ease;
+}
+
+.shell.is-collapsed .sidebar-toggle .chevron {
+  transform: rotate(-45deg);
 }
 
 .nav {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 2px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.nav-section + .nav-section {
+  margin-block-start: var(--sp-3);
+}
+
+.nav-section-label {
+  margin: 0;
+  padding: var(--sp-1) var(--sp-2) var(--sp-1);
+  color: var(--admin-subtle);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+:root[lang='en'] .nav-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .nav-link {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-  border-radius: var(--admin-radius);
+  gap: var(--sp-2);
+  min-height: 34px;
+  padding: 0 var(--sp-2);
   color: var(--admin-text);
-  font-size: 0.94rem;
+  font-size: 14px;
   text-decoration: none;
+  border-radius: var(--admin-radius);
+  transition: background-color 120ms ease-out, color 120ms ease-out;
 }
 
 .nav-link:hover {
-  background: var(--admin-surface-2);
+  background: var(--admin-surface-hover);
 }
 
 .nav-link.is-active {
-  background: var(--admin-surface-2);
   color: var(--admin-accent);
   font-weight: 600;
+  background: var(--admin-accent-soft);
 }
 
 .nav-label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.nav-link .badge {
+  margin-inline-start: auto;
+}
+
+.sidebar-foot {
+  margin-block-start: auto;
+  padding-block-start: var(--sp-2);
+  border-block-start: 1px solid var(--admin-border);
+}
+
+.user-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-1) var(--sp-2);
+  color: var(--admin-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--admin-radius);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.user-card:hover {
+  background: var(--admin-surface-hover);
+}
+
+.avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: var(--admin-accent);
+  background: var(--admin-accent-soft);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.user-card-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.user-card-name {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.user-card-meta {
+  overflow: hidden;
+  color: var(--admin-subtle);
+  font-size: 12px;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -149,11 +345,14 @@ body {
   min-height: 0;
 }
 
+/* ---- Top bar 顶栏 ---- */
 .topbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 18px;
+  flex: none;
+  gap: var(--sp-3);
+  height: var(--admin-topbar-height);
+  padding: 0 var(--sp-5);
   background: var(--admin-surface);
   border-block-end: 1px solid var(--admin-border);
 }
@@ -163,66 +362,157 @@ body {
   font-weight: 600;
 }
 
-.topbar-actions {
+.breadcrumb {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-2);
+  min-width: 0;
 }
 
-.user-chip {
-  max-width: 220px;
-  overflow: hidden;
+.breadcrumb-app {
   color: var(--admin-muted);
-  font-size: 0.88rem;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.breadcrumb-sep {
+  color: var(--admin-subtle);
+}
+
+.breadcrumb-page {
+  overflow: hidden;
+  font-weight: 600;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.locale-tag {
-  font-size: 0.8rem;
-  font-weight: 600;
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-inline-start: auto;
 }
 
+/* Avatar menu: a small popover anchored under the avatar button.
+ * 头像菜单：锚定在头像按钮下方的小浮层。 */
+.user-menu-wrap {
+  position: relative;
+}
+
+.avatar-button {
+  width: var(--admin-control);
+  height: var(--admin-control);
+  padding: 0;
+  border-radius: 999px;
+}
+
+.avatar-button .avatar {
+  width: 26px;
+  height: 26px;
+  font-size: 12px;
+}
+
+.menu {
+  position: absolute;
+  z-index: 50;
+  inset-block-start: calc(100% + 6px);
+  inset-inline-end: 0;
+  display: none;
+  min-width: 180px;
+  padding: var(--sp-1);
+  background: var(--admin-surface-3);
+  border: 1px solid var(--admin-border-strong);
+  border-radius: var(--admin-radius-lg);
+  box-shadow: var(--admin-shadow);
+}
+
+.menu.is-open {
+  display: block;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: var(--admin-control-sm);
+  padding: 0 var(--sp-2);
+  color: var(--admin-text);
+  background: transparent;
+  border: 0;
+  border-radius: var(--admin-radius-sm);
+  font: inherit;
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background: var(--admin-surface-hover);
+}
+
+.menu-item.danger {
+  color: var(--admin-danger);
+}
+
+.menu-sep {
+  height: 1px;
+  margin: var(--sp-1) 0;
+  background: var(--admin-border);
+}
+
+/* ---- Content 内容区 ---- */
 .content {
   flex: 1;
   min-height: 0;
-  padding: 24px;
+  padding: var(--sp-6) var(--sp-7);
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 /* ---- Pages 页面 ---- */
 .page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  max-width: 1100px;
+  gap: var(--sp-5);
+  max-width: 1280px;
   margin: 0 auto;
 }
 
 .page-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--sp-4);
+}
+
+.page-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .page-title {
   margin: 0;
-  font-size: 1.35rem;
-  font-weight: 650;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+  letter-spacing: -0.01em;
+}
+
+.page-desc {
+  margin: 0;
+  color: var(--admin-muted);
+  font-size: 13px;
+  line-height: 19px;
 }
 
 .page-actions {
   display: flex;
-  gap: 8px;
-}
-
-/* Filter row above a table. 表格上方的过滤行。 */
-.toolbar {
-  display: flex;
+  flex: none;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: var(--sp-2);
 }
 
 .page-footer {
@@ -230,86 +520,113 @@ body {
   justify-content: center;
 }
 
+/* Filter row above a table. 表格上方的过滤行。 */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+/* ---- Cards and stats 卡片与统计 ---- */
 .panel {
-  padding: 20px;
+  padding: var(--sp-4) var(--sp-5);
   background: var(--admin-surface);
   border: 1px solid var(--admin-border);
-  border-radius: var(--admin-radius);
+  border-radius: var(--admin-radius-lg);
 }
 
 .panel-title {
-  margin: 0 0 4px;
-  font-size: 1.05rem;
+  margin: 0 0 var(--sp-1);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
 }
 
 .panel-text {
   margin: 0;
   color: var(--admin-muted);
+  font-size: 13px;
 }
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--sp-4);
 }
 
 .stat {
-  padding: 16px;
+  padding: var(--sp-4) var(--sp-5);
   background: var(--admin-surface);
   border: 1px solid var(--admin-border);
-  border-radius: var(--admin-radius);
+  border-radius: var(--admin-radius-lg);
 }
 
 .stat-label {
   margin: 0;
   color: var(--admin-muted);
-  font-size: 0.85rem;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .stat-value {
-  margin: 6px 0 0;
-  font-size: 1.8rem;
-  font-weight: 650;
-  line-height: 1.1;
+  margin: var(--sp-2) 0 0;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 30px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- Tables 表格 ---- */
 .table-wrap {
-  overflow-x: auto;
+  overflow: auto;
   background: var(--admin-surface);
   border: 1px solid var(--admin-border);
-  border-radius: var(--admin-radius);
+  border-radius: var(--admin-radius-lg);
 }
 
 .table {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 0.93rem;
+  border-spacing: 0;
+  border-collapse: separate;
+  font-size: 14px;
 }
 
 .table th,
 .table td {
-  padding: 10px 14px;
+  height: var(--admin-row);
+  padding: 0 var(--sp-3);
   text-align: start;
-  vertical-align: top;
+  vertical-align: middle;
+  white-space: nowrap;
   border-block-end: 1px solid var(--admin-border);
 }
 
 .table thead th {
-  background: var(--admin-surface-2);
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 10;
+  height: var(--admin-row);
   color: var(--admin-muted);
-  font-size: 0.82rem;
+  background: var(--admin-surface-2);
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  white-space: nowrap;
 }
 
+:root[lang='en'] .table thead th {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Row hover uses its own tone, so a long table never merges with the header.
+ * 行悬停使用独立色调，长表格里不会和表头融成一片。 */
 .table tbody tr:hover {
-  background: var(--admin-surface-2);
+  background: var(--admin-surface-hover);
 }
 
 .table tbody tr:last-child td {
-  border-block-end: none;
+  border-block-end: 0;
 }
 
 /* A table cell, not a flex box: `display: flex` on a `<td>` leaves the table
@@ -318,16 +635,22 @@ body {
  * 它是表格单元格而非弹性盒子：`td` 上用 `display: flex` 会脱离表格布局，底边线画在
  * 内容高度上，行较高时就会出现一条多余的竖线。 */
 .cell-actions {
+  padding-inline-end: var(--sp-2);
   text-align: end;
   white-space: nowrap;
 }
 
 .cell-actions > * + * {
-  margin-inline-start: 4px;
+  margin-inline-start: var(--sp-1);
 }
 
-.cell-wrap {
+/* Compound selector on purpose: `.table td` sets `nowrap`, and a bare class
+ * would lose to it, letting long cells overflow into the next column.
+ * 故意用复合选择器：`.table td` 设了 `nowrap`，单类选择器会被它压过，导致长单元格
+ * 溢出到相邻列。 */
+.table td.cell-wrap {
   max-width: 360px;
+  white-space: normal;
   word-break: break-word;
 }
 
@@ -335,25 +658,30 @@ body {
 .button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  background: var(--admin-surface);
+  justify-content: center;
+  gap: var(--sp-2);
+  height: var(--admin-control);
+  padding: 0 var(--sp-3);
   color: var(--admin-text);
-  border: 1px solid var(--admin-border);
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border-strong);
   border-radius: var(--admin-radius);
   font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
   cursor: pointer;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
 }
 
 .button:hover {
-  background: var(--admin-surface-2);
+  background: var(--admin-surface-hover);
 }
 
 .button.primary {
-  background: var(--admin-accent);
-  border-color: var(--admin-accent);
   color: var(--admin-accent-text);
   font-weight: 600;
+  background: var(--admin-accent);
+  border-color: var(--admin-accent);
 }
 
 .button.primary:hover {
@@ -362,10 +690,10 @@ body {
 
 /* Danger fills use the page background as text: readable in both schemes. 危险填充用页面背景作文字色：两套方案都可读。 */
 .button.danger {
-  background: var(--admin-danger);
-  border-color: var(--admin-danger);
   color: var(--admin-bg);
   font-weight: 600;
+  background: var(--admin-danger);
+  border-color: var(--admin-danger);
 }
 
 .button.ghost {
@@ -373,14 +701,23 @@ body {
   border-color: transparent;
 }
 
+.button.ghost:hover {
+  background: var(--admin-surface-hover);
+}
+
 .button.block {
-  justify-content: center;
   width: 100%;
 }
 
+.button.small {
+  height: var(--admin-control-sm);
+  padding: 0 var(--sp-2);
+  font-size: 13px;
+}
+
 .button:disabled {
-  cursor: progress;
-  opacity: 0.65;
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .icon-button {
@@ -388,19 +725,20 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  width: 36px;
-  height: 36px;
+  width: var(--admin-control);
+  height: var(--admin-control);
   padding: 0;
-  background: transparent;
   color: var(--admin-text);
+  background: transparent;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--admin-radius);
   font: inherit;
   cursor: pointer;
+  transition: background-color 120ms ease-out;
 }
 
 .icon-button:hover {
-  background: var(--admin-surface-2);
+  background: var(--admin-surface-hover);
 }
 
 .icon-button.danger {
@@ -409,7 +747,7 @@ body {
 
 .icon-button.locale-toggle {
   width: auto;
-  padding: 0 10px;
+  padding: 0 var(--sp-2);
 }
 
 .icon svg {
@@ -425,25 +763,34 @@ body {
 
 .input {
   width: 100%;
-  padding: 9px 11px;
-  background: var(--admin-surface-2);
+  height: var(--admin-control);
+  padding: 0 var(--sp-2);
   color: var(--admin-text);
-  border: 1px solid var(--admin-border);
+  background: var(--admin-surface-2);
+  border: 1px solid var(--admin-border-strong);
   border-radius: var(--admin-radius);
   font: inherit;
+  font-size: 14px;
+}
+
+.input:focus {
+  border-color: var(--admin-accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--admin-ring);
 }
 
 .input[type='checkbox'] {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--admin-accent);
 }
 
-/* Placeholder hints are guidance, never content: muted, and never mistaken for a
+/* Placeholder hints are guidance, never content: subtle, and never mistaken for a
  * value. `opacity: 1` keeps Firefox from fading them further.
- * 占位提示只作引导、不属于内容：使用弱化色，且不会被误认为已填值；`opacity: 1` 防止
- * Firefox 再额外淡化。 */
+ * 占位提示只作引导、不属于内容：使用最弱色调，且不会被误认为已填值；`opacity: 1`
+ * 防止 Firefox 再额外淡化。 */
 .input::placeholder {
-  color: var(--admin-muted);
+  color: var(--admin-subtle);
   opacity: 1;
 }
 
@@ -461,20 +808,21 @@ body {
 
 .field-label {
   color: var(--admin-muted);
-  font-size: 0.85rem;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 /* Guidance under a control, e.g. "leave blank to keep the password".
  * 控件下方的引导文案，例如「留空表示不修改密码」。 */
 .field-hint {
-  color: var(--admin-muted);
-  font-size: 0.78rem;
+  color: var(--admin-subtle);
+  font-size: 12px;
 }
 
 .field-inline {
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
 /* Multi-select permission list inside a dialog. 对话框内的多选权限列表。 */
@@ -487,10 +835,10 @@ body {
 .field-options {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
-  gap: 4px 12px;
+  gap: var(--sp-1) var(--sp-3);
   max-height: 11rem;
+  padding: var(--sp-2);
   overflow: auto;
-  padding: 8px 10px;
   background: var(--admin-surface-2);
   border: 1px solid var(--admin-border);
   border-radius: var(--admin-radius);
@@ -500,8 +848,8 @@ body {
 .picker-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-block-end: 8px;
+  gap: var(--sp-2);
+  margin-block-end: var(--sp-2);
 }
 
 /* Summary counters sit at the end and never shift the buttons as digits change.
@@ -509,7 +857,7 @@ body {
 .picker-count,
 .picker-group-count {
   color: var(--admin-muted);
-  font-size: 0.78rem;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -520,10 +868,10 @@ body {
 .picker-groups {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--sp-2);
   max-height: 17rem;
+  padding: var(--sp-2);
   overflow: auto;
-  padding: 8px 10px;
   background: var(--admin-surface-2);
   border: 1px solid var(--admin-border);
   border-radius: var(--admin-radius);
@@ -532,24 +880,24 @@ body {
 .picker-group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
 }
 
 .picker-group + .picker-group {
+  padding-block-start: var(--sp-2);
   border-block-start: 1px solid var(--admin-border);
-  padding-block-start: 8px;
 }
 
 .picker-group-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--sp-2);
+  padding: 2px var(--sp-1);
+  margin: -2px calc(-1 * var(--sp-1));
+  border-radius: var(--admin-radius-sm);
   cursor: pointer;
   user-select: none;
-  border-radius: 6px;
-  padding: 2px 4px;
-  margin: -2px -4px;
 }
 
 .picker-group-header:hover {
@@ -563,7 +911,7 @@ body {
 
 .picker-group-name {
   flex: 1;
-  font-size: 0.85rem;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -591,19 +939,14 @@ body {
 .picker-items {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
-  gap: 4px 12px;
-}
-
-.button.small {
-  padding: 4px 10px;
-  font-size: 0.82rem;
+  gap: var(--sp-1) var(--sp-3);
 }
 
 .option {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  font-size: 0.85rem;
+  font-size: 13px;
 }
 
 .option-text {
@@ -619,45 +962,72 @@ body {
 }
 
 .option-id {
-  color: var(--admin-muted);
-  font-size: 0.75rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--admin-subtle);
+  font-family: var(--font-mono);
+  font-size: 12px;
 }
 
 /* Explanatory restriction copy, e.g. "built-in role — cannot be edited".
  * 说明性限制文案，例如「内置角色，不可编辑」。 */
 .hint {
   color: var(--admin-muted);
-  font-size: 0.85rem;
+  font-size: 13px;
 }
 
 /* ---- Badges 角标 ---- */
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 1px 8px;
+  gap: 6px;
+  height: 20px;
+  padding: 0 var(--sp-2);
+  color: var(--admin-muted);
   background: var(--admin-surface-2);
-  color: var(--admin-text);
-  border: 1px solid var(--admin-border);
+  border: 1px solid transparent;
   border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 550;
+  font-size: 12px;
+  font-weight: 500;
   white-space: nowrap;
+}
+
+/* Soft-toned state badges carry a dot, so state is never colour-only.
+ * 柔和底状态徽标带圆点，状态从不只靠颜色表达。 */
+.badge.ok,
+.badge.warn,
+.badge.danger,
+.badge.info {
+  border-color: transparent;
 }
 
 .badge.ok {
   color: var(--admin-ok);
-  border-color: var(--admin-ok);
+  background: var(--admin-ok-soft);
 }
 
 .badge.warn {
   color: var(--admin-warn);
-  border-color: var(--admin-warn);
+  background: var(--admin-warn-soft);
 }
 
 .badge.danger {
   color: var(--admin-danger);
-  border-color: var(--admin-danger);
+  background: var(--admin-danger-soft);
+}
+
+.badge.info {
+  color: var(--admin-info);
+  background: var(--admin-info-soft);
+}
+
+.badge.ok::before,
+.badge.warn::before,
+.badge.danger::before,
+.badge.info::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+  border-radius: 999px;
 }
 
 .badge.muted {
@@ -669,32 +1039,58 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 48px 16px;
+  gap: var(--sp-3);
+  padding: 48px var(--sp-4);
   color: var(--admin-muted);
   text-align: center;
+}
+
+.state-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  color: var(--admin-subtle);
+  background: var(--admin-surface-2);
+  border-radius: 999px;
+}
+
+.state-icon .icon svg {
+  width: 22px;
+  height: 22px;
 }
 
 .state-title {
   margin: 0;
   color: var(--admin-text);
-  font-size: 1.2rem;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
 }
 
 .state-text {
   margin: 0;
+  max-width: 46ch;
+  color: var(--admin-muted);
+  font-size: 13px;
+}
+
+.state-actions {
+  display: flex;
+  gap: var(--sp-2);
+  margin-block-start: var(--sp-1);
 }
 
 .state-empty {
-  padding: 32px;
+  padding: var(--sp-7) var(--sp-6);
   background: var(--admin-surface);
   border: 1px dashed var(--admin-border);
-  border-radius: var(--admin-radius);
+  border-radius: var(--admin-radius-lg);
 }
 
 .spinner {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border: 2px solid var(--admin-border);
   border-top-color: var(--admin-accent);
   border-radius: 50%;
@@ -713,111 +1109,133 @@ body {
   place-items: center;
   min-height: 100vh;
   min-height: 100dvh;
-  padding: 24px;
-  background: radial-gradient(circle at 20% 0%, var(--admin-surface-2), var(--admin-bg) 62%);
+  padding: var(--sp-6);
+  background: var(--admin-bg);
 }
 
 .auth-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  width: min(420px, 100%);
-  padding: 28px;
+  gap: var(--sp-3);
+  width: min(400px, 100%);
+  padding: var(--sp-6);
   background: var(--admin-surface);
   border: 1px solid var(--admin-border);
-  border-radius: calc(var(--admin-radius) + 4px);
+  border-radius: calc(var(--admin-radius) + 8px);
   box-shadow: var(--admin-shadow);
 }
 
 .auth-title {
-  margin: 6px 0 0;
-  font-size: 1.25rem;
+  margin: var(--sp-1) 0 0;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 30px;
 }
 
 .auth-hint {
   margin: 0;
   color: var(--admin-muted);
-  font-size: 0.9rem;
+  font-size: 13px;
 }
 
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 6px;
+  gap: var(--sp-3);
+  margin-block-start: var(--sp-1);
+}
+
+.auth-form .input,
+.auth-form .button.block {
+  height: var(--admin-control-lg);
 }
 
 .form-error {
-  min-height: 1.2em;
+  min-height: 16px;
   margin: 0;
   color: var(--admin-danger);
-  font-size: 0.9rem;
+  font-size: 12px;
 }
 
 /* ---- Dialogs 对话框 ---- */
 .dialog {
-  width: min(460px, calc(100vw - 32px));
+  width: min(560px, calc(100vw - 32px));
   padding: 0;
   color: var(--admin-text);
-  background: var(--admin-surface);
-  border: 1px solid var(--admin-border);
-  border-radius: calc(var(--admin-radius) + 2px);
+  background: var(--admin-surface-3);
+  border: 1px solid var(--admin-border-strong);
+  border-radius: var(--admin-radius-lg);
   box-shadow: var(--admin-shadow);
 }
 
+/* The permission picker needs the wider column; `:has` keeps the choice in CSS.
+ * 权限选择器需要更宽的列；用 `:has` 把选择留在 CSS 里。 */
+.dialog:has(.permission-picker) {
+  width: min(720px, calc(100vw - 32px));
+}
+
 .dialog::backdrop {
-  background: rgba(4, 8, 14, 0.55);
+  background: rgb(4 8 14 / 0.55);
 }
 
 .dialog-header {
-  padding: 18px 20px 0;
+  padding: var(--sp-5) var(--sp-6) 0;
 }
 
 .dialog-title {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
 }
 
 .dialog-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px 20px 20px;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-6) var(--sp-5);
 }
 
 .dialog-text {
   margin: 0;
   color: var(--admin-muted);
+  font-size: 13px;
 }
 
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px;
+  gap: var(--sp-2);
+  margin-block-start: var(--sp-1);
+  padding-block-start: var(--sp-4);
+  border-block-start: 1px solid var(--admin-border);
+}
+
+.dialog-footer .button {
+  min-width: 88px;
 }
 
 /* ---- Toasts 提示 ---- */
 .toast-region {
   position: fixed;
-  inset-block-end: 16px;
-  inset-inline-end: 16px;
-  z-index: 50;
+  inset-block-end: var(--sp-4);
+  inset-inline-end: var(--sp-4);
+  z-index: 60;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--sp-2);
   pointer-events: none;
 }
 
 .toast {
   max-width: min(360px, calc(100vw - 32px));
-  padding: 10px 14px;
-  background: var(--admin-surface);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--admin-surface-3);
   border: 1px solid var(--admin-border);
   border-inline-start: 3px solid var(--admin-accent);
-  border-radius: var(--admin-radius);
+  border-radius: var(--admin-radius-lg);
   box-shadow: var(--admin-shadow);
-  font-size: 0.9rem;
+  font-size: 13px;
 }
 
 /* Menu toggle is desktop-hidden. 菜单开关在桌面端隐藏。 */
@@ -825,9 +1243,51 @@ body {
   display: none;
 }
 
-/* ---- Responsive collapse 响应式折叠 ---- */
+/* Collapsed rail: icons only, labels and section captions retire.
+ * 折叠轨：只留图标，标签与分组标题隐藏。 */
+.shell.is-collapsed .brand-name,
+.shell.is-collapsed .nav-section-label,
+.shell.is-collapsed .nav-label,
+.shell.is-collapsed .nav-link .badge,
+.shell.is-collapsed .user-card-text {
+  display: none;
+}
+
+.shell.is-collapsed .brand {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.shell.is-collapsed .sidebar-toggle {
+  margin-inline-start: 0;
+}
+
+.shell.is-collapsed .nav-link,
+.shell.is-collapsed .user-card {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.shell.is-collapsed .nav-section + .nav-section {
+  margin-block-start: var(--sp-2);
+}
+
+/* ---- Responsive 响应式 ---- */
+@media (max-width: 1279px) {
+  .content {
+    padding: var(--sp-5) var(--sp-6);
+  }
+}
+
+@media (max-width: 1023px) {
+  .content {
+    padding: var(--sp-4) var(--sp-5);
+  }
+}
+
 @media (max-width: 800px) {
-  .shell {
+  .shell,
+  .shell.is-collapsed {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -836,7 +1296,7 @@ body {
     inset-block: 0;
     inset-inline-start: 0;
     z-index: 30;
-    width: 240px;
+    width: 280px;
     transform: translateX(-100%);
     transition: transform 160ms ease;
     box-shadow: var(--admin-shadow);
@@ -846,17 +1306,25 @@ body {
     transform: translateX(0);
   }
 
+  .sidebar-toggle {
+    display: none;
+  }
+
   .menu-toggle {
     display: inline-flex;
   }
 
-  .content {
-    padding: 16px;
+  .topbar {
+    padding: 0 var(--sp-4);
   }
 
-  .user-chip,
-  .button-label {
-    display: none;
+  .content {
+    padding: var(--sp-4);
+  }
+
+  .page-title {
+    font-size: 18px;
+    line-height: 26px;
   }
 }
 

@@ -25,7 +25,7 @@
 ## 0. 结论先行 / TL;DR
 
 - **推荐主干：方向 A「静默控制台 / Quiet Console」**——以边框和排版建立层级、单一强调色、14px 基准、36px 表格行、暗色优先校准；骨架取自 shadcn/ui + Linear + Vercel Geist。
-- **同时吸收方向 B「温和账本 / Calm Ledger」的三个零件**：导航分组标签、侧栏底部用户卡、带柔和底色的状态徽标。它们提升可读性但不增加颜色预算。
+- **同时吸收方向 B「温和账本 / Calm Ledger」的四个零件**：导航分组标签、侧栏底部用户卡、带柔和底色的状态徽标、以及空态写法。它们提升可读性与亲和度，但不增加颜色预算。
 - 落地只要 **CSS + 极少量 JS**（首帧主题脚本、主题菜单），不引入框架、不加依赖、不破坏 CSP（`style-src 'self' 'unsafe-inline'`）。
 - 现状有三个必须先补的硬伤：
   1. **主题包契约缺状态色**：`--admin-ok` / `--admin-warn` 只写在 `styles.css` 兜底里，不在 `ui/theme-default/client.js` 的包里，换主题会静默失配（见 [1.3](#13-token-清单与契约缺口--token-audit)）。
@@ -45,7 +45,7 @@
 | 样式 | 单文件手写 CSS（878 行），全部颜色/圆角/阴影走 `--admin-*` 自定义属性 | `styles.css` |
 | 主题 | UI 包注册 `{ id, label, light, dark }`，SPA 把 token 以**内联属性**写到 `<html>` 上 | `runtime.js:59`、`app.js:162-170` |
 | 语言 | 语言包注册两份同键字典，`t()` 缺键回退到键名本身 | `ui/locale-zh-en/client.js` |
-| 图标 | 24×24 内联 `<svg stroke="currentColor">`，共 18 个 | `ui/icons-default/client.js` |
+| 图标 | 24×24 内联 `<svg stroke="currentColor">`，共 16 个 | `ui/icons-default/client.js` |
 | 安全 | CSP：`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'` | `web/src/static.ts:96-101` |
 | 静态白名单 | `.html/.js/.mjs/.css/.json/.svg/.png/.ico/.woff2/.webmanifest`，响应 `no-store` | `web/src/static.ts:19-30` |
 | 导航 | 数据驱动：`{ id, labelKey, path, icon, permission, order }`，默认 5 项，order 以 10 为步长 | `providers/nav-default/src/contributions.ts` |
@@ -102,7 +102,7 @@
 
 1. **主题包契约不完整**：见 1.3。→ 需要契约 v2，把状态色纳入包。
 2. **暗色首帧闪白**：`start()` 先 `paint(loadingView)`，再 `await loadPacks(publicManifest)`，最后 `applyTheme()`（`app.js:545-553`）。包是 `import()` 动态加载，暗色用户在包到达前看到亮色兜底层。→ 需要 `<head>` 里一个同源阻塞脚本，在首次绘制前写 `data-scheme`（CSP 禁止内联脚本，所以必须是文件）。
-3. **表格 hover 与表头同色**（都用 `surface-2`，`styles.css:298-309`）：鼠标滑过时行与表头融成一片，长表里丢定位。→ 需要 `surface-3`（hover 层）或表头改用更弱的底。
+3. **表格 hover 与表头同色**（都用 `surface-2`，`styles.css:298-309`）：鼠标滑过时行与表头融成一片，长表里丢定位。→ 需要独立的 `surface-hover`（4% 文字色叠加）或表头改用更弱的底。
 4. **按钮高度不受控**：`.button` 用 `padding: 8px 14px` + 继承 15px 行高 → 实际约 40.5px；`.icon-button` 固定 36px；`.input` 约 42.5px。三种控件在顶栏并排时基线不齐（`styles.css:335-346,386-400,426-434`）。
 
 **P1（视觉与信息层级）**
@@ -164,7 +164,7 @@
 ### 2.2 shadcn/ui — Theming & Dark Mode 文档
 
 - 链接：[ui.shadcn.com/docs/theming](https://ui.shadcn.com/docs/theming)、[ui.shadcn.com/docs/dark-mode](https://ui.shadcn.com/docs/dark-mode)
-- 说明：两页正文均由客户端渲染，`web_fetch` 只拿到导航壳；**token 命名与 dark 变体的结论来自 registry 源码（`/r/styles/new-york-v4/*.json`）实测**，不是文档正文。
+- 说明：两页抓取时正文被截断（只返回导航与标题），因此**token 命名与 dark 变体的结论来自 registry 源码（`/r/styles/new-york-v4/*.json`）实测**，不是文档正文。
 - **可借鉴**：token 分「表面 / 前景 / 边框 / 环 / 危险」五类，暗色只改值不改结构；这与我们的 `--admin-*` 契约同构，说明方向正确，缺的只是**补全类别**。
 - **不适用**：`oklch()` + Tailwind v4 主题变量（`@theme inline`）依赖构建期，无构建环境用不了；我们继续用十六进制/`color-mix()`。
 
@@ -233,7 +233,22 @@
 - 其归纳与本报告独立观察一致：暗色优先（Linear/Supabase/Vercel）、**安静 chrome + 高密度**、**表格回归主界面**（Stripe/Retool）、**颜色只表达状态与含义**（Vercel）、空态/加载态与数据态同等投入。文中对 Vercel 的概括是"单色系统里 status 色承载全部语义"，与我们"颜色只表达状态"的原则同向。
 - 反向校验：它把 `Linear` 归为"dark-first power tool"，与 Linear 官方博客"两套主题都提高对比度"并不冲突——"暗色优先设计"≠"只做暗色"。
 
-### 2.10 未取到的候选来源（诚实记录）
+### 2.10 五维对照表（布局 / 配色 / 字体 / 密度 / 暗色）/ Five-dimension matrix
+
+| 来源 | 布局 | 配色 | 字体 | 密度 | 暗色 | 本方案落点 |
+| --- | --- | --- | --- | --- | --- | --- |
+| shadcn/ui Blocks | ✅ 侧栏宽/顶栏高变量、inset 侧栏 | ✅ 语义 token 命名 | ⚠️ 未展开（Tailwind 继承） | ✅ 控件 32/36/40 三档 | ⚠️ 仅在少数组件用 `dark:` | 4.1/4.4/5.6 |
+| shadcn Registry 组件 | ⚠️ 组件内布局 | ✅ `bg-card`/`border-input` | ✅ Card/Table 内距与字号 | ✅ th 40、td p-2、徽标 12px | ✅ `dark:bg-destructive/60` 等 | 5.1/5.4/6.3/6.7 |
+| Tremor | ✅ KPI 卡三段式 | ⚠️ 固定灰阶（非 token 契约） | ✅ `text-sm leading-6` | ✅ 条形行高 32、卡片 p-6 | ✅ 暗底 `#090E1A` + 更暗边框 | 6.1/6.2/7.3 |
+| Tabler | ✅ page-header/body + 四列 KPI + 折叠轨 | ✅ 5 灰阶 × 13 主色 + 圆角刻度 | ✅ `lead` 用次要色 | ✅ 卡片栅格密度 | ✅ auto 解析 + FOUC 警告 | 4.2/5.4/7.2 |
+| daisyUI | ⚠️ 组件级（不涉布局体系） | ✅ 语义色成对 + 三级底 | ⚠️ 无独立字号体系 | ⚠️ 组件内距 | ✅ `data-theme` + `--prefersdark` | 5.1/5.8 |
+| Vercel Geist | ⚠️ 非后台骨架 | ✅ 表面/边框三档 + alpha 规则 | ✅ 四条用途阶梯 + tabular | ✅ Label 14 / 12 / mono 组合 | ✅ 半透明阴影与 alpha 灰阶 | 5.1/5.4/5.5 |
+| Linear | ✅ inverted-L chrome、侧栏对齐 | ✅ 3 变量派生 + LCH | ⚠️ 未给字号表 | ✅ 提高密度同时降噪 | ✅ 两套主题提高对比度 + contrast 变量 | 4.6/6.10/7.4 |
+| Dribbble / Behance（标题级） | ⚠️ 仅标题 | ⚠️ 仅标题 | ⚠️ 仅标题 | ⚠️ 仅标题 | ✅ "亮暗双模"成对展示 | 2.8 的走向判断 |
+
+> 图例：✅ 有可直接借鉴的明确规则；⚠️ 有信号但不足以提炼规则（或需另找取证）；落点列为本文对应章节。
+
+### 2.11 未取到的候选来源（诚实记录）
 
 - **Ant Design Pro**（[pro.ant.design](https://pro.ant.design/)、[preview.pro.ant.design](https://preview.pro.ant.design)）：文档站 302 到演示站，演示站为纯客户端渲染，抓取只得到 `<title>`。因此本报告**不引用其任何设计细节**，仅记为"未取证"。若后续需要 ProLayout 的侧栏+面包屑+页签结构细节，应改为查其 GitHub 源码或本地安装后阅读。
 - **Behance / Dribbble 正文**：同 2.8 的取证说明。
@@ -316,12 +331,12 @@
 | 项 | 桌面 | 折叠 | 移动 | 说明 |
 | --- | --- | --- | --- | --- |
 | 侧栏宽 | 248px | 64px | 280px 抽屉 | 比现状 240 略宽，容纳"图标+标签+计数徽标" |
-| 顶栏高 | 52px | 52px | 52px | 现状约 41px；52 给 32px 控件留 10px 呼吸 |
+| 顶栏高 | 52px | 52px | 52px | 现状约 61px（被 40.5px 按钮撑高）；52 给 32px 控件留 10px 呼吸 |
 | 内容 padding | 32px 40px | 24px 32px | 16px | 断点 1280 / 1024 / 768 / 640 |
 | 内容最大宽 | 1280px | 1280px | 100% | 比现状 1100 宽，7 列表格不再挤压 |
 | 栅格 | 12 列，gap 16/24 | 同 | 1 列 | KPI 4 列 → 2 列 → 1 列 |
 | 页面纵向节奏 | header 20 → gap 24 → 卡片 16 | 同 | 16 | 用间距 token，不写魔法值 |
-| z 轴 | 内容 0 / sticky 10 / 侧栏 30 / 遮罩 35 / 弹窗 50 / Toast 60 | | | 现状 Toast 50、侧栏 30，弹窗原生 top-layer 不参与 |
+| z 轴 | 内容 0 / sticky 10 / 侧栏 30 / 遮罩 35 / 弹窗 top-layer（预留 50）/ Toast 60 | | | 现状 Toast 50、侧栏 30；原生 `<dialog>` 走 top-layer，不参与 z-index 竞争 |
 
 ### 4.5 页面骨架 / Page scaffold（5 个页面统一）
 
@@ -340,7 +355,7 @@ pagination      条数 + 页码（或"加载更多"，审计页保留）
 
 ### 4.6 主导航分组 / Nav grouping
 
-现状 5 项平铺（仪表盘/用户/角色/审计/能力），语义上其实是三组。建议在 `AdminNavContribution` 上**新增可选 `sectionKey`**（additive，不破坏现有 provider），SPA 按 `sectionKey` 分组、缺失时按 `order` 兜底归入"通用"：
+现状 5 项平铺（仪表盘/用户/角色/审计/能力），语义上其实是四组。建议在 `AdminNavContribution` 上**新增可选 `sectionKey`**（additive，不破坏现有 provider），SPA 按 `sectionKey` 分组、缺失时按 `order` 兜底归入"通用"：
 
 | 分组（EN / 中文） | 成员 | sectionKey |
 | --- | --- | --- |
@@ -380,7 +395,7 @@ pagination      条数 + 页码（或"加载更多"，审计页保留）
 | `--admin-bg` | `#f7f8fa` | `#0b0e12` | 页面底 | — |
 | `--admin-surface` | `#ffffff` | `#11151b` | 卡片 / 侧栏 / 顶栏 | 文字 17.9:1 (L) / 15.7:1 (D) |
 | `--admin-surface-2` | `#f1f3f6` | `#171d25` | 内嵌块、表头、输入底 | — |
-| `--admin-surface-3` | `#ffffff` | `#1d2530` | 浮层、行 hover（比 2 更"近"） | — |
+| `--admin-surface-3` | `#ffffff` | `#1d2530` | 浮层 / 弹窗底（亮色与卡片同白，靠边框+阴影区分） | — |
 | `--admin-border` | `#e3e7ec` | `#242c37` | 分隔线 | 对表面 ≈1.1:1（仅装饰） |
 | `--admin-border-strong` | `#cbd3dd` | `#36424f` | 控件边框（不承担唯一识别，故不要求 3:1） | 1.6:1 / 1.8:1 |
 | `--admin-text` | `#171a1f` | `#e9eef5` | 正文 | 17.9:1 / 15.7:1 |
@@ -401,7 +416,7 @@ pagination      条数 + 页码（或"加载更多"，审计页保留）
 
 ### 5.2 派生 token / Derived tokens
 
-只加 4 条规则，不增加主题包负担：
+只加一组派生规则，不增加主题包负担：
 
 ```css
 :root {
@@ -458,8 +473,9 @@ pagination      条数 + 页码（或"加载更多"，审计页保留）
 
 | 角色 | size / line-height | weight | 用途 |
 | --- | --- | --- | --- |
-| `display` | 24 / 32 | 600 | 登录页标题、空态大标题（少用） |
-| `title` | 18 / 26 | 600 | 页面标题（`page-title`） |
+| `display` | 28 / 36 | 600 | 登录页标题、空态大标题（少用） |
+| `title` | 20 / 28 | 600 | 页面标题（`page-title`） |
+| `metric` | 24 / 30 | 600 | KPI 数值（`tabular-nums`，主 KPI 可到 28） |
 | `section` | 15 / 22 | 600 | 卡片标题、弹窗标题 |
 | `body` | 14 / 21 | 400 | 正文、表格单元格 |
 | `small` | 13 / 19 | 400 | 描述、表单提示、表格次要列 |
@@ -514,7 +530,7 @@ font-variant-numeric: tabular-nums;   /* 表格、统计值、时间 */
 
 | 变更 | 内容 | 兼容策略 |
 | --- | --- | --- |
-| 扩容 | 11 → 16 个基础 token（新增 `surface-3`、`border-strong`、`subtle`、`ok`、`warn`、`info`；`danger` 保留） | 新增键缺失时落回 `:root` 兜底；**布局不受影响** |
+| 扩容 | 11 → 17 个基础 token（新增 `surface-3`、`border-strong`、`subtle`、`ok`、`warn`、`info`；`danger` 保留） | 新增键缺失时落回 `:root` 兜底；**布局不受影响** |
 | 状态色入包 | `ok/warn/info` 从"仅兜底"变成"必须由包声明" | 旧包未声明 → 用兜底值，并在控制台告警一次 |
 | 派生层 | `*-soft`、`ring`、`radius-sm/lg` 由 CSS 计算，不进包 | 包无需关心 |
 | 校验（可选） | `registerTheme` 时比对必需键，缺失 `console.warn`（不抛错，避免白屏） | 与现有"坏包只丢一个条目"的容错一致 |
@@ -526,7 +542,7 @@ font-variant-numeric: tabular-nums;   /* 表格、统计值、时间 */
 
 1. 组件 CSS 里**禁止**出现 `#hex`、`rgb()`、`px` 间距魔法值（边框 1px、图标尺寸除外）。
 2. hover / active / 柔和底一律用 `color-mix()` 或派生变量，不在组件里写第二套颜色。
-3. 新增视觉状态必须先在 [5.1](#51-色板--方向-a推荐--palette-a) 找到对应 token；找不到 = 设计缺口，先补 token。
+3. 新增视觉状态必须先在 [5.1](#51-色板--方向-a推荐-palette-a) 找到对应 token；找不到 = 设计缺口，先补 token。
 4. 主题包只能改变量值；若某个改动需要改布局，说明它不属于主题。
 
 ---
@@ -555,7 +571,7 @@ font-variant-numeric: tabular-nums;   /* 表格、统计值、时间 */
 ```
 ┌────────────────────────────┐
 │ 用户            ↑ 12%      │ 标签 12/caption muted；右侧变化 12（ok/danger）
-│ 24                         │ 数值 mono 24-28/600 tabular
+│ 24                         │ 数值 metric 24/600 tabular
 │ ▁▂▃▅▆▇  近 7 天            │ 迷你条（可选）：高度 24，条宽 3，gap 2
 └────────────────────────────┘
 ```
@@ -706,7 +722,7 @@ font-variant-numeric: tabular-nums;   /* 表格、统计值、时间 */
 
 | 规则 | 做法 | 反例 |
 | --- | --- | --- |
-| 表面阶梯靠亮度 | `bg #0b0e12 → surface #11151b → surface-2 #171d25 → surface-3 #1d2530`，越"近"越亮 | 全部 `#000` / 全部 `#111` |
+| 表面阶梯靠亮度 | 暗色 `bg #0b0e12 → surface #11151b → surface-2 #171d25 → surface-3 #1d2530`，越"近"越亮；亮色层级靠边框与阴影（surface 与 surface-3 同为白） | 全部 `#000` / 全部 `#111` |
 | 边框方向 | 暗色里边框比表面**更暗**或同族微亮（Tremor 用 `gray-900` 于 `#090E1A` 上）；本项目取"略亮"以保边界可辨（`#242c37` 于 `#11151b`） | 用亮色主题的 `#e3e7ec` 直接搬 |
 | 文字不用纯白 | `#e9eef5`（≈93% 亮度），降低长时间阅读眩光 | `#ffffff` |
 | 强调色提亮 | 亮色 `#1b5fc1` / 暗色 `#6ea8fe`，两套各自对底达标；`accent-text` 在暗色反转为深色（`#08111d`） | 深蓝底上仍用白字、或把亮色的深蓝直接搬到暗底 |
@@ -759,7 +775,7 @@ font-variant-numeric: tabular-nums;   /* 表格、统计值、时间 */
 | 侧栏 | 248 / 折叠 64 图标轨；分组标签极小；无背景图、无渐变 |
 | 顶栏 | 52px，面包屑 + 3 个控件 + 头像菜单 |
 | 内容 | max 1280，12 栅格，KPI 4 列，表格为主角 |
-| 基准字 | 14px / 1.5；表格 13–14；标题 18 |
+| 基准字 | 14px / 1.5；表格 13–14；页面标题 20 |
 | 密度 | 控件 32、表格行 36、卡片内距 20 |
 | 圆角 | 8（基准）/ 12（卡片）/ 999（徽标） |
 | 阴影 | 仅浮层；卡片靠 1px 边框 |
@@ -788,7 +804,7 @@ font-variant-numeric: tabular-nums;   /* 表格、统计值、时间 */
 | 侧栏 | 264，分组 + 底部用户卡；可选折叠 |
 | 顶栏 | 64px，标题 + 全局搜索 + 操作区 |
 | 内容 | max 1180，卡片 2 列为主，KPI 卡带迷你条/进度环 |
-| 基准字 | 15px / 1.5；标题 20–22 |
+| 基准字 | 15px / 1.5；页面标题 22；KPI 数值 28 |
 | 密度 | 控件 40、表格行 44、卡片内距 24 |
 | 圆角 | 10（基准）/ 14（卡片）/ 999 |
 | 阴影 | 卡片带极轻阴影（`0 1px 2px`）+ 边框 |
@@ -814,7 +830,7 @@ font-variant-numeric: tabular-nums;   /* 表格、统计值、时间 */
 | 首屏信息量 | ✅ 高 | ⚠️ 中 |
 | 长时间使用疲劳 | ✅ 低（暗色优先校准） | ⚠️ 中（暖色底在暗色下偏黄） |
 | 非技术用户上手 | ⚠️ 中 | ✅ 高 |
-| 实现成本（人力 / CSS 体量） | ✅ 低（~1.5 人日 token+shell） | ❌ 中高（~3 人日，含微图表） |
+| 实现成本（人力 / CSS 体量） | ✅ 低（P0 骨架 ~1.5 人日；全程约 6–9 人日） | ❌ 中高（P0 骨架 ~3 人日；全程约 10–14 人日，含微图表） |
 | 主题包稳定性 | ✅ 高（颜色少、派生多） | ⚠️ 中（柔和底与暖灰阶都要进包） |
 | 双语适配 | ✅ 好（紧凑排版靠省略与 nowrap） | ⚠️ 英文长文案在大字号下更易挤 |
 | 与现有代码距离 | ✅ 近（改 token 与规则即可） | ❌ 远（结构、间距、字号、组件都要动） |
@@ -822,7 +838,7 @@ font-variant-numeric: tabular-nums;   /* 表格、统计值、时间 */
 
 ### 9.4 推荐 / Recommendation
 
-**以 A 为骨、借 B 的四个零件**：
+**以 A 为骨、借 B 的四个零件**（下面第 2–5 项）：
 
 1. **A 的 token、栅格、密度、暗色优先校准**作为整体骨架。
 2. 借 **B 的导航分组标签**（4.6）—— 5 个平铺项看起来像清单，分组后像产品。
@@ -840,7 +856,7 @@ font-variant-numeric: tabular-nums;   /* 表格、统计值、时间 */
 
 | 期 | 内容 | 产出 | 预估 |
 | --- | --- | --- | --- |
-| **P0 地基** | token v2（16 个）+ 派生变量 + 间距/字号/控件高度阶梯；侧栏/顶栏/内容区尺寸；首帧 `scheme-boot.js`；主题浮层三选一 | 视觉骨架到位，页面结构不变 | 1–1.5 人日 |
+| **P0 地基** | token v2（17 个）+ 派生变量 + 间距/字号/控件高度阶梯；侧栏/顶栏/内容区尺寸；首帧 `scheme-boot.js`；主题浮层三选一 | 视觉骨架到位，页面结构不变 | 1–1.5 人日 |
 | **P1 组件** | 卡片、表格（sticky 头、hover 层、数字对齐、骨架、空态）、按钮五变体、表单字段、弹窗三段式、徽标六语气、Toast | 组件层可复用、可回归 | 2–3 人日 |
 | **P2 页面** | 五个页面按 4.5 骨架重排；导航分组；用户卡；仪表盘 KPI + 最近审计/能力健康两栏 | 全部页面换新 | 2–3 人日 |
 | **P3 打磨** | 高对比变体、密度开关、⌘K 搜索（可选）、`prefers-contrast`、动效细化、文案长度测试 | 收尾与可访问性 | 1–2 人日 |
@@ -878,7 +894,7 @@ font-variant-numeric: tabular-nums;   /* 表格、统计值、时间 */
 
 ## 11. 参考链接清单 / References
 
-### 11.1 一手来源（官方文档 / 仓库 / 组件源码，已抓取正文）
+### 11.1 一手来源（官方文档 / 仓库 / 组件源码；个别页面正文被截断的已在行内标注）
 
 | # | 来源 | 链接 | 用在本方案的哪一部分 |
 | --- | --- | --- | --- |
@@ -886,7 +902,7 @@ font-variant-numeric: tabular-nums;   /* 表格、统计值、时间 */
 | 2 | shadcn/ui · Sidebar Blocks | [https://ui.shadcn.com/blocks/sidebar](https://ui.shadcn.com/blocks/sidebar) | inset 侧栏、面包屑顶栏、KPI 占位网格（4.1/4.7） |
 | 3 | shadcn/ui · Theming | [https://ui.shadcn.com/docs/theming](https://ui.shadcn.com/docs/theming) | 语义 token 分类（5.1/5.8）；正文未抓全，结论以 registry 源码为准 |
 | 4 | shadcn/ui · Dark Mode | [https://ui.shadcn.com/docs/dark-mode](https://ui.shadcn.com/docs/dark-mode) | 暗色属性策略（7.1）；正文未抓全 |
-| 5 | shadcn/ui · Registry 组件源码（button / card / table / badge） | https://ui.shadcn.com/r/styles/new-york-v4/button.json · …/card.json · …/table.json · …/badge.json | 控件高度档、卡片内距、表格 padding、徽标圆角（2.1、5.6、6.x） |
+| 5 | shadcn/ui · Registry 组件源码（button / card / table / badge） | [button.json](https://ui.shadcn.com/r/styles/new-york-v4/button.json) · [card.json](https://ui.shadcn.com/r/styles/new-york-v4/card.json) · [table.json](https://ui.shadcn.com/r/styles/new-york-v4/table.json) · [badge.json](https://ui.shadcn.com/r/styles/new-york-v4/badge.json) | 控件高度档、卡片内距、表格 padding、徽标圆角（2.1、5.6、6.x） |
 | 6 | Tremor · 官网 | [https://www.tremor.so/](https://www.tremor.so/) | KPI 卡、微可视化、全局密度取向（6.2/6.3） |
 | 7 | Tremor · Card | [https://www.tremor.so/docs/ui/card](https://www.tremor.so/docs/ui/card) | 卡片 `rounded-lg border p-6 shadow-xs` + 暗色底/边框（6.1） |
 | 8 | Tremor · Table | [https://www.tremor.so/docs/ui/table](https://www.tremor.so/docs/ui/table) | 数字右对齐、汇总页脚、横滚容器（6.3） |
@@ -907,7 +923,7 @@ font-variant-numeric: tabular-nums;   /* 表格、统计值、时间 */
 | # | 来源 | 链接 | 说明 |
 | --- | --- | --- | --- |
 | 20 | AdminLTE · 10 Best SaaS Dashboard Design Examples & Trends (2026) | [https://adminlte.io/blog/saas-dashboard-design-examples/](https://adminlte.io/blog/saas-dashboard-design-examples/) | 内容营销博客；其"暗色优先 / 安静 chrome / 表格回归 / 颜色=含义"与本报告独立结论一致，未用于支撑任何数字 |
-| 21 | RedwoodJS · Build Dashboards Fast with Tremor | [https://docs.redwoodjs.com/docs/8.7/how-to/build-dashboards-fast-with-tremor/](https://docs.redwoodjs.com/docs/8.7/how-to/build-dashboards-fast-with-tremor/) | 仅作 Tremor 使用面的旁证 |
+| 21 | RedwoodJS · Build Dashboards Fast with Tremor | [https://docs.redwoodjs.com/docs/8.7/how-to/build-dashboards-fast-with-tremor/](https://docs.redwoodjs.com/docs/8.7/how-to/build-dashboards-fast-with-tremor/) | 仅搜索结果索引，未抓取正文；未用于任何结论 |
 
 ### 11.3 作品站取样（正文不可抓取，仅标题级证据）
 
@@ -936,7 +952,7 @@ font-variant-numeric: tabular-nums;   /* 表格、统计值、时间 */
 | `--admin-bg` | `--admin-bg` | 值微调（`#f7f8fa` 保持） |
 | `--admin-surface` | `--admin-surface` | 保持 |
 | `--admin-surface-2` | `--admin-surface-2` | 值微调 |
-| — | `--admin-surface-3` | **新增**：浮层底 / 行 hover |
+| — | `--admin-surface-3` | **新增**：浮层 / 弹窗底 |
 | `--admin-border` | `--admin-border` | 变浅（只做分隔线） |
 | — | `--admin-border-strong` | **新增**：控件边框 |
 | `--admin-text` | `--admin-text` | 微调 |
@@ -953,11 +969,11 @@ font-variant-numeric: tabular-nums;   /* 表格、统计值、时间 */
 
 ## 附录 B · 关键改动清单（供评审对照，不含代码）
 
-1. `styles.css`：token 块扩到 16 个 + 派生变量；引入间距/字号/控件高度刻度；重写 `.panel/.stat/.table/.button/.input/.badge/.toast/.dialog` 的规则；删掉 12 档字号与 2 档非标准字重（550/650）。
+1. `styles.css`：token 块扩到 17 个 + 派生变量；引入间距/字号/控件高度刻度；重写 `.panel/.stat/.table/.button/.input/.badge/.toast/.dialog` 的规则；删掉 12 档字号与 2 档非标准字重（550/650）。
 2. `index.html`：`<head>` 增加 `scheme-boot.js`（同源、同步）；补 `theme-color` meta。
 3. `app.js`：`applyTheme` 提前（首帧前已由 boot 脚本兜住，`applyTheme` 仍负责写主题包 token）；`cycleTheme` 改为"设置具体值"；重绘前记录/恢复滚动位置（P2）。
 4. `views.js`：`shellView` 增加分组与用户卡；`topBar` 收敛为面包屑 + 3 控件；表格增加骨架/空态/分页页脚；徽标改圆点 + 柔和底。
-5. `ui/theme-default/client.js`：补齐 16 个 token（两套方案）。
+5. `ui/theme-default/client.js`：补齐 17 个 token（两套方案）。
 6. `ui/locale-zh-en/client.js`：新增分组标签、表头、空态、分页、菜单等键（中英同时）。
 7. `providers/nav-default`（可选）：`AdminNavContribution` 增加 `sectionKey`（additive）。
 8. 契约文档：`plugins/admin/contract`、`ui-contract` 的 README 中记录 token v2 与 `sectionKey`。

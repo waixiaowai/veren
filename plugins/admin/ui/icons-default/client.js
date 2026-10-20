@@ -56,6 +56,8 @@ const icons = {
   edit: svg('<path d="M12 20h9"/><path d="M16.6 3.6a2.1 2.1 0 0 1 3 3L7 19.2l-4 1 1-4z"/>'),
   check: svg('<path d="m5 13 4 4 10-10"/>'),
   key: svg('<circle cx="8" cy="16" r="4"/><path d="m11 13 8-8"/><path d="m16 6 2 2"/><path d="m13 9 2 2"/>'),
+  inbox: svg('<path d="M3 5h18v14H3z"/><path d="M3 13h5l2 3h4l2-3h5"/>'),
+  search: svg('<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>'),
 }
 
 /**

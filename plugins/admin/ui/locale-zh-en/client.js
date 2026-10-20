@@ -27,6 +27,12 @@ const en = {
   'app.close': 'Close',
   'app.notFound': 'Page not found',
   'app.forbidden': 'You do not have permission to open this page',
+  'app.emptyHint': 'Records appear here once they exist.',
+  'app.searchHint': 'Try a shorter keyword, or clear the filter.',
+  'app.breadcrumb': 'Breadcrumb',
+  'app.userMenu': 'Account menu',
+  'app.collapseSidebar': 'Collapse sidebar',
+  'app.expandSidebar': 'Expand sidebar',
   // Separator for a list of translated values inside one cell. 单元格内已翻译值的分隔符。
   'app.listSeparator': ', ',
 
@@ -36,6 +42,13 @@ const en = {
   'nav.roles': 'Roles',
   'nav.audit': 'Audit',
   'nav.capabilities': 'Capabilities',
+
+  // Sidebar sections 侧栏分组
+  'nav.section.overview': 'Overview',
+  'nav.section.access': 'Access',
+  'nav.section.observability': 'Observability',
+  'nav.section.system': 'System',
+  'nav.section.general': 'General',
 
   // Authentication 认证
   'auth.signIn': 'Sign in',
@@ -65,6 +78,7 @@ const en = {
 
   // Dashboard 仪表盘
   'dashboard.title': 'Dashboard',
+  'dashboard.description': 'A snapshot of accounts, capabilities and recent activity.',
   'dashboard.welcome': 'Welcome',
   'dashboard.users': 'Users',
   'dashboard.capabilities': 'Capabilities',
@@ -72,6 +86,7 @@ const en = {
 
   // Users 用户
   'users.title': 'Users',
+  'users.description': 'Accounts, their roles and sign-in status.',
   'users.create': 'New user',
   'users.edit': 'Edit',
   'users.deleteConfirm': 'Delete this user? This cannot be undone.',
@@ -91,6 +106,7 @@ const en = {
 
   // Roles 角色
   'roles.title': 'Roles',
+  'roles.description': 'The role catalog and the permissions each role grants.',
   'roles.name': 'Role',
   'roles.label': 'Name',
   'roles.id': 'Identifier',
@@ -104,6 +120,7 @@ const en = {
 
   // Audit 审计
   'audit.title': 'Audit',
+  'audit.description': 'Every write the gateway recorded, newest first.',
   'audit.actor': 'Actor',
   'audit.action': 'Action',
   'audit.result': 'Result',
@@ -119,6 +136,7 @@ const en = {
 
   // Capabilities 能力
   'capabilities.title': 'Capabilities',
+  'capabilities.description': 'Which provider serves each capability, and its health.',
   'capabilities.capability': 'Capability',
   'capabilities.provider': 'Provider',
   'capabilities.health': 'Health',
@@ -186,6 +204,12 @@ const zh = {
   'app.close': '关闭',
   'app.notFound': '页面不存在',
   'app.forbidden': '你没有打开该页面的权限',
+  'app.emptyHint': '创建记录后会显示在这里。',
+  'app.searchHint': '试试更短的关键字，或清空筛选。',
+  'app.breadcrumb': '面包屑',
+  'app.userMenu': '账号菜单',
+  'app.collapseSidebar': '收起侧栏',
+  'app.expandSidebar': '展开侧栏',
   // 单元格内已翻译值的分隔符。
   'app.listSeparator': '、',
 
@@ -195,6 +219,13 @@ const zh = {
   'nav.roles': '角色',
   'nav.audit': '审计',
   'nav.capabilities': '能力',
+
+  // 侧栏分组
+  'nav.section.overview': '概览',
+  'nav.section.access': '访问控制',
+  'nav.section.observability': '可观测性',
+  'nav.section.system': '系统',
+  'nav.section.general': '通用',
 
   // 认证
   'auth.signIn': '登录',
@@ -224,6 +255,7 @@ const zh = {
 
   // 仪表盘
   'dashboard.title': '仪表盘',
+  'dashboard.description': '账号、能力与近期活动的一览。',
   'dashboard.welcome': '欢迎',
   'dashboard.users': '用户',
   'dashboard.capabilities': '能力',
@@ -231,6 +263,7 @@ const zh = {
 
   // 用户
   'users.title': '用户',
+  'users.description': '账号、角色与登录状态。',
   'users.create': '新建用户',
   'users.edit': '编辑',
   'users.deleteConfirm': '确定删除该用户？此操作不可撤销。',
@@ -250,6 +283,7 @@ const zh = {
 
   // 角色
   'roles.title': '角色',
+  'roles.description': '角色目录，以及每个角色授予的权限。',
   'roles.name': '角色',
   'roles.label': '名称',
   'roles.id': '标识',
@@ -263,6 +297,7 @@ const zh = {
 
   // 审计
   'audit.title': '审计',
+  'audit.description': '网关记录的每次写入，按时间倒序。',
   'audit.actor': '操作者',
   'audit.action': '动作',
   'audit.result': '结果',
@@ -278,6 +313,7 @@ const zh = {
 
   // 能力
   'capabilities.title': '能力',
+  'capabilities.description': '每项能力由哪个 provider 提供，以及它的健康状态。',
   'capabilities.capability': '能力',
   'capabilities.provider': '提供方',
   'capabilities.health': '健康',
