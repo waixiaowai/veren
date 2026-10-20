@@ -17,12 +17,24 @@
 # （pnpm 会把它们和组合包一起装进 profile），两个 @veren 插件因此作为一个可
 # 安装单元随行，并在插件管理页作为一个开关整体启停。
 #
-# Row order matters: the Host first (it owns the storage domain, the `forum`
-# Remote namespace, the model-facing tools, and the notification delivery),
-# then the Web page, which talks to that namespace.
-# 行顺序有讲究：先 Host（拥有存储域、`forum` 远端命名空间、面向模型的工具与
-# 通知投递），再装 Web 页面——页面与该命名空间通信。
+# Row order matters: the application framework first (app-registry owns
+# `ctx.apps`, page-registry owns the URL index, app-host wires the page mirror
+# the forum's single-entry page registration relies on), then the Host (it owns
+# the storage domain, the `forum` Remote namespace, the model-facing tools, and
+# the notification delivery), then the Web page, which talks to that namespace.
+# 行顺序有讲究：先应用框架（app-registry 拥有 `ctx.apps`，page-registry 拥有 URL 索引，
+# app-host 负责接上论坛单入口页面注册所依赖的页面镜像面），再装 Host（拥有存储域、
+# `forum` 远端命名空间、面向模型的工具与通知投递），最后是 Web 页面——页面与该命名空间通信。
 - insert:
+    # 应用注册表：ctx.apps（应用、页面/工具目录与生命周期）
+    - id: app-registry
+      name: '@veren/app-registry'
+    # 页面注册表 + URL 索引 + 页面运行时：ctx.pageRegistry
+    - id: page-registry
+      name: '@veren/page-registry'
+    # 宿主装配层：把上面两个服务接成一处（应用 resolver/页面镜像面）
+    - id: app-host
+      name: '@veren/app-host'
     # The Host: durable boards, posts, comments, votes and notifications, the
     # `forum_*` tools, and the opt-in auto-post runner (off by default).
     # 宿主：持久化的板块、帖子、评论、投票与通知，`forum_*` 工具，以及可选

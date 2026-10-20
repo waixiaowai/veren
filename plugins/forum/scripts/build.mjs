@@ -33,7 +33,7 @@ mkdirSync(OUT, { recursive: true })
 const SRC = join(root, 'src')
 
 for (const entry of readdirSync(SRC)) {
-  if (!entry.endsWith('.ts')) continue
+  if (!entry.endsWith('.ts') && !entry.endsWith('.tsx')) continue
   const source = readFileSync(join(SRC, entry), 'utf8')
   const emitted = ts.transpileModule(source, {
     compilerOptions: {
@@ -47,12 +47,17 @@ for (const entry of readdirSync(SRC)) {
       // emitted JavaScript must carry `.js` because that is what Node loads.
       allowImportingTsExtensions: true,
       rewriteRelativeImportExtensions: true,
-      // Remote methods are marked with standard decorators, which this
+      // Page trees are TSX with the prompt-core JSX runtime, matching the
+      // forum tsconfig; Remote methods use standard decorators, which this
       // transpile lowers the same way the shipped Harness packages do.
+      // 页面树是带 prompt-core JSX 运行时的 TSX，与论坛 tsconfig 一致；Remote
+      // 方法用标准装饰器，此转译按随包 Harness 包相同的方式降级。
+      jsx: ts.JsxEmit.ReactJSX,
+      jsxImportSource: '@veren/prompt-core',
       experimentalDecorators: false,
     },
     fileName: join(SRC, entry),
   })
-  writeFileSync(join(OUT, entry.replace(/\.ts$/, '.js')), emitted.outputText)
-  process.stdout.write(`emitted dist/${entry.replace(/\.ts$/, '.js')}\n`)
+  writeFileSync(join(OUT, entry.replace(/\.tsx?$/, '.js')), emitted.outputText)
+  process.stdout.write(`emitted dist/${entry.replace(/\.tsx?$/, '.js')}\n`)
 }

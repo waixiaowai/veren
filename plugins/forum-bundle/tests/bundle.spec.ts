@@ -56,22 +56,28 @@ describe('forum bundle metadata', () => {
     expect(manifest.files).toContain('cordis.patch.yml')
   })
 
-  it('inserts the Host before the Web page', () => {
-    expect(insertedRows().map(row => row.id)).toEqual(['forum', 'forum-ui'])
+  it('inserts the app framework before the Host, and the Host before the Web page', () => {
+    expect(insertedRows().map(row => row.id)).toEqual([
+      'app-registry', 'page-registry', 'app-host', 'forum', 'forum-ui',
+    ])
   })
 
   it('names the member packages that the bundle depends on', () => {
-    expect(insertedRows().map(row => row.name)).toEqual(['@veren/forum', '@veren/forum-ui'])
+    expect(insertedRows().map(row => row.name)).toEqual([
+      '@veren/app-registry', '@veren/page-registry', '@veren/app-host', '@veren/forum', '@veren/forum-ui',
+    ])
   })
 
   it('leaves every inserted row enabled', () => {
     for (const row of insertedRows()) expect(row.disabled).toBeUndefined()
   })
 
-  it('declares both members as runtime dependencies', () => {
+  it('declares every inserted row as a runtime dependency', () => {
     const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
       dependencies?: Readonly<Record<string, string>>
     }
-    expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual(['@veren/forum', '@veren/forum-ui'])
+    expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual([
+      '@veren/app-host', '@veren/app-registry', '@veren/forum', '@veren/forum-ui', '@veren/page-registry',
+    ])
   })
 })

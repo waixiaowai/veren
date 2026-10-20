@@ -44,14 +44,16 @@ class ForumToolError extends Error {
   }
 }
 
+export { ForumToolError }
+
 /** Anonymous-or-not identity of one call, resolved from the live Agent. */
-interface Caller {
+export interface Caller {
   readonly preset: string | undefined
   readonly boardId: string | undefined
 }
 
 /** Canonical list value: boards, one board's posts, and the known presets. */
-const LIST_VIEW_SCHEMA = {
+export const LIST_VIEW_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -76,7 +78,7 @@ const LIST_VIEW_SCHEMA = {
 } as const
 
 /** Canonical detail value: one post, its body, and its comment tree. */
-const POST_SCHEMA = {
+export const POST_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -87,7 +89,7 @@ const POST_SCHEMA = {
 } as const
 
 /** Canonical inbox value. */
-const INBOX_SCHEMA = {
+export const INBOX_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -96,7 +98,7 @@ const INBOX_SCHEMA = {
 } as const
 
 /** Canonical write value: the stored id plus one outcome per notice sent. */
-const WRITE_SCHEMA = {
+export const WRITE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -106,7 +108,7 @@ const WRITE_SCHEMA = {
 } as const
 
 /** Canonical vote value. */
-const VOTE_SCHEMA = {
+export const VOTE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -117,27 +119,27 @@ const VOTE_SCHEMA = {
 } as const
 
 /** Deterministic model content for every canonical tool value. */
-function renderValue(_args: unknown, value: unknown): ContentBlock[] {
+export function renderValue(_args: unknown, value: unknown): ContentBlock[] {
   return [{ type: 'text', text: JSON.stringify(value) }]
 }
 
 /** Pure generic pending card. */
-function present(title: string, kind: 'read' | 'other', rawInput?: unknown): GenericCallView {
+export function present(title: string, kind: 'read' | 'other', rawInput?: unknown): GenericCallView {
   return { card: 'generic', title, kind, ...rawInput === undefined ? {} : { rawInput } }
 }
 
 /** Stable refusal for failures not safe to expose. */
-function internalError(): ForumToolError {
+export function internalError(): ForumToolError {
   return new ForumToolError('internal_error', 'The forum operation failed.')
 }
 
 /** Translate a structured refusal while withholding internal storage failures. */
-function operationError(error: unknown): ForumToolError {
+export function operationError(error: unknown): ForumToolError {
   return error instanceof ForumError ? new ForumToolError(error.code, error.message) : internalError()
 }
 
 /** Refuse a call that cannot name its author. */
-function noCaller(): ForumToolError {
+export function noCaller(): ForumToolError {
   return new ForumToolError('no_caller', 'this call has no agent, so it cannot post as any preset.')
 }
 
@@ -147,7 +149,7 @@ function noCaller(): ForumToolError {
  * @param agent - the calling Agent, when the execution has one.
  * @returns the caller's preset and board, each absent when it cannot be resolved.
  */
-function callerOf(ctx: Context, agent: Agent | undefined): Caller {
+export function callerOf(ctx: Context, agent: Agent | undefined): Caller {
   if (agent === undefined) return { preset: undefined, boardId: undefined }
   const preset = ctx.get('agentPresets')?.composedPreset(agent.ctx) ?? agent.session.header.agentPreset
   const cwd = ctx.get('workingDirectory')?.get(agent.session)

@@ -48,6 +48,7 @@ import type { ForumRunnerPort, ForumToolsPort } from './ports.ts'
 import type { AutoPostSettings, AutoPostSnapshot } from './runner.ts'
 import { AutoPostRunner } from './runner.ts'
 import { registerForumTools } from './tools.ts'
+import { registerForumApp } from './app.ts'
 import { Config } from './config.ts'
 import type { ForumConfig } from './config.ts'
 // Type-only: pulls the `ctx.agentPresets` service declaration into this face.
@@ -86,7 +87,10 @@ const HOT_LIMIT = 200
  * Remote namespace instead, and Sessions through `ctx.agents` when present.
  */
 export class ForumService extends TypertRemoteService {
-  static inject = ['agents', 'sessions', 'storageDomain', 'systemPrompt', 'tools', 'agentPresets', 'llm']
+  // `apps` is the application registry: the forum exposes itself as an app
+  // (pages + app-scoped tools) and therefore requires the app framework.
+  // `apps` 是应用注册表：论坛把自己暴露为一个应用（页面 + 应用级工具），因此依赖应用框架。
+  static inject = ['agents', 'sessions', 'storageDomain', 'systemPrompt', 'tools', 'agentPresets', 'llm', 'apps']
   static Config = Config
 
   /**
@@ -120,6 +124,9 @@ export class ForumService extends TypertRemoteService {
       text: (assembly) => this.promptLine(assembly.agent?.session.id),
     })
     if (config.tools.enabled) registerForumTools(ctx, () => this.toolsPort())
+    // The app face (catalog + pages + forum__* app tools) rides the same port.
+    // 应用面（目录 + 页面 + forum__* 应用工具）走同一端口。
+    registerForumApp(ctx, () => this.toolsPort())
     this.runner = new AutoPostRunner(ctx, () => this.runnerPort(), config)
   }
 
@@ -596,6 +603,8 @@ export class ForumService extends TypertRemoteService {
 }
 
 export { ForumError } from './types.ts'
+export { FORUM_APP_ID, FORUM_APP_DEFINITION, FORUM_ENTRY_KEY, registerForumApp } from './app.ts'
+export { catalogPage, postPage } from './pages.tsx'
 export { FORUM_DOMAIN_NAME, forumDomain } from './storage.ts'
 export { listBoards, listPosts, listTags } from './posts.ts'
 export { notificationText, FORUM_MESSAGE_SOURCE } from './session-link.ts'

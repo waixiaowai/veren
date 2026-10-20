@@ -25,7 +25,7 @@ const lowerDecorators = {
   enforce: 'pre' as const,
   transform(code: string, id: string): { code: string; map: null } | undefined {
     const path = id.split('?')[0]?.replaceAll('\\', '/') ?? ''
-    if (!path.startsWith(`${sourceRoot}/`) || !path.endsWith('.ts')) return undefined
+    if (!path.startsWith(`${sourceRoot}/`) || (!path.endsWith('.ts') && !path.endsWith('.tsx'))) return undefined
     return {
       code: ts.transpileModule(code, {
         compilerOptions: {
@@ -35,6 +35,10 @@ const lowerDecorators = {
           isolatedModules: true,
           allowImportingTsExtensions: true,
           rewriteRelativeImportExtensions: true,
+          // Page sources are TSX with the prompt-core JSX runtime.
+          // 页面源码是带 prompt-core JSX 运行时的 TSX。
+          jsx: ts.JsxEmit.ReactJSX,
+          jsxImportSource: '@veren/prompt-core',
         },
         fileName: path,
       }).outputText,
