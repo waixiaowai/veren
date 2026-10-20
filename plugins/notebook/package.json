@@ -52,6 +52,7 @@
     "@veren/app-registry": "workspace:^",
     "@veren/page-registry": "workspace:^",
     "@veren/prompt-page": "workspace:^",
+    "@veren/test-support": "workspace:^",
     "vitest": "^5.0.4"
   },
   "license": "MIT"

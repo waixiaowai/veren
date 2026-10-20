@@ -1,30 +1,29 @@
 /**
- * Composition specs for the notebook application layer: a real cordis Context,
- * a real NotebookService over the real storage stack, and the real
- * AppRegistryService/PageRegistryService. They lock the acceptance face: the
- * app is discoverable and active, the entry URL resolves, every page URL lives
- * under /apps/notebook/, page tools carry the notebook__ prefix, registration
- * is single-entry (catalog pages and page-registry pages match one to one),
- * and teardown strips both sides.
+ * Composition specs for the notebook application layer, mounted on the shared
+ * @veren/test-support host: a real cordis Context, a real NotebookService over
+ * the real storage stack (temp directory), and the real
+ * AppRegistryService/PageRegistryService with the mirror seam wired by the
+ * harness. They lock the acceptance face: the app is discoverable and active,
+ * the entry URL resolves, every page URL lives under /apps/notebook/, page
+ * tools carry the notebook__ prefix, registration is single-entry (catalog
+ * pages and page-registry pages match one to one), and teardown strips both
+ * sides.
  *
- * 记事本应用层的组合测试：真实 cordis Context、真实存储栈上的 NotebookService，
- * 以及真实的 AppRegistryService/PageRegistryService。用例锁定验收面：应用可发现且
- * active、入口 URL 可解析、页面 URL 全在 /apps/notebook/ 下、页面工具带 notebook__
- * 前缀、单入口注册（应用目录与页面注册表一一对应），以及卸载时两侧摘干净。
+ * 记事本应用层的组合测试，搭在共享的 @veren/test-support 宿主上：真实 cordis
+ * Context、真实存储栈（临时目录）上的 NotebookService，以及由测试基建接好镜像缝
+ * 的真实 AppRegistryService/PageRegistryService。用例锁定验收面：应用可发现且
+ * active、入口 URL 可解析、页面 URL 全在 /apps/notebook/ 下、页面工具带
+ * notebook__ 前缀、单入口注册（应用目录与页面注册表一一对应），以及卸载时两侧
+ * 摘干净。
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
-import * as Storage from '@deepseek-ai/dsh-storage'
-import * as StorageJson from '@deepseek-ai/dsh-storage-json'
-import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import { AppRegistryService } from '@veren/app-registry'
 import { PageRegistryService } from '@veren/page-registry'
 import type { PageDefinition } from '@veren/prompt-page'
+import { expectPagesRegisteredOnce, mountAppHost } from '@veren/test-support'
+import type { AppHost } from '@veren/test-support'
 import NotebookService from '../src/index.ts'
 import { APP_DEFINITION, APP_ID } from '../src/app.ts'
 import type { NoteSummary, NoteView } from '../src/types.ts'
@@ -38,70 +37,36 @@ interface AppTool {
 /** The app tools in registration order. 按注册顺序的应用工具名。 */
 const TOOL_NAMES = ['list_notes', 'read_note', 'write_note', 'rewrite_note', 'delete_note']
 
-const roots: string[] = []
+/** Hosts mounted by one test, disposed newest-first after it. 一条用例挂的宿主，测后逆序拆除。 */
+const hosts: AppHost[] = []
 
-afterEach(() => {
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+afterEach(async () => {
+  for (const host of hosts.reverse()) await host.dispose()
+  hosts.length = 0
 })
 
-/** One temporary storage root, removed after the spec. 测试结束后删除的临时存储根目录。 */
-function tempRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'notebook-app-'))
-  roots.push(root)
-  return root
-}
-
-/**
- * Mount the real storage stack, the notebook service, and (unless turned off)
- * the real registries wired through the app-registry mirror face.
- *
- * 挂载真实存储栈、记事本服务，以及（除非关闭）经 app-registry 镜像面接线的真实注册表。
- */
-async function mount(options: { apps?: boolean } = {}): Promise<{
-  ctx: Context
+/** 挂共享宿主（注册表 + 镜像面 + 临时目录上的真实存储）并启动记事本服务。Mount the shared host (registries + mirror + real storage over a temp dir) and start the notebook service. */
+async function mount(): Promise<{
+  host: AppHost
   fiber: Fiber
   apps: AppRegistryService
   pageRegistry: PageRegistryService
-  tools: Map<string, AppTool>
 }> {
-  const ctx = new Context()
-  // Registry services self-provide on their own host context; the mount
-  // re-provides the instances on the plugin's context, exactly like the
-  // task-workbench composition specs do.
-  // 注册表服务在自己的宿主上下文上自我提供；挂载时把这些实例重新 provide 到插件上下文，
-  // 与 task-workbench 的组合测试一致。
-  const hostCtx = new Context()
-  const apps = new AppRegistryService(hostCtx)
-  const pageRegistry = new PageRegistryService(hostCtx)
-  const tools = new Map<string, AppTool>()
-  // The mirror face is assembled by app-host; tests wire it explicitly.
-  // 镜像面由 app-host 装配；测试里显式接线。
-  if (options.apps !== false) {
-    ctx.provide('apps', apps)
-    ctx.provide('pageRegistry', pageRegistry)
-    apps.setPageMirror({
-      registerAppPage: (appId, page) => pageRegistry.registerAppPage(appId, page),
-      releaseApp: appId => pageRegistry.releaseApp(appId),
-    })
+  const host = await mountAppHost({ storage: true })
+  hosts.push(host)
+  const fiber: Fiber = await host.ctx.plugin(NotebookService)
+  if (host.apps === undefined || host.pageRegistry === undefined) {
+    throw new Error('registries were not mounted')
   }
-  ctx.provide('tools', {
-    register(tool: AppTool) {
-      tools.set(tool.name, tool)
-      return () => { tools.delete(tool.name) }
-    },
-  } as unknown as Context['tools'])
-  ctx.provide('agentPresets', {
-    list: async () => [],
-    composedPreset: (agentContext: { preset?: string }) => agentContext.preset,
-  })
-  // The real storage stack the notebook service opens its domain through.
-  // 记事本服务打开存储域所经的真实存储栈。
-  await ctx.plugin(Storage.default)
-  await ctx.plugin(StorageJson, { root: tempRoot() })
-  await ctx.plugin(StorageDomain, { backend: 'json' })
-  const fiber: Fiber = ctx.plugin(NotebookService)
-  await fiber
-  return { ctx, fiber, apps, pageRegistry, tools }
+  return { host, fiber, apps: host.apps, pageRegistry: host.pageRegistry }
+}
+
+/** 挂不带注册表的宿主（测 apps 缺席降级）。Mount a host without the registries (the apps-absent degrade path). */
+async function mountWithoutApps(): Promise<{ host: AppHost; fiber: Fiber }> {
+  const host = await mountAppHost({ registries: false, storage: true })
+  hosts.push(host)
+  const fiber: Fiber = await host.ctx.plugin(NotebookService)
+  return { host, fiber }
 }
 
 /** The execution context one tool call carries. 一次工具调用携带的执行上下文。 */
@@ -193,6 +158,10 @@ describe('应用工具 / app tools', () => {
       .map((page) => pageRegistry.resolve(page.url)?.page.name)
       .sort()
     expect(resolved).toEqual(listed)
+    // 断言助手：双向核对（每页可解析且名字一致；前缀下没有目录外页面）。
+    // Assertion helper: both directions (each page resolves with the same
+    // name; nothing under the prefix lives outside the catalog).
+    expectPagesRegisteredOnce(apps, pageRegistry, APP_ID)
     // 没有目录外的第 /apps/notebook/ 注册（没有第二条注册路径）
     expect(pageRegistry.catalog().filter((row) => row.url.startsWith('/apps/notebook/'))).toHaveLength(listed.length)
 
@@ -211,10 +180,14 @@ describe('生命周期 / lifecycle', () => {
   })
 
   it('apps 缺席：服务照常激活，仅降级为全局工具', async () => {
-    const { fiber, ctx, tools } = await mount({ apps: false })
+    const { host, fiber } = await mountWithoutApps()
 
-    expect(ctx.get('apps')).toBeUndefined()
-    expect(tools.size).toBe(5)
+    expect(host.ctx.get('apps')).toBeUndefined()
+    // 全局工具照常登记进宿主工具表：恰好五条、全部带 notebook 前缀。
+    // Global tools still land in the host tool table: exactly five, all
+    // carrying the notebook prefix.
+    expect(host.tools.names()).toHaveLength(TOOL_NAMES.length)
+    for (const name of host.tools.names()) expect(name.startsWith('notebook')).toBe(true)
 
     await fiber.dispose()
   })

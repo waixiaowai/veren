@@ -1,0 +1,37 @@
+{
+  "name": "@veren/test-support",
+  "version": "0.1.0",
+  "description": "Use when a spec must mount a Cordis application host (app/page registries with the mirror seam, the real task center, fake agent sessions with per-session tool scopes) or a throwaway storage domain and wants the wiring, the degrade-path toggles, and the pairing registration/cleanup to come from one shared toolkit instead of being re-copied per spec. Not for starting a real DSH profile — use the loader-smoke infrastructure for that.",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@veren/app-registry": "workspace:^",
+    "@veren/page-registry": "workspace:^",
+    "@veren/task-center": "workspace:^",
+    "@deepseek-ai/dsh-storage": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-storage-json": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-storage-domain": "0.2.1-rc.2"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-session": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
+    "@veren/prompt-core": "workspace:^",
+    "@veren/prompt-page": "workspace:^",
+    "typescript": "^5.6.0",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}
