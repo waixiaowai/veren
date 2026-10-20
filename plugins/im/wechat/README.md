@@ -16,24 +16,26 @@ authorized `ilink_bot_id`. V1 is intentionally narrow:
 
 ```ts
 export const Config = {
-  dataDir: '',                                  // default `<DSH_HOME>/im/wechat`
   botType: '3',
   baseUrl: 'https://ilinkai.weixin.qq.com/',
 }
 ```
 
-`dataDir` is the plugin's own state root. A missing value resolves through
-`DSH_HOME`, so no code writes `~/.dsh` directly.
+There is no data-directory setting. Durable state goes through the host's
+`storageDomain` service; the plugin declares that dependency and does not
+activate without it.
 
 ## Authorization flow
 
-1. `im_bind` calls `get_bot_qrcode` and writes the QR image to
-   `<dataDir>/qr/<bindId>.png`.
+1. `im_bind` calls `get_bot_qrcode` and writes the QR image to a local temporary
+   PNG (`<os-temp>/dsh-im-wechat-qr/<bindId>.png`). The image is a presentation
+   artifact, not durable state.
 2. The tool returns `bindId`, `status`, `challenge`, `qrPath`, and `expiresAt`.
    The remote QR URL is never returned or logged.
 3. The provider polls `get_qrcode_status` until `confirmed`.
-4. On confirmation it writes the account state and stores `bot_token` in
-   `ctx.credentials`; the account becomes available to `im_link`.
+4. On confirmation it writes the account state to the `im_wechat` storage
+   domain and stores `bot_token` in `ctx.credentials`; the account becomes
+   available to `im_link`.
 
 Supported statuses: `wait`, `scaned`, `need_verifycode`, `confirmed`, `expired`,
 `scaned_but_redirect`, `verify_code_blocked`, `binded_redirect`.
@@ -51,8 +53,9 @@ Supported statuses: `wait`, `scaned`, `need_verifycode`, `confirmed`, `expired`,
 - Deduplication is by `message_id`.
 - `message_type === 2` is the bot's own echo and is ignored.
 - Inbound text comes from `item_list[].text_item.text`.
-- `context_token` is cached per account and user inside the credential record; it
-  is never written to `state.json`, logged, or returned by a tool.
+- `context_token` is cached per account and user in the `im_wechat` storage
+  domain, with the oldest entries pruned past 200 per account. It is never
+  logged or returned by a tool.
 - Outbound text is split at 1,800 UTF-16 code units without cutting a surrogate
   pair.
 
@@ -67,21 +70,31 @@ Supported statuses: `wait`, `scaned`, `need_verifycode`, `confirmed`, `expired`,
 
 ## State and secrets
 
+Storage domain `im_wechat`, version 1, on the profile's default backend:
+
 ```text
-<dataDir>/<accountId>/state.json   account id, display name, owner, base URL,
-                                   cursor, deduplication ring
-<dataDir>/qr/<bindId>.png          local QR image
-ctx.credentials                    bot token and context_token cache
+im_wechat.accounts(account_id, display_name, owner_id, base_url, cursor, seen)
+im_wechat.contexts(account_id, user_id, token, updated_at)
 ```
 
-`state.json` is written with a temp file plus rename, mode `0600`. It contains
-no token and no `context_token`.
+- `accounts` holds one row per authorized account: cursor, deduplication ring,
+  display name, owner, and API base URL.
+- `contexts` is the bounded per-user `context_token` cache.
+- The bot token lives only in `ctx.credentials`; it is never persisted in the
+  domain, logged, or returned by a tool.
+- The local QR PNG lives in the OS temporary directory and is not state.
+
+There is no migration path: the previous per-account JSON files are not read, so
+existing WeChat accounts must be authorized again with `im_bind`.
 
 ## Tests
 
 `tests/wechat.spec.ts` mocks fetch and covers QR binding, long polling, sending,
-segmentation, `context_token` reuse, `-14`, `ret=-2`, deduplication, and own-echo
-filtering. The real-account case is skipped unless `IM_WECHAT_REAL=1`.
+segmentation, `context_token` reuse, `-14`, `ret=-2`, deduplication, own-echo
+filtering, and storage failure diagnostics over an in-memory store.
+`tests/storage.spec.ts` mounts the real JSON storage stack and covers persistence
+across reopen, takeover of a leftover domain, and context-token pruning. The
+real-account case is skipped unless `IM_WECHAT_REAL=1`.
 
 ## Commands
 

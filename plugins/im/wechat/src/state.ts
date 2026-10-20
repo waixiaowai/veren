@@ -1,28 +1,29 @@
 /**
- * Per-account state files and the credential seam.
+ * WeChat durable state, its storage domain, and the credential seam.
  *
- * `state.json` is written atomically and holds no secret. The bot token and the
- * per-user `context_token` cache live in `ctx.credentials` under the account's
- * hashed credential key, which is why a tool result, a log line, and a state
- * file can never leak them.
+ * Account state (display name, owner, base URL, cursor, deduplication ring) and
+ * the per-user `context_token` cache live in the `im_wechat` storage domain on
+ * the profile's default backend; only the bot token lives in `ctx.credentials`.
+ * No state file is written and there is no data-directory setting: a missing
+ * storage domain fails activation instead of silently degrading to memory.
  *
- * 按账号的状态文件与凭据边界。
- *
- * `state.json` 原子写入且不含 Secret。bot token 与按用户的 `context_token` 缓存保存在
- * `ctx.credentials` 中以账号哈希派生的键下，因此工具返回值、日志与状态文件都不会泄漏它们。
+ * 微信持久化状态、存储域与凭据边界。账号状态（显示名、owner、base URL、游标、去重环）与
+ * 按用户的 `context_token` 缓存位于 `im_wechat` 存储域，走 profile 的默认后端；只有 bot token
+ * 保存在 `ctx.credentials`。状态不写文件，也没有数据目录配置项：存储域缺失会让激活失败，
+ * 而不是悄悄退化成内存。
  *
  * @module @veren/im-wechat/state
  */
 
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
-import { imCredentialKey } from '@veren/im'
-import type { LoggerService } from '@deepseek-ai/cordis'
+import { z } from 'zod'
+import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
+import type { Context, LoggerService } from '@deepseek-ai/cordis'
+import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
+import { imCredentialKey } from '@veren/im'
 
-/** One persisted per-account state file. */
+/** One persisted account's durable state. */
 export interface WechatState {
-  version: 1
   accountId: string
   displayName: string
   ownerId?: string
@@ -35,10 +36,8 @@ export interface WechatState {
 
 /** Secrets held by the credential seam for one account. */
 export interface WechatSecrets {
-  /** iLink bot token. Never logged, never stored in state.json. */
+  /** iLink bot token. Never logged and never stored in the state domain. */
   token: string
-  /** Per-user context tokens, keyed by user id. */
-  contexts: Record<string, string>
 }
 
 /** Credential seam used by the provider; the DSH plugin supplies one. */
@@ -48,9 +47,30 @@ export interface WechatSecretStore {
   remove(accountId: string): Promise<void>
 }
 
+/**
+ * Durable operations the provider needs. Tests provide an in-memory
+ * implementation, so the provider never depends on a backend or file layout.
+ * 提供者需要的持久化操作。测试提供内存实现，因此 provider 不依赖后端或文件布局。
+ */
+export interface WechatStore {
+  /** Every persisted account's state, as copies safe for the runtime to mutate. */
+  states(): WechatState[]
+  putState(state: WechatState): Promise<void>
+  deleteState(accountId: string): Promise<void>
+  /** Cached context token for one account/user, when present. */
+  contextToken(accountId: string, userId: string): string | undefined
+  /**
+   * Cache one context token and prune the oldest entries for this account.
+   * @param now - ordering stamp for pruning; tests pass a deterministic value.
+   */
+  putContextToken(accountId: string, userId: string, token: string, now: number): Promise<void>
+  deleteContexts(accountId: string): Promise<void>
+  close(): Promise<void>
+}
+
 /** Provider construction options. */
 export interface WechatProviderOptions {
-  dataDir: string
+  store: WechatStore
   botType?: string
   baseUrl?: string
   fetchImpl?: typeof fetch
@@ -89,80 +109,159 @@ export interface WechatLoginStatus {
   errcode?: number | string
 }
 
-/** One `getupdates` response. */
-export interface WechatUpdates {
-  ret?: number | string
-  errcode?: number | string
-  msgs?: WechatMessage[]
-  get_updates_buf?: string
+/** One `im_wechat.accounts` row. */
+interface WechatAccountRow {
+  account_id: string
+  display_name: string
+  owner_id?: string
+  base_url: string
+  cursor: string
+  seen: string[]
 }
 
-/** `state.json` reader/writer for one provider data directory. */
-export class WechatStateStore {
-  /**
-   * @param root - provider data directory, e.g. `<DSH_HOME>/im/wechat`.
-   */
-  constructor(readonly root: string) {}
+/** One `im_wechat.contexts` row; `updated_at` orders pruning only. */
+interface WechatContextRow {
+  account_id: string
+  user_id: string
+  token: string
+  updated_at: number
+}
 
-  /** One account's state file. */
-  statePath(accountId: string): string {
-    return join(this.root, accountId, 'state.json')
+const accountSchema = z.object({
+  account_id: z.string().min(1),
+  display_name: z.string().min(1),
+  owner_id: z.string().optional(),
+  base_url: z.string().min(1),
+  cursor: z.string(),
+  seen: z.array(z.string()),
+})
+
+const contextSchema = z.object({
+  account_id: z.string().min(1),
+  user_id: z.string().min(1),
+  token: z.string().min(1),
+  updated_at: z.number(),
+})
+
+/**
+ * Authoritative WeChat storage: a provider-owned domain on the shared storage
+ * facility. Channel state belongs to the channel package, while the backend,
+ * validation, lifecycle, and durability are the same for every domain plugin.
+ * 权威微信存储：共享存储设施上的 provider 自有域。渠道状态属于渠道包，而后端、校验、
+ * 生命周期与持久化与其他 domain 插件完全一致。
+ */
+export const wechatDomain = defineDomain({
+  name: 'im_wechat',
+  version: 1,
+  tables: {
+    accounts: domainTable<string, WechatAccountRow>(accountSchema),
+    contexts: domainTable<string, WechatContextRow>(contextSchema),
+  },
+})
+
+/** Domain name, shared with diagnostics. */
+export const WECHAT_DOMAIN_NAME = wechatDomain.name
+
+/** Upper bound on cached per-user context tokens for one account. */
+export const WECHAT_CONTEXT_LIMIT = 200
+
+/** Stable key for one account/user context row. */
+function contextKey(accountId: string, userId: string): string {
+  return `${accountId}\u0000${userId}`
+}
+
+/** Copy a stored row into the mutable runtime state. */
+function toState(row: WechatAccountRow): WechatState {
+  return {
+    accountId: row.account_id,
+    displayName: row.display_name,
+    ...(row.owner_id === undefined ? {} : { ownerId: row.owner_id }),
+    baseUrl: row.base_url,
+    cursor: row.cursor,
+    seen: [...row.seen],
+  }
+}
+
+/** Copy runtime state into one storage row. */
+function toRow(state: WechatState): WechatAccountRow {
+  return {
+    account_id: state.accountId,
+    display_name: state.displayName,
+    ...(state.ownerId === undefined ? {} : { owner_id: state.ownerId }),
+    base_url: state.baseUrl,
+    cursor: state.cursor,
+    seen: [...state.seen],
+  }
+}
+
+/** Store backed by the `im_wechat` domain. */
+export class DomainWechatStore implements WechatStore {
+  constructor(private readonly domain: Domain<typeof wechatDomain>) {}
+
+  states(): WechatState[] {
+    return [...this.domain.table('accounts').entries()].map(([, row]) => toState(row))
   }
 
-  /** One QR challenge's local PNG. */
-  qrPath(bindId: string): string {
-    return join(this.root, 'qr', `${bindId}.png`)
+  async putState(state: WechatState): Promise<void> {
+    await this.domain.table('accounts').put(state.accountId, toRow(state))
   }
 
-  /** Ensure the QR directory exists. */
-  async ensureQrDir(): Promise<void> {
-    await mkdir(join(this.root, 'qr'), { recursive: true, mode: 0o700 })
+  async deleteState(accountId: string): Promise<void> {
+    await this.domain.table('accounts').delete(accountId)
+    await this.deleteContexts(accountId)
   }
 
-  /** Every account directory name, excluding the QR cache. */
-  async accountIds(): Promise<string[]> {
-    const entries = await readdir(this.root, { withFileTypes: true }).catch(() => [])
-    return entries
-      .filter(entry => entry.isDirectory() && entry.name !== 'qr')
-      .map(entry => entry.name)
+  contextToken(accountId: string, userId: string): string | undefined {
+    return this.domain.table('contexts').get(contextKey(accountId, userId))?.token
   }
 
-  /**
-   * Read one state file.
-   * @param accountId - account directory name.
-   * @returns the validated state, or undefined when the file is absent.
-   * @throws when the file exists but is not a valid V1 state.
-   */
-  async read(accountId: string): Promise<WechatState | undefined> {
-    let text: string
+  async putContextToken(accountId: string, userId: string, token: string, now: number): Promise<void> {
+    const table = this.domain.table('contexts')
+    await table.put(contextKey(accountId, userId), {
+      account_id: accountId,
+      user_id: userId,
+      token,
+      updated_at: now,
+    })
+    const own = [...table.entries()].filter(([, row]) => row.account_id === accountId)
+    if (own.length <= WECHAT_CONTEXT_LIMIT) return
+    own.sort((left, right) => left[1].updated_at - right[1].updated_at)
+    for (const [key] of own.slice(0, own.length - WECHAT_CONTEXT_LIMIT)) await table.delete(key)
+  }
+
+  async deleteContexts(accountId: string): Promise<void> {
+    const table = this.domain.table('contexts')
+    for (const [key, row] of [...table.entries()]) {
+      if (row.account_id === accountId) await table.delete(key)
+    }
+  }
+
+  /** Close the underlying domain; safe to call twice. */
+  async close(): Promise<void> {
+    await this.domain.close()
+  }
+}
+
+/**
+ * Open the WeChat domain, closing a handle left by a previous activation first.
+ * An open failure propagates, so a missing backend or a malformed row fails the
+ * plugin loudly instead of starting a provider that cannot persist anything.
+ * 打开微信域；先关闭上一次激活遗留的句柄。打开失败会向上抛出，因此后端缺失或记录损坏会让
+ * 插件明确失败，而不是启动一个无法持久化的 provider。
+ * @param ctx - context carrying `storageDomain` and `logger`.
+ * @returns the opened store.
+ */
+export async function openWechatStore(ctx: Context): Promise<DomainWechatStore> {
+  const stale = ctx.storageDomain.get(WECHAT_DOMAIN_NAME)
+  if (stale !== undefined) {
     try {
-      text = await readFile(this.statePath(accountId), 'utf8')
+      await stale.close()
+      ctx.logger.warn('[im:wechat] closed the storage domain left open by a previous activation')
     } catch (error: unknown) {
-      if (isNodeError(error) && error.code === 'ENOENT') return undefined
-      throw error
+      ctx.logger.warn(`[im:wechat] the previous storage domain could not close: ${String(error)}`)
     }
-    let value: unknown
-    try {
-      value = JSON.parse(text)
-    } catch {
-      throw new Error(`wechat state for ${accountId} is not valid JSON`)
-    }
-    return normalizeState(value)
   }
-
-  /** Atomically replace one state file. */
-  async write(state: WechatState): Promise<void> {
-    const path = this.statePath(state.accountId)
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-    const temp = `${path}.${process.pid}.tmp`
-    await writeFile(temp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 })
-    await rename(temp, path)
-  }
-
-  /** Remove one account directory and its state file. */
-  async remove(accountId: string): Promise<void> {
-    await rm(join(this.root, accountId), { recursive: true, force: true })
-  }
+  return new DomainWechatStore(await ctx.storageDomain.open(wechatDomain))
 }
 
 /** Credential-seam implementation used by the DSH plugin. */
@@ -181,10 +280,7 @@ export class DshWechatSecrets implements WechatSecretStore {
   async write(accountId: string, secrets: WechatSecrets): Promise<void> {
     await this.credentials.modifyRecord(imCredentialKey(accountId), async () => ({
       kind: 'grant',
-      payload: {
-        token: secrets.token,
-        contexts: secrets.contexts,
-      },
+      payload: { token: secrets.token },
     }))
   }
 
@@ -193,47 +289,15 @@ export class DshWechatSecrets implements WechatSecretStore {
   }
 }
 
-/** Validate one stored secret payload. */
+/**
+ * Validate one stored secret payload; unknown fields are ignored.
+ * 校验一条已存凭据；未知字段会被忽略。
+ */
 export function parseSecrets(value: unknown): WechatSecrets | undefined {
   if (!isRecord(value) || typeof value.token !== 'string' || value.token.length === 0) {
     return undefined
   }
-  const contexts: Record<string, string> = {}
-  if (isRecord(value.contexts)) {
-    for (const [userId, token] of Object.entries(value.contexts)) {
-      if (typeof token === 'string' && token.length > 0) contexts[userId] = token
-    }
-  }
-  return { token: value.token, contexts }
-}
-
-/** Validate one decoded state document. */
-function normalizeState(value: unknown): WechatState {
-  if (!isRecord(value) || value.version !== 1) throw new Error('wechat state version must be 1')
-  const accountId = nonEmpty(value.accountId, 'accountId')
-  const displayName = nonEmpty(value.displayName, 'displayName')
-  const baseUrl = nonEmpty(value.baseUrl, 'baseUrl')
-  const cursor = typeof value.cursor === 'string' ? value.cursor : ''
-  const seen = Array.isArray(value.seen)
-    ? value.seen.filter((id): id is string => typeof id === 'string').slice(-1_000)
-    : []
-  return {
-    version: 1,
-    accountId,
-    displayName,
-    ...(typeof value.ownerId === 'string' ? { ownerId: value.ownerId } : {}),
-    baseUrl,
-    cursor,
-    seen,
-  }
-}
-
-/** Require one non-empty string field. */
-function nonEmpty(value: unknown, field: string): string {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`wechat state ${field} must be a non-empty string`)
-  }
-  return value
+  return { token: value.token }
 }
 
 /** Whether a value is a plain record. */
@@ -241,22 +305,12 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** Whether a value is a Node error with a string code. */
-function isNodeError(value: unknown): value is { code: string } {
-  return typeof value === 'object' && value !== null && typeof (value as { code?: unknown }).code === 'string'
-}
-
 /** Project a response onto the login status fields the provider reads. */
 export function toLoginStatus(value: Record<string, unknown>): WechatLoginStatus {
   const status: WechatLoginStatus = { status: stringField(value.status) ?? '' }
   for (const key of [
-    'qrcode',
-    'qrcode_img_content',
-    'bot_token',
-    'ilink_bot_id',
-    'ilink_user_id',
-    'baseurl',
-    'redirect_host',
+    'qrcode', 'qrcode_img_content', 'bot_token', 'ilink_bot_id',
+    'ilink_user_id', 'baseurl', 'redirect_host',
   ] as const) {
     const field = stringField(value[key])
     if (field !== undefined) status[key] = field

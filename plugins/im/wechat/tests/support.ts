@@ -1,10 +1,7 @@
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { LoggerService } from '@deepseek-ai/cordis'
-import { WechatStateStore } from '../src/state.ts'
-import type { WechatSecretStore, WechatSecrets, WechatState } from '../src/state.ts'
+import { WECHAT_CONTEXT_LIMIT } from '../src/state.ts'
+import type { WechatSecretStore, WechatSecrets, WechatState, WechatStore } from '../src/state.ts'
 
 /**
  * A silent but genuine host logger for provider specs.
@@ -31,6 +28,89 @@ export class MemorySecrets implements WechatSecretStore {
 
   async remove(accountId: string): Promise<void> {
     this.records.delete(accountId)
+  }
+}
+
+/** One cached context token in the fake store. */
+interface MemoryContext {
+  accountId: string
+  userId: string
+  token: string
+  updatedAt: number
+}
+
+/** Stable key for one account/user context, matching the real store's key shape. */
+function contextKey(accountId: string, userId: string): string {
+  return `${accountId}\u0000${userId}`
+}
+
+/**
+ * In-memory stand-in for the WeChat storage domain.
+ *
+ * The provider consumes only the narrow {@link WechatStore} seam, so specs run
+ * without a storage backend while still exercising the same copy, pruning, and
+ * delete semantics as the domain implementation.
+ * 微信存储域的内存替身。provider 只依赖窄接口 {@link WechatStore}，因此测试无需存储后端，
+ * 又覆盖与 domain 实现相同的拷贝、裁剪与删除语义。
+ */
+export class MemoryWechatStore implements WechatStore {
+  readonly statesById = new Map<string, WechatState>()
+  readonly contexts = new Map<string, MemoryContext>()
+  /** Set by {@link break} to simulate a closed or unavailable domain. */
+  #failure: string | undefined
+
+  states(): WechatState[] {
+    this.#assertUsable()
+    return [...this.statesById.values()].map(state => structuredClone(state))
+  }
+
+  async putState(state: WechatState): Promise<void> {
+    this.#assertUsable()
+    this.statesById.set(state.accountId, structuredClone(state))
+  }
+
+  async deleteState(accountId: string): Promise<void> {
+    this.#assertUsable()
+    this.statesById.delete(accountId)
+    await this.deleteContexts(accountId)
+  }
+
+  contextToken(accountId: string, userId: string): string | undefined {
+    this.#assertUsable()
+    return this.contexts.get(contextKey(accountId, userId))?.token
+  }
+
+  async putContextToken(accountId: string, userId: string, token: string, now: number): Promise<void> {
+    this.#assertUsable()
+    this.contexts.set(contextKey(accountId, userId), { accountId, userId, token, updatedAt: now })
+    const own = [...this.contexts.entries()].filter(([, context]) => context.accountId === accountId)
+    if (own.length <= WECHAT_CONTEXT_LIMIT) return
+    own.sort((left, right) => left[1].updatedAt - right[1].updatedAt)
+    for (const [key] of own.slice(0, own.length - WECHAT_CONTEXT_LIMIT)) this.contexts.delete(key)
+  }
+
+  async deleteContexts(accountId: string): Promise<void> {
+    this.#assertUsable()
+    for (const [key, context] of [...this.contexts]) {
+      if (context.accountId === accountId) this.contexts.delete(key)
+    }
+  }
+
+  async close(): Promise<void> {
+    this.closed = true
+  }
+
+  /** Whether the plugin disposed the store. */
+  closed = false
+
+  /** Make every later operation throw, like a closed or unavailable domain. */
+  break(message = 'wechat storage is closed'): void {
+    this.#failure = message
+  }
+
+  /** Throw when the fake is broken. */
+  #assertUsable(): void {
+    if (this.#failure !== undefined) throw new Error(this.#failure)
   }
 }
 
@@ -68,24 +148,13 @@ export function hangUntilAbort(init: RequestInit): Promise<Response> {
   })
 }
 
-/** Create one temporary provider directory. */
-export async function tempDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), 'im-wechat-'))
-}
-
-/** Remove one temporary directory. */
-export async function removeDir(path: string): Promise<void> {
-  await rm(path, { recursive: true, force: true })
-}
-
 /** Seed one authorized account's state and secrets. */
 export async function seedAccount(
-  root: string,
+  store: MemoryWechatStore,
   secrets: MemorySecrets,
   overrides: Partial<WechatState> = {},
 ): Promise<WechatState> {
   const state: WechatState = {
-    version: 1,
     accountId: 'acc-1',
     displayName: 'Test Account',
     ownerId: 'owner-1',
@@ -94,9 +163,20 @@ export async function seedAccount(
     seen: [],
     ...overrides,
   }
-  await new WechatStateStore(root).write(state)
-  await secrets.write(state.accountId, { token: 'token-1', contexts: {} })
+  await store.putState(state)
+  await secrets.write(state.accountId, { token: 'token-1' })
   return state
+}
+
+/** Seed one context token directly through the store's write path. */
+export async function seedContext(
+  store: MemoryWechatStore,
+  accountId: string,
+  userId: string,
+  token: string,
+  now = 1,
+): Promise<void> {
+  await store.putContextToken(accountId, userId, token, now)
 }
 
 /** Poll a predicate until it holds or the deadline passes. */

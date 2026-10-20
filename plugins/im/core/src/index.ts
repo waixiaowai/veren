@@ -66,8 +66,8 @@ interface PendingReply {
  * Session can never leak its answer back to the channel.
  */
 class DshSessionGateway implements ImSessionGateway {
-  readonly #pending = new Map<string, PendingReply>()
-  readonly #chains = new Map<string, Promise<unknown>>()
+  private readonly pending = new Map<string, PendingReply>()
+  private readonly chains = new Map<string, Promise<unknown>>()
 
   /**
    * @param ctx - context carrying `agents` and the session event bus.
@@ -78,7 +78,7 @@ class DshSessionGateway implements ImSessionGateway {
     private readonly replyTimeoutMs: number,
   ) {
     ctx.effect(
-      () => ctx.on('session/event', (session, event) => this.#observe(session.id, event)),
+      () => ctx.on('session/event', (session, event) => this.observe(session.id, event)),
       'im:session-events',
     )
   }
@@ -123,19 +123,19 @@ class DshSessionGateway implements ImSessionGateway {
       messageId: string
     }
   }): Promise<string | undefined> {
-    return this.#serialize(request.sessionId, () => new Promise<string | undefined>((resolve, reject) => {
+    return this.serialize(request.sessionId, () => new Promise<string | undefined>((resolve, reject) => {
       const agent = this.ctx.agents.get(brandString<SessionId>(request.sessionId))
       if (agent === undefined) {
         reject(new ImError('IM_NOT_FOUND', `session is not live: ${request.sessionId}`))
         return
       }
       const timer = setTimeout(() => {
-        this.#settle(request.sessionId, {
+        this.settle(request.sessionId, {
           error: new ImError('IM_INTERNAL', `session did not answer within ${this.replyTimeoutMs}ms`),
         })
       }, this.replyTimeoutMs)
       timer.unref()
-      this.#pending.set(request.sessionId, {
+      this.pending.set(request.sessionId, {
         awaitingMessage: true,
         messageId: request.source.messageId,
         text: '',
@@ -149,24 +149,24 @@ class DshSessionGateway implements ImSessionGateway {
           source: { kind: 'im-message', ...request.source },
         }))
       } catch (error: unknown) {
-        this.#settle(request.sessionId, { error })
+        this.settle(request.sessionId, { error })
       }
     }))
   }
 
   /** Stop waiting for replies; called on plugin unload. */
   dispose(): void {
-    for (const [sessionId, pending] of [...this.#pending]) {
+    for (const [sessionId, pending] of [...this.pending]) {
       clearTimeout(pending.timer)
       pending.reject(new ImError('IM_INTERNAL', 'IM plugin is unloading'))
-      this.#pending.delete(sessionId)
+      this.pending.delete(sessionId)
     }
-    this.#chains.clear()
+    this.chains.clear()
   }
 
   /** Consume one session event for the pending reply of that session. */
-  #observe(sessionId: SessionId, event: SessionEvent): void {
-    const pending = this.#pending.get(sessionId)
+  private observe(sessionId: SessionId, event: SessionEvent): void {
+    const pending = this.pending.get(sessionId)
     if (pending === undefined) return
     if (event.type === 'user/message') {
       // Arm only on this prompt's own user message; anything else in the same
@@ -189,28 +189,28 @@ class DshSessionGateway implements ImSessionGateway {
       return
     }
     if (event.type === 'turn/end' && !pending.awaitingMessage) {
-      this.#settle(sessionId, { value: pending.text.trim() || undefined })
+      this.settle(sessionId, { value: pending.text.trim() || undefined })
     }
   }
 
   /** Settle one pending reply exactly once. */
-  #settle(sessionId: string, outcome: { value?: string; error?: unknown }): void {
-    const pending = this.#pending.get(sessionId)
+  private settle(sessionId: string, outcome: { value?: string; error?: unknown }): void {
+    const pending = this.pending.get(sessionId)
     if (pending === undefined) return
-    this.#pending.delete(sessionId)
+    this.pending.delete(sessionId)
     clearTimeout(pending.timer)
     if (outcome.error !== undefined) pending.reject(outcome.error)
     else pending.resolve(outcome.value)
   }
 
   /** Serialize prompts per Session so a reply cannot bind to the wrong turn. */
-  #serialize<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
-    const previous = this.#chains.get(sessionId) ?? Promise.resolve()
+  private serialize<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.chains.get(sessionId) ?? Promise.resolve()
     const next = previous.then(work, work)
     const tail = next.catch(() => undefined)
-    this.#chains.set(sessionId, tail)
+    this.chains.set(sessionId, tail)
     return next.finally(() => {
-      if (this.#chains.get(sessionId) === tail) this.#chains.delete(sessionId)
+      if (this.chains.get(sessionId) === tail) this.chains.delete(sessionId)
     })
   }
 }

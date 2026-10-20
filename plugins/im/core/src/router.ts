@@ -115,32 +115,32 @@ function degradeContent(features: ImProvider['features'], content: ImMessageCont
 }
 /** Route inbound messages and expose the binding/tool operations. */
 export class ImRouter {
-  readonly #registry: ImRegistry
-  readonly #gateway: ImSessionGateway
-  readonly #credentials: ImCredentialStore
-  readonly #logger: ImLogger
-  readonly #config: ImRouterConfig
-  readonly #bindings: ImBindings
-  readonly #conversationChains = new Map<string, Promise<unknown>>()
+  private readonly registry: ImRegistry
+  private readonly gateway: ImSessionGateway
+  private readonly credentials: ImCredentialStore
+  private readonly logger: ImLogger
+  private readonly config: ImRouterConfig
+  private readonly bindings: ImBindings
+  private readonly conversationChains = new Map<string, Promise<unknown>>()
   /**
    * @param options - storage, registry, session gateway, credentials, and config.
    */
   constructor(options: ImRouterOptions) {
-    this.#registry = options.registry
-    this.#gateway = options.gateway
-    this.#credentials = options.credentials
-    this.#logger = options.logger
-    this.#config = options.config
-    this.#bindings = new ImBindings(options)
+    this.registry = options.registry
+    this.gateway = options.gateway
+    this.credentials = options.credentials
+    this.logger = options.logger
+    this.config = options.config
+    this.bindings = new ImBindings(options)
   }
   /** One registered provider, by id. */
   getProvider(id: string): ImProvider {
-    return this.#registry.get(id)
+    return this.registry.get(id)
   }
   /** Resolve an optional provider id, defaulting only when exactly one exists. */
   resolveProvider(id?: string): ImProvider {
-    if (id !== undefined) return this.#registry.get(id)
-    const providers = this.#registry.list()
+    if (id !== undefined) return this.registry.get(id)
+    const providers = this.registry.list()
     const first = providers[0]
     if (providers.length === 1 && first !== undefined) return first
     if (providers.length === 0) {
@@ -150,28 +150,28 @@ export class ImRouter {
   }
   /** Start one account authorization attempt. */
   beginBind(providerId: string, request: ImBindRequest): Promise<ImBindAttempt> {
-    return this.#bindings.beginBind(providerId, request)
+    return this.bindings.beginBind(providerId, request)
   }
   /** Read one authorization attempt and persist the account once bound. */
   pollBind(bindId: string): Promise<ImBindPollResult> {
-    return this.#bindings.pollBind(bindId)
+    return this.bindings.pollBind(bindId)
   }
   /** Bind or re-bind one conversation to one Session. */
   link(request: ImLinkRequest): Promise<ImBinding> {
-    return this.#bindings.link(request)
+    return this.bindings.link(request)
   }
   /** Remove one conversation binding. */
   unbindBinding(bindingId: string): Promise<void> {
-    return this.#bindings.unbindBinding(bindingId)
+    return this.bindings.unbindBinding(bindingId)
   }
   /** Remove an account, its runtime state, credential, and rows. */
   async unbindAccount(accountId: string): Promise<ImUnbindAccountResult> {
-    const account = this.#bindings.account(accountId)
+    const account = this.bindings.account(accountId)
     if (account === undefined) throw new ImError('IM_NOT_FOUND', `unknown account: ${accountId}`)
     let provider: ImProvider | undefined
     let warning: string | undefined
     try {
-      provider = this.#registry.get(account.provider)
+      provider = this.registry.get(account.provider)
     } catch {
       warning = 'the provider is not registered, so the remote grant could not be revoked'
     }
@@ -191,8 +191,8 @@ export class ImRouter {
       } catch (error: unknown) {
         warning = `the provider runtime did not stop cleanly: ${errorMessage(error)}`
       }
-      await this.#credentials.remove(accountId)
-      await this.#bindings.removeAccountRows(accountId)
+      await this.credentials.remove(accountId)
+      await this.bindings.removeAccountRows(accountId)
       try {
         await provider.service.start()
       } catch (error: unknown) {
@@ -200,20 +200,20 @@ export class ImRouter {
       }
       return { removed: true, revoked: false, ...(warning === undefined ? {} : { warning }) }
     }
-    await this.#credentials.remove(accountId)
-    await this.#bindings.removeAccountRows(accountId)
+    await this.credentials.remove(accountId)
+    await this.bindings.removeAccountRows(accountId)
     return { removed: true, revoked: false, ...(warning === undefined ? {} : { warning }) }
   }
   /** Replace fields of one binding's settings. */
   settings(bindingId: string, patch: ImBindingSettings): Promise<ImBinding> {
-    return this.#bindings.settings(bindingId, patch)
+    return this.bindings.settings(bindingId, patch)
   }
   /** Send one content block to an explicit target. */
   async send(request: ImRouterSendRequest): Promise<ImSendResult> {
-    const target = this.#targetOf(request)
-    const account = this.#bindings.account(target.accountId)
+    const target = this.targetOf(request)
+    const account = this.bindings.account(target.accountId)
     if (account === undefined) throw new ImError('IM_NOT_FOUND', `unknown account: ${target.accountId}`)
-    const provider = this.#registry.get(account.provider)
+    const provider = this.registry.get(account.provider)
     const content = degradeContent(provider.features, request.content)
     return provider.service.send({
       target,
@@ -223,7 +223,7 @@ export class ImRouter {
   }
   /** Read accounts, bindings, or conversations. */
   list(type?: 'accounts' | 'bindings' | 'conversations'): Promise<ImListResult> {
-    return this.#bindings.list(type)
+    return this.bindings.list(type)
   }
   /**
    * Route one inbound message. Messages from one conversation run in order.
@@ -232,10 +232,10 @@ export class ImRouter {
    */
   handle(providerId: string, message: ImMessage): Promise<void> {
     const key = `${providerId}\u0000${message.accountId}\u0000${message.conversationId}`
-    return this.#serialize(key, () => this.#route(providerId, message))
+    return this.serialize(key, () => this.route(providerId, message))
   }
   /** Resolve a send target from the exactly-one target form. */
-  #targetOf(request: ImRouterSendRequest): { accountId: string; conversationId: string } {
+  private targetOf(request: ImRouterSendRequest): { accountId: string; conversationId: string } {
     const hasBinding = request.bindingId !== undefined
     const hasPair = request.accountId !== undefined || request.conversationId !== undefined
     if (hasBinding === hasPair) {
@@ -243,7 +243,7 @@ export class ImRouter {
     }
     const bindingId = request.bindingId
     if (bindingId !== undefined) {
-      const binding = this.#bindings.binding(bindingId)
+      const binding = this.bindings.binding(bindingId)
       if (binding === undefined) throw new ImError('IM_NOT_FOUND', `unknown binding: ${bindingId}`)
       return { accountId: binding.accountId, conversationId: binding.conversationId }
     }
@@ -253,23 +253,23 @@ export class ImRouter {
     return { accountId: request.accountId, conversationId: request.conversationId }
   }
   /** Resolve a binding, auto-create one, ask the Session, and reply to the source. */
-  async #route(providerId: string, message: ImMessage): Promise<void> {
+  private async route(providerId: string, message: ImMessage): Promise<void> {
     try {
-      let binding = this.#bindings.activeBinding(message.accountId, message.conversationId)
+      let binding = this.bindings.activeBinding(message.accountId, message.conversationId)
       if (binding === undefined) {
-        if (!this.#config.autoCreateSession) {
-          this.#logger.warn(
+        if (!this.config.autoCreateSession) {
+          this.logger.warn(
             `[im:${providerId}] no active binding for ${message.accountId}/${message.conversationId}; message ignored`,
           )
           return
         }
-        const { sessionId } = await this.#gateway.ensureSession({ settings: {} })
-        binding = await this.#bindings.createActiveBinding(message.accountId, message.conversationId, sessionId)
-        this.#logger.info?.(
+        const { sessionId } = await this.gateway.ensureSession({ settings: {} })
+        binding = await this.bindings.createActiveBinding(message.accountId, message.conversationId, sessionId)
+        this.logger.info?.(
           `[im:${providerId}] auto-created session ${sessionId} for ${message.accountId}/${message.conversationId}`,
         )
       }
-      const answer = await this.#gateway.ask({
+      const answer = await this.gateway.ask({
         sessionId: binding.sessionId,
         prompt: renderPrompt(providerId, message),
         source: {
@@ -280,24 +280,24 @@ export class ImRouter {
         },
       })
       if (answer === undefined || answer.trim() === '') return
-      const provider = this.#registry.get(providerId)
+      const provider = this.registry.get(providerId)
       await provider.service.send({
         target: { accountId: message.accountId, conversationId: message.conversationId },
         content: { type: 'text', text: answer },
         replyToMessageId: message.id,
       })
     } catch (error: unknown) {
-      this.#logger.error(`[im:${providerId}] inbound handling failed: ${errorMessage(error)}`)
+      this.logger.error(`[im:${providerId}] inbound handling failed: ${errorMessage(error)}`)
     }
   }
   /** Serialize one conversation's inbound processing. */
-  #serialize<T>(key: string, work: () => Promise<T>): Promise<T> {
-    const previous = this.#conversationChains.get(key) ?? Promise.resolve()
+  private serialize<T>(key: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.conversationChains.get(key) ?? Promise.resolve()
     const next = previous.then(work, work)
     const tail = next.catch(() => undefined)
-    this.#conversationChains.set(key, tail)
+    this.conversationChains.set(key, tail)
     return next.finally(() => {
-      if (this.#conversationChains.get(key) === tail) this.#conversationChains.delete(key)
+      if (this.conversationChains.get(key) === tail) this.conversationChains.delete(key)
     })
   }
 }

@@ -93,194 +93,194 @@ function errorMessage(error: unknown): string {
 }
 /** Binding table operations shared by the router and tools. */
 export class ImBindings {
-  readonly #store: ImBindingStore
-  readonly #registry: ImRegistry
-  readonly #gateway: ImSessionGateway
-  readonly #logger: ImLogger
-  readonly #newId: (prefix: string) => string
-  readonly #attempts = new Map<string, { providerId: string; attempt: ImBindAttempt }>()
-  #writeChain: Promise<unknown> = Promise.resolve()
+  private readonly store: ImBindingStore
+  private readonly registry: ImRegistry
+  private readonly gateway: ImSessionGateway
+  private readonly logger: ImLogger
+  private readonly newId: (prefix: string) => string
+  private readonly attempts = new Map<string, { providerId: string; attempt: ImBindAttempt }>()
+  private writeChain: Promise<unknown> = Promise.resolve()
   constructor(options: ImBindingsOptions) {
-    this.#store = options.store
-    this.#registry = options.registry
-    this.#gateway = options.gateway
-    this.#logger = options.logger
-    this.#newId = options.newId ?? (prefix => `${prefix}_${randomUUID()}`)
+    this.store = options.store
+    this.registry = options.registry
+    this.gateway = options.gateway
+    this.logger = options.logger
+    this.newId = options.newId ?? (prefix => `${prefix}_${randomUUID()}`)
   }
   /** Start one authorization attempt and remember it for polling. */
   async beginBind(providerId: string, request: ImBindRequest): Promise<ImBindAttempt> {
-    const provider = this.#registry.get(providerId)
+    const provider = this.registry.get(providerId)
     const attempt = await provider.service.bind(request)
-    this.#attempts.set(attempt.bindId, { providerId, attempt })
+    this.attempts.set(attempt.bindId, { providerId, attempt })
     return attempt
   }
   /** Read one attempt and persist its account once bound. */
   async pollBind(bindId: string): Promise<ImBindPollResult> {
-    const entry = this.#attempts.get(bindId)
+    const entry = this.attempts.get(bindId)
     if (entry === undefined) throw new ImError('IM_NOT_FOUND', `unknown bind attempt: ${bindId}`)
     if (entry.attempt.status !== 'bound') return { attempt: entry.attempt }
     // The account is persisted exactly once; the entry is dropped so later polls
     // fail loudly and a terminal attempt cannot leak memory.
     // 账号只持久化一次；条目随即删除，后续 poll 明确报错，终态尝试也不再泄漏内存。
-    this.#attempts.delete(bindId)
+    this.attempts.delete(bindId)
     const account = await entry.attempt.wait()
-    await this.#persistAccount(entry.providerId, account)
+    await this.persistAccount(entry.providerId, account)
     return { attempt: entry.attempt, account }
   }
   /** Bind or re-bind one conversation to one Session. */
   async link(request: ImLinkRequest): Promise<ImBinding> {
-    const account = this.#requireAccount(request.accountId)
+    const account = this.requireAccount(request.accountId)
     const settings = request.settings ?? {}
     const active = request.active !== false
-    return this.#write(async () => {
+    return this.write(async () => {
       // Session creation sits inside the write lock so two concurrent links for
       // one conversation cannot create two Sessions / two active bindings.
       // Session 创建放在写锁内，同一会话的并发 link 不会创建两个 Session / 两条 active binding。
       const sessionId = request.sessionId
-        ?? (await this.#gateway.ensureSession({ settings })).sessionId
-      await this.#ensureConversation(account.id, request.conversationId)
-      if (active) await this.#deactivateSiblings(account.id, request.conversationId)
+        ?? (await this.gateway.ensureSession({ settings })).sessionId
+      await this.ensureConversation(account.id, request.conversationId)
+      if (active) await this.deactivateSiblings(account.id, request.conversationId)
       const binding: ImBinding = {
-        id: this.#newId('bind'),
+        id: this.newId('bind'),
         accountId: account.id,
         conversationId: request.conversationId,
         sessionId,
         active,
         settings,
       }
-      await this.#store.putBinding(binding)
+      await this.store.putBinding(binding)
       return binding
     })
   }
   /** Remove one conversation binding; the account stays authorized. */
   async unbindBinding(bindingId: string): Promise<void> {
-    if (this.#store.getBinding(bindingId) === undefined) {
+    if (this.store.getBinding(bindingId) === undefined) {
       throw new ImError('IM_NOT_FOUND', `unknown binding: ${bindingId}`)
     }
-    await this.#write(() => this.#store.deleteBinding(bindingId))
+    await this.write(() => this.store.deleteBinding(bindingId))
   }
   /** Replace fields of one binding's settings. */
   async settings(bindingId: string, patch: ImBindingSettings): Promise<ImBinding> {
     if ((patch.provider === undefined) !== (patch.model === undefined)) {
       throw new ImError('IM_INVALID_REQUEST', 'provider and model must be set together')
     }
-    return this.#write(async () => {
-      const binding = this.#requireBinding(bindingId)
+    return this.write(async () => {
+      const binding = this.requireBinding(bindingId)
       const settings: ImBindingSettings = { ...binding.settings }
       for (const key of ['presetId', 'provider', 'model', 'reasoning'] as const) {
         const value = patch[key]
         if (value !== undefined) settings[key] = value
       }
       const updated = { ...binding, settings }
-      await this.#store.putBinding(updated)
+      await this.store.putBinding(updated)
       return updated
     })
   }
   /** Read accounts, bindings, or conversations. */
   async list(type?: 'accounts' | 'bindings' | 'conversations'): Promise<ImListResult> {
-    if (type === 'bindings') return { bindings: this.#store.bindings() }
-    if (type === 'conversations') return { conversations: this.#conversationViews() }
-    if (type === 'accounts') return { accounts: await this.#accountViews() }
+    if (type === 'bindings') return { bindings: this.store.bindings() }
+    if (type === 'conversations') return { conversations: this.conversationViews() }
+    if (type === 'accounts') return { accounts: await this.accountViews() }
     return {
-      accounts: await this.#accountViews(),
-      bindings: this.#store.bindings(),
-      conversations: this.#conversationViews(),
+      accounts: await this.accountViews(),
+      bindings: this.store.bindings(),
+      conversations: this.conversationViews(),
     }
   }
   /** The active binding for one conversation, when it exists. */
   activeBinding(accountId: string, conversationId: string): ImBinding | undefined {
-    return this.#store.activeBinding(accountId, conversationId)
+    return this.store.activeBinding(accountId, conversationId)
   }
   /** Read one account row. */
   account(accountId: string): ImAccountRow | undefined {
-    return this.#store.getAccount(accountId)
+    return this.store.getAccount(accountId)
   }
   /** Read one binding. */
   binding(bindingId: string): ImBinding | undefined {
-    return this.#store.getBinding(bindingId)
+    return this.store.getBinding(bindingId)
   }
   /** Delete every row owned by one account. */
   removeAccountRows(accountId: string): Promise<void> {
-    return this.#write(async () => {
-      await this.#store.deleteBindingsOf(accountId)
-      await this.#store.deleteConversationsOf(accountId)
-      await this.#store.deleteAccount(accountId)
+    return this.write(async () => {
+      await this.store.deleteBindingsOf(accountId)
+      await this.store.deleteConversationsOf(accountId)
+      await this.store.deleteAccount(accountId)
     })
   }
   /** Create an active binding for an inbound conversation. */
   createActiveBinding(accountId: string, conversationId: string, sessionId: string): Promise<ImBinding> {
-    return this.#write(async () => {
-      await this.#ensureConversation(accountId, conversationId)
-      await this.#deactivateSiblings(accountId, conversationId)
+    return this.write(async () => {
+      await this.ensureConversation(accountId, conversationId)
+      await this.deactivateSiblings(accountId, conversationId)
       const binding: ImBinding = {
-        id: this.#newId('bind'),
+        id: this.newId('bind'),
         accountId,
         conversationId,
         sessionId,
         active: true,
         settings: {},
       }
-      await this.#store.putBinding(binding)
+      await this.store.putBinding(binding)
       return binding
     })
   }
   /** Persist one authorized account. */
-  async #persistAccount(providerId: string, account: ImAccount): Promise<void> {
+  private async persistAccount(providerId: string, account: ImAccount): Promise<void> {
     const row: ImAccountRow = {
       id: account.id,
       provider: providerId,
       token_ref: imCredentialKey(account.id),
       ...(account.ownerId === undefined ? {} : { owner_id: account.ownerId }),
     }
-    await this.#write(() => this.#store.putAccount(row))
+    await this.write(() => this.store.putAccount(row))
   }
   /** Insert the conversation row when it is not known yet. */
-  async #ensureConversation(accountId: string, conversationId: string): Promise<void> {
-    if (this.#store.getConversation(accountId, conversationId) !== undefined) return
-    await this.#store.putConversation({
+  private async ensureConversation(accountId: string, conversationId: string): Promise<void> {
+    if (this.store.getConversation(accountId, conversationId) !== undefined) return
+    await this.store.putConversation({
       account_id: accountId,
       conversation_id: conversationId,
       kind: 'direct',
     })
   }
   /** Turn every other active binding for one conversation off. */
-  async #deactivateSiblings(accountId: string, conversationId: string): Promise<void> {
-    for (const binding of this.#store.bindings()) {
+  private async deactivateSiblings(accountId: string, conversationId: string): Promise<void> {
+    for (const binding of this.store.bindings()) {
       if (binding.accountId !== accountId
         || binding.conversationId !== conversationId
         || !binding.active) continue
-      await this.#store.putBinding({ ...binding, active: false })
+      await this.store.putBinding({ ...binding, active: false })
     }
   }
   /** Resolve one account row or fail with IM_NOT_FOUND. */
-  #requireAccount(accountId: string): ImAccountRow {
-    const account = this.#store.getAccount(accountId)
+  private requireAccount(accountId: string): ImAccountRow {
+    const account = this.store.getAccount(accountId)
     if (account === undefined) throw new ImError('IM_NOT_FOUND', `unknown account: ${accountId}`)
     return account
   }
   /** Resolve one binding or fail with IM_NOT_FOUND. */
-  #requireBinding(bindingId: string): ImBinding {
-    const binding = this.#store.getBinding(bindingId)
+  private requireBinding(bindingId: string): ImBinding {
+    const binding = this.store.getBinding(bindingId)
     if (binding === undefined) throw new ImError('IM_NOT_FOUND', `unknown binding: ${bindingId}`)
     return binding
   }
   /** Serialize every mutation so the active-pointer invariant cannot race. */
-  #write<T>(work: () => Promise<T>): Promise<T> {
-    const pending = this.#writeChain.then(work)
-    this.#writeChain = pending.catch(() => undefined)
+  private write<T>(work: () => Promise<T>): Promise<T> {
+    const pending = this.writeChain.then(work)
+    this.writeChain = pending.catch(() => undefined)
     return pending
   }
   /** Merge live provider status into the durable account rows. */
-  async #accountViews(): Promise<ImAccountView[]> {
+  private async accountViews(): Promise<ImAccountView[]> {
     const live = new Map<string, ImAccount>()
-    for (const provider of this.#registry.list()) {
+    for (const provider of this.registry.list()) {
       try {
         for (const account of await provider.service.accounts()) live.set(account.id, account)
       } catch (error: unknown) {
-        this.#logger.warn(`[im:${provider.id}] accounts() failed: ${errorMessage(error)}`)
+        this.logger.warn(`[im:${provider.id}] accounts() failed: ${errorMessage(error)}`)
       }
     }
-    return this.#store.accounts().map(row => {
+    return this.store.accounts().map(row => {
       const current = live.get(row.id)
       return {
         id: row.id,
@@ -292,8 +292,8 @@ export class ImBindings {
     })
   }
   /** Project conversation rows into the public view. */
-  #conversationViews(): ImConversationView[] {
-    return this.#store.conversations().map(row => ({
+  private conversationViews(): ImConversationView[] {
+    return this.store.conversations().map(row => ({
       accountId: row.account_id,
       id: row.conversation_id,
       kind: row.kind,

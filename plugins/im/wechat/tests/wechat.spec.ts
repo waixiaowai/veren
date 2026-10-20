@@ -1,26 +1,25 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, rm } from 'node:fs/promises'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ImMessage } from '@veren/im'
 import { WechatApi } from '../src/api.ts'
-import { WechatStateStore } from '../src/state.ts'
 import { WEIXIN_FEATURES, WechatProvider, splitText } from '../src/provider.ts'
 import {
-  MemorySecrets, bodyOf, hangUntilAbort, jsonResponse, mockFetch, removeDir, seedAccount, tempDir, testLogger, until,
+  MemorySecrets, MemoryWechatStore, bodyOf, hangUntilAbort, jsonResponse, mockFetch, seedAccount,
+  seedContext, testLogger, until,
 } from './support.ts'
 import type { FetchHandler } from './support.ts'
 
-const dirs: string[] = []
+const qrImages: string[] = []
 
 afterEach(async () => {
-  for (const dir of dirs.splice(0)) await removeDir(dir)
+  for (const path of qrImages.splice(0)) await rm(path, { force: true })
 })
 
 async function setup(handler: FetchHandler, options: { longPollTimeoutMs?: number } = {}) {
-  const root = await tempDir()
-  dirs.push(root)
+  const store = new MemoryWechatStore()
   const secrets = new MemorySecrets()
   const provider = new WechatProvider({
-    dataDir: root,
+    store,
     secrets,
     fetchImpl: mockFetch(handler),
     longPollTimeoutMs: options.longPollTimeoutMs ?? 20,
@@ -28,14 +27,14 @@ async function setup(handler: FetchHandler, options: { longPollTimeoutMs?: numbe
     qrTtlMs: 60_000,
     logger: testLogger(),
   })
-  return { root, provider, secrets }
+  return { provider, store, secrets }
 }
 
 describe('WeChat QR authorization', () => {
-  it('writes a local PNG, polls to confirmed, and persists no secret in state', async () => {
+  it('writes a local PNG, polls to confirmed, and stores state in the domain without the token', async () => {
     let polls = 0
     let updates = 0
-    const { root, provider, secrets } = await setup((url, init) => {
+    const { provider, store, secrets } = await setup((url, init) => {
       if (url.pathname.endsWith('/get_bot_qrcode')) {
         return jsonResponse({ qrcode: 'qr-1', qrcode_img_content: 'https://ilinkai.weixin.qq.com/qr' })
       }
@@ -64,6 +63,7 @@ describe('WeChat QR authorization', () => {
     expect(attempt.status).toBe('pending')
     const imagePath = attempt.challenge?.imagePath
     expect(imagePath).toBeTruthy()
+    qrImages.push(imagePath as string)
     const png = await readFile(imagePath as string)
     expect(png.subarray(1, 4).toString('ascii')).toBe('PNG')
     expect(attempt.challenge?.url).toBeUndefined()
@@ -74,9 +74,10 @@ describe('WeChat QR authorization', () => {
     const stored = await secrets.read('acc-1')
     expect(stored?.token).toBe('token-1')
 
-    const stateText = await readFile(new WechatStateStore(root).statePath('acc-1'), 'utf8')
-    expect(stateText).not.toContain('token-1')
-    expect(stateText).not.toContain('context_token')
+    const state = store.states().find(candidate => candidate.accountId === 'acc-1')
+    expect(state?.displayName).toBe('WeChat acc-1')
+    expect(JSON.stringify(state)).not.toContain('token-1')
+    expect(JSON.stringify(state)).not.toContain('context_token')
 
     await provider.stop()
   })
@@ -85,7 +86,7 @@ describe('WeChat QR authorization', () => {
 describe('WeChat sending', () => {
   it('segments at 1,800 code units and reuses the cached context_token', async () => {
     const bodies: Record<string, unknown>[] = []
-    const { root, provider, secrets } = await setup((url, init) => {
+    const { provider, store, secrets } = await setup((url, init) => {
       if (url.pathname.endsWith('/notifystart')) return jsonResponse({ ret: 0 })
       if (url.pathname.endsWith('/getupdates')) return hangUntilAbort(init)
       if (url.pathname.endsWith('/notifystop')) return jsonResponse({ ret: 0 })
@@ -95,8 +96,8 @@ describe('WeChat sending', () => {
       }
       return jsonResponse({})
     })
-    await seedAccount(root, secrets)
-    await secrets.write('acc-1', { token: 'token-1', contexts: { 'user-1': 'ctx-1' } })
+    await seedAccount(store, secrets)
+    await seedContext(store, 'acc-1', 'user-1', 'ctx-1')
     await provider.start()
 
     const text = 'x'.repeat(4_000)
@@ -118,7 +119,7 @@ describe('WeChat sending', () => {
 
   it('rejects ret=-2 once as IM_SEND_REJECTED and does not retry', async () => {
     let sendCalls = 0
-    const { root, provider, secrets } = await setup((url, init) => {
+    const { provider, store, secrets } = await setup((url, init) => {
       if (url.pathname.endsWith('/notifystart')) return jsonResponse({ ret: 0 })
       if (url.pathname.endsWith('/getupdates')) return hangUntilAbort(init)
       if (url.pathname.endsWith('/notifystop')) return jsonResponse({ ret: 0 })
@@ -128,7 +129,7 @@ describe('WeChat sending', () => {
       }
       return jsonResponse({})
     })
-    await seedAccount(root, secrets)
+    await seedAccount(store, secrets)
     await provider.start()
     await expect(provider.send({
       target: { accountId: 'acc-1', conversationId: 'p2p:user-1' },
@@ -139,13 +140,13 @@ describe('WeChat sending', () => {
   })
 
   it('rejects image and file content in V1', async () => {
-    const { root, provider, secrets } = await setup((url, init) => {
+    const { provider, store, secrets } = await setup((url, init) => {
       if (url.pathname.endsWith('/notifystart')) return jsonResponse({ ret: 0 })
       if (url.pathname.endsWith('/getupdates')) return hangUntilAbort(init)
       if (url.pathname.endsWith('/notifystop')) return jsonResponse({ ret: 0 })
       return jsonResponse({})
     })
-    await seedAccount(root, secrets)
+    await seedAccount(store, secrets)
     await provider.start()
     await expect(provider.send({
       target: { accountId: 'acc-1', conversationId: 'p2p:user-1' },
@@ -156,9 +157,9 @@ describe('WeChat sending', () => {
 })
 
 describe('WeChat inbound', () => {
-  it('deduplicates by message_id, ignores own echo, and caches context_token', async () => {
+  it('deduplicates by message_id, ignores own echo, and caches context_token in the domain', async () => {
     let updates = 0
-    const { root, provider, secrets } = await setup((url, init) => {
+    const { provider, store, secrets } = await setup((url, init) => {
       if (url.pathname.endsWith('/notifystart')) return jsonResponse({ ret: 0 })
       if (url.pathname.endsWith('/notifystop')) return jsonResponse({ ret: 0 })
       if (url.pathname.endsWith('/sendmessage')) return jsonResponse({ ret: 0 })
@@ -194,7 +195,7 @@ describe('WeChat inbound', () => {
       }
       return jsonResponse({})
     })
-    await seedAccount(root, secrets)
+    await seedAccount(store, secrets)
     const received: ImMessage[] = []
     provider.listen(message => { received.push(message) })
     await provider.start()
@@ -206,8 +207,8 @@ describe('WeChat inbound', () => {
       conversationId: 'p2p:user-1',
       content: { type: 'text', text: 'hello' },
     })
-    await until(() => secrets.records.get('acc-1')?.contexts['user-1'] === 'ctx-new')
-    const state = await new WechatStateStore(root).read('acc-1')
+    await until(() => store.contextToken('acc-1', 'user-1') === 'ctx-new')
+    const state = store.states().find(candidate => candidate.accountId === 'acc-1')
     expect(state?.seen).toContain('m1')
     expect(state?.cursor).toBe('cursor-2')
     await provider.stop()
@@ -217,7 +218,7 @@ describe('WeChat inbound', () => {
 describe('WeChat connection errors', () => {
   it('maps -14 to a fatal runtime and stops after the first poll', async () => {
     let updates = 0
-    const { root, provider, secrets } = await setup((url) => {
+    const { provider, store, secrets } = await setup((url) => {
       if (url.pathname.endsWith('/notifystart')) return jsonResponse({ ret: 0 })
       if (url.pathname.endsWith('/notifystop')) return jsonResponse({ ret: 0 })
       if (url.pathname.endsWith('/getupdates')) {
@@ -226,7 +227,7 @@ describe('WeChat connection errors', () => {
       }
       return jsonResponse({ ret: 0 })
     })
-    await seedAccount(root, secrets)
+    await seedAccount(store, secrets)
     await provider.start()
     await until(async () => (await provider.accounts())[0]?.status === 'error')
     await provider.stop()
@@ -243,14 +244,26 @@ describe('WeChat connection errors', () => {
 })
 
 describe('WeChat lifecycle', () => {
+  it('fails start with a structured error when the storage domain is unavailable', async () => {
+    const { provider, store } = await setup((url) => {
+      if (url.pathname.endsWith('/notifystop')) return jsonResponse({ ret: 0 })
+      return jsonResponse({ ret: 0 })
+    })
+    store.break('domain im_wechat is closed')
+    await expect(provider.start()).rejects.toMatchObject({
+      code: 'IM_INTERNAL',
+      message: expect.stringContaining('domain im_wechat is closed'),
+    })
+  })
+
   it('does not start monitors when stop lands during start', async () => {
     let updates = 0
-    const { root, provider, secrets } = await setup((url) => {
+    const { provider, store, secrets } = await setup((url) => {
       if (url.pathname.endsWith('/notifystop')) return jsonResponse({ ret: 0 })
       if (url.pathname.endsWith('/getupdates')) updates += 1
       return jsonResponse({ ret: 0 })
     })
-    await seedAccount(root, secrets)
+    await seedAccount(store, secrets)
     const starting = provider.start()
     await provider.stop()
     await starting
@@ -263,12 +276,13 @@ describe('WeChat lifecycle', () => {
 
   it('keeps other waiters settled when one waiter aborts', async () => {
     let confirm = false
-    const { root, provider, secrets } = await setup((url) => {
+    const { provider, store, secrets } = await setup((url, init) => {
       if (url.pathname.endsWith('/get_bot_qrcode')) {
         return jsonResponse({ qrcode: 'qr-1', qrcode_img_content: 'https://ilinkai.weixin.qq.com/qr' })
       }
       if (url.pathname.endsWith('/notifystart')) return jsonResponse({ ret: 0 })
       if (url.pathname.endsWith('/notifystop')) return jsonResponse({ ret: 0 })
+      if (url.pathname.endsWith('/getupdates')) return hangUntilAbort(init)
       if (url.pathname.endsWith('/get_qrcode_status')) {
         return jsonResponse(confirm
           ? {
@@ -282,9 +296,11 @@ describe('WeChat lifecycle', () => {
       }
       return jsonResponse({})
     })
-    await seedAccount(root, secrets)
+    await seedAccount(store, secrets)
     await provider.start()
     const attempt = await provider.bind({ method: 'qrcode' })
+    const imagePath = attempt.challenge?.imagePath
+    if (imagePath !== undefined) qrImages.push(imagePath)
     const controller = new AbortController()
     const aborted = attempt.wait(controller.signal)
     const kept = attempt.wait()
@@ -296,16 +312,16 @@ describe('WeChat lifecycle', () => {
     await provider.stop()
   })
 
-  it('removes one account: monitor stopped, state file deleted, others kept', async () => {
-    const { root, provider, secrets } = await setup((url) => {
+  it('removes one account: monitor stopped, state and contexts deleted, others kept', async () => {
+    const { provider, store, secrets } = await setup((url, init) => {
       if (url.pathname.endsWith('/notifystart')) return jsonResponse({ ret: 0 })
       if (url.pathname.endsWith('/notifystop')) return jsonResponse({ ret: 0 })
+      if (url.pathname.endsWith('/getupdates')) return hangUntilAbort(init)
       return jsonResponse({})
     })
-    const store = new WechatStateStore(root)
-    await seedAccount(root, secrets)
-    await store.write({
-      version: 1,
+    await seedAccount(store, secrets)
+    await seedContext(store, 'acc-1', 'user-1', 'ctx-1')
+    await store.putState({
       accountId: 'acc-2',
       displayName: 'Second',
       ownerId: 'owner-2',
@@ -313,15 +329,16 @@ describe('WeChat lifecycle', () => {
       cursor: '',
       seen: [],
     })
-    await secrets.write('acc-2', { token: 'token-2', contexts: {} })
+    await secrets.write('acc-2', { token: 'token-2' })
     await provider.start()
     expect((await provider.accounts()).map(account => account.id)).toEqual(['acc-1', 'acc-2'])
 
     await provider.removeAccount('acc-1')
 
     expect((await provider.accounts()).map(account => account.id)).toEqual(['acc-2'])
-    await expect(store.read('acc-1')).resolves.toBeUndefined()
-    await expect(store.read('acc-2')).resolves.toMatchObject({ accountId: 'acc-2' })
+    expect(store.statesById.has('acc-1')).toBe(false)
+    expect(store.contextToken('acc-1', 'user-1')).toBeUndefined()
+    expect(store.statesById.get('acc-2')).toMatchObject({ accountId: 'acc-2' })
     await provider.stop()
   })
 })

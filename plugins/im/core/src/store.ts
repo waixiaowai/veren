@@ -159,7 +159,7 @@ function toRow(binding: ImBinding): ImBindingRow {
 
 /** Durable store over the `im` storage domain. */
 export class ImStorage implements ImBindingStore {
-  #domain: ImStore | undefined
+  private domain: ImStore | undefined
 
   /**
    * Open the domain, closing a handle left by a previous activation first.
@@ -175,74 +175,74 @@ export class ImStorage implements ImBindingStore {
         ctx.logger.warn(`im: the previous storage domain could not close: ${String(error)}`)
       }
     }
-    this.#domain = await ctx.storageDomain.open(imDomain)
+    this.domain = await ctx.storageDomain.open(imDomain)
   }
 
   /** Close the domain; safe to call twice. */
   async close(): Promise<void> {
-    const domain = this.#domain
-    this.#domain = undefined
+    const domain = this.domain
+    this.domain = undefined
     await domain?.close()
   }
 
   getAccount(id: string): ImAccountRow | undefined {
-    return this.#table('accounts').get(id)
+    return this.table('accounts').get(id)
   }
 
   accounts(): ImAccountRow[] {
-    return [...this.#table('accounts').entries()].map(([, row]) => row)
+    return [...this.table('accounts').entries()].map(([, row]) => row)
   }
 
   async putAccount(row: ImAccountRow): Promise<void> {
-    await this.#table('accounts').put(row.id, row)
+    await this.table('accounts').put(row.id, row)
   }
 
   async deleteAccount(id: string): Promise<void> {
-    await this.#table('accounts').delete(id)
+    await this.table('accounts').delete(id)
   }
 
   getConversation(accountId: string, conversationId: string): ImConversationRow | undefined {
-    return this.#table('conversations').get(conversationKey(accountId, conversationId))
+    return this.table('conversations').get(conversationKey(accountId, conversationId))
   }
 
   conversations(): ImConversationRow[] {
-    return [...this.#table('conversations').entries()].map(([, row]) => row)
+    return [...this.table('conversations').entries()].map(([, row]) => row)
   }
 
   async putConversation(row: ImConversationRow): Promise<void> {
-    await this.#table('conversations').put(conversationKey(row.account_id, row.conversation_id), row)
+    await this.table('conversations').put(conversationKey(row.account_id, row.conversation_id), row)
   }
 
   async deleteConversation(accountId: string, conversationId: string): Promise<void> {
-    await this.#table('conversations').delete(conversationKey(accountId, conversationId))
+    await this.table('conversations').delete(conversationKey(accountId, conversationId))
   }
 
   async deleteConversationsOf(accountId: string): Promise<void> {
-    const table = this.#table('conversations')
+    const table = this.table('conversations')
     for (const [key, row] of [...table.entries()]) {
       if (row.account_id === accountId) await table.delete(key)
     }
   }
 
   getBinding(id: string): ImBinding | undefined {
-    const row = this.#table('bindings').get(id)
+    const row = this.table('bindings').get(id)
     return row === undefined ? undefined : toBinding(row)
   }
 
   bindings(): ImBinding[] {
-    return [...this.#table('bindings').entries()].map(([, row]) => toBinding(row))
+    return [...this.table('bindings').entries()].map(([, row]) => toBinding(row))
   }
 
   async putBinding(binding: ImBinding): Promise<void> {
-    await this.#table('bindings').put(binding.id, toRow(binding))
+    await this.table('bindings').put(binding.id, toRow(binding))
   }
 
   async deleteBinding(id: string): Promise<void> {
-    await this.#table('bindings').delete(id)
+    await this.table('bindings').delete(id)
   }
 
   async deleteBindingsOf(accountId: string): Promise<void> {
-    const table = this.#table('bindings')
+    const table = this.table('bindings')
     for (const [key, row] of [...table.entries()]) {
       if (row.account_id === accountId) await table.delete(key)
     }
@@ -257,8 +257,8 @@ export class ImStorage implements ImBindingStore {
   }
 
   /** Resolve the open domain or fail loudly. */
-  #table<K extends 'accounts' | 'conversations' | 'bindings'>(name: K) {
-    const domain = this.#domain
+  private table<K extends 'accounts' | 'conversations' | 'bindings'>(name: K) {
+    const domain = this.domain
     if (domain === undefined) {
       throw new ImError('IM_INTERNAL', 'IM storage is not open')
     }

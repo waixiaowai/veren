@@ -15,20 +15,21 @@
 
 ```ts
 export const Config = {
-  dataDir: '',                                  // 默认 `<DSH_HOME>/im/wechat`
   botType: '3',
   baseUrl: 'https://ilinkai.weixin.qq.com/',
 }
 ```
 
-`dataDir` 是插件自己的状态根。留空时通过 `DSH_HOME` 解析，代码不直接写 `~/.dsh`。
+没有数据目录配置项。持久化状态走宿主的 `storageDomain` 服务；插件声明了该依赖，缺少时不会激活。
 
 ## 授权流程
 
-1. `im_bind` 调用 `get_bot_qrcode`，把二维码图片写到 `<dataDir>/qr/<bindId>.png`。
+1. `im_bind` 调用 `get_bot_qrcode`，把二维码图片写成本地临时 PNG
+   （`<系统临时目录>/dsh-im-wechat-qr/<bindId>.png`）。图片是展示产物，不是持久化状态。
 2. 工具返回 `bindId`、`status`、`challenge`、`qrPath`、`expiresAt`；远程二维码 URL 永不返回或记录。
 3. provider 轮询 `get_qrcode_status` 直到 `confirmed`。
-4. 确认后写入账号状态，把 `bot_token` 存进 `ctx.credentials`；账号随即可被 `im_link` 使用。
+4. 确认后把账号状态写入 `im_wechat` 存储域，把 `bot_token` 存进 `ctx.credentials`；账号随即可被
+   `im_link` 使用。
 
 支持的状态：`wait`、`scaned`、`need_verifycode`、`confirmed`、`expired`、
 `scaned_but_redirect`、`verify_code_blocked`、`binded_redirect`。
@@ -46,7 +47,8 @@ export const Config = {
 - 按 `message_id` 去重。
 - `message_type === 2` 是机器人自身回显，直接忽略。
 - 入站文字来自 `item_list[].text_item.text`。
-- `context_token` 按账号+用户缓存在凭据记录里；不写入 `state.json`、不记录日志、不由工具返回。
+- `context_token` 按账号+用户缓存在 `im_wechat` 存储域；单账号超过 200 条时裁掉最旧的。
+  它不记录日志，也不由工具返回。
 - 出站文字按 1,800 UTF-16 码元分段，且不切断代理对。
 
 ## 发送错误
@@ -60,18 +62,26 @@ export const Config = {
 
 ## 状态与 Secret
 
+存储域 `im_wechat`（版本 1），走 profile 的默认后端：
+
 ```text
-<dataDir>/<accountId>/state.json   账号 id、显示名、owner、base URL、游标、去重环
-<dataDir>/qr/<bindId>.png          本地二维码图片
-ctx.credentials                    bot token 与 context_token 缓存
+im_wechat.accounts(account_id, display_name, owner_id, base_url, cursor, seen)
+im_wechat.contexts(account_id, user_id, token, updated_at)
 ```
 
-`state.json` 使用临时文件 + rename 原子写入，权限 `0600`，不含 token 与 `context_token`。
+- `accounts` 每个已授权账号一行：游标、去重环、显示名、owner 与 API base URL。
+- `contexts` 是按用户的有上限 `context_token` 缓存。
+- bot token 只保存在 `ctx.credentials`；不写入存储域、不记录日志、不由工具返回。
+- 本地二维码 PNG 放在系统临时目录，不属于持久化状态。
+
+没有迁移路径：旧的按账号 JSON 文件不再读取，现存微信账号需要用 `im_bind` 重新授权。
 
 ## 测试
 
 `tests/wechat.spec.ts` 用 mock fetch 覆盖扫码绑定、长轮询、发送、分段、`context_token` 复用、
-`-14`、`ret=-2`、去重与自身回显过滤。真实账号用例默认跳过，只有 `IM_WECHAT_REAL=1` 才执行。
+`-14`、`ret=-2`、去重、自身回显过滤，以及基于内存 store 的存储失败诊断。
+`tests/storage.spec.ts` 挂载真实 JSON 存储栈，覆盖重开后持久化、接管遗留域与 context_token
+裁剪。真实账号用例默认跳过，只有 `IM_WECHAT_REAL=1` 才执行。
 
 ## 命令
 
