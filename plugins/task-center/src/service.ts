@@ -248,7 +248,8 @@ export class TaskCenterService extends Service implements TaskCenterContract {
       return this.tasks(domain).all().filter(row =>
         (query.appId === undefined || row.appId === query.appId)
         && (query.status === undefined || row.status === query.status)
-        && (query.assignee === undefined || row.assignee === query.assignee))
+        && (query.assignee === undefined || row.assignee === query.assignee)
+        && (query.claimedBySession === undefined || row.claimedBy?.sessionId === query.claimedBySession))
     })
   }
 

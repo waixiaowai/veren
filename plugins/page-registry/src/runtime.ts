@@ -1,17 +1,24 @@
 /**
- * 页面运行时：一个 URL 一个页面实例、一条会话（§3.4、§3.5.3）。
- * Page runtime: one url = one page instance = one session (§3.4, §3.5.3).
+ * 页面运行时：打开一个 URL 一律新建一条会话，旧会话废弃（§3.5.3、§9.1）。
+ * Page runtime: opening a url ALWAYS creates a fresh session and deprecates
+ * the previous one (§3.5.3, §9.1).
  *
  * 简化后的不变量：
- * - 会话内永不换页；打开另一个 URL = 创建/复用另一条会话，当前会话零改动；
- * - 工具在会话创建时挂一次、随会话销毁释放；PAGE 块写一次、永不重写；
- * - 两阶段创建：reserve → 建会话/挂工具/写 PAGE → commit；任何一步失败都
- *   清理半成品并删 reserved 行，不留幽灵索引（§3.5.3）。
+ * - 打开 URL 不再复用：同一 URL 连开两次得到两条会话，索引指向后一条，
+ *   前一条被标废弃（工具摘除、租约释放），但仍可读、不再追加 PAGE 块；
+ * - 会话内永不换页；打开另一个 URL 与当前会话零改动（只废弃同 URL 的旧会话）；
+ * - 废弃释放顺序（§3.5.3）：摘页面工具 → 释放任务租约 → 写废弃标记（索引腾出
+ *   URL）→ 两阶段建新会话（reserve → 建会话/挂工具/写 PAGE → commit）；
+ *   任何一步失败都收敛：废弃标记写失败 = 旧会话仍是索引里的活会话（下次打开
+ *   重试废弃）；建新会话失败 = 半成品清理 + reserved 行删除，URL 下次打开重试；
+ * - 任务租约随废弃释放：旧会话持有的 `taken` 租约由 tasks 面 release，
+ *   否则新会话会 `already-taken`，任务被废弃会话占死。
  *
- * 宿主对接走注入端口（sessions/apps/toolsOf/tasks）：apps/tasks 用真实服务面，
- * 缺失时给明确错误码降级；本包只依赖各服务包的类型出口，不依赖其运行时。
- * Host access goes through injected ports (sessions/apps/toolsOf/tasks); apps and
- * tasks reuse the real service faces, degrade with explicit codes when absent.
+ * 宿主对接走注入端口（sessions/apps/toolsOf/tasks/deliveries/releaseLeases）：
+ * apps/tasks 用真实服务面，缺失时给明确错误码降级；本包只依赖各服务包的
+ * 类型出口，不依赖其运行时。
+ * Host access goes through injected ports; apps and tasks reuse the real
+ * service faces and degrade with explicit codes when absent.
  *
  * @module @veren/page-registry/runtime
  */
@@ -71,8 +78,6 @@ export interface PageSessionPort {
   /** 挂页面工具；重名冲突抛 PageError(page/tool-conflict) / mount; conflicts raise */
   mountTools(sessionId: string, tools: readonly MountedTool[]): Promise<void>
   releaseTools(sessionId: string): Promise<void>
-  /** 该会话当前是否还挂着页面工具（恢复路径判断要不要重挂）/ whether page tools are still mounted */
-  hasTools?(sessionId: string): boolean
   focus(sessionId: string): Promise<void>
   /** 创建失败兜底：销毁半成品会话 / destroy a half-built session */
   destroy(sessionId: string): Promise<void>
@@ -89,6 +94,12 @@ export interface PageRuntimePorts {
   readonly tasks?: Pick<TaskCenterContract, 'take'>
   /** 任务通知投递面（§5.2 inbox 注入）；缺席则跳过投递 / delivery face; absent → skip pumping */
   readonly deliveries?: DeliveryFace
+  /**
+   * 废弃会话时释放它持有的任务租约（§3.5.3）；缺席则租约靠懒回收兜底。
+   * Release the task leases a deprecated session holds (§3.5.3); absent, lazy
+   * lease recycling in the task center is the fallback.
+   */
+  readonly releaseLeases?: (sessionId: string) => Promise<void>
   /** 任务租约时长（分钟），缺省 30 / lease minutes, default 30 */
   readonly leaseMinutes?: number
 }
@@ -100,11 +111,10 @@ export interface OpenPageOptions {
   readonly actor?: string
 }
 
-/** openUrl 的结果 / openUrl result */
+/** openUrl 的结果：打开一律新建，结果就是新会话 / openUrl result: the fresh session */
 export interface OpenPageResult {
   readonly sessionId: string
   readonly url: string
-  readonly created: boolean
   readonly title: string
 }
 
@@ -166,8 +176,9 @@ export function taskBlock(taskId: string, task: TaskRecord | undefined): string 
 }
 
 /**
- * 打开一个 URL：命中即恢复并聚焦，未命中走两阶段创建（§3.5.3）。
- * Open a url: hit → restore & focus; miss → two-phase create.
+ * 打开一个 URL：一律新建会话；同 URL 旧会话先废弃（§3.5.3、§9.1）。
+ * Open a url: always create a fresh session; the previous one on the same url
+ * is deprecated first.
  */
 export async function openPageUrl(
   registry: { resolve(url: string): PageMatch<never> | null },
@@ -190,25 +201,32 @@ export async function openPageUrl(
   const match = registry.resolve(key)
   if (match === null) throw new PageError(PageErrorCode.PageNotFound, `no page matches ${key}`)
 
-  const record = await index.lookup(key)
-  if (record !== undefined) {
-    // 恢复路径：契约版本不兼容不静默复用（§7.3）
-    if (record.pageRevision !== (match.page.pageRevision ?? 1)) {
-      throw new PageError(PageErrorCode.Stale, `page "${match.page.name}" moved to revision ${match.page.pageRevision ?? 1}; the existing session was created at ${record.pageRevision}`)
-    }
-    // 工具随会话恢复重挂（§3.4.5）：只在确实没挂时补挂，不重复注册
-    // Remount on restore (§3.4.5): only when genuinely absent, never duplicated.
-    if (ports.sessions.hasTools !== undefined && !ports.sessions.hasTools(record.sessionId)) {
-      const tools = resolveMountedTools(app, match, ports.toolsOf)
-      await ports.sessions.mountTools(record.sessionId, tools)
-    }
-    if (options.taskId !== undefined) await takeTask(ports, options.taskId, record.sessionId, options.actor)
-    await pumpDeliveries(ports, record.sessionId)
-    await ports.sessions.focus(record.sessionId)
-    return { sessionId: record.sessionId, url: key, created: false, title: record.instanceTitle }
+  await deprecatePrevious(index, ports, key)
+  return createPageSession(index, ports, key, app, match, options)
+}
+
+/**
+ * 废弃同 URL 的旧会话（§3.5.3 释放顺序）：摘页面工具 → 释放任务租约 → 写废弃
+ * 标记（索引腾出 URL）。单步失败不阻断：工具摘除/租约释放失败只影响旧会话自身，
+ * 废弃标记照写（旧会话已不该被 URL 访问）；废弃标记写失败则整步中止——旧会话
+ * 仍是索引里的活会话，下次打开重试废弃，收敛为"恰好一条活会话"。
+ * Deprecate the previous session on this url (§3.5.3 release order): strip page
+ * tools → release task leases → write the deprecated marker (freeing the url).
+ * Tool/lease failures never block: only the old session is affected, and the
+ * marker still moves it out of the url. A marker write failure aborts the whole
+ * step — the old session remains the index's live row, the next open retries
+ * the deprecation, and the invariant "exactly one live session per url" holds.
+ */
+async function deprecatePrevious(index: PageInstanceIndex, ports: PageRuntimePorts, key: PageInstanceKey): Promise<void> {
+  const previous = await index.lookup(key)
+  if (previous === undefined) return
+  await ports.sessions.releaseTools(previous.sessionId).catch(() => undefined)
+  await ports.releaseLeases?.(previous.sessionId).catch(() => undefined)
+  try {
+    await index.deprecate(key, `superseded by a fresh open of ${key}`)
+  } catch (error: unknown) {
+    throw wrap(error, PageErrorCode.IndexUnavailable, `deprecate(${key}) failed`)
   }
-  const created = await createPageSession(index, ports, key, app, match, options)
-  return created
 }
 
 /** 任务场景：先 take 再追加 TASK 块；失败码原样透出（§5.3） */
@@ -300,7 +318,7 @@ async function createPageSession(
   // 新会话启动即注入收件箱通知（§5.2 inbox）；失败只降级
   await pumpDeliveries(ports, sessionId)
   await ports.sessions.focus(sessionId)
-  return { sessionId, url: key, created: true, title }
+  return { sessionId, url: key, title }
 }
 
 /** 把非 PageError 的底层失败包成带稳定 code 的 PageError */

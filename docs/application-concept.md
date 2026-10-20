@@ -444,57 +444,64 @@ The canonical URL is the one value shared by tasks, the index, notices, and tool
 
 #### 3.5.2 Index table
 
-The index is a host-level durable storage domain `app-pages`, table `instances`:
+> **The semantics have been reversed (user decision, §9.1)**: opening a page URL **always creates a fresh Session**; the previous Session on that URL is deprecated. The URL index is therefore no longer "identity recovery" (the old design of "reopen the same URL and land back in the original Session" is abandoned); it only answers two questions: **which Session is currently live on this URL, and which Sessions in history were deprecated.**
+
+The index is a host-level durable storage domain `app-pages`, table `instances`, with two key spaces:
+
+- **Current-pointer rows**: keyed by canonical URL, at most one row per URL (`reserved` / `live`);
+- **Deprecated-history rows**: keyed `deprecated:<sessionId>` (canonical URLs start with `/`, so the key spaces never collide).
 
 | Field | Meaning |
 | --- | --- |
-| `url` | Canonical URL, primary key |
-| `sessionId` | The page instance's DSH Session; unique |
+| `url` | Canonical URL (history rows keep their source URL) |
+| `sessionId` | The page instance's DSH Session; globally unique |
 | `appId` / `page` | For app grouping and uninstall cleanup |
 | `params` | Parsed parameter snapshot |
 | `appVersion` | App version at creation |
 | `pageRevision` | Page contract version at creation |
 | `title` | Instance title (§3.6) |
-| `state` | `reserved` / `live` / `orphaned` / `stale` |
+| `state` | `reserved` / `live` / `deprecated` |
 | `createdAt` / `lastOpenedAt` | Instants |
-| `supersededBy` | When stale, the new Session (§7.3) |
+| `deprecatedAt` | Deprecation instant (deprecated rows only) |
 
-Constraints: `url` unique, `sessionId` unique. One Session cannot belong to two URLs.
+Constraints: `url` unique (among current-pointer rows), `sessionId` globally unique. One Session cannot belong to two URLs.
 
-#### 3.5.3 Protocol for opening a URL
+**Why the two-phase `reserved → live` create stays**: it is no longer a re-entry lock guarding "concurrent duplicate opens with reuse"; it is crash safety — a crash mid-creation leaves at most a `reserved` row (sweepable at boot) and never records a half-built Session as a live pointer or a deprecated-history row. Convergence for concurrent duplicate opens is in §3.5.3.
 
-1. **Resolve and validate** — canonical URL, app installed and enabled, page exists, tools and capabilities available.
-2. **Look up the index**:
-   - row exists, `state = live`, and the Session still exists → reuse it (restore it if archived), return `created: false`;
-   - row exists but the Session was deleted → delete the row, then create;
-   - row exists but `state = stale` → enter the upgrade flow (§7.3), never reuse silently;
-   - no row → create.
-3. **Create (two phases)**:
-   - mint a sessionId and write a `reserved` row;
-   - create the DSH Session, append the `app/page` event and title;
-   - flip the row to `live`.
-   Any failure deletes the reserved row; a failed Session creation never leaves a ghost index entry.
-4. **Mount** — page tools and the PAGE block mount once with Session creation/resume (§3.4.2).
-5. **Return** — `{ sessionId, created, title }`; the GUI selects that Session.
+#### 3.5.3 Protocol for opening a URL (always fresh + deprecate the previous one)
 
-Why write the index before the Session: the worst crash residue is a `reserved` row (cleanable), never a Session that exists while the index does not know it (which would create a duplicate instance). On boot, sweep `reserved` rows older than a threshold and confirm no Session exists before deleting.
+1. **Resolve and validate** — canonical URL, app installed and enabled, page exists.
+2. **Deprecate the previous Session** (when the index has a current row, release in this order):
+   1. **Strip page tools** — dispose the old Session's page tools as a group;
+   2. **Release task leases** — release every `taken` lease the old Session holds (§4.4). Without this step, a fresh Session opening the same URL gets `already-taken` — the task is held hostage by a deprecated Session;
+   3. **Write the deprecated marker** — move the current row to the `deprecated:<sessionId>` history key, freeing the URL. The old Session itself is **not destroyed**: it becomes an ordinary Session, still readable, but it never gets another PAGE block, never has page tools mounted, and is never addressed via the URL again.
+3. **Create (two phases)**: mint sessionId → write the `reserved` row → create the DSH Session → mount tools → write the PAGE block → flip to `live`.
+4. **Return** — `{ sessionId, title }` (opens always create; the result IS the fresh Session); the GUI selects that Session.
+
+**Failure convergence** — no step can leave "two Sessions both believing they are live":
+
+- tool-strip / lease-release failure: affects only the old Session; the deprecated marker is still written (the old Session must not be URL-addressable anyway);
+- deprecated-marker write failure: the whole step aborts, the old Session remains the index's live row, the next open retries the deprecation;
+- fresh-Session creation failure: half-built Session cleaned up + `reserved` row deleted; the old Session is already deprecated and the URL has no live Session — the next open retries.
+
+**Concurrent duplicate opens**: index writes are serialized (FIFO). When two openUrl calls race, the later one deprecates the `reserved` row the earlier one just wrote; the earlier commit then fails and cleans up its half-built Session. The result converges to "exactly one live Session"; the earlier caller gets an error.
 
 #### 3.5.4 Restart, deletion, rebuild
 
-- **Restart** — the index is durable, so the same URL finds the same Session; archived Sessions are restored, deleted Sessions invalidate the row.
-- **Deletion** — when a Session is deleted, opening the URL finds `ctx.sessions.get` empty, deletes the row, and creates a new Session; `orphaned` rows keep the source app for explanation.
-- **Index loss/corruption** — the `app/page` event in the Session log is the source of truth. If the index domain is empty or incompatible, rebuild by scanning Sessions that carry `app/page`, reconstructing rows from the canonical URL and choosing the newest non-stale Session. While rebuilding, opening a URL waits or returns `page/index-rebuilding`, so no duplicate is created.
-- **Rebuild cost** — one pass over the session catalog, growing with session count; this is a rare failure path, so the cost is acceptable. Daily opens use the index only.
+- **Restart** — the index is durable; after a restart the URL row still points at **the latest live Session**. Only the next open of that URL creates a fresh Session and deprecates it. Deprecated-history rows survive restarts and stay readable; an old Session is never mistaken for the live one.
+- **Deletion** — when a Session is deleted, opening the URL finds `ctx.sessions.get` empty, deletes the row, and creates as if no row existed.
+- **reserved startup sweep (implemented)** — at boot, probe `reserved` rows for liveness (delete those whose Session is gone, `KvPageInstanceIndex.sweepReserved`); without a liveness probe, touch nothing — no confirmation, no pretend.
+- **Index loss/corruption** — the `app/page` event in the Session log is the source of truth; the rebuild scan belongs to phase 2 (the phase-1 Session port has no "enumerate sessions / read session logs" face). Note the reversed semantics make rebuilds trivially safe: **any URL can simply be created fresh**, so a rebuild only restores the "which URLs have a live Session" bookkeeping; slowness can no longer create duplicate instances.
 
 #### 3.5.5 Comparison with forum's `SessionLink`
 
 | Dimension | forum `SessionLink` | Page URL index |
 | --- | --- | --- |
-| Key | preset id → live Session | canonical URL → Session |
+| Key | preset id → live Session | canonical URL → current live Session |
 | Durability | in memory, lost on exit | durable across restarts |
-| Conflict policy | a later Session overwrites the earlier one | one live Session per URL |
-| Purpose | deliver a notice to "the Session working for this preset" | map a page URL to "this page instance's Session" |
-| Failure handling | no live Session → keep in the inbox | missing Session → drop the row and recreate |
+| Conflict policy | a later Session overwrites the earlier one | one live Session per URL (reopen = deprecate the old one) |
+| Purpose | deliver a notice to "the Session working for this preset" | record "which Session is live on this URL + which were deprecated" |
+| Failure handling | no live Session → keep in the inbox | missing Session → drop the row; the next open creates fresh |
 
 What we borrow is forum's **delivery discipline**: write the durable row first, perform the side effect second, degrade and record on failure, never pretend success; use `ctx.sessions.flush` to confirm the message really landed. What we do not borrow is its preset key and in-memory map: page identity must be the URL and must survive restarts.
 
@@ -503,10 +510,10 @@ What we borrow is forum's **delivery discipline**: write the durable row first, 
 Suppose `review-workbench` has the page `/task/:id`:
 
 1. Open `/apps/review-workbench/task/1`: the index has no row → write `reserved` → create Session A → write `app/page` and the title "Task #1" → flip to `live` → mount `review_workbench__*` tools and the PAGE block.
-2. Finish and open `/apps/review-workbench/task/2`: a different canonical URL → no row → create Session B; Session A stays exactly as it was, with its tools and page untouched.
-3. Restart DSH and open `/apps/review-workbench/task/1`: the index hits Session A → restore A and re-mount tools for the current app version (the `pageRevision` is unchanged); no new Session.
-4. If Session A was deleted before step 3: the index row's sessionId no longer resolves → delete the row → rebuild a Session C as in step 1. The old "Task #1" history is gone (the user deleted the Session), but the URL still opens a new instance.
-5. If the app was upgraded and `pageRevision` changed from 1 to 2: step 3 does not restore A directly; it offers "view old Session / open with the new version", and only the latter creates a new Session and updates the index (§7.3).
+2. Finish and open `/apps/review-workbench/task/2`: a different canonical URL → create Session B; Session A stays exactly as it was, with its tools and page untouched.
+3. Open `/apps/review-workbench/task/1` again: **create Session C** (no reuse of A); A's tools are stripped, its leases released, and it is marked deprecated; the index now points at C. A's history remains readable in the session list.
+4. After restarting DSH: the URL row still points at C (the latest live Session, preserved across restarts); only the next open creates D and deprecates C.
+5. The app is upgraded and `pageRevision` changes: no `page/stale` refusal anymore — opens always create, so the fresh Session naturally uses the new page version (§9.1).
 
 ### 3.6 Session titles and grouping
 
@@ -544,7 +551,7 @@ cursour
 - provide an app filter (sidebar search or filter chip) and an "archive all page Sessions of this app" action;
 - plain Sessions are not forced into an app; a Session without the `app` projection stays under "Plain Sessions".
 
-**Will ten pages and five apps blow up the list?** Not automatically: only URLs actually opened create Sessions; page definitions are not Sessions. Ten pages produce instances only for the ones the user opened. With instance titles, app folding, and archive-by-app, the list stays usable. The real risk is repeatedly opening the same URL — the URL index guarantees it reuses one Session instead of creating a new one each time.
+**Will ten pages and five apps blow up the list?** Only URLs actually opened create Sessions; page definitions are not Sessions. Ten pages produce instances only for the ones the user opened. Note that after the semantic reversal (§3.5, §9.1), repeatedly opening the same URL accumulates Sessions (old ones are deprecated automatically but kept) — list growth is handled by the session list's own cleanup/archiving, and the URL index no longer papers over it with "reuse".
 
 #### 3.6.3 Session and page projections
 
@@ -1167,24 +1174,28 @@ Acceptance scenarios (all must pass):
 
 1. Install the sample app → the app is discoverable (`app_list`) and the entry URL resolves; **no new preset** appears in the picker;
 2. Open `/task/1` → create Session A, mount page tools, write the index; open `/task/2` → create Session B; A's tools and page stay unchanged;
-3. Close the app and reopen it, then open `/task/1` → return to Session A instead of creating a new one;
-4. Delete Session A, then open `/task/1` → the index invalidates and Session C is created, with working page tools;
+3. **Reopen `/task/1` → always create Session C; A is deprecated automatically (tools stripped, leases released, marked `deprecated`), the index points at C; A's history stays readable** (§3.5.3, §9.1);
+4. **After a full restart the index still points at the latest live Session (never mistaken for deprecated); after deleting a Session, opening the URL invalidates the row and creates fresh, with working page tools**;
 5. Two apps with same-named tools → coexist under different prefixes, no overwrite;
 6. The app sends a task → a live Session receives the notice → `app_open` opens the URL's Session → `task_complete` → the app receives `task/completed`;
 7. Opening an expired task → `task/expired`; opening while disabled → `app/disabled`;
-8. Uninstall → tools removed, Sessions kept, tasks `orphaned`; reinstall → page Sessions can re-mount tools.
+8. Uninstall → tools removed, Sessions kept, tasks `orphaned`; reinstall → opening creates a fresh Session with tools mounted; the old Session is deprecated but readable;
+9. **A deprecated Session's task leases are released with it → the fresh Session can take the task normally** (the key convergence of §3.5.3).
 
 Explicitly out: the full toolbar app-dropdown interaction (Phase 2), sidebar app grouping (Phase 2), app launcher/app home, cross-app tasks, permission enforcement, multi-user, task attachments.
 
 ### 8.2 Phase 2: GUI entry and readability
 
+> **Phase scope narrowed (user decision, §9.1).** The Web side keeps only the **toolbar app dropdown** — its job is "enter an app's entry page" (i.e. create a fresh Session). Intelligence happens only inside Sessions; the Web side is an entry for humans and does not do session management. The following are explicitly **not built**, with reasons:
+>
+> - **Web inbox**: inbox notices are injected in-Session (§5.2); a second inbox UI on the Web adds nothing;
+> - **Sidebar app grouping**: that is session-list management, unrelated to the "entry" job;
+> - **Page tool indicator** ("N tools mounted for this page"): the PAGE block already tells the model the tool list; humans do not need a second view;
+> - **Upgrade UX** (`pageRevision` change prompt): with opens always creating fresh, the "reuse the old Session" upgrade fork no longer exists (§3.5.6).
+
 > **Host assembly layer (landed, `@veren/app-host`).** The "structural probing + lazy ports" loose wiring called out by the phase-1 acceptance report is converged by this plugin: one explicit wiring point (`wireAppHost`) — `taskCenter.setAppResolver ← apps.get` (sender checks + lazy orphan sweep), `apps.setPageMirror ← pageRegistry` (single-entry page registration + tool strip on uninstall), and `pageRegistry.bindPorts` ← the real session port (page tools mount into the owning session's **agent scope**, driven by `agent/created` / `agent/disposed`; messages go through followup + flush; focus is a fixed interface seam whose GUI implementation belongs to the toolbar dropdown). Together with `@veren/app-host-bundle` (a configuration-only bundle inserting the four loader rows in dependency order) it installs into a profile as loader rows. The zero-config probing fallbacks in app-registry / task-center were removed (mirror and resolver are now explicit assembly; unwired means "warn and pass", not implicit probing); page-registry's `createHostSessionPort` remains as the standalone/test fallback so PageRegistryService stays usable without app-host — production always goes through the real port.
 
 - **Toolbar app dropdown**: implement the full interaction in §3.8; wire it into the New Session row and the Session header, backed by the URL index (the focus interface is already fixed by app-host).
-- **Sidebar app grouping**: workspace → app folding, instance titles, filter by app, archive by app.
-- **Web inbox**: task list, detail, open, dismiss; open = select the task URL's Session.
-- **Page tool indicator**: "N tools mounted for this page", expandable.
-- **Upgrade UX**: when `pageRevision` changes, offer "view old Session / open with the new version"; old Session read-only.
 - **Permission consent** and **uninstall data choice**.
 
 ### 8.3 Phase 3: capabilities that grow
@@ -1219,8 +1230,8 @@ Explicitly out: the full toolbar app-dropdown interaction (Phase 2), sidebar app
 
 The user decided:
 
-- **One Session, one page; switching pages inside a Session is forbidden. Switching pages means creating or reusing a page Session.**
-- **One URL, one page instance**: `/task/1` and `/task/2` are two Sessions; the full URL is the page instance key and the Session-reuse key.
+- **One Session, one page; switching pages inside a Session is forbidden. Switching pages means opening a fresh Session.**
+- **One URL, one page instance**: `/task/1` and `/task/2` are two Sessions; the full URL is the page instance key (and, since §9.1.1, the record of which Session is currently live — never a reuse key).
 - **Add an app dropdown to the composer toolbar**, next to the preset selector; no separate app launcher or app home.
 
 | Rejected option | Original argument | Why it was dropped |
@@ -1231,6 +1242,27 @@ The user decided:
 | One preset per app | Preset count equals app count | Still requires switching to the app preset; task notices must switch too; page-level tool isolation disappears |
 
 This revision: **page instance = Session, URL = key, app dropdown = entry.** Presets only decide "how the assistant works"; they do not participate in page identity.
+
+#### 9.1.1 Abandoned: "reopen the same URL and reuse the original Session" (user decision, 2026-10)
+
+**Original design**: the URL index was "identity recovery" — reopening the same URL hit the index and landed back in the original Session (restore focus, re-mount tools when absent).
+
+**User decision (verbatim)**: "One page has exactly one Session; open a new one and the old one is deprecated. Intelligence opens inside a Session; only in-Session work gets intelligent handling. The Web side is for humans — there is no point."
+
+**New semantics**: opening a page URL **always creates a fresh Session**; the previous Session on the same URL is marked `deprecated` — no longer addressable via the URL, page tools stripped, task leases released, but still readable. The URL index is demoted to "which Session is currently live on this URL + which history rows were deprecated"; it no longer recovers identity (§3.5).
+
+**Why reuse was dropped**:
+
+- "Reuse" makes the page URL the Session's identity, but the user's actual mental model is "open a page = open a fresh work surface"; the old design forced people back into an old trajectory, contradicting the model.
+- Intelligent handling happens only inside Sessions; the Web side neither needs nor should maintain a "page → Session" recovery UI outside Sessions.
+- Reuse propped up a whole set of mechanisms (restore-path tool remounting, the `page/stale` upgrade fork, the reserved→live re-entry lock, upgrade UX), all of which can now be deleted or greatly simplified.
+
+**Consequences — places that silently leaned on "reuse" and now need explicit handling**:
+
+- **Task leases**: under the old design a Session holding a task lease indefinitely was safe (Sessions didn't "die"); with deprecation, deprecating must explicitly release leases, or a fresh Session hits `already-taken` and the task is held hostage by a deprecated Session (§3.5.3).
+- **Page tools**: the restore path's "remount when absent" (hasTools probe) is deleted; tools mount only on create and release only on deprecation/destruction.
+- **Crash/restart**: there is no longer an "index recovers the Session"; after a restart an open simply creates fresh; the index row only preserves the "latest live Session" pointer plus deprecated history.
+- **`page/stale` and upgrade UX**: the code stays in the frozen table but the open path never produces it; §7.3's upgrade fork is void.
 
 ### 9.2 Still open
 

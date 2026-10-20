@@ -186,7 +186,7 @@ describe('场景 1：装示例应用 → 可发现、入口可解析、预设零
     expect(record?.toolPrefix).toBe('task_workbench')
     // 入口 URL 可被 openUrl 解析（解析 = 建实例会话成功）
     const opened = await pages.openUrl('/apps/task-workbench/list')
-    expect(opened.created).toBe(true)
+    expect(opened.sessionId).toBeTypeOf('string')
     // 预设选择器零新增：装配里不存在 presets 服务；四个插件的注册路径全部
     // 走 ctx.apps / ctx.pageRegistry / ctx.taskCenter，没有任何预设注册调用
     // （grep 层面见 docs/phase1-acceptance.cn.md 的核对记录）。
@@ -201,7 +201,6 @@ describe('场景 2：/task/1 → 会话 A；/task/2 → 会话 B；A 原样保�
     const { pages, tools, store } = await boot(tempRoot())
     const a = await open(pages, '1')
     const b = await open(pages, '2')
-    expect(a.created && b.created).toBe(true)
     expect(a.sessionId).not.toBe(b.sessionId)
     expect(store.titles()).toContain('任务 #1')
     // A 的工具仍挂着（键 = task_workbench__* 且带会话分组的实现按名字记录）
@@ -211,21 +210,30 @@ describe('场景 2：/task/1 → 会话 A；/task/2 → 会话 B；A 原样保�
   })
 })
 
-// ---- 场景 3 ----
+// ---- 场景 3（§9.1 反转后语义：重开 = 新建 + 旧废弃）----
 
-describe('场景 3：整机重启（真实落盘）→ /task/1 回到会话 A', () => {
-  it('销毁整个 Context（含存储栈）后重开同一目录：索引命中、会话复用、工具重挂', async () => {
+describe('场景 3：整机重启（真实落盘）→ 索引仍指向最新活会话；重开新建并废弃旧会话', () => {
+  it('销毁整个 Context（含存储栈）后重开同一目录：索引指针跨重启保留、指向最新活会话；再开一次新建且旧会话标废弃', async () => {
     const root = tempRoot()
     const first = await boot(root)
     const a = await open(first.pages, '1')
     await first.stop() // 真实销毁：存储域关闭、fiber 逆序卸载
 
     const second = await boot(root) // 同一目录重开 = 重启后的宿主
-    const reopened = await open(second.pages, '1')
-    expect(reopened.created).toBe(false)
-    expect(reopened.sessionId).toBe(a.sessionId)
-    expect(second.store.messages(a.sessionId).some((m) => m.startsWith('PAGE detail'))).toBe(true)
-    // 工具不持久化（§7.5）：重启后打开时重挂，页面工具再次可见
+    // 重启后：URL 索引行还在且指向 a（宿主恢复了会话目录，a 仍是"最新活会话"）
+    const rows = await second.pages.instances.listByApp('task-workbench')
+    const pointer = rows.find((row) => row.url === '/apps/task-workbench/task/1' && row.state === 'live')
+    expect(pointer?.sessionId).toBe(a.sessionId)
+    expect(pointer?.state).toBe('live')
+    // 但打开不再复用：新建会话 B；索引改指 B；a 落废弃历史，不会被误当活的
+    const b = await open(second.pages, '1')
+    expect(b.sessionId).not.toBe(a.sessionId)
+    const after = await second.pages.instances.listByApp('task-workbench')
+    expect(after.find((row) => row.url === '/apps/task-workbench/task/1' && row.state === 'live')?.sessionId).toBe(b.sessionId)
+    const deprecatedRow = after.find((row) => row.state === 'deprecated' && row.sessionId === a.sessionId)
+    expect(deprecatedRow?.state).toBe('deprecated')
+    // 新会话的 PAGE 块与页面工具照常
+    expect(second.store.messages(b.sessionId).some((m) => m.startsWith('PAGE detail'))).toBe(true)
     expect([...second.tools.keys()].filter((name) => name.startsWith('task_workbench__')).length).toBeGreaterThan(0)
   })
 })
@@ -238,7 +246,6 @@ describe('场景 4：删除会话 A → /task/1 重建新会话，工具正常',
     const a = await open(pages, '1')
     store.dsh.get(a.sessionId)!.dispose() // 用户删除会话 A（落盘）
     const c = await open(pages, '1')
-    expect(c.created).toBe(true)
     expect(c.sessionId).not.toBe(a.sessionId)
     expect(store.alive(a.sessionId)).toBe(false)
     expect(store.alive(c.sessionId)).toBe(true)
@@ -345,8 +352,8 @@ describe('场景 7：任务过期 → task/expired；应用禁用 → app/disabl
 
 // ---- 场景 8 ----
 
-describe('场景 8：卸载 → 工具摘掉、会话保留、任务 orphaned；重装后工具恢复', () => {
-  it('fiber 销毁执行全部卸载语义；重装后同一会话可继续工作', async () => {
+describe('场景 8：卸载 → 工具摘掉、会话保留、任务 orphaned；重装后新建会话恢复工具', () => {
+  it('fiber 销毁执行全部卸载语义；重装后打开新建会话，旧会话废弃但可读', async () => {
     const root = tempRoot()
     const first = await boot(root)
     const a = await open(first.pages, '1')
@@ -365,9 +372,36 @@ describe('场景 8：卸载 → 工具摘掉、会话保留、任务 orphaned；
 
     const second = await boot(root) // 重装（新宿主、同一持久目录）
     const reopened = await open(second.pages, '1')
-    expect(reopened.created).toBe(false)
-    expect(reopened.sessionId).toBe(a.sessionId)
-    // 重装后页面会话可恢复工具（恢复路径重挂）
+    // 重装后打开 = 新建会话；索引指向新会话，旧会话落废弃历史但消息仍可读
+    expect(reopened.sessionId).not.toBe(a.sessionId)
+    const rows = await second.pages.instances.listByApp('task-workbench')
+    expect(rows.find((row) => row.url === '/apps/task-workbench/task/1' && row.state === 'live')?.sessionId).toBe(reopened.sessionId)
+    expect(rows.some((row) => row.state === 'deprecated' && row.sessionId === a.sessionId)).toBe(true)
+    expect(second.store.messages(a.sessionId).some((m) => m.startsWith('PAGE detail'))).toBe(true)
+    // 新会话的页面工具照常挂载
     expect(second.tools.has('task_workbench__complete_task')).toBe(true)
+  })
+})
+
+// ---- 场景 9（§9.1 反转的关键边角：废弃会话释放任务租约）----
+
+describe('场景 9：旧会话持有任务租约时被废弃 → 租约释放 → 新会话可接取', () => {
+  it('旧会话 taken 的任务，重开同 URL 后新会话再次 take 成功（不会被 already-taken 挡住）', async () => {
+    const { pages, tasks, store } = await boot(tempRoot())
+    const record = await tasks.send({
+      kind: 'task-workbench/publish' as never,
+      title: '租约要随废弃释放的任务',
+      target: { url: '/apps/task-workbench/task/1' as PageInstanceKey, appId: 'task-workbench', page: 'detail', params: { taskId: '1' } },
+    })
+    const a = await open(pages, '1', { taskId: record.id })
+    expect((await tasks.get(record.id))?.claimedBy?.sessionId).toBe(a.sessionId)
+    // 重开同 URL：旧会话废弃；它持有的租约随之释放
+    const b = await open(pages, '1', { taskId: record.id })
+    expect(b.sessionId).not.toBe(a.sessionId)
+    const after = await tasks.get(record.id)
+    expect(after?.status).toBe('taken')
+    expect(after?.claimedBy?.sessionId).toBe(b.sessionId) // 新会话拿到，不再 already-taken
+    // TASK 块在新会话里；旧会话的日志保持只有它自己的那一次
+    expect(store.messages(b.sessionId).some((m) => m.startsWith(`TASK ${record.id}`))).toBe(true)
   })
 })

@@ -54,7 +54,7 @@ describe('canonicalizePageUrl（§3.5.1）', () => {
 })
 
 describe('KvPageInstanceIndex（两阶段创建 + 持久化）', () => {
-  it('reserve → commit 翻 live；同一 URL 两次打开语义由 lookup 命中体现', async () => {
+  it('reserve → commit 翻 live；lookup 返回 URL 当前指向的会话', async () => {
     const kv = memKv()
     const index = new KvPageInstanceIndex(kv)
     await index.reserve('/apps/demo/task/1' as PageInstanceKey, 's-1', snapshot())
@@ -119,15 +119,48 @@ describe('KvPageInstanceIndex（两阶段创建 + 持久化）', () => {
     expect(kv.map.has(url)).toBe(false)
   })
 
-  it('进程重启：同一份 KV 挂一个新索引实例，仍命中同一会话', async () => {
+  it('deprecate：当前行挪进废弃历史键，URL 腾出，同 URL 可再次 reserve', async () => {
+    const kv = memKv()
+    const index = new KvPageInstanceIndex(kv)
+    const url = '/apps/demo/task/1' as PageInstanceKey
+    await index.reserve(url, 's-1', snapshot())
+    await index.commit(url, 's-1')
+    const old = await index.deprecate(url, 'superseded')
+    expect(old?.state).toBe('deprecated')
+    expect(old?.sessionId).toBe('s-1')
+    expect(old?.deprecatedAt).toBeTypeOf('string')
+    expect(kv.map.has(url)).toBe(false)
+    expect(kv.map.get(`deprecated:s-1`)?.state).toBe('deprecated')
+    // URL 腾出后新会话可以 reserve（打开一律新建的落点）
+    await expect(index.reserve(url, 's-2', snapshot())).resolves.toMatchObject({ state: 'reserved' })
+  })
+
+  it('deprecate 无行时返回 undefined；reserved 行同样可被废弃（并发打开收敛）', async () => {
+    const kv = memKv()
+    const index = new KvPageInstanceIndex(kv)
+    const url = '/apps/demo/task/1' as PageInstanceKey
+    expect(await index.deprecate(url, 'nothing there')).toBeUndefined()
+    await index.reserve(url, 's-1', snapshot())
+    const old = await index.deprecate(url, 'concurrent open')
+    expect(old?.state).toBe('deprecated')
+    expect(kv.map.has(url)).toBe(false)
+  })
+
+  it('进程重启：URL 仍指向最新活会话；废弃历史行保留、不会被误当活的', async () => {
     const kv = memKv()
     const first = new KvPageInstanceIndex(kv)
     const url = '/apps/demo/task/1' as PageInstanceKey
     await first.reserve(url, 's-1', snapshot())
     await first.commit(url, 's-1')
+    await first.deprecate(url, 'superseded')
+    await first.reserve(url, 's-2', snapshot())
+    await first.commit(url, 's-2')
     const restarted = new KvPageInstanceIndex(kv)
     const row = await restarted.lookup(url)
-    expect(row?.sessionId).toBe('s-1')
+    expect(row?.sessionId).toBe('s-2')
     expect(row?.state).toBe('live')
+    const history = kv.map.get('deprecated:s-1')
+    expect(history?.state).toBe('deprecated')
+    expect(await restarted.lookup(url)).toMatchObject({ sessionId: 's-2' })
   })
 })

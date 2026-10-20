@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { Context } from '@deepseek-ai/cordis'
-import { KvPageInstanceIndex, PageError, definePage } from '@veren/prompt-page'
+import { KvPageInstanceIndex, PageError, definePage, deprecatedRowKey } from '@veren/prompt-page'
 import type { InstanceKvPort } from '@veren/prompt-page'
 import type { PageInstanceRecord } from '@veren/prompt-page'
 import PageRegistryPlugin, { PageRegistryService } from '../src/index.ts'
@@ -22,12 +22,14 @@ function memKv(): InstanceKvPort & { readonly map: Map<string, PageInstanceRecor
   }
 }
 
-/** 会话端口假件：记录创建/挂载/销毁，可注入失败 */
+/** 会话端口假件：记录创建/挂载/释放/销毁，可注入失败。
+ *  releaseTools 真的把挂载记录摘掉——废弃语义（旧会话工具摘干净）由此可断言。 */
 function fakeSessions() {
   const created: string[] = []
   const titles = new Map<string, string>()
   const messages = new Map<string, string[]>()
   const mounted = new Map<string, MountedTool[]>()
+  const released: string[] = []
   const focused: string[] = []
   const destroyed: string[] = []
   let failCreate: Error | undefined
@@ -46,12 +48,17 @@ function fakeSessions() {
       if (failMount) throw failMount
       mounted.set(id, [...tools])
     },
-    async releaseTools() { /* 默认实现：随 agent 作用域整组释放 */ },
-    hasTools: (id) => mounted.has(id),
+    async releaseTools(id) {
+      mounted.delete(id)
+      released.push(id)
+    },
     async focus(id) { focused.push(id) },
     async destroy(id) { destroyed.push(id) },
   }
-  return { port, created, titles, messages, mounted, focused, destroyed, fail: (e?: Error) => { failCreate = e }, failMount: (e?: Error) => { failMount = e } }
+  return {
+    port, created, titles, messages, mounted, released, focused, destroyed,
+    fail: (e?: Error) => { failCreate = e }, failMount: (e?: Error) => { failMount = e },
+  }
 }
 
 function taskPage(pageRevision = 1) {
@@ -101,28 +108,49 @@ function makeService(options: {
   return { service, kv, sessions, dispose }
 }
 
-describe('页面运行时：一个 URL 一条会话（§3.4、§3.5.3）', () => {
-  it('同一 URL 两次打开只建一条会话；第二次是恢复不是新建', async () => {
-    const { service, sessions } = makeService()
+describe('页面运行时：打开 URL 一律新建，旧会话废弃（§3.5.3、§9.1）', () => {
+  it('①同一 URL 连开两次 → 两条不同会话；索引指向后一条，前一条状态为废弃', async () => {
+    const { service, kv, sessions } = makeService()
     const first = await service.openUrl('/apps/demo/task/1')
     const second = await service.openUrl('/apps/demo/task/1')
-    expect(first.created).toBe(true)
-    expect(second.created).toBe(false)
-    expect(second.sessionId).toBe(first.sessionId)
-    expect(sessions.created).toHaveLength(1)
-    expect(sessions.mounted.get(first.sessionId)).toHaveLength(1) // 工具只挂一次
+    expect(second.sessionId).not.toBe(first.sessionId)
+    expect(sessions.created).toEqual([first.sessionId, second.sessionId])
+    // 索引（URL 键）指向最新的那条活会话
+    expect(kv.map.get('/apps/demo/task/1')?.state).toBe('live')
+    expect(kv.map.get('/apps/demo/task/1')?.sessionId).toBe(second.sessionId)
+    // 前一条挪进废弃历史：状态 deprecated、可按 sessionId 找回
+    const old = kv.map.get(deprecatedRowKey(first.sessionId))
+    expect(old?.state).toBe('deprecated')
+    expect(old?.sessionId).toBe(first.sessionId)
+    expect(old?.deprecatedAt).toBeTypeOf('string')
   })
 
-  it('/task/1 与 /task/2 得到两条不同会话；查询串参与身份', async () => {
+  it('②旧会话的页面工具已摘干净；新会话的工具不受影响', async () => {
     const { service, sessions } = makeService()
+    const first = await service.openUrl('/apps/demo/task/1')
+    expect(sessions.mounted.get(first.sessionId)).toHaveLength(1)
+    const second = await service.openUrl('/apps/demo/task/1')
+    // 旧会话：工具整组摘除（released 记录 + mounted 表清空）
+    expect(sessions.released).toEqual([first.sessionId])
+    expect(sessions.mounted.has(first.sessionId)).toBe(false)
+    // 新会话：自己的一套，完好
+    expect(sessions.mounted.get(second.sessionId)).toHaveLength(1)
+    // 新会话的 PAGE 块照写；旧会话不再追加任何块
+    expect((sessions.messages.get(second.sessionId) ?? []).some((m) => m.startsWith('app/page::'))).toBe(true)
+    expect(sessions.messages.get(first.sessionId)).toHaveLength(1)
+  })
+
+  it('/task/1 与 /task/2 互不干扰；重开 /task/1 只废弃 /task/1 的旧会话', async () => {
+    const { service, kv, sessions } = makeService()
     const a = await service.openUrl('/apps/demo/task/1')
     const b = await service.openUrl('/apps/demo/task/2')
-    const c = await service.openUrl('/apps/demo/task/1?tab=diff')
     expect(a.sessionId).not.toBe(b.sessionId)
-    expect(a.sessionId).not.toBe(c.sessionId)
-    expect(sessions.created).toHaveLength(3)
-    // 打开 /task/2 后回到 /task/1：A 原样保留
-    expect((await service.openUrl('/apps/demo/task/1')).sessionId).toBe(a.sessionId)
+    const a2 = await service.openUrl('/apps/demo/task/1')
+    expect(a2.sessionId).not.toBe(a.sessionId)
+    // 只有 /task/1 的旧会话被废弃；/task/2 的会话原样保留
+    expect(kv.map.get(deprecatedRowKey(a.sessionId))?.state).toBe('deprecated')
+    expect(kv.map.get('/apps/demo/task/2')?.sessionId).toBe(b.sessionId)
+    expect(sessions.released).toEqual([a.sessionId])
   })
 
   it('会话标题：instanceTitle(params) 写进会话标题与索引（§3.6.1）', async () => {
@@ -132,7 +160,7 @@ describe('页面运行时：一个 URL 一条会话（§3.4、§3.5.3）', () =>
     expect(kv.map.get('/apps/demo/task/1')?.instanceTitle).toBe('任务 #1')
   })
 
-  it('PAGE 块写一次：应用说明 + 页面说明 + 带前缀的工具清单', async () => {
+  it('PAGE 块随新会话写一次：应用说明 + 页面说明 + 带前缀的工具清单', async () => {
     const { service, sessions } = makeService()
     const opened = await service.openUrl('/apps/demo/task/1')
     const blocks = sessions.messages.get(opened.sessionId) ?? []
@@ -147,21 +175,24 @@ describe('页面运行时：一个 URL 一条会话（§3.4、§3.5.3）', () =>
     const first = await service.openUrl('/apps/demo/task/1')
     sessions.destroyed.push(first.sessionId) // 模拟用户删除会话
     const reopened = await service.openUrl('/apps/demo/task/1')
-    expect(reopened.created).toBe(true)
     expect(reopened.sessionId).not.toBe(first.sessionId)
     expect(sessions.created).toHaveLength(2)
   })
 
-  it('进程重启：同一份存储挂新索引，仍命中同一会话', async () => {
+  it('④重启后：索引仍指向最新那条活会话，旧会话不会被误当活的', async () => {
     const first = makeService()
     const opened = await first.service.openUrl('/apps/demo/task/1')
-    // "重启"：新服务 + 新索引实例 + 同一份 KV；重启后该会话仍在（宿主恢复）
+    // "重启"：新服务 + 新索引实例 + 同一份 KV；宿主恢复了会话目录（旧会话还在）
     const second = makeService()
     for (const [key, value] of first.kv.map) second.kv.map.set(key, value)
-    second.sessions.created.push(opened.sessionId) // 重启后宿主恢复了这条会话
+    second.sessions.created.push(opened.sessionId) // 重启后宿主恢复的旧会话
     const reopened = await second.service.openUrl('/apps/demo/task/1')
-    expect(reopened.created).toBe(false)
-    expect(reopened.sessionId).toBe(opened.sessionId)
+    // 不再复用：新建一条；索引改指新会话；旧会话落废弃历史
+    expect(reopened.sessionId).not.toBe(opened.sessionId)
+    expect(second.kv.map.get('/apps/demo/task/1')?.sessionId).toBe(reopened.sessionId)
+    expect(second.kv.map.get(deprecatedRowKey(opened.sessionId))?.state).toBe('deprecated')
+    // 废弃历史跨重启可查：旧行不会重新变成活会话
+    expect(second.kv.map.has('/apps/demo/task/1')).toBe(true)
   })
 
   it('reserved 阶段失败（建会话抛错）：清理半成品、删行、码 page/session-create-failed', async () => {
@@ -180,6 +211,20 @@ describe('页面运行时：一个 URL 一条会话（§3.4、§3.5.3）', () =>
     expect(sessions.destroyed).toHaveLength(1)
     expect(kv.map.size).toBe(0)
   })
+
+  it('废弃标记写失败：整步中止，旧会话仍是索引里的活会话（下次打开重试）', async () => {
+    const { service, kv, sessions } = makeService()
+    const first = await service.openUrl('/apps/demo/task/1')
+    // 只破坏废弃路径：换一个 deprecate 会抛的索引
+    const failing = new KvPageInstanceIndex(kv)
+    failing.deprecate = async () => { throw new Error('disk full') }
+    service.bindPorts({}, failing)
+    await expect(service.openUrl('/apps/demo/task/1'))
+      .rejects.toMatchObject({ code: 'page/index-unavailable' })
+    // 收敛：没有新会话、没有半成品，URL 仍指向旧会话
+    expect(sessions.created).toEqual([first.sessionId])
+    expect(kv.map.get('/apps/demo/task/1')?.sessionId).toBe(first.sessionId)
+  })
 })
 
 describe('app_open 错误路径（稳定码）', () => {
@@ -192,16 +237,15 @@ describe('app_open 错误路径（稳定码）', () => {
       .rejects.toMatchObject({ code: 'app/disabled' })
   })
 
-  it('页面契约版本变化 → page/stale，不静默复用旧会话（§7.3）', async () => {
+  it('页面契约版本变化：不再拒绝，直接按新版本新建会话（§9.1）', async () => {
     const fresh = makeService()
     const old = await fresh.service.openUrl('/apps/demo/task/1')
     // 应用升级：页面换成 pageRevision 2（旧定义摘除，新定义注册）
     fresh.dispose()
     fresh.service.register(taskPage(2) as never)
-    await expect(fresh.service.openUrl('/apps/demo/task/1'))
-      .rejects.toMatchObject({ code: 'page/stale' })
-    expect(fresh.sessions.created).toHaveLength(1) // 没有悄悄新建
-    expect(old.created).toBe(true)
+    const opened = await fresh.service.openUrl('/apps/demo/task/1')
+    expect(opened.sessionId).not.toBe(old.sessionId)
+    expect(fresh.sessions.created).toHaveLength(2) // 旧会话废弃、新会话建成
   })
 
   it('URL 未命中任何页面 → page/not-found', async () => {
@@ -223,17 +267,33 @@ describe('任务闭环（§5.3：先 take 再追加 TASK 块）', () => {
     expect(blocks.some((block) => block.startsWith('app/task::TASK t-42 任务 t-42'))).toBe(true)
   })
 
-  it('任务过期：错误码 task/expired 原样透出，页面照开但不写 TASK 块', async () => {
+  it('③旧会话持任务时被废弃 → 租约释放 → 新会话可正常接取', async () => {
+    const taken: string[] = []
+    const released: string[] = []
+    const { service, sessions } = makeService({
+      tasks: { take: async (id, claim) => { taken.push(id); return { title: `任务 ${id}`, claim } } },
+    })
+    // 注入真实的释放面：记录被释放租约的持有会话
+    service.bindPorts({ releaseLeases: async (sessionId) => { released.push(sessionId) } })
+    const first = await service.openUrl('/apps/demo/task/1', { taskId: 't-1' })
+    expect(taken).toEqual(['t-1'])
+    // 旧会话持有 t-1 的租约时，同 URL 重开：废弃会话释放租约，新会话再次接取成功
+    const second = await service.openUrl('/apps/demo/task/1', { taskId: 't-1' })
+    expect(second.sessionId).not.toBe(first.sessionId)
+    expect(released).toEqual([first.sessionId])
+    expect(taken).toEqual(['t-1', 't-1']) // 新会话拿到任务，没有被 already-taken 挡住
+    // TASK 块写进了新会话，而不是废弃的旧会话
+    expect((sessions.messages.get(second.sessionId) ?? []).some((m) => m.startsWith('app/task::TASK t-1'))).toBe(true)
+  })
+
+  it('任务过期：错误码 task/expired 原样透出，页面会话已建成但不写 TASK 块', async () => {
     const { service, sessions } = makeService({
       tasks: { take: async () => { throw new PageError('task/expired', 'task t-9 expired') } },
     })
-    // §5.6：任务过期 → 打开被拒，码 task/expired
     await expect(service.openUrl('/apps/demo/task/1', { taskId: 't-9' }))
       .rejects.toMatchObject({ code: 'task/expired' })
-    // 页面会话本身已建成且无 TASK 块；不带 taskId 仍可恢复
-    const reopened = await service.openUrl('/apps/demo/task/1')
-    expect(reopened.created).toBe(false)
-    expect((sessions.messages.get(reopened.sessionId) ?? []).every((block) => !block.startsWith('app/task::'))).toBe(true)
+    const opened = await service.openUrl('/apps/demo/task/1')
+    expect((sessions.messages.get(opened.sessionId) ?? []).every((block) => !block.startsWith('app/task::'))).toBe(true)
   })
 
   it('索引不可用：openUrl 给 page/index-unavailable，不假成功', async () => {
@@ -262,18 +322,17 @@ describe('工具前缀与应用作用域（§3.4.3、§3.1）', () => {  it('页
     expect(externalToolName('review_workbench', 'read_diff')).toBe('review_workbench__read_diff')
   })
 
-  it('挂载与释放可验证：挂载记录在会话名下；失败时销毁即整组释放', async () => {
+  it('挂载可验证：挂载记录在会话名下，DSH 本体直达', async () => {
     const { service, sessions } = makeService()
     const opened = await service.openUrl('/apps/demo/task/1')
     const mounted = sessions.mounted.get(opened.sessionId) ?? []
     expect(mounted.map((tool) => tool.name)).toEqual(['demo__read'])
     expect(mounted[0]?.execute).toBeTypeOf('function')
-    // 会话销毁路径：destroy 被调用即代表宿主按会话整组释放（§3.4.4 兜底 1）
     expect(sessions.destroyed).toHaveLength(0)
   })
 })
 
-describe('缺口 1/4 收尾：通知投递泵、工具重挂、reserved 清扫', () => {
+describe('缺口 1/4 收尾：通知投递泵、reserved 清扫', () => {
   /** 带投递面的装配 / assembly with a delivery face */
   function makeWithDelivery(notices: Array<{ deliveryId: string; text: string }>) {
     const harness = makeService()
@@ -311,20 +370,7 @@ describe('缺口 1/4 收尾：通知投递泵、工具重挂、reserved 清扫',
       },
     })
     const opened = await service.openUrl('/apps/demo/task/1')
-    expect(opened.created).toBe(true)
     expect(marked).toEqual([{ id: 'd-1', error: 'agent gone' }])
-  })
-
-  it('恢复路径只在工具缺席时重挂（hasTools），不重复注册', async () => {
-    const { service, sessions } = makeService()
-    const opened = await service.openUrl('/apps/demo/task/1')
-    sessions.mounted.delete(opened.sessionId) // 模拟应用卸载摘掉了工具
-    const restored = await service.openUrl('/apps/demo/task/1')
-    expect(restored.created).toBe(false)
-    expect(sessions.mounted.get(opened.sessionId)).toHaveLength(1) // 重挂一次
-    // 再开一次：工具还在，不重挂
-    await service.openUrl('/apps/demo/task/1')
-    expect(sessions.mounted.get(opened.sessionId)).toHaveLength(1)
   })
 
   it('sweepReserved：会话不在的 reserved 行删除；live 行不动；无探测不动', async () => {

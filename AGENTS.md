@@ -108,7 +108,7 @@ export function apply(ctx: Context): void { ... }
     2. `agent/created` 真实载荷形状：新建一个会话并随便发一句话；看什么——会话日志里 `agent/created` 事件载荷含 `agent`/`source` 键且 `agent.session.id` 与会话一致；通过标准——键齐全、id 对得上（替身假设作废的判据）。
     3. 真实会话创建：浏览器打开 `/apps/task-workbench/task/1` 与 `/list`；看什么——`app-pages` 存储域里出现两条 live 实例行、sessionId 互不相同；通过标准——两行 state=live 且分别属于两个会话。
     4. 工具作用域互斥：两个会话各自问 agent"你有哪些工具"；看什么——list 页会话只见 `task_workbench__take_task` 系、detail 页会话只见 `abandon_task`/`complete_task` 系，交叉不可见；通过标准——同名工具集合不跨会话出现。
-    5. 重开回原会话：同一 URL 再开一次；看什么——不新建会话、轨迹连续；通过标准——`app-pages` 行 sessionId 不变（自动化已有，真机复核持久化跨重启）。
+    5. 重开同 URL 总是新建（§9.1 反转）：同一 URL 再开一次；看什么——新建会话、旧会话标废弃（工具摘除、索引指向新会话）；通过标准——`app-pages` 里该 URL 的 live 行 sessionId 变为新会话，旧 sessionId 行 state=deprecated（自动化已有，真机复核持久化跨重启）。
     6. 任务通知落真实日志：`taskCenter.send` 一条 target 指向 detail 页的任务，再带 taskId 打开该页；看什么——真实会话日志里出现 `TASK <id>` 块与 `[task-center] <标题>` 收件箱文本；通过标准——两条都进日志且任务翻 delivered（真实 followup + 投递泵跑在真宿主上的判据）。
 
 ## 注意

@@ -4,13 +4,15 @@
  * 索引本体在这里，与存储介质解耦：构造时注入一个最小 KV 端口
  * （get/put/del/all，语义与仓库既有 storageDomain 的 `KvTable` 一致）。
  * 插件侧（page-registry）用 `app-pages` 存储域提供该端口；测试用内存 map。
- * 行是自包含 JSON 记录，进程重启后原样读回 → 同一 URL 仍命中同一会话（§3.5.4）。
+ * 行是自包含 JSON 记录，进程重启后原样读回：URL 仍指向最新的活会话，废弃
+ * 历史行保留可查（§3.5.4）。
  *
  * The index lives here, decoupled from the medium: a minimal kv port is
  * injected (get/put/del/all, the same shape as the repo's storageDomain
  * `KvTable`). The page-registry plugin backs it with the `app-pages` storage
- * domain; tests use an in-memory map. Rows survive restarts, so the same url
- * still resolves to the same session (§3.5.4).
+ * domain; tests use an in-memory map. Rows survive restarts: a url still
+ * points at its latest live session, and deprecated history rows stay
+ * readable (§3.5.4).
  *
  * @module @veren/prompt-page/instance-index
  */
@@ -63,11 +65,21 @@ function reservedRow(
   }
 }
 
+/** 废弃历史行的键：`deprecated:<sessionId>`（规范 URL 以 `/` 开头，不相交）
+ * / history key of a deprecated row: `deprecated:<sessionId>` (canonical urls start with `/`) */
+export function deprecatedRowKey(sessionId: string): string {
+  return `deprecated:${sessionId}`
+}
+
 /**
  * KV 背书的页面实例索引。所有写操作串行（FIFO），避免并发 reserve 双写；
  * 唯一约束：url 唯一、sessionId 唯一（§3.5.2）。
+ * 行存放：URL 键只有一行（当前指针，reserved/live）；废弃行挪到
+ * `deprecated:<sessionId>` 历史键（规范 URL 以 `/` 开头，键空间不相交）。
  * The kv-backed instance index. Writes are serialized FIFO; url and sessionId
- * are both unique.
+ * are both unique. Row placement: one url-keyed row (the current pointer,
+ * reserved/live); deprecated rows move to the `deprecated:<sessionId>` history
+ * key (canonical urls start with `/`, so the key spaces never collide).
  */
 export class KvPageInstanceIndex implements PageInstanceIndex {
   private readonly now: () => string
@@ -117,6 +129,26 @@ export class KvPageInstanceIndex implements PageInstanceIndex {
       const live: PageInstanceRecord = { ...row, state: 'live', lastOpenedAt: this.now() }
       await this.table.put(url, live)
       return live
+    })
+  }
+
+/**
+ * 把当前行标废弃并挪进历史键，腾出 URL（§3.5.3 的"写废弃标记"一步）。
+ * 写链内执行：与 reserve/commit 串行，腾出 URL 后 reserve 不会再撞
+ * `page/index-conflict`。无行（含已被 forget）时返回 undefined。
+ * Deprecate the current row into its history key, freeing the url (the
+ * "write the deprecated marker" step of §3.5.3). Runs on the write chain, so
+ * a following reserve cannot hit `page/index-conflict`. Returns undefined
+ * when there is no row (including after a forget).
+ */
+  async deprecate(url: PageInstanceKey, _reason: string): Promise<PageInstanceRecord | undefined> {
+    return this.write(async () => {
+      const row = this.table.get(url)
+      if (row === undefined) return undefined
+      const deprecated: PageInstanceRecord = { ...row, state: 'deprecated', deprecatedAt: this.now() }
+      await this.table.put(deprecatedRowKey(row.sessionId), deprecated)
+      await this.table.del(url)
+      return deprecated
     })
   }
 

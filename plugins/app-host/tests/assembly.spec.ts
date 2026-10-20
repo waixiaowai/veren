@@ -187,7 +187,7 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     registerMiniApp(h)
     // 镜像面：apps.pages 单入口注册 → openUrl 直接可解析（装配接的线在起作用）
     const opened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
-    expect(opened.created).toBe(true)
+    expect(opened.sessionId).toBeTypeOf('string')
     // resolver：未注册应用 send 被拒（装配接的线在起作用）
     await expect(h.tasks.send({
       kind: 'mini/kind' as never, title: 't',
@@ -259,31 +259,43 @@ describe('隔离是真的：同一宿主两个会话的 agent 作用域互不可
 })
 
 describe('真机探针的可自动化收编（原 @veren/app-host-verify 六项中的 5/6 项）', () => {
-  it('重开同一 URL 回到原会话：不新建（真实实例索引持久化，非替身）', async () => {
+  it('重开同一 URL → 总是新会话：旧会话废弃、工具摘除，索引指向新会话（真实实例索引持久化，非替身）', async () => {
     const h = await boot()
     registerMiniApp(h)
     const first = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
-    expect(first.created).toBe(true)
+    // 先让旧会话的 agent 激活（工具挂进它的作用域），再重开同 URL
+    const scopeA = h.host.startAgent(first.sessionId)
+    expect([...scopeA.registry.keys()]).toEqual(['mini__read'])
     const second = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
-    expect(second.created).toBe(false)
-    expect(second.sessionId).toBe(first.sessionId)
+    expect(second.sessionId).not.toBe(first.sessionId)
+    // 索引（URL 键）指向新会话；旧行挪进废弃历史且状态 deprecated
+    const rows = await h.pages.instances.listByApp('mini')
+    expect(rows.find((row) => row.url === '/apps/mini/task/1' && row.state === 'live')?.sessionId).toBe(second.sessionId)
+    expect(rows.some((row) => row.state === 'deprecated' && row.sessionId === first.sessionId)).toBe(true)
+    // 旧会话的页面工具已被废弃路径整组摘除；销毁旧 agent 不再是唯一清理者
+    expect(scopeA.registry.size).toBe(0)
   })
 
-  it('任务通知经投递泵落进真实会话：take 的 TASK 块与收件箱 [task-center] 文本都经 followup 进来', async () => {
+  it('任务通知经投递泵落进真实会话：重开后的新会话拿到 TASK 块与收件箱 [task-center] 文本', async () => {
     const h = await boot()
     registerMiniApp(h)
     const opened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
-    // followup 面要求 agent 已激活（真实 session-port 语义），先让 agent 活
-    const scope = h.host.startAgent(opened.sessionId)
+    void opened // 第一次打开的会话马上被重开废弃；任务落在新会话上
+    // 重开同 URL：新建会话并让它的 agent 激活（followup 面要求 agent 已激活）
+    const fresh = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
+    const scope = h.host.startAgent(fresh.sessionId)
     const task = await h.tasks.send({
       kind: 'mini/kind' as never, title: '真机验证任务',
       target: { url: '/apps/mini/task/1' as PageInstanceKey, appId: 'mini', page: 'task', params: { taskId: '1' } },
     })
-    const reopened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey, { taskId: task.id })
-    expect(reopened.created).toBe(false)
-    // take 成功 → TASK 块经 appendUserMessage(followup) 进入该会话
-    expect(scope.followups.some((m) => m.includes(`TASK ${task.id}`))).toBe(true)
-    // 收件箱投递泵把 [task-center] 通知文本也注进同一条会话
-    expect(scope.followups.some((m) => m.includes('[task-center] 真机验证任务'))).toBe(true)
+    // 带 taskId 打开 = 再一次新建（废弃上一条），take 成功 → TASK 块进入新会话
+    const opened2 = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey, { taskId: task.id })
+    expect(opened2.sessionId).not.toBe(fresh.sessionId)
+    const scope2 = h.host.startAgent(opened2.sessionId)
+    // TASK 块与收件箱通知在排队（agent 后到），agent 激活时按序 followup 进来
+    expect(scope2.followups.some((m) => m.includes(`TASK ${task.id}`))).toBe(true)
+    expect(scope2.followups.some((m) => m.includes('[task-center] 真机验证任务'))).toBe(true)
+    // 新会话 PAGE 块也在；旧会话没有收到任务的任何块
+    expect(scope.followups.some((m) => m.includes(`TASK ${task.id}`))).toBe(false)
   })
 })

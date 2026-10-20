@@ -16,7 +16,9 @@ import type { PageInstanceRecord } from '@veren/prompt-page'
 
 const instanceSchema = z.object({
   url: z.string().min(1),
-  state: z.enum(['reserved', 'live']),
+  // reserved：两阶段创建中；live：URL 当前的活会话；deprecated：被重开取代的历史行
+  // reserved: mid two-phase create; live: the url's current session; deprecated: superseded history
+  state: z.enum(['reserved', 'live', 'deprecated']),
   appId: z.string().min(1),
   page: z.string().min(1),
   sessionId: z.string().min(1),
@@ -26,6 +28,7 @@ const instanceSchema = z.object({
   appVersion: z.string().min(1),
   createdAt: z.string().min(1),
   lastOpenedAt: z.string().min(1),
+  deprecatedAt: z.string().min(1).optional(),
 })
 
 /**

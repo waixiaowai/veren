@@ -3,10 +3,10 @@
  * The `app_open` host tool: the model-side entry to open a page url.
  *
  * 全局工具（不带应用前缀）；页面工具永远不叫这个名字。用 `defineTool` 产出
- * DSH `ToolDefinition` 后原样 `ctx.tools.register`，零形状转换。打开动作发生
- * 在目标会话上：命中恢复、未命中创建；当前会话的页面、工具、历史一律不动。
- * 失败码来自 PageErrorCode（app/not-found、app/disabled、page/stale、
- * page/not-found、task/expired…），原样透出给模型。
+ * DSH `ToolDefinition` 后原样 `ctx.tools.register`，零形状转换。打开动作发生在
+ * 目标会话上：一律新建一条页面会话（同 URL 旧会话自动废弃，§3.5.3）；当前
+ * 会话的页面、工具、历史一律不动。失败码来自 PageErrorCode（app/not-found、
+ * app/disabled、page/not-found、task/expired…），原样透出给模型。
  *
  * @module @veren/page-registry/tools
  */
@@ -17,7 +17,7 @@ import type {} from '@deepseek-ai/dsh-tools'
 
 /** app_open 需要的最小服务面 / the minimal service face app_open needs */
 export interface AppOpenPort {
-  openUrl(url: string, options?: { taskId?: string }): Promise<{ sessionId: string; created: boolean; title: string }>
+  openUrl(url: string, options?: { taskId?: string }): Promise<{ sessionId: string; title: string }>
 }
 
 
@@ -43,9 +43,10 @@ export function registerAppOpenTool(ctx: Context, port: () => AppOpenPort): void
   ctx.effect(() => registry.register(defineTool({
     name: 'app_open',
     description: 'Open an application page URL (for example /apps/review-workbench/task/1) or take a task '
-      + 'with taskId. It returns the page session the url maps to: an existing session is resumed and focused, '
-      + 'a missing one is created with the page\u2019s tools mounted. Your own session, tools, and history never change. '
-      + 'Failures carry stable codes: app/not-found, app/disabled, page/not-found, page/stale, task/expired.',
+      + 'with taskId. It always creates a fresh page session with the page\u2019s tools mounted and returns it; '
+      + 'a previous session on the same url is deprecated automatically and never addressed via the url again. '
+      + 'Your own session, tools, and history never change. '
+      + 'Failures carry stable codes: app/not-found, app/disabled, page/not-found, task/expired.',
     parameters: {
       url: { type: 'string', required: true, description: 'Canonical page URL: /apps/<appId>/<path>[/more][?query]' },
       taskId: { type: 'string', description: 'Task id to take after the page session is open (task workflow).' },

@@ -26,6 +26,7 @@ class UnavailableIndex implements PageInstanceIndex {
   lookup(): Promise<undefined> { return Promise.reject(unavailable()) }
   reserve(): Promise<PageInstanceRecord> { return Promise.reject(unavailable()) }
   commit(): Promise<PageInstanceRecord> { return Promise.reject(unavailable()) }
+  deprecate(): Promise<PageInstanceRecord | undefined> { return Promise.reject(unavailable()) }
   fail(): Promise<void> { return Promise.reject(unavailable()) }
   forget(): Promise<void> { return Promise.reject(unavailable()) }
   listByApp(): Promise<readonly PageInstanceRecord[]> { return Promise.reject(unavailable()) }
@@ -98,6 +99,23 @@ function hostPorts(ctx: Context, sessions: PageSessionPort): PageRuntimePorts {
         mark: (id, error) => taskCenter.markDelivered(id, error),
       }
     },
+    get releaseLeases(): ((sessionId: string) => Promise<void>) | undefined {
+      // 废弃会话时释放它持有的任务租约：按接取会话列出 taken，逐条 release。
+      // 单条 release 失败（如已被并发回收）不影响其余；整面缺席时运行时靠
+      // 任务中心的懒租约回收兜底。
+      // Release the leases a deprecated session holds: list taken tasks by
+      // claimant session and release each. A per-task failure (e.g. recycled
+      // concurrently) leaves the rest; when the face is absent the runtime
+      // falls back to the task center's lazy lease recycling.
+      const taskCenter = ctx.get('taskCenter')
+      if (taskCenter?.list === undefined || taskCenter.release === undefined) return undefined
+      return async (sessionId) => {
+        const taken = await taskCenter.list({ status: 'taken', claimedBySession: sessionId })
+        for (const task of taken) {
+          await taskCenter.release(task.id, `page session ${sessionId} deprecated`).catch(() => undefined)
+        }
+      }
+    },
   }
 }
 
@@ -162,7 +180,6 @@ export function createHostSessionPort(ctx: Context): PageSessionPort {
       const disposers = tools.map((tool) => registry.register(tool))
       mounted.set(sessionId, () => { for (const dispose of disposers.reverse()) dispose() })
     },
-    hasTools: (sessionId) => mounted.has(sessionId),
     async releaseTools(sessionId) { releaseMounted(sessionId) },
     async focus(sessionId) {
       // GUI 切换属于第 2 阶段；第 1 阶段记录日志，不报错
@@ -185,7 +202,7 @@ export class PageRegistryService extends Service {
   private readonly registry: PageRegistry<never>
   private runtimePorts: PageRuntimePorts
 
-  /** 页面实例索引：规范 URL → 会话（持久化在 app-pages 域）*/
+  /** 页面实例索引：规范 URL → 当前活会话 + 废弃历史（持久化在 app-pages 域）*/
   get instances(): PageInstanceIndex { return this.indexFace }
 
   /**
@@ -265,7 +282,7 @@ export class PageRegistryService extends Service {
   }
 
   /**
-   * 打开一个页面 URL：命中恢复聚焦、未命中两阶段创建（§3.5.3）。
+   * 打开一个页面 URL：一律新建会话；同 URL 旧会话先废弃（§3.5.3、§9.1）。
    * 测试注入口：直接换 runtimePorts.sessions 等端口。
    */
   openUrl(url: PageInstanceKey | string, options: OpenPageOptions = {}): Promise<OpenPageResult> {

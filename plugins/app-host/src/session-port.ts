@@ -6,7 +6,7 @@
  * 与第 1 阶段的 `createHostSessionPort`（宿主全局工具表 + 事后显式释放）不同：
  * - 页面工具优先挂**该会话 agent 作用域**（`agent.ctx.tools.register`）——只有
  *   这个 agent 可见，agent 销毁随其 fiber 自动释放，跨会话互不可见；
- * - agent 尚未激活时工具进入等待队列，`agent/created` 到达即挂上（恢复的
+ * - agent 尚未激活时工具进入等待队列，`agent/created` 到达即挂上（新建的
  *   页面会话在用户真正进入时才有 agent）；
  * - 消息经 `agent.followup` + `ctx.sessions.flush` 确认（forum 的投递纪律）；
  * - focus 是显式接缝（{@link FocusPort}）：本文件只给日志实现，GUI 切换归 H。
@@ -163,11 +163,10 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = loggingFo
         mountOnAgent(sessionId, agent, { tools, blocks: [] })
         return
       }
-      // agent 未激活（恢复路径）：入队，agent/created 到达即挂上
+      // agent 未激活（打开时用户尚未进入会话）：入队，agent/created 到达即挂上
       const pending = queued.get(sessionId) ?? { tools: [], blocks: [] }
       queued.set(sessionId, { tools, blocks: pending.blocks })
     },
-    hasTools: (sessionId) => mounted.has(sessionId) || queued.has(sessionId),
     async releaseTools(sessionId) {
       const pending = queued.get(sessionId)
       queued.set(sessionId, { tools: [], blocks: pending?.blocks ?? [] })

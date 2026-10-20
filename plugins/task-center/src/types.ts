@@ -118,6 +118,14 @@ export interface TaskQuery {
   readonly appId?: string
   readonly status?: TaskStatus
   readonly assignee?: 'local'
+  /**
+   * 按接取会话过滤（只对 `status: 'taken'` 有意义）：页面注册表废弃会话时
+   * 用它找到该会话持有的租约并释放（§3.5.3）。
+   * Filter by the claiming session (meaningful with `status: 'taken'`): the
+   * page registry uses it to find and release the leases a deprecated session
+   * holds (§3.5.3).
+   */
+  readonly claimedBySession?: string
 }
 
 /** TaskCenterService 的方法签名契约 / method-signature contract of TaskCenterService */
