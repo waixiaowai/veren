@@ -55,6 +55,7 @@ const PACKAGES = [
   ['plugins/startup-autostart-skill', '@veren/startup-autostart-skill'],
   ['plugins/startup-autostart-tool', '@veren/startup-autostart-tool'],
   ['plugins/startup-autostart-ui', '@veren/startup-autostart-ui'],
+  ['plugins/startup-autostart-recovery', '@veren/startup-autostart-recovery'],
   ['plugins/startup-autostart-bundle', '@veren/startup-autostart-bundle'],
   ['plugins/auth', '@veren/web-login-gate'],
   ['plugins/session-fork-enhanced', '@imeep/dsh-session-fork-enhanced'],

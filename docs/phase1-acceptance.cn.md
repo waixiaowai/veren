@@ -10,6 +10,50 @@
 
 ## 〇、真机验证补充（2026-10-21，稳定测试节点）
 
+### 第三轮真机验证（2026-10-21 02:20–02:50，G13 显式接线修复后）
+
+> 本小节是第三轮；以下「验证基线/安装与隔离/A–F」各段为第二轮记录，保留作对照。
+
+**验证基线 = 主工作树 @ 提交 `e5756e0`（`54c9c69` 框架层拆探测 + `e5756e0` 应用层拆探测之后）。**
+`pnpm -r --workspace-concurrency=1 test` 全绿（exit 0），直接采用当前工作树。
+
+**安装与隔离（照配方执行）**：`scripts/pack-local-plugins.mjs` 重打 37 个 tarball（本次把
+`startup-autostart-recovery` 补进打包清单——`7cb29f2` 新增该包后脚本未曾同步，上一轮的 tarball 因此
+停在旧代码）；`pnpm install --force` 强制刷新 profile（同一 `file:` 路径下 pnpm 不会因内容变化重取，
+"Already up to date / added 0" 是假象，必须核对安装产物 mtime 自证新代码落位）。装后自证：
+`fsutil hardlink list` 对 `@veren\app-host\src\wire.ts`、`@veren\task-workbench\src\app.ts`、
+`@deepseek-ai\cosmokit\LICENSE` 各只列出自身一个路径，零共享 inode；profile `node_modules\@veren` 下
+23 个包零嵌套 `@deepseek-ai/cordis`、零嵌套 `dsh-*`——**cordis 双实例未发生**。
+
+**A–F 逐项结果（宿主 `dsh web --port 3080 --no-open`，`pluginInventory/list` 返回 204 行、零
+pending/failed）：**
+
+| 项 | 结论 | 一句依据 |
+| --- | --- | --- |
+| A. 三服务 + 装配行 | **PASS** | inventory 中 `app-registry`/`page-registry`/`task-center`/**`app-host`** 四行全部 `active`；启动无任何 "waiting for inject" 告警。上一轮死在 `bindPorts` 守卫的装配行本轮激活，显式接线修复成立。 |
+| B. 四应用注册 | **PASS（注册面）/ FAIL（目录工具）** | `forum`/`forum-ui`/`notebook`/`notebook-ui`/`person-agent-preset`/`person-agent-app`/`task-workbench` 七行全部 `active`（apply 无抛错＝register/pages 注册成功）；真实会话工具清单含 `forum_*`×6、`notebook_*`×6、`task_*`×7。但 `app_list`/`app_pages`/`app_open` 三个模型面工具**一个都不在**（见下）。 |
+| C. `agent/created` 载荷形状 | **部分验证（替身假设一处证伪）** | 真实签名（`packages/core/agent/src/runtime-types.ts:261`）：payload = `{ agent: Agent; source: SessionStartSource; signal? }`，`agent`/`source` 键与替身一致；`agent.session` 真实存在（`Session`），`source` 取值 `startup`/`resume`。**但 `agent/created` 是运行时 serial 事件，不落会话日志**——清单 2"会话日志里看到载荷"的前提不成立；真实宿主消费它只能 `ctx.on`（app-host `session-port.ts:111` 即如此）。 |
+| D. 工具作用域隔离 | **未验（被 app_open 缺失阻塞）** | 页面会话唯一创建入口是 `app_open`，工具不在场即无法创建页面会话。 |
+| E. 任务通知落真实日志 | **未验（同被阻塞）** | `taskCenter.send` 无 remote 面，发送方也是应用侧/模型侧；通知投递目标页开不出来。 |
+| F. 页面工具随会话释放 | **未验（同被阻塞）** | 同 D。 |
+
+**本轮新暴露的失败点（与上一轮不同一层）：`registerAppOpenTool` 与 `createBootstrapTools` 在生产代码
+里没有任何调用方。** 全仓 grep 证实：`plugins/page-registry/src/tools.ts:43` 的 `registerAppOpenTool`
+只有定义与导出；`plugins/app-registry/src/bootstrap-tools.ts` 的 `createBootstrapTools` 只被
+`tests/lifecycle.spec.ts` 引用。真实会话实测：要求模型调 `app_open`，模型回复 NO_APP_OPEN（工具清单
+如上，确实没有）。因此**页面会话在真实宿主里不可创建**，`pageRegistry.openUrl` 只有测试能到达。
+D/E/F 三项的阻塞根因是这一层，不再是 G13 的探测/守卫问题。
+
+**与上一轮对比**：消失的失败——① `bindPorts` 属性代理守卫崩溃（装配行已激活）；② task-workbench 在
+`apps.register` 前炸（七行全 active）；③ 半接线风险（本轮无回滚告警）。仍存在的失败——模型面目录/打开
+工具缺失，属**装配遗漏**而非守卫问题。没有发现 cordis 双实例或 inode 共享回归。
+
+**宿主与端口**：验完已关，`Get-NetTCPConnection -LocalPort 3080` 确认释放；验证用无头 Chrome（临时
+user-data-dir）已全部结束，9222 不再监听。`~/.dsh` 零改动自证：递归扫描该目录 79307 个文件，全部
+mtime ≤ 2026-10-21 02:19:57（本轮开始前），或为本 GUI 会话自身的日志——本轮没有任何命令指向它。
+
+### 第二轮真机验证（2026-10-21 凌晨，探测式对接被证伪的一轮）
+
 **验证基线 = 主工作树 @ 提交 `c243aa6`（含并发会话对 page-registry/task-workbench 等的在改内容）。**
 确认方式：在基线上跑 `pnpm -r --workspace-concurrency=1 test`，全绿（exit 0，无任何 Test Files 失败），
 按预定规则直接采用当前工作树，未启用 `git worktree` 回退。
