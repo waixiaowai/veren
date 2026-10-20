@@ -1414,17 +1414,21 @@ Cordis 插件运行在同一个宿主进程里，拿到 `ctx` 就能碰所有服
 
 ---
 
-## 10. 框架缺口与修复规格（G1–G11）
+## 10. 框架缺口与修复规格（G13、G1–G11、G14）
 
 > **来源与性质**：本节把 `task-workbench`、`forum`、`notebook`、`person-agent` 四次独立应用化撞出来的框架缺口去重整理，逐条给出修复规格。文中代码全部是**示意**，最终实现以各包契约为准。编号 G1–G11 在后续修复会话中直接引用，不再各自重新理解一遍。
 
 ### 10.0 总表与依赖顺序
 
+> **2026-10-21 返工**：真机验证（[phase1-acceptance.cn.md](phase1-acceptance.cn.md) §〇，提交 `749556e`）推翻了"松对接可用"的基础假设，新增 **G13** 并排到 P0 第一位；G2 按真实守卫语义重新论证；G3 查实后命题不成立（关闭）；G14 新增；G11 按反转语义重推后改判为**删**。
+
 | 编号 | 一句话 | 阶段 | 状态 |
 | --- | --- | --- | --- |
-| G1 | bundle patch 跨组合包行 id 无去重契约 | P0 | 待修 |
-| G2 | 应用层无可选注入形态，框架缺席 = 插件不激活 | P0 | 待修 |
-| G3 | `defineTool` output.schema 契约类型上拦不住裸返回 | P1 | 待修 |
+| **G13** | 跨服务"结构探测 + 惰性端口"松对接在真实 cordis 上不可用，整套框架真机启动失败 | **P0-1** | 待修（**不修，其余全部轮不到触发**） |
+| G2 | 应用层无可选注入形态；真机守卫按属主归因后命题重新界定 | P0-2 | 待修（表述已按真机修正） |
+| G1 | bundle patch 跨组合包行 id 无去重契约 | P0-3 | 待修 |
+| G3 | ~~output.schema 契约类型上拦不住裸返回~~ **查实：命题不成立**——运行期有 `ToolOutputError` 强制，包装只是因工具而异的约定 | — | **关闭**（改写为文档澄清） |
+| G14 | `defineTool` 参数根永远开放，未知参数穿透到业务代码抛错，错误路径与错误码变了 | P1 | 待修 |
 | G4 | 全局工具与页面工具命名易混淆 | P1 | 待修 |
 | G5 | 无"无状态页面"一等形态，逼出 `as never` | P1 | 待修 |
 | G6 | brand id 只能靠 `as` 构造 | P1 | 待修 |
@@ -1432,26 +1436,85 @@ Cordis 插件运行在同一个宿主进程里，拿到 `ctx` 就能碰所有服
 | G8 | 缺声明式 `registerApp({ tools, pages })` | P2 | 待修 |
 | G9 | 缺"复用别包既有工具"的官方模式 | P2 | 待修 |
 | G10 | `requires` 只记录不拦截 | P2 | 待修 |
-| G11 | `pageRevision` 随 §9.1.1 变成摆设 → **改用途，不删** | P2 | 待修 |
+| G11 | `pageRevision` 摆设 → **按反转语义重推：删** | P2 | 待修 |
 
-依赖关系（先修的在后修的之前）：
+**P0 依赖关系**：G13 → G2 → G1。G13 是根：真实宿主上 A 半通、B 1/4、C–F 全部被装配失败阻塞，框架连启动都过不去，其余缺口（含 P1/P2）在真机上根本没有触发机会。G2 依赖 G13 的结论——只有确认了"守卫按属主归因、运行期探测通道不存在"，才能界定 optionalInject 到底要解决哪个问题（见 §10.3 的 G2 修正节）。G1 与前两条无技术依赖，纯 Loader 层，排最后只因优先级让位。
 
 ```mermaid
-flowchart LR
+flowchart TD
+  G13["G13 显式接线（P0-1）"] --> G2["G2 可选注入+三包（P0-2）"]
+  G2 --> G1["G1 patch id 去重（P0-3）"]
+  G13 --> REST["其余 P1/P2 全部在 G13 之后才有意义"]
   G6["G6 brand 构造助手"] --> G5["G5 无状态页面"]
   G9["G9 既有工具收录"] --> G8["G8 registerApp"]
-  G1["G1 patch id 去重"]
-  G2["G2 可选注入 + 三包形态"]
-  G3["G3 output 契约"]
+  G14["G14 参数根封闭"]
   G4["G4 工具命名规则"]
   G7["G7 异步数据源样板"]
   G10["G10 requires 强制"]
-  G11["G11 pageRevision 改用途"]
+  G11["G11 pageRevision：删"]
 ```
 
-**合并/拆分判断**：G1–G11 **不合并**。表面相近的几对其实修的是不同层：G3（工具返回值契约）与 G4（模型可见工具名）都关于工具，但一个改类型面、一个改注册期校验，合在一起会让两个修复互相等对方；G8（注册 API 形状）与 G9（工具来源）同属"应用装配"但改动面分别是 app-registry 与各工具包的导出，且 G8 依赖 G9 先行，拆开才排得出顺序。G11 严格说不是缺口而是决策，单列是因为它有完整的"删还是改"论证需要留档。
+**合并/拆分判断**：G11、G13、G14 维持独立条目不合并。表面相近的几对其实修的是不同层：G3（工具返回值契约）与 G4（模型可见工具名）都关于工具，但一个改类型面、一个改注册期校验，合在一起会让两个修复互相等对方；G8（注册 API 形状）与 G9（工具来源）同属"应用装配"但改动面分别是 app-registry 与各工具包的导出，且 G8 依赖 G9 先行，拆开才排得出顺序。G11 严格说不是缺口而是决策，单列是因为它有完整的"删还是改"论证需要留档。
 
-### 10.1 G1（P0）：bundle patch 跨组合包的行 id 去重契约
+### 10.1 G13（P0-1）：跨服务"结构探测 + 惰性端口"松对接在真实 cordis 上不可用
+
+**问题陈述**（依据 [phase1-acceptance.cn.md](phase1-acceptance.cn.md) §〇，真机实测，非推测）：
+
+1. **对服务名的 `ctx.get('…')` 同样走属性代理守卫**：`task-workbench` 的 `createTaskChannel`（`src/app.ts:58`）设计的"缺席即优雅降级"通道根本到不了——访问本身就抛 `cannot get property "taskCenter" without inject`；`page-registry` 的 `hostPorts` 四个 getter（`src/service.ts:73` 等）全炸。
+2. **守卫按被访问 ctx 的属主归因，不按调用方**：`app-host` 自己已 `inject` 三个服务，从它的 `apply` 调 `pageRegistry.bindPorts(...)` 仍然抛——`pageRegistry` 内部再去摸兄弟服务时，守卫算的是 `pageRegistry` 的属主。**"替兄弟摸兄弟"的松对接在真机 Loader 下全部不可用。**
+3. **半接线状态**：`app-host` 的 apply 前两步（resolver、镜像面）已执行、第三步才炸，若不回滚，宿主带着"任务 resolver 与镜像面在、会话端口不在"的残缺状态运行。
+4. **替身测试对这一整类错误零检出**：全部 spec 绿，真机 A 半通、B 1/4、C–F 全阻塞。
+
+**结论：这条不修，其余所有 P0/P1 都轮不到触发。** 测试替身固化了"探测可用"的错误假设（包括 `packages/test-support` 造的替身），修复本条时必须以真实 Loader composition 测试为准。
+
+**正确的接线形态**（三条规则，示意代码均非最终实现）：
+
+1. **显式 inject 依赖链**：每个服务只声明自己需要什么，禁止运行期探测兄弟服务是否在场。
+2. **兄弟服务通过参数显式传递**：A 拿到 B 的句柄后让 B 自己去摸 C 是被禁形态；C 的能力必须作为参数穿过 B 的公开接口。
+3. **接线收进 `ctx.effect`**：一组接线要么全成、要么全回滚，不留半接线。
+
+```ts
+// page-registry：不再自己摸兄弟；端口全部由参数传入（示意）
+export class PageRegistryService extends Service {
+  /** 端口由装配层传入；服务内部永不触碰 ctx 上的兄弟服务。 */
+  bindPorts(ports: {
+    readonly session: SessionPort      // 挂载/释放页面工具的真实会话端口
+    readonly mirror?: PageMirror       // 应用侧镜像面（可选能力，仍走参数）
+  }): () => void { /* 仅保存参数与注销器 */ }
+}
+
+// app-host：显式 inject 三个服务（属主合法），apply 一次性接线（示意）
+export const inject = [AppRegistryToken, PageRegistryToken, TaskCenterToken]
+export const apply = (ctx: Context): void => {
+  const apps = getOrThrow(ctx, AppRegistryToken)
+  const pageRegistry = getOrThrow(ctx, PageRegistryToken)
+  const taskCenter = getOrThrow(ctx, TaskCenterToken)
+  ctx.effect(() => {
+    // 兄弟能力作为参数穿过：taskCenter 不自己摸 apps，pageRegistry 不自己摸 taskCenter
+    const d1 = taskCenter.setAppResolver(apps)
+    const d2 = pageRegistry.bindPorts({
+      session: createHostSessionPort(ctx),
+      mirror: apps.pageMirror(),
+    })
+    return () => { d2(); d1() }   // 逆序清理；effect 体内抛错 → 整组回滚，无半接线
+  }, 'app-host.wiring')
+}
+```
+
+**取舍**：被否方案一"给 page-registry / task-workbench 补上 inject、保留惰性端口"——否：守卫按属主归因，B 拿到 C 的句柄后 B 内部摸 C 仍然炸，补 inject 治不了"替兄弟摸兄弟"；且惰性端口让"谁依赖谁"在类型面上不可见。被否方案二"try/catch 守卫式探测做可选降级"——否：把故障从加载期推到第一次调用，时点更晚、更难查，且探测本身照样抛。
+
+**影响面**：
+
+- `plugins/app-host`：重写 `apply` 接线为单一 `ctx.effect`；`wireAppHost` 的三步全成或全回滚。
+- `plugins/page-registry`：删除 `hostPorts` 四个 getter，`bindPorts` 改为纯参数注入。
+- `plugins/task-center`：`setAppResolver` 已是参数注入（方向正确），复核内部无残留探测。
+- 四个应用：`task-workbench` 必改（删 `createTaskChannel` 的 `ctx.get` 降级，taskCenter 通道改为声明 inject 或由应用层包传参）；`forum`/`notebook`/`person-agent` 真机行激活无错误，但须逐一复核有无同型 `ctx.get` 探测。
+
+**测试**：接线类改动一律以真实 Loader composition 测试（loader-smoke）为门禁——替身测试对本类错误零检出，这是本轮最重要的方法论结论；修完复跑真机 A–F 六项。
+
+**落地阶段与依赖**：P0 第一位，无前置；G2、G1 及全部 P1/P2 排在它之后。**与既有决策的关系**：推翻正文 §8.2"宿主装配层（已落地）"对松对接形态的描述与 phase1 报告"设计站得住"的对接结论——该报告第七节自己已指出"四个服务之间全是松对接"是设计低估的成本，本条把观察升格为规格。
+
+### 10.2 G1（P0-3）：bundle patch 跨组合包的行 id 去重契约
 
 **问题陈述**：`forum-bundle` 与 `app-host-bundle` 都 `insert` 了 `id: app-host` 的行，同装时同一行插入两次，Loader 对 insert 是纯追加，行为未定义。四次应用化里 forum 撞到；不修，任何两个都引应用框架的组合包组合起来都可能双插，且是否报错取决于 Loader 内部实现的偶然。
 
@@ -1471,7 +1534,7 @@ flowchart LR
 
 **落地阶段与依赖**：P0，无前置。**与既有决策的关系**：不改任何结论，把 forum-bundle 注释里"reconciliation 只激活这一层"的**文档约定**升级为**机制**。
 
-### 10.2 G2（P0）：可选注入 + 应用层独立成包（升格为官方形态）
+### 10.3 G2（P0-2）：可选注入 + 应用层独立成包（升格为官方形态）
 
 **问题陈述**：cordis 的 `inject` 全是硬依赖，`person-agent-tool-*` 与 `task-workbench` 都硬 `inject: ['apps']`——应用框架缺席时整个插件不激活，连与框架无关的核心功能一起陪葬。person-agent 撞到并用实践给出了解法；不修，每个新应用都要么接受"框架没了全没"，要么各自再发明一次包拆分。
 
@@ -1481,9 +1544,11 @@ flowchart LR
 
 ```ts
 export const inject = ['slots']                    // 硬依赖，缺席不激活
-export const optionalInject = ['apps']             // 可选：缺席照常激活
+export const optionalInject = ['apps']             // 可选声明：缺席照常激活
 export const apply = (ctx: Context) => {
-  const apps = ctx.peek('apps')                    // Service | undefined
+  // 缺席的 optionalInject 由注入面显式交付 undefined（属主合法）；
+  // 禁止运行期 ctx.get('apps') 探测——真机守卫按属主归因，访问本身就抛（G13）
+  const apps: AppRegistry | undefined = injectedApps(ctx)
   // 应用层注册只在 apps 存在时执行；否则插件以"无应用"形态运行
 }
 ```
@@ -1502,34 +1567,55 @@ export const apply = (ctx: Context) => {
 
 **影响面**：cordis 核心（optionalInject 语义）；四个已上线应用**需要**跟着改包结构（task-workbench、notebook、forum 把应用层拆出 `-app` 包；person-agent 已是目标形态，基本不动）。测试：可选服务缺席的 composition 测试（核心激活、应用层不挂、无 inject 等待告警）。
 
-**落地阶段与依赖**：P0，无前置（`optionalInject` 与包拆分可并行做）。**与既有决策的关系**：与 AGENTS.md"inject 依赖的是能力（Service）"一致，只是增加 optional 变体；§2.4"一个组合包一个应用"不变——三个包仍是同一个应用的多实现插件。
+**落地阶段与依赖**：P0 第二位，依赖 G13（见下）。**与既有决策的关系**：与 AGENTS.md"inject 依赖的是能力（Service）"一致，只是增加 optional 变体；§2.4"一个组合包一个应用"不变——三个包仍是同一个应用的多实现插件。
 
-### 10.3 G3（P1）：`defineTool` 的 output.schema 契约要在类型上成立
+#### 10.3.1 真机守卫语义下的修正（2026-10-21）
 
-**问题陈述**：`output.schema` 要求返回 canonical 包装值（如 `{note}` / `{notes}`），直接返回裸视图**不报错但违背契约**，静态类型完全拦不住。notebook 撞到；不修，每个写工具的人都会先写出"能跑但错"的版本，等渲染面出怪相才回头查。
+真机验证确认：cordis 的属性守卫**按被访问 ctx 的属主归因，不按调用方**，因此对服务名的 `ctx.get('…')` 运行期探测通道根本不存在（G13 事实 1）。这迫使 G2 的命题重新界定：
 
-**建议方案**（示意）：类型与运行期双层收紧：
+- **optionalInject 解决的问题**（收窄后）：一个插件**声明了的**可选依赖（如应用层包声明"可选依赖 `apps`"）在其缺席或版本漂移时，不阻塞本插件激活，注入面以 `undefined` 显式交付。这是插件级、属主合法的声明，机制上成立。
+- **optionalInject 不解决的问题**：运行期"偷看"未声明的兄弟服务。那是 G13 明令禁止的松对接，任何注入机制都不能为它翻案。本节初版把"框架缺席降级"和"运行期探测降级"混在一个命题里，现予拆开：前者归 optionalInject，后者直接禁止。
+- **官方形态的权重调整**：三包拆分（结构性隔离）仍是主答案——它是包边界的一次性、可测试、插件页可见的隔离；optionalInject 降为补充（`-app` 包对框架版本漂移的显式降级面）。降级路径的写法必须是"缺席的注入面交付 `undefined`"，而不是任何形式的运行期探测。
+
+### 10.4 G3（已查实，关闭）：`output.schema` 没有"必须包装"这条契约
+
+> **2026-10-21 查实结论：初版命题不成立，本条关闭，降级为文档澄清。** 两个改动过代码的会话给了相反说法（记事本：必须返回 `{note}`/`{notes}` 包装值且"不报错但违背契约"；session-fork-enhanced：直接返回扁平 `ForkValue`），查实代码后后者对。
+
+**查实过程与结论**（`deepseek/deepseek-harness/packages/core/tools/src/schema.ts`、`index.ts`）：
+
+1. **契约是什么**：`defineTool` 的 JSDoc 明言 `execute` "@returns The canonical value declared by `output.schema`"，类型是 `execute(args): Promise<InferValue<O>>`——即**返回值必须匹配你自己声明的 schema**，仅此而已。schema 声明 `{note: …}` 就返回 `{note: …}`，声明扁平对象就返回扁平对象（session-fork-enhanced 的 `output.schema` 与 `ForkValue` 逐键对应，完全合规）。
+2. **运行期有强制，不存在"不报错"**：工具执行器的 `createSuccessResult` 对每次成功返回做 `validateJsonSchemaValue(tool.output.schema, …)`，违背抛 **`ToolOutputError`**（`index.ts:1842`）。裸视图若真与 schema 不符，运行期 fail loud——初版"不报错但违背契约"的前提是错的。
+3. **包装是因工具而异的约定**：notebook 选 `{note}`/`{notes}` 包装、session-fork-enhanced 选扁平返回，都合法。**什么时候该包装**：一个工具需要区分多种返回形态（如"单条 vs 列表"共用渲染约定）、要为将来扩展保留顶层键、或多个工具要共享同一个 `renderValue` 时；单一扁平返回形态就直接声明扁平 schema。
+
+**剩余的真实残留**（不值得单开缺口）：`defineTool` 内部对 `userExecute` 的结果有一次 cast，复杂 schema 下 `InferValue` 的静态推导可能不够精确——但运行期强制已在，静态偏差最迟在首次执行即抛。结论：**不改框架，不改代码**；各包文档凡写"必须返回 `{x}` 包装"处改为"返回值必须匹配本工具声明的 output.schema（运行期 ToolOutputError 强制）；包装键是本工具的局部约定"。
+
+**对四应用的影响**：无（现有两种写法都合规）。**与既有决策的关系**：无冲突。
+
+### 10.5 G14（P1）：`defineTool` 的参数根永远开放，未知参数穿透到业务代码
+
+**问题陈述**：参数 DSL（property map）编译为"implicit open parameter object"，且**没有表达根级封闭的作者键**（`parameterSchemaSpecToJsonSchema` 明言 "no implicit-root openness override"，property-map 的键白名单不含 `additionalProperties`）。于是未知参数通过 `validateArgs`，一路穿透到业务代码才抛错。裸 JSON Schema 时代根级 `additionalProperties: false` 会在 schema 层就拒（`ToolArgsError` + violations）。合法输入的行为不变，**但错误路径与错误码变了**——同一类"模型传了不存在的参数"从 `INVALID_ARGS` 变成了各工具业务代码里五花八门的错误。
+
+**建议方案**（示意）：DSL 支持根级封闭，默认保持开放（向后兼容）：
 
 ```ts
-// 类型层：execute 的返回类型由 output.schema 的顶层包装键推导，
-// 裸返回直接编译错误
 defineTool({
-  output: { schema: s => s.object({ note: NoteView }) },   // 顶层键 note
-  execute: async (args) => ({ note: await getNote(args.id) })
-  //       ^ 若返回 NoteView，此处类型不匹配
+  parameters: {
+    additionalProperties: false,          // 新允许的根级键：编译进根 schema
+    sessionId: { type: 'string', required: true },
+    atSeq: { type: 'integer' },
+  },
+  // 未知参数 → validateArgs 产生 violations → 既有 ToolArgsError 路径，
+  // 错误码回到 schema 层，与裸 JSON Schema 时代对齐
 })
-
-// 运行期：注册时对 schema 顶层键做一次断言（不是每轮调用），
-// 违背抛稳定错误码 tool/output-contract，载荷 { tool, expectedKeys, actualKeys }
 ```
 
-**取舍**：被否方案是"放宽契约，允许裸返回"。否掉的理由：`render`（renderValue）靠包装键定位要渲染的值，放宽后渲染契约失效，等于把 G3 换成一个新的、更含糊的缺口。运行期只做注册期断言而非逐调用校验，是为了不给工具热路径加开销；逐调用校验留为 debug 开关。
+**取舍**：被否方案一"明确根永远开放 + 执行器统一剥离未知参数"——静默剥离违反"misconfiguration fails loud"，且工具描述与实际接受的参数集从此漂移。被否方案二"各工具业务代码自查未知键"——把同一个校验复制进每个 execute，正是框架该收走的事。
 
-**影响面**：`@deepseek-ai/dsh-tools` 类型面 + notebook 等调用点改写。四个应用**需要**跟着改（凡是被 defineTool 收录的工具）。测试：类型级断言（expectTypeOf 裸返回不通过）+ 注册期断言 spec。
+**影响面**：`@deepseek-ai/dsh-tools` 的 schema.ts（property-map 编译与类型面各一处）。四个应用**建议**跟进：对外工具逐个声明根级封闭（模型幻觉参数是高频路径，封闭收益直接）。测试：根级封闭拒未知参数（断言 `ToolArgsError`）与默认开放不变的 spec。
 
-**落地阶段与依赖**：P1，无前置。**与既有决策的关系**：无冲突；是"禁止类型逃逸"纪律在工具面的落实。
+**落地阶段与依赖**：P1，无前置。**与既有决策的关系**：落实 DSH "Trust TypeScript at typed boundaries；validate at model/tool JSON boundary" 的既有纪律，不改任何决策。
 
-### 10.4 G4（P1）：全局工具与页面工具的命名混淆
+### 10.6 G4（P1）：全局工具与页面工具的命名混淆
 
 **问题陈述**：notebook 同时暴露全局 `notebook_list` 和页面级 `notebook__list_notes`，模型两个都可能调，不报错、结果偏一点。不修，每个既有全局工具的应用化都会复刻这个混淆。
 
@@ -1551,7 +1637,7 @@ defineTool({
 
 **落地阶段与依赖**：P1，无前置。**与既有决策的关系**：细化 §3.4.3 与 §6.2 命名空间清单（加一条"双下划线保留"），不改方向。
 
-### 10.5 G5（P1）：无状态页面的一等形态
+### 10.7 G5（P1）：无状态页面的一等形态
 
 **问题陈述**：`defineAppPage` 强制 `tree`，纯工具驱动页面只能落 `PageDefinition<never>`，于是到处 `pages.register(page as never)`——**框架自己逼人违反"禁止 as"规范**。task-workbench 撞到；不修，每个工具驱动型应用都带着这层类型谎言。
 
@@ -1577,7 +1663,7 @@ defineAppPage({
 
 **落地阶段与依赖**：P1，**依赖 G6**（无状态页面的 id/key 构造要用 brand 助手，先有构造入口才谈得上消除 as）。**与既有决策的关系**：消除"框架逼人用 as"与 AGENTS.md 规范的直接冲突。
 
-### 10.6 G6（P1）：brand id 的官方构造入口
+### 10.8 G6（P1）：brand id 的官方构造入口
 
 **问题陈述**：`AppId`/`PageKey` 是 brand 类型，但构造只能 `as`，与"禁止用 as"的规范正面冲突。四个应用全都撞到；不修，每处跨边界 id 都是一次无人校验的类型谎言。
 
@@ -1601,7 +1687,7 @@ export function asPageKey(app: AppId, name: string): PageKey // 校验应用内�
 
 **落地阶段与依赖**：P1，**先于 G5 落地**。**与既有决策的关系**：不改既有决策，是给"跨边界 id 用 brand"补上缺失的官方构造面。
 
-### 10.7 G7（P1）：异步数据源进同步 tree 的官方样板
+### 10.9 G7（P1）：异步数据源进同步 tree 的官方样板
 
 **问题陈述**：`tree(params, state)` 是同步的，但页面数据几乎总在异步源（存储、别的 Service）里；没有官方模式，person-agent 只能自建 refresh + cache，四个应用各写一套。不修，每页都有一份手搓的装载/刷新/竞态处理。
 
@@ -1625,7 +1711,7 @@ defineAppPage({
 
 **落地阶段与依赖**：P1，无硬前置（建议在 G5 之后做，共用页面定义改版）。**与既有决策的关系**：无冲突；是 §1.1 "页面树在 store 变化时重新渲染"模型的官方化补全。
 
-### 10.8 G8（P2）：声明式 `registerApp`
+### 10.10 G8（P2）：声明式 `registerApp`
 
 **问题陈述**：现在要求"工具先于页面"靠调用方手工排序，register 的内部顺序是隐式契约，装反了报错信息离病因很远。
 
@@ -1646,7 +1732,7 @@ ctx.apps.registerApp({
 
 **落地阶段与依赖**：P2，**依赖 G9**（tools 回调里要能收录既有工具，否则声明式入口一开始就不够用）。
 
-### 10.9 G9（P2）：复用别包既有工具进应用目录
+### 10.11 G9（P2）：复用别包既有工具进应用目录
 
 **问题陈述**：`ctx.apps.tools(id).define` 只收 `defineTool` 产物，而 defineTool 藏在各工具包内部；person-agent 想复用既有工具，只能去改两个包加 builder 导出——跨包边界被框架的一个封装决定卡住。
 
@@ -1667,7 +1753,7 @@ ctx.apps.tools('person-agent').register(existingTool, { requires: ['sessions:rea
 
 **落地阶段与依赖**：P2，无前置（是 G8 的前置）。
 
-### 10.10 G10（P2）：`requires` 从"只记录"到"拦截"
+### 10.12 G10（P2）：`requires` 从"只记录"到"拦截"
 
 **问题陈述**：`requires` 目前注册时只记录不校验，写代码的人会以为有约束，实际没有——典型的"不报错但错了"。
 
@@ -1679,29 +1765,24 @@ ctx.apps.tools('person-agent').register(existingTool, { requires: ['sessions:rea
 
 **落地阶段与依赖**：P2，无技术前置；排期上与 §9.2.1 的拍板绑定。
 
-### 10.11 G11（P2）：`pageRevision` 的明确判断——**改用途，不删**
+### 10.13 G11（P2）：`pageRevision` 的明确判断——**删**（按反转语义重推）
 
-**问题陈述**：§9.1.1 取消会话复用后，`pageRevision` 原本的用途（旧会话复用前的兼容判断）不存在了，作者却还在认真维护一个不再影响任何行为的字段。
+> **2026-10-21 重推**：初版结论是"改用途：升级提示（`PAGE upgraded` + 事件）"。该结论仍暗中假设"存在一个需要被提示的旧会话读者"。会话复用已按 §9.1.1 彻底取消（打开一律新建、旧会话废弃），按新语义逐环节重推后读者消失，结论翻转为**删**。
 
-**明确判断**：**保留，换用途：从"拦截复用的兼容闸"改为"应用升级的契约变化提示"。**
+**重新推导（不沿用旧结论）**：
 
-新语义（示意）：打开 URL 新建会话时，比较该 URL 索引行（或任务记录快照）里的 `pageRevision` 与当前页面定义；不同则在 PAGE 块之前追加一行：
+1. **新会话没有旧预期**：打开 URL 一律新建会话，新会话天然挂当前版本的工具与说明。模型在一条全新会话里不存在"旧契约的预期"，`PAGE upgraded rev 2 -> 5` 这行提示**没有读者**——它只在"把旧会话拉出来继续用"的世界里有意义，而那个世界已被 §9.1.1 废除。
+2. **应用自身不需要这个字段**：唯一潜在的信息需求是"这条 open 任务是在旧契约下发的"。但任务的发送方就是契约的 owner——应用发任务时自己正运行在某个契约上，它知道；字段对它冗余。人看到的"应用升级过"由 `appVersion` 承担，不需要第二份。
+3. **废弃历史会话不构成读者**：废弃会话只读、工具不挂载、页面树不重渲染（§3.5.3），没有任何决策依赖"这条历史是用哪个 revision 建的"。
+4. **`task/app-upgraded` 降格为 appVersion 驱动**：提示"任务发送时的应用版本与当前不同，任务正文可能过时"用 `appVersion` 足够；它从来不需要精确到页面契约。
 
-```text
-PAGE upgraded rev 2 -> 5：该 URL 上次打开的是旧页面契约；工具名、参数或说明可能已变。
-```
+**明确判断：删。** 从 `PageDefinition`、页面注册校验、索引行（`PageInstanceRecord.pageRevision`）、`AppPageEvent`、任务记录快照中全部移除 `pageRevision`。`appVersion` 保留（人读展示、`task/target-gone` / `task/app-upgraded` 的卸载与升级判定仍需要它）。
 
-同时发 `app/page-revision-changed` 事件（载荷 `{ appId, page, url, from, to }`），供应用监听做数据迁移。理由：
+**取舍**：被否方案一"改用途为升级提示"（初版结论）——否：重推后无读者，保留就是逼应用作者认真维护第二个没人读的字段，比初版判断的"摆设"更糟。被否方案二"恢复它拦截新建"——等于部分恢复 §9.1.1 已放弃的复用语义，与用户决策正面冲突，不议。
 
-- **为什么不是删**：删掉之后，"页面契约变了"这件事在新建会话语义下就没有任何载体了——`appVersion` 不能替代它（版本号不变契约也可能变，§7.3 最初区分两者的原因仍然成立），任务记录的 `appVersion`/`pageRevision` 快照和 `task/app-upgraded` 提示链也一并失去判据。
-- **为什么降格为提示不拦截**：打开一律新建后，新会话天然用新版本，没有需要拦截的分叉；拦截权已经没有对象。它从"错了会错杀复用的硬闸"降为"提示性元数据"，维护负担随之降到可接受。
-- 老字段不迁移：索引行与任务快照里的 `pageRevision` 原样可用，只是读者从"复用判断"换成"升级提示"。
+**影响面**：`packages/prompt-page`（PageDefinition）、`plugins/page-registry`（索引行与事件）、`plugins/task-center`（任务快照）、`plugins/app-registry`（注册校验）各删一处字段；四个应用**需要**跟着改（删各自页面定义里的 `pageRevision` 与 bump 维护）。测试：删字段后注册/打开/发任务全链回归；§5.6 的 `app/page-stale` 维持冻结删除状态。
 
-**取舍**：被否方案一是"直接删"（理由见上）；二是"恢复它拦截新建"（等于部分恢复 §9.1.1 已放弃的复用语义，与用户决策正面冲突，不议）。
-
-**影响面**：page-registry 打开路径加一次比较 + 一行 PAGE 前缀 + 一个事件；task-center 不改（快照字段已有）。四个应用**不需要**改（维护规则不变：不兼容变化 +1）。测试：rev 快照差异产生 `PAGE upgraded` 行与事件的 spec；无差异无行的 spec。
-
-**落地阶段与依赖**：P2，无前置。**与既有决策的关系**：**改写 §7.3 与 §9.2.4**——两节基于"复用"的升级分叉随 §9.1.1 已失效，本条把它们改写为"提示不拦截"的最终结论；§9.1.1 的用户决策本身不动。
+**落地阶段与依赖**：P2，无前置。**与既有决策的关系**：**终结 §7.3 与 §9.2.4**——两节的升级分叉本就随 §9.1.1 失效，本条给出最终答案：升级无分叉、无提示、无拦截；`pageRevision` 不复存在。§9.1.1 的用户决策本身不动。
 
 ---
 
