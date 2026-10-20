@@ -60,7 +60,7 @@ Install the aggregate bundle; it declares this package as a dependency and
 inserts its Loader row together with the Host's, the tools', and the UI's:
 
 ```sh
-plugin_manager  install_bundle  target = @veren/startup-autostart-bundle@1.4.8
+plugin_manager  install_bundle  target = @veren/startup-autostart-bundle@1.4.9
 ```
 
 Command-line equivalent:

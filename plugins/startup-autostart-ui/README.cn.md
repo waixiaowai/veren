@@ -16,7 +16,7 @@
 要装就装组合包——它把本行连同宿主行、工具行、指导技能行一起插进去：
 
 ```sh
-plugin_manager  install_bundle  target = @veren/startup-autostart-bundle@1.4.8
+plugin_manager  install_bundle  target = @veren/startup-autostart-bundle@1.4.9
 ```
 
 装完刷新页面。卸载组合包会整体去掉这四行；已存储的启动项不受影响。

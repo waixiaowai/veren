@@ -5,7 +5,15 @@
 # cms-bridge bundle layer: inserts one default plugin row (no secrets).
 # Deployments override the config by the same id (a matching override replaces
 # the whole config), so credentials never ship inside the published package.
+# device-id 是桥接的节点身份来源；它自带可移植兜底，因此本层在任何宿主都能独立激活。
+# 需要硬件锚定的宿主，只需在同 id 前插入对应的 device-id-win/-mac/-linux 行。
+#
+# device-id supplies the node identity. It carries a portable fallback, so this
+# layer activates on every host by itself; a host that wants hardware anchoring
+# only inserts the matching device-id-win/-mac/-linux row before the same id.
 - insert:
+    - id: device-id
+      name: '@veren/device-id'
     - id: cms-bridge
       name: '@veren/cms-bridge'
       config:

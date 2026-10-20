@@ -48,7 +48,7 @@
 推荐安装聚合包：它把本包声明为依赖，并把它这一行和宿主、工具、UI 三行一起插入：
 
 ```sh
-plugin_manager  install_bundle  target = @veren/startup-autostart-bundle@1.4.8
+plugin_manager  install_bundle  target = @veren/startup-autostart-bundle@1.4.9
 ```
 
 命令行等价写法：

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * The DeviceId service: the immutable resolved id plus the resolution policy.
  * DeviceId 服务：不可变的已解析 ID 与解析策略。
  *
@@ -68,6 +68,27 @@ export function resolveDeviceId(input: DeviceIdResolverInput): {
 function newRecord(id: string, fp: string | null, now: number): DeviceIdRecord {
   return { id, fingerprints: fp ? [fp] : [], createdAt: now, updatedAt: now };
 }
+
+/**
+ * Fallback platform used when no OS capability package is installed.
+ *
+ * The core plugin must be installable on every host by itself: an absent
+ * `@veren/device-id-win/-mac/-linux` row must degrade to the durable domain
+ * store and a fresh id, never leave the whole plugin pending. A host that
+ * wants hardware-anchored ids installs the matching OS package, which provides
+ * `device-id-platform` and takes over at apply time.
+ *
+ * 未安装任何操作系统能力包时使用的兜底平台。
+ *
+ * 核心插件必须能在任何宿主上单独安装：缺少 `@veren/device-id-win/-mac/-linux`
+ * 行时只能降级到持久 domain 存储与新随机 ID，绝不能让整个插件一直 pending。
+ * 需要硬件锚定 ID 的宿主安装对应系统包，由它提供 `device-id-platform`，并在装配时接管。
+ */
+export const portablePlatform: DeviceIdPlatform = {
+  stableFingerprint: () => null,
+  recoverAnchoredId: () => null,
+  anchor: () => {},
+};
 
 /** The service: constructed only after resolution, so `id` is always valid. 服务：解析完成后才构造，`id` 恒有效。 */
 export class DeviceIdService extends Service implements DeviceId {

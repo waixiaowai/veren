@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @veren/device-id - the platform-agnostic device-id core plugin module.
  * @veren/device-id - 平台无关的设备 ID 核心插件模块。
  *
@@ -10,11 +10,10 @@
  * 安装匹配的平台插件并挂载 dsh storage domain 设施。
  */
 
-import { getOrThrow } from '@veren/core';
 import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 import { deviceIdDomain } from './domain.js';
-import { resolveDeviceId, DeviceIdService } from './service.js';
+import { DeviceIdService, portablePlatform, resolveDeviceId } from './service.js';
 import { DeviceIdToken, DeviceIdPlatformToken, DeviceId } from './protocol.js';
 import type { DeviceIdRecord, DeviceIdSource } from './protocol.js';
 import type { DomainGlobal } from '@deepseek-ai/dsh-storage-domain';
@@ -29,10 +28,13 @@ export { normalizeId, hashFingerprint, hashToUuid } from './hash.js';
 export { DeviceIdToken as name };
 
 /**
- * 依赖：dsh storage domain 设施 + 当前平台的平台插件。
- * Dependencies: the dsh storage domain facility + the current OS platform plugin.
+ * 依赖：dsh storage domain 设施。平台能力是可选增强：未安装时使用
+ * {@link portablePlatform} 兜底，插件仍能提供稳定的持久 ID。
+ * Dependencies: the dsh storage domain facility. The platform capability is an
+ * optional enhancement: without it {@link portablePlatform} keeps the plugin
+ * loadable and the durable ID stable.
  */
-export const inject = ['storageDomain', DeviceIdPlatformToken] as const;
+export const inject = ['storageDomain'] as const;
 
 /** 本插件提供 DeviceId 服务。 This plugin provides the DeviceId service. */
 export const provide = [DeviceIdToken] as const;
@@ -52,7 +54,7 @@ export const apply = async (ctx: Context, _config: Config): Promise<void> => {
   // rc.1 的类型面未发布，这里把 global 槽窄化为我们的记录类型。
   // the rc.1 type surface is unpublished; narrow the global slot to our record type.
   const globalStore = domain.global as unknown as DomainGlobal<DeviceIdRecord>;
-  const platform = getOrThrow(ctx, DeviceIdPlatformToken);
+  const platform = ctx.get(DeviceIdPlatformToken) ?? portablePlatform;
   const resolved = resolveDeviceId({ stored: globalStore.get(), platform, now: Date.now() });
   const service = new DeviceIdService(ctx, resolved.id, resolved.source, globalStore, platform);
   await service.persist(resolved.record);

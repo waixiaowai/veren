@@ -19,7 +19,7 @@ dependency but no Loader row. Install the aggregate bundle, which inserts this
 row together with the Host's, the tools', and the guidance skill's:
 
 ```sh
-plugin_manager  install_bundle  target = @veren/startup-autostart-bundle@1.4.8
+plugin_manager  install_bundle  target = @veren/startup-autostart-bundle@1.4.9
 ```
 
 Then reload the page. Removing the aggregate removes the sidebar entry and the

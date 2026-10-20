@@ -91,15 +91,41 @@ function releaseOrder(packages, roots) {
 }
 
 /**
- * registry 里已有的版本 / Versions the registry already publishes.
+ * registry 上已有的各版本清单 / The manifest the registry holds for every published version.
  * @param {string} name - 包名 / Package name.
- * @returns {Promise<string[]>} 版本列表 / Published versions.
+ * @returns {Promise<Record<string, object>>} 版本号到清单的映射 / Version to published manifest.
  */
-async function publishedVersions(name) {
+async function registryManifests(name) {
   const response = await fetch(`${REGISTRY}${name.replace('/', '%2f')}`)
-  if (response.status === 404) return []
+  if (response.status === 404) return {}
   if (!response.ok) throw new Error(`${name}: registry HTTP ${response.status}`)
-  return Object.keys((await response.json()).versions ?? {})
+  return (await response.json()).versions ?? {}
+}
+
+/**
+ * 依赖声明与 registry 不一致的字段 / Declared fields that drifted from the registry.
+ *
+ * 同一个版本号一旦发布就不能再改，所以"源码已修、版本号没升"只会让注册中心继续供
+ * 旧清单：本地跑测试通过，装进 profile 却还是旧依赖分类（典型症状是一份 cordis /
+ * dsh-* 被装进 profile，把宿主服务遮蔽成 pending）。这里把这种不一致显式说出来。
+ * A published version is immutable, so "source fixed, version not bumped" keeps the
+ * registry serving the old classification: local tests pass, the profile still installs a
+ * second cordis / dsh-* copy and shadows the host service into `pending`. Report it loudly.
+ * @param {object} local - 本地清单 / Local manifest.
+ * @param {object} published - registry 上的同版本清单 / The registry manifest of that version.
+ * @returns {string[]} 漂移的字段名 / Names of the drifted fields.
+ */
+function dependencyDrift(local, published) {
+  // `workspace:^` 在发布时会被改写成具体区间，逐键比较时把它当作恒等，否则每个工作区依赖都算漂移。
+  // `workspace:^` is rewritten to a concrete range on publish, so compare it as equal per key.
+  const same = (left, right) => typeof left === 'string' && left.startsWith('workspace:') ? true : left === right
+  return ['dependencies', 'peerDependencies', 'engines'].filter((field) => {
+    const left = local[field] ?? {}
+    const right = published[field] ?? {}
+    const keys = new Set([...Object.keys(left), ...Object.keys(right)])
+    for (const key of keys) if (!same(left[key], right[key])) return true
+    return false
+  })
 }
 
 /**
@@ -133,9 +159,15 @@ async function main() {
   for (const manifest of skipped) console.log(`skip (private): ${manifest.name}`)
 
   for (const manifest of publishable) {
-    const versions = await publishedVersions(manifest.name)
-    if (versions.includes(manifest.version)) {
-      console.log(`skip (published): ${manifest.name}@${manifest.version}`)
+    const published = await registryManifests(manifest.name)
+    if (Object.hasOwn(published, manifest.version)) {
+      const drifted = dependencyDrift(manifest, published[manifest.version])
+      const label = `skip (published): ${manifest.name}@${manifest.version}`
+      if (drifted.length === 0) console.log(label)
+      else {
+        console.log(`${label} — 依赖声明与本地不同（${drifted.join(', ')}），注册中心仍供旧清单，请升版本号后再发`)
+        console.log(`${label} — dependency declaration drifted from source (${drifted.join(', ')}); bump the version and publish again`)
+      }
       continue
     }
     await publish(manifest)
