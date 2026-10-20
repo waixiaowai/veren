@@ -3,7 +3,7 @@ import { PageStore } from '../src/store.ts'
 import { canonicalJson, fieldNode, keyedNode, logNode, renderSync, staticNode } from '../src/index.ts'
 import type { Entity } from '../src/types.ts'
 
-function task(id: string, status = 'open'): Entity {
+function task(id: string, status = 'open'): Entity & { status: string } {
   return { id, status }
 }
 
@@ -23,7 +23,9 @@ describe('PageStore', () => {
     const v0 = store.currentVersion
     store.update([keyedNode('tasks', [task('a')])])
     expect(store.sync(v0).kind).toBe('patch')
-    expect(store.sync(0).kind).toBe('snapshot') // 缺口
+    store.update([keyedNode('tasks', [task('a'), task('b')])])
+    store.update([keyedNode('tasks', [task('a'), task('b'), task('c')])])
+    expect(store.sync(0).kind).toBe('snapshot') // 缺口 3 > 2
     expect(store.sync(999).kind).toBe('snapshot') // 超前
     expect(store.sync(undefined).kind).toBe('snapshot') // 无基线
   })

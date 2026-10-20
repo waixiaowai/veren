@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { diffKeyed, diffNodes } from '../src/diff.ts'
-import type { Entity } from '../src/types.ts'
+import type { Entity, PromptNode } from '../src/types.ts'
 
 function item(id: string, extra: Record<string, unknown> = {}): Entity {
   return { id, ...extra }
@@ -20,7 +20,7 @@ describe('diffKeyed', () => {
   it('重排零 op；1000 条改 2 条恰好 2 op', () => {
     expect(diffKeyed('l', [item('a'), item('b')], [item('b'), item('a')])).toEqual([])
     const big = Array.from({ length: 1000 }, (_, i) => item(`t-${i}`))
-    const next = big.map((x) => ({ ...x }))
+    const next: (Entity & { v?: number })[] = big.map((x) => ({ ...x }))
     next[204] = { ...next[204], v: 1 }
     next[817] = { ...next[817], v: 1 }
     expect(diffKeyed('l', big, next)).toHaveLength(2)
@@ -40,7 +40,7 @@ describe('diffNodes', () => {
   })
 
   it('log：追加产 append，前缀断裂产 set', () => {
-    const prev = { kind: 'log', path: 'l', entries: [1, 2] }
+    const prev: PromptNode = { kind: 'log', path: 'l', entries: [1, 2] }
     expect(diffNodes(prev, { kind: 'log', path: 'l', entries: [1, 2, 3] }))
       .toEqual([{ op: 'append', path: 'l', entries: [3] }])
     expect(diffNodes(prev, { kind: 'log', path: 'l', entries: [9, 2, 3] }))

@@ -1,44 +1,27 @@
 /**
- * 字节级稳定的上下文渲染 + 工具协议 / Byte-stable rendering + tool protocol
+ * 工具协议 + 系统提示词（页面静态面）/ Tool protocol + system prompt (page static face)
+ * 消息模板统一来自 @veren/page-sync-core（字节稳定）。
  */
-import type { Snapshot, Sync, ToolOutcome } from './types.ts'
+import type { PromptNode } from '@veren/page-sync-core'
+import { renderSync } from '@veren/page-sync-core'
+import { TASKS_PATH } from './store.ts'
+import type { TaskItem, ToolOutcome } from './types.ts'
 
-/** 序列化一条任务（字段顺序固定）/ one task with fixed field order */
-function renderTask(item: { id: string; title: string; status: string; ownerId: string | null }): string {
-  return JSON.stringify({ id: item.id, title: item.title, status: item.status, ownerId: item.ownerId })
-}
-
-/** 渲染同步消息（模板骨架固定，只有数据字面量变）/ render a sync message */
-export function renderSync(sync: Sync): string {
-  if (sync.kind === 'snapshot') {
-    return `SNAPSHOT v${sync.version} {"items":[${sync.items.map(renderTask).join(',')}]}`
-  }
-  const ops = sync.ops.map((change) => change.op === 'remove'
-    ? JSON.stringify({ op: 'remove', id: change.id })
-    : JSON.stringify({ op: 'upsert', item: change.item }))
-  return `PATCH v${sync.fromVersion}->v${sync.toVersion} {"ops":[${ops.join(',')}]}`
-}
-
-/** 渲染快照 / render a snapshot */
-export function renderSnapshot(snapshot: Snapshot): string {
-  return renderSync(snapshot)
-}
+export { renderSync }
 
 /** 静态系统提示词：页面不变部分（缓存前缀的核心）/ static system prompt */
 export const SYSTEM_PROMPT = [
-  '你是"任务中心"应用的列表页助手。页面数据通过用户消息中的 SNAPSHOT/PATCH 消息同步：',
-  '- SNAPSHOT vN {"items":[...]} 是版本 N 的完整列表状态，取代之前的一切。',
-  '- PATCH vA->vB {"ops":[...]} 是增量：upsert 原位更新或新增，remove 按 id 删除。',
-  '你必须在心中维护当前列表状态（按 id 对位合并 ops）。回答状态问题时以最新版本为准。',
+  '你是"任务中心"应用的列表页助手。页面状态通过用户消息中的 SNAPSHOT/PATCH 同步：',
+  '- SNAPSHOT vN {"nodes":[...]} 携带完整状态树，取代之前的一切；',
+  '  其中 {"kind":"keyed","path":"tasks","items":[...]} 是任务集合，条目按 id 对位。',
+  '- PATCH vA->vB {"ops":[...]} 是增量：',
+  '  {"op":"splice","path":"tasks","id":X,"entity":{...}} 按 id 新增或更新条目；',
+  '  {"op":"splice","path":"tasks","id":X}（无 entity）按 id 删除；',
+  '  {"op":"set","path":P,"value":V} 更新子树；{"op":"append","path":P,"entries":[...]} 追加日志。',
+  '你必须在心中按 id 维护当前任务状态。回答状态问题时以最新版本为准。',
   '工具是页面上的按钮：take_task 接取一个 open 状态的任务，complete_task 完成一个 taken 状态的任务。',
   '收到同步消息后，按当轮指令调用工具；完成后用一句话确认。',
 ].join('\n')
-
-/** take_task 参数 / take_task args */
-export interface TakeArgs {
-  task_id: string
-  owner_id?: string
-}
 
 /** OpenAI function 工具表（静态）/ static tool schemas */
 export const TOOLS = [
@@ -99,3 +82,9 @@ export const TOOLS_LABELS = TOOLS.map((tool) => ({
   parameters: tool.function.parameters as Record<string, unknown>,
   title: tool.function.name === 'take_task' ? '接取任务' : '完成任务',
 }))
+
+/** 测试辅助：从快照树中取出任务集合 / test helper: unwrap the task collection from a snapshot tree */
+export function itemsOfSnapshot(nodes: PromptNode[]): TaskItem[] {
+  const node = nodes.find((candidate) => candidate.kind === 'keyed' && candidate.path === TASKS_PATH)
+  return node?.kind === 'keyed' ? (node.items as TaskItem[]) : []
+}

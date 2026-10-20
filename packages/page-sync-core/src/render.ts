@@ -31,7 +31,7 @@ export function nodeToValue(node: PromptNode): unknown {
     case 'field': return node.value
     case 'keyed': return node.items
     case 'log': return node.entries
-    case 'group': return Object.fromEntries(node.children.map((child) => [child.path, nodeToValue(child)]))
+    case 'group': return Object.fromEntries(node.children.map((child) => [child.kind === 'static' ? '' : child.path, nodeToValue(child)]))
   }
 }
 

@@ -5,19 +5,19 @@
   "roundStats": [
     {
       "round": 1,
-      "injectedBytes": 19324,
+      "injectedBytes": 19366,
       "calls": [
         {
-          "promptTokens": 5689,
+          "promptTokens": 5940,
           "completionTokens": 40,
           "cacheHitTokens": 0,
-          "cacheMissTokens": 5689
+          "cacheMissTokens": 5940
         },
         {
-          "promptTokens": 5755,
+          "promptTokens": 6006,
           "completionTokens": 16,
-          "cacheHitTokens": 5504,
-          "cacheMissTokens": 251
+          "cacheHitTokens": 5760,
+          "cacheMissTokens": 246
         }
       ],
       "toolCallsTotal": 1,
@@ -26,25 +26,25 @@
     },
     {
       "round": 2,
-      "injectedBytes": 19349,
+      "injectedBytes": 19391,
       "calls": [
         {
-          "promptTokens": 10947,
+          "promptTokens": 11354,
           "completionTokens": 40,
-          "cacheHitTokens": 5760,
-          "cacheMissTokens": 5187
+          "cacheHitTokens": 6016,
+          "cacheMissTokens": 5338
         },
         {
-          "promptTokens": 11011,
+          "promptTokens": 11418,
           "completionTokens": 40,
-          "cacheHitTokens": 10752,
-          "cacheMissTokens": 259
+          "cacheHitTokens": 11264,
+          "cacheMissTokens": 154
         },
         {
-          "promptTokens": 11077,
-          "completionTokens": 24,
-          "cacheHitTokens": 10880,
-          "cacheMissTokens": 197
+          "promptTokens": 11484,
+          "completionTokens": 21,
+          "cacheHitTokens": 11264,
+          "cacheMissTokens": 220
         }
       ],
       "toolCallsTotal": 2,
@@ -53,25 +53,25 @@
     },
     {
       "round": 3,
-      "injectedBytes": 19373,
+      "injectedBytes": 19415,
       "calls": [
         {
-          "promptTokens": 16296,
+          "promptTokens": 16852,
           "completionTokens": 40,
-          "cacheHitTokens": 11008,
-          "cacheMissTokens": 5288
+          "cacheHitTokens": 11392,
+          "cacheMissTokens": 5460
         },
         {
-          "promptTokens": 16360,
+          "promptTokens": 16916,
           "completionTokens": 40,
-          "cacheHitTokens": 16128,
-          "cacheMissTokens": 232
+          "cacheHitTokens": 16768,
+          "cacheMissTokens": 148
         },
         {
-          "promptTokens": 16426,
-          "completionTokens": 24,
-          "cacheHitTokens": 16256,
-          "cacheMissTokens": 170
+          "promptTokens": 16982,
+          "completionTokens": 21,
+          "cacheHitTokens": 16768,
+          "cacheMissTokens": 214
         }
       ],
       "toolCallsTotal": 2,
@@ -80,25 +80,25 @@
     },
     {
       "round": 4,
-      "injectedBytes": 19397,
+      "injectedBytes": 19439,
       "calls": [
         {
-          "promptTokens": 21664,
+          "promptTokens": 22365,
           "completionTokens": 40,
-          "cacheHitTokens": 16384,
-          "cacheMissTokens": 5280
+          "cacheHitTokens": 16896,
+          "cacheMissTokens": 5469
         },
         {
-          "promptTokens": 21728,
+          "promptTokens": 22429,
           "completionTokens": 40,
-          "cacheHitTokens": 21504,
-          "cacheMissTokens": 224
+          "cacheHitTokens": 22272,
+          "cacheMissTokens": 157
         },
         {
-          "promptTokens": 21794,
-          "completionTokens": 24,
-          "cacheHitTokens": 21632,
-          "cacheMissTokens": 162
+          "promptTokens": 22495,
+          "completionTokens": 21,
+          "cacheHitTokens": 22272,
+          "cacheMissTokens": 223
         }
       ],
       "toolCallsTotal": 2,
@@ -107,25 +107,25 @@
     },
     {
       "round": 5,
-      "injectedBytes": 19414,
+      "injectedBytes": 19456,
       "calls": [
         {
-          "promptTokens": 27044,
+          "promptTokens": 27887,
           "completionTokens": 40,
-          "cacheHitTokens": 21760,
-          "cacheMissTokens": 5284
+          "cacheHitTokens": 22400,
+          "cacheMissTokens": 5487
         },
         {
-          "promptTokens": 27108,
+          "promptTokens": 27951,
           "completionTokens": 40,
-          "cacheHitTokens": 26880,
-          "cacheMissTokens": 228
+          "cacheHitTokens": 27776,
+          "cacheMissTokens": 175
         },
         {
-          "promptTokens": 27174,
-          "completionTokens": 24,
-          "cacheHitTokens": 27008,
-          "cacheMissTokens": 166
+          "promptTokens": 28017,
+          "completionTokens": 21,
+          "cacheHitTokens": 27776,
+          "cacheMissTokens": 241
         }
       ],
       "toolCallsTotal": 2,
@@ -134,25 +134,25 @@
     },
     {
       "round": 6,
-      "injectedBytes": 19438,
+      "injectedBytes": 19480,
       "calls": [
         {
-          "promptTokens": 32443,
+          "promptTokens": 33424,
           "completionTokens": 40,
-          "cacheHitTokens": 27136,
-          "cacheMissTokens": 5307
+          "cacheHitTokens": 28032,
+          "cacheMissTokens": 5392
         },
         {
-          "promptTokens": 32507,
+          "promptTokens": 33488,
           "completionTokens": 40,
-          "cacheHitTokens": 32256,
-          "cacheMissTokens": 251
+          "cacheHitTokens": 33280,
+          "cacheMissTokens": 208
         },
         {
-          "promptTokens": 32573,
-          "completionTokens": 24,
-          "cacheHitTokens": 32384,
-          "cacheMissTokens": 189
+          "promptTokens": 33554,
+          "completionTokens": 21,
+          "cacheHitTokens": 33408,
+          "cacheMissTokens": 146
         }
       ],
       "toolCallsTotal": 2,
@@ -161,9 +161,9 @@
     }
   ],
   "totals": {
-    "promptTokens": 337596,
-    "completionTokens": 576,
-    "cacheHitTokens": 303232,
+    "promptTokens": 348562,
+    "completionTokens": 561,
+    "cacheHitTokens": 313344,
     "llmCalls": 17,
     "toolCallsTotal": 11,
     "toolCallsOk": 11,

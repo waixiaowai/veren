@@ -5,8 +5,8 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { TaskStore, makeList } from './store.ts'
-import { SYSTEM_PROMPT, TOOLS, dispatchTool, renderSync } from './protocol.ts'
-import type { BenchReport, CallUsage, RoundStat, TaskItem, ToolOutcome } from './types.ts'
+import { SYSTEM_PROMPT, TOOLS, dispatchTool, itemsOfSnapshot, renderSync } from './protocol.ts'
+import type { BenchReport, CallUsage, RoundStat, TaskItem } from './types.ts'
 
 const API_URL = 'https://api.deepseek.com/chat/completions'
 const MODEL = 'deepseek-chat'
@@ -34,10 +34,10 @@ function rng(seed: number): () => number {
   }
 }
 
-/** 读全量当前状态（测试读端）/ read full current state */
+/** 读全量当前状态（测试读端；从快照树解包 keyed 集合）/ read full state via snapshot tree */
 function allItems(store: TaskStore): TaskItem[] {
   const sync = store.sync(undefined)
-  if (sync.kind === 'snapshot') return sync.items
+  if (sync.kind === 'snapshot') return itemsOfSnapshot(sync.nodes)
   throw new Error('unexpected patch without baseline')
 }
 

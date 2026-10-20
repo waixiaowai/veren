@@ -40,32 +40,38 @@ export function diffNodes(prev: PromptNode | undefined, next: PromptNode): Op[] 
   if (prev === undefined || prev.kind !== next.kind) {
     return [{ op: 'set', path: next.path, value: nodeToValue(next) }] // 类型变更：销毁重建
   }
-  switch (next.kind) {
-    case 'field':
-      return canonicalJson(prev.value) !== canonicalJson(next.value)
-        ? [{ op: 'set', path: next.path, value: next.value }]
-        : []
-    case 'keyed':
-      return diffKeyed(next.path, prev.items, next.items)
-    case 'log': {
-      if (next.entries.length >= prev.entries.length && samePrefix(prev.entries, next.entries)) {
-        return next.entries.length === prev.entries.length
-          ? []
-          : [{ op: 'append', path: next.path, entries: next.entries.slice(prev.entries.length) }]
-      }
-      return [{ op: 'set', path: next.path, value: next.entries }] // 前缀断裂：整体替换
-    }
-    case 'group':
-      return diffGroup(prev, next)
+  if (prev.kind === 'field' && next.kind === 'field') {
+    return canonicalJson(prev.value) !== canonicalJson(next.value)
+      ? [{ op: 'set', path: next.path, value: next.value }]
+      : []
   }
+  if (prev.kind === 'keyed' && next.kind === 'keyed') {
+    return diffKeyed(next.path, prev.items, next.items)
+  }
+  if (prev.kind === 'log' && next.kind === 'log') {
+    if (next.entries.length >= prev.entries.length && samePrefix(prev.entries, next.entries)) {
+      return next.entries.length === prev.entries.length
+        ? []
+        : [{ op: 'append', path: next.path, entries: next.entries.slice(prev.entries.length) }]
+    }
+    return [{ op: 'set', path: next.path, value: next.entries }] // 前缀断裂：整体替换
+  }
+  return diffGroup(prev as GroupNode, next as GroupNode)
+}
+
+type GroupNode = Extract<PromptNode, { kind: 'group' }>
+
+/** static 节点没有 path / static nodes carry no path */
+function pathOf(node: PromptNode): string {
+  return node.kind === 'static' ? '' : node.path
 }
 
 /** group 递归 diff：按 path 对位子节点 / recurse group children by path */
-function diffGroup(prev: Extract<PromptNode, { kind: 'group' }>, next: Extract<PromptNode, { kind: 'group' }>): Op[] {
-  const prevMap = new Map(prev.children.map((child) => [child.path, child]))
-  const nextPaths = new Set(next.children.map((child) => child.path))
+function diffGroup(prev: GroupNode, next: GroupNode): Op[] {
+  const prevMap = new Map(prev.children.map((child) => [pathOf(child), child]))
+  const nextPaths = new Set(next.children.map((child) => pathOf(child)))
   const ops: Op[] = []
-  for (const child of next.children) ops.push(...diffNodes(prevMap.get(child.path), child))
+  for (const child of next.children) ops.push(...diffNodes(prevMap.get(pathOf(child)), child))
   for (const [path] of prevMap) {
     if (!nextPaths.has(path)) ops.push({ op: 'remove', path })
   }

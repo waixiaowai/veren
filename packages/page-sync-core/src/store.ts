@@ -23,6 +23,7 @@ interface Commit {
 export class PageStore {
   private nodes: PromptNode[]
   private version = 0
+  private anchorVersion = 0
   private commits: Commit[] = []
   private staged: Op[] = []
   private readonly maxPatchGap: number
@@ -74,7 +75,8 @@ export class PageStore {
    * 同步：增量优先，兜底全量 / prefer delta, fall back to snapshot
    */
   sync(cursor?: number): Sync {
-    if (cursor === undefined || cursor > this.version || this.version - cursor > this.maxPatchGap) {
+    if (cursor === undefined || cursor < this.anchorVersion || cursor > this.version
+      || this.version - cursor > this.maxPatchGap) {
       return { kind: 'snapshot', version: this.version, nodes: this.nodes }
     }
     const ops = this.commits
@@ -85,6 +87,7 @@ export class PageStore {
 
   /** 压实：清空补丁链（当前树已在手，历史不重放）/ anchor: drop the patch chain */
   anchor(): void {
+    this.anchorVersion = this.version
     this.commits = []
   }
 }

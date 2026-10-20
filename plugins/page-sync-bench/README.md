@@ -8,6 +8,7 @@ A DSH plugin + real-API benchmark validating append-only delta sync for page-ses
 
 ## Design Under Test
 
+- **Kernel**: sync protocol is delegated to `@veren/page-sync-core` (virtual prompt tree: `static`/`field`/`keyed`/`log`/`group` nodes, `set`/`remove`/`splice`/`append` ops).
 - **Page = session**: static system prompt + static tool schemas form the cacheable prefix.
 - **Server-side authority**: `TaskStore` owns the task list; the model keeps only a mental copy.
 - **Two context modes compared**:

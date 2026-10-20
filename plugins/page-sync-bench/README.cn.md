@@ -8,6 +8,7 @@
 
 ## 被测设计
 
+- **内核**：同步协议委托给 `@veren/page-sync-core`（虚拟 prompt 树：`static`/`field`/`keyed`/`log`/`group` 节点，`set`/`remove`/`splice`/`append` op）。
 - **页面 = 会话**：静态系统提示词 + 静态工具 schema 构成可缓存前缀。
 - **服务端权威**：`TaskStore` 持有任务列表；模型只维护心智副本。
 - **对照两种上下文模式**：

@@ -1,42 +1,23 @@
 /**
- * 版本化任务存储 / Versioned task store
+ * 任务存储（page-sync-core 的领域消费方）/ Task store (domain consumer of page-sync-core)
  *
- * 权威状态在服务端；补丁是追加日志；快照是兜底。
- * Authoritative state lives server-side; patches are append-only log; snapshots are the fallback.
+ * 版本化、补丁日志、压实、同步协议全部委托内核 PageStore；
+ * 本文件只有任务领域语义：条目集合、按钮状态迁移、领域 diff 包装。
  */
-import type { Op, Snapshot, Sync, TaskItem, ToolOutcome } from './types.ts'
+import { PageStore, diffKeyed, keyedNode } from '@veren/page-sync-core'
+import type { Op, StoreOptions, Sync } from '@veren/page-sync-core'
+import type { TaskItem, ToolOutcome } from './types.ts'
 
-interface Commit {
-  version: number
-  ops: Op[]
-}
-
-export interface StoreOptions {
-  maxPatchGap?: number
-}
+/** 任务集合在页面树中的固定路径 / fixed tree path of the task collection */
+export const TASKS_PATH = 'tasks'
 
 function clone(items: TaskItem[]): TaskItem[] {
   return items.map((item) => ({ ...item }))
 }
 
-/** 内容是否相等 / structural equality */
-function isEqual(a: TaskItem, b: TaskItem): boolean {
-  return a.title === b.title && a.status === b.status && a.ownerId === b.ownerId
-}
-
-/** key-based diff：稳定 id 对位，产出最小 ops（顺序：先 upsert 后 remove）*/
+/** key-based diff（委托内核，canonical 相等性）/ keyed diff delegated to core */
 export function diffItems(prev: TaskItem[], next: TaskItem[]): Op[] {
-  const prevMap = new Map(prev.map((item) => [item.id, item]))
-  const nextIds = new Set(next.map((item) => item.id))
-  const ops: Op[] = []
-  for (const item of next) {
-    const old = prevMap.get(item.id)
-    if (!old || !isEqual(old, item)) ops.push({ op: 'upsert', item: { ...item } })
-  }
-  for (const [id] of prevMap) {
-    if (!nextIds.has(id)) ops.push({ op: 'remove', id })
-  }
-  return ops
+  return diffKeyed(TASKS_PATH, prev, next)
 }
 
 /** 构造 n 条初始任务 / build an initial list of n tasks */
@@ -49,40 +30,26 @@ export function makeList(n: number): TaskItem[] {
   }))
 }
 
-export class TaskStore {  private items: TaskItem[]
-  private version = 0
-  private readonly commits: Commit[] = []
-  private readonly maxPatchGap: number
+export class TaskStore {
+  private items: TaskItem[]
+  private readonly page: PageStore
 
   constructor(initial: TaskItem[] = [], options: StoreOptions = {}) {
     this.items = clone(initial)
-    this.maxPatchGap = options.maxPatchGap ?? 20
+    // 树内快照与工作数组必须隔离：内核 diff 靠内容比较，别名会让“旧状态”跟着被改
+    this.page = new PageStore([keyedNode(TASKS_PATH, clone(this.items))], options)
   }
 
   get currentVersion(): number {
-    return this.version
+    return this.page.currentVersion
   }
 
-  /** 写操作：服务端 diff，一次 commit 版本 +1（batching）*/
+  /** 批量写：服务端 diff，一次 commit 版本 +1（batching）*/
   commit(next: TaskItem[]): number {
-    const ops = diffItems(this.items, next)
-    if (ops.length === 0) return this.version
+    if (diffItems(this.items, next).length === 0) return this.currentVersion
     this.items = clone(next)
-    this.version += 1
-    this.commits.push({ version: this.version, ops })
-    return this.version
-  }
-
-  /** 同步：增量优先，缺口过大 / 游标超前回落全量（正确性兜底）*/
-  sync(sinceVersion?: number): Sync {
-    if (sinceVersion === undefined || sinceVersion > this.version
-      || this.version - sinceVersion > this.maxPatchGap) {
-      return { kind: 'snapshot', version: this.version, items: clone(this.items) }
-    }
-    const ops = this.commits
-      .filter((commit) => commit.version > (sinceVersion ?? 0))
-      .flatMap((commit) => commit.ops)
-    return { kind: 'patch', fromVersion: sinceVersion, toVersion: this.version, ops }
+    this.commitTree()
+    return this.currentVersion
   }
 
   /** 按钮语义：接取任务（open → taken）/ take-task button */
@@ -94,8 +61,7 @@ export class TaskStore {  private items: TaskItem[]
     }
     item.status = 'taken'
     item.ownerId = ownerId
-    this.version += 1
-    this.commits.push({ version: this.version, ops: [{ op: 'upsert', item: { ...item } }] })
+    this.commitTree()
     return { ok: true, detail: `${id} taken by ${ownerId}` }
   }
 
@@ -107,8 +73,17 @@ export class TaskStore {  private items: TaskItem[]
       return { ok: false, code: 'invalid_transition', detail: `${id} is ${item.status}, not taken` }
     }
     item.status = 'done'
-    this.version += 1
-    this.commits.push({ version: this.version, ops: [{ op: 'upsert', item: { ...item } }] })
+    this.commitTree()
     return { ok: true, detail: `${id} completed` }
+  }
+
+  /** 同步协议（委托内核：增量优先，缺口/压实前/游标超前回落全量）*/
+  sync(sinceVersion?: number): Sync {
+    return this.page.sync(sinceVersion)
+  }
+
+  /** 用当前条目重建页面树并提交（克隆数组：内核 diff 靠内容比较，原地变更也要可见）*/
+  private commitTree(): void {
+    this.page.update([keyedNode(TASKS_PATH, clone(this.items))])
   }
 }

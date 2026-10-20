@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { diffItems, TaskStore } from '../src/store.ts'
-import { dispatchTool, renderSync, SYSTEM_PROMPT, TOOLS } from '../src/protocol.ts'
+import { dispatchTool, itemsOfSnapshot, renderSync, SYSTEM_PROMPT, TOOLS } from '../src/protocol.ts'
 import { makeList } from '../src/store.ts'
 import type { TaskItem } from '../src/types.ts'
 
@@ -22,23 +22,32 @@ describe('store', () => {
     expect(store.takeTask('t-999', 'model')).toMatchObject({ ok: false, code: 'task_not_found' })
   })
 
-  it('sync 增量优先、缺口兜底全量', () => {
+  it('sync 增量优先（splice op）、缺口/超前兜底全量快照', () => {
     const store = new TaskStore(makeList(5))
     const v0 = store.currentVersion
     store.takeTask('t-0', 'u-1')
     const sync = store.sync(v0)
     expect(sync.kind).toBe('patch')
+    if (sync.kind === 'patch') {
+      expect(sync.ops[0]).toMatchObject({ op: 'splice', path: 'tasks', id: 't-0' })
+    }
     expect(store.sync(999).kind).toBe('snapshot')
+    const snap = store.sync(undefined)
+    expect(snap.kind).toBe('snapshot')
+    if (snap.kind === 'snapshot') expect(itemsOfSnapshot(snap.nodes)).toHaveLength(5)
   })
 })
 
 describe('protocol', () => {
-  it('补丁模板字节级稳定（骨架固定，仅数据变）', () => {
+  it('补丁模板字节级稳定（canonical 键序，骨架固定）', () => {
     const items: TaskItem[] = [{ id: 't-1', title: 'a', status: 'open', ownerId: null }]
-    const a = renderSync({ kind: 'patch', fromVersion: 1, toVersion: 2, ops: [{ op: 'upsert', item: items[0] }] })
-    const b = renderSync({ kind: 'patch', fromVersion: 3, toVersion: 4, ops: [{ op: 'upsert', item: { ...items[0], title: 'b' } }] })
-    expect(a.startsWith('PATCH v1->v2 {"ops":[{"op":"upsert","item":{"id":')).toBe(true)
-    expect(b.startsWith('PATCH v3->v4 {"ops":[{"op":"upsert","item":{"id":')).toBe(true)
+    const a = renderSync({ kind: 'patch', fromVersion: 1, toVersion: 2, ops: [{ op: 'splice', path: 'tasks', id: 't-1', entity: items[0] }] })
+    const updated: TaskItem = { ...items[0], title: 'b' }
+    const b = renderSync({ kind: 'patch', fromVersion: 3, toVersion: 4, ops: [{ op: 'splice', path: 'tasks', id: 't-1', entity: updated }] })
+    expect(a.startsWith('PATCH v1->v2 {"ops":[{"entity":{"id":"t-1",')).toBe(true)
+    expect(b.startsWith('PATCH v3->v4 {"ops":[{"entity":{"id":"t-1",')).toBe(true)
+    // canonical：entity,id,op,path 字典序
+    expect(a).toContain('"op":"splice","path":"tasks"}')
   })
 
   it('dispatch：JSON 解析失败与未知工具返回结构化错误', () => {
