@@ -88,6 +88,34 @@ mtime ≤ 2026-10-21 02:19:57（本轮开始前），或为本 GUI 会话自身�
 一致（零新增），期间仅桌面实例自身在会话开始时刻（02:40:08）写的日志/workspace 文件有 mtime 变化
 ——本轮没有任何命令指向 `~/.dsh`。
 
+### 第五轮真机验证（2026-10-21 03:33–03:55，E 阻塞点专项复核）
+
+**目的**：复核第四轮 E 项"publish 页不可达"的判定。结论：**该判定中"页面会话不可进入"的说法要收窄——
+publish 页本身在真机上 `app_open` 完全可达，阻塞点只剩"页面会话的 agent 没有任何激活入口"（GUI 入口，H）。**
+
+真机证据（源码重建 9 gates 全过 → `dsh web --port 3080 --no-open` + CDP 无头 Chrome 驱动真实模型会话）：
+
+1. 普通会话实测：模型调用 `app_open /apps/task-workbench/publish` **成功**，返回
+   `{"sessionId":"21c7a34c-…","url":"/apps/task-workbench/publish","title":"发布任务"}`；磁盘
+   `app_pages.json` 出现该 URL 的 `state=live` 行，`page=task-workbench/publish`、`pageRevision=2`。
+2. `app_pages` 返回 publish 页且声明工具 `task_workbench__publish_task`——**"页未注册"（原因 1）与
+   "工具漏列"（原因 2）均排除**；URL 解析正常，**"URL 规范化不一致"（原因 3）排除**。
+3. 但调用方会话工具清单里**没有任何** `task_workbench__*` 工具（作用域隔离，符合设计——页面工具只挂
+   页面会话自己的 agent）。页面会话已创建，可它的 agent 依赖"用户进入会话"（`session-port.ts` 的
+   `agent/created` 队列）才激活，而 GUI 侧栏不显示页面会话、服务器对 `/apps/*` 与 `/session/<id>`
+   均 404（无 SPA fallback，页面会话无 GUI 入口）——**没有任何 agent 能执行 `publish_task`**。
+4. 无代码可修：注册、装配、URL 解析全部正常，缺的只是 H 的 GUI 入口；本轮零代码改动。
+
+**对"普通人怎么发出第一条任务"的回答（如实）**：当前真实宿主里**没有一条可走的路径**。设计上的第一条
+路径是：GUI 打开 `/apps/task-workbench/publish` 页面会话 → 在该会话里让模型调 `task_workbench__publish_task`。
+这条路径的第一步就是 H（工具栏应用入口/页面会话 GUI 入口）。**E 的结论由"阻塞于无发送方"精确化为
+"E 阻塞于 H"。** 补齐 H 后，第四轮的同一配方可直接复验 E。
+
+**宿主与端口**：验完已关，3080/9222 均无监听；无头 Chrome（临时 user-data-dir）已结束并清理。
+`~/.dsh` 零改动自证：本轮所有命令只指向源码检出与 `deepseek\.dsh`；递归扫描 `~/.dsh` 近 3 小时
+mtime 变化的 40 个文件全部是 54224 桌面实例自身写的会话日志/配置（含本 GUI 会话自己的日志）——
+验证命令没有产生其中任何一条。
+
 ### 第二轮真机验证（2026-10-21 凌晨，探测式对接被证伪的一轮）
 
 **验证基线 = 主工作树 @ 提交 `c243aa6`（含并发会话对 page-registry/task-workbench 等的在改内容）。**
