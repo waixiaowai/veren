@@ -6,9 +6,11 @@
  * host context + re-provide + wire the mirror" copy that five app specs
  * each carried.
  *
- * 每个可选项都能缺席，用来测降级路径；`dispose()` 与装配严格成对、逆序拆除。
- * Every option can be absent to exercise degrade paths; `dispose()` pairs
- * strictly with the mount and tears everything down in reverse order.
+ * 各开关都能显式关闭来测降级路径（storage 缺席须连 registries 一起关）；
+ * `dispose()` 与装配严格成对、逆序拆除。
+ * Every switch can be turned off explicitly to exercise degrade paths (turning
+ * storage off requires turning registries off too); `dispose()` pairs strictly
+ * with the mount and tears everything down in reverse order.
  *
  * @module @veren/test-support/host
  */
@@ -23,9 +25,19 @@ import { mountStorage, TempDirs } from './storage.ts'
 export interface AppHostOptions {
   /** 挂 apps + pageRegistry + 镜像面（缺省 true；置 false 测「apps 缺席」降级）。Mount apps + pageRegistry + the mirror seam (default true; false tests the "apps absent" degrade path). */
   registries?: boolean
-  /** 挂真实 storage 栈（临时目录）。Mount the real storage stack (temp directory). */
+  /**
+   * 挂真实 storage 栈（临时目录）。**缺省 true**：page-registry 声明
+   * `inject: ['storageDomain']`，绝大多数应用层测试都需要它在场才能激活，
+   * 所以默认挂上、需要「无存储降级」的测试显式置 false（此时 registries
+   * 也必须置 false，否则装配 fail loud）。
+   * Mount the real storage stack (temp directory). **Defaults to true**:
+   * page-registry declares `inject: ['storageDomain']`, so nearly every
+   * application-layer test needs it present for the registry to activate.
+   * Storage-off is the explicit opt-out for degrade tests (which must also
+   * pass `registries: false`, or the mount fails loud).
+   */
   storage?: boolean
-  /** 挂真实 taskCenter（隐含 storage）。Mount the real task center (implies storage). */
+  /** 挂真实 taskCenter（隐含 storage，即使 storage 为 false 也会挂）。Mount the real task center (implies storage, mounted even when `storage` is false). */
   taskCenter?: boolean
   /** 提供最小 agentPresets 替身（缺省 true）。Provide the minimal agentPresets stub (default true). */
   agentPresets?: boolean
@@ -64,19 +76,40 @@ export async function mountAppHost(options: AppHostOptions = {}): Promise<AppHos
       composedPreset: (agentContext: { preset?: string }) => agentContext.preset,
     }))
   }
-  if (options.registries !== false) await mountRegistries(ctx, disposers)
-  if (options.taskCenter === true || options.storage === true) {
+  // storage 先挂、最后拆（disposers 逆序）：page-registry 的存储域句柄在
+  // 自己的 fiber dispose 时关闭，storage 栈必须活得比注册表 fiber 更久。
+  // Storage mounts first and disposes last (reversed disposers): page-registry
+  // closes its domain handle on its own fiber dispose, so the storage stack
+  // must outlive the registry fibers.
+  const storageOn = options.storage !== false || options.taskCenter === true
+  const registriesOn = options.registries !== false
+  if (registriesOn && options.storage === false && options.taskCenter !== true) {
+    // fail loud：page-registry 声明 inject ['storageDomain']，无存储装不上。
+    // Fail loud: page-registry declares inject ['storageDomain'] and cannot
+    // activate without storage.
+    throw new Error('mountAppHost: storage is required while registries are on '
+      + '(page-registry injects storageDomain); pass registries: false for storage-off degrade tests')
+  }
+  if (storageOn) {
     const storage = await mountStorage(ctx, dirs)
     disposers.push(storage.dispose)
   }
+  if (registriesOn) await mountRegistries(ctx, disposers)
   if (options.taskCenter === true) {
     const fiber = await ctx.plugin(TaskCenterPlugin)
     disposers.push(() => fiber.dispose())
   }
+  // 开关关掉的键干脆不出现在结果上（exactOptionalPropertyTypes 下不写显式
+  // undefined），调用方拿到的形状与装配事实一致。apps/pageRegistry 走
+  // declaration merging 的真实服务面，缺席在 mountRegistries 里已 fail loud。
+  // Switched-off keys are absent from the result entirely (never an explicit
+  // undefined under exactOptionalPropertyTypes), so the shape callers see
+  // matches what was actually assembled. apps/pageRegistry use the real
+  // declaration-merged service faces; absence already fails loud in
+  // mountRegistries.
   return {
     ctx,
-    apps: options.registries === false ? undefined : ctx.get('apps'),
-    pageRegistry: options.registries === false ? undefined : ctx.get('pageRegistry'),
+    ...(registriesOn ? { apps: ctx.apps, pageRegistry: ctx.pageRegistry } : {}),
     tools,
     dispose: async () => {
       for (const dispose of disposers.reverse()) await dispose()

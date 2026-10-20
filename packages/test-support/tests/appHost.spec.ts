@@ -82,6 +82,20 @@ describe('mountAppHost 装配与清理', () => {
     expect(host.ctx.get('storageDomain')).toBeDefined()
     await host.dispose()
   })
+
+  it('降级开关：storage 显式关闭时须连 registries 一起关（默认挂 storage），否则 fail loud', async () => {
+    // page-registry 声明 inject ['storageDomain']：registries 开着而 storage 关着
+    // 是装配错误，直接拒绝而不是悄悄给出半死宿主。
+    // page-registry declares inject ['storageDomain']: registries on while
+    // storage off is an assembly error — reject it instead of returning a
+    // half-dead host.
+    await expect(mountAppHost({ storage: false })).rejects.toThrow('storageDomain')
+    const host = await mountAppHost({ registries: false, storage: false })
+    expect(host.apps).toBeUndefined()
+    expect(host.pageRegistry).toBeUndefined()
+    expect(host.ctx.get('storageDomain')).toBeUndefined()
+    await host.dispose()
+  })
 })
 
 describe('TempDirs 创建与清理成对', () => {

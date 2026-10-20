@@ -13,6 +13,7 @@
  * dir. No in-memory stand-ins.
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -30,6 +31,7 @@ import type { TaskCenterService } from '@veren/task-center'
 import type { AppId, PageKey } from '@veren/app-registry'
 import type { PageInstanceKey } from '@veren/prompt-page'
 import { apply, inject, name as workbenchName } from '../src/index.ts'
+import type { MountedTool, PageSessionPort, ToolsFace } from '@veren/page-registry'
 
 // ---- 落盘的会话目录（DSH 会话系统的最小替身，但状态在文件里）----
 // ---- The file-backed session directory (a minimal DSH-session stand-in whose state lives on disk) ----
@@ -41,8 +43,11 @@ interface SessionFile {
 /** 会话目录：JSON 文件落盘；agent.followup 追加消息并立即写回。 */
 class FileSessionStore {
   private readonly data: SessionFile = { sessions: {} }
+  /** 各会话挂着的页面工具名（内存即可：重启后由重开路径重新挂载）。
+   *  Page tool names mounted per session (memory only: a restart remounts via reopen). */
+  readonly #mountedTools = new Map<string, string[]>()
 
-  constructor(readonly file: string) {
+  constructor(readonly file: string, private readonly tools: Map<string, MountedTool>) {
     if (existsSync(file)) this.data.sessions = JSON.parse(readFileSync(file, 'utf8')) as SessionFile['sessions']
   }
 
@@ -81,6 +86,43 @@ class FileSessionStore {
         } }
       : undefined),
   }
+
+  /** 摘掉一个会话挂的全部页面工具（废弃/销毁路径共用）/ strip every page tool a session mounted (shared by deprecate & destroy) */
+  releaseToolsOf(id: string): void {
+    for (const name of this.#mountedTools.get(id) ?? []) this.tools.delete(name)
+    this.#mountedTools.delete(id)
+  }
+
+  /**
+   * page-registry 的会话端口（G13 后端口是纯参数，由装配显式传入；这里是测试
+   * 版的真实会话机制——状态落盘、工具进共享注册表、releaseTools 真的摘掉）。
+   * The page-registry session port (post-G13 ports arrive as pure parameters
+   * from the assembly). This is the test face of the real session mechanism:
+   * state on disk, tools into the shared registry, releaseTools actually strips.
+   */
+  readonly port: PageSessionPort = {
+    exists: (id) => this.alive(id),
+    mintId: () => `s-${randomUUID()}`,
+    create: async (id, title) => {
+      this.data.sessions[id] = { title, messages: [], alive: true }
+      this.save()
+    },
+    appendUserMessage: async (id, text) => {
+      this.data.sessions[id]?.messages.push(text)
+      this.save()
+    },
+    mountTools: async (id, mounted) => {
+      this.#mountedTools.set(id, mounted.map((tool) => tool.name))
+      for (const tool of mounted) this.tools.set(tool.name, tool)
+    },
+    releaseTools: async (id) => { this.releaseToolsOf(id) },
+    focus: async () => undefined,
+    destroy: async (id) => {
+      this.releaseToolsOf(id)
+      delete this.data.sessions[id]
+      this.save()
+    },
+  }
 }
 
 // ---- 组装 / assembly ----
@@ -103,29 +145,32 @@ function tempRoot(): string {
 interface Boot {
   ctx: Context
   store: FileSessionStore
-  tools: Map<string, { name: string }>
+  tools: Map<string, MountedTool>
   apps: AppRegistryService
   pages: PageRegistryService
   tasks: TaskCenterService
   wb: Fiber
 }
 
+/**
+ * 起一套完整宿主：真实存储栈（json backend → 临时目录）+ 四个插件 +
+ * 落盘会话目录。返回的 stop() 按依赖逆序销毁每个 fiber。
+ * 装配接线 = app-host（plugins/app-host/src/wire.ts）在真实宿主做的三步，
+ * 这里显式做同型三步：resolver ← apps、镜像面 ← pageRegistry、
+ * bindPorts ← 全部端口纯参数（G13 后没有隐式探测兜底）。
+ */
 /** provide 的宽松封装（测试桩不需要 InjectKey 精确类型）/ loose provide for test stubs */
 function provideStub(ctx: Context, name: string, value: unknown): void {
   ;(ctx.provide as unknown as (n: string, v: unknown) => void)(name, value)
 }
 
-/**
- * 起一套完整宿主：真实存储栈（json backend → 临时目录）+ 四个插件 +
- * 落盘会话目录。返回的 stop() 按依赖逆序销毁每个 fiber。
- */
 async function boot(root: string): Promise<Boot & { stop(): Promise<void> }> {
   const ctx = new Context()
-  const store = new FileSessionStore(join(root, 'sessions.json'))
   // 工具注册表替身：register 记录，disposer 摘除（真实释放语义）
-  const tools = new Map<string, { name: string }>()
+  const tools = new Map<string, MountedTool>()
+  const store = new FileSessionStore(join(root, 'sessions.json'), tools)
   provideStub(ctx, 'tools', {
-    register: (tool: { name: string }) => {
+    register: (tool: MountedTool) => {
       tools.set(tool.name, tool)
       return () => { tools.delete(tool.name) }
     },
@@ -138,15 +183,36 @@ async function boot(root: string): Promise<Boot & { stop(): Promise<void> }> {
   await ctx.plugin(AppRegistryPlugin)
   await ctx.plugin(PageRegistryPlugin)
   await ctx.plugin(TaskCenterPlugin)
-  // 装配接线（app-host 在真实宿主里做的两步，测试里显式做）：
-  // resolver ← apps；镜像面 ← pageRegistry。结构探测兜底已在装配层落地时删除。
-  ;(ctx as { taskCenter: { setAppResolver(r: unknown): void } }).taskCenter.setAppResolver(async (appId: string) => {
-    const record = ctx.apps.get(appId as never)
+  const apps = ctx.apps
+  const pageRegistry = ctx.pageRegistry
+  const taskCenter = ctx.taskCenter
+  // 装配接线（与 app-host wireAppHost 同型三步）：
+  // 1) resolver ← apps.get；2) 镜像面 ← pageRegistry；3) bindPorts 纯参数。
+  taskCenter.setAppResolver(async (appId) => {
+    const record = apps.get(appId as never)
     return record === undefined ? undefined : { state: record.state, version: record.version }
   })
-  ;(ctx as { apps: { setPageMirror(m: unknown): void } }).apps.setPageMirror({
-    registerAppPage: (appId: string, page: never) => ctx.pageRegistry.registerAppPage(appId, page),
-    releaseApp: (appId: string) => ctx.pageRegistry.releaseApp(appId),
+  apps.setPageMirror({
+    registerAppPage: (appId, page) => pageRegistry.registerAppPage(appId, page),
+    releaseApp: (appId) => pageRegistry.releaseApp(appId),
+  })
+  // 目录值就是 DSH ToolDefinition 本体，键 = 本地名（与 wire.ts 同一投影）
+  const toolsOf: ToolsFace = (appId) => new Map(apps.listTools(appId as never).map((tool) => [tool.name, tool]))
+  pageRegistry.bindPorts({
+    sessions: store.port,
+    apps,
+    toolsOf,
+    tasks: taskCenter,
+    deliveries: {
+      pending: () => taskCenter.pendingDeliveries(),
+      mark: (deliveryId, error) => taskCenter.markDelivered(deliveryId, error),
+    },
+    releaseLeases: async (sessionId) => {
+      const taken = await taskCenter.list({ status: 'taken', claimedBySession: sessionId })
+      for (const task of taken) {
+        await taskCenter.release(task.id, `page session ${sessionId} deprecated`).catch(() => undefined)
+      }
+    },
   })
   const wb = await ctx.plugin({ name: workbenchName, inject, apply }, { listSize: 3 })
   const pages = ctx.pageRegistry
@@ -281,7 +347,7 @@ describe('场景 5：两个应用同名工具 → 不同前缀共存', () => {
     expect(names).toContain('task_workbench__complete_task')
     expect(names).toContain('other_app__take_task')
     // DSH ToolDefinition 本体直达模型侧：output 契约字段未在挂载路上丢失
-    const mounted = tools.get('task_workbench__complete_task') as unknown as import('@deepseek-ai/dsh-tools').ToolDefinition
+    const mounted = tools.get('task_workbench__complete_task')
     expect(mounted?.output?.schema).toBeDefined()
     expect(mounted?.presentCall).toBeTypeOf('function')
     expect(mounted?.name).toBe('task_workbench__complete_task')

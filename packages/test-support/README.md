@@ -29,9 +29,19 @@ await host.dispose()                       // reverse-order teardown, temp dirs 
 
 - `mountAppHost(options?)` — one path for the "construct + provide + mirror"
   dance: real `AppRegistryPlugin` / `PageRegistryPlugin` activation, the mirror
-  seam wired once, minimal `tools` / `agentPresets` stubs. Options
-  (`registries`, `storage`, `taskCenter`, `agentPresets`) switch services **off**
-  to test degrade paths. `dispose()` tears everything down in reverse order.
+  seam wired once, minimal `tools` / `agentPresets` stubs. `dispose()` tears
+  everything down in reverse order.
+  **Storage is on by default (`storage: true`)** because page-registry declares
+  `inject: ['storageDomain']` and cannot activate without it — nearly every
+  application-layer test wants the registry live, so the harness mounts the
+  real storage stack (json backend on a temp directory) unless told otherwise.
+  Two modes:
+  - **Real storage (default)** — `mountAppHost()`; registries activate, the
+    instance index persists on a throwaway temp dir.
+  - **No storage (degrade tests)** — `mountAppHost({ registries: false, storage: false })`;
+    `storageDomain` is absent so you can assert degrade behaviour. With
+    `registries` on, `storage: false` fails loud at mount time (assembly error,
+    not a silent half-host). `taskCenter: true` implies storage either way.
 - `TempDirs` / `mountStorage(ctx, dirs)` — one temp directory per test under
   the OS temp dir (never inside the repository), strictly paired cleanup.
 - `installFakeSessions(ctx)` / `ToolTable` — fake session/agent ports where

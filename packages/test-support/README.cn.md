@@ -27,8 +27,17 @@ await host.dispose()                       // 逆序拆除，临时目录删净
 
 - `mountAppHost(options?)`——把「构造 + provide + 镜像面」收成一条路径：真实激活
   `AppRegistryPlugin` / `PageRegistryPlugin`、一处接好镜像缝、最小 `tools` /
-  `agentPresets` 替身。选项（`registries` / `storage` / `taskCenter` /
-  `agentPresets`）可以把服务**关掉**来测降级路径。`dispose()` 逆序拆净。
+  `agentPresets` 替身。`dispose()` 逆序拆净。
+  **storage 默认开（`storage: true`）**：page-registry 声明了
+  `inject: ['storageDomain']`，没有存储根本不激活——绝大多数应用层测试要的都是
+  「注册表活着」，所以测试助手默认挂真实 storage 栈（json backend + 临时目录），
+  除非显式关掉。两种模式：
+  - **真实存储（默认）**——`mountAppHost()`；注册表激活，实例索引落在用完即弃的
+    临时目录上。
+  - **无存储（测降级）**——`mountAppHost({ registries: false, storage: false })`；
+    `storageDomain` 缺席，可以断言降级行为。registries 开着却关 storage 会在
+    装配时 fail loud（那是装配错误，不给半死宿主）。`taskCenter: true` 无论如何
+    都隐含挂 storage。
 - `TempDirs` / `mountStorage(ctx, dirs)`——每个测试一份临时目录，建在系统临时
   目录下（绝不落仓库），创建与清理严格成对。
 - `installFakeSessions(ctx)` / `ToolTable`——假会话/agent 端口：每个会话的
