@@ -28,27 +28,31 @@
     - id: admin-api-kernel
       name: '@veren/admin-api-kernel'
 
-    # Recommended production `data` provider: PostgreSQL. Connection values come
-    # from profile config (`host`, `port`, `user`, `password`, `database`,
-    # optionally `schema`/`ssl`/`maxConnections`); the package holds no
-    # credentials. The schema bootstraps idempotently on load.
-    # 推荐的生产 `data` provider：PostgreSQL。连接值来自 profile 配置（`host`、
-    # `port`、`user`、`password`、`database`，可选 `schema`/`ssl`/`maxConnections`）；
-    # 包内不含凭据。schema 在加载时幂等引导。
-    - id: admin-data-postgres
-      name: '@veren/admin-data-postgres'
-
-    # Embedded fallback over the DSH storage domain (JSON backend). Enable this
-    # row and disable the PostgreSQL row to run without an external database;
-    # it needs a `storage` group and `storageDomain` in the profile.
-    # 基于 DSH storage domain（JSON 后端）的嵌入回退。禁用 PostgreSQL 行并启用本行
-    # 即可在没有外部数据库时运行；它需要 profile 提供 `storage` 组与 `storageDomain`。
+    # Embedded default `data` provider over the DSH storage domain (JSON
+    # backend). It needs the `storage` group and `storageDomain` the base
+    # profile already provides, so a clean install serves the admin SPA with no
+    # external database. Enable PostgreSQL below for production scale.
+    # 默认的内嵌 `data` provider，基于 DSH storage domain（JSON 后端）。它只需基础
+    # profile 已提供的 `storage` 组与 `storageDomain`，因此干净安装无需外部数据库
+    # 就能提供管理台 SPA。生产规模请在下方启用 PostgreSQL。
     - id: admin-data-dsh-kv
       name: '@veren/admin-data-dsh-kv'
-      disabled: true
       config:
         storage:
           backend: json
+
+    # Opt-in production `data` provider: PostgreSQL. Connection values come from
+    # profile config (`host`, `port`, `user`, `password`, `database`, optionally
+    # `schema`/`ssl`/`maxConnections`); the package holds no credentials. The
+    # schema bootstraps idempotently on load. Disabled by default because a clean
+    # install has no database: enable this row and disable the embedded one.
+    # 可选的生产 `data` provider：PostgreSQL。连接值来自 profile 配置（`host`、
+    # `port`、`user`、`password`、`database`，可选 `schema`/`ssl`/`maxConnections`）；
+    # 包内不含凭据。schema 在加载时幂等引导。默认禁用，因为干净安装没有数据库：
+    # 启用本行并禁用内嵌行。
+    - id: admin-data-postgres
+      name: '@veren/admin-data-postgres'
+      disabled: true
 
     # `access`: role catalog, bindings, anti-lockout.
     # `access`：角色目录、绑定、防自锁。

@@ -1,37 +1,39 @@
 /**
- * Automatic stranger intake: ask once, read only a clearly stated answer, and
- * keep the self-report separate from verified identity.
+ * Automatic stranger intake: ask once, and let the conversation model record
+ * the answer through the low-privilege `im_person_report` tool.
  *
  * The question is sent to the stranger, never to the user. A person is asked at
- * most once; a burst of messages cannot trigger a second question. The reply is
- * parsed by a deliberately narrow, deterministic extractor: a whole-line name, a
- * small set of explicit self-introduction prefixes, or an unmistakable contact
- * pattern. Anything else is abandoned at the end of the reply window instead of
- * being guessed into the directory.
+ * most once; a burst of messages cannot trigger a second question. This module
+ * no longer parses replies: reading the answer is a semantic judgment, so the
+ * conversation model decides and writes through the tool. This side only keeps
+ * the ask side (rate limits, ask-once, audit) and the settle entry the tool
+ * calls back into.
  *
- * 自动陌生人采集：只问一次，只读取明确说出的回答，并把自述与已核实身份分开保存。
+ * 自动陌生人采集：只问一次，回答由会话中的大模型通过低权限工具 `im_person_report` 记录。
  *
- * 询问发给陌生人，而不是用户。每个人最多问一次；连发多条也不会触发第二次询问。回复由刻意
- * 狭窄、确定性的提取器解析：整行姓名、少量明确的自述前缀，或不会认错的联系方式格式。其余内容
- * 在回复窗口结束时放弃，绝不猜着写进名单。
+ * 询问发给陌生人，而不是用户。每个人最多问一次；连发多条也不会触发第二次询问。本模块不再解析
+ * 回复：读懂回答是语义判断，由会话模型决定并经工具写入。这一侧只保留提问侧（限频、ask-once、
+ * 审计）以及供工具回写的 settle 接口。
  *
  * @module @veren/im/intake
  */
 
-import type { ImMessage, ImMessageContent, ImSendResult } from './contract.ts'
+import type { ImMessage, ImSendResult } from './contract.ts'
 import type { ImLogger } from './bindings.ts'
 import type { ImPeople, ImPersonView } from './people.ts'
 import type { ImIntakeStatus, ImPersonIntakeRow } from './store.ts'
-import { comparisonKey, isOptOut, oneLine, parseSelfReport } from './intake-parser.ts'
-
-export { parseSelfReport } from './intake-parser.ts'
-export type { ParsedSelfReport } from './intake-parser.ts'
 
 /** One switch and its safety bounds. */
 export interface ImStrangerIntakeConfig {
   /** The total switch. `false` sends nothing and records nothing. */
   enabled: boolean
-  /** How long after the question a reply is still considered an answer. */
+  /**
+   * Display reference only: how long after the question a reply was once
+   * considered an answer. Rows are never moved to `expired` anymore; the
+   * conversation model settles them through `im_person_report`.
+   * 仅作展示参考：过去认为询问后多久内的回复算回答。行不再被打成 expired 终态；由会话模型
+   * 通过 `im_person_report` 收尾。
+   */
   replyWindowMs: number
   /** Per-account cap across a sliding hour; 0 is treated as 1. */
   maxAsksPerHour: number
@@ -54,6 +56,9 @@ export const STRANGER_INTAKE_DEFAULTS: ImStrangerIntakeConfig = {
  */
 export const STRANGER_INTAKE_ASK = '你好，我们好像还没认识过。请问怎么称呼你？方便的话再留个联系方式，我记一下，以后好找你，不方便也没关系。'
 
+/** What the model settled the open question with. */
+export type ImIntakeSettle = 'answered' | 'declined'
+
 /** One intake record as the status tool shows it. */
 export interface ImIntakeRecordView {
   personId: string
@@ -66,7 +71,7 @@ export interface ImIntakeRecordView {
   askedAt: number
   askMessageId: string
   askText: string
-  /** Computed from the reply window; useful while `status` is still `asked`. */
+  /** Display reference computed from the reply window. */
   expiresAt: number
   settledAt?: number
   outcome?: 'name' | 'contact' | 'both'
@@ -95,19 +100,8 @@ export interface ImStrangerIntakeOptions {
   now?: () => number
 }
 
-const MAX_EXCERPT_CHARS = 200
 const HOUR_MS = 3_600_000
 const RECENT_LIMIT = 100
-
-/** One-line audit excerpt; never lets a reply forge a log section. */
-function excerptOf(content: ImMessageContent): string | undefined {
-  if (content.type === 'text' || content.type === 'markdown') {
-    const text = oneLine(content.text)
-    if (text === '') return undefined
-    return [...text].slice(0, MAX_EXCERPT_CHARS).join('')
-  }
-  return content.type === 'image' ? '[image]' : `[file: ${content.name}]`
-}
 
 /** Stable message for logs. */
 function messageOf(error: unknown): string {
@@ -116,8 +110,10 @@ function messageOf(error: unknown): string {
 
 /**
  * The automatic stranger-intake service. It never routes messages and never
- * asks the model: it sends one fixed question and records the answer.
- * 自动陌生人采集服务。它不路由消息，也不问模型：只发送一条固定询问并记录回答。
+ * reads replies: it sends one fixed question and settles rows when the
+ * conversation model reports back through the tool.
+ * 自动陌生人采集服务。它不路由消息，也不读回复：只发送一条固定询问，并在会话模型通过工具
+ * 回报时收尾对应的行。
  */
 export class ImStrangerIntake {
   private readonly people: ImPeople
@@ -149,17 +145,18 @@ export class ImStrangerIntake {
   }
 
   /**
-   * React to one inbound message before it is routed. Failures are logged and
-   * contained: directory bookkeeping must not drop the message.
-   * 在消息被路由前处理一次入站消息。失败只记日志并吞掉：目录记账不能丢消息。
+   * React to one inbound message before it is routed by asking the question
+   * when allowed. Failures are logged and contained: bookkeeping must not drop
+   * the message, and replies are left to the conversation model.
+   * 在消息被路由前处理一次入站消息，允许时发出询问。失败只记日志并吞掉：记账不能丢消息；
+   * 回复交给会话模型处理。
    * @param providerId - provider that emitted the message.
    * @param message - normalized inbound message.
    * @param person - the sender as just observed, when recording succeeded.
-   * @returns nothing; the routing step continues regardless.
    */
   async handle(providerId: string, message: ImMessage, person: ImPersonView | undefined): Promise<void> {
     try {
-      await this.handleNow(providerId, message, person)
+      await this.askOnce(providerId, message, person)
     } catch (error: unknown) {
       this.logger.error(`[im:${providerId}] stranger intake failed: ${messageOf(error)}`)
     }
@@ -183,26 +180,46 @@ export class ImStrangerIntake {
     }
   }
 
+  /**
+   * Settle the open question of one person from the model's report. Only an
+   * `asked` row moves; a missing or already-settled row is a no-op.
+   * 根据模型的回报收尾一个人的未决询问。只有 asked 状态的行会移动；没有行或已收尾都是空操作。
+   * @returns whether a row was settled.
+   */
+  async settleByModel(personId: string, outcome: ImIntakeSettle, detail?: 'name' | 'contact' | 'both'): Promise<boolean> {
+    const intake = this.people.intakeOf(personId)
+    if (intake === undefined || intake.status !== 'asked') return false
+    const now = this.now()
+    await this.people.recordIntake({
+      ...intake,
+      status: outcome,
+      settled_at: now,
+      ...(outcome === 'answered' && detail !== undefined ? { outcome: detail } : {}),
+    })
+    this.logger.info?.(
+      `[im:intake] person ${personId} intake ${outcome}`
+      + `${detail === undefined ? '' : ` (${detail})`}`
+      + ` via im_person_report (${intake.account_id}/${intake.conversation_id})`,
+    )
+    return true
+  }
+
   /** Whether one observed person is already identifiable enough not to be asked. */
   private identifiable(person: ImPersonView, externalId: string): boolean {
     if (person.identityStatus !== 'unverified') return true
     if (person.aliases.length > 0 || person.bio !== undefined || person.notes !== undefined) return true
-    if (comparisonKey(person.displayName) !== comparisonKey(externalId)) return true
+    if (normalizeKey(person.displayName) !== normalizeKey(externalId)) return true
     // The automatic provider contact is the raw id; any other contact came from
     // a human and makes the person searchable.
-    return person.contacts.some(contact => comparisonKey(contact.value) !== comparisonKey(externalId))
+    return person.contacts.some(contact => normalizeKey(contact.value) !== normalizeKey(externalId))
   }
 
-  /** Ask once, or interpret the reply to an existing question. */
-  private async handleNow(providerId: string, message: ImMessage, person: ImPersonView | undefined): Promise<void> {
+  /** Ask once, or leave an already-asked person to the conversation model. */
+  private async askOnce(providerId: string, message: ImMessage, person: ImPersonView | undefined): Promise<void> {
     if (!this.config.enabled) return
     const externalId = message.sender.id.trim()
     if (person === undefined || externalId === '') return
-    const existing = this.people.intakeOf(person.id)
-    if (existing !== undefined) {
-      await this.considerReply(providerId, message, person, existing)
-      return
-    }
+    if (this.people.intakeOf(person.id) !== undefined) return
     if (this.asked.has(person.id) || this.identifiable(person, externalId)) return
     if (this.asking.has(person.id) || !this.allow(providerId, message.accountId)) return
     this.asking.add(person.id)
@@ -248,70 +265,6 @@ export class ImStrangerIntake {
     } finally {
       this.asking.delete(person.id)
     }
-  }
-
-  /** Interpret one reply against the open question. */
-  private async considerReply(
-    providerId: string,
-    message: ImMessage,
-    person: ImPersonView,
-    intake: ImPersonIntakeRow,
-  ): Promise<void> {
-    if (intake.status !== 'asked') return
-    const now = this.now()
-    const expiresAt = intake.asked_at + this.config.replyWindowMs
-    if (now > expiresAt) {
-      await this.settle(providerId, intake, 'expired', now)
-      return
-    }
-    const content = message.content
-    const text = content.type === 'text' || content.type === 'markdown' ? content.text : undefined
-    if (text !== undefined && isOptOut(text)) {
-      await this.settle(providerId, intake, 'declined', now)
-      return
-    }
-    const parsed = text === undefined ? undefined : parseSelfReport(text)
-    if (parsed === undefined) return
-    await this.people.recordClaim(person.id, {
-      ...(parsed.name === undefined ? {} : { name: parsed.name }),
-      contacts: parsed.contacts,
-      provider: providerId,
-      accountId: message.accountId,
-      conversationId: message.conversationId,
-      messageId: message.id,
-    })
-    const outcome = parsed.name !== undefined && parsed.contacts.length > 0
-      ? 'both'
-      : parsed.name !== undefined ? 'name' : 'contact'
-    const excerpt = excerptOf(content)
-    const settled: ImPersonIntakeRow = {
-      ...intake,
-      status: 'answered',
-      settled_at: now,
-      outcome,
-      reply_message_id: message.id,
-      ...(excerpt === undefined ? {} : { reply_excerpt: excerpt }),
-    }
-    await this.people.recordIntake(settled)
-    this.logger.info?.(
-      `[im:${providerId}] stranger intake claim recorded for person ${person.id}`
-      + ` (${message.accountId}/${message.conversationId}, ${outcome}):`
-      + ` name=${parsed.name ?? '-'} contacts=${parsed.contacts.map(contact => contact.value).join(',') || '-'}`,
-    )
-  }
-
-  /** Move one intake to a terminal state without parsing anything. */
-  private async settle(
-    providerId: string,
-    intake: ImPersonIntakeRow,
-    status: 'declined' | 'expired',
-    now: number,
-  ): Promise<void> {
-    await this.people.recordIntake({ ...intake, status, settled_at: now })
-    this.logger.info?.(
-      `[im:${providerId}] stranger intake for person ${intake.person_id} ${status}`
-      + ` (${intake.account_id}/${intake.conversation_id})`,
-    )
   }
 
   /** Reserve one send slot under the per-account sliding-hour cap. */
@@ -362,4 +315,9 @@ export class ImStrangerIntake {
       ...(row.reply_excerpt === undefined ? {} : { replyExcerpt: row.reply_excerpt }),
     }
   }
+}
+
+/** Normalize text for one-line log-safe comparison. */
+function normalizeKey(value: string): string {
+  return value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase()
 }

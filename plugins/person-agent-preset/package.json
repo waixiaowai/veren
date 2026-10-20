@@ -1,7 +1,7 @@
 {
   "name": "@veren/person-agent-preset",
   "displayName": "管家-预设",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "icon": "./icon.svg",
   "description": "Use when a DSH deployment needs the bridge between the human and DSH: it registers the \"person-agent\" preset through ctx.agentPresets at runtime, composing a delegating chief-of-staff persona (understands the need, metacognition first, plain Simplified Chinese, hands work to sessions it creates) whose hard numeric self-work check is the system-prompt suffix, a periodic append-only re-anchor row, workspace and session maintenance tools always on, file tools with edit disabled but write kept for human-facing documents, plus a bundled human-writing skill; skip it when sessions must never create or route other sessions.",
   "type": "module",

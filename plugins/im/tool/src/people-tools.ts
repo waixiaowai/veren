@@ -39,7 +39,7 @@ function aliasesOf(value: JsonValue | undefined): string[] | undefined {
 }
 
 /** Parse one optional contacts argument; the model sends a JSON array. */
-function contactsOf(value: JsonValue | undefined): ImPersonContact[] | undefined {
+export function contactsOf(value: JsonValue | undefined): ImPersonContact[] | undefined {
   if (value === undefined) return undefined
   if (!Array.isArray(value)) throw new ImError('IM_INVALID_REQUEST', 'contacts must be an array')
   return value.map(item => {
@@ -82,7 +82,9 @@ export function registerPeopleTools(ctx: Context, router: ImRouter): void {
           + 'bio, and reachable addresses (provider + accountId + conversationId). A person may also '
           + 'carry claimedName/claimedContacts from the automatic stranger question: that is the '
           + 'person\'s own unverified statement, shown with identityStatus=self-reported, and must '
-          + 'never be presented as a verified realName. Call this before im_send when the user names '
+          + 'never be presented as a verified realName. For what the person said about themselves in '
+          + 'conversation, use im_person_report; this tool is for verified information. '
+          + 'Call this before im_send when the user names '
           + 'someone. This tool only browses: im_send performs the exact match and refuses ambiguity.',
         parameters: {
           query: {
@@ -111,7 +113,9 @@ export function registerPeopleTools(ctx: Context, router: ImRouter): void {
         description: 'Create or enrich one person in the directory. Create a person with accountId + '
           + 'conversationId (the address that can receive messages); update an existing person by '
           + 'personId. Use realName, aliases (remarks or other names), contacts, bio, and notes to make '
-          + 'people distinguishable. This never sends a message. An address already owned by a '
+          + 'people distinguishable. What the other party said about themselves goes through '
+          + 'im_person_report; use this tool only for verified information. '
+          + 'This never sends a message. An address already owned by a '
           + 'different person is rejected instead of being reassigned.',
         parameters: {
           personId: { type: 'string', description: 'Update this person; mutually compatible with a new address.' },

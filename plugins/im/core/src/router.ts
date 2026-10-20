@@ -19,7 +19,7 @@ import type {
 } from './contract.ts'
 import { ImBindings } from './bindings.ts'
 import { ImStrangerIntake } from './intake.ts'
-import type { ImIntakeStatusView, ImStrangerIntakeConfig } from './intake.ts'
+import type { ImIntakeSettle, ImIntakeStatusView, ImStrangerIntakeConfig } from './intake.ts'
 import type { ImPeople } from './people.ts'
 import type {
   ImPersonAddressFilter,
@@ -276,6 +276,47 @@ export class ImRouter {
   /** The automatic-intake switch, counts, and recent audit records. */
   intakeStatus(limit?: number): ImIntakeStatusView {
     return this.intake.status(limit)
+  }
+  /**
+   * Resolve the person seen at one conversation address, for tools that know
+   * the conversation but not the person id.
+   * 解析某个会话地址上观察到的人，供只知道会话、不知道 personId 的工具使用。
+   */
+  personAt(accountId: string, conversationId: string): ImPersonView | undefined {
+    const account = this.bindings.account(accountId)
+    if (account === undefined) return undefined
+    return this.people.viewAt(account.provider, accountId, conversationId)
+  }
+  /** Read one person by id, for tools that already hold a personId. */
+  personById(personId: string): ImPersonView | undefined {
+    return this.people.person(personId)
+  }
+  /**
+   * Record one unverified self-report from the conversation model. The
+   * provider comes from the account; the claim path never touches `realName`.
+   * 记录会话模型带来的一条未核实自述。provider 取自账号；claim 路径绝不碰 realName。
+   */
+  async reportPersonClaim(personId: string, claim: {
+    name?: string
+    contacts?: ImPersonContact[]
+    accountId: string
+    conversationId: string
+    messageId: string
+  }): Promise<ImPersonView> {
+    const account = this.bindings.account(claim.accountId)
+    if (account === undefined) throw new ImError('IM_NOT_FOUND', `unknown account: ${claim.accountId}`)
+    return this.people.recordClaim(personId, {
+      ...(claim.name === undefined ? {} : { name: claim.name }),
+      ...(claim.contacts === undefined ? {} : { contacts: claim.contacts }),
+      provider: account.provider,
+      accountId: claim.accountId,
+      conversationId: claim.conversationId,
+      messageId: claim.messageId,
+    })
+  }
+  /** Settle one person's open intake question from the model's report. */
+  settleIntake(personId: string, outcome: ImIntakeSettle, detail?: 'name' | 'contact' | 'both'): Promise<boolean> {
+    return this.intake.settleByModel(personId, outcome, detail)
   }
   /** Create or enrich one person. An unknown account fails loudly. */
   async savePerson(request: ImPersonSaveInput): Promise<ImPersonView> {
