@@ -28,19 +28,24 @@ The preset composes it as a child row (no `cordis.patch.yml` needed; the loader 
 | Tool | Arguments | Effect |
 | --- | --- | --- |
 | `session_create` | `title?`, `presetId?`, `provider?`+`model?`, `workspaceId?` xor `cwd?` | Creates an ordinary session, then installs the model selection and title in that order. The session starts empty; the new id is reported, never switched to. |
-| `session_dispatch` | `prompt`, `sessionId?` xor `newSession?`, `report?` | Delivers one prompt into the session through the host's standard enqueue path (`resolveAgent` → `agent.followup`) and **returns at once**; it never waits for that session. With `report: true` (the default) a guard observes the target until it is genuinely quiescent and then delivers its closing output back into the calling session as a follow-up message, which names the dispatch it answers. At most one dispatch per target may be outstanding: a dispatch to a session whose report has not arrived yet is refused with `SESSION_DISPATCH_WATCH_BUSY`. With `report: false` nothing comes back. This is how the bridge persona hands a created session its task. |
+| `session_dispatch` | `prompt`, `sessionId?` xor `newSession?`, `report?`; inside `newSession`, `workspaceId?` xor `cwd?` | Delivers one prompt into the session through the host's standard enqueue path (`resolveAgent` → `agent.followup`) and **returns at once**; it never waits for that session. With `report: true` (the default) a guard observes the target until it is genuinely quiescent and then delivers its closing output back into the calling session as a follow-up message, which names the dispatch it answers. At most one dispatch per target may be outstanding: a dispatch to a session whose report has not arrived yet is refused with `SESSION_DISPATCH_WATCH_BUSY`. With `report: false` nothing comes back. This is how the bridge persona hands a created session its task. |
 | `session_rename` | `sessionId`, `title` | Retitles one session durably. |
 | `session_fork` | `sessionId`, `atSeq?` | Copies an exact completed-turn prefix into a new session. |
 | `session_archive` | `sessionId`, `stopActivity?` | Moves a session into the archive set; with `stopActivity`, running work is stopped instead of refusing. |
 | `session_unarchive` | `sessionId` | Restores an archived session to its recorded position. |
 | `session_pin` / `session_unpin` | `sessionId` | Maintains the registry-global pin set. |
 
-`session_create`'s `cwd` and `session_dispatch`'s `newSession.cwd` are resolved
-against `ctx.workspaceRegistry.resolveByPath`. An exact registered workspace is
-attached automatically, so the new session is grouped there; an unregistered,
-missing, or unresolvable path keeps the plain cwd and lands in the ungrouped
-bucket. Subdirectories are not promoted to a parent workspace, because doing so
-would rewrite the task's working directory.
+`session_create` and `session_dispatch`'s `newSession` accept the same location
+arguments: `workspaceId` attaches the session to a workspace directly (the
+preferred form), while `cwd` exists for callers that know only a directory.
+Supplying both fails with `SESSION_CREATE_LOCATION_CONFLICT` instead of silently
+picking one. A lone `cwd` is resolved against
+`ctx.workspaceRegistry.resolveByPath`: an exact registered workspace is attached
+automatically, so the new session is grouped there; an unregistered, missing, or
+unresolvable path keeps the plain cwd and lands in the ungrouped bucket.
+Subdirectories are not promoted to a parent workspace, because doing so would
+rewrite the task's working directory. Both creation paths call the same location
+resolver, so their behavior cannot diverge.
 
 Errors are structured with stable codes (`SESSION_TITLE_EMPTY`, `SESSION_CREATE_LOCATION_CONFLICT`, `SESSION_MODEL_SELECTION_INCOMPLETE`, `SESSION_DISPATCH_NO_CALLER`, `SESSION_DISPATCH_PROMPT_EMPTY`, `SESSION_DISPATCH_TARGET_MISSING`, `SESSION_DISPATCH_TARGET_CONFLICT`, `SESSION_DISPATCH_TARGET_NOT_FOUND`, `SESSION_DISPATCH_CREATE_FAILED`, `SESSION_DISPATCH_CAPACITY_REACHED`, `SESSION_DISPATCH_WATCH_BUSY`) and machine-readable fields; registry-level refusals (active session, archived pin) propagate from the host seams as-is.
 
@@ -121,8 +126,8 @@ A notice is delivered with the official `sendWaking` rule: `followup` when the c
 ## Understand the implementation
 
 - `src/index.ts` — plugin identity, toggles, and effect-managed registration (reverse-order cleanup, HMR safe).
-- `src/tools-management.ts` — create/rename/fork over `ctx.sessionController`; also resolves a create `cwd` to its registered workspace.
-- `src/tools-dispatch.ts` — `session_dispatch` over `resolveAgent` + the settlement guard; a new-session `cwd` uses the same workspace resolver.
+- `src/tools-management.ts` — create/rename/fork over `ctx.sessionController`; the shared location resolver owns `workspaceId`/`cwd` exclusivity and the cwd-to-workspace match.
+- `src/tools-dispatch.ts` — `session_dispatch` over `resolveAgent` + the settlement guard; a new-session `workspaceId`/`cwd` uses the same location resolver.
 - `src/watch.ts` — the settlement guard: inbox wake sources, the observation token, and the closing-output selection.
 - `src/notice.ts` — the two message kinds, the settlement notice, and `sendWaking` delivery.
 - `src/tools-state.ts` — archive/pin verbs over `ctx.workspaceRegistry`.

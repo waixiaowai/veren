@@ -44,6 +44,7 @@ import {
   authView,
   capabilitiesView,
   changePasswordView,
+  DASHBOARD_AUDIT_LIMIT,
   dashboardView,
   el,
   emptyView,
@@ -51,6 +52,8 @@ import {
   forbiddenView,
   loadingView,
   notFoundView,
+  openCreateRoleDialog,
+  openCreateUserDialog,
   rolesView,
   shellView,
   usersView,
@@ -139,6 +142,8 @@ const state = {
   data: {},
   sidebar: false,
   warnedTheme: false,
+  /** Dialog to open once its page has loaded, set by a dashboard quick action. 页面数据就绪后要打开的对话框（由仪表盘快捷操作设置）。 */
+  pendingAction: undefined,
 }
 
 /**
@@ -384,10 +389,14 @@ async function handleUnauthorized() {
 async function loadRouteData(route, view) {
   const loaders = {
     dashboard: async () => {
+      // The dashboard counts today's audit rows and shows the newest ones, so it
+      // asks for the gateway's maximum window and marks the count `+` if it fills.
+      // 仪表盘要统计今日审计并展示最新若干条，因此请求网关允许的最大窗口；窗口占满时
+      // 计数后缀 `+`。
       const [users, catalog, audit] = await Promise.all([
         settle(listUsers()),
         settle(capabilities()),
-        settle(listAudit({ limit: 5 })),
+        settle(listAudit({ limit: DASHBOARD_AUDIT_LIMIT })),
       ])
       return { users, capabilities: catalog, audit }
     },
@@ -445,6 +454,22 @@ function roleActions() {
   }
 }
 
+/** Quick actions of the dashboard view. 仪表盘的快捷操作。 */
+function dashboardActions() {
+  return {
+    newUser: () => {
+      state.pendingAction = 'create-user'
+      navigate('/users')
+    },
+    newRole: () => {
+      state.pendingAction = 'create-role'
+      navigate('/roles')
+    },
+    openAudit: () => navigate('/audit'),
+    openCapabilities: () => navigate('/system/capabilities'),
+  }
+}
+
 /** Append the next audit page. 追加下一页审计记录。 */
 const loadMoreAudit = guard(async (cursor) => {
   const page = await listAudit({ limit: 50, cursor })
@@ -465,7 +490,14 @@ async function reload(route) {
 function contentFor(view) {
   const helpers = ui()
   const data = state.data[state.route] ?? {}
-  if (view === 'dashboard') return dashboardView(helpers, { user: state.bootstrap.user, ...data })
+  if (view === 'dashboard') {
+    return dashboardView(helpers, {
+      user: state.bootstrap.user,
+      permissions: state.bootstrap.permissions,
+      actions: dashboardActions(),
+      ...data,
+    })
+  }
   if (view === 'users') return usersView(helpers, { ...data, actions: userActions() })
   if (view === 'roles') return rolesView(helpers, { ...data, actions: roleActions() })
   if (view === 'audit') return auditView(helpers, { ...data, onLoadMore: loadMoreAudit })
@@ -550,6 +582,33 @@ function render() {
     return
   }
   paint(withShell(contentFor(view)))
+  openPendingDialog(view)
+}
+
+/**
+ * Open the dialog a dashboard quick action asked for, once its page has data.
+ *
+ * The flag survives the intermediate loading render, so a quick action works even
+ * when the target page's data was not cached yet.
+ *
+ * 页面数据就绪后打开仪表盘快捷操作请求的对话框。
+ *
+ * 标记会穿过中间的加载态渲染，因此即使目标页数据尚未缓存，快捷操作也能生效。
+ *
+ * @param view - the view currently rendered 当前渲染的视图
+ */
+function openPendingDialog(view) {
+  const pending = state.pendingAction
+  if (pending === undefined) return
+  if (pending === 'create-user' && view === 'users') {
+    state.pendingAction = undefined
+    openCreateUserDialog(ui(), userActions())
+    return
+  }
+  if (pending === 'create-role' && view === 'roles') {
+    state.pendingAction = undefined
+    openCreateRoleDialog(ui(), roleActions(), state.data['/roles']?.roles)
+  }
 }
 
 /** Repaint the current screen, auth or app. 重绘当前屏幕（认证屏或应用）。 */

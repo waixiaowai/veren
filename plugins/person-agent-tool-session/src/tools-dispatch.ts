@@ -23,7 +23,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import { createDispatchPrompt } from './notice.js'
-import { resolveSessionLocation } from './tools-management.js'
+import { resolveSessionLocationArgs } from './tools-management.js'
 import { SessionToolError } from './types.js'
 import type { NewSessionArgs, SessionDispatchArgs, SessionDispatchResult } from './types.js'
 import type { SettlementWatch } from './watch.js'
@@ -105,23 +105,21 @@ async function resolveTarget(ctx: Context, args: SessionDispatchArgs): Promise<S
 }
 
 /**
- * 新建目标会话；失败收敛成稳定的创建错误。
- * Create the target session; failures collapse into a stable create error.
+ * 新建目标会话；位置参数交给共享解析器，失败收敛成稳定的创建错误。
+ * Create the target session; the shared resolver owns the location and failures
+ * collapse into a stable create error.
  *
- * cwd 命中已登记工作区时改传 workspaceId：宿主会据此建立分组并把新会话挂到
- * 该工作区；未命中才保留普通 cwd（未分组）。两条创建路径（session_create 与
- * 本工具的 newSession）共用同一个解析器，行为不会分叉。
- * When the cwd matches a registered workspace the request carries workspaceId:
- * the host then creates the grouping and attaches the new session to that
- * workspace; only a miss keeps the plain cwd (ungrouped). Both creation paths
- * (session_create and this tool's newSession) share one resolver, so their
- * behavior cannot diverge.
+ * workspaceId 直接指定挂靠工作区，cwd 仅在精确命中已登记工作区时自动归类；
+ * 两者互斥。session_create 与本工具共用该解析器，行为不会分叉。
+ * workspaceId names the workspace directly, while a cwd is grouped only on an
+ * exact registered-workspace match; the two are mutually exclusive.
+ * session_create shares this resolver, so the creation paths cannot diverge.
  * @param ctx - 宿主上下文。The host context.
  * @param created - 新建参数。The creation arguments.
  * @returns 新会话 id。The new session id.
  */
 async function createTarget(ctx: Context, created: NewSessionArgs): Promise<SessionId> {
-  const location = await resolveSessionLocation(ctx, created.cwd)
+  const location = await resolveSessionLocationArgs(ctx, created)
   try {
     const value = await ctx.sessionController.create({
       ...(location === undefined ? {} : location),
@@ -166,9 +164,13 @@ export function registerSessionDispatch(ctx: Context, watch: SettlementWatch): (
         additionalProperties: false,
         description: 'Create a fresh session instead of naming an existing one. Provide either sessionId or newSession, not both.',
         properties: {
+          workspaceId: {
+            type: 'string',
+            description: 'Workspace the new session belongs to, as an id from the working-memory snapshot. Prefer this over cwd: the session is guaranteed to appear in that workspace group. Mutually exclusive with cwd.',
+          },
           cwd: {
             type: 'string',
-            description: 'Directory the new session owns. A registered workspace owning this exact path is attached automatically; otherwise the session stays ungrouped. Defaults to the deployment default.',
+            description: 'Working directory when no workspace id is known. A registered workspace owning this exact path is attached automatically; any mismatch leaves the session in the ungrouped bucket, so prefer workspaceId. Mutually exclusive with workspaceId. Defaults to the deployment default.',
           },
           agentPreset: { type: 'string', description: 'Agent preset the new session runs. Defaults to the configured default.' },
         },

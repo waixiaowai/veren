@@ -562,6 +562,31 @@ body {
   border-radius: var(--admin-radius-lg);
 }
 
+/* Header line of a KPI card: label on the left, soft icon base on the right.
+ * KPI 卡的标题行：左侧标签，右侧柔和图标底座。 */
+.stat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.stat-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: var(--admin-muted);
+  background: var(--admin-surface-2);
+  border-radius: var(--admin-radius-sm);
+}
+
+.stat-icon .icon svg {
+  width: 16px;
+  height: 16px;
+}
+
 .stat-label {
   margin: 0;
   color: var(--admin-muted);
@@ -570,11 +595,175 @@ body {
 }
 
 .stat-value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
   margin: var(--sp-2) 0 0;
   font-size: 24px;
   font-weight: 600;
   line-height: 30px;
   font-variant-numeric: tabular-nums;
+}
+
+/* The denominator of a pair such as "6 / 7": readable, never competing with it.
+ * “6 / 7”里的分母：可读，但不与主数值争夺注意力。 */
+.stat-value-total {
+  color: var(--admin-muted);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* One line of context under the value, e.g. "active 2 · inactive 0". 数值下的一行上下文。 */
+.stat-meta {
+  margin: var(--sp-1) 0 0;
+  overflow: hidden;
+  color: var(--admin-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---- Dashboard 仪表盘 ---- */
+.dashboard-greeting {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: end;
+}
+
+.dashboard-greeting-text {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dashboard-greeting-name {
+  color: var(--admin-text);
+}
+
+.dashboard-greeting-meta {
+  margin: 0;
+  overflow: hidden;
+  max-width: 28ch;
+  color: var(--admin-subtle);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+.dashboard-grid.is-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.dashboard-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: 0 0 var(--sp-2);
+}
+
+.dashboard-panel .panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-5) 0;
+}
+
+.dashboard-panel .panel-title {
+  margin: 0;
+}
+
+/* The mini table sits flush inside its card, so only the outer radius remains.
+ * 迷你表贴齐卡片内部，只保留外层圆角。 */
+.dashboard-table {
+  margin: 0 var(--sp-2) 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+.dashboard-table .table th {
+  background: transparent;
+}
+
+.link {
+  color: var(--admin-accent);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.quick-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--sp-2);
+}
+
+.quick-action {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-2);
+  color: var(--admin-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--admin-radius);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+
+.quick-action:hover {
+  background: var(--admin-surface-hover);
+}
+
+.quick-action-icon {
+  width: 32px;
+  height: 32px;
+}
+
+.quick-action-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.quick-action-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.quick-action-hint {
+  overflow: hidden;
+  color: var(--admin-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1023px) {
+  .dashboard-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* ---- Tables 表格 ---- */
@@ -627,6 +816,18 @@ body {
 
 .table tbody tr:last-child td {
   border-block-end: 0;
+}
+
+/* A denser variant for embedded tables (dashboard), not for the main list pages.
+ * 嵌入式表格（仪表盘）的紧凑变体，不用于主列表页。 */
+.table-compact th,
+.table-compact td {
+  height: 32px;
+  font-size: 13px;
+}
+
+.cell-nowrap {
+  white-space: nowrap;
 }
 
 /* A table cell, not a flex box: `display: flex` on a `<td>` leaves the table

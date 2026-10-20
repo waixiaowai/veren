@@ -190,26 +190,59 @@ describe('personAgentToolSession composition（真实装配路径 / real assembl
     expect(env.sessionController.calls).toEqual(['create:{"cwd":"C:/missing"}'])
   })
 
-  it('resolves a dispatched new session cwd to its workspace, or falls back to cwd', async () => {
+  it('attaches a dispatched new session to an explicit workspaceId', async () => {
     // 假 sessionController 会先记下 create 请求；随后新 id 解析不到目标，
     // 这个稳定错误正好让断言停在「派发如何请求宿主创建」这一步。
     // The fake controller records the create request first; the minted id is
     // then unresolvable, so the stable error lets the assertion stop at how the
     // dispatch asked the host to create the session.
-    const matched = await install()
-    matched.workspaceRegistry.byPath.set('C:/work/app', { id: 'ws-1' })
-    await expect(matched.run('session_dispatch', {
+    const env = await install()
+    await expect(env.run('session_dispatch', {
+      newSession: { workspaceId: 'ws-1', agentPreset: 'person-agent' },
+      prompt: 'task',
+    }, { agent: { id: 'caller' } })).rejects.toMatchObject({ code: 'SESSION_DISPATCH_TARGET_NOT_FOUND' })
+    expect(env.sessionController.calls[0]).toBe('create:{"workspaceId":"ws-1","agentPreset":"person-agent"}')
+    // 显式 workspaceId 不再按路径解析，避免把调用方明确指定的工作区换掉。
+    // An explicit workspaceId is never re-resolved by path, so the caller's
+    // explicit workspace cannot be replaced.
+    expect(env.workspaceRegistry.resolveCalls).toEqual([])
+  })
+
+  it('attaches a dispatched new session cwd to the workspace that owns it', async () => {
+    const env = await install()
+    env.workspaceRegistry.byPath.set('C:/work/app', { id: 'ws-1' })
+    await expect(env.run('session_dispatch', {
       newSession: { cwd: 'C:/work/app' },
       prompt: 'task',
     }, { agent: { id: 'caller' } })).rejects.toMatchObject({ code: 'SESSION_DISPATCH_TARGET_NOT_FOUND' })
-    expect(matched.sessionController.calls[0]).toBe('create:{"workspaceId":"ws-1"}')
+    expect(env.workspaceRegistry.resolveCalls).toEqual(['C:/work/app'])
+    expect(env.sessionController.calls[0]).toBe('create:{"workspaceId":"ws-1"}')
+  })
 
-    const unmatched = await install()
-    await expect(unmatched.run('session_dispatch', {
+  it('keeps a plain cwd when no workspace owns the dispatched session directory', async () => {
+    const env = await install()
+    await expect(env.run('session_dispatch', {
       newSession: { cwd: 'C:/work/other' },
       prompt: 'task',
     }, { agent: { id: 'caller' } })).rejects.toMatchObject({ code: 'SESSION_DISPATCH_TARGET_NOT_FOUND' })
-    expect(unmatched.sessionController.calls[0]).toBe('create:{"cwd":"C:/work/other"}')
+    expect(env.sessionController.calls[0]).toBe('create:{"cwd":"C:/work/other"}')
+  })
+
+  it('refuses a dispatched new session naming both workspaceId and cwd', async () => {
+    // 两条创建路径共用同一个解析器，所以冲突必须与 session_create 同码、同文案，
+    // 并且在请求宿主创建之前就失败。
+    // Both creation paths share one resolver, so the conflict must carry the
+    // same code and message as session_create and fail before the host create.
+    const env = await install()
+    await expect(env.run('session_dispatch', {
+      newSession: { workspaceId: 'ws-1', cwd: 'C:/work/app' },
+      prompt: 'task',
+    }, { agent: { id: 'caller' } })).rejects.toMatchObject({
+      code: 'SESSION_CREATE_LOCATION_CONFLICT',
+      message: 'workspaceId and cwd are mutually exclusive',
+    })
+    expect(env.sessionController.calls).toEqual([])
+    expect(env.workspaceRegistry.resolveCalls).toEqual([])
   })
 
   it('rejects an incomplete model selection and a location conflict', async () => {

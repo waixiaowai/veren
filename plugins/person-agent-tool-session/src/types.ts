@@ -6,8 +6,19 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 
+/**
+ * 新会话的位置：显式工作区或普通目录，二选一。
+ * Where a new session lives: an explicit workspace or a plain directory, never both.
+ */
+export interface SessionLocationArgs {
+  /** 挂靠的工作区 id（与 cwd 二选一）。The workspace to attach (mutually exclusive with cwd). */
+  workspaceId?: string
+  /** 新会话的工作目录（与 workspaceId 二选一）。The working directory (mutually exclusive with workspaceId). */
+  cwd?: string
+}
+
 /** `session_create` 的模型参数。Model-facing arguments of `session_create`. */
-export interface SessionCreateArgs {
+export interface SessionCreateArgs extends SessionLocationArgs {
   /** 新会话的显示标题（可省略，交给自动标题）。The new session's display title (optional; auto-title when omitted). */
   title?: string
   /** 预设 id（省略时用部署默认）。The preset id (deployment default when omitted). */
@@ -16,10 +27,6 @@ export interface SessionCreateArgs {
   provider?: string
   /** 模型 id（与 provider 成对给出）。The model id (paired with provider). */
   model?: string
-  /** 挂靠的工作区 id（与 cwd 二选一）。The workspace to attach (mutually exclusive with cwd). */
-  workspaceId?: string
-  /** 新会话的工作目录（与 workspaceId 二选一）。The working directory (mutually exclusive with workspaceId). */
-  cwd?: string
 }
 
 /**
@@ -74,9 +81,7 @@ export interface SessionDispatchArgs {
 }
 
 /** 新建目标会话的参数。Parameters for creating the target session. */
-export interface NewSessionArgs {
-  /** 新会话拥有的工作目录。The directory the new session owns. */
-  cwd?: string
+export interface NewSessionArgs extends SessionLocationArgs {
   /** 新会话运行的 Agent 预设。The Agent preset the new session runs. */
   agentPreset?: string
 }

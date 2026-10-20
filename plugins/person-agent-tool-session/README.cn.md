@@ -28,17 +28,20 @@ Person Agent 预设的面向模型会话维护工具：基于 `ctx.sessionContro
 | 工具 | 参数 | 效果 |
 | --- | --- | --- |
 | `session_create` | `title?`、`presetId?`、`provider?`+`model?`、`workspaceId?` 与 `cwd?` 二选一 | 创建普通会话，然后按「先模型、后标题」的顺序补装。新会话从空白开始；工具只回报新 id，不切换会话。 |
-| `session_dispatch` | `prompt`、`sessionId?` 与 `newSession?` 二选一、`report?` | 通过宿主标准入队路径（`resolveAgent` → `agent.followup`）把一段提示投进会话并**立即返回**，绝不等目标会话。`report: true`（默认）时由看守观察到目标真正静止，再把它的收尾输出作为 follow-up 消息投回**调用方**会话，并写明它答复的是哪一次派发。**一个目标同时只能有一条未结清的派发**：目标上还有没回报的派发时再派会被 `SESSION_DISPATCH_WATCH_BUSY` 拒绝；`report: false` 时什么也不回。桥梁人设把任务交给新建会话（包括第一句话）就靠它。 |
+| `session_dispatch` | `prompt`、`sessionId?` 与 `newSession?` 二选一、`report?`；`newSession` 内 `workspaceId?` 与 `cwd?` 二选一 | 通过宿主标准入队路径（`resolveAgent` → `agent.followup`）把一段提示投进会话并**立即返回**，绝不等目标会话。`report: true`（默认）时由看守观察到目标真正静止，再把它的收尾输出作为 follow-up 消息投回**调用方**会话，并写明它答复的是哪一次派发。**一个目标同时只能有一条未结清的派发**：目标上还有没回报的派发时再派会被 `SESSION_DISPATCH_WATCH_BUSY` 拒绝；`report: false` 时什么也不回。桥梁人设把任务交给新建会话（包括第一句话）就靠它。 |
 | `session_rename` | `sessionId`、`title` | 持久修改一个会话的标题。 |
 | `session_fork` | `sessionId`、`atSeq?` | 把精确的已完成轮次前缀复制成新会话。 |
 | `session_archive` | `sessionId`、`stopActivity?` | 把会话放进归档集合；给 `stopActivity` 时停止运行中的工作而不是拒绝。 |
 | `session_unarchive` | `sessionId` | 把归档会话移回原位。 |
 | `session_pin` / `session_unpin` | `sessionId` | 维护 registry-global 置顶集合。 |
 
-`session_create` 的 `cwd` 与 `session_dispatch` 的 `newSession.cwd` 会先经
-`ctx.workspaceRegistry.resolveByPath` 解析：精确命中已登记工作区时自动挂靠，新会话
-进入该分组；未登记、不存在或无法解析的路径保留普通 cwd，进入未分组。子目录不会被
-提升到父工作区，否则会改写任务的工作目录。
+`session_create` 与 `session_dispatch` 的 `newSession` 接受同一组位置参数：
+`workspaceId` 直接指定会话挂靠的工作区（首选表达），`cwd` 只在不知道工作区 id
+时使用。两者同时给出会以 `SESSION_CREATE_LOCATION_CONFLICT` 失败，不会静默挑
+一个。只给 `cwd` 时，会先经 `ctx.workspaceRegistry.resolveByPath` 解析：精确命中
+已登记工作区时自动挂靠，新会话进入该分组；未登记、不存在或无法解析的路径保留
+普通 cwd，进入未分组。子目录不会被提升到父工作区，否则会改写任务的工作目录。
+两条创建路径共用同一个位置解析器，行为不会分叉。
 
 错误是结构化的，带稳定 code（`SESSION_TITLE_EMPTY`、`SESSION_CREATE_LOCATION_CONFLICT`、`SESSION_MODEL_SELECTION_INCOMPLETE`、`SESSION_DISPATCH_NO_CALLER`、`SESSION_DISPATCH_PROMPT_EMPTY`、`SESSION_DISPATCH_TARGET_MISSING`、`SESSION_DISPATCH_TARGET_CONFLICT`、`SESSION_DISPATCH_TARGET_NOT_FOUND`、`SESSION_DISPATCH_CREATE_FAILED`、`SESSION_DISPATCH_CAPACITY_REACHED`、`SESSION_DISPATCH_WATCH_BUSY`）与机器可读字段；注册表层级的拒绝（会话仍在运行、归档会话置顶）原样来自宿主接缝。
 
@@ -119,8 +122,8 @@ Person Agent 预设的面向模型会话维护工具：基于 `ctx.sessionContro
 ## 实现说明
 
 - `src/index.ts` — 插件身份、开关与 effect 托管的注册（逆序清理，HMR 安全）。
-- `src/tools-management.ts` — 走 `ctx.sessionController` 的创建/改名/分叉；并把创建时的 `cwd` 解析到已登记工作区。
-- `src/tools-dispatch.ts` — 走 `resolveAgent` + 结算看守的 `session_dispatch`；`newSession` 的 `cwd` 复用同一个工作区解析器。
+- `src/tools-management.ts` — 走 `ctx.sessionController` 的创建/改名/分叉；共享的位置解析器处理 `workspaceId`/`cwd` 互斥与 `cwd` 到已登记工作区的匹配。
+- `src/tools-dispatch.ts` — 走 `resolveAgent` + 结算看守的 `session_dispatch`；`newSession` 的 `workspaceId`/`cwd` 复用同一个位置解析器。
 - `src/watch.ts` — 结算看守：inbox 唤醒源、观察令牌与收尾输出选取。
 - `src/notice.ts` — 两种消息 kind、结算通知与 `sendWaking` 投递。
 - `src/tools-state.ts` — 走 `ctx.workspaceRegistry` 的归档/置顶动词。

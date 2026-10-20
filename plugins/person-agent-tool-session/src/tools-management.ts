@@ -14,7 +14,7 @@ import {
   optionalModelSelection,
   requireTitle,
 } from './types.js'
-import type { SessionCreateArgs, SessionCreateResult, SessionForkArgs, SessionRenameArgs } from './types.js'
+import type { SessionCreateArgs, SessionCreateResult, SessionForkArgs, SessionLocationArgs, SessionRenameArgs } from './types.js'
 
 /** 工具描述共用提示：id 可在工作记忆快照里查到。Shared description hint. */
 const HINT = 'Session ids appear in the working-memory snapshot.'
@@ -50,6 +50,35 @@ export async function resolveSessionLocation(
     // behavior (ungrouped).
   }
   return { cwd }
+}
+
+/**
+ * 解析新会话位置：workspaceId 显式指定且与 cwd 互斥；只有单独给 cwd 时才按
+ * 路径匹配已登记工作区。
+ * Resolve the new-session location: an explicit workspaceId is exclusive with
+ * cwd; only a lone cwd is matched to a registered workspace by path.
+ *
+ * session_create 与 session_dispatch.newSession 都调用这里，所以互斥判断与
+ * cwd 命中规则不会分叉。
+ * session_create and session_dispatch.newSession both call this function, so the
+ * exclusivity check and cwd matching cannot diverge.
+ * @param ctx - 携带 workspaceRegistry 的宿主上下文。The context carrying workspaceRegistry.
+ * @param args - 位置参数。The location arguments.
+ * @returns 位置片段；两者都省略时为 undefined。The location fragment, or undefined when both are omitted.
+ */
+export async function resolveSessionLocationArgs(
+  ctx: Context,
+  args: SessionLocationArgs,
+): Promise<SessionLocation | undefined> {
+  if (args.workspaceId !== undefined && args.cwd !== undefined) {
+    throw new SessionToolError(
+      'SESSION_CREATE_LOCATION_CONFLICT',
+      'workspaceId and cwd are mutually exclusive',
+      { workspaceId: args.workspaceId, cwd: args.cwd },
+    )
+  }
+  if (args.workspaceId !== undefined) return { workspaceId: args.workspaceId as WorkspaceId }
+  return await resolveSessionLocation(ctx, args.cwd)
 }
 
 /** 宿主 create 的返回形状（本文件内复用，避免再声明一遍）。 */
@@ -106,15 +135,9 @@ export function registerSessionCreate(ctx: Context): () => void {
 }
 
 /**
- * 把创建参数翻译成宿主请求（位置互斥在这里显性失败）。
- * Translate create arguments into the host request (location conflicts fail loud here).
- *
- * cwd 先尝试解析成已登记工作区：命中时改传 workspaceId，宿主据此建立分组并
- * 把会话挂到该工作区；未命中才退回普通 cwd（未分组）。
- * A cwd is first resolved to a registered workspace: on a hit the request
- * carries workspaceId, so the host creates the group membership and attaches
- * the session to that workspace; only a miss falls back to a plain cwd
- * (ungrouped).
+ * 把创建参数翻译成宿主请求（位置解析交给共享解析器）。
+ * Translate create arguments into the host request (location resolution is
+ * delegated to the shared resolver).
  * @param ctx - 携带 workspaceRegistry 的宿主上下文。The context carrying workspaceRegistry.
  * @param args - 模型给出的创建参数。The model-supplied create arguments.
  * @returns 宿主 create 请求。The host create request.
@@ -123,17 +146,8 @@ async function buildCreateRequest(
   ctx: Context,
   args: SessionCreateArgs,
 ): Promise<Parameters<Context['sessionController']['create']>[0]> {
-  if (args.workspaceId !== undefined && args.cwd !== undefined) {
-    throw new SessionToolError(
-      'SESSION_CREATE_LOCATION_CONFLICT',
-      'workspaceId and cwd are mutually exclusive',
-      { workspaceId: args.workspaceId, cwd: args.cwd },
-    )
-  }
   optionalModelSelection(args)
-  const location = args.workspaceId !== undefined
-    ? { workspaceId: args.workspaceId as WorkspaceId }
-    : await resolveSessionLocation(ctx, args.cwd)
+  const location = await resolveSessionLocationArgs(ctx, args)
   return {
     ...(location === undefined ? {} : location),
     ...(args.presetId === undefined ? {} : { agentPreset: args.presetId }),

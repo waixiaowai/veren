@@ -944,53 +944,242 @@ export function shellView(ui, options) {
 }
 
 /**
- * Count one array field of a list payload.
+ * Page size requested for the dashboard's audit window.
  *
- * @param payload - list payload 列表载荷
- * @param key - field name 字段名
- * @returns the count, or null when absent 数量或 null
+ * The dashboard counts today's entries and keeps the newest rows; a 200-row window
+ * (the gateway's maximum) is enough for a first screen, and the card says so with a
+ * `+` when the window is exhausted instead of claiming an exact total.
+ *
+ * 仪表盘审计窗口请求的页大小。
+ *
+ * 仪表盘据此统计今日条数并保留最新若干行；200 行（网关上限）足够首屏使用，窗口耗尽时
+ * 卡片以 `+` 标记，而不是声称一个精确总数。
  */
-function countOf(payload, key) {
-  const value = payload?.[key]
-  return Array.isArray(value) ? value.length : null
+export const DASHBOARD_AUDIT_LIMIT = 200
+
+/** How many audit rows the dashboard mini table shows. 仪表盘迷你表显示的行数。 */
+const DASHBOARD_AUDIT_ROWS = 7
+
+/**
+ * Whether two instants fall on the same local calendar day.
+ *
+ * @param value - ISO timestamp ISO 时间戳
+ * @param now - reference instant 参照时刻
+ * @returns true when same local day 同一本地日期时为 true
+ */
+function sameLocalDay(value, now) {
+  if (typeof value !== 'string' || value === '') return false
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return false
+  return date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate()
+}
+
+/**
+ * Count users by state.
+ *
+ * @param users - users list payload 用户列表载荷
+ * @returns total, active and inactive counts 总数、启用数与停用数
+ */
+export function summarizeUsers(users) {
+  const items = Array.isArray(users?.items) ? users.items : []
+  const active = items.filter((user) => user?.active === true).length
+  return { total: items.length, active, inactive: items.length - active }
 }
 
 /**
  * Count capabilities that have an active provider.
  *
  * @param catalog - capability catalog 能力目录
- * @returns the count, or null when absent 数量或 null
+ * @returns ready and total counts 就绪数与总数
  */
-function activeCapabilityCount(catalog) {
-  const states = catalog?.capabilities
-  if (!Array.isArray(states)) return null
-  return states.filter((state) => state?.active !== null && state?.active !== undefined).length
+export function summarizeCapabilities(catalog) {
+  const states = Array.isArray(catalog?.capabilities) ? catalog.capabilities : []
+  const ready = states.filter((state) => state?.active !== null && state?.active !== undefined).length
+  return { ready, total: states.length }
 }
 
 /**
- * Dashboard: welcome panel and three counters.
+ * Summarize one audit window: today's count, whether the window was exhausted, and
+ * the newest entry.
+ *
+ * @param page - audit page payload 审计页载荷
+ * @param options - window size and reference instant 窗口大小与参照时刻
+ * @returns the summary 汇总
+ */
+export function auditSummary(page, options = {}) {
+  const items = Array.isArray(page?.items) ? page.items : []
+  const now = options.now ?? new Date()
+  const limit = typeof options.limit === 'number' ? options.limit : DASHBOARD_AUDIT_LIMIT
+  const today = items.filter((entry) => sameLocalDay(entry?.at, now)).length
+  // A full window whose oldest row is still today means "at least today", not "exactly".
+  // 窗口占满且最旧一行仍是今天时，含义是「至少这么多」，而不是精确值。
+  const truncated = items.length >= limit && items.length > 0 && sameLocalDay(items[items.length - 1]?.at, now)
+  return { items, latest: items[0], today, truncated }
+}
+
+/**
+ * Time-of-day greeting key.
+ *
+ * @param now - reference instant 参照时刻
+ * @returns the locale key 语言键
+ */
+function greetingKey(now) {
+  const hour = now.getHours()
+  if (hour < 5) return 'dashboard.greetingEvening'
+  if (hour < 12) return 'dashboard.greetingMorning'
+  if (hour < 18) return 'dashboard.greetingAfternoon'
+  return 'dashboard.greetingEvening'
+}
+
+/**
+ * One KPI card: label, soft icon base, value and a line of context.
  *
  * @param ui - view helpers 视图助手
- * @param data - identity, users, capabilities and audit payloads 身份、用户、能力与审计载荷
+ * @param spec - icon, label key, value node(s) and meta text 图标、标签键、数值与上下文
+ * @returns the card 卡片
+ */
+function statCard(ui, spec) {
+  const value = el('p', { class: 'stat-value' })
+  value.append(el('span', { text: spec.value }))
+  if (spec.total !== undefined) value.append(el('span', { class: 'stat-value-total', text: `/ ${spec.total}` }))
+  return el('article', { class: 'stat' }, [
+    el('div', { class: 'stat-head' }, [
+      el('p', { class: 'stat-label', text: ui.t(spec.labelKey) }),
+      el('span', { class: 'stat-icon' }, [iconOf(ui, spec.icon)]),
+    ]),
+    value,
+    el('p', { class: 'stat-meta', text: spec.meta }),
+  ])
+}
+
+/**
+ * Dashboard: greeting header, contextual KPIs, recent audit and quick actions.
+ *
+ * The welcome panel is gone: the same information now lives in the header, where
+ * it does not repeat the page title. Each KPI answers "how much, and what does it
+ * mean": users split by state, capabilities as ready/total, audit as today's count
+ * plus the newest action.
+ *
+ * 仪表盘：问候页头、带上下文的 KPI、最近审计与快捷操作。
+ *
+ * 独立的欢迎卡已移除：同样的信息放进页头，不再与页面标题重复。每个 KPI 都回答「多少、
+ * 意味着什么」：用户按状态拆分，能力以「就绪/总数」呈现，审计给今日条数加最近动作。
+ *
+ * @param ui - view helpers 视图助手
+ * @param data - identity, permissions, payloads and quick-action callbacks
+ *   身份、权限、载荷与快捷操作回调
  * @returns the page 页面
  */
 export function dashboardView(ui, data) {
   const user = data.user ?? {}
-  const stats = [
-    { key: 'dashboard.users', value: countOf(data.users, 'items') },
-    { key: 'dashboard.capabilities', value: activeCapabilityCount(data.capabilities) },
-    { key: 'dashboard.audit', value: countOf(data.audit, 'items') },
-  ]
-  return el('section', { class: 'page' }, [
-    pageHeader(ui, 'dashboard.title', undefined, 'dashboard.description'),
-    el('div', { class: 'panel' }, [
-      el('h2', { class: 'panel-title', text: ui.t('dashboard.welcome') }),
-      el('p', { class: 'panel-text', text: [user.name, user.email].filter(Boolean).join(' · ') || DASH }),
+  const users = summarizeUsers(data.users)
+  const capabilities = summarizeCapabilities(data.capabilities)
+  const audit = auditSummary(data.audit, { limit: DASHBOARD_AUDIT_LIMIT })
+  const actions = data.actions ?? {}
+  const permissions = Array.isArray(data.permissions) ? data.permissions : []
+  const displayName = user.name || user.email || DASH
+
+  const header = el('header', { class: 'page-header' }, [
+    el('div', { class: 'page-heading' }, [
+      el('h1', { class: 'page-title', text: ui.t('dashboard.title') }),
+      el('p', { class: 'page-desc', text: ui.t('dashboard.description') }),
     ]),
-    el('div', { class: 'stat-grid' }, stats.map((stat) => el('article', { class: 'stat' }, [
-      el('p', { class: 'stat-label', text: ui.t(stat.key) }),
-      el('p', { class: 'stat-value', text: stat.value === null ? DASH : String(stat.value) }),
-    ]))),
+    el('div', { class: 'dashboard-greeting' }, [
+      el('p', { class: 'dashboard-greeting-text' }, [
+        el('span', { text: ui.t(greetingKey(new Date())) }),
+        el('span', { class: 'dashboard-greeting-name', text: displayName }),
+      ]),
+      el('p', { class: 'dashboard-greeting-meta', text: user.email ?? '' }),
+    ]),
+  ])
+
+  const cards = [
+    statCard(ui, {
+      icon: 'users',
+      labelKey: 'dashboard.users',
+      value: String(users.total),
+      meta: `${ui.t('users.active')} ${users.active} · ${ui.t('users.inactive')} ${users.inactive}`,
+    }),
+    statCard(ui, {
+      icon: 'capabilities',
+      labelKey: 'dashboard.capabilities',
+      value: capabilities.total === 0 ? DASH : String(capabilities.ready),
+      total: capabilities.total === 0 ? undefined : String(capabilities.total),
+      meta: ui.t('dashboard.capabilitiesReady'),
+    }),
+    statCard(ui, {
+      icon: 'audit',
+      labelKey: 'dashboard.auditToday',
+      value: audit.today === 0 ? '0' : `${audit.today}${audit.truncated ? '+' : ''}`,
+      meta: audit.latest === undefined
+        ? ui.t('dashboard.noAudit')
+        : `${ui.t('dashboard.auditLatest')} · ${asText(audit.latest.action)}`,
+    }),
+  ]
+
+  const recentRows = audit.items.slice(0, DASHBOARD_AUDIT_ROWS).map((entry) => el('tr', {}, [
+    el('td', { text: formatDate(entry.at, ui.locale) }),
+    el('td', { class: 'cell-nowrap', text: asText(entry.actorLabel ?? entry.actorId) }),
+    el('td', { class: 'cell-nowrap', text: asText(entry.action) }),
+    el('td', {}, [resultBadge(ui, entry.result)]),
+  ]))
+  const auditPanel = el('section', { class: 'panel dashboard-panel' }, [
+    el('div', { class: 'panel-head' }, [
+      el('h2', { class: 'panel-title', text: ui.t('dashboard.recentAudit') }),
+      el('a', { class: 'link', href: ui.href('/audit'), dataset: { route: '/audit' }, text: ui.t('dashboard.viewAll') }),
+    ]),
+    recentRows.length === 0
+      ? el('p', { class: 'state-text', text: ui.t('dashboard.noAudit') })
+      : el('div', { class: 'table-wrap dashboard-table' }, [
+        el('table', { class: 'table table-compact' }, [
+          el('thead', {}, [el('tr', {}, ['audit.at', 'audit.actor', 'audit.action', 'audit.result']
+            .map((key) => el('th', { scope: 'col', text: ui.t(key) })))]),
+          el('tbody', {}, recentRows),
+        ]),
+      ]),
+  ])
+
+  const quick = []
+  if (permissions.includes('admin.users.manage')) {
+    quick.push({ icon: 'users', labelKey: 'dashboard.newUser', hintKey: 'dashboard.newUserHint', run: actions.newUser })
+  }
+  if (permissions.includes('admin.roles.manage')) {
+    quick.push({ icon: 'shield', labelKey: 'dashboard.newRole', hintKey: 'dashboard.newRoleHint', run: actions.newRole })
+  }
+  if (permissions.includes('admin.audit.read')) {
+    quick.push({ icon: 'audit', labelKey: 'dashboard.openAudit', hintKey: 'dashboard.openAuditHint', run: actions.openAudit })
+  }
+  if (permissions.includes('admin.capabilities.read')) {
+    quick.push({ icon: 'capabilities', labelKey: 'dashboard.openCapabilities', hintKey: 'dashboard.openCapabilitiesHint', run: actions.openCapabilities })
+  }
+  const quickPanel = quick.length === 0
+    ? undefined
+    : el('section', { class: 'panel dashboard-panel' }, [
+      el('div', { class: 'panel-head' }, [el('h2', { class: 'panel-title', text: ui.t('dashboard.quickActions') })]),
+      el('div', { class: 'quick-actions' }, quick.map((action) => el('button', {
+        class: 'quick-action',
+        type: 'button',
+        onclick: action.run,
+      }, [
+        el('span', { class: 'stat-icon quick-action-icon' }, [iconOf(ui, action.icon)]),
+        el('span', { class: 'quick-action-text' }, [
+          el('span', { class: 'quick-action-label', text: ui.t(action.labelKey) }),
+          el('span', { class: 'quick-action-hint', text: ui.t(action.hintKey) }),
+        ]),
+      ]))),
+    ])
+
+  const grid = el('div', { class: quickPanel === undefined ? 'dashboard-grid is-single' : 'dashboard-grid' }, [
+    auditPanel,
+    ...quickPanel === undefined ? [] : [quickPanel],
+  ])
+
+  return el('section', { class: 'page' }, [
+    header,
+    el('div', { class: 'stat-grid' }, cards),
+    grid,
   ])
 }
 
@@ -1521,4 +1710,33 @@ export function capabilitiesView(ui, data) {
   })
   const columns = ['capabilities.capability', 'capabilities.provider', 'capabilities.health', 'capabilities.essential']
   return el('section', { class: 'page' }, [pageHeader(ui, 'capabilities.title', undefined, 'capabilities.description'), dataTable(ui, columns, rows)])
+}
+
+/**
+ * Open the create-user dialog from another page (the dashboard quick action).
+ *
+ * The users page owns the dialog; the dashboard only asks for it, so the form and
+ * its validation stay in one place.
+ *
+ * 从其它页面（仪表盘快捷操作）打开新建用户对话框。
+ *
+ * 对话框属于用户页，仪表盘只是请求它，因此表单与校验只有一份。
+ *
+ * @param ui - view helpers 视图助手
+ * @param actions - user callbacks 用户回调
+ */
+export function openCreateUserDialog(ui, actions) {
+  openCreateUser(ui, actions)
+}
+
+/**
+ * Open the create-role dialog from another page (the dashboard quick action).
+ *
+ * @param ui - view helpers 视图助手
+ * @param actions - role callbacks 角色回调
+ * @param rolesPayload - loaded roles, used for the permission options 已加载角色，用于权限选项
+ */
+export function openCreateRoleDialog(ui, actions, rolesPayload) {
+  const items = Array.isArray(rolesPayload?.items) ? rolesPayload.items : []
+  openCreateRole(ui, actions, permissionOptions(items))
 }
