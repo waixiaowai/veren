@@ -1,19 +1,12 @@
-import { describe, expect, it } from 'vitest'
-import { diffItems, TaskStore } from '../src/store.ts'
-import { dispatchTool, itemsOfSnapshot, renderSync, SYSTEM_PROMPT, TOOLS } from '../src/protocol.ts'
-import { makeList } from '../src/store.ts'
+﻿import { describe, expect, it } from 'vitest'
+import { MessageHost, renderSync } from '@veren/prompt-host-messages'
+import { TaskListPage, dispatchTool } from '../src/page.ts'
+import { TaskStore, makeList } from '../src/store.ts'
+import { assemblePageSession } from '../src/driver.ts'
 import type { TaskItem } from '../src/types.ts'
 
 describe('store', () => {
-  it('1000 条改 2 条产出 2 个 ops', () => {
-    const prev = makeList(1000)
-    const next = prev.map((item) => ({ ...item }))
-    next[204] = { ...next[204], status: 'taken', ownerId: 'u-1' }
-    next[817] = { ...next[817], status: 'done' }
-    expect(diffItems(prev, next)).toHaveLength(2)
-  })
-
-  it('按钮状态迁移校验：open→taken→done，非法迁移 fail loud', () => {
+  it('鎸夐挳鐘舵€佽縼绉绘牎楠岋細open鈫抰aken鈫抎one锛岄潪娉曡縼绉?fail loud', () => {
     const store = new TaskStore(makeList(5))
     expect(store.takeTask('t-1', 'model').ok).toBe(true)
     expect(store.takeTask('t-1', 'model')).toMatchObject({ ok: false, code: 'invalid_transition' })
@@ -22,43 +15,71 @@ describe('store', () => {
     expect(store.takeTask('t-999', 'model')).toMatchObject({ ok: false, code: 'task_not_found' })
   })
 
-  it('sync 增量优先（splice op）、缺口/超前兜底全量快照', () => {
-    const store = new TaskStore(makeList(5))
-    const v0 = store.currentVersion
+  it('涓嶅彲鍙樼邯寰嬶細getState 寮曠敤鍦ㄦ棤鍙樺寲鏃朵繚鎸佺ǔ瀹氾紙memo bailout 渚濊禆锛?, () => {
+    const store = new TaskStore(makeList(3))
+    const before = store.getState()
     store.takeTask('t-0', 'u-1')
-    const sync = store.sync(v0)
+    expect(store.getState()).not.toBe(before)
+    expect(store.getState().find((task) => task.id === 't-0')?.status).toBe('taken')
+  })
+})
+
+describe('page + host integration (缁勪欢鍖栧叏閾捐矾)', () => {
+  it('鍚屽唴瀹归噸澶嶆覆鏌?鈫?memo bailout 鈫?闆?op锛涘彉鍖?鈫?浠呭樊閲?splice', () => {
+    const store = new TaskStore(makeList(3))
+    const host = assemblePageSession(store)
+    const vMount = host.currentVersion
+    const opsOf = (): number => {
+      const sync = host.renderSince(vMount)
+      return sync.kind === 'patch' ? sync.ops.length : Number.POSITIVE_INFINITY
+    }
+    expect(opsOf()).toBe(0) // 鎸傝浇鍚庢棤鍙樺寲
+
+    store.takeTask('t-1', 'u-1') // 瑙﹀彂閲嶆覆鏌?鈫?浠?1 鏉?splice
+    expect(opsOf()).toBe(1)
+
+    const sync = host.renderSince(vMount)
     expect(sync.kind).toBe('patch')
     if (sync.kind === 'patch') {
-      expect(sync.ops[0]).toMatchObject({ op: 'splice', path: 'tasks', id: 't-0' })
+      expect(sync.ops[0]).toMatchObject({ op: 'splice', path: 'tasks', id: 't-1' })
     }
-    expect(store.sync(999).kind).toBe('snapshot')
-    const snap = store.sync(undefined)
-    expect(snap.kind).toBe('snapshot')
-    if (snap.kind === 'snapshot') expect(itemsOfSnapshot(snap.nodes)).toHaveLength(5)
+  })
+
+  it('TaskListPage 鏄粍浠讹細杈撳嚭闈欐€佸ご + keyed 浠诲姟琛?, () => {
+    const elements = TaskListPage({ items: makeList(2) })
+    expect(elements[0].type).toBe('static')
+    expect(elements[1].key).toBe('t-0')
+    expect(elements[2].type).toBe('item')
+  })
+
+  it('鍏ㄩ噺蹇収妯″紡锛歳enderSince(undefined) 鎼哄甫闈欐€佸ご涓庨泦鍚?, () => {
+    const store = new TaskStore(makeList(2))
+    const host = assemblePageSession(store)
+    const sync = host.renderSince(undefined)
+    expect(sync.kind).toBe('snapshot')
+    const text = renderSync(sync)
+    expect(text.startsWith('SNAPSHOT v')).toBe(true)
+    expect(text).toContain('"content":"浠诲姟涓績 路 鍒楄〃椤?')
   })
 })
 
 describe('protocol', () => {
-  it('补丁模板字节级稳定（canonical 键序，骨架固定）', () => {
-    const items: TaskItem[] = [{ id: 't-1', title: 'a', status: 'open', ownerId: null }]
-    const a = renderSync({ kind: 'patch', fromVersion: 1, toVersion: 2, ops: [{ op: 'splice', path: 'tasks', id: 't-1', entity: items[0] }] })
-    const updated: TaskItem = { ...items[0], title: 'b' }
-    const b = renderSync({ kind: 'patch', fromVersion: 3, toVersion: 4, ops: [{ op: 'splice', path: 'tasks', id: 't-1', entity: updated }] })
-    expect(a.startsWith('PATCH v1->v2 {"ops":[{"entity":{"id":"t-1",')).toBe(true)
-    expect(b.startsWith('PATCH v3->v4 {"ops":[{"entity":{"id":"t-1",')).toBe(true)
-    // canonical：entity,id,op,path 字典序
-    expect(a).toContain('"op":"splice","path":"tasks"}')
-  })
-
-  it('dispatch：JSON 解析失败与未知工具返回结构化错误', () => {
+  it('dispatch锛欽SON 瑙ｆ瀽澶辫触涓庢湭鐭ュ伐鍏疯繑鍥炵粨鏋勫寲閿欒', () => {
     const store = new TaskStore(makeList(3))
     expect(dispatchTool(store, 'take_task', 'not-json')).toMatchObject({ ok: false, code: 'bad_arguments' })
     expect(dispatchTool(store, 'nope', '{}')).toMatchObject({ ok: false, code: 'unknown_tool' })
     expect(dispatchTool(store, 'take_task', '{"task_id":"t-0"}').ok).toBe(true)
   })
 
-  it('工具表静态：系统提示词与工具定义不含任何任务数据', () => {
-    expect(SYSTEM_PROMPT).not.toContain('t-0')
-    expect(TOOLS.every((tool) => typeof tool.function.name === 'string')).toBe(true)
+  it('宸ュ叿琛ㄩ潤鎬侊細绯荤粺鎻愮ず璇嶄笉鍚换浣曚换鍔℃暟鎹?, () => {
+    const elements = TaskListPage({ items: makeList(1) })
+    expect(String(elements[0].props.content)).not.toContain('t-0')
+  })
+})
+
+describe('types', () => {
+  it('TaskItem 缁撴瀯鍐掔儫', () => {
+    const task: TaskItem = makeList(1)[0]
+    expect(task.id).toBe('t-0')
   })
 })

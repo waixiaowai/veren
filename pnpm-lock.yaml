@@ -693,7 +693,9 @@ importers:
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-storage@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))
 
-  packages/page-sync-core:
+  packages/platform-modules: {}
+
+  packages/prompt-core:
     devDependencies:
       typescript:
         specifier: ^5.6.0
@@ -702,7 +704,18 @@ importers:
         specifier: ^5.0.4
         version: 5.0.4(@types/node@26.6.5)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
 
-  packages/platform-modules: {}
+  packages/prompt-host-messages:
+    dependencies:
+      '@veren/prompt-core':
+        specifier: workspace:^
+        version: link:../prompt-core
+    devDependencies:
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^5.0.4
+        version: 5.0.4(@types/node@26.6.5)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
 
   packages/yaml-parser:
     dependencies:
@@ -1577,9 +1590,12 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
         version: 3.18.4
-      '@veren/page-sync-core':
+      '@veren/prompt-core':
         specifier: workspace:^
-        version: link:../../packages/page-sync-core
+        version: link:../../packages/prompt-core
+      '@veren/prompt-host-messages':
+        specifier: workspace:^
+        version: link:../../packages/prompt-host-messages
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5

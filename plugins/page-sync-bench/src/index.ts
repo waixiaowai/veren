@@ -2,7 +2,8 @@
  * DSH 插件入口：把任务列表页的工具（按钮）注册进挂载作用域。
  * DSH plugin entry: registers the task-list-page tools (buttons) into the mounting scope.
  *
- * 页面 = 会话：系统提示词与工具静态；页面数据由 store 版本化，通过 sync 协议增量同步。
+ * 页面 = 会话：系统提示词与工具静态；页面状态在 store（LLM 之外），
+ * 经 prompt-core 调度、MessageHost 提交为 SNAPSHOT/PATCH 消息流。
  * @module @veren/page-sync-bench
  */
 
@@ -10,8 +11,11 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { createRoot, bindStore } from '@veren/prompt-core'
+import { MessageHost, renderSync } from '@veren/prompt-host-messages'
+import { TOOLS_LABELS, TaskListPage, dispatchTool } from './page.ts'
 import { TaskStore, makeList } from './store.ts'
-import { TOOLS_LABELS, dispatchTool, renderSync } from './protocol.ts'
+import type { TaskItem } from './types.ts'
 
 export const name = 'tool-page-sync-bench'
 
@@ -32,11 +36,14 @@ function renderValue(_args: unknown, value: unknown): ContentBlock[] {
 }
 
 /**
- * 注册任务页工具；同一作用域共享一个 TaskStore（页面状态在 LLM 之外）。
- * Register page tools; one TaskStore per scope (page state lives outside the LLM).
+ * 注册任务页工具；同一作用域共享一份 store/host（页面状态在 LLM 之外）。
+ * Register page tools; one store/host per scope (page state lives outside the LLM).
  */
 export function apply(ctx: Context, config: Config): void {
   const store = new TaskStore(makeList(config.listSize))
+  const host = new MessageHost()
+  const root = createRoot(host)
+  bindStore<TaskItem[]>(root, store, (items) => TaskListPage({ items }))
 
   ctx.effect(() => {
     const disposers = TOOLS_LABELS.map((label) => ctx.tools.register(defineTool({
@@ -65,8 +72,8 @@ export function apply(ctx: Context, config: Config): void {
         render: renderValue,
       },
       async execute(args: { since_version?: number }) {
-        const sync = store.sync(args.since_version)
-        return { message: renderSync(sync), version: store.currentVersion }
+        const sync = host.renderSince(args.since_version)
+        return { message: renderSync(sync), version: host.currentVersion }
       },
       presentCall: () => ({ card: 'generic' as const, title: '同步任务列表', kind: 'read' as const }),
     })))

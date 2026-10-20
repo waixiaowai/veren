@@ -1,14 +1,10 @@
 /**
  * 类型定义（只放类型）/ Type definitions (types only)
- *
- * 同步协议类型统一来自 @veren/page-sync-core；这里只保留基准自身的领域类型。
- * Sync protocol types come from @veren/page-sync-core; only bench-domain types live here.
  */
-export * from '@veren/page-sync-core'
-import type { Entity } from '@veren/page-sync-core'
 
 /** 任务条目 / Task item —— id 稳定（React key 思想）*/
-export interface TaskItem extends Entity {
+export interface TaskItem {
+  id: string
   title: string
   status: 'open' | 'taken' | 'done'
   ownerId: string | null
@@ -30,7 +26,7 @@ export interface CallUsage {
 /** 单轮的统计 / Per-round statistics */
 export interface RoundStat {
   round: number
-  /** 本轮上下文注入字节数（快照或补丁）/ bytes injected this round */
+  /** 本轮上下文注入字节数 / injected bytes this round */
   injectedBytes: number
   calls: CallUsage[]
   toolCallsTotal: number

@@ -1,24 +1,13 @@
 /**
- * 任务存储（page-sync-core 的领域消费方）/ Task store (domain consumer of page-sync-core)
+ * 权威任务存储：纯领域语义 + 订阅通知（版本化属于宿主层）
+ * Authoritative task store: pure domain semantics + subscriptions (versioning belongs to the host layer)
  *
- * 版本化、补丁日志、压实、同步协议全部委托内核 PageStore；
- * 本文件只有任务领域语义：条目集合、按钮状态迁移、领域 diff 包装。
+ * 不可变纪律：数组整体替换，绝不原地修改（内核 diff 按内容比较，别名会让旧状态跟着变）。
  */
-import { PageStore, diffKeyed, keyedNode } from '@veren/page-sync-core'
-import type { Op, StoreOptions, Sync } from '@veren/page-sync-core'
 import type { TaskItem, ToolOutcome } from './types.ts'
 
-/** 任务集合在页面树中的固定路径 / fixed tree path of the task collection */
+/** 任务集合在页面树中的路径 / path of the task collection in the page tree */
 export const TASKS_PATH = 'tasks'
-
-function clone(items: TaskItem[]): TaskItem[] {
-  return items.map((item) => ({ ...item }))
-}
-
-/** key-based diff（委托内核，canonical 相等性）/ keyed diff delegated to core */
-export function diffItems(prev: TaskItem[], next: TaskItem[]): Op[] {
-  return diffKeyed(TASKS_PATH, prev, next)
-}
 
 /** 构造 n 条初始任务 / build an initial list of n tasks */
 export function makeList(n: number): TaskItem[] {
@@ -32,24 +21,30 @@ export function makeList(n: number): TaskItem[] {
 
 export class TaskStore {
   private items: TaskItem[]
-  private readonly page: PageStore
+  private readonly listeners = new Set<() => void>()
 
-  constructor(initial: TaskItem[] = [], options: StoreOptions = {}) {
-    this.items = clone(initial)
-    // 树内快照与工作数组必须隔离：内核 diff 靠内容比较，别名会让“旧状态”跟着被改
-    this.page = new PageStore([keyedNode(TASKS_PATH, clone(this.items))], options)
+  constructor(initial: TaskItem[] = []) {
+    this.items = initial
   }
 
-  get currentVersion(): number {
-    return this.page.currentVersion
+  getState(): TaskItem[] {
+    return this.items
   }
 
-  /** 批量写：服务端 diff，一次 commit 版本 +1（batching）*/
-  commit(next: TaskItem[]): number {
-    if (diffItems(this.items, next).length === 0) return this.currentVersion
-    this.items = clone(next)
-    this.commitTree()
-    return this.currentVersion
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => { this.listeners.delete(listener) }
+  }
+
+  /** 通知订阅者（bindStore → 重渲染 → 宿主提交）/ notify subscribers */
+  private emit(): void {
+    for (const listener of this.listeners) listener()
+  }
+
+  /** 批量替换（服务端状态演化）/ wholesale replacement */
+  commit(next: TaskItem[]): void {
+    this.items = next
+    this.emit()
   }
 
   /** 按钮语义：接取任务（open → taken）/ take-task button */
@@ -59,9 +54,7 @@ export class TaskStore {
     if (item.status !== 'open') {
       return { ok: false, code: 'invalid_transition', detail: `${id} is ${item.status}, not open` }
     }
-    item.status = 'taken'
-    item.ownerId = ownerId
-    this.commitTree()
+    this.replace({ ...item, status: 'taken', ownerId })
     return { ok: true, detail: `${id} taken by ${ownerId}` }
   }
 
@@ -72,18 +65,13 @@ export class TaskStore {
     if (item.status !== 'taken') {
       return { ok: false, code: 'invalid_transition', detail: `${id} is ${item.status}, not taken` }
     }
-    item.status = 'done'
-    this.commitTree()
+    this.replace({ ...item, status: 'done' })
     return { ok: true, detail: `${id} completed` }
   }
 
-  /** 同步协议（委托内核：增量优先，缺口/压实前/游标超前回落全量）*/
-  sync(sinceVersion?: number): Sync {
-    return this.page.sync(sinceVersion)
-  }
-
-  /** 用当前条目重建页面树并提交（克隆数组：内核 diff 靠内容比较，原地变更也要可见）*/
-  private commitTree(): void {
-    this.page.update([keyedNode(TASKS_PATH, clone(this.items))])
+  /** 不可变替换一条并通知 / immutably replace one item and notify */
+  private replace(next: TaskItem): void {
+    this.items = this.items.map((task) => (task.id === next.id ? next : task))
+    this.emit()
   }
 }

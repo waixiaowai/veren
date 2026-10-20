@@ -1,18 +1,20 @@
-/**
- * 基准驱动：DeepSeek API 客户端 + 页面会话模拟循环 + 统计 / Bench driver: API client + loop + stats
- */
+﻿/**
+ * 鍩哄噯椹卞姩锛欴eepSeek API 瀹㈡埛绔?+ 椤甸潰浼氳瘽妯℃嫙寰幆 + 缁熻 / Bench driver: API client + loop + stats
+ * 缁勮锛歴tore锛堟潈濞佺姸鎬侊級鈫?bindStore 鈫?prompt-core 璋冨害 鈫?MessageHost 鎻愪氦 鈫?renderSince 娉ㄥ叆銆? */
+import { bindStore, createRoot, scheduleRender } from '@veren/prompt-core'
+import { MessageHost, renderSync } from '@veren/prompt-host-messages'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { TaskListPage, SYSTEM_PROMPT, TOOLS, dispatchTool } from './page.ts'
 import { TaskStore, makeList } from './store.ts'
-import { SYSTEM_PROMPT, TOOLS, dispatchTool, itemsOfSnapshot, renderSync } from './protocol.ts'
-import type { BenchReport, CallUsage, RoundStat, TaskItem } from './types.ts'
+import type { BenchReport, CallUsage, RoundStat } from './types.ts'
 
 const API_URL = 'https://api.deepseek.com/chat/completions'
 const MODEL = 'deepseek-chat'
 const LIST_SIZE = 150
 
-/** 读取密钥：环境变量优先，其次 ~/.dsh/.credentials.yaml 的 refs / load API key */
+/** 璇诲彇瀵嗛挜锛氱幆澧冨彉閲忎紭鍏堬紝鍏舵 ~/.dsh/.credentials.yaml 鐨?refs / load API key */
 export function loadApiKey(): string | undefined {
   if (process.env.DEEPSEEK_API_KEY) return process.env.DEEPSEEK_API_KEY
   try {
@@ -25,7 +27,7 @@ export function loadApiKey(): string | undefined {
   }
 }
 
-/** 确定性伪随机（LCG，保证可复现）/ deterministic PRNG */
+/** 纭畾鎬т吉闅忔満锛圠CG锛屼繚璇佸彲澶嶇幇锛? deterministic PRNG */
 function rng(seed: number): () => number {
   let state = seed >>> 0
   return () => {
@@ -34,30 +36,20 @@ function rng(seed: number): () => number {
   }
 }
 
-/** 读全量当前状态（测试读端；从快照树解包 keyed 集合）/ read full state via snapshot tree */
-function allItems(store: TaskStore): TaskItem[] {
-  const sync = store.sync(undefined)
-  if (sync.kind === 'snapshot') return itemsOfSnapshot(sync.nodes)
-  throw new Error('unexpected patch without baseline')
-}
-
-/** 其他用户改动 3 条（只动 t-0..t-99，避免干扰指令目标 t-100+）/ others mutate 3 items */
+/** 鍏朵粬鐢ㄦ埛鏀瑰姩 3 鏉★紙鍙姩 t-0..t-99锛岄伩鍏嶅共鎵版寚浠ょ洰鏍?t-100+锛? others mutate 3 items */
 function mutateByOthers(store: TaskStore, round: number): void {
-  const current = allItems(store)
+  const current = store.getState().map((item) => ({ ...item }))
   const random = rng(round * 7919 + 13)
   for (let k = 0; k < 3; k++) {
     const index = Math.floor(random() * 100)
-    const item = { ...current[index] }
+    const item = current[index]
     if (item.status === 'open') {
-      item.status = 'taken'
-      item.ownerId = `user-${round}-${k}`
+      current[index] = { ...item, status: 'taken', ownerId: `user-${round}-${k}` }
     } else if (item.status === 'taken') {
-      item.status = 'done'
+      current[index] = { ...item, status: 'done' }
     } else {
-      item.status = 'open'
-      item.ownerId = null
+      current[index] = { ...item, status: 'open', ownerId: null }
     }
-    current[index] = item
   }
   store.commit(current)
 }
@@ -79,7 +71,7 @@ interface ChatResponse {
   }
 }
 
-/** 调用一次 chat completion / one chat completion call */
+/** 璋冪敤涓€娆?chat completion / one chat completion call */
 async function chat(apiKey: string, messages: ChatMessage[]): Promise<{ message: ChatMessage; usage: CallUsage }> {
   const response = await fetch(API_URL, {
     method: 'POST',
@@ -97,28 +89,36 @@ async function chat(apiKey: string, messages: ChatMessage[]): Promise<{ message:
   return { message: data.choices[0].message, usage }
 }
 
+/** 缁勮椤甸潰浼氳瘽锛歴tore 鈫?bindStore 鈫?璋冨害鏍癸紙涓€娆?mount 寤虹珛闈欐€佸墠缂€涓庡熀绾垮揩鐓э級*/
+export function assemblePageSession(store: TaskStore): MessageHost {
+  const host = new MessageHost()
+  const root = createRoot(host)
+  bindStore<TaskItem[]>(root, store, (items) => TaskListPage({ items }))
+  scheduleRender(root, TaskListPage({ items: store.getState() })) // 鍒濆鎸傝浇
+  return host
+}
+
 /**
- * 跑一场基准：每轮 = 服务端状态演化 → 注入同步 → 模型执行指令（工具调用）→ 服务端验证。
- * One run: per round = server mutation → inject sync → model executes directive → verify server-side.
- */
+ * 璺戜竴鍦哄熀鍑嗭細姣忚疆 = 鏈嶅姟绔姸鎬佹紨鍖栵紙鑷姩閲嶆覆鏌擄級鈫?娉ㄥ叆鍚屾 鈫?妯″瀷鎵ц鎸囦护 鈫?鏈嶅姟绔獙璇併€? */
 export async function runBench(apiKey: string, mode: 'full' | 'delta', rounds = 6): Promise<BenchReport> {
   const store = new TaskStore(makeList(LIST_SIZE))
+  const host = assemblePageSession(store)
   const messages: ChatMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }]
-  let cursor: number | undefined // delta 模式首轮走快照
+  let cursor: number | undefined
   const roundStats: RoundStat[] = []
 
   for (let round = 1; round <= rounds; round++) {
-    mutateByOthers(store, round)
-    const sync = mode === 'full' ? store.sync(undefined) : store.sync(cursor)
-    cursor = store.currentVersion
+    mutateByOthers(store)
+    const sync = mode === 'full' ? host.renderSince(undefined) : host.renderSince(cursor)
+    cursor = host.currentVersion
     const syncText = renderSync(sync)
 
-    // 指令：第 r 轮完成 t-(99+r) 并接取 t-(100+r) / directive: complete previous, take next
+    // 鎸囦护锛氱 r 杞畬鎴?t-(99+r) 骞舵帴鍙?t-(100+r) / directive: complete previous, take next
     const target = `t-${100 + round}`
     const directive = round === 1
-      ? `请接取任务 ${target}。`
-      : `请先完成任务 t-${99 + round}，再接取任务 ${target}。`
-    messages.push({ role: 'user', content: `${syncText}\n\n---\n第 ${round} 轮指令：${directive}` })
+      ? `璇锋帴鍙栦换鍔?${target}銆俙
+      : `璇峰厛瀹屾垚浠诲姟 t-${99 + round}锛屽啀鎺ュ彇浠诲姟 ${target}銆俙
+    messages.push({ role: 'user', content: `${syncText}\n\n---\n绗?${round} 杞寚浠わ細${directive}` })
 
     const stat: RoundStat = {
       round, injectedBytes: Buffer.byteLength(syncText), calls: [],
@@ -139,8 +139,8 @@ export async function runBench(apiKey: string, mode: 'full' | 'delta', rounds = 
       }
     }
 
-    // 服务端验证指令 / verify directive server-side
-    const items = allItems(store)
+    // 鏈嶅姟绔獙璇佹寚浠?/ verify directive server-side
+    const items = store.getState()
     const taken = items.find((item) => item.id === target)
     const done = round > 1 ? items.find((item) => item.id === `t-${99 + round}`) : undefined
     stat.directiveOk = taken?.status === 'taken' && taken.ownerId === 'model'
@@ -151,7 +151,7 @@ export async function runBench(apiKey: string, mode: 'full' | 'delta', rounds = 
   return { mode, rounds, listSize: LIST_SIZE, roundStats, totals: totalsOf(roundStats) }
 }
 
-/** 汇总统计 / aggregate totals */
+/** 姹囨€荤粺璁?/ aggregate totals */
 function totalsOf(roundStats: RoundStat[]): BenchReport['totals'] {
   const sum = (pick: (stat: RoundStat) => number): number =>
     roundStats.reduce((acc, stat) => acc + pick(stat), 0)

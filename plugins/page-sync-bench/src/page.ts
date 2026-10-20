@@ -1,13 +1,22 @@
 /**
- * 工具协议 + 系统提示词（页面静态面）/ Tool protocol + system prompt (page static face)
- * 消息模板统一来自 @veren/page-sync-core（字节稳定）。
+ * 任务列表页 = 组件 + 静态面（系统提示词/工具表）
+ * Task-list page = components + static face (system prompt / tool schemas)
+ *
+ * 页面就是组件树：TaskListPage 被 memo 包裹，items 内容不变 → 整页 bail out → 零追加。
  */
-import type { PromptNode } from '@veren/page-sync-core'
-import { renderSync } from '@veren/page-sync-core'
+import { createElement, memo } from '@veren/prompt-core'
 import { TASKS_PATH } from './store.ts'
 import type { TaskItem, ToolOutcome } from './types.ts'
 
-export { renderSync }
+/**
+ * 页面组件：静态头 + keyed 任务行（key = 任务 id，React keyed children 语义）。
+ * Page component: static header + keyed task rows (key = task id).
+ */
+export const TaskListPage = memo((props: { items: TaskItem[] }) => [
+  createElement('static', { content: '任务中心 · 列表页' }),
+  ...props.items.map((task) =>
+    createElement('item', { key: task.id, path: TASKS_PATH, value: task })),
+])
 
 /** 静态系统提示词：页面不变部分（缓存前缀的核心）/ static system prompt */
 export const SYSTEM_PROMPT = [
@@ -17,7 +26,7 @@ export const SYSTEM_PROMPT = [
   '- PATCH vA->vB {"ops":[...]} 是增量：',
   '  {"op":"splice","path":"tasks","id":X,"entity":{...}} 按 id 新增或更新条目；',
   '  {"op":"splice","path":"tasks","id":X}（无 entity）按 id 删除；',
-  '  {"op":"set","path":P,"value":V} 更新子树；{"op":"append","path":P,"entries":[...]} 追加日志。',
+  '  {"op":"set","path":P,"value":V} 更新子树；{"op":"remove","path":P} 删除子树。',
   '你必须在心中按 id 维护当前任务状态。回答状态问题时以最新版本为准。',
   '工具是页面上的按钮：take_task 接取一个 open 状态的任务，complete_task 完成一个 taken 状态的任务。',
   '收到同步消息后，按当轮指令调用工具；完成后用一句话确认。',
@@ -82,9 +91,3 @@ export const TOOLS_LABELS = TOOLS.map((tool) => ({
   parameters: tool.function.parameters as Record<string, unknown>,
   title: tool.function.name === 'take_task' ? '接取任务' : '完成任务',
 }))
-
-/** 测试辅助：从快照树中取出任务集合 / test helper: unwrap the task collection from a snapshot tree */
-export function itemsOfSnapshot(nodes: PromptNode[]): TaskItem[] {
-  const node = nodes.find((candidate) => candidate.kind === 'keyed' && candidate.path === TASKS_PATH)
-  return node?.kind === 'keyed' ? (node.items as TaskItem[]) : []
-}
