@@ -311,6 +311,8 @@ This is the core of the revision:
 - Page copy is written once as the `PAGE` block at the start of the Session;
 - Opening another page = creating or reusing **another Session**, then the GUI selects that Session.
 
+A navigation button inside a page does the same thing: it calls `app_open(target URL)`, the page runtime finds or creates the target Session, and the GUI switches to it; the current Session's page, tools, and history stay untouched.
+
 #### 3.4.1 What the one-to-one rule removes
 
 The previous revision designed for "switch pages inside a Session": remove old tools, append `PAGE closed`, maintain a generation, reconcile leftovers, roll back the old page. None of that is needed now:

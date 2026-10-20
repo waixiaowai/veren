@@ -42,11 +42,11 @@ spec:
           requests:
             cpu: "2"
             memory: 8Gi
-            nvidia.com/gpumem: "14336"
+            nvidia.com/gpumem: "20480"
           limits:
             cpu: "8"
             memory: 24Gi
-            nvidia.com/gpumem: "14336"
+            nvidia.com/gpumem: "20480"
         volumeMounts:
         - name: app-data
           mountPath: /workspace

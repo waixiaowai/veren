@@ -7,7 +7,7 @@ metadata:
   title: MiniCPM-o 4.5
   description: Full-duplex omni model (vision + speech) served by llama.cpp-omni with CUDA.
   icon: https://app.cdn.olares.com/appstore/default/defaulticon.webp
-  version: 0.1.6
+  version: 0.1.7
   categories:
   - AI
 spec:
@@ -24,7 +24,7 @@ spec:
     limitedMemory: 24Gi
     requiredDisk: 20Gi
     limitedDisk: 60Gi
-    requiredGPUMemory: 14Gi
+    requiredGPUMemory: 20Gi
     limitedGPUMemory: 20Gi
 entrances:
 - name: minicpmo
