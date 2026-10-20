@@ -1,5 +1,5 @@
 - 所有的代码及注释都是给人看的，保证良好的可读性和可维护性，注释要求中英文双语
-- **真机/宿主级验证只有一条路**：本文件「稳定测试节点」一节的配方。禁止自建 `~/.dsh_test/*` 之类无人管理的临时节点；禁止自创启动命令。实际命令与本节不符时，先回来改这一节，不许就地绕过
+- **真机/宿主级验证只有一条路**：本文件「稳定测试节点」一节的配方。人工禁止自建 `~/.dsh_test/*` 之类临时节点（该目录仅限 e2e 自动化脚本创建与清理，见「一次性测试节点」）；禁止自创启动命令。实际命令与本节不符时，先回来改这一节，不许就地绕过
 - apps|cargos|packages/**/package.json|Cargo.toml必须提供description英文说明，提供的判断是否使用这个package的依据，只什么情况下使用，不要怎么用
 - apps|cargos|packages/** 怎么用: 每个包提供中文/英文双语的开发使用文档README.md和README.cn.md
 - docs: 对外的面向开发者|用户等各种用户的手册|教程文档的存放位置，面向不同的人群，要根据人群的特征，编写易于阅读和理解的规范的文档，每个文档都有中英两个文件，如README.md英文+README.cn.md中文
@@ -90,29 +90,30 @@ export function apply(ctx: Context): void { ... }
 ```
 
 - 稳定测试节点（长期存在、可反复用、源码直接起；手动/交互验证一律用它）
-  - 目录: DSH_HOME=deepseek\.dsh（即工作区下 deepseek\.dsh）；密钥已就位：`.credentials.yaml` 是从 ~/.dsh 拷来的 dev 自己副本，credentials-local 只读它
+  - 目录: DSH_HOME=deepseek\.dsh（即工作区下 deepseek\.dsh）；密钥已就位：`.credentials.yaml` 是从 ~/.dsh **只读复制**来的 dev 自己副本，credentials-local 只读它；对 ~/.dsh 只允许"复制出去"，禁止回写
   - 现有内容: `profiles\imtest`（bundles: `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app`）、`storages\`
   - 版本依据: 源码检出 `deepseek\deepseek-harness` 为 `master@687f282e86`、`@deepseek-ai/dsh-root 0.2.1-rc.2`，与桌面运行时（54224）**同版本、差为 0**——用源码验证即可代表真机
   - 构建（一次性）: `pnpm --dir deepseek\deepseek-harness run build`；`.dsh-build` 目录为空 = client 产物未构建，直接起会失败
   - 启动: `$env:DSH_HOME='C:\Users\imeep\Documents\cursour\deepseek\.dsh'; pnpm --dir deepseek\deepseek-harness dsh web --port 3080 --no-open`（`dsh web` 默认就是 web profile，不要再传 `--profile`，会报 "select a profile only once"；启动报核心行被兼容检查禁用时，按日志对每个包执行 `dsh plugin --profile web allow-version <pkg>@<ver> --dsh-version <runtime> --accept-risk`）
   - 开发循环（改源码自动重编）: `pnpm --dir deepseek\deepseek-harness run dev:web -- --port 3080 --no-open`（与 `pnpm run build` 互斥，不可并行）
   - 装插件: `pnpm --dir deepseek\deepseek-harness dsh plugin --profile web add <本仓库插件路径>`（源码版 CLI 支持本地路径安装；我们的包 engines.dsh `>=0.2.1-rc.2 <0.3.0` 恰好匹配，装组合包如 `plugins\app-host-bundle`，成员包不单独装）；`workspace:^` 依赖在路径安装时解析失败就退到 tarball + `scripts/repack.mjs` 重写依赖
-  - 装前先写 profile `.npmrc`（四行见下方「新建/安装测试节点」）：专用 `store-dir` + `package-import-method=copy`，断开与桌面的 inode 共享
+  - 装前先写 profile `.npmrc`（四行见下方「新建/安装一次性测试节点」第 1 步，authToken 指到真实来源文件）：专用 `store-dir` + `package-import-method=copy`，断开与桌面的 inode 共享
   - 隔离结论: 该 home 与 `~/.dsh`、54224 桌面版**无共享状态**（profile/storages/凭据全在 dev home 内）；唯一例外：`~/.agents`（设计上的共享 agents 根，只读）与 pnpm store（靠上面的 `.npmrc` 隔离）
   - 三个坑: ① client 产物未构建；② `workspace:^` 路径安装解析失败；③ pnpm 11 build-script 审批（安装报 `pendingBuilds` → Web 插件页 Allow scripts and retry）叠加核心行兼容检查（`allow-version --accept-risk`）
 - dsh_test_1、dsh_test_2 已清理删除：仓库内如再引用即过期，需订正
 
-- 一次性测试节点（e2e 自动化、测完清理、走 tarball 安装；不用于手动验证）
-目录：DSH_HOME=~/.dsh_test/编号，密钥从~/.dsh/.credentials.yaml拷贝
+- 一次性测试节点（**仅限 e2e 自动化脚本创建、使用并清理；人工禁止手动创建**，手动验证一律走上面的稳定节点）
+目录：DSH_HOME=~/.dsh_test/编号；密钥从 ~/.dsh/.credentials.yaml **只读复制**出去（复制允许，回写 ~/.dsh 禁止）
+创建/清理责任人：发起 e2e 的会话负责按下方流程创建并在测试结束后删除整个节点目录
 
-## 新建/安装测试节点（必须按此顺序，顺序不能反）
+## 新建/安装一次性测试节点（**仅 e2e 自动化脚本使用，人工禁止执行**；必须按此顺序，顺序不能反）
 
-1. 先写 profile `.npmrc`，四行缺一不可：
+1. 先写 profile `.npmrc`，四行缺一不可（authToken 只读复制，不写明文进文档）：
 ```ini
 store-dir=<节点目录>\.pnpm-store
 package-import-method=copy
 @veren:registry=https://npm.veren.top/
-//npm.veren.top/:_authToken=<从现存测试 profile 的 .npmrc 复制；dsh_test_2 已删除，无现存样例时向用户索取>
+//npm.veren.top/:_authToken=<从 C:\Users\imeep\.dsh\profiles\desktop\.npmrc 的同名键只读复制；该键不存在时向用户索取并说明用途与权限范围>
 ```
 2. 再初始化 profile（`dsh plugin --profile web version-exemptions` 即可完成初始化，不跑 pnpm）
 3. 再安装（`dsh plugin --profile web add <tarball>`）
