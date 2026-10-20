@@ -149,7 +149,6 @@ async function boot(): Promise<Boot> {
   await ctx.plugin(TaskCenterPlugin)
   const fh = await ctx.plugin({ name, inject, apply, Config }, { enabled: true })
   await fh.await()
-  console.log('BOOTDBG state:', fh.state, 'apps:', typeof ctx.apps, 'pages:', typeof ctx.pageRegistry, 'tasks:', typeof ctx.taskCenter, 'sessions:', typeof (ctx as { sessions?: unknown }).sessions, 'agents:', typeof (ctx as { agents?: unknown }).agents)
   const pages = ctx.pageRegistry
   for (let i = 0; i < 100; i += 1) {
     try {
@@ -256,5 +255,35 @@ describe('隔离是真的：同一宿主两个会话的 agent 作用域互不可
     const scope = h.host.startAgent(opened.sessionId) // 用户进入会话，agent 激活
     expect([...scope.registry.keys()]).toEqual(['mini__read']) // 此刻才挂上，且只对该 agent 可见
     expect(scope.followups.some((m) => m.startsWith('PAGE task'))).toBe(true) // PAGE 块经 followup 进入会话
+  })
+})
+
+describe('真机探针的可自动化收编（原 @veren/app-host-verify 六项中的 5/6 项）', () => {
+  it('重开同一 URL 回到原会话：不新建（真实实例索引持久化，非替身）', async () => {
+    const h = await boot()
+    registerMiniApp(h)
+    const first = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
+    expect(first.created).toBe(true)
+    const second = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
+    expect(second.created).toBe(false)
+    expect(second.sessionId).toBe(first.sessionId)
+  })
+
+  it('任务通知经投递泵落进真实会话：take 的 TASK 块与收件箱 [task-center] 文本都经 followup 进来', async () => {
+    const h = await boot()
+    registerMiniApp(h)
+    const opened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
+    // followup 面要求 agent 已激活（真实 session-port 语义），先让 agent 活
+    const scope = h.host.startAgent(opened.sessionId)
+    const task = await h.tasks.send({
+      kind: 'mini/kind' as never, title: '真机验证任务',
+      target: { url: '/apps/mini/task/1' as PageInstanceKey, appId: 'mini', page: 'task', params: { taskId: '1' } },
+    })
+    const reopened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey, { taskId: task.id })
+    expect(reopened.created).toBe(false)
+    // take 成功 → TASK 块经 appendUserMessage(followup) 进入该会话
+    expect(scope.followups.some((m) => m.includes(`TASK ${task.id}`))).toBe(true)
+    // 收件箱投递泵把 [task-center] 通知文本也注进同一条会话
+    expect(scope.followups.some((m) => m.includes('[task-center] 真机验证任务'))).toBe(true)
   })
 })

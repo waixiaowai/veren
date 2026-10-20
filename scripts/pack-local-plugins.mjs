@@ -41,7 +41,6 @@ const PACKAGES = [
   ['plugins/page-registry', '@veren/page-registry'],
   ['plugins/task-center', '@veren/task-center'],
   ['plugins/task-workbench', '@veren/task-workbench'],
-  ['plugins/app-host-verify', '@veren/app-host-verify'],
   ['plugins/device-id', '@veren/device-id'],
   ['plugins/device-id-win', '@veren/device-id-win'],
   ['plugins/device-id-mac', '@veren/device-id-mac'],
