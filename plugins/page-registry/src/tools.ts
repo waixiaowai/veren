@@ -13,6 +13,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-tools'
 
 /** app_open 需要的最小服务面 / the minimal service face app_open needs */
 export interface AppOpenPort {
@@ -32,9 +33,9 @@ function renderValue(_args: unknown, value: unknown): ContentBlock[] {
  * @param port - 解析 openUrl 服务面 / resolves the service surface
  */
 export function registerAppOpenTool(ctx: Context, port: () => AppOpenPort): void {
-  // ctx.tools 是 dsh-tools 的 declaration merging 真实面，不再 ctx.get() + 断言。
-  // ctx.tools is the declared dsh-tools service face; no ctx.get() + cast.
-  const registry = ctx.tools
+  // ctx.get('tools') 的返回类型来自 declaration merging 的真实服务面，零断言。
+  // ctx.get('tools') is typed by the declared service face — no casts.
+  const registry = ctx.get('tools')
   if (registry?.register === undefined) {
     ctx.logger.warn('page-registry: no "tools" registry; app_open is not registered')
     return

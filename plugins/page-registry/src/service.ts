@@ -58,11 +58,12 @@ async function openDomain(ctx: Context): Promise<InstanceKvPort | undefined> {
 /**
  * 惰性解析 A/B 的宿主面：服务缺席（undefined）就返回 undefined，
  * 由 openUrl 给出明确错误码（app/not-found、page/host-unavailable）。
- * 服务面直接用 declaration merging 的真实类型（ctx.apps / ctx.taskCenter），
- * 不再 ctx.get() + 结构断言。
+ * 服务面直接用 declaration merging 的真实类型：`ctx.get('apps')` 的返回类型
+ * 就是合并后的 `undefined | this['apps']`，零断言（不用属性代理——它要求
+ * 本 fiber 声明 inject，会破坏可选降级语义）。
  * Lazy host faces: absent services resolve to undefined; openUrl reports explicit
- * codes. The faces come from the declared service surfaces (ctx.apps / ctx.taskCenter),
- * with no ctx.get() + structural casts.
+ * codes. Faces come from the declared surfaces — `ctx.get('apps')` is typed via the
+ * merged Context, so no casts (and not the property proxy, which requires inject).
  */
 function hostPorts(ctx: Context, sessions: PageSessionPort): PageRuntimePorts {
   return {
@@ -70,12 +71,12 @@ function hostPorts(ctx: Context, sessions: PageSessionPort): PageRuntimePorts {
     get apps(): Pick<AppRegistryService, 'get'> | undefined {
       // AppRecord 即真实运行时记录：id/instructions 走 definition，不再投影成扁平副本。
       // AppRecord IS the runtime record: id/instructions live under definition, no flat copy.
-      const apps: AppRegistryService | undefined = ctx.apps
+      const apps = ctx.get('apps')
       return apps?.get === undefined ? undefined : { get: (id) => apps.get(id) }
     },
     get toolsOf(): ToolsFace | undefined {
       // 走 app-registry 的只读目录 listTools：值就是 DSH ToolDefinition 本体。
-      const apps: AppRegistryService | undefined = ctx.apps
+      const apps = ctx.get('apps')
       if (apps?.listTools === undefined) return undefined
       return (appId) => {
         try {
@@ -86,11 +87,11 @@ function hostPorts(ctx: Context, sessions: PageSessionPort): PageRuntimePorts {
       }
     },
     get tasks(): Pick<TaskCenterService, 'take'> | undefined {
-      const taskCenter: TaskCenterService | undefined = ctx.taskCenter
+      const taskCenter = ctx.get('taskCenter')
       return taskCenter?.take === undefined ? undefined : { take: (id, claim) => taskCenter.take(id as TaskId, claim) }
     },
     get deliveries(): DeliveryFace | undefined {
-      const taskCenter: TaskCenterService | undefined = ctx.taskCenter
+      const taskCenter = ctx.get('taskCenter')
       if (taskCenter?.pendingDeliveries === undefined || taskCenter.markDelivered === undefined) return undefined
       return {
         pending: () => taskCenter.pendingDeliveries(),
