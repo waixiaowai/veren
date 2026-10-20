@@ -1512,6 +1512,12 @@ export const apply = (ctx: Context): void => {
 
 **测试**：接线类改动一律以真实 Loader composition 测试（loader-smoke）为门禁——替身测试对本类错误零检出，这是本轮最重要的方法论结论；修完复跑真机 A–F 六项。
 
+**落地记录（2026-10-21，page-registry + app-host 两个包先行；task-workbench 下一轮）**：
+
+- `page-registry`：`hostPorts` 五个惰性 getter（apps/toolsOf/tasks/deliveries/releaseLeases）与探测式 `createHostSessionPort` 整体拆除；声明 `static inject = ['storageDomain']`；`bindPorts(ports, index?)` 改为**纯参数、整组替换**，端口集比规格示意更宽——apps/toolsOf 必填，tasks/deliveries/releaseLeases 按"可选能力仍走参数"收编。端口未接线时 openUrl/releaseApp 给 `page/host-unavailable`（新增错误码），不是假成功。`registerAppOpenTool` 的工具注册表改为注入参数。
+- `app-host`：三步装配收进单个 `ctx.effect('app-host:wire')`；**回滚在 `wireAppHost` 内实现**（规格示意把回滚寄托在 effect 机制上，实际 cordis effect 不回滚 setup 体内的前序步骤，故用 try/catch + 逆序独立回滚，每个回滚步互不阻断，原始错误优先透出）。`sessions`/`agents` 走声明过的 inject + declaration merging 真实面，探测面接口删除；`@deepseek-ai/dsh-session` 补进 peer+dev。
+- 回滚测试：`app-host/tests/assembly.spec.ts` 注入一个会失败的镜像面，断言 resolver 已回滚（send 不再被 send-forbidden 拦截）、端口未绑定（openUrl 给 page/host-unavailable）、镜像面不在场（注册只告警不镜像）。
+
 **落地阶段与依赖**：P0 第一位，无前置；G2、G1 及全部 P1/P2 排在它之后。**与既有决策的关系**：推翻正文 §8.2"宿主装配层（已落地）"对松对接形态的描述与 phase1 报告"设计站得住"的对接结论——该报告第七节自己已指出"四个服务之间全是松对接"是设计低估的成本，本条把观察升格为规格。
 
 ### 10.2 G1（P0-3）：bundle patch 跨组合包的行 id 去重契约

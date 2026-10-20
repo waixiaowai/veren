@@ -28,19 +28,20 @@ function renderValue(_args: unknown, value: unknown): ContentBlock[] {
 }
 
 /**
- * 注册 `app_open` 到挂载作用域的工具注册表；返回的 effect 卸载时逆序摘除。
- * @param ctx - 宿主上下文（读 `tools` 注册表）/ host context
+ * 注册 `app_open` 到给定工具注册表；返回的 effect 卸载时逆序摘除。
+ * 工具注册表由调用方（声明了 `inject: ['tools']` 的插件）作为参数传入（G13
+ * 规则 2）：本函数不摸 ctx 上的兄弟服务，也没有"缺席即告警"的降级分支——
+ * 注册表不在场是装配错误，直接 fail loud。
+ * Register `app_open` into the given tool registry; the effect disposes it in
+ * reverse on unload. The registry arrives as a parameter from a plugin that
+ * declares `inject: ['tools']` (G13 rule 2): no sibling probing, and a missing
+ * registry is a misconfiguration that fails loud instead of warn-and-skip.
+ * @param ctx - 宿主上下文（effect 挂载）/ host context (effect mounting)
+ * @param tools - 注入的工具注册表 / the injected tool registry
  * @param port - 解析 openUrl 服务面 / resolves the service surface
  */
-export function registerAppOpenTool(ctx: Context, port: () => AppOpenPort): void {
-  // ctx.get('tools') 的返回类型来自 declaration merging 的真实服务面，零断言。
-  // ctx.get('tools') is typed by the declared service face — no casts.
-  const registry = ctx.get('tools')
-  if (registry?.register === undefined) {
-    ctx.logger.warn('page-registry: no "tools" registry; app_open is not registered')
-    return
-  }
-  ctx.effect(() => registry.register(defineTool({
+export function registerAppOpenTool(ctx: Context, tools: Context['tools'], port: () => AppOpenPort): void {
+  ctx.effect(() => tools.register(defineTool({
     name: 'app_open',
     description: 'Open an application page URL (for example /apps/review-workbench/task/1) or take a task '
       + 'with taskId. It always creates a fresh page session with the page\u2019s tools mounted and returns it; '

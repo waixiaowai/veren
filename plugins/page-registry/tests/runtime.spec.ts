@@ -6,7 +6,7 @@ import type { InstanceKvPort } from '@veren/prompt-page'
 import type { PageInstanceRecord } from '@veren/prompt-page'
 import PageRegistryPlugin, { PageRegistryService } from '../src/index.ts'
 import { externalToolName } from '../src/runtime.ts'
-import type { MountedTool, PageSessionPort } from '../src/runtime.ts'
+import type { MountedTool, PageRuntimePorts, PageSessionPort } from '../src/runtime.ts'
 import type { AppRecord } from '@veren/app-registry'
 import type { TaskRecord } from '@veren/task-center'
 
@@ -86,7 +86,7 @@ function makeService(options: {
   const dispose = service.register(taskPage(options.pageRevision) as never)
   const kv = memKv()
   const sessions = fakeSessions()
-  // 端口直接复用真实服务面：app 假件是完整 AppRecord / the app fake is a full AppRecord
+  // 端口全部是纯参数（G13）：app 假件是完整 AppRecord / the app fake is a full AppRecord
   const app: AppRecord = {
     definition: { id: 'demo' as never, name: 'Demo', description: 'demo app', entry: 'task' as never },
     owner: 'test',
@@ -94,18 +94,20 @@ function makeService(options: {
     toolPrefix: 'demo',
     state: options.appState ?? 'active',
   }
-  service.bindPorts({
+  // 目录值就是 DSH ToolDefinition 本体（defineTool 产物）/ the catalog value IS a DSH ToolDefinition
+  const toolsOf = () => new Map([['read', defineTool({
+    name: 'read', description: '读材料', parameters: {},
+    output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+    execute: async () => ({ ok: true }),
+  })]])
+  const ports = {
     sessions: sessions.port,
-    ...(options.withApps === false ? {} : { apps: { get: () => app } }),
-    // 目录值就是 DSH ToolDefinition 本体（defineTool 产物）/ the catalog value IS a DSH ToolDefinition
-    toolsOf: () => new Map([['read', defineTool({
-      name: 'read', description: '读材料', parameters: {},
-      output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
-      execute: async () => ({ ok: true }),
-    })]]),
+    apps: options.withApps === false ? { get: () => undefined } : { get: () => app },
+    toolsOf,
     ...(options.tasks === undefined ? {} : { tasks: { take: (id: never, claim: never) => options.tasks!.take(String(id), claim) as Promise<TaskRecord> } }),
-  }, new KvPageInstanceIndex(kv, { sessionExists: (id) => sessions.port.exists(id) }))
-  return { service, kv, sessions, dispose }
+  } satisfies PageRuntimePorts
+  service.bindPorts(ports, new KvPageInstanceIndex(kv, { sessionExists: (id) => sessions.port.exists(id) }))
+  return { service, kv, sessions, ports, dispose }
 }
 
 describe('页面运行时：打开 URL 一律新建，旧会话废弃（§3.5.3、§9.1）', () => {
@@ -213,12 +215,12 @@ describe('页面运行时：打开 URL 一律新建，旧会话废弃（§3.5.3�
   })
 
   it('废弃标记写失败：整步中止，旧会话仍是索引里的活会话（下次打开重试）', async () => {
-    const { service, kv, sessions } = makeService()
+    const { service, kv, sessions, ports } = makeService()
     const first = await service.openUrl('/apps/demo/task/1')
-    // 只破坏废弃路径：换一个 deprecate 会抛的索引
+    // 只破坏废弃路径：换一个 deprecate 会抛的索引（端口整体重传，纯参数）
     const failing = new KvPageInstanceIndex(kv)
     failing.deprecate = async () => { throw new Error('disk full') }
-    service.bindPorts({}, failing)
+    service.bindPorts(ports, failing)
     await expect(service.openUrl('/apps/demo/task/1'))
       .rejects.toMatchObject({ code: 'page/index-unavailable' })
     // 收敛：没有新会话、没有半成品，URL 仍指向旧会话
@@ -270,11 +272,11 @@ describe('任务闭环（§5.3：先 take 再追加 TASK 块）', () => {
   it('③旧会话持任务时被废弃 → 租约释放 → 新会话可正常接取', async () => {
     const taken: string[] = []
     const released: string[] = []
-    const { service, sessions } = makeService({
+    const { service, sessions, ports } = makeService({
       tasks: { take: async (id, claim) => { taken.push(id); return { title: `任务 ${id}`, claim } } },
     })
-    // 注入真实的释放面：记录被释放租约的持有会话
-    service.bindPorts({ releaseLeases: async (sessionId) => { released.push(sessionId) } })
+    // 注入真实的释放面：记录被释放租约的持有会话（端口整体重传，纯参数）
+    service.bindPorts({ ...ports, releaseLeases: async (sessionId) => { released.push(sessionId) } })
     const first = await service.openUrl('/apps/demo/task/1', { taskId: 't-1' })
     expect(taken).toEqual(['t-1'])
     // 旧会话持有 t-1 的租约时，同 URL 重开：废弃会话释放租约，新会话再次接取成功
@@ -300,7 +302,8 @@ describe('任务闭环（§5.3：先 take 再追加 TASK 块）', () => {
     const ctx = new Context()
     const service = new PageRegistryService(ctx)
     service.register(taskPage() as never)
-    service.bindPorts({ sessions: fakeSessions().port, apps: { get: () => ({ definition: { id: 'demo' as never, name: 'Demo', description: 'd', entry: 'task' as never }, owner: 'test', version: '1.0.0', toolPrefix: 'demo', state: 'active' }) } }) // 不注入索引 → UnavailableIndex
+    // 端口齐备但 bindPorts 不传索引 → UnavailableIndex（fail loud，不假成功）
+    service.bindPorts({ sessions: fakeSessions().port, apps: { get: () => ({ definition: { id: 'demo' as never, name: 'Demo', description: 'd', entry: 'task' as never }, owner: 'test', version: '1.0.0', toolPrefix: 'demo', state: 'active' }) }, toolsOf: () => new Map() })
     await expect(service.openUrl('/apps/demo/task/1'))
       .rejects.toMatchObject({ code: 'page/index-unavailable' })
   })
@@ -337,13 +340,15 @@ describe('缺口 1/4 收尾：通知投递泵、reserved 清扫', () => {
   function makeWithDelivery(notices: Array<{ deliveryId: string; text: string }>) {
     const harness = makeService()
     const marked: Array<{ id: string; error?: string }> = []
-    harness.service.bindPorts({
-      deliveries: {
-        pending: async () => notices,
-        mark: async (id: string, error?: string) => { marked.push({ id, error }) },
-      },
-    })
-    return { ...harness, marked }
+    // 绑定后的端口集（含投递面）原样回传，后续整体重传时不丢面
+    // the bound port set (with the delivery face) is returned so later
+    // wholesale rebinds never drop a face
+    const ports = { ...harness.ports, deliveries: {
+      pending: async () => notices,
+      mark: async (id: string, error?: string) => { marked.push({ id, error }) },
+    } }
+    harness.service.bindPorts(ports)
+    return { ...harness, ports, marked }
   }
 
   it('新会话启动即注入收件箱通知，并回报 delivered（§5.2 inbox）', async () => {
@@ -358,9 +363,11 @@ describe('缺口 1/4 收尾：通知投递泵、reserved 清扫', () => {
   })
 
   it('注入失败保持 pending 并带原因，不阻塞页面打开（§4.5 降级）', async () => {
-    const { service, sessions, marked } = makeWithDelivery([{ deliveryId: 'd-1', text: 'x' }])
+    const { service, sessions, ports, marked } = makeWithDelivery([{ deliveryId: 'd-1', text: 'x' }])
     // 会话端口假件没有 appendUserMessage 失败注入口：直接把 sessions 换成会抛的
+    // （端口整体重传，纯参数）/ rebind wholesale with a failing session port
     service.bindPorts({
+      ...ports,
       sessions: {
         ...sessions.port,
         appendUserMessage: async (_id, _text, source) => {

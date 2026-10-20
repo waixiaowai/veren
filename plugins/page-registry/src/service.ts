@@ -4,19 +4,18 @@
  *
  * - 注册表是部署级共享状态：顶层作用域挂载，会话子作用域经 inject 解析到同一实例；
  * - 索引持久化在 `app-pages` 存储域（storageDomain 路子，与 notebook/forum 一致）；
- *   存储缺失时降级为带 page/index-unavailable 码的失败索引，不静默假成功；
- * - 会话/应用/任务三个宿主对接面用惰性端口解析：A（apps）、B（taskCenter）
- *   尚未激活时 openUrl 给出明确错误码，不卡死、不假成功。
+ *   存储打不开时降级为带 page/index-unavailable 码的失败索引，不静默假成功；
+ * - 运行时端口（sessions/apps/toolsOf/tasks/deliveries/releaseLeases）全部由装配层
+ *   （app-host）经 `bindPorts` **纯参数**传入（G13 显式接线）：本服务从不摸 ctx 上的
+ *   兄弟服务；端口未接线时 openUrl/releaseApp 给 page/host-unavailable，不假成功。
  */
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import { KvPageInstanceIndex, PageError, PageErrorCode, PageRegistry, canonicalizePageUrl, formatPath } from '@veren/prompt-page'
-import type { InstanceKvPort, PageCatalogEntry, PageDefinition, PageInstanceIndex, PageInstanceRecord, PageInstanceKey, PageMatch, PageParams } from '@veren/prompt-page'
+import type { InstanceKvPort, PageCatalogEntry, PageDefinition, PageInstanceIndex, PageInstanceKey, PageInstanceRecord, PageMatch, PageParams } from '@veren/prompt-page'
 import { APP_PAGES_DOMAIN_NAME, appPagesDomain, instanceTableView } from './storage.ts'
 import { openPageUrl } from './runtime.ts'
-import type { AppId, AppRecord, AppRegistryService } from '@veren/app-registry'
-import type { TaskId, TaskCenterService } from '@veren/task-center'
-import type { DeliveryFace, OpenPageOptions, OpenPageResult, PageRuntimePorts, PageSessionPort, ToolsFace } from './runtime.ts'
+import type { OpenPageOptions, OpenPageResult, PageRuntimePorts } from './runtime.ts'
 
 /** 服务名（ctx.pageRegistry / inject 'pageRegistry'）/ service name */
 export const PAGE_REGISTRY_NAME = 'pageRegistry'
@@ -37,173 +36,31 @@ function unavailable(): PageError {
   return new PageError(PageErrorCode.IndexUnavailable, `storage domain "${APP_PAGES_DOMAIN_NAME}" is unavailable; the instance index is read-only-failing`)
 }
 
-/** 一次重激活可能留下上一个激活打开的同名域：先关掉再开（与 notebook 同型） */
-async function openDomain(ctx: Context): Promise<InstanceKvPort | undefined> {
-  const facility = ctx.get('storageDomain')
-  if (facility === undefined) return undefined
-  const stale = facility.get(APP_PAGES_DOMAIN_NAME)
-  if (stale !== undefined) {
-    try {
-      await stale.close()
-      ctx.logger.warn('page-registry: closed the storage domain left open by a previous activation')
-    } catch (error: unknown) {
-      ctx.logger.warn(`page-registry: the previous storage domain could not close: ${String(error)}`)
-    }
-  }
-  const domain = await facility.open(appPagesDomain)
-  // 句柄归本服务：卸载时关闭，给下一次激活腾出名字
-  ctx.effect(() => () => domain.close(), 'page-registry:storage')
-  return instanceTableView(domain.table('instances'))
-}
-
-/**
- * 惰性解析 A/B 的宿主面：服务缺席（undefined）就返回 undefined，
- * 由 openUrl 给出明确错误码（app/not-found、page/host-unavailable）。
- * 服务面直接用 declaration merging 的真实类型：`ctx.get('apps')` 的返回类型
- * 就是合并后的 `undefined | this['apps']`，零断言（不用属性代理——它要求
- * 本 fiber 声明 inject，会破坏可选降级语义）。
- * Lazy host faces: absent services resolve to undefined; openUrl reports explicit
- * codes. Faces come from the declared surfaces — `ctx.get('apps')` is typed via the
- * merged Context, so no casts (and not the property proxy, which requires inject).
- */
-function hostPorts(ctx: Context, sessions: PageSessionPort): PageRuntimePorts {
-  return {
-    sessions,
-    get apps(): Pick<AppRegistryService, 'get'> | undefined {
-      // AppRecord 即真实运行时记录：id/instructions 走 definition，不再投影成扁平副本。
-      // AppRecord IS the runtime record: id/instructions live under definition, no flat copy.
-      const apps = ctx.get('apps')
-      return apps?.get === undefined ? undefined : { get: (id) => apps.get(id) }
-    },
-    get toolsOf(): ToolsFace | undefined {
-      // 走 app-registry 的只读目录 listTools：值就是 DSH ToolDefinition 本体。
-      const apps = ctx.get('apps')
-      if (apps?.listTools === undefined) return undefined
-      return (appId) => {
-        try {
-          return new Map(apps.listTools(appId as AppId).map((tool) => [tool.name, tool]))
-        } catch {
-          return new Map()
-        }
-      }
-    },
-    get tasks(): Pick<TaskCenterService, 'take'> | undefined {
-      const taskCenter = ctx.get('taskCenter')
-      return taskCenter?.take === undefined ? undefined : { take: (id, claim) => taskCenter.take(id as TaskId, claim) }
-    },
-    get deliveries(): DeliveryFace | undefined {
-      const taskCenter = ctx.get('taskCenter')
-      if (taskCenter?.pendingDeliveries === undefined || taskCenter.markDelivered === undefined) return undefined
-      return {
-        pending: () => taskCenter.pendingDeliveries(),
-        mark: (id, error) => taskCenter.markDelivered(id, error),
-      }
-    },
-    get releaseLeases(): ((sessionId: string) => Promise<void>) | undefined {
-      // 废弃会话时释放它持有的任务租约：按接取会话列出 taken，逐条 release。
-      // 单条 release 失败（如已被并发回收）不影响其余；整面缺席时运行时靠
-      // 任务中心的懒租约回收兜底。
-      // Release the leases a deprecated session holds: list taken tasks by
-      // claimant session and release each. A per-task failure (e.g. recycled
-      // concurrently) leaves the rest; when the face is absent the runtime
-      // falls back to the task center's lazy lease recycling.
-      const taskCenter = ctx.get('taskCenter')
-      if (taskCenter?.list === undefined || taskCenter.release === undefined) return undefined
-      return async (sessionId) => {
-        const taken = await taskCenter.list({ status: 'taken', claimedBySession: sessionId })
-        for (const task of taken) {
-          await taskCenter.release(task.id, `page session ${sessionId} deprecated`).catch(() => undefined)
-        }
-      }
-    },
-  }
-}
-
-/**
- * 默认会话端口：贴着宿主 `sessions` / `agents` 服务做能力探测，
- * 缺能力时给 page/host-unavailable，绝不假装成功。
- *
- * 已知保留的最小面断言（有意为之）：sessions/agents 的权威类型在
- * `@deepseek-ai/dsh-session` / `@deepseek-ai/dsh-agent`（branded SessionId），
- * 本插件不为两个探测点引入这两个依赖；探测面收在下面的最小 face 里。
- * Deliberate minimal-face assertions: the authoritative types live in
- * dsh-session/dsh-agent (branded SessionId); this plugin does not take those
- * dependencies just to probe two services, so the probed faces stay minimal.
- */
-export function createHostSessionPort(ctx: Context): PageSessionPort {
-  /** 宿主 sessions 服务的最小探测面 / the minimal probed face of the host sessions service */
-  interface SessionsFace {
-    get?: (id: string) => { dispose?: () => void } | undefined
-    create?: (id?: string, title?: string) => unknown
-  }
-  /** 宿主 agents 服务的最小探测面 / the minimal probed face of the host agents service */
-  interface AgentsFace {
-    get?: (id: string) => { followup?: (message: unknown) => void } | undefined
-  }
-  const sessions = (): SessionsFace | undefined => ctx.get('sessions') as SessionsFace | undefined
-  const agents = (): AgentsFace | undefined => ctx.get('agents') as AgentsFace | undefined
-  // 会话 → 该会话页面工具的整组注销器：释放/销毁时整组摘除（§3.4.4 兜底）
-  // session → the group disposer of that session's page tools; released as a group
-  const mounted = new Map<string, () => void>()
-  const releaseMounted = (sessionId: string): void => {
-    const dispose = mounted.get(sessionId)
-    if (dispose !== undefined) {
-      mounted.delete(sessionId)
-      dispose()
-    }
-  }
-  return {
-    exists: (sessionId) => sessions()?.get?.(sessionId) !== undefined,
-    mintId: () => crypto.randomUUID(),
-    async create(sessionId, _title) {
-      const store = sessions()
-      if (store?.create === undefined) {
-        throw new PageError(PageErrorCode.HostUnavailable, 'host "sessions" service cannot create sessions')
-      }
-      store.create(sessionId, _title)
-    },
-    async appendUserMessage(sessionId, text, source) {
-      const agent = agents()?.get?.(sessionId)
-      if (agent?.followup === undefined) {
-        throw new PageError(PageErrorCode.HostUnavailable, `no live agent for session ${sessionId}; cannot append "${source}" block`)
-      }
-      agent.followup({ role: 'user', content: [{ type: 'text', text }], source: { kind: source } })
-    },
-    async mountTools(sessionId, tools) {
-      // 宿主面缺失时报 host-unavailable；重挂路径先摘旧组再挂新组。
-      // ctx.tools 是 dsh-tools 的 declaration merging 真实面。
-      const registry = ctx.tools
-      if (registry?.register === undefined) {
-        throw new PageError(PageErrorCode.HostUnavailable, 'host "tools" registry is unavailable; page tools cannot mount')
-      }
-      releaseMounted(sessionId)
-      const disposers = tools.map((tool) => registry.register(tool))
-      mounted.set(sessionId, () => { for (const dispose of disposers.reverse()) dispose() })
-    },
-    async releaseTools(sessionId) { releaseMounted(sessionId) },
-    async focus(sessionId) {
-      // GUI 切换属于第 2 阶段；第 1 阶段记录日志，不报错
-      ctx.logger.info(`page-registry: focus session ${sessionId}`)
-    },
-    async destroy(sessionId) {
-      // 工具跟会话走：销毁时整组摘除（§3.4.4 路径 1 的端口侧兜底）
-      releaseMounted(sessionId)
-      sessions()?.get?.(sessionId)?.dispose?.()
-    },
-  }
-}
-
 /**
  * 页面注册表服务：register/resolve 以 disposer 收口（HMR/卸载安全）。
  * resolve/get 以泛型转发（消费方声明自己的 state 类型）。
  */
 export class PageRegistryService extends Service {
+  /** 存储域是本插件声明过的依赖（属主合法访问）；装配顺序由 Loader 保证。 */
+  static inject = ['storageDomain']
+
   private indexFace: PageInstanceIndex = new UnavailableIndex()
   private readonly registry: PageRegistry<never>
-  private runtimePorts: PageRuntimePorts
+  /** 运行时端口：装配层 bindPorts 纯参数传入；未接线前是 undefined（fail loud）。 */
+  private runtimePorts: PageRuntimePorts | undefined
 
   /** 页面实例索引：规范 URL → 当前活会话 + 废弃历史（持久化在 app-pages 域）*/
   get instances(): PageInstanceIndex { return this.indexFace }
+
+  /** 端口读取口：未接线即 fail loud（misconfiguration fails loud）/ ports accessor; unbound → fail loud */
+  private get ports(): PageRuntimePorts {
+    const ports = this.runtimePorts
+    if (ports === undefined) {
+      throw new PageError(PageErrorCode.HostUnavailable,
+        'page-registry has no bound ports; the host assembly (app-host bindPorts) must run before the page runtime is used')
+    }
+    return ports
+  }
 
   /**
    * @param ctx - 宿主上下文 / host context
@@ -212,36 +69,64 @@ export class PageRegistryService extends Service {
     super(ctx, PAGE_REGISTRY_NAME)
     this.registry = new PageRegistry<never>()
     // 域打开是异步的：先给失败索引，打开成功后原位换实现（打开失败保持降级）
-    this.runtimePorts = hostPorts(ctx, createHostSessionPort(ctx))
-    void openDomain(ctx).then(async (table) => {
-      if (table !== undefined) {
-        this.indexFace = new KvPageInstanceIndex(table, {
-          sessionExists: (id) => this.runtimePorts.sessions.exists(id),
-        })
-        // 启动清扫：reserved 残留行（崩溃遗迹）→ 没有对应活会话就删（§3.5.3/§7.5）
-        try {
-          const dropped = await this.indexFace.sweepReserved()
-          if (dropped.length > 0) ctx.logger.info(`page-registry: swept ${dropped.length} stale reserved row(s) at startup`)
-        } catch (error: unknown) {
-          ctx.logger.warn(`page-registry: reserved-row sweep failed: ${String(error)}`)
-        }
-        // 索引重建扫描（§3.5.4）：第 1 阶段不做——会话端口没有枚举会话/读
-        // app/page 事件的面，做不了真实重建；此处如实标注而非含糊带过，
-        // 见 docs/application-concept.cn.md §8.1 收尾说明。
-      } else {
-        ctx.logger.warn(`page-registry: storage domain "${APP_PAGES_DOMAIN_NAME}" unavailable; instance index is disabled`)
+    void this.openDomain().then(async (table) => {
+      if (table === undefined) return
+      this.indexFace = new KvPageInstanceIndex(table, {
+        sessionExists: (id) => this.ports.sessions.exists(id),
+      })
+      // 启动清扫：reserved 残留行（崩溃遗迹）→ 没有对应活会话就删（§3.5.3/§7.5）
+      try {
+        const dropped = await this.indexFace.sweepReserved()
+        if (dropped.length > 0) ctx.logger.info(`page-registry: swept ${dropped.length} stale reserved row(s) at startup`)
+      } catch (error: unknown) {
+        ctx.logger.warn(`page-registry: reserved-row sweep failed: ${String(error)}`)
       }
+      // 索引重建扫描（§3.5.4）：第 1 阶段不做——会话端口没有枚举会话/读
+      // app/page 事件的面，做不了真实重建；此处如实标注而非含糊带过，
+      // 见 docs/application-concept.cn.md §8.1 收尾说明。
     }, (error: unknown) => {
       ctx.logger.error(`page-registry: storage domain "${APP_PAGES_DOMAIN_NAME}" failed to open: ${String(error)}`)
     })
   }
 
   /**
-   * 测试/装配缝隙：换掉会话端口或索引（宿主装配与单测注入用）。
-   * Test/assembly seam: swap the session ports or the index.
+   * 打开 app-pages 存储域。storageDomain 是本服务声明过的 inject 依赖；这里
+   * 捕获的是"存储域打不开/服务缺席"的运行故障 → 失败索引 + 告警，是既有文档
+   * 化的降级语义，不是对兄弟服务的运行期探测（G13 禁的是后者）。
+   * Open the app-pages storage domain. storageDomain is a declared inject; the
+   * catch handles genuine storage failures (documented degrade to the failing
+   * index), not sibling probing, which G13 forbids.
    */
-  bindPorts(ports: Partial<PageRuntimePorts> & { sessions?: PageSessionPort }, index?: PageInstanceIndex): void {
-    this.runtimePorts = { ...this.runtimePorts, ...ports } as PageRuntimePorts
+  private async openDomain(): Promise<InstanceKvPort | undefined> {
+    try {
+      // 一次重激活可能留下上一个激活打开的同名域：先关掉再开（与 notebook 同型）
+      const stale = this.ctx.storageDomain.get(APP_PAGES_DOMAIN_NAME)
+      if (stale !== undefined) {
+        try {
+          await stale.close()
+          this.ctx.logger.warn('page-registry: closed the storage domain left open by a previous activation')
+        } catch (error: unknown) {
+          this.ctx.logger.warn(`page-registry: the previous storage domain could not close: ${String(error)}`)
+        }
+      }
+      const domain = await this.ctx.storageDomain.open(appPagesDomain)
+      // 句柄归本服务：卸载时关闭，给下一次激活腾出名字
+      this.ctx.effect(() => () => domain.close(), 'page-registry:storage')
+      return instanceTableView(domain.table('instances'))
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`page-registry: storage domain "${APP_PAGES_DOMAIN_NAME}" unavailable (${String(error)}); instance index is disabled`)
+      return undefined
+    }
+  }
+
+  /**
+   * 装配缝隙（唯一的端口来源）：所需端口全部由参数传入（G13 规则 2），整体
+   * 替换、不与旧端口合并——"半端口"状态在类型上不存在。
+   * Assembly seam (the only port source): all ports arrive as pure parameters
+   * and replace the previous set wholesale — no partial-port state can exist.
+   */
+  bindPorts(ports: PageRuntimePorts, index?: PageInstanceIndex): void {
+    this.runtimePorts = ports
     if (index !== undefined) this.indexFace = index
   }
 
@@ -283,10 +168,11 @@ export class PageRegistryService extends Service {
 
   /**
    * 打开一个页面 URL：一律新建会话；同 URL 旧会话先废弃（§3.5.3、§9.1）。
-   * 测试注入口：直接换 runtimePorts.sessions 等端口。
+   * 端口未接线时给 page/host-unavailable（装配缺失 fail loud）。
    */
   openUrl(url: PageInstanceKey | string, options: OpenPageOptions = {}): Promise<OpenPageResult> {
-    return openPageUrl(this.registry, this.instances, this.runtimePorts, url, options)
+    // async：端口未接线的 fail loud 以 rejected promise 透出，而非同步抛
+    return Promise.resolve().then(() => openPageUrl(this.registry, this.instances, this.ports, url, options))
   }
 
   /**
@@ -300,7 +186,7 @@ export class PageRegistryService extends Service {
     for (const row of rows) {
       if (row.state !== 'live') continue
       try {
-        await this.runtimePorts.sessions.releaseTools(row.sessionId)
+        await this.ports.sessions.releaseTools(row.sessionId)
       } catch (error: unknown) {
         // 单个会话失败只影响该会话，记录后继续（§5.6 binding-release-failed 语义）
         this.ctx.logger.warn(`page-registry: releaseTools(${row.sessionId}) failed: ${String(error)}`)

@@ -15,10 +15,12 @@
  *   否则新会话会 `already-taken`，任务被废弃会话占死。
  *
  * 宿主对接走注入端口（sessions/apps/toolsOf/tasks/deliveries/releaseLeases）：
- * apps/tasks 用真实服务面，缺失时给明确错误码降级；本包只依赖各服务包的
- * 类型出口，不依赖其运行时。
- * Host access goes through injected ports; apps and tasks reuse the real
- * service faces and degrade with explicit codes when absent.
+ * 端口全部由装配层（app-host）经 bindPorts **纯参数**传入（G13 规则 2），本包
+ * 不触碰任何 ctx、不探测兄弟服务；apps/toolsOf 是必填端口（没有它们页面打不开），
+ * tasks/deliveries/releaseLeases 是可选能力端口（缺席时按各自语义降级，同 G13
+ * 规格中"可选能力仍走参数"的形态）。本包只依赖各服务包的类型出口，不依赖其运行时。
+ * Host access goes through injected ports passed as pure parameters by the
+ * host assembly (app-host); nothing here touches a Context or probes siblings.
  *
  * @module @veren/page-registry/runtime
  */
@@ -83,13 +85,14 @@ export interface PageSessionPort {
   destroy(sessionId: string): Promise<void>
 }
 
-/** 运行时端口集：apps/tasks 直接复用真实服务面（Pick 投影，不另声明）
- * / the runtime's injected ports; apps/tasks reuse the real service faces */
+/** 运行时端口集：apps/toolsOf 必填，任务相关为可选能力端口（全部是纯参数）
+ * / the runtime's ports: apps/toolsOf required, task faces optional capabilities */
 export interface PageRuntimePorts {
   readonly sessions: PageSessionPort
-  /** 应用注册表真实面（AppRecord）：缺席则 openUrl 给 app/not-found / the real app-registry face */
-  readonly apps?: Pick<AppRegistryService, 'get'>
-  readonly toolsOf?: ToolsFace
+  /** 应用注册表真实面（AppRecord）：应用不在场时 openUrl 给 app/not-found / the real app-registry face */
+  readonly apps: Pick<AppRegistryService, 'get'>
+  /** 应用工具目录（listTools 投影）：页面声明了工具就必须有目录 / the app tool catalog */
+  readonly toolsOf: ToolsFace
   /** 任务中心真实契约的 take：缺席则任务场景给 page/host-unavailable / the real task contract */
   readonly tasks?: Pick<TaskCenterContract, 'take'>
   /** 任务通知投递面（§5.2 inbox 注入）；缺席则跳过投递 / delivery face; absent → skip pumping */
@@ -139,13 +142,10 @@ export function externalToolName(toolPrefix: string, localName: string): string 
 function resolveMountedTools(
   app: AppRecord,
   match: PageMatch<never>,
-  toolsOf: ToolsFace | undefined,
+  toolsOf: ToolsFace,
 ): MountedTool[] {
   const localNames = match.page.tools ?? []
   if (localNames.length === 0) return []
-  if (toolsOf === undefined) {
-    throw new PageError(PageErrorCode.UnknownTool, `app "${app.definition.id}" exposes no tool catalog, so page tools cannot mount`)
-  }
   const catalog = toolsOf(app.definition.id)
   return localNames.map((localName) => {
     const spec = catalog.get(localName)
@@ -191,8 +191,8 @@ export async function openPageUrl(
   const appId = appIdOf(key)
   if (appId === undefined) throw new PageError(PageErrorCode.UrlInvalid, `url ${key} carries no /apps/<appId> segment`)
   // URL 段是字符串，AppId 是 brand：跨边界在此一次性收窄 / url segment → branded AppId at this boundary
-  const app = ports.apps?.get(appId as AppRecord['definition']['id'])
-  if (ports.apps === undefined || app === undefined) {
+  const app = ports.apps.get(appId as AppRecord['definition']['id'])
+  if (app === undefined) {
     throw new PageError(PageErrorCode.AppNotFound, `app "${appId}" is not registered`)
   }
   if (app.state !== 'active') {

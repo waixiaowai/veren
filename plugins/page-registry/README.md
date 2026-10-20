@@ -27,7 +27,16 @@ pnpm --filter @veren/page-registry test
 ## Instance index & page runtime (phase 1)
 
 - `service.instances`: persistent `PageInstanceIndex` (`app_pages` storage domain, two-phase reserve/commit, survives restart, invalidates rows whose session is gone).
-- `service.openUrl(url, { taskId })`: canonicalize -> app check -> index hit = resume & focus, miss = reserve -> create session -> mount `<toolPrefix>__<local>` tools -> one PAGE block -> commit -> focus; task flow takes first, then appends a TASK block. Stable codes: app/not-found, app/disabled, page/stale, page/not-found, task/expired, page/session-create-failed, page/tool-conflict, page/index-unavailable.
+- `service.openUrl(url, { taskId })`: canonicalize -> app check -> open a fresh page session (same-URL predecessor deprecated first) -> mount `<toolPrefix>__<local>` tools -> one PAGE block -> commit -> focus; task flow takes first, then appends a TASK block. Stable codes: app/not-found, app/disabled, page/not-found, task/expired, page/session-create-failed, page/tool-conflict, page/index-unavailable, page/host-unavailable.
 - `registerAppPage(appId, page)`: app-scoped registration (pairs with app-registry's `ctx.apps.pages(id)`); the `page.<name>` preset path stays deprecated.
-- `app_open` host tool registered via `registerAppOpenTool`.
+- `app_open` host tool registered via `registerAppOpenTool(ctx, tools, port)` — the tool registry is an injected parameter (G13), not probed from the context.
+
+## Explicit wiring (G13)
+
+This service never probes sibling services at runtime (no `ctx.get(...)` on `apps` / `taskCenter` / `sessions` / `agents` — the real-machine property guard attributes accesses to the accessed context's owner, so probing cannot work). Its declared inject is `['storageDomain']` only. Every runtime capability arrives through `bindPorts(ports, index?)` as **pure parameters** (whole-set replacement, no partial merge):
+
+- required: `sessions` (page session port), `apps` (app-registry `get`), `toolsOf` (app tool catalog);
+- optional capabilities: `tasks` (task take), `deliveries` (inbox pump), `releaseLeases` (deprecation lease release).
+
+Before the host assembly (`@veren/app-host`) runs `bindPorts`, `openUrl` / `releaseApp` fail loud with `page/host-unavailable` — never a fake success.
 

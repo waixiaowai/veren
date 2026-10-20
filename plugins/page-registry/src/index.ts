@@ -11,7 +11,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { PageRegistryService } from './service.ts'
 
-export { PAGE_REGISTRY_NAME, PageRegistryService, createHostSessionPort } from './service.ts'
+export { PAGE_REGISTRY_NAME, PageRegistryService } from './service.ts'
 export { APP_PAGES_DOMAIN_NAME, appPagesDomain, instanceTableView } from './storage.ts'
 export {
   appIdOf, externalToolName, instanceTitleOf, openPageUrl, pageBlock, pumpDeliveries, taskBlock,

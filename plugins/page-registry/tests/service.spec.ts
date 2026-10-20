@@ -44,4 +44,11 @@ describe('PageRegistryService（Service 插件）', () => {
     service.register(detailPage() as PageDefinition<never>)
     expect(() => service.register(detailPage() as PageDefinition<never>)).toThrow(/duplicate page name/)
   })
+
+  it('端口未接线：openUrl fail loud（page/host-unavailable），不假成功（G13）', async () => {
+    const service = new PageRegistryService(makeCtx())
+    service.register(detailPage() as PageDefinition<never>)
+    await expect(service.openUrl('/task-detail/t-1'))
+      .rejects.toMatchObject({ code: 'page/host-unavailable' })
+  })
 })

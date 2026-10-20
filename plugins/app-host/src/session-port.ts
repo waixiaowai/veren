@@ -3,7 +3,10 @@
  * The real session port: binds page-registry's session assumptions to the
  * real host services (`ctx.sessions` / `ctx.agents`).
  *
- * 与第 1 阶段的 `createHostSessionPort`（宿主全局工具表 + 事后显式释放）不同：
+ * 与第 1 阶段的探测式端口（宿主全局工具表 + `ctx.get` 结构探测 + 缺席降级，
+ * 已随 G13 拆除）不同：
+ * - `sessions` / `agents` 走**声明过的 inject + declaration merging 真实面**，
+ *   无 `ctx.get` 探测、无 `?.` 降级分支（G13 规则 1）；
  * - 页面工具优先挂**该会话 agent 作用域**（`agent.ctx.tools.register`）——只有
  *   这个 agent 可见，agent 销毁随其 fiber 自动释放，跨会话互不可见；
  * - agent 尚未激活时工具进入等待队列，`agent/created` 到达即挂上（新建的
@@ -11,17 +14,19 @@
  * - 消息经 `agent.followup` + `ctx.sessions.flush` 确认（forum 的投递纪律）；
  * - focus 是显式接缝（{@link FocusPort}）：本文件只给日志实现，GUI 切换归 H。
  *
- * 会话作用域的解析收在 {@link resolveAgentScope} 一个函数里：测试可以注入
- * 每会话独立的真实 cordis 子上下文（与 AgentRegistry 的
+ * 测试注入每会话独立的真实 cordis 子上下文（与 AgentRegistry 的
  * `resolve: sessionId => this.get(sessionId)?.ctx` 同机制），生产路径解析
  * `ctx.agents.get(sessionId)?.ctx`。
  * @module @veren/app-host/session-port
  */
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
-// 类型-only import：拉取 dsh-agent 的 Agent 类型与 agent/created|disposed 事件 declaration merging
-// type-only import: pulls the Agent type and the agent/created|disposed event merges
+// 类型-only import：拉取 dsh-agent / dsh-session 的 declaration merging（ctx.agents / ctx.sessions）
+// 以及 Agent / SessionId 的权威类型——不再手写最小探测面（G13：显式 inject，无结构探测）。
+// type-only imports: pull the dsh-agent/dsh-session declaration merges (ctx.agents /
+// ctx.sessions) and the authoritative Agent/SessionId types — no hand-written probe faces.
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { MountedTool, PageSessionPort } from '@veren/page-registry'
 
 /** focus 接缝：把界面切到某会话（GUI 实现归 H；此处为日志实现） */
@@ -41,22 +46,12 @@ export const PAGE_MESSAGE_SOURCE = 'app/page' as const
 export const TASK_MESSAGE_SOURCE = 'app/task' as const
 export const NOTICE_MESSAGE_SOURCE = 'task-center/notice' as const
 
-/** 宿主 sessions 服务的最小面（结构探测；权威类型在 @deepseek-ai/dsh-session，
- *  本插件不为一个探测点引入该依赖）/ minimal sessions face (probed; authoritative
- *  types live in dsh-session, not worth a dependency for one probe) */
-interface SessionsFace {
-  get(id: string): { id?: string } | undefined
-  create(id?: string): unknown
-  flush?(session: unknown): Promise<boolean> | boolean
-}
-
-/** 宿主 agents 服务的最小面 / minimal agents face */
-interface AgentsFace {
-  get(id: string): Agent | undefined
-}
-
 /** 消息源 → MessageSourceMap kind 的白名单（declaration merging 见文件尾） */
 type PageSourceKind = typeof PAGE_MESSAGE_SOURCE | typeof TASK_MESSAGE_SOURCE | typeof NOTICE_MESSAGE_SOURCE
+
+/** 会话 id 的 brand 收窄：端口面收 plain string，跨边界在此一次性收窄
+ * / the one brand narrowing where plain port strings cross the SessionId boundary */
+const sid = (sessionId: string): SessionId => sessionId as SessionId
 
 function sourceKind(source: string): PageSourceKind {
   switch (source) {
@@ -67,14 +62,14 @@ function sourceKind(source: string): PageSourceKind {
 }
 
 /**
- * 构造真实会话端口。
+ * 构造真实会话端口。`sessions` / `agents` 是声明过 inject 的宿主服务（本插件
+ * 的属主面，经 declaration merging 的真实类型访问）：不做任何运行期结构探测，
+ * 也不带"缺席即降级"分支——服务缺席是装配错误，由 inject 等待/fail loud 兜住。
  * @param ctx - 宿主上下文（读 `sessions` / `agents` 服务）
  * @param focus - focus 接缝（GUI 实现归 H）
  */
 export function createRealSessionPort(ctx: Context, focus: FocusPort = loggingFocus(ctx.logger)): PageSessionPort {
-  const sessions = (): SessionsFace | undefined => ctx.get('sessions') as SessionsFace | undefined
-  const agents = (): AgentsFace | undefined => ctx.get('agents') as AgentsFace | undefined
-  const agentOf = (sessionId: string): Agent | undefined => agents()?.get(sessionId)
+  const agentOf = (sessionId: string): Agent | undefined => ctx.agents.get(sid(sessionId))
   // 会话 → 该会话当前挂载的注销器（agent 作用域注销器，重挂/清理用）
   const mounted = new Map<string, Array<() => void>>()
   // 会话 → 等待 agent 激活的开场内容（PAGE/TASK/通知块）与工具；
@@ -129,22 +124,17 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = loggingFo
   })
 
   return {
-    exists: (sessionId) => sessions()?.get(sessionId) !== undefined,
+    exists: (sessionId) => ctx.sessions.get(sid(sessionId)) !== undefined,
     mintId: () => crypto.randomUUID(),
     async create(sessionId) {
-      const store = sessions()
-      if (store?.create === undefined) {
-        ctx.logger.warn('app-host: no "sessions" service; page session cannot be created')
-        throw new Error('app-host: host "sessions" service is unavailable')
-      }
-      store.create(sessionId as never)
+      ctx.sessions.create(sid(sessionId))
       // 会话标题归 session-title 投影/用户重命名（H 接 GUI 时按 instanceTitle 落）
     },
     async appendUserMessage(sessionId, text, source) {
       const agent = agentOf(sessionId)
       if (agent !== undefined) {
         followup(agent, text, source)
-        const flushed = await sessions()?.flush?.(agent.session)
+        const flushed = await ctx.sessions.flush(agent.session)
         if (flushed === false) {
           ctx.logger.warn(`app-host: session ${sessionId} did not flush the "${source}" block`)
         }
