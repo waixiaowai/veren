@@ -69,30 +69,13 @@ export class AppRegistryService extends Service {
   }
 
   /**
-   * 装配镜像面（宿主装配/测试用）：给定了就自动镜像；没给定只在注册页面时
-   * 告警——目录可见但 openUrl 解析不到的漂移由 pageRegistry.auditAppPages 发现。
-   * Install the mirror face (host assembly / tests). Without it a warning is
-   * logged at page registration; residual drift is surfaced by auditAppPages.
+   * 装配镜像面（宿主装配/测试用）：app-host 在装配时显式接上。没接时注册页面
+   * 只告警——目录可见但 openUrl 解析不到的漂移由 pageRegistry.auditAppPages 发现。
+   * Install the mirror face (wired explicitly by app-host; host assembly/tests).
+   * Without it a warning is logged; residual drift is surfaced by auditAppPages.
    */
   setPageMirror(mirror: PageMirrorFace | undefined): void {
     this.mirror = mirror
-  }
-
-  /** 显式装配优先，否则零配置结构探测宿主 `pageRegistry` 服务。 */
-  private resolveMirror(): PageMirrorFace | undefined {
-    if (this.mirror !== undefined) return this.mirror
-    const pageRegistry = this.host.get('pageRegistry') as
-      | {
-        registerAppPage?: (appId: string, page: PageDefinition<never>) => () => void
-        releaseApp?: (appId: string) => Promise<void>
-      }
-      | undefined
-    if (pageRegistry?.registerAppPage === undefined) return undefined
-    this.mirror = {
-      registerAppPage: (appId, page) => pageRegistry.registerAppPage!(appId, page),
-      ...(pageRegistry.releaseApp === undefined ? {} : { releaseApp: (appId) => pageRegistry.releaseApp!(appId) }),
-    }
-    return this.mirror
   }
 
   // ---- 注册与注销 / register & unregister ----
@@ -212,7 +195,7 @@ export class AppRegistryService extends Service {
 
   /** 镜像一次页面注册；失败回滚内部登记 / mirror one page; roll back on failure */
   private mirrorPage(id: AppId, page: PageDefinition<never>): (() => void) | undefined {
-    const face = this.resolveMirror()
+    const face = this.mirror
     if (face === undefined) {
       this.host.logger.warn(
         `apps: no page mirror wired; page "${id}/${page.name}" is visible in the app catalog but not resolvable by openUrl`,

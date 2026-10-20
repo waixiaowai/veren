@@ -111,14 +111,10 @@ export class TaskCenterService extends Service implements TaskCenterContract {
     await this.ready
   }
 
-  /** Wire the app registry lazily (session A); an unset resolver skips app checks. */
+  /** Wire the app registry explicitly — app-host does this at assembly time.
+   *  Unset, send degrades to warn-and-pass and no orphan sweep runs. */
   setAppResolver(resolver: AppResolver | undefined): void {
     this.resolver = resolver
-  }
-
-  /** 生效中的 resolver：显式接线优先，否则结构探测宿主 `apps` 服务。 */
-  private get effectiveResolver(): AppResolver | undefined {
-    return this.resolver ?? registryAppResolver(this.host)
   }
 
   async send(draft: TaskDraft): Promise<TaskRecord> {
@@ -132,7 +128,7 @@ export class TaskCenterService extends Service implements TaskCenterContract {
         if (seen !== undefined) return seen
       }
       await this.checkSender(draft.target.appId)
-      const snapshot = await this.effectiveResolver?.(draft.target.appId)
+      const snapshot = await this.resolver?.(draft.target.appId)
       const now = new Date().toISOString()
       const record: TaskRecord = {
         id: newId('task') as TaskId,
@@ -424,7 +420,7 @@ export class TaskCenterService extends Service implements TaskCenterContract {
 
   /** Sender check via the lazily wired resolver; without a resolver we only warn. */
   private async checkSender(appId: string): Promise<void> {
-    const resolver = this.effectiveResolver
+    const resolver = this.resolver
     if (resolver === undefined) {
       this.host.logger.warn(`taskCenter: no app resolver wired; sender "${appId}" accepted without registry check`)
       return
@@ -458,7 +454,7 @@ export class TaskCenterService extends Service implements TaskCenterContract {
    */
   private async sweep(domain: TaskCenterStore): Promise<void> {
     const tasks = view(domain.table('tasks'))
-    const resolver = this.effectiveResolver
+    const resolver = this.resolver
     const now = Date.now()
     for (const row of tasks.all()) {
       if ((row.status === 'open' || row.status === 'taken') && resolver !== undefined) {
@@ -531,27 +527,6 @@ export class TaskCenterService extends Service implements TaskCenterContract {
       )
       return undefined
     }
-  }
-}
-
-/**
- * 结构探测宿主 `apps` 服务的默认 resolver（缺口 2 接线）：不 import 会话 A
- * 的实现，只认 `get(id) → { state, version }` 形。`apps` 服务缺席时返回
- * undefined（视为"未接线"，沿用只告警放行的旧行为）；服务在而应用查不到时
- * 返回 undefined 快照（视为"应用不存在"，触发孤儿判定）。
- * The default resolver probing the host `apps` service structurally (gap-2
- * wiring). Absent service → undefined resolver ("unwired", old warn-and-pass
- * behavior); present service with a missing app → undefined snapshot ("app
- * gone", triggers the orphan sweep).
- */
-function registryAppResolver(ctx: Context): AppResolver | undefined {
-  const apps = ctx.get('apps') as
-    | { get?: (id: string) => { state: 'active' | 'disabled' | 'broken'; version: string } | undefined }
-    | undefined
-  if (apps?.get === undefined) return undefined
-  return async (appId) => {
-    const record = apps.get!(appId)
-    return record === undefined ? undefined : { state: record.state, version: record.version }
   }
 }
 

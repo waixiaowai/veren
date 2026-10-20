@@ -138,6 +138,16 @@ async function boot(root: string): Promise<Boot & { stop(): Promise<void> }> {
   await ctx.plugin(AppRegistryPlugin)
   await ctx.plugin(PageRegistryPlugin)
   await ctx.plugin(TaskCenterPlugin)
+  // 装配接线（app-host 在真实宿主里做的两步，测试里显式做）：
+  // resolver ← apps；镜像面 ← pageRegistry。结构探测兜底已在装配层落地时删除。
+  ;(ctx as { taskCenter: { setAppResolver(r: unknown): void } }).taskCenter.setAppResolver(async (appId: string) => {
+    const record = ctx.apps.get(appId as never)
+    return record === undefined ? undefined : { state: record.state, version: record.version }
+  })
+  ;(ctx as { apps: { setPageMirror(m: unknown): void } }).apps.setPageMirror({
+    registerAppPage: (appId: string, page: never) => ctx.pageRegistry.registerAppPage(appId, page),
+    releaseApp: (appId: string) => ctx.pageRegistry.releaseApp(appId),
+  })
   const wb = await ctx.plugin({ name: workbenchName, inject, apply }, { listSize: 3 })
   const pages = ctx.pageRegistry
   // 域打开是异步的：等索引就绪（lookup 不再是失败索引）

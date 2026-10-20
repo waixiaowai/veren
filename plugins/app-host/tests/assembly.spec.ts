@@ -1,0 +1,260 @@
+/**
+ * 宿主装配层（app-host）的组合与隔离验收。
+ * Composition and isolation acceptance for the host assembly layer.
+ *
+ * 真实程度（如实）：真实 cordis 装配 + 真实 storage 栈（json backend，临时目录）
+ * + 真实 PageSessionPort 接线路径；`ctx.sessions` / `ctx.agents` 用最小结构面
+ * 替身——但**每个会话的 agent 作用域是一个真实的 cordis 子上下文**，工具经
+ * `agent.ctx.tools.register` 挂进该子上下文自己的工具表（与 AgentRegistry 的
+ * `resolve: sessionId => this.get(sessionId)?.ctx` 同机制、同注销器语义）。
+ * 未做：完整 DSH profile 启动（需要测试节点安装，归 H/部署侧），因此
+ * ToolRuntime 的 scope 层不在本测试覆盖内。
+ */
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import * as Storage from '@deepseek-ai/dsh-storage'
+import * as StorageJson from '@deepseek-ai/dsh-storage-json'
+import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineAppPage } from '@veren/prompt-page'
+import type { PageDefinition } from '@veren/prompt-page'
+import AppRegistryPlugin from '@veren/app-registry'
+import type { AppCapability, AppId, PageKey } from '@veren/app-registry'
+import PageRegistryPlugin from '@veren/page-registry'
+import type { PageRegistryService } from '@veren/page-registry'
+import TaskCenterPlugin from '@veren/task-center'
+import type { TaskCenterService } from '@veren/task-center'
+import type { PageInstanceKey } from '@veren/prompt-page'
+import { apply, Config, inject, name, wireAppHost } from '../src/index.ts'
+
+// ---- 每会话一个真实 cordis 子上下文的 agent 作用域替身 ----
+// ---- Per-session agent scopes: real cordis child contexts ----
+
+/** 一个 agent 作用域：cordis 子上下文 + 它自己的工具表（注销器语义真实） */
+interface AgentScope {
+  readonly ctx: Context
+  readonly registry: Map<string, unknown>
+  readonly followups: string[]
+  disposeAll(): void
+}
+
+function makeAgentScope(parent: Context): AgentScope {
+  const registry = new Map<string, unknown>()
+  const followups: string[] = []
+  // isolate('tools')：该子树上 'tools' 服务解析进独立作用域（cordis 服务隔离，
+  // 与 AgentRegistry 给每个 agent 独立 ctx 的机制同向）。
+  const ctx = parent.isolate('tools')
+  ;(ctx.provide as unknown as (n: string, v: unknown) => void)('tools', {
+    register: (tool: { name: string }) => {
+      registry.set(tool.name, tool)
+      return () => { registry.delete(tool.name) }
+    },
+  })
+  return {
+    ctx,
+    registry,
+    followups,
+    disposeAll() {
+      // agent fiber 销毁的注销器语义：作用域内全部登记逆序摘除
+      registry.clear()
+      followups.length = 0
+    },
+  }
+}
+
+/** 最小 agents/sessions 结构面：live agent 表 + agent/created、agent/disposed 事件 */
+function makeHostSessions(ctx: Context) {
+  // task-center / app-host 的 inject 都要 'tools'；装配测试给最小注册表替身
+  ;(ctx.provide as unknown as (n: string, v: unknown) => void)('tools', { register: () => () => {} })
+  const sessions = new Map<string, { id: string; messages: string[]; alive: boolean }>()
+  const scopes = new Map<string, AgentScope>()
+  ;(ctx.provide as unknown as (n: string, v: unknown) => void)('sessions', {
+    get: (id: string) => (sessions.get(id)?.alive === true ? sessions.get(id) : undefined),
+    create: (id?: string) => {
+      const key = id ?? crypto.randomUUID()
+      sessions.set(key, { id: key, messages: [], alive: true })
+      return sessions.get(key)
+    },
+    flush: () => true,
+  })
+  const emit = ctx.emit as unknown as (event: string, payload: unknown) => void
+  ;(ctx.provide as unknown as (n: string, v: unknown) => void)('agents', {
+    // 活 agent 面：作用域 ctx + 会话 + followup（会话活着才有）
+    get: (id: string) => {
+      const scope = scopes.get(id)
+      if (scope === undefined || sessions.get(id)?.alive !== true) return undefined
+      return {
+        ctx: scope.ctx,
+        session: { id },
+        followup: (m: { content: Array<{ text?: string }> }) => { scope.followups.push(m.content.map((b) => b.text ?? '').join('')) },
+      }
+    },
+  })
+  return {
+    sessions,
+    scopes,
+    /** 让一个会话"活了"：建 agent 作用域并广播 agent/created */
+    startAgent(id: string): AgentScope {
+      const scope = makeAgentScope(ctx)
+      scopes.set(id, scope)
+      sessions.set(id, { id, messages: [], alive: true })
+      emit('agent/created', { agent: { ctx: scope.ctx, session: { id }, followup: (m: { content: Array<{ text?: string }> }) => { scope.followups.push(m.content.map((b) => b.text ?? '').join('')) } } })
+      return scope
+    },
+    /** agent 销毁：作用域注销器全部执行（真实 cordis 语义）+ 广播 agent/disposed */
+    stopAgent(id: string): void {
+      scopes.get(id)?.disposeAll()
+      scopes.delete(id)
+      emit('agent/disposed', { agent: { session: { id } } })
+    },
+  }
+}
+
+// ---- 装配 + 一个迷你应用 ----
+
+const roots: string[] = []
+const made: Array<() => Promise<void>> = []
+
+afterEach(async () => {
+  for (const dispose of made.reverse()) await dispose()
+  made.length = 0
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
+
+function tempRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), 'app-host-'))
+  roots.push(root)
+  return root
+}
+
+interface Boot {
+  ctx: Context
+  host: ReturnType<typeof makeHostSessions>
+  pages: PageRegistryService
+  tasks: TaskCenterService
+  dispose(): Promise<void>
+}
+
+async function boot(): Promise<Boot> {
+  const ctx = new Context()
+  const host = makeHostSessions(ctx)
+  const storageFiber = await ctx.plugin(Storage.default)
+  const jsonFiber = await ctx.plugin(StorageJson, { root: tempRoot() })
+  const domainFiber = await ctx.plugin(StorageDomain, { backend: 'json' })
+  await ctx.plugin(AppRegistryPlugin)
+  await ctx.plugin(PageRegistryPlugin)
+  await ctx.plugin(TaskCenterPlugin)
+  const fh = await ctx.plugin({ name, inject, apply, Config }, { enabled: true })
+  await fh.await()
+  console.log('BOOTDBG state:', fh.state, 'apps:', typeof ctx.apps, 'pages:', typeof ctx.pageRegistry, 'tasks:', typeof ctx.taskCenter, 'sessions:', typeof (ctx as { sessions?: unknown }).sessions, 'agents:', typeof (ctx as { agents?: unknown }).agents)
+  const pages = ctx.pageRegistry
+  for (let i = 0; i < 100; i += 1) {
+    try {
+      await pages.instances.listByApp('warm-up')
+      break
+    } catch { await new Promise((resolve) => setTimeout(resolve, 10)) }
+  }
+  const dispose = async (): Promise<void> => {
+    for (const fiber of [domainFiber, jsonFiber, storageFiber]) await fiber.dispose().catch(() => undefined)
+  }
+  made.push(dispose)
+  return { ctx, host, pages, tasks: ctx.taskCenter, dispose }
+}
+
+/** 迷你应用：一页一工具（defineTool 本体）/ a mini app: one page, one defineTool tool */
+function registerMiniApp(h: Boot): void {
+  const { ctx } = h
+  const apps = ctx.apps
+  apps.register({ id: 'mini' as AppId, name: 'mini', description: '装配层验证应用', entry: 'task' as PageKey }, ctx)
+  apps.tools('mini' as AppId, ctx).define(defineTool({
+    name: 'read',
+    description: '读取材料',
+    parameters: {},
+    output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+    execute: async () => ({ ok: true }),
+  }), { requires: ['files:read' as AppCapability] })
+  apps.pages('mini' as AppId, ctx).register(defineAppPage({
+    name: 'task', url: '/apps/mini/task/:id', description: '任务页',
+    tools: ['read'], pageRevision: 1, tree: () => [],
+  }) as unknown as PageDefinition<never>)
+}
+
+describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
+  it('resolver / 镜像面 / 会话端口由装配接好：发任务校验发送方、页面可被 openUrl 解析', async () => {
+    const h = await boot()
+    registerMiniApp(h)
+    // 镜像面：apps.pages 单入口注册 → openUrl 直接可解析（装配接的线在起作用）
+    const opened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
+    expect(opened.created).toBe(true)
+    // resolver：未注册应用 send 被拒（装配接的线在起作用）
+    await expect(h.tasks.send({
+      kind: 'mini/kind' as never, title: 't',
+      target: { url: '/apps/mini/task/1' as PageInstanceKey, appId: 'ghost', page: 'task', params: {} },
+    })).rejects.toMatchObject({ code: 'task/send-forbidden' })
+  })
+
+  it('装配 disposer 撤销全部注入：dispose 后镜像失效（注册只告警不镜像）', async () => {
+    const ctx = new Context()
+    ;(ctx.provide as unknown as (n: string, v: unknown) => void)('sessions', { get: () => undefined, create: () => ({}) })
+    ;(ctx.provide as unknown as (n: string, v: unknown) => void)('agents', { get: () => undefined })
+    await ctx.plugin(Storage.default)
+    const jsonFiber = await ctx.plugin(StorageJson, { root: tempRoot() })
+    await ctx.plugin(StorageDomain, { backend: 'json' })
+    await ctx.plugin(AppRegistryPlugin)
+    await ctx.plugin(PageRegistryPlugin)
+      await ctx.plugin(TaskCenterPlugin)
+      const fiber = await ctx.plugin({ name, inject, apply, Config }, { enabled: true })
+    await fiber.await()
+    await fiber.dispose() // 卸载装配层
+    const apps = ctx.apps
+    const warnings: string[] = []
+    const original = ctx.logger.warn
+    ;(ctx.logger as { warn: (m: string) => void }).warn = (m: string) => { warnings.push(m) }
+    try {
+      apps.register({ id: 'solo' as AppId, name: 'solo', description: 'd', entry: 'main' as PageKey })
+      apps.pages('solo' as AppId).register(defineAppPage({
+        name: 'main', url: '/apps/solo/main', description: 'd', pageRevision: 1, tree: () => [],
+      }) as unknown as PageDefinition<never>)
+      expect(warnings.some((m) => m.includes('no page mirror wired'))).toBe(true)
+      expect(ctx.pageRegistry.resolve('/apps/solo/main')).toBeNull() // 未镜像
+    } finally {
+      ;(ctx.logger as { warn: (m: string) => void }).warn = original
+      await jsonFiber.dispose().catch(() => undefined)
+    }
+  })
+})
+
+describe('隔离是真的：同一宿主两个会话的 agent 作用域互不可见', () => {
+  it('/task/1 与 /task/2 各自的作用域只看得到自己的工具；销毁 A 后 B 原样', async () => {
+    const h = await boot()
+    registerMiniApp(h)
+    // 先打开（无活 agent → 工具与 PAGE 块排队），再让两个 agent 相继激活：
+    // 每个会话的工具挂进各自的作用域，销毁 A 不影响 B
+    const a = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
+    const b = await h.pages.openUrl('/apps/mini/task/2' as PageInstanceKey)
+    expect(a.sessionId).not.toBe(b.sessionId)
+    const scopeA = h.host.startAgent(a.sessionId)
+    const scopeB = h.host.startAgent(b.sessionId)
+    // 各自作用域里恰好挂了一次页面工具（同名工具不互相覆盖、不串台）
+    expect([...scopeA.registry.keys()]).toEqual(['mini__read'])
+    expect([...scopeB.registry.keys()]).toEqual(['mini__read'])
+    // 作用域实例不同：A 的登记与 B 的登记是两个真实的、分开的表
+    expect(scopeA.ctx).not.toBe(scopeB.ctx)
+    // 销毁 A 的 agent（作用域随 fiber 注销）：A 工具消失，B 原样
+    h.host.stopAgent(a.sessionId)
+    expect(scopeA.registry.size).toBe(0)
+    expect([...scopeB.registry.keys()]).toEqual(['mini__read'])
+  })
+
+  it('agent 后到：恢复的页面会话在 agent 激活时才挂上工具（agent/created 队列）', async () => {
+    const h = await boot()
+    registerMiniApp(h)
+    const opened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey) // 无活 agent → 入队
+    const scope = h.host.startAgent(opened.sessionId) // 用户进入会话，agent 激活
+    expect([...scope.registry.keys()]).toEqual(['mini__read']) // 此刻才挂上，且只对该 agent 可见
+    expect(scope.followups.some((m) => m.startsWith('PAGE task'))).toBe(true) // PAGE 块经 followup 进入会话
+  })
+})

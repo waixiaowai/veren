@@ -46,6 +46,11 @@ async function install(options: { taskCenter?: boolean } = {}): Promise<{
   const pageRegistry = new PageRegistryService(hostCtx)
   ctx.provide('apps', apps)
   ctx.provide('pageRegistry', pageRegistry)
+  // 装配接线（app-host 的镜像面语义，测试里显式接）
+  apps.setPageMirror({
+    registerAppPage: (appId: never, page: never) => pageRegistry.registerAppPage(appId, page),
+    releaseApp: (appId: never) => pageRegistry.releaseApp(appId),
+  })
   const sent = fakeTaskCenter()
   if (options.taskCenter) ctx.provide('taskCenter', sent.contract as never)
   const fiber = ctx.plugin({ name, inject, apply }, { listSize: 3 })

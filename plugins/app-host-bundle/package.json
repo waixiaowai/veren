@@ -1,0 +1,34 @@
+{
+  "name": "@veren/app-host-bundle",
+  "displayName": "App Host Bundle",
+  "version": "0.1.0",
+  "description": "Use when a DSH profile needs the whole Veren application framework installed and composed in one step: this configuration-only bundle inserts the three host services (app registry, page registry, task center) and the app-host assembly row in dependency order, and its member plugins ship as plain dependencies without bundle declarations of their own, so this patch is the stack's only profile layer. Skip it when you prefer composing these loader rows in your own patch.",
+  "type": "module",
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "exports": {
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "package.json"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "_comment_dependencies": "Member packages use workspace ranges, which is what a published bundle needs. A test node installs from local tarballs and its own pnpm run has no workspace to resolve `workspace:^` against, so scripts/repack.mjs rewrites the throwaway tarball's dependency entries to file: paths before the profile consumes it; the committed manifest stays registry-clean.",
+  "dependencies": {
+    "@veren/app-host": "workspace:^",
+    "@veren/app-registry": "workspace:^",
+    "@veren/page-registry": "workspace:^",
+    "@veren/task-center": "workspace:^"
+  },
+  "devDependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "license": "MIT"
+}

@@ -1155,7 +1155,9 @@ Cordis 插件运行在同一个宿主进程里，拿到 `ctx` 就能碰所有服
 
 ### 8.2 第 2 阶段：GUI 入口与可读性
 
-- **工具栏应用下拉**：完整交互按 §3.8 实现；第 2 阶段把它接进新会话行和会话头部，并接上 URL 索引。
+> **宿主装配层（已落地，`@veren/app-host`）。** 第 1 阶段验收报告指出的"四个服务之间全是结构探测 + 惰性端口的松对接"由本插件收敛：一处显式接线（`wireAppHost`）——`taskCenter.setAppResolver ← apps.get`（发任务校验 + 卸载懒孤儿判定）、`apps.setPageMirror ← pageRegistry`（页面注册单入口 + 卸载摘工具）、`pageRegistry.bindPorts` ← 真实会话端口（页面工具挂**该会话 agent 作用域**，`agent/created`/`agent/disposed` 驱动挂载与释放；消息经 followup + flush 确认；focus 是已定接口的接缝，GUI 实现归工具栏下拉）。配合 `@veren/app-host-bundle`（纯配置组合包，四个 Loader 行按依赖顺序插入）可作为 Loader 行装进 profile。随之删除了 app-registry / task-center 的零配置探测兜底（镜像与 resolver 改为显式装配；未装配时行为是"只告警放行"，不再是隐式探测）；page-registry 的 `createHostSessionPort` 保留为独立/测试回退（无 app-host 时 PageRegistryService 仍可用），生产路径一律经 app-host 的真实端口。
+
+- **工具栏应用下拉**：完整交互按 §3.8 实现；第 2 阶段把它接进新会话行和会话头部，并接上 URL 索引（focus 接口已由 app-host 定下）。
 - **侧栏应用分组**：按 workspace → app 折叠，显示实例标题，支持按应用筛选、按应用归档。
 - **Web 收件箱**：任务列表、详情、打开、忽略；打开 = 切到任务 URL 的会话。
 - **页面工具指示**：页面面板显示“本页已挂载 N 个工具”，可展开看名字和来源。

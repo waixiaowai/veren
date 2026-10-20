@@ -1,0 +1,31 @@
+# App Host bundle: composes the Veren application framework in one profile layer.
+# 应用宿主组合包：一个 profile 层装好整个 Veren 应用框架。
+#
+# This bundle is the ONLY profile layer of the stack: none of the member plugins
+# declares `dsh.bundle.patch`, so dsh plugin reconciliation activates exactly
+# this layer and installing the bundle can never double-insert a row.
+# 本组合包是这套技术栈唯一的 profile 层：成员插件都不声明 `dsh.bundle.patch`，
+# dsh plugin 的 reconciliation 只会激活这一层，安装组合包绝不会重复插行。
+#
+# Row order matters: the three host services first, then the assembly plugin,
+# whose `inject` also declares the same three and whose apply() wires the seams
+# (app resolver, page mirror, real agent-scoped session port, focus seam).
+# After install, `ctx.apps` / `ctx.pageRegistry` / `ctx.taskCenter` exist in the
+# host and an app plugin needs no manual cross-service wiring.
+# 行顺序有讲究：先三个宿主服务，再装配插件——它的 `inject` 也声明同样三个依赖，
+# apply() 负责接线（应用 resolver、页面镜像面、真实 agent 作用域会话端口、focus
+# 接缝）。安装后宿主里存在 ctx.apps / ctx.pageRegistry / ctx.taskCenter，应用
+# 插件不需要任何手工跨服务接线。
+- insert:
+    # 应用注册表：ctx.apps（应用/页面/工具目录与生命周期）
+    - id: app-registry
+      name: '@veren/app-registry'
+    # 页面注册表 + URL 索引 + 页面运行时：ctx.pageRegistry
+    - id: page-registry
+      name: '@veren/page-registry'
+    # 任务中心：ctx.taskCenter
+    - id: task-center
+      name: '@veren/task-center'
+    # 宿主装配层：把上面三个服务接成一处（resolver/镜像/会话端口/focus）
+    - id: app-host
+      name: '@veren/app-host'

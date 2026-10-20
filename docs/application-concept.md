@@ -1129,7 +1129,9 @@ Explicitly out: the full toolbar app-dropdown interaction (Phase 2), sidebar app
 
 ### 8.2 Phase 2: GUI entry and readability
 
-- **Toolbar app dropdown**: implement the full interaction in §3.8; wire it into the New Session row and the Session header, backed by the URL index.
+> **Host assembly layer (landed, `@veren/app-host`).** The "structural probing + lazy ports" loose wiring called out by the phase-1 acceptance report is converged by this plugin: one explicit wiring point (`wireAppHost`) — `taskCenter.setAppResolver ← apps.get` (sender checks + lazy orphan sweep), `apps.setPageMirror ← pageRegistry` (single-entry page registration + tool strip on uninstall), and `pageRegistry.bindPorts` ← the real session port (page tools mount into the owning session's **agent scope**, driven by `agent/created` / `agent/disposed`; messages go through followup + flush; focus is a fixed interface seam whose GUI implementation belongs to the toolbar dropdown). Together with `@veren/app-host-bundle` (a configuration-only bundle inserting the four loader rows in dependency order) it installs into a profile as loader rows. The zero-config probing fallbacks in app-registry / task-center were removed (mirror and resolver are now explicit assembly; unwired means "warn and pass", not implicit probing); page-registry's `createHostSessionPort` remains as the standalone/test fallback so PageRegistryService stays usable without app-host — production always goes through the real port.
+
+- **Toolbar app dropdown**: implement the full interaction in §3.8; wire it into the New Session row and the Session header, backed by the URL index (the focus interface is already fixed by app-host).
 - **Sidebar app grouping**: workspace → app folding, instance titles, filter by app, archive by app.
 - **Web inbox**: task list, detail, open, dismiss; open = select the task URL's Session.
 - **Page tool indicator**: "N tools mounted for this page", expandable.
