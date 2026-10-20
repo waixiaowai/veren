@@ -1,12 +1,18 @@
 /**
  * 把市场级元数据合并进生成器写出的索引 / Merge market-level metadata into the generated index.
- * 生成器只认识 registry 里的事实（标题、图标、版本、engines.dsh）；分类、标签、精选关键词由本仓库维护。
- * The generator only knows registry facts (display fields, icons, versions, engines.dsh); categories, labels, and
- * curated keywords are owned by this repository.
+ * 生成器只认识 registry 里的事实（标题、图标、版本、engines.dsh）；展示文案、分类、标签、精选关键词由本仓库维护。
+ * The generator only knows registry facts (display fields, icons, versions, engines.dsh); display copy, categories,
+ * labels, and curated keywords are owned by this repository.
  */
 
-/** 市场配置里允许出现的插件级字段 / Plugin-level keys the market configuration may set. */
-const PLUGIN_KEYS = new Set(['category', 'labels', 'keywords'])
+/**
+ * 市场配置里允许出现的插件级字段 / Plugin-level keys the market configuration may set.
+ * `title` 与 `description` 是 `LocalizedText`（字符串或含 `en` 的多语言对象），Discover 按当前界面语言解析；
+ * 其余字段进入插件的 `metadata` 段。
+ * `title` and `description` are `LocalizedText` (a string, or a multi-language object that contains `en`);
+ * Discover resolves them in the current interface language. The remaining keys go into the plugin's `metadata`.
+ */
+const PLUGIN_KEYS = new Set(['category', 'labels', 'keywords', 'title', 'description'])
 
 /**
  * 合并标题、描述、声明表与每个插件的元数据。
@@ -31,7 +37,10 @@ export function applyMarketMetadata(index, config) {
 }
 
 /**
- * 用一个插件的覆盖值重写它的 metadata 段 / Rewrite one plugin's metadata from its override.
+ * 用一个插件的覆盖值重写它的展示文案与 metadata 段 / Rewrite one plugin's display copy and metadata from its override.
+ * `title` / `description` 覆盖生成器从包清单读到的英文原句，其余字段并入 `metadata`。
+ * `title` and `description` replace the English sentences the generator read from the package manifest; the remaining
+ * keys merge into `metadata`.
  * @param {object} plugin - 索引里的插件条目 / One plugin entry.
  * @param {object|undefined} override - market.json 中该插件的配置 / Its configuration in market.json.
  * @returns {object} 新条目 / A new entry.
@@ -41,8 +50,13 @@ function withMetadata(plugin, override) {
   for (const key of Object.keys(override)) {
     if (!PLUGIN_KEYS.has(key)) throw new Error(`${plugin.name}: 未知字段 / unknown market.json field ${JSON.stringify(key)}`)
   }
-  const merged = { ...plugin.metadata, ...override }
-  return { ...plugin, metadata: merged }
+  const { title, description, ...metadata } = override
+  return {
+    ...plugin,
+    ...title === undefined ? {} : { title },
+    ...description === undefined ? {} : { description },
+    metadata: { ...plugin.metadata, ...metadata },
+  }
 }
 
 /**

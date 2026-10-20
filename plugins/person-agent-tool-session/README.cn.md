@@ -1,10 +1,10 @@
 # @veren/person-agent-tool-session
 
-Person Agent 预设的面向模型会话维护工具：基于 `ctx.sessionController` 的 `session_create`、`session_rename`、`session_fork`、`session_dispatch`，以及基于 `ctx.workspaceRegistry` 的 `session_archive`、`session_unarchive`、`session_pin`、`session_unpin`。
+Person Agent 预设的面向模型会话维护工具：基于 `ctx.sessionController` 的 `session_create`、`session_rename`、`session_dispatch`，以及基于 `ctx.workspaceRegistry` 的 `session_archive`、`session_unarchive`、`session_pin`、`session_unpin`。会话分叉由 `session-fork-enhanced` 插件接管（`session_fork_with_options`，是原 `session_fork` 的严格超集）；本插件不再注册任何 fork 工具。
 
 ## 什么情况下使用
 
-当 Person Agent 会话需要创建、派活或整理兄弟会话——按预设/模型/标题开新会话、把任务（包括第一句话）交给它且不阻塞自己、分叉已完成轮次、归档或置顶会话——时使用；当会话不允许改动会话名单时跳过。
+当 Person Agent 会话需要创建、派活或整理兄弟会话——按预设/模型/标题开新会话、把任务（包括第一句话）交给它且不阻塞自己、归档或置顶会话——时使用；当会话不允许改动会话名单时跳过。
 
 ## 最小配置
 
@@ -16,7 +16,6 @@ Person Agent 预设的面向模型会话维护工具：基于 `ctx.sessionContro
   config:
     allowCreate: true
     allowDispatch: true
-    allowFork: true
     allowArchive: true
     allowPin: true
     maxReportChars: 4000
@@ -30,7 +29,6 @@ Person Agent 预设的面向模型会话维护工具：基于 `ctx.sessionContro
 | `session_create` | `title?`、`presetId?`、`provider?`+`model?`、`workspaceId?`（省略继承调用方工作区） | 创建普通会话，然后按「先模型、后标题」的顺序补装。新会话从空白开始；工具只回报新 id，不切换会话。 |
 | `session_dispatch` | `prompt`、`sessionId?` 与 `newSession?` 二选一、`report?`；`newSession` 内 `workspaceId?`（省略继承调用方工作区）、`agentPreset?` | 通过宿主标准入队路径（`resolveAgent` → `agent.followup`）把一段提示投进会话并**立即返回**，绝不等目标会话。`report: true`（默认）时由看守观察到目标真正静止，再把它的收尾输出作为 follow-up 消息投回**调用方**会话，并写明它答复的是哪一次派发。**一个目标同时只能有一条未结清的派发**：目标上还有没回报的派发时再派会被 `SESSION_DISPATCH_WATCH_BUSY` 拒绝；`report: false` 时什么也不回。桥梁人设把任务交给新建会话（包括第一句话）就靠它。 |
 | `session_rename` | `sessionId`、`title` | 持久修改一个会话的标题。 |
-| `session_fork` | `sessionId`、`atSeq?` | 把精确的已完成轮次前缀复制成新会话。 |
 | `session_archive` | `sessionId`、`stopActivity?` | 把会话放进归档集合；给 `stopActivity` 时停止运行中的工作而不是拒绝。 |
 | `session_unarchive` | `sessionId` | 把归档会话移回原位。 |
 | `session_pin` / `session_unpin` | `sessionId` | 维护 registry-global 置顶集合。 |

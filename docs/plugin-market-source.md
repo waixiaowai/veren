@@ -21,6 +21,7 @@ The format is defined and validated by `@deepseek-ai/dsh-plugin-market-index`:
 | `title` / `description` | Market name and summary as `LocalizedText` (a string, or an object that contains `en`) |
 | `metadata.categories` / `labels` / `sortKeys` | Market-defined declarations; Discover reads their titles and never interprets the ids |
 | `plugins[]` | One entry per plugin; `name` is an npm package name, unique within the index |
+| `plugins[].title` / `description` | Display copy as `LocalizedText`; the market owns the wording, and Discover resolves it in the interface language |
 | `plugins[].versions[]` | Exact version, publish timestamp, source (npm or a Git commit), and `engines.dsh` for each installable version |
 
 Two constraints decide what can appear:
@@ -28,6 +29,14 @@ Two constraints decide what can appear:
 - Only packages that declare `dsh.bundle.patch` are listed, because the market installs profile bundles.
 - A client installs the **exact version pinned in the index** (or Git commit), never `name@latest`. An index that is
   not regenerated never shows a new release.
+
+### Display copy and languages
+
+A plugin's `title` and `description` are `LocalizedText`, so Discover resolves them in the interface language. The DSH
+generator reads the `title` and `description` fields of the package's `./locale/<language>.json` files and falls back
+to `package.json`. This repository keeps the marketplace copy instead: `market.json` supplies an `en`/`zh` pair for
+both fields, which the build merges over the generated entry. Translations therefore stay out of released plugin
+packages, and rewording never needs a republish.
 
 ## This project's index source
 

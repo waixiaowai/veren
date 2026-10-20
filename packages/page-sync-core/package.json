@@ -1,0 +1,27 @@
+{
+  "name": "@veren/page-sync-core",
+  "description": "Generic virtual-prompt-tree sync kernel for LLM page-sessions: render/diff/commit pipeline with keyed and field diffing; use when plugins need cache-friendly append-only context updates, not for direct app logic.",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/*.js",
+    "dist/*.d.ts",
+    "README.md",
+    "README.cn.md"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}

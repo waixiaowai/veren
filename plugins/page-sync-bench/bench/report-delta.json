@@ -1,0 +1,142 @@
+{
+  "mode": "delta",
+  "rounds": 6,
+  "listSize": 150,
+  "roundStats": [
+    {
+      "round": 1,
+      "injectedBytes": 19324,
+      "calls": [
+        {
+          "promptTokens": 5689,
+          "completionTokens": 40,
+          "cacheHitTokens": 5504,
+          "cacheMissTokens": 185
+        },
+        {
+          "promptTokens": 5755,
+          "completionTokens": 16,
+          "cacheHitTokens": 5504,
+          "cacheMissTokens": 251
+        }
+      ],
+      "toolCallsTotal": 1,
+      "toolCallsOk": 1,
+      "directiveOk": true
+    },
+    {
+      "round": 2,
+      "injectedBytes": 651,
+      "calls": [
+        {
+          "promptTokens": 5997,
+          "completionTokens": 71,
+          "cacheHitTokens": 5760,
+          "cacheMissTokens": 237
+        },
+        {
+          "promptTokens": 6114,
+          "completionTokens": 24,
+          "cacheHitTokens": 5888,
+          "cacheMissTokens": 226
+        }
+      ],
+      "toolCallsTotal": 2,
+      "toolCallsOk": 2,
+      "directiveOk": true
+    },
+    {
+      "round": 3,
+      "injectedBytes": 809,
+      "calls": [
+        {
+          "promptTokens": 6407,
+          "completionTokens": 71,
+          "cacheHitTokens": 6016,
+          "cacheMissTokens": 391
+        },
+        {
+          "promptTokens": 6524,
+          "completionTokens": 24,
+          "cacheHitTokens": 6272,
+          "cacheMissTokens": 252
+        }
+      ],
+      "toolCallsTotal": 2,
+      "toolCallsOk": 2,
+      "directiveOk": true
+    },
+    {
+      "round": 4,
+      "injectedBytes": 809,
+      "calls": [
+        {
+          "promptTokens": 6817,
+          "completionTokens": 71,
+          "cacheHitTokens": 6528,
+          "cacheMissTokens": 289
+        },
+        {
+          "promptTokens": 6934,
+          "completionTokens": 24,
+          "cacheHitTokens": 6784,
+          "cacheMissTokens": 150
+        }
+      ],
+      "toolCallsTotal": 2,
+      "toolCallsOk": 2,
+      "directiveOk": true
+    },
+    {
+      "round": 5,
+      "injectedBytes": 809,
+      "calls": [
+        {
+          "promptTokens": 7226,
+          "completionTokens": 71,
+          "cacheHitTokens": 6912,
+          "cacheMissTokens": 314
+        },
+        {
+          "promptTokens": 7343,
+          "completionTokens": 24,
+          "cacheHitTokens": 7168,
+          "cacheMissTokens": 175
+        }
+      ],
+      "toolCallsTotal": 2,
+      "toolCallsOk": 2,
+      "directiveOk": true
+    },
+    {
+      "round": 6,
+      "injectedBytes": 811,
+      "calls": [
+        {
+          "promptTokens": 7636,
+          "completionTokens": 71,
+          "cacheHitTokens": 7296,
+          "cacheMissTokens": 340
+        },
+        {
+          "promptTokens": 7753,
+          "completionTokens": 24,
+          "cacheHitTokens": 7552,
+          "cacheMissTokens": 201
+        }
+      ],
+      "toolCallsTotal": 2,
+      "toolCallsOk": 2,
+      "directiveOk": true
+    }
+  ],
+  "totals": {
+    "promptTokens": 80195,
+    "completionTokens": 531,
+    "cacheHitTokens": 77184,
+    "llmCalls": 12,
+    "toolCallsTotal": 11,
+    "toolCallsOk": 11,
+    "directivesOk": 6
+  }
+}

@@ -7,7 +7,6 @@ import type { Config } from '../src/index.js'
 export const DEFAULT_CONFIG: Config = {
   allowCreate: true,
   allowDispatch: true,
-  allowFork: true,
   allowArchive: true,
   allowPin: true,
   maxReportChars: 4000,

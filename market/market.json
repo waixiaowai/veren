@@ -45,41 +45,81 @@
   },
   "plugins": {
     "@veren/startup-autostart-bundle": {
+      "title": { "en": "Startup Autostart", "zh": "启动自启动" },
+      "description": {
+        "en": "Runs work at every DSH start: a resident host service, model-facing tools for adding and changing startup items, the matching guidance skill, and the Web UI, installed as one profile layer.",
+        "zh": "让任务在每次 DSH 启动时自动执行：常驻的宿主服务、供模型增删改启动项的工具、配套的使用指南和 Web 界面，一次装齐。"
+      },
       "category": "automation",
       "labels": ["official"],
       "keywords": ["startup", "autostart", "boot", "启动项"]
     },
     "@veren/person-agent-bundle": {
+      "title": { "en": "Person Agent", "zh": "管家" },
+      "description": {
+        "en": "An assistant that works as your personal agent: a delegating persona preset, per-session working memory, periodic re-anchoring, and session and workspace maintenance tools.",
+        "zh": "以管家身份工作的助手组合：可分派的助手人格、按会话注入的工作记忆、定时重锚，以及会话与工作区管理工具。"
+      },
       "category": "assistant",
       "labels": ["official"],
       "keywords": ["person-agent", "preset", "subagent", "管家"]
     },
     "@veren/forum-bundle": {
+      "title": { "en": "Forum", "zh": "论坛" },
+      "description": {
+        "en": "Discussion inside DSH: a durable forum service with model-facing post and comment tools, plus the Web page people read and reply on.",
+        "zh": "在 DSH 里发起讨论：持久化的论坛服务和供模型读写帖子、评论的工具，外加供人浏览和回复的 Web 页面。"
+      },
       "category": "collaboration",
       "labels": ["official"],
       "keywords": ["forum", "board", "post", "论坛"]
     },
     "@veren/notebook-bundle": {
+      "title": { "en": "Notebook", "zh": "笔记本" },
+      "description": {
+        "en": "Private notes inside DSH: a durable notebook service with model-facing note tools, plus the Web page where a person reads and edits them.",
+        "zh": "在 DSH 里保存私人笔记：持久化的笔记本服务和供模型读写笔记的工具，外加供人查看和编辑的 Web 页面。"
+      },
       "category": "knowledge",
       "labels": ["official"],
       "keywords": ["notebook", "notes", "笔记"]
     },
     "@veren/admin-app": {
+      "title": { "en": "Admin Console", "zh": "管理台" },
+      "description": {
+        "en": "Turns a DSH profile into a general AI admin console: kernel, gateway, data, authentication, access control, navigation, audit, docs, and the default UI, installed as one profile layer.",
+        "zh": "把 DSH profile 变成通用的 AI 管理后台：内核、网关、数据层、认证、权限、导航、审计、文档和默认界面，一次装齐。"
+      },
       "category": "platform",
       "labels": ["official", "experimental"],
       "keywords": ["admin", "console", "rbac", "audit", "管理台"]
     },
     "@veren/web-login-gate": {
+      "title": { "en": "Web Login Gate", "zh": "Web 登录门禁" },
+      "description": {
+        "en": "Puts a named-user login in front of the DSH Web GUI: Better Auth username/email plus password, with the SPA entry and every API request gated until a valid session exists.",
+        "zh": "给 DSH Web 界面加上实名登录：用 Better Auth 做用户名/邮箱加密码认证，未登录时 SPA 入口和所有 API 请求一律拦下。"
+      },
       "category": "security",
       "labels": ["official"],
       "keywords": ["login", "auth", "better-auth", "登录"]
     },
     "@veren/cms-bridge": {
+      "title": { "en": "CMS Bridge", "zh": "CMS 桥接" },
+      "description": {
+        "en": "Keeps a long-lived WebSocket link from DSH to a CMS server: dispatches server commands to locally registered actions, queues and replays events while offline, and ships a connection-status and API-key panel.",
+        "zh": "让 DSH 与 CMS 服务端保持长连接：把服务端指令派发到本机已注册的动作，断线时排队、恢复后重放事件，附带连接状态与 API Key 配置面板。"
+      },
       "category": "integration",
       "labels": ["official"],
       "keywords": ["cms", "websocket", "bridge", "桥接"]
     },
     "@imeep/dsh-session-fork-enhanced": {
+      "title": { "en": "Session Fork Enhanced", "zh": "会话分叉增强" },
+      "description": {
+        "en": "Forks a session with explicit options: choose the agent preset and/or provider model for the new branch, so several approaches can run side by side.",
+        "zh": "带选项地分叉会话：为新分支指定助手预设和/或模型提供方，方便并行试几种不同做法。"
+      },
       "category": "session",
       "labels": ["experimental"],
       "keywords": ["session", "fork", "preset", "分叉"]

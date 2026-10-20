@@ -1,10 +1,12 @@
 // 组合测试：走真实 cordis Context——真实 inject 解析与真实 effect 逆序清理；
 // sessionController 与 workspaceRegistry 用假实现替换，直接驱动被注册的
-// 工具定义，锁定创建/改名/分叉/归档/置顶/派活的调用路径。
+// 工具定义，锁定创建/改名/归档/置顶/派活的调用路径。
+// （分叉工具 session_fork 已移交 session-fork-enhanced，此处不再覆盖。）
 // Composition test: real cordis Context - real inject resolution and real
 // effect reverse-order disposal; sessionController and workspaceRegistry are
 // fakes, and the registered tool definitions are driven directly to lock the
-// create/rename/fork/archive/pin/prompt call paths.
+// create/rename/archive/pin/prompt call paths. (The fork tool moved to the
+// session-fork-enhanced plugin and is not covered here.)
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
@@ -33,10 +35,6 @@ function fakeSessionController() {
     async rename(request: Record<string, unknown>) {
       this.calls.push(`rename:${JSON.stringify(request)}`)
       return { title: request.title, seq: 7 }
-    },
-    async fork(request: Record<string, unknown>) {
-      this.calls.push(`fork:${JSON.stringify(request)}`)
-      return { sessionId: 'sess-forked' as never }
     },
     // resolveAgent 假实现：返回带记录能力的假 Agent；未知名返回稳定错误。
     // resolveAgent fake: a recording fake Agent; unknown names return the
@@ -126,11 +124,15 @@ async function install(config: Partial<ConfigShape> = {}) {
 }
 
 describe('personAgentToolSession composition（真实装配路径 / real assembly path）', () => {
-  it('registers all eight tools by default', async () => {
+  it('registers all seven tools by default', async () => {
     const env = await install()
     expect(env.registered()).toEqual([
-      'session_archive', 'session_create', 'session_dispatch', 'session_fork', 'session_pin', 'session_rename', 'session_unarchive', 'session_unpin',
+      'session_archive', 'session_create', 'session_dispatch', 'session_pin', 'session_rename', 'session_unarchive', 'session_unpin',
     ])
+    // 分叉工具不再由本插件注册，避免与 session-fork-enhanced 重复。
+    // No fork tool is registered here, avoiding duplication with
+    // session-fork-enhanced.
+    expect(env.registered().some((tool) => tool.includes('fork'))).toBe(false)
   })
 
   it('fails loud on an empty prompt and an unresolvable session', async () => {
@@ -251,13 +253,10 @@ describe('personAgentToolSession composition（真实装配路径 / real assembl
     expect(env.sessionController.calls).toHaveLength(0)
   })
 
-  it('renames and fork through the session controller', async () => {
+  it('renames through the session controller', async () => {
     const env = await install()
     expect(await env.run('session_rename', { sessionId: 'sess-9', title: 'New' }))
       .toMatchObject({ title: 'New', seq: 7 })
-    expect(await env.run('session_fork', { sessionId: 'sess-9', atSeq: 4 }))
-      .toMatchObject({ sessionId: 'sess-forked', sourceSessionId: 'sess-9' })
-    expect(env.sessionController.calls.some((call) => call.includes('"atSeq":4'))).toBe(true)
   })
 
   it('routes archive/pin verbs to the workspace registry', async () => {
@@ -275,13 +274,13 @@ describe('personAgentToolSession composition（真实装配路径 / real assembl
   })
 
   it('honors config toggles', async () => {
-    const env = await install({ allowCreate: false, allowDispatch: false, allowFork: false, allowArchive: false, allowPin: false })
+    const env = await install({ allowCreate: false, allowDispatch: false, allowArchive: false, allowPin: false })
     expect(env.registered()).toEqual(['session_rename'])
   })
 
   it('unregisters every tool on dispose (HMR safety)', async () => {
     const env = await install()
-    expect(env.registered()).toHaveLength(8)
+    expect(env.registered()).toHaveLength(7)
     await env.unload()
     expect(env.registered()).toHaveLength(0)
   })

@@ -1,10 +1,10 @@
 # @veren/person-agent-tool-session
 
-Model-facing session maintenance tools for the Person Agent preset: `session_create`, `session_rename`, `session_fork`, `session_dispatch` over `ctx.sessionController`, plus `session_archive`, `session_unarchive`, `session_pin`, `session_unpin` over `ctx.workspaceRegistry`.
+Model-facing session maintenance tools for the Person Agent preset: `session_create`, `session_rename`, `session_dispatch` over `ctx.sessionController`, plus `session_archive`, `session_unarchive`, `session_pin`, `session_unpin` over `ctx.workspaceRegistry`. Session forking is owned by the `session-fork-enhanced` plugin (`session_fork_with_options`, a strict superset of the former `session_fork`); this plugin no longer registers any fork tool.
 
 ## Use this package
 
-Use it when a Person Agent session must create, dispatch work to, or reorganize sibling sessions — start one with a preset/model/title, hand it its task (including the first message) without blocking, fork a completed turn, archive or pin sessions. Skip it when sessions must never mutate the session roster.
+Use it when a Person Agent session must create, dispatch work to, or reorganize sibling sessions — start one with a preset/model/title, hand it its task (including the first message) without blocking, archive or pin sessions. Skip it when sessions must never mutate the session roster.
 
 ## Minimal configuration
 
@@ -16,7 +16,6 @@ The preset composes it as a child row (no `cordis.patch.yml` needed; the loader 
   config:
     allowCreate: true
     allowDispatch: true
-    allowFork: true
     allowArchive: true
     allowPin: true
     maxReportChars: 4000
@@ -30,7 +29,6 @@ The preset composes it as a child row (no `cordis.patch.yml` needed; the loader 
 | `session_create` | `title?`, `presetId?`, `provider?`+`model?`, `workspaceId?` (omitted inherits the caller's workspace) | Creates an ordinary session, then installs the model selection and title in that order. The session starts empty; the new id is reported, never switched to. |
 | `session_dispatch` | `prompt`, `sessionId?` xor `newSession?`, `report?`; inside `newSession`, `workspaceId?` (omitted inherits the caller's workspace), `agentPreset?` | Delivers one prompt into the session through the host's standard enqueue path (`resolveAgent` → `agent.followup`) and **returns at once**; it never waits for that session. With `report: true` (the default) a guard observes the target until it is genuinely quiescent and then delivers its closing output back into the calling session as a follow-up message, which names the dispatch it answers. At most one dispatch per target may be outstanding: a dispatch to a session whose report has not arrived yet is refused with `SESSION_DISPATCH_WATCH_BUSY`. With `report: false` nothing comes back. This is how the bridge persona hands a created session its task. |
 | `session_rename` | `sessionId`, `title` | Retitles one session durably. |
-| `session_fork` | `sessionId`, `atSeq?` | Copies an exact completed-turn prefix into a new session. |
 | `session_archive` | `sessionId`, `stopActivity?` | Moves a session into the archive set; with `stopActivity`, running work is stopped instead of refusing. |
 | `session_unarchive` | `sessionId` | Restores an archived session to its recorded position. |
 | `session_pin` / `session_unpin` | `sessionId` | Maintains the registry-global pin set. |
@@ -123,7 +121,7 @@ A notice is delivered with the official `sendWaking` rule: `followup` when the c
 ## Understand the implementation
 
 - `src/index.ts` — plugin identity, toggles, and effect-managed registration (reverse-order cleanup, HMR safe).
-- `src/tools-management.ts` — create/rename/fork over `ctx.sessionController`; the shared workspace resolver owns "explicit workspaceId or inherit the caller's workspace" and the explicit rejection of the removed `cwd`.
+- `src/tools-management.ts` — create/rename over `ctx.sessionController`; the shared workspace resolver owns "explicit workspaceId or inherit the caller's workspace" and the explicit rejection of the removed `cwd`.
 - `src/tools-dispatch.ts` — `session_dispatch` over `resolveAgent` + the settlement guard; a new-session `workspaceId` uses the same resolver and `cwd` guard.
 - `src/watch.ts` — the settlement guard: inbox wake sources, the observation token, and the closing-output selection.
 - `src/notice.ts` — the two message kinds, the settlement notice, and `sendWaking` delivery.

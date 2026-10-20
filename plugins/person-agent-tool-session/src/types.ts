@@ -45,8 +45,8 @@ export type SessionCreateResult = {
   title?: string
 }
 
-/** `session_rename` / `session_fork` 共用的最小参数形状。 */
-/** The minimal argument shape shared by `session_rename` / `session_fork`. */
+/** `session_rename` 的最小参数形状（分叉工具已移交给 session-fork-enhanced）。 */
+/** The minimal argument shape of `session_rename` (fork tools moved to session-fork-enhanced). */
 export interface SessionTargetArgs {
   /** 目标会话 id。The target session id. */
   sessionId: SessionId
@@ -56,12 +56,6 @@ export interface SessionTargetArgs {
 export interface SessionRenameArgs extends SessionTargetArgs {
   /** 新标题（去空白后非空）。The new title (non-empty after trim). */
   title: string
-}
-
-/** `session_fork` 的完整参数。Full arguments of `session_fork`. */
-export interface SessionForkArgs extends SessionTargetArgs {
-  /** 精确包含式切点 seq；省略时取最近一个已完成轮次前缀。Exact inclusive cut seq; latest completed-turn prefix when omitted. */
-  atSeq?: number
 }
 
 /** `session_archive` 的完整参数。Full arguments of `session_archive`. */

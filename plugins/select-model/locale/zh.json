@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "会话内模型切换",
+    "description": "在对话过程中切换会话的 provider/model 路由与推理强度。"
+  }
+}

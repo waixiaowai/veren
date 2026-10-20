@@ -1,0 +1,172 @@
+{
+  "mode": "full",
+  "rounds": 6,
+  "listSize": 150,
+  "roundStats": [
+    {
+      "round": 1,
+      "injectedBytes": 19324,
+      "calls": [
+        {
+          "promptTokens": 5689,
+          "completionTokens": 40,
+          "cacheHitTokens": 0,
+          "cacheMissTokens": 5689
+        },
+        {
+          "promptTokens": 5755,
+          "completionTokens": 16,
+          "cacheHitTokens": 5504,
+          "cacheMissTokens": 251
+        }
+      ],
+      "toolCallsTotal": 1,
+      "toolCallsOk": 1,
+      "directiveOk": true
+    },
+    {
+      "round": 2,
+      "injectedBytes": 19349,
+      "calls": [
+        {
+          "promptTokens": 10947,
+          "completionTokens": 40,
+          "cacheHitTokens": 5760,
+          "cacheMissTokens": 5187
+        },
+        {
+          "promptTokens": 11011,
+          "completionTokens": 40,
+          "cacheHitTokens": 10752,
+          "cacheMissTokens": 259
+        },
+        {
+          "promptTokens": 11077,
+          "completionTokens": 24,
+          "cacheHitTokens": 10880,
+          "cacheMissTokens": 197
+        }
+      ],
+      "toolCallsTotal": 2,
+      "toolCallsOk": 2,
+      "directiveOk": true
+    },
+    {
+      "round": 3,
+      "injectedBytes": 19373,
+      "calls": [
+        {
+          "promptTokens": 16296,
+          "completionTokens": 40,
+          "cacheHitTokens": 11008,
+          "cacheMissTokens": 5288
+        },
+        {
+          "promptTokens": 16360,
+          "completionTokens": 40,
+          "cacheHitTokens": 16128,
+          "cacheMissTokens": 232
+        },
+        {
+          "promptTokens": 16426,
+          "completionTokens": 24,
+          "cacheHitTokens": 16256,
+          "cacheMissTokens": 170
+        }
+      ],
+      "toolCallsTotal": 2,
+      "toolCallsOk": 2,
+      "directiveOk": true
+    },
+    {
+      "round": 4,
+      "injectedBytes": 19397,
+      "calls": [
+        {
+          "promptTokens": 21664,
+          "completionTokens": 40,
+          "cacheHitTokens": 16384,
+          "cacheMissTokens": 5280
+        },
+        {
+          "promptTokens": 21728,
+          "completionTokens": 40,
+          "cacheHitTokens": 21504,
+          "cacheMissTokens": 224
+        },
+        {
+          "promptTokens": 21794,
+          "completionTokens": 24,
+          "cacheHitTokens": 21632,
+          "cacheMissTokens": 162
+        }
+      ],
+      "toolCallsTotal": 2,
+      "toolCallsOk": 2,
+      "directiveOk": true
+    },
+    {
+      "round": 5,
+      "injectedBytes": 19414,
+      "calls": [
+        {
+          "promptTokens": 27044,
+          "completionTokens": 40,
+          "cacheHitTokens": 21760,
+          "cacheMissTokens": 5284
+        },
+        {
+          "promptTokens": 27108,
+          "completionTokens": 40,
+          "cacheHitTokens": 26880,
+          "cacheMissTokens": 228
+        },
+        {
+          "promptTokens": 27174,
+          "completionTokens": 24,
+          "cacheHitTokens": 27008,
+          "cacheMissTokens": 166
+        }
+      ],
+      "toolCallsTotal": 2,
+      "toolCallsOk": 2,
+      "directiveOk": true
+    },
+    {
+      "round": 6,
+      "injectedBytes": 19438,
+      "calls": [
+        {
+          "promptTokens": 32443,
+          "completionTokens": 40,
+          "cacheHitTokens": 27136,
+          "cacheMissTokens": 5307
+        },
+        {
+          "promptTokens": 32507,
+          "completionTokens": 40,
+          "cacheHitTokens": 32256,
+          "cacheMissTokens": 251
+        },
+        {
+          "promptTokens": 32573,
+          "completionTokens": 24,
+          "cacheHitTokens": 32384,
+          "cacheMissTokens": 189
+        }
+      ],
+      "toolCallsTotal": 2,
+      "toolCallsOk": 2,
+      "directiveOk": true
+    }
+  ],
+  "totals": {
+    "promptTokens": 337596,
+    "completionTokens": 576,
+    "cacheHitTokens": 303232,
+    "llmCalls": 17,
+    "toolCallsTotal": 11,
+    "toolCallsOk": 11,
+    "directivesOk": 6
+  }
+}

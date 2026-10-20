@@ -17,7 +17,7 @@
 | `tool-todo` / `tool-ask-user` | 进度跟踪与向用户提问 |
 | `tool-web`（可选，`withWeb`） | 需要调研时的联网搜索 |
 | `tool-workspace`（`@veren/person-agent-tool-workspace`，常开） | `workspace_create` / `workspace_rename`，给活找一个家 |
-| `tool-session`（`@veren/person-agent-tool-session`，常开） | `session_create` / `session_rename` / `session_fork` / 归档 / 置顶——派活的出口 |
+| `tool-session`（`@veren/person-agent-tool-session`，常开） | `session_create` / `session_rename` / 归档 / 置顶——派活的出口（分叉由 `session-fork-enhanced` 接管） |
 | `dynamic-context`（`@veren/person-agent-dynamic-context`） | 工作记忆：预设名单、模型目录与工作区列表的快照消息 |
 | `skill-filesystem` / `tool-skill` | 只扫包内 `skills/` 的写作技能目录与加载器；`/renhua` 直接点名，写作前按描述自动加载 |
 

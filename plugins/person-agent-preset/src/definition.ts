@@ -234,7 +234,12 @@ export function buildPersonAgentPreset(options: PresetOptions): PresetDefinition
     // Dispatching is the bridge persona's key step: after creating a session it
     // must be able to speak the session's first sentence without waiting - the
     // session_dispatch guard reports the closing output once the target settles.
-    config: { allowCreate: true, allowDispatch: true, allowFork: true, allowArchive: true, allowPin: true },
+    // allowFork 已随 session_fork 工具移除：分叉由 session-fork-enhanced 的
+    // session_fork_with_options 接管，preset 不再传这个键。
+    // allowFork was removed together with the session_fork tool: forking is
+    // owned by session-fork-enhanced (session_fork_with_options), so the
+    // preset no longer passes this key.
+    config: { allowCreate: true, allowDispatch: true, allowArchive: true, allowPin: true },
   })
   return {
     id: options.presetId,

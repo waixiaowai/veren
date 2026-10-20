@@ -15,7 +15,7 @@ node market/release.mjs --dry-run   # inspect the publish order
 | File | Responsibility |
 | --- | --- |
 | `sources.txt` | Bundles to list, in index order |
-| `market.json` | Market title, category and label declarations, per-plugin category and keywords |
+| `market.json` | Market title, category and label declarations, and per-plugin localized title/description, category, labels and keywords |
 | `build.mjs` | Generate with the DSH generator, merge market metadata, validate, write the output |
 | `release.mjs` | Publish the dependency closure to npm.veren.top |
 | `deploy.mjs` | Deploy and verify |

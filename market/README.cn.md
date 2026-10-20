@@ -15,7 +15,7 @@ node market/release.mjs --dry-run   # 查看发布顺序
 | 文件 | 职责 / Responsibility |
 | --- | --- |
 | `sources.txt` | 要上架的 bundle 清单；顺序就是索引默认顺序 / Bundles to list, in index order |
-| `market.json` | 市场标题、分类/标签声明、每个插件的分类与关键词 / Market metadata and per-plugin overrides |
+| `market.json` | 市场标题、分类/标签声明、每个插件的中英展示标题/介绍、分类、标签与关键词 / Market metadata and per-plugin overrides |
 | `build.mjs` | 调用 DSH 生成器、合并元数据、校验、写产物 / Generate, merge, validate, write |
 | `release.mjs` | 按依赖闭包发布到 npm.veren.top / Publish the dependency closure |
 | `deploy.mjs` | 部署与自检 / Deploy and verify |

@@ -17,7 +17,7 @@ A DSH host plugin that registers the **Person Agent** agent preset at runtime th
 | `tool-todo` / `tool-ask-user` | Progress tracking and asking the user owned questions |
 | `tool-web` (optional, `withWeb`) | Web search when research is part of the work |
 | `tool-workspace` (`@veren/person-agent-tool-workspace`, always on) | `workspace_create` / `workspace_rename` so the bridge can open a home for the work |
-| `tool-session` (`@veren/person-agent-tool-session`, always on) | `session_create` / `session_rename` / `session_fork` / archive / pin — the delegation outlet |
+| `tool-session` (`@veren/person-agent-tool-session`, always on) | `session_create` / `session_rename` / archive / pin — the delegation outlet (forking lives in `session-fork-enhanced`) |
 | `dynamic-context` (`@veren/person-agent-dynamic-context`) | Working memory: preset roster, model catalog and workspace list as snapshot messages |
 | `skill-filesystem` / `tool-skill` | Writing-skill directory limited to the packaged `skills/` root; `/renhua` invokes it directly and writing tasks load it from its description |
 

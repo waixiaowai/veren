@@ -1,7 +1,8 @@
-// 插件入口：Person Agent 的会话维护工具（创建/改名/分叉/归档/取消归档/置顶/
-// 取消置顶/派活）。
+// 插件入口：Person Agent 的会话维护工具（创建/改名/归档/取消归档/置顶/
+// 取消置顶/派活）。分叉由 session-fork-enhanced 插件接管，此处不注册。
 // Plugin entry: Person Agent session maintenance tools (create / rename /
-// fork / archive / unarchive / pin / unpin / dispatch).
+// archive / unarchive / pin / unpin / dispatch). Forking is owned by the
+// session-fork-enhanced plugin and is not registered here.
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 // 类型-only import：拉取 tools、agents、sessions、sessionController 与
@@ -13,7 +14,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/dsh-workspace'
-import { registerSessionCreate, registerSessionFork, registerSessionRename } from './tools-management.js'
+import { registerSessionCreate, registerSessionRename } from './tools-management.js'
 import { registerSessionDispatch } from './tools-dispatch.js'
 import {
   registerSessionArchive,
@@ -30,8 +31,6 @@ export interface Config {
   allowCreate: boolean
   /** 是否提供 session_dispatch。Whether session_dispatch is offered. */
   allowDispatch: boolean
-  /** 是否提供 session_fork。Whether session_fork is offered. */
-  allowFork: boolean
   /** 是否提供归档/取消归档。Whether archive/unarchive are offered. */
   allowArchive: boolean
   /** 是否提供置顶/取消置顶。Whether pin/unpin are offered. */
@@ -46,7 +45,6 @@ export const Config: z<Config> = z
   .object({
     allowCreate: z.boolean().default(true).description('Offer the session_create tool.'),
     allowDispatch: z.boolean().default(true).description('Offer the session_dispatch tool (hand a prompt to a session, return at once, then report its closing output back once it settles).'),
-    allowFork: z.boolean().default(true).description('Offer the session_fork tool.'),
     allowArchive: z.boolean().default(true).description('Offer the session_archive and session_unarchive tools.'),
     allowPin: z.boolean().default(true).description('Offer the session_pin and session_unpin tools.'),
     maxReportChars: z.natural().min(1).default(4000).description('Character cap for a settlement notice\'s closing output; longer text is truncated with an ellipsis.'),
@@ -87,7 +85,6 @@ export const apply = (ctx: Context, config: Config): void => {
     ctx.effect(() => () => watch.dispose(), 'person-agent-tool-session:dispatch-watch')
     ctx.effect(() => registerSessionDispatch(ctx, watch), 'person-agent-tool-session:dispatch')
   }
-  if (config.allowFork) ctx.effect(() => registerSessionFork(ctx), 'person-agent-tool-session:fork')
   if (config.allowArchive) {
     ctx.effect(() => registerSessionArchive(ctx), 'person-agent-tool-session:archive')
     ctx.effect(() => registerSessionUnarchive(ctx), 'person-agent-tool-session:unarchive')

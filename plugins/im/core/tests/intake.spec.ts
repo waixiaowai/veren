@@ -13,7 +13,7 @@ import type {
 import { ImError, ImRegistry } from '../src/contract.ts'
 import { ImPeople } from '../src/people.ts'
 import { ImRouter } from '../src/router.ts'
-import { STRANGER_INTAKE_ASK, parseSelfReport } from '../src/intake.ts'
+import { STRANGER_INTAKE_ASK } from '../src/intake.ts'
 import { Config } from '../src/index.ts'
 import type { ImCredentialStore, ImLogger, ImSessionGateway } from '../src/router.ts'
 import { MemoryStore } from './memory-store.ts'
@@ -138,41 +138,8 @@ describe('intake plugin config', () => {
   })
 })
 
-describe('parseSelfReport', () => {
-  it('accepts a whole-line name or an explicit self-introduction', () => {
-    expect(parseSelfReport('杨明明')).toEqual({ name: '杨明明', contacts: [] })
-    expect(parseSelfReport('我叫杨明明')).toEqual({ name: '杨明明', contacts: [] })
-    expect(parseSelfReport('叫我小明明')).toMatchObject({ name: '小明明' })
-    expect(parseSelfReport('名字叫 Tom')).toMatchObject({ name: 'Tom' })
-    expect(parseSelfReport('my name is Alice')).toMatchObject({ name: 'Alice' })
-    expect(parseSelfReport('This is Bob')).toMatchObject({ name: 'Bob' })
-  })
-
-  it('extracts unmistakable contacts alongside a name', () => {
-    expect(parseSelfReport('我叫杨明明，电话13800138000')).toEqual({
-      name: '杨明明',
-      contacts: [{ kind: 'phone', value: '13800138000' }],
-    })
-    expect(parseSelfReport('13800138000')).toEqual({
-      contacts: [{ kind: 'phone', value: '13800138000' }],
-    })
-    expect(parseSelfReport('a@example.com')).toEqual({
-      contacts: [{ kind: 'email', value: 'a@example.com' }],
-    })
-    expect(parseSelfReport('微信号：yang_mingming')).toEqual({
-      contacts: [{ kind: 'wechat', value: 'yang_mingming' }],
-    })
-  })
-
-  it('never guesses a name from greetings, roles, or prose', () => {
-    for (const text of ['好的', '在吗？', '嗯', '😀', '我今年30岁', '我是学生', '杨明明你好', '谁啊', 'hello']) {
-      expect(parseSelfReport(text)).toBeUndefined()
-    }
-  })
-})
-
 describe('automatic stranger intake', () => {
-  it('asks once, records a self-report, and sends to the claimed name with evidence', async () => {
+  it('asks once, and the model settles the question through the report path', async () => {
     const { store, service, people, router } = setup()
     await seedAccount(store)
     await router.handle('fake', message('m1', 'wxid-new', '在吗'))
@@ -185,13 +152,24 @@ describe('automatic stranger intake', () => {
     expect(person?.claimedName).toBeUndefined()
     expect(person?.identityStatus).toBe('unverified')
 
+    // A raw reply is no longer parsed: nothing is written until the model
+    // reports through the claim path.
+    // 原始回复不再被解析：模型经 claim 路径回报之前，什么都不写。
     await router.handle('fake', message('m2', 'wxid-new', '我叫杨明明'))
     expect(service.sent).toHaveLength(1)
-    const claimed = people.list()[0]
-    expect(claimed?.realName).toBeUndefined()
-    expect(claimed?.aliases).toEqual([])
-    expect(claimed?.claimedName).toBe('杨明明')
-    expect(claimed?.identityStatus).toBe('self-reported')
+    expect(people.list()[0]?.claimedName).toBeUndefined()
+
+    const claimed = await router.reportPersonClaim(person!.id, {
+      name: '杨明明',
+      accountId: 'acc',
+      conversationId: 'p2p:wxid-new',
+      messageId: 'im_person_report',
+    })
+    expect(claimed.realName).toBeUndefined()
+    expect(claimed.aliases).toEqual([])
+    expect(claimed.claimedName).toBe('杨明明')
+    expect(claimed.identityStatus).toBe('self-reported')
+    expect(await router.settleIntake(person!.id, 'answered', 'name')).toBe(true)
 
     const sent = await router.sendToPerson({
       person: '杨明明',
@@ -200,7 +178,7 @@ describe('automatic stranger intake', () => {
     expect(service.sent).toHaveLength(2)
     expect(service.sent[1]?.target).toEqual({ accountId: 'acc', conversationId: 'p2p:wxid-new' })
     expect(sent.recipient).toMatchObject({
-      personId: claimed?.id,
+      personId: claimed.id,
       matchedBy: 'claimedName',
       matchedValue: '杨明明',
       identityStatus: 'self-reported',
@@ -209,20 +187,43 @@ describe('automatic stranger intake', () => {
     })
   })
 
-  it('records a contact-only answer without inventing a name', async () => {
+  it('records a model-reported contact-only claim without inventing a name', async () => {
     const { store, people, router } = setup()
     await seedAccount(store)
     await router.handle('fake', message('m1', 'wxid-new', '在吗'))
-    await router.handle('fake', message('m2', 'wxid-new', '我的手机是13800138000'))
-    const person = people.list()[0]
-    expect(person?.claimedName).toBeUndefined()
-    expect(person?.claimedContacts).toEqual([{ kind: 'phone', value: '13800138000' }])
-    expect(person?.realName).toBeUndefined()
-    expect(person?.identityStatus).toBe('self-reported')
+    const person = people.list()[0]!
+    await router.reportPersonClaim(person.id, {
+      contacts: [{ kind: 'phone', value: '13800138000' }],
+      accountId: 'acc',
+      conversationId: 'p2p:wxid-new',
+      messageId: 'im_person_report',
+    })
+    await router.settleIntake(person.id, 'answered', 'contact')
+    const updated = people.list()[0]
+    expect(updated?.claimedName).toBeUndefined()
+    expect(updated?.claimedContacts).toEqual([{ kind: 'phone', value: '13800138000' }])
+    expect(updated?.realName).toBeUndefined()
+    expect(updated?.identityStatus).toBe('self-reported')
     expect(router.intakeStatus().recent[0]?.outcome).toBe('contact')
   })
 
-  it('does not ask again on a burst or after the reply window', async () => {
+  it('never rewrites or re-asks after a model settle, and settles only once', async () => {
+    const { store, people, router } = setup()
+    await seedAccount(store)
+    await router.handle('fake', message('m1', 'wxid-new', '在吗'))
+    const person = people.list()[0]!
+    await router.reportPersonClaim(person.id, {
+      name: '杨明明',
+      accountId: 'acc',
+      conversationId: 'p2p:wxid-new',
+      messageId: 'im_person_report',
+    })
+    expect(await router.settleIntake(person.id, 'answered', 'name')).toBe(true)
+    expect(await router.settleIntake(person.id, 'declined')).toBe(false)
+    expect(people.intakeOf(person.id)?.status).toBe('answered')
+  })
+
+  it('does not ask again on a burst or after the display window', async () => {
     const { store, service, people, router } = setup({ replyWindowMs: 10_000 })
     await seedAccount(store)
     await router.handle('fake', message('m1', 'wxid-new', '在吗'))
@@ -234,8 +235,10 @@ describe('automatic stranger intake', () => {
     await router.handle('fake', message('m4', 'wxid-new', '我叫李四'))
     expect(service.sent).toHaveLength(1)
     const person = people.list()[0]
-    expect(person?.claimedName).toBeUndefined()
-    expect(people.intakeOf(person!.id)?.status).toBe('expired')
+    // The window is display-only now: the row keeps `asked` until the model
+    // settles it; it is shown as expired in the audit view.
+    // 窗口现在只作展示：行保持 asked 直到模型收尾；审计视图里显示为 expired。
+    expect(people.intakeOf(person!.id)?.status).toBe('asked')
     expect(router.intakeStatus().counts.expired).toBe(1)
   })
 
@@ -266,20 +269,20 @@ describe('automatic stranger intake', () => {
     expect(router.intakeStatus().enabled).toBe(false)
   })
 
-  it('treats a clear refusal as declined and never asks again', async () => {
+  it('closes the question as declined from the model and never asks again', async () => {
     const { store, service, people, router } = setup()
     await seedAccount(store)
     await router.handle('fake', message('m1', 'wxid-new', '在吗'))
-    await router.handle('fake', message('m2', 'wxid-new', '不方便'))
     expect(service.sent).toHaveLength(1)
     const person = people.list()[0]
+    expect(await router.settleIntake(person!.id, 'declined')).toBe(true)
     expect(people.intakeOf(person!.id)?.status).toBe('declined')
     await router.handle('fake', message('m3', 'wxid-new', '我叫王五'))
     expect(service.sent).toHaveLength(1)
     expect(people.list()[0]?.claimedName).toBeUndefined()
   })
 
-  it('keeps a false self-report out of every send when it collides with a verified name', async () => {
+  it('keeps a model-reported self-report out of every send when it collides with a verified name', async () => {
     const { store, service, people, router } = setup()
     await seedAccount(store)
     await people.save({
@@ -293,7 +296,14 @@ describe('automatic stranger intake', () => {
       realName: '杨明明',
     })
     await router.handle('fake', message('m1', 'wxid-new', '在吗'))
-    await router.handle('fake', message('m2', 'wxid-new', '杨明明'))
+    const stranger = people.list().find(item => item.displayName === 'wxid-new')
+    expect(stranger).toBeDefined()
+    await router.reportPersonClaim(stranger!.id, {
+      name: '杨明明',
+      accountId: 'acc',
+      conversationId: 'p2p:wxid-new',
+      messageId: 'im_person_report',
+    })
     expect(service.sent).toHaveLength(1)
 
     await expect(router.sendToPerson({
@@ -322,11 +332,18 @@ describe('automatic stranger intake', () => {
     expect(router.intakeStatus().counts.asked).toBe(1)
   })
 
-  it('exposes the exact question and its audit trail', async () => {
-    const { store, router } = setup()
+  it('exposes the exact question and its audit trail after a model settle', async () => {
+    const { store, people, router } = setup()
     await seedAccount(store)
     await router.handle('fake', message('m1', 'wxid-new', '在吗'))
-    await router.handle('fake', message('m2', 'wxid-new', '我叫杨明明'))
+    const person = people.list()[0]!
+    await router.reportPersonClaim(person.id, {
+      name: '杨明明',
+      accountId: 'acc',
+      conversationId: 'p2p:wxid-new',
+      messageId: 'im_person_report',
+    })
+    await router.settleIntake(person.id, 'answered', 'name')
     const status = router.intakeStatus()
     expect(status.enabled).toBe(true)
     expect(status.askText).toBe(STRANGER_INTAKE_ASK)

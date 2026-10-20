@@ -1,7 +1,11 @@
-// 会话管理工具：session_create / session_rename / session_fork，走宿主的
-// Session 业务 API（ctx.sessionController），不重复造创建/分叉逻辑。
-// Session management tools: session_create / session_rename / session_fork
-// over the host Session business API (ctx.sessionController).
+// 会话管理工具：session_create / session_rename，走宿主的
+// Session 业务 API（ctx.sessionController），不重复造创建逻辑。
+// 分叉已由 session-fork-enhanced 插件的 session_fork_with_options 接管，
+// 本插件不再注册任何 fork 工具，避免两份重复实现。
+// Session management tools: session_create / session_rename over the host
+// Session business API (ctx.sessionController). Forking is owned by the
+// session-fork-enhanced plugin (session_fork_with_options), so this plugin
+// registers no fork tool and keeps a single implementation.
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
@@ -15,7 +19,7 @@ import {
   optionalModelSelection,
   requireTitle,
 } from './types.js'
-import type { SessionCreateArgs, SessionCreateResult, SessionForkArgs, SessionRenameArgs } from './types.js'
+import type { SessionCreateArgs, SessionCreateResult, SessionRenameArgs } from './types.js'
 
 /** 工具描述共用提示：id 可在工作记忆快照里查到。Shared description hint. */
 const HINT = 'Session ids appear in the working-memory snapshot.'
@@ -241,39 +245,3 @@ export function registerSessionRename(ctx: Context): () => void {
   )
 }
 
-/**
- * 注册 `session_fork`：把一个会话的已完成前缀分叉成新会话。
- * Register `session_fork`: fork one session's completed prefix into a new session.
- * @param ctx - 携带 sessionController 的宿主上下文。The context carrying sessionController.
- */
-export function registerSessionFork(ctx: Context): () => void {
-  return ctx.tools.register(
-    defineTool({
-      name: 'session_fork',
-      description:
-        'Fork one existing session: copy an exact completed-turn prefix into a new session and ' +
-        'return the new id. Omitting atSeq forks the latest completed turn. ' + HINT,
-      parameters: {
-        sessionId: { type: 'string', required: true, description: 'The source session id.' },
-        atSeq: { type: 'integer', description: 'Exact inclusive source event seq; omit for the latest completed turn.' },
-      },
-      output: {
-        schema: { type: 'json' },
-        render: (_args, value) => [{ type: 'text' as const, text: JSON.stringify(value) }],
-      },
-      async execute(args: SessionForkArgs) {
-        const forked = await ctx.sessionController.fork({
-          sessionId: SessionId(args.sessionId),
-          ...(args.atSeq === undefined ? {} : { atSeq: args.atSeq }),
-        })
-        return { sessionId: forked.sessionId, sourceSessionId: args.sessionId }
-      },
-      presentCall: (args) => ({
-        card: 'generic',
-        title: 'Fork session',
-        kind: 'other',
-        rawInput: args,
-      }),
-    }),
-  )
-}

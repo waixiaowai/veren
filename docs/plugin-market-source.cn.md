@@ -20,12 +20,20 @@ DSH 的「插件 → 发现」页本身不带任何插件数据。它把一串**
 | `title` / `description` | 市场名与简介，`LocalizedText`（字符串，或含 `en` 的对象） |
 | `metadata.categories` / `labels` / `sortKeys` | 市场自定义的分类、标签、排序键声明；Discover 只读标题、不解释含义 |
 | `plugins[]` | 一行一个插件，`name` 必须是 npm 包名且在本索引内唯一 |
+| `plugins[].title` / `description` | 展示文案，`LocalizedText`；文案由市场方维护，Discover 按当前界面语言解析 |
 | `plugins[].versions[]` | 每个可安装版本的精确版本号、发布时间戳、来源（npm 或 git 提交）、`engines.dsh` |
 
 两条硬约束：
 
 - 只有声明了 `dsh.bundle.patch` 的包才会被列进去，因为市场安装的就是 profile bundle。
 - 客户端安装的是**索引里写死的那个版本**（或 Git 提交），不是 `name@latest`；所以索引不重新生成，就不会出现新版本。
+
+### 展示文案与语言
+
+插件的 `title` / `description` 都是 `LocalizedText`，Discover 按当前界面语言解析。DSH 生成器的来源是包内
+`./locale/<语言>.json` 的 `title` / `description` 字段，缺省回退 `package.json`。本项目改由市场侧维护文案：
+`market.json` 为这两个字段提供 `en` / `zh` 两份，构建时覆盖生成器写出的条目。这样翻译不进插件包，改文案
+也不需要重新发版。
 
 ## 本项目的索引源
 
