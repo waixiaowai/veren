@@ -1,20 +1,12 @@
-/**
- * 真机验证探针（只在隔离测试 profile 里装）：在真实宿主进程内跑六项检查，
- * 结果写 JSON（config.outputPath）。检查项见 {@link runChecks}。
- * Real-host verification probe (isolated test profiles only): runs the six
+﻿/**
+ * 鐪熸満楠岃瘉鎺㈤拡锛堝彧鍦ㄩ殧绂绘祴璇?profile 閲岃锛夛細鍦ㄧ湡瀹炲涓昏繘绋嬪唴璺戝叚椤规鏌ワ紝
+ * 缁撴灉鍐?JSON锛坈onfig.outputPath锛夈€傛鏌ラ」瑙?{@link runChecks}銆? * Real-host verification probe (isolated test profiles only): runs the six
  * phase-2 checks inside the real host process and writes a JSON verdict.
  *
- * 六项：
- * 1. ctx.apps / ctx.pageRegistry / ctx.taskCenter 可解析（装配按依赖序生效）；
- * 2. agent/created 真实载荷形状（记录键与 agent 字段，供比对替身假设）；
- * 3. 真实会话里打开 /apps/task-workbench/task/1 与 /list：页面工具分别挂进
- *    各自 agent 作用域（list 页有 take_task 无 abandon_task，detail 页相反
- *    ——工具集合不同才证得出"互不可见"，同名集合证不出）；
- * 4. 反向可见性：list 的 agent 看不到 abandon_task，detail 的 agent 看不到
- *    take_task（跨会话零泄漏）；
- * 5. 重开同一 URL 回到原会话（真实 SessionStore 持久化，非替身）；
- * 6. 任务通知经真实 followup 落进真实会话日志（投递泵跑在真宿主上）。
- * @module @veren/app-host-verify
+ * 鍏」锛? * 1. ctx.apps / ctx.pageRegistry / ctx.taskCenter 鍙В鏋愶紙瑁呴厤鎸変緷璧栧簭鐢熸晥锛夛紱
+ * 2. agent/created 鐪熷疄杞借嵎褰㈢姸锛堣褰曢敭涓?agent 瀛楁锛屼緵姣斿鏇胯韩鍋囪锛夛紱
+ * 3. 鐪熷疄浼氳瘽閲屾墦寮€ /apps/task-workbench/task/1 涓?/list锛氶〉闈㈠伐鍏峰垎鍒寕杩? *    鍚勮嚜 agent 浣滅敤鍩燂紙list 椤垫湁 take_task 鏃?abandon_task锛宒etail 椤电浉鍙? *    鈥斺€斿伐鍏烽泦鍚堜笉鍚屾墠璇佸緱鍑?浜掍笉鍙"锛屽悓鍚嶉泦鍚堣瘉涓嶅嚭锛夛紱
+ * 4. 鍙嶅悜鍙鎬э細list 鐨?agent 鐪嬩笉鍒?abandon_task锛宒etail 鐨?agent 鐪嬩笉鍒? *    take_task锛堣法浼氳瘽闆舵硠婕忥級锛? * 5. 閲嶅紑鍚屼竴 URL 鍥炲埌鍘熶細璇濓紙鐪熷疄 SessionStore 鎸佷箙鍖栵紝闈炴浛韬級锛? * 6. 浠诲姟閫氱煡缁忕湡瀹?followup 钀借繘鐪熷疄浼氳瘽鏃ュ織锛堟姇閫掓车璺戝湪鐪熷涓讳笂锛夈€? * @module @veren/app-host-verify
  */
 import { writeFileSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
@@ -22,27 +14,26 @@ import z from '@deepseek-ai/schemastery'
 import type { PageInstanceKey } from '@veren/prompt-page'
 
 // Module-scope marker: written the moment the Loader imports this module.
-// 模块顶层标记：Loader 一 import 本模块就写。
-try { writeFileSync(new URL('../../../../deepseek/.dsh/profiles/web/app-host-verify-result.json.imported', import.meta.url), new Date().toISOString()) } catch { /* marker only */ }
+// 妯″潡椤跺眰鏍囪锛歀oader 涓€ import 鏈ā鍧楀氨鍐欍€?try { writeFileSync(new URL('../../../deepseek/.dsh/profiles/web/app-host-verify-result.json.imported', import.meta.url), new Date().toISOString()) } catch { /* marker only */ }
 
 export const name = 'veren-app-host-verify'
 
 export interface Config {
-  /** 验收结果 JSON 输出路径 / where the verdict JSON is written */
+  /** 楠屾敹缁撴灉 JSON 杈撳嚭璺緞 / where the verdict JSON is written */
   outputPath: string
-  /** 是否执行（默认开；overlay patch 里显式给 true） */
+  /** 鏄惁鎵ц锛堥粯璁ゅ紑锛沷verlay patch 閲屾樉寮忕粰 true锛?*/
   run: boolean
 }
 
 export const Config: z<Config> = z.object({
-  outputPath: z.string().description('验收结果 JSON 输出路径 / where the verdict JSON is written'),
-  run: z.boolean().default(true).description('是否执行验证 / whether to run the verification'),
+  outputPath: z.string().description('楠屾敹缁撴灉 JSON 杈撳嚭璺緞 / where the verdict JSON is written'),
+  run: z.boolean().default(true).description('鏄惁鎵ц楠岃瘉 / whether to run the verification'),
 })
 
 export const inject = ['apps', 'pageRegistry', 'taskCenter', 'sessions', 'agents', 'tools']
 export const provide = []
 
-/** 一项检查的结论 / one check's verdict */
+/** 涓€椤规鏌ョ殑缁撹 / one check's verdict */
 interface Check {
   readonly name: string
   pass: boolean
@@ -53,7 +44,7 @@ function check(name: string, pass: boolean, detail: string): Check {
   return { name, pass, detail }
 }
 
-/** 宿主面的结构性读取（探针只在真宿主里跑，读到啥记啥，不假装） */
+/** 瀹夸富闈㈢殑缁撴瀯鎬ц鍙栵紙鎺㈤拡鍙湪鐪熷涓婚噷璺戯紝璇诲埌鍟ヨ鍟ワ紝涓嶅亣瑁咃級 */
 function hostFaces(ctx: Context) {
   const host = ctx as unknown as {
     apps?: { catalog(): unknown[]; listPages(id: string): unknown[] }
@@ -65,14 +56,14 @@ function hostFaces(ctx: Context) {
   return host
 }
 
-/** agent 作用域里的工具名集合（ToolRuntime 真实 scope 解析） */
+/** agent 浣滅敤鍩熼噷鐨勫伐鍏峰悕闆嗗悎锛圱oolRuntime 鐪熷疄 scope 瑙ｆ瀽锛?*/
 function scopedToolNames(agentCtx: Context, names: readonly string[]): string[] {
   const runtime = (agentCtx as { tools?: { get(name: string): { name: string } | undefined } }).tools
   if (runtime === undefined) return []
   return names.filter((n) => runtime.get(n) !== undefined)
 }
 
-/** 真实会话日志里是否出现某段文本（防御式：不同版本的日志面字段都试一遍） */
+/** 鐪熷疄浼氳瘽鏃ュ織閲屾槸鍚﹀嚭鐜版煇娈垫枃鏈紙闃插尽寮忥細涓嶅悓鐗堟湰鐨勬棩蹇楅潰瀛楁閮借瘯涓€閬嶏級 */
 function sessionContains(agent: { session: { log?: unknown; messages?: unknown } }, needle: string): boolean {
   const haystack = JSON.stringify({ log: agent.session.log, messages: agent.session.messages }) ?? ''
   return haystack.includes(needle)
@@ -80,8 +71,7 @@ function sessionContains(agent: { session: { log?: unknown; messages?: unknown }
 
 export const apply = (ctx: Context, config: Config): void => {
   // Sync activation marker: distinguishes "row never activated" from "async checks failed".
-  // 同步激活标记：区分「行根本没激活」与「异步检查失败」。
-  try { writeFileSync(config.outputPath + '.activated', new Date().toISOString()) } catch (error: unknown) { ctx.logger.error(`app-host-verify: marker failed: ${String(error)}`) }
+  // 鍚屾婵€娲绘爣璁帮細鍖哄垎銆岃鏍规湰娌℃縺娲汇€嶄笌銆屽紓姝ユ鏌ュけ璐ャ€嶃€?  try { writeFileSync(config.outputPath + '.activated', new Date().toISOString()) } catch (error: unknown) { ctx.logger.error(`app-host-verify: marker failed: ${String(error)}`) }
   ctx.logger.info('app-host-verify: apply() entered')
   if (!config.run) return
   const checks: Check[] = []
@@ -97,21 +87,23 @@ export const apply = (ctx: Context, config: Config): void => {
       ctx.logger.error(`app-host-verify: could not write verdict: ${String(error)}`)
     }
   }
-  // 等 task-workbench 的页面注册与装配完成；整个流程异步跑，结束写文件
+  // 绛?task-workbench 鐨勯〉闈㈡敞鍐屼笌瑁呴厤瀹屾垚锛涙暣涓祦绋嬪紓姝ヨ窇锛岀粨鏉熷啓鏂囦欢銆?  // Global watchdog: any hang still lands a verdict naming the last step reached.
+  // 鍏ㄥ眬鐪嬮棬鐙楋細浠讳綍鎸傝捣涔熶細钀界洏 verdict锛屽苟鎸囪鏈€鍚庡埌杈剧殑姝ラ銆?  let lastStep = 'start'
+  const watchdog = setTimeout(() => { checks.push(check('watchdog', false, `flow hung after step "${lastStep}"`)); finish() }, 60000)
   void (async () => {
     try {
       const host = hostFaces(ctx)
+      lastStep = 'services'
+      if (!servicesOk) {}
 
-      // 1) 三个服务可解析
-      const servicesOk = host.apps !== undefined && host.pageRegistry !== undefined && host.taskCenter !== undefined
+      // 1) 涓変釜鏈嶅姟鍙В鏋?      const servicesOk = host.apps !== undefined && host.pageRegistry !== undefined && host.taskCenter !== undefined
       checks.push(check('1.services-resolve', servicesOk,
         `apps=${typeof host.apps} pageRegistry=${typeof host.pageRegistry} taskCenter=${typeof host.taskCenter}`))
       if (!servicesOk) return
 
-      // 3+4) 两个真实会话：list 页与 detail 页，工具集合不同
+      // 3+4) 涓や釜鐪熷疄浼氳瘽锛歭ist 椤典笌 detail 椤碉紝宸ュ叿闆嗗悎涓嶅悓
       // Row activation has no global ordering: wait until the app's page lands in
-      // the URL index (up to ~8s) before continuing. 行激活无全局顺序：先等应用
-      // 页面落进 URL 索引（最多 ~8s）再继续。
+      // the URL index (up to ~8s) before continuing. 琛屾縺娲绘棤鍏ㄥ眬椤哄簭锛氬厛绛夊簲鐢?      // 椤甸潰钀借繘 URL 绱㈠紩锛堟渶澶?~8s锛夊啀缁х画銆?      lastStep = 'openUrl-list'
       let list: { sessionId: string; created: boolean } | undefined
       for (let waited = 0; ; waited += 200) {
         try {
@@ -119,24 +111,33 @@ export const apply = (ctx: Context, config: Config): void => {
           break
         } catch {
           if (waited >= 8000) {
-            // 诊断：注册到底发生了什么（目录/镜像/装配面状态原样落盘）
+            // 璇婃柇锛氭敞鍐屽埌搴曞彂鐢熶簡浠€涔堬紙鐩綍/闀滃儚/瑁呴厤闈㈢姸鎬佸師鏍疯惤鐩橈級
             // Diagnostics: dump catalog/mirror/assembly state as-is for the verdict.
             const catalog = (host.apps as { catalog(): unknown[] }).catalog()
-            const detail0 = JSON.stringify(catalog, (_, value) => typeof value === 'function' ? 'fn' : value)
-            throw new Error(`task-workbench pages never appeared in the URL index; catalog=${detail0?.slice(0, 2000)}`)
+            const pages = (host.apps as { listPages(id: string): unknown[] }).listPages('task-workbench')
+            const pr = host.pageRegistry as { get(name: string): unknown; resolve(url: string): unknown }
+            const byName = pr.get?.('list')
+            const byUrl = pr.resolve?.('/apps/task-workbench/list')
+            const dump = (value: unknown): string => JSON.stringify(value, (_, item) => typeof item === 'function' ? 'fn' : item)
+            throw new Error(`pages never appeared; byName=${dump(byName)?.slice(0, 300)}; byUrl=${dump(byUrl)?.slice(0, 300)}; appPages=${dump(pages)?.slice(0, 400)}`)
           }
           await new Promise((resolve) => setTimeout(resolve, 200))
         }
       }
+      lastStep = 'openUrl-detail'
       const detail = await host.pageRegistry!.openUrl('/apps/task-workbench/task/1' as PageInstanceKey)
       checks.push(check('3.real-sessions-created', list.created && detail.created,
         `list=${list.sessionId} detail=${detail.sessionId}`))
       const agentList = host.agents?.get(list.sessionId)
       const agentDetail = host.agents?.get(detail.sessionId)
+      lastStep = 'agents-create'
       if (agentList === undefined || agentDetail === undefined) {
-        // 无活 agent：页面工具在 app-host 的等待队列里。创建真实 agent 触发挂载。
-        await host.agents?.create({ sessionId: list.sessionId })
-        await host.agents?.create({ sessionId: detail.sessionId })
+        // 鏃犳椿 agent锛氶〉闈㈠伐鍏峰湪 app-host 鐨勭瓑寰呴槦鍒楅噷銆傚垱寤虹湡瀹?agent 瑙﹀彂鎸傝浇銆?        // create may pend indefinitely without model credentials: race a timeout so
+        // the verdict still lands and names the hang point.
+        // create 鍦ㄦ棤妯″瀷鍑嵁鏃跺彲鑳芥案涔?pending锛氫笌瓒呮椂绔為€燂紝淇濊瘉 verdict 钀界洏骞舵寚璁ゅ崱鐐广€?        const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+          Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms))])
+        await withTimeout(host.agents!.create({ sessionId: list.sessionId }), 15000, `agents.create(${list.sessionId})`)
+        await withTimeout(host.agents!.create({ sessionId: detail.sessionId }), 15000, `agents.create(${detail.sessionId})`)
       }
       const listAgent2 = host.agents?.get(list.sessionId)
       const detailAgent2 = host.agents?.get(detail.sessionId)
@@ -146,23 +147,22 @@ export const apply = (ctx: Context, config: Config): void => {
         && detailTools.includes('task_workbench__abandon_task') && !detailTools.includes('task_workbench__take_task'),
         `list scope=[${listTools.join(',')}] detail scope=[${detailTools.join(',')}]`))
 
-      // 2) agent/created 真实载荷形状
+      // 2) agent/created 鐪熷疄杞借嵎褰㈢姸
       const payload = agentCreatedPayloads[0] as { agent?: unknown } | undefined
       checks.push(check('2.agent-created-payload', payload !== undefined && (payload as { agent?: { session?: unknown; ctx?: unknown } }).agent !== undefined,
         `payloadKeys=${payload ? Object.keys(payload).join(',') : 'none'}; agentKeys=${payload && typeof payload.agent === 'object' && payload.agent !== null ? Object.keys(payload.agent).join(',') : 'none'}`))
 
-      // 5) 重开同一 URL 回到原会话
-      const reopened = await host.pageRegistry!.openUrl('/apps/task-workbench/task/1' as PageInstanceKey)
+      // 5) 閲嶅紑鍚屼竴 URL 鍥炲埌鍘熶細璇?      const reopened = await host.pageRegistry!.openUrl('/apps/task-workbench/task/1' as PageInstanceKey)
       checks.push(check('5.reopen-reuses-session', !reopened.created && reopened.sessionId === detail.sessionId,
         `reopened=${reopened.sessionId} created=${reopened.created}`))
 
-      // 6) 任务通知经真实 followup 落进真实会话日志
+      // 6) 浠诲姟閫氱煡缁忕湡瀹?followup 钀借繘鐪熷疄浼氳瘽鏃ュ織
       const task = await host.taskCenter!.send({
         kind: 'task-workbench/verify',
-        title: '真机验证任务',
+        title: '鐪熸満楠岃瘉浠诲姟',
         target: { url: '/apps/task-workbench/task/1', appId: 'task-workbench', page: 'detail', params: { taskId: '1' } },
       })
-      // 打开即接取（openUrl 带 taskId）→ 投递泵把通知 followup 进该会话
+      // 鎵撳紑鍗虫帴鍙栵紙openUrl 甯?taskId锛夆啋 鎶曢€掓车鎶婇€氱煡 followup 杩涜浼氳瘽
       await host.pageRegistry!.openUrl('/apps/task-workbench/task/1' as PageInstanceKey, { taskId: task.id })
       const detailAgent3 = host.agents?.get(detail.sessionId)
       const delivered = detailAgent3 !== undefined && sessionContains(detailAgent3, '[task-center]')
@@ -171,7 +171,9 @@ export const apply = (ctx: Context, config: Config): void => {
     } catch (error: unknown) {
       checks.push(check('probe-error', false, String(error)))
     } finally {
+      clearTimeout(watchdog)
       finish()
     }
   })()
 }
+
