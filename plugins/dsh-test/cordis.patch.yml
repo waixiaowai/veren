@@ -1,0 +1,10 @@
+- insert:
+    - id: dsh-test
+      name: '@local/dsh-test'
+      config:
+        # Deployment-specific values for this workspace: the source checkout the
+        # test instance serves, the isolated test home it writes into, and a port
+        # that avoids the bound 3080 default.
+        srcDir: 'C:\Users\imeep\Documents\cursour\deepseek\deepseek-harness'
+        dshHome: 'C:\Users\imeep\Documents\cursour\deepseek\.dsh'
+        port: 3210

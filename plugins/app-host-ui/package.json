@@ -1,0 +1,70 @@
+{
+  "name": "@veren/app-host-ui",
+  "displayName": "App Host UI",
+  "version": "0.1.5",
+  "icon": "./icon.svg",
+  "description": "Use when the @veren/app-host assembly is installed and people need to reach application pages from the chat UI - it adds the application dropdown to the input toolbar (lists every installed app from the appHost gateway, opens an app's entry page, and follows the host's app-host/focus events to switch sessions); skip it for a headless, ACP, or SDK profile, where the app_list/app_open model tools already cover the operations.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "dist/*.js",
+    "lib/client.js",
+    "README.md",
+    "README.cn.md",
+    "icon.svg"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    }
+  },
+  "scripts": {
+    "bundle": "node scripts/bundle.mjs",
+    "build": "node scripts/bundle.mjs",
+    "typecheck": "node scripts/typecheck.mjs",
+    "test": "vitest run --no-fsModuleCache"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-api-remotes": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-connection": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-locale": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-workspace": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@veren/platform-modules": "workspace:*",
+    "esbuild": "^0.28.2",
+    "vitest": "^5.0.4",
+    "zod": "^3.25.76"
+  },
+  "license": "MIT"
+}

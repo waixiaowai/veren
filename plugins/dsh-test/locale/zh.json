@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "DSH 测试 Web",
+    "description": "启动并重启由插件管理的 dsh profile web 实例，并通过 get_dsh_test_info 工具报告其带 token 的访问地址。"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "@local/dsh-test",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Launches a managed dsh profile web instance and reports its token URL for plugin testing",
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "types": "./dist/index.d.ts",
+  "files": ["dist/index.js", "dist/index.d.ts", "dist/port.js", "dist/port.d.ts", "dist/process.js", "dist/process.d.ts", "dist/tools.js", "dist/tools.d.ts", "dist/types.js", "dist/types.d.ts", "cordis.patch.yml", "locale/*.json", "icon.svg"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" }
+  }
+}

@@ -29,3 +29,6 @@
     # 宿主装配层：把上面三个服务接成一处（resolver/镜像/会话端口/focus）
     - id: app-host
       name: '@veren/app-host'
+    # GUI 伴生插件：输入工具栏的应用下拉 + focus 事件的界面切换（客户端半边）
+    - id: app-host-ui
+      name: '@veren/app-host-ui'

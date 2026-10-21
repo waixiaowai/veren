@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "DSH Test Web",
+    "description": "Launches and restarts a managed dsh profile web instance, reporting its token URL through the get_dsh_test_info tool."
+  }
+}

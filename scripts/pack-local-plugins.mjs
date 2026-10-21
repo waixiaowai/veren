@@ -37,6 +37,7 @@ const PACKAGES = [
   ['packages/prompt-page', '@veren/prompt-page'],
   ['plugins/app-registry', '@veren/app-registry'],
   ['plugins/app-host', '@veren/app-host'],
+  ['plugins/app-host-ui', '@veren/app-host-ui'],
   ['plugins/app-host-bundle', '@veren/app-host-bundle'],
   ['plugins/page-registry', '@veren/page-registry'],
   ['plugins/task-center', '@veren/task-center'],

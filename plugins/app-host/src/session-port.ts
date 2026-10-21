@@ -12,7 +12,11 @@
  * - agent 尚未激活时工具进入等待队列，`agent/created` 到达即挂上（新建的
  *   页面会话在用户真正进入时才有 agent）；
  * - 消息经 `agent.followup` + `ctx.sessions.flush` 确认（forum 的投递纪律）；
- * - focus 是显式接缝（{@link FocusPort}）：本文件只给日志实现，GUI 切换归 H。
+ * - focus 是显式接缝（{@link FocusPort}）：真实实现 {@link eventFocus} 发
+ *   `app-host/focus` 事件，Web 伴生插件接收后执行真正的界面切换；
+ * - 页面会话创建即激活 agent（H 根因修复）：GUI 侧栏按 blank 隐藏非当前会话，
+ *   agent 不激活会话就永远 blank/不可见/进不去；激活后第一条 turn 使会话
+ *   非 blank，instanceTitle 以 user source 的 session/title 落盘供侧栏显示。
  *
  * 测试注入每会话独立的真实 cordis 子上下文（与 AgentRegistry 的
  * `resolve: sessionId => this.get(sessionId)?.ctx` 同机制），生产路径解析
@@ -25,24 +29,47 @@ import type { Context } from '@deepseek-ai/cordis'
 // 以及 Agent / SessionId 的权威类型——不再手写最小探测面（G13：显式 inject，无结构探测）。
 // type-only imports: pull the dsh-agent/dsh-session declaration merges (ctx.agents /
 // ctx.sessions) and the authoritative Agent/SessionId types — no hand-written probe faces.
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+// 类型-only import：拉取 session/title 事件的 SessionEventMap merge（权威标题落盘用）
+import type {} from '@deepseek-ai/dsh-session-title'
+// 类型-only import：拉取 agentDefaultModel 的 declaration merging（ctx.agentDefaultModel）
+import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type { MountedTool, PageSessionPort } from '@veren/page-registry'
 
-/** focus 接缝：把界面切到某会话（GUI 实现归 H；此处为日志实现） */
+/** focus 接缝：把界面切到某会话 / the focus seam: bring a session to the GUI front */
 export interface FocusPort {
   focus(sessionId: string): Promise<void>
 }
 
-/** 日志 focus 实现（H 接入前的占位，接口已定） */
+/** focus 事件载荷：GUI 侧伴生插件监听后调 uiWorkspace.openSession / focus payload for the GUI companion plugin */
+export interface FocusEventPayload {
+  readonly sessionId: string
+}
+
+/**
+ * 真实 focus 实现：发一条宿主 emit 事件，Web 端伴生插件经 Remote 载体收到后
+ * 执行真正的界面切换（uiWorkspace.openSession）。宿主侧没有 DOM，切界面只能
+ * 由客户端完成——这条事件就是 H 的 focus 通道。
+ * The real focus implementation: emit one host event; the Web-side companion
+ * plugin receives it through the Remote carrier and performs the actual switch
+ * (uiWorkspace.openSession). The host has no DOM — only the client can switch,
+ * so this event is the focus channel.
+ */
+export function eventFocus(ctx: Context): FocusPort {
+  return {
+    focus: async (sessionId) => { ctx.emit('app-host/focus', { sessionId } satisfies FocusEventPayload) },
+  }
+}
+
+/** 日志 focus 实现（测试替身用；生产默认走 {@link eventFocus}） */
 export function loggingFocus(logger: { info(message: string): void }): FocusPort {
   return {
     focus: async (sessionId) => { logger.info(`app-host: focus session ${sessionId} (GUI focus lands with the toolbar app dropdown)`) },
   }
 }
 
-/** 消息源 kind 常量（MessageSourceMap 的扩充点在文件尾 declaration merging） */
-export const PAGE_MESSAGE_SOURCE = 'app/page' as const
+/** 消息源 kind 常量（MessageSourceMap 的扩充点在文件尾 declaration merging） */export const PAGE_MESSAGE_SOURCE = 'app/page' as const
 export const TASK_MESSAGE_SOURCE = 'app/task' as const
 export const NOTICE_MESSAGE_SOURCE = 'task-center/notice' as const
 
@@ -68,10 +95,13 @@ function sourceKind(source: string): PageSourceKind {
  * @param ctx - 宿主上下文（读 `sessions` / `agents` 服务）
  * @param focus - focus 接缝（GUI 实现归 H）
  */
-export function createRealSessionPort(ctx: Context, focus: FocusPort = loggingFocus(ctx.logger)): PageSessionPort {
+export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocus(ctx)): PageSessionPort {
   const agentOf = (sessionId: string): Agent | undefined => ctx.agents.get(sid(sessionId))
   // 会话 → 该会话当前挂载的注销器（agent 作用域注销器，重挂/清理用）
   const mounted = new Map<string, Array<() => void>>()
+  // 会话 → 本端口经 agents.create 拿到的句柄：只有持有者能整体拆除该 agent
+  // / session → the handle from agents.create; only the holder can tear the agent down
+  const handles = new Map<string, AgentHandle>()
   // 会话 → 等待 agent 激活的开场内容（PAGE/TASK/通知块）与工具；
   // agent/created 到达即按序落地——页面会话的内容随它的第一个 agent 开始存在
   const queued = new Map<string, { tools: readonly MountedTool[]; blocks: Array<{ source: string; text: string }> }>()
@@ -101,6 +131,18 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = loggingFo
     releaseMounted(sessionId)
     const disposers: Array<() => void> = []
     for (const tool of pending.tools) disposers.push(agent.ctx.tools.register(tool))
+    // 页面引导工具在页面会话作用域内屏蔽：页面会话已在页面之内，模型照 PAGE 块
+    // 再调 app_open 打开同一 URL 会自激成"开页 → 新 agent → 再开页"的递归
+    // （真机实测的会话雪崩）；这也是「页面工具只对该 agent 可见」作用域互斥的
+    // 同一原则在引导工具方向的对称面。restrict 返回的注销器随挂载整组撤销。
+    // Bootstrap tools are masked inside a page-session scope: the session is
+    // already inside the page, and a model that follows the PAGE block by
+    // calling app_open on the same url self-ignites the
+    // "open page → new agent → open page" recursion (the live session
+    // avalanche); this is the bootstrap-side twin of the "page tools are only
+    // visible to their own agent" scope rule. The restriction disposer joins
+    // the mounted set and is undone with it.
+    disposers.push(agent.ctx.tools.restrict({ deny: ['app_open', 'app_list', 'app_pages'] }))
     mounted.set(sessionId, disposers)
     for (const block of pending.blocks) followup(agent, block.text, block.source)
   }
@@ -120,15 +162,53 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = loggingFo
   // agent 销毁：作用域注册随 fiber 自动消失，这里只清登记
   ctx.on('agent/disposed', ({ agent }) => {
     const sessionId = agent?.session?.id
-    if (sessionId !== undefined) mounted.delete(sessionId)
+    if (sessionId !== undefined) {
+      mounted.delete(sessionId)
+      handles.delete(sessionId)
+    }
   })
 
   return {
     exists: (sessionId) => ctx.sessions.get(sid(sessionId)) !== undefined,
     mintId: () => crypto.randomUUID(),
-    async create(sessionId) {
-      ctx.sessions.create(sid(sessionId))
-      // 会话标题归 session-title 投影/用户重命名（H 接 GUI 时按 instanceTitle 落）
+    async create(sessionId, title) {
+      // H 的根因修复：页面会话必须当场激活 agent（不再是"等用户进入"）。GUI
+      // 侧栏按 blank（没有第一条 turn）隐藏非当前会话——不激活 agent，页面会话
+      // 永远 blank，也就永远不可见、进不去，agent 永远不会被激活（死锁）。
+      // agents.create 会连同创建会话并发布 agent/created；工具/开场块随后经
+      // mountTools/appendUserMessage 落到这个活 agent 上，第一条 turn 随之提交。
+      // The root-cause fix: a page session activates its agent right away (no
+      // more "wait until the user enters"). The GUI sidebar hides non-current
+      // blank sessions — without an agent the page session stays blank forever,
+      // so it can never be seen or entered and its agent can never activate
+      // (a deadlock). agents.create publishes the session and agent/created;
+      // tools and opening blocks then land on the live agent via
+      // mountTools/appendUserMessage and the first turn commits.
+      // agentOptions.model 来自部署默认模型（agentDefaultModel）：agent-loop 用
+      // agent.options.model 注册 {{model}} 提示变量——不给模型，deployment
+      // persona 段的 {{model}} 插值在首回合就失败（真机实测）。这是 webhook
+      // 会话创建（experimental/webhook/src/session.ts）的同一选型路径。
+      // agentOptions.model comes from the deployment default model
+      // (agentDefaultModel): the agent loop registers the {{model}} prompt
+      // variable from agent.options.model — without a model, the deployment
+      // persona section's {{model}} interpolation fails on the first turn
+      // (live-tested). This is the same selection path as the webhook session
+      // creation (experimental/webhook/src/session.ts).
+      const selected = ctx.agentDefaultModel.currentSelection()
+      const handle = await ctx.agents.create({
+        sessionId: sid(sessionId),
+        agentOptions: { provider: selected.provider, model: selected.model },
+        meta: { cwd: process.cwd(), agentPreset: 'standard' },
+      })
+      handles.set(sessionId, handle)
+      // instanceTitle 是页面实例的权威标题（§3.6.1）：立即落成 user source 的
+      // session/title（空 messageSeqs 恰好是 user 标题的合法形状）——侧栏按它
+      // 显示「发布任务」「主题 #12」，且不会被标题 LLM 事后改写。
+      // instanceTitle is the page instance's authoritative title (§3.6.1): land
+      // it now as a user-source session/title (empty messageSeqs is exactly the
+      // legal user-title shape) — the sidebar shows it and the title LLM never
+      // rewrites it.
+      ctx.sessions.get(sid(sessionId))?.append('session/title', { title, messageSeqs: [], source: { kind: 'user' } })
     },
     async appendUserMessage(sessionId, text, source) {
       const agent = agentOf(sessionId)
@@ -166,6 +246,19 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = loggingFo
     async destroy(sessionId) {
       queued.delete(sessionId)
       releaseMounted(sessionId)
+      // 半成品兜底路径（页面创建失败回滚）：整只拆除本端口创建的 agent——
+      // 句柄持有者才有资格 dispose，失败的会话不该留下活 agent。
+      // Half-built rollback path (page-create failure): tear down the agent this
+      // port created — only the handle holder may dispose; a failed session
+      // must not leave a live agent behind.
+      const handle = handles.get(sessionId)
+      if (handle === undefined) return
+      handles.delete(sessionId)
+      try {
+        await handle.dispose()
+      } catch (error: unknown) {
+        ctx.logger.warn(`app-host: dispose(${sessionId}) failed: ${String(error)}`)
+      }
     },
   }
 }
@@ -178,5 +271,24 @@ declare module '@deepseek-ai/dsh-llm' {
     'app/task': { kind: 'app/task' }
     /** A task-center inbox notice pumped into a page session. @persistenceSource user */
     'task-center/notice': { kind: 'task-center/notice' }
+  }
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * 把某条会话切到 GUI 前台的请求（focus 端口的真实实现发出；Web 伴生插件
+     * 经 Remote 载体接收后调 uiWorkspace.openSession）。纯通知，无拦截面。
+     * 载荷类型必须与客户端伴生插件（@veren/app-host-ui）的再声明逐字相同——
+     * interface merging 要求两次声明同一类型。
+     * @mode emit
+     * Request to bring one session to the GUI front (emitted by the real focus
+     * port; the Web companion plugin calls uiWorkspace.openSession on receipt
+     * through the Remote carrier). Pure notification, no interception. The
+     * payload type must stay verbatim-identical to the companion plugin's
+     * redeclaration (@veren/app-host-ui) — interface merging demands the same
+     * type twice.
+     */
+    'app-host/focus': (payload: { readonly sessionId: string }) => void
   }
 }

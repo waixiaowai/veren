@@ -38,12 +38,15 @@ interface AgentScope {
   readonly ctx: Context
   readonly registry: Map<string, unknown>
   readonly followups: string[]
+  /** restrict({deny}) 收到的工具名（屏蔽断言用）/ tool names received by restrict({deny}) */
+  readonly denials: string[]
   disposeAll(): void
 }
 
 function makeAgentScope(parent: Context): AgentScope {
   const registry = new Map<string, unknown>()
   const followups: string[] = []
+  const denials: string[] = []
   // isolate('tools')：该子树上 'tools' 服务解析进独立作用域（cordis 服务隔离，
   // 与 AgentRegistry 给每个 agent 独立 ctx 的机制同向）。
   const ctx = parent.isolate('tools')
@@ -52,15 +55,21 @@ function makeAgentScope(parent: Context): AgentScope {
       registry.set(tool.name, tool)
       return () => { registry.delete(tool.name) }
     },
+    restrict: (filter: { deny?: readonly string[] }) => {
+      denials.push(...(filter.deny ?? []))
+      return () => { denials.length = 0 }
+    },
   })
   return {
     ctx,
     registry,
     followups,
+    denials,
     disposeAll() {
       // agent fiber 销毁的注销器语义：作用域内全部登记逆序摘除
       registry.clear()
       followups.length = 0
+      denials.length = 0
     },
   }
 }
@@ -77,27 +86,58 @@ function makeHostSessions(ctx: Context, failTool?: string) {
       return () => { hostTools.delete(tool.name) }
     },
   })
-  const sessions = new Map<string, { id: string; messages: string[]; alive: boolean }>()
+  const sessions = new Map<string, { id: string; messages: string[]; alive: boolean; titles: Array<{ title: string; source: { kind: string } }>; append(type: string, data: { title: string; source: { kind: string } }): void }>()
   const scopes = new Map<string, AgentScope>()
+  /** 替身会话工厂：带上 append，session/title 的落盘断言用 / stub session factory with append for title assertions */
+  const newSession = (id: string) => {
+    const record: { id: string; messages: string[]; alive: boolean; titles: Array<{ title: string; source: { kind: string } }>; append(type: string, data: { title: string; source: { kind: string } }): void } = {
+      id, messages: [], alive: true, titles: [],
+      append: (_type, data) => { record.titles.push(data) },
+    }
+    return record
+  }
   ;(ctx.provide as unknown as (n: string, v: unknown) => void)('sessions', {
     get: (id: string) => (sessions.get(id)?.alive === true ? sessions.get(id) : undefined),
     create: (id?: string) => {
       const key = id ?? crypto.randomUUID()
-      sessions.set(key, { id: key, messages: [], alive: true })
-      return sessions.get(key)
+      const record = newSession(key)
+      sessions.set(key, record)
+      return record
     },
     flush: () => true,
   })
+  const agentView = (id: string) => {
+    const scope = scopes.get(id)
+    if (scope === undefined || sessions.get(id)?.alive !== true) return undefined
+    return {
+      ctx: scope.ctx,
+      session: sessions.get(id),
+      followup: (m: { content: Array<{ text?: string }> }) => { scope.followups.push(m.content.map((b) => b.text ?? '').join('')) },
+    }
+  }
   const emit = ctx.emit as unknown as (event: string, payload: unknown) => void
+  ;(ctx.provide as unknown as (n: string, v: unknown) => void)('agentDefaultModel', {
+    currentSelection: () => ({ provider: 'test', model: 'test-model' }),
+  })
   ;(ctx.provide as unknown as (n: string, v: unknown) => void)('agents', {
     // 活 agent 面：作用域 ctx + 会话 + followup（会话活着才有）
-    get: (id: string) => {
-      const scope = scopes.get(id)
-      if (scope === undefined || sessions.get(id)?.alive !== true) return undefined
+    get: (id: string) => agentView(id),
+    // H 后的创建面：agents.create 连同创建会话并发布 agent/created（打开即激活）
+    create: async (options: { sessionId: string }) => {
+      const id = options.sessionId
+      const scope = makeAgentScope(ctx)
+      scopes.set(id, scope)
+      sessions.set(id, newSession(id))
+      emit('agent/created', { agent: agentView(id) })
       return {
-        ctx: scope.ctx,
-        session: { id },
-        followup: (m: { content: Array<{ text?: string }> }) => { scope.followups.push(m.content.map((b) => b.text ?? '').join('')) },
+        agent: agentView(id),
+        dispose: async () => {
+          scopes.get(id)?.disposeAll()
+          scopes.delete(id)
+          const session = sessions.get(id)
+          if (session !== undefined) session.alive = false
+          emit('agent/disposed', { agent: { session: { id } } })
+        },
       }
     },
   })
@@ -105,14 +145,6 @@ function makeHostSessions(ctx: Context, failTool?: string) {
     sessions,
     scopes,
     hostTools,
-    /** 让一个会话"活了"：建 agent 作用域并广播 agent/created */
-    startAgent(id: string): AgentScope {
-      const scope = makeAgentScope(ctx)
-      scopes.set(id, scope)
-      sessions.set(id, { id, messages: [], alive: true })
-      emit('agent/created', { agent: { ctx: scope.ctx, session: { id }, followup: (m: { content: Array<{ text?: string }> }) => { scope.followups.push(m.content.map((b) => b.text ?? '').join('')) } } })
-      return scope
-    },
     /** agent 销毁：作用域注销器全部执行（真实 cordis 语义）+ 广播 agent/disposed */
     stopAgent(id: string): void {
       scopes.get(id)?.disposeAll()
@@ -144,6 +176,8 @@ interface Boot {
   host: ReturnType<typeof makeHostSessions>
   pages: PageRegistryService
   tasks: TaskCenterService
+  /** 替身会话表（session/title 落盘断言用）/ stub session table for the title assertions */
+  sessions: ReturnType<typeof makeHostSessions>['sessions']
   /** 只卸载 app-host 装配层（storage 栈不动）/ dispose only the app-host assembly fiber */
   disposeAssembly(): Promise<void>
   dispose(): Promise<void>
@@ -176,6 +210,7 @@ async function boot(options: { enabled?: boolean; failTool?: string } = {}): Pro
     host,
     pages,
     tasks: ctx.taskCenter,
+    sessions: host.sessions,
     disposeAssembly: () => fh.dispose(),
     dispose,
   }
@@ -346,16 +381,19 @@ describe('隔离是真的：同一宿主两个会话的 agent 作用域互不可
   it('/task/1 与 /task/2 各自的作用域只看得到自己的工具；销毁 A 后 B 原样', async () => {
     const h = await boot()
     registerMiniApp(h)
-    // 先打开（无活 agent → 工具与 PAGE 块排队），再让两个 agent 相继激活：
-    // 每个会话的工具挂进各自的作用域，销毁 A 不影响 B
+    // 打开即激活（H 根因修复）：两个会话的 agent 在 openUrl 内就被创建，
+    // 各自的工具挂进各自的作用域，销毁 A 不影响 B
     const a = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
     const b = await h.pages.openUrl('/apps/mini/task/2' as PageInstanceKey)
     expect(a.sessionId).not.toBe(b.sessionId)
-    const scopeA = h.host.startAgent(a.sessionId)
-    const scopeB = h.host.startAgent(b.sessionId)
+    const scopeA = h.host.scopes.get(a.sessionId)
+    const scopeB = h.host.scopes.get(b.sessionId)
+    if (scopeA === undefined || scopeB === undefined) throw new Error('expected both agents to be created at open')
     // 各自作用域里恰好挂了一次页面工具（同名工具不互相覆盖、不串台）
     expect([...scopeA.registry.keys()]).toEqual(['mini__read'])
     expect([...scopeB.registry.keys()]).toEqual(['mini__read'])
+    // 页面引导工具在页面作用域内被屏蔽（递归自开防护 + 作用域互斥）
+    expect(scopeA.denials).toEqual(['app_open', 'app_list', 'app_pages'])
     // 作用域实例不同：A 的登记与 B 的登记是两个真实的、分开的表
     expect(scopeA.ctx).not.toBe(scopeB.ctx)
     // 销毁 A 的 agent（作用域随 fiber 注销）：A 工具消失，B 原样
@@ -364,13 +402,21 @@ describe('隔离是真的：同一宿主两个会话的 agent 作用域互不可
     expect([...scopeB.registry.keys()]).toEqual(['mini__read'])
   })
 
-  it('agent 后到：恢复的页面会话在 agent 激活时才挂上工具（agent/created 队列）', async () => {
+  it('打开即激活：openUrl 返回时 agent 已在场，页面工具已挂、PAGE 块已 followup、标题已落盘', async () => {
     const h = await boot()
     registerMiniApp(h)
-    const opened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey) // 无活 agent → 入队
-    const scope = h.host.startAgent(opened.sessionId) // 用户进入会话，agent 激活
-    expect([...scope.registry.keys()]).toEqual(['mini__read']) // 此刻才挂上，且只对该 agent 可见
+    const focusEvents: Array<{ sessionId: string }> = []
+    h.ctx.on('app-host/focus', (payload) => { focusEvents.push(payload) })
+    const opened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
+    const scope = h.host.scopes.get(opened.sessionId)
+    if (scope === undefined) throw new Error('expected the page agent to activate at open')
+    expect([...scope.registry.keys()]).toEqual(['mini__read']) // 工具只对该 agent 可见
     expect(scope.followups.some((m) => m.startsWith('PAGE mini/task'))).toBe(true) // PAGE 块（pageKey 名）经 followup 进入会话
+    // instanceTitle 以 user source 的 session/title 落盘：侧栏按它显示
+    const titles = h.sessions.get(opened.sessionId)?.titles ?? []
+    expect(titles).toEqual([{ title: '任务页', messageSeqs: [], source: { kind: 'user' } }])
+    // focus 端口真实实现：openUrl 结束时发了切界面事件
+    expect(focusEvents).toEqual([{ sessionId: opened.sessionId }])
   })
 })
 
@@ -379,8 +425,9 @@ describe('真机探针的可自动化收编（原 @veren/app-host-verify 六项�
     const h = await boot()
     registerMiniApp(h)
     const first = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
-    // 先让旧会话的 agent 激活（工具挂进它的作用域），再重开同 URL
-    const scopeA = h.host.startAgent(first.sessionId)
+    // 打开即激活：旧会话的 agent 已在场（工具挂进它的作用域），再重开同 URL
+    const scopeA = h.host.scopes.get(first.sessionId)
+    if (scopeA === undefined) throw new Error('expected the page agent to activate at open')
     expect([...scopeA.registry.keys()]).toEqual(['mini__read'])
     const second = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
     expect(second.sessionId).not.toBe(first.sessionId)
@@ -397,9 +444,10 @@ describe('真机探针的可自动化收编（原 @veren/app-host-verify 六项�
     registerMiniApp(h)
     const opened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
     void opened // 第一次打开的会话马上被重开废弃；任务落在新会话上
-    // 重开同 URL：新建会话并让它的 agent 激活（followup 面要求 agent 已激活）
+    // 重开同 URL：新建会话（agent 打开即激活）
     const fresh = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
-    const scope = h.host.startAgent(fresh.sessionId)
+    const scope = h.host.scopes.get(fresh.sessionId)
+    if (scope === undefined) throw new Error('expected the page agent to activate at open')
     const task = await h.tasks.send({
       kind: 'mini/kind' as never, title: '真机验证任务',
       target: { url: '/apps/mini/task/1' as PageInstanceKey, appId: 'mini', page: 'task', params: { taskId: '1' } },
@@ -407,8 +455,9 @@ describe('真机探针的可自动化收编（原 @veren/app-host-verify 六项�
     // 带 taskId 打开 = 再一次新建（废弃上一条），take 成功 → TASK 块进入新会话
     const opened2 = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey, { taskId: task.id })
     expect(opened2.sessionId).not.toBe(fresh.sessionId)
-    const scope2 = h.host.startAgent(opened2.sessionId)
-    // TASK 块与收件箱通知在排队（agent 后到），agent 激活时按序 followup 进来
+    const scope2 = h.host.scopes.get(opened2.sessionId)
+    if (scope2 === undefined) throw new Error('expected the reopened page agent to activate at open')
+    // TASK 块与收件箱通知在打开流程里 followup 进活 agent
     expect(scope2.followups.some((m) => m.includes(`TASK ${task.id}`))).toBe(true)
     expect(scope2.followups.some((m) => m.includes('[task-center] 真机验证任务'))).toBe(true)
     // 新会话 PAGE 块也在；旧会话没有收到任务的任何块
