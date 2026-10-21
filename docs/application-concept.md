@@ -253,8 +253,6 @@ const dispose = pages.register({
   instructions: 'This is a review page: read the diff, then conclude; cite files and lines.',
   // Title of one concrete instance in the session list.
   instanceTitle: (params) => `Review PR #${params.pr}`,
-  // Page contract version: +1 when the URL/tool names/copy change incompatibly (§7.3).
-  pageRevision: 1,
   tree: (params, state) => <ReviewPage pr={params.pr} state={state} />,
 })
 ```
@@ -266,9 +264,9 @@ The host does four things at registration:
 1. Normalizes `name` into a global page key `appId/pageName` (for example `review-workbench/review`) and deduplicates by that key.
 2. Prepends the URL pattern to `/apps/<appId>/<url>`. Local paths are compared only inside the app, so two apps can both own `/list`.
 3. Records the `owner` (which package, which fiber). Only the same app may unregister the row; anyone else gets `app/forbidden`.
-4. Validates that every `tools` reference exists in the app catalog, `pageRevision` is a positive integer, and `instanceTitle` is a function when present.
+4. Validates that every `tools` reference exists in the app catalog, and that `instanceTitle` is a function when present.
 
-`PageDefinition` follows: **`preset` is deleted** (a page no longer carries a system prompt), and `tools`, `instructions`, `instanceTitle`, and `pageRevision` are added. `tools` names come from the app tool catalog, not the final model-facing names; the final names get the app prefix at mount time (§3.4.3). `instructions` is page copy for the model, not a system prompt. During migration, a page without `pageRevision` defaults to `1`, and a missing `instanceTitle` falls back to `description`.
+`PageDefinition` follows: **`preset` is deleted** (a page no longer carries a system prompt), and `tools`, `instructions`, and `instanceTitle` are added. `tools` names come from the app tool catalog, not the final model-facing names; the final names get the app prefix at mount time (§3.4.3). `instructions` is page copy for the model, not a system prompt. A missing `instanceTitle` falls back to `description`.
 
 ### 3.2 Entry: a page key in the app definition
 
@@ -458,7 +456,6 @@ The index is a host-level durable storage domain `app-pages`, table `instances`,
 | `appId` / `page` | For app grouping and uninstall cleanup |
 | `params` | Parsed parameter snapshot |
 | `appVersion` | App version at creation |
-| `pageRevision` | Page contract version at creation |
 | `title` | Instance title (§3.6) |
 | `state` | `reserved` / `live` / `deprecated` |
 | `createdAt` / `lastOpenedAt` | Instants |
@@ -513,7 +510,7 @@ Suppose `review-workbench` has the page `/task/:id`:
 2. Finish and open `/apps/review-workbench/task/2`: a different canonical URL → create Session B; Session A stays exactly as it was, with its tools and page untouched.
 3. Open `/apps/review-workbench/task/1` again: **create Session C** (no reuse of A); A's tools are stripped, its leases released, and it is marked deprecated; the index now points at C. A's history remains readable in the session list.
 4. After restarting DSH: the URL row still points at C (the latest live Session, preserved across restarts); only the next open creates D and deprecates C.
-5. The app is upgraded and `pageRevision` changes: no `page/stale` refusal anymore — opens always create, so the fresh Session naturally uses the new page version (§9.1).
+5. The app is upgraded: no `page/stale` refusal anymore (that code was deleted along with G11) — opens always create, so the fresh Session naturally uses the new page version (§9.1).
 
 ### 3.6 Session titles and grouping
 
@@ -564,7 +561,6 @@ interface AppPageEvent {
   readonly url: string            // canonical URL
   readonly params: Readonly<Record<string, string>>
   readonly appVersion: string
-  readonly pageRevision: number
   readonly title: string
   readonly supersededBy?: SessionId
 }
@@ -660,7 +656,7 @@ Task record:
 | `title` | Required, trimmed, bounded (e.g. 200 chars) |
 | `body` | Optional; byte-bounded when injected |
 | `target` | `{ url, appId, page, params }`; `url` is the canonical URL and the page instance key |
-| `appVersion` / `pageRevision` | Snapshots at send time; used for upgrade decisions (§7.3) |
+| `appVersion` | Snapshot at send time; human-readable display and upgrade decisions (§7.3) |
 | `assignee` | Recipient; Phase 1 is `local` (the person on this machine) |
 | `status` | See §4.4 |
 | `revision` | Optimistic concurrency; +1 per transition |
@@ -952,11 +948,11 @@ Results carry a summary and references, not bulk content.
 | Index write fails | Do not create the Session (or delete the reserved row); return the error | `page/index-unavailable` |
 | Index is rebuilding | Wait or retry later | `page/index-rebuilding` |
 | Session creation fails | Delete the reserved row; return the error | `page/session-create-failed` |
-| App upgrade makes the page contract incompatible | Do not reuse silently; prompt rebuild (§7.3) | `app/page-stale` |
+| ~~App upgrade makes the page contract incompatible~~ | The error code was deleted along with G11: opens always create (§9.1.1), no upgrade-fork semantics | ~~`app/page-stale`~~ |
 | The task target's app was upgraded | Offer the old Session or open with the new version; the task stays `open` | `task/app-upgraded` |
 | Binding release fails | Record and retry; mark the Session "needs reconciliation" | `page/binding-release-failed` |
 
-These codes must appear in tool results, Web cards, and logs — not just "failed". The model's next action should follow from the code: `task/expired` gives up, `app/disabled` tells the person to enable it, `task/target-gone` suggests updating the app, `app/page-stale` suggests rebuilding the Session.
+These codes must appear in tool results, Web cards, and logs — not just "failed". The model's next action should follow from the code: `task/expired` gives up, `app/disabled` tells the person to enable it, `task/target-gone` suggests updating the app. (`app/page-stale` was removed from the code table along with the G11 cancellation of the upgrade fork; it no longer occurs.)
 
 ### 5.7 Failure modes this simplification removes
 
@@ -1090,33 +1086,11 @@ The page URL index is a host-level service that opens the `app-pages` domain wit
 - **The URL index is untouched.** After re-enable, the same URL finds the same Session and re-mounts page tools.
 - **Data stays.** The storage domain closes; files remain. Disable is not delete.
 
-### 7.3 After an app update: what happens to existing page Sessions
+### 7.3 After an app update: what happens to existing page Sessions — no upgrade fork
 
-The core conflict: a Session is a historical record, page code is the current version. After an upgrade, an old Session must not silently become the new page, and must not become impossible to open forever.
+**Conclusion (G11, landed): there is no upgrade fork.** Under the reversed semantics of §9.1.1, opening a URL always creates a fresh Session (§3.5.3); the "reuse the old Session" path does not exist, so there are no old-contract expectations and no version checks are needed. A new Session naturally uses the current page contract; the old Session is deprecated by the uniform §3.5.3 rules and kept as read-only history.
 
-Define a **page contract version** `pageRevision`: the author must increment it when the page URL pattern, parameter meaning, tool names/semantics, or page copy change incompatibly. `appVersion` is the bundle version; a change does not necessarily mean a page-contract change.
-
-| Option | Approach | Pros | Cons |
-| --- | --- | --- | --- |
-| Pin the old version | Old Sessions keep using old code | Exact history | Must keep multiple app versions installed; complex, unrealistic |
-| Auto-migrate | Attach new tools to the old Session and continue | Seamless | Old messages may reference dead tool names/meanings; the model calls dead tools |
-| **Mark stale + prompt rebuild** | Old Session stays as read-only history; a new Session is created for the same URL, and the index points to it | No version mixing, history preserved, simple | One extra user action; the old Session cannot continue working |
-
-**Recommendation: mark stale + prompt rebuild, using `pageRevision` to decide whether a rebuild is needed.**
-
-Opening a URL:
-
-1. The index row's `appVersion` / `pageRevision` matches the current app → reuse normally, re-mount current tools (same version, equivalent).
-2. `appVersion` changed but `pageRevision` is the same → treat as compatible: reuse the Session, re-mount current tools, append a `PAGE updated` note ("app updated, page contract unchanged"), no rebuild.
-3. `pageRevision` changed → mark the Session `stale`:
-   - The old Session still opens as **read-only history**: the full conversation and page snapshot are visible, but page tools are not mounted and the page tree is not re-rendered (avoid interpreting old data with new code);
-   - Opening the URL offers: "view the old Session" / "open with the new version";
-   - Choosing the new version creates a new Session, appends a new `app/page` (`supersededBy` points to the old one), and updates the index row to the new sessionId; the old Session stays, marked `stale`, never deleted;
-   - A task pointing at that URL: opening shows "the app was upgraded"; the task stays `open` and is completed in the new Session; if the task body is obsolete, it can be cancelled or re-sent (`task/app-upgraded`).
-
-Why old Sessions are not auto-migrated: their PAGE block, tool-call records, and task block belong to the old contract. Mounting new tools makes the model see "old instructions + new tools", which is more dangerous than read-only. Read-only history is the honest state.
-
-Why the new Session reuses the same URL: the user thinks in terms of "this task page", not "this task's second Session". The index guarantees one live Session per URL; the old Session is a historical branch.
+`appVersion` is kept: it serves human-readable display and the uninstall/upgrade-related task decisions (`task/target-gone` / `task/app-upgraded`); it takes no part in any page-Session version forking.
 
 ### 7.4 Uninstall
 
@@ -1162,7 +1136,7 @@ Goal: prove app → page URL → page Session → dynamic tools → task → com
 In scope:
 
 - `ctx.apps`: id, name, description, entry, app instructions, tool prefix, permission declarations; entry and prefix validated at activation.
-- App-scoped page registration with `/apps/<id>` prefixes; the page-level `preset` field is deleted; `tools`, `instructions`, `instanceTitle`, `pageRevision` are added.
+- App-scoped page registration with `/apps/<id>` prefixes; the page-level `preset` field is deleted; `tools`, `instructions`, and `instanceTitle` are added.
 - App tool catalog: `ctx.apps.tools(id).define(...)`, local names unique per app, each with `requires`.
 - **Page runtime + URL index**: one URL, one page instance, one Session; two-phase creation (reserved → live); tools mount at Session creation and release at Session disposal; no in-Session switching; durable index, restart recovery, rebuild on loss.
 - Session titles: `instanceTitle` written to `session/title` and the index.
@@ -1191,7 +1165,7 @@ Explicitly out: the full toolbar app-dropdown interaction (Phase 2), sidebar app
 > - **Web inbox**: inbox notices are injected in-Session (§5.2); a second inbox UI on the Web adds nothing;
 > - **Sidebar app grouping**: that is session-list management, unrelated to the "entry" job;
 > - **Page tool indicator** ("N tools mounted for this page"): the PAGE block already tells the model the tool list; humans do not need a second view;
-> - **Upgrade UX** (`pageRevision` change prompt): with opens always creating fresh, the "reuse the old Session" upgrade fork no longer exists (§3.5.6).
+> - **Upgrade UX** (page-contract change prompt): cancelled along with G11 — with opens always creating fresh, the "reuse the old Session" upgrade fork no longer exists (§3.5.6).
 
 > **Host assembly layer (landed, `@veren/app-host`).** The "structural probing + lazy ports" loose wiring called out by the phase-1 acceptance report is converged by this plugin: one explicit wiring point (`wireAppHost`) — `taskCenter.setAppResolver ← apps.get` (sender checks + lazy orphan sweep), `apps.setPageMirror ← pageRegistry` (single-entry page registration + tool strip on uninstall), and `pageRegistry.bindPorts` ← the real session port (page tools mount into the owning session's **agent scope**, driven by `agent/created` / `agent/disposed`; messages go through followup + flush; focus is a fixed interface seam whose GUI implementation belongs to the toolbar dropdown). Together with `@veren/app-host-bundle` (a configuration-only bundle inserting the four loader rows in dependency order) it installs into a profile as loader rows. The zero-config probing fallbacks in app-registry / task-center were removed (mirror and resolver are now explicit assembly; unwired means "warn and pass", not implicit probing); page-registry's `createHostSessionPort` remains as the standalone/test fallback so PageRegistryService stays usable without app-host — production always goes through the real port.
 
@@ -1216,7 +1190,7 @@ Explicitly out: the full toolbar app-dropdown interaction (Phase 2), sidebar app
 | Canonical URL rules change | One page splits into two instances | Treat the rules as a compatibility promise; migrate the index when changing them |
 | Index loss/corruption | Opening a URL creates duplicates | Boot rebuild + `reserved` cleanup; refuse new opens while rebuilding |
 | Session list growth | Workbench becomes unusable | Instance titles + app folding + archive by app; only opened URLs create Sessions |
-| Page contract upgrade without bumping `pageRevision` | Old Sessions reused incorrectly | Put `pageRevision` in the page review checklist; treat tool-name/copy/parameter changes as requiring a bump by default |
+| ~~Page contract upgrade without bumping the version~~ | The risk vanished with G11: opens always create, nothing to reuse wrongly | Deleted; no checklist item needed |
 | Same URL across workspaces | Reuses the original Session and switches the workspace | UI shows the Session's workspace; for an independent instance, add a business parameter to the URL, not a workspace partition |
 | Long tool names | The model may misremember or omit the prefix | PAGE block lists exact names; tool descriptions repeat the name; failures return the available-tool list |
 | Task center becomes a single point | Storage failure or a blocked write chain affects every app | Degrade to read-only/unavailable with clear codes; serialize per task |
@@ -1262,7 +1236,7 @@ This revision: **page instance = Session, URL = key, app dropdown = entry.** Pre
 - **Task leases**: under the old design a Session holding a task lease indefinitely was safe (Sessions didn't "die"); with deprecation, deprecating must explicitly release leases, or a fresh Session hits `already-taken` and the task is held hostage by a deprecated Session (§3.5.3).
 - **Page tools**: the restore path's "remount when absent" (hasTools probe) is deleted; tools mount only on create and release only on deprecation/destruction.
 - **Crash/restart**: there is no longer an "index recovers the Session"; after a restart an open simply creates fresh; the index row only preserves the "latest live Session" pointer plus deprecated history.
-- **`page/stale` and upgrade UX**: the code stays in the frozen table but the open path never produces it; §7.3's upgrade fork is void.
+- **`page/stale` and upgrade UX**: deleted from the frozen code table along with G11; §7.3's upgrade fork is cancelled with it.
 
 ### 9.2 Still open
 
@@ -1277,8 +1251,7 @@ Four items need confirmation; the remaining questions from the previous revision
 3. **Apps and workspaces:** should an app declare a default workspace (selecting the app carries it over), or follow the current workspace?
    Recommended: follow the current workspace, no default (§3.7). An app should work against any repository; a hardcoded default directory surprises users when they switch projects. Confirm whether apps that are genuinely tied to one repository should be allowed to override this in app configuration.
 
-4. **Page Sessions after an app upgrade:** adopt "reuse when `pageRevision` is compatible, otherwise old Session read-only + new Session rebuilt", or allow the old Session to continue under the new tools?
-   Recommended: the former (§7.3). Old Session read-only history, new Session with the new page; avoids old tool names/meanings mismatching new tools. Confirm whether users accept "after an upgrade, an old task page must be reopened", and whether `pageRevision` is manually bumped by the app author.
+4. **Page Sessions after an app upgrade:** ~~adopt "reuse when `pageRevision` is compatible, otherwise old Session read-only + new Session rebuilt", or allow the old Session to continue under the new tools?~~ Settled by G11 as "delete": opens always create fresh (§9.1.1), no upgrade semantics; old Sessions are uniformly deprecated as read-only history per §3.5.3.
 
 ---
 
@@ -1300,7 +1273,7 @@ Four items need confirmation; the remaining questions from the previous revision
 | G8 | No declarative `registerApp({ tools, pages })`; tool-before-page ordering is a manual convention | Declarative entry that fixes the ordering internally; raw primitives stay for tests | P2 (after G9) |
 | G9 | No official way to reuse another package's existing tool in an app catalog (person-agent had to patch two packages) | Tool packages export builders; catalog gains a `register(tool, meta)` adoption entry sharing define's validation | P2 (before G8) |
 | G10 | `requires` is recorded but never enforced | Enforce at mount: `requires ⊆ app permissions`, else refuse session creation (`app/permission-denied`); decide together with §9.2 item 1 | P2 |
-| G11 | `pageRevision` is dead weight since §9.1.1 abolished session reuse | **Verdict, re-derived under the always-new-session semantics: delete it** — a fresh session has no old-contract expectations, so an upgrade notice has no reader; the app that sent a task knows its own contract; removed from `PageDefinition`, index rows, `AppPageEvent`, and task snapshots (`appVersion` stays). Rewrites §7.3 / §9.2.4 as "no upgrade fork at all" | P2 |
+| G11 | `pageRevision` is dead weight since §9.1.1 abolished session reuse | **Verdict, re-derived under the always-new-session semantics: delete it** — a fresh session has no old-contract expectations, so an upgrade notice has no reader; the app that sent a task knows its own contract; removed from `PageDefinition`, index rows, `AppPageEvent`, and task snapshots (`appVersion` stays). Rewrites §7.3 / §9.2.4 as "no upgrade fork at all" | P2 — **landed (deleted this round)** |
 
 P0 ordering and dependencies: G13 → G2 → G1. G13 is the root — the real host scores A half-pass, B 1/4, C–F all blocked, so nothing else can fire until wiring is fixed. G2 depends on G13's finding (only owner-attributed guards tell us optional injection must be a declared channel, not runtime probing). G1 is independent, ordered last by priority only. Merge/split judgment: none merged — the near pairs (G3/G4; G8/G9) fix different layers, and G8's dependency on G9 only falls out of a clean sequence if they stay separate.
 
@@ -1343,8 +1316,6 @@ interface PageDefinition<S> {
   readonly tools: readonly string[]
   readonly instructions: string
   readonly instanceTitle?: (params: PageParams) => string
-  /** Page contract version: +1 when URL/params/tool names/copy change incompatibly. */
-  readonly pageRevision: number
   readonly tree: (params: PageParams, state: S) => ElementInput
   readonly events?: PageEventMap
 }
@@ -1366,7 +1337,6 @@ interface PageInstanceRecord {
   readonly page: PageKey
   readonly params: Readonly<Record<string, string>>
   readonly appVersion: string
-  readonly pageRevision: number
   readonly title: string
   readonly state: 'reserved' | 'live' | 'orphaned' | 'stale'
   readonly supersededBy?: SessionId

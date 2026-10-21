@@ -97,7 +97,7 @@ publish 页本身在真机上 `app_open` 完全可达，阻塞点只剩"页面�
 
 1. 普通会话实测：模型调用 `app_open /apps/task-workbench/publish` **成功**，返回
    `{"sessionId":"21c7a34c-…","url":"/apps/task-workbench/publish","title":"发布任务"}`；磁盘
-   `app_pages.json` 出现该 URL 的 `state=live` 行，`page=task-workbench/publish`、`pageRevision=2`。
+   `app_pages.json` 出现该 URL 的 `state=live` 行，`page=task-workbench/publish`。
 2. `app_pages` 返回 publish 页且声明工具 `task_workbench__publish_task`——**"页未注册"（原因 1）与
    "工具漏列"（原因 2）均排除**；URL 解析正常，**"URL 规范化不一致"（原因 3）排除**。
 3. 但调用方会话工具清单里**没有任何** `task_workbench__*` 工具（作用域隔离，符合设计——页面工具只挂
@@ -249,7 +249,7 @@ mtime 变化的 40 个文件全部是 54224 桌面实例自身写的会话日志
 
 1. **宿主装配层（composition）**：把 apps/page-registry/task-center/task-workbench 以真实 Loader 行装进 web profile，用真实 DSH 会话与 agent 作用域替换验收测试里的文件替身——工具作用域隔离、GUI 聚焦（focus）、`wake` 投递都在这一步才能落地。
 2. **GUI 入口（§8.2 第 2 阶段主体）**：工具栏应用下拉 + 侧栏应用分组 + Web 收件箱；同时补索引重建扫描所需的宿主会话枚举/日志读取面。
-3. **权限与升级语义硬化**：`requires` 能力从"记录"变"强制"（挂载时逐工具校验），`pageRevision` 升级的 stale 流程（旧会话只读 + 重建选择）目前只有 `page/stale` 拒绝，没有 UX。
+3. **权限与升级语义硬化**：`requires` 能力从"记录"变"强制"（挂载时逐工具校验）；page/stale 升级分叉已随 G11 删除（打开一律新建，无升级语义）。
 
 ## 七、设计是否站得住（一句判断）
 

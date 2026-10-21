@@ -259,8 +259,6 @@ const dispose = pages.register({
   instructions: '这是一个审阅页：先读 diff，再给结论；结论必须引用文件和行号。',
   // 一个具体实例在会话列表里的标题；参数决定标题
   instanceTitle: (params) => `审阅 PR #${params.pr}`,
-  // 页面契约版本：页面 URL/工具名/说明发生不兼容变化时 +1（见 §7.3）
-  pageRevision: 1,
   tree: (params, state) => <ReviewPage pr={params.pr} state={state} />,
 })
 ```
@@ -272,9 +270,9 @@ const dispose = pages.register({
 1. 把 `name` 规范成全局唯一的页面键 `appId/pageName`（例如 `review-workbench/review`），注册表内部按这个键去重；
 2. 把 `url` 拼成对外 URL 模式 `/apps/<appId>/<url>`；应用内路径只在本应用内比较，不同应用写同一个 `/list` 不会冲突；
 3. 记录 `owner`（哪个包、哪个 fiber 注册的）。只有同一个应用能注销这条记录；别的应用或全局代码想删它会得到 `app/forbidden`；
-4. 校验 `tools` 引用的本地名都在应用工具目录里，`pageRevision` 是正整数，`instanceTitle` 是函数（可缺省）。
+4. 校验 `tools` 引用的本地名都在应用工具目录里，`instanceTitle` 是函数（可缺省）。
 
-`PageDefinition` 的字段要跟着调整：**删除 `preset` 字段**（页面不再带系统提示词），新增 `tools`、`instructions`、`instanceTitle`、`pageRevision`。`tools` 里写的是应用工具目录里的本地名，不是挂到模型面前的最终名；最终名在挂载时由前缀拼出来（§3.4.3）。`instructions` 是页面给模型的说明，不是系统提示词。迁移期旧页面没有 `pageRevision` 时按 `1` 处理，`instanceTitle` 缺省时用 `description` 兜底。
+`PageDefinition` 的字段要跟着调整：**删除 `preset` 字段**（页面不再带系统提示词），新增 `tools`、`instructions`、`instanceTitle`。`tools` 里写的是应用工具目录里的本地名，不是挂到模型面前的最终名；最终名在挂载时由前缀拼出来（§3.4.3）。`instructions` 是页面给模型的说明，不是系统提示词。`instanceTitle` 缺省时用 `description` 兜底。
 
 > **第 1 阶段落地形态（收尾会话 E 补记）：页面注册只有一个入口。**
 > 应用作者只调 `ctx.apps.pages(id).register(page)` 一次；app-registry 内部通过页面镜像面自动把同一条页面写进 page-registry 的注册表（`registerAppPage` 是内部原语，应用作者不再调用）。镜像失败（如 URL 模式冲突）会回滚应用侧登记并原样抛错，因此"目录可见却无法被 openUrl 解析"的静默漂移在构造上消失；残留漂移（如镜像面未装配）由 `pageRegistry.auditAppPages(apps)` 审计发现。宿主未装配镜像面时注册只告警，不崩。
@@ -467,7 +465,6 @@ review_workbench__complete_task
 | `appId` / `page` | 便于按应用分组、卸载清理 |
 | `params` | 解析出来的参数快照 |
 | `appVersion` | 创建时的应用版本 |
-| `pageRevision` | 创建时的页面契约版本 |
 | `title` | 页面实例标题（§3.6） |
 | `state` | `reserved` / `live` / `deprecated` |
 | `createdAt` / `lastOpenedAt` | 时间 |
@@ -532,7 +529,7 @@ review_workbench__complete_task
 2. 处理完，打开 `/apps/review-workbench/task/2`：规范 URL 不同 → 创建会话 B；会话 A 原样保留，工具和页面都不动。
 3. 再打开 `/apps/review-workbench/task/1`：**新建会话 C**（不再复用 A）；A 的工具摘除、租约释放、标废弃；索引改指 C。A 的历史仍可在会话列表里读。
 4. 重启 DSH 后：URL 行仍指向 C（最新活会话，跨重启保留）；再打开才新建 D 并把 C 标废弃。
-5. 应用升级且 `pageRevision` 变化：不再产生 `page/stale` 拒绝——打开本来就是新建，新会话自然用新版本页面（§9.1）。
+5. 应用升级：不再产生 `page/stale` 拒绝（该码已随 G11 删除）——打开本来就是新建，新会话自然用新版本页面（§9.1）。
 
 ### 3.6 会话标题与分组
 
@@ -583,7 +580,6 @@ interface AppPageEvent {
   readonly url: string            // 规范 URL
   readonly params: Readonly<Record<string, string>>
   readonly appVersion: string
-  readonly pageRevision: number
   readonly title: string
   readonly supersededBy?: SessionId
 }
@@ -679,7 +675,7 @@ interface AppPageEvent {
 | `title` | 必填，已 trim，长度上限（例如 200） |
 | `body` | 可选说明；进入上下文时有字节上限 |
 | `target` | `{ url, appId, page, params }`；`url` 是规范 URL，页面实例的主键 |
-| `appVersion` / `pageRevision` | 发送时快照；用于升级判断（§7.3） |
+| `appVersion` | 发送时快照；人读展示与升级判定（§7.3） |
 | `assignee` | 收件人；第 1 阶段固定 `local`（本机这个人） |
 | `status` | 见 §4.4 |
 | `revision` | 乐观并发版本；每次迁移 +1 |
@@ -1066,7 +1062,7 @@ TASK 块只在任务成功接取并绑定到会话时追加一次；同一 URL �
 | 索引写入失败 | 不创建会话（或删除 reserved 行），返回错误 | `page/index-unavailable` |
 | 索引重建中 | 打开请求等待或稍后重试 | `page/index-rebuilding` |
 | 会话创建失败 | 删除 reserved 行，返回错误 | `page/session-create-failed` |
-| 应用升级导致页面契约不兼容 | 不静默复用旧会话；提示重建（§7.3） | `app/page-stale` |
+| ~~应用升级导致页面契约不兼容~~ | 该错误码已随 G11 删除：打开一律新建（§9.1.1），无升级分叉语义 | ~~`app/page-stale`~~ |
 | 任务目标的应用已升级 | 提示查看旧会话或用新版本打开；任务保持 `open` | `task/app-upgraded` |
 | 会话绑定释放失败 | 记录并重试；会话标“需对账” | `page/binding-release-failed` |
 | 完成者会话与接取记录不一致（工具层校验） | 拒绝改写 taken 任务 | `task/not-claimant` |
@@ -1078,7 +1074,7 @@ TASK 块只在任务成功接取并绑定到会话时追加一次；同一 URL �
 
 > **冻结常量是权威。** 实现里各包的冻结错误码常量表（`app-registry` 的 `AppErrorCode`、`task-center` 的 `TaskErrorCode`、`prompt-page` 的 `PageErrorCode`）比本表更全——例如 `task/not-found`、`task/lease-expired`、`task/draft-invalid`、`task/send-forbidden`、`app/manifest-invalid`、`app/tool-duplicate`、`app/tool-prefix-conflict`、`app/entry-missing`、`app/forbidden`。以常量表为准，本表只列 §5.6 场景相关的核心码；新增码先改常量表再回填本表。`task-center` 抛出的全部码——含本表列出的 `task/not-claimant`、`task/orphaned`、`task/invalid-state`、`task/children-active`、`task/subtree-limit`、`task/subtask-target-mismatch`、`task/parent-gone`、`task/cascade-cancelled`，以及存储接缝码 `task-center/storage-unavailable`——均已收录在 `TaskErrorCode` 常量表里（2026-10 逐个核对过，常量表与本节描述完全一致，没有只以字符串字面量抛出的遗漏码）。
 
-这些错误码要出现在工具结果、Web 卡片和日志里，不能只写一句“失败了”。模型的下一步动作应该能从 code 直接推出来：`task/expired` 就放弃，`app/disabled` 就告诉用户去启用，`task/target-gone` 就建议更新应用，`app/page-stale` 就提示重建会话。
+这些错误码要出现在工具结果、Web 卡片和日志里，不能只写一句“失败了”。模型的下一步动作应该能从 code 直接推出来：`task/expired` 就放弃，`app/disabled` 就告诉用户去启用，`task/target-gone` 就建议更新应用。（`app/page-stale` 已随 G11 升级分叉的取消而从码表中删除，不再出现。）
 
 ### 5.7 这次简化省掉了哪些失败模式
 
@@ -1212,33 +1208,11 @@ Cordis 插件运行在同一个宿主进程里，拿到 `ctx` 就能碰所有服
 - **URL 索引不动**：重新启用后同一个 URL 仍然找回同一条会话，重新挂载页面工具。
 - **数据不动**：存储域关闭但文件保留；禁用不是删除。
 
-### 7.3 应用更新之后，已存在的页面会话怎么办
+### 7.3 应用更新之后，已存在的页面会话怎么办：无升级分叉
 
-这是本版必须回答的新问题。核心冲突：会话是历史记录，页面代码是当前版本；升级后不能让旧会话“悄悄变成新页面”，也不能让旧会话永远打不开。
+**结论（G11 已落地）：不存在升级分叉。** 按 §9.1.1 的反转语义，打开 URL 一律新建会话（§3.5.3），不存在"复用旧会话"的路径，因此没有旧契约预期，也就不需要任何版本判断。新会话自然使用当前版本的页面契约；旧会话按 §3.5.3 的统一规则废弃，保留为只读历史。
 
-先定义**页面契约版本** `pageRevision`：页面 URL 模式、参数含义、工具名/语义、页面说明发生不兼容变化时，作者必须 +1。应用版本 `appVersion` 是组合包版本，变化不一定意味着页面契约变化。
-
-| 方案 | 做法 | 优点 | 缺点 |
-| --- | --- | --- | --- |
-| 固定旧版本 | 旧会话继续用旧版代码 | 历史完全一致 | 要同时保留多份应用代码，安装/加载复杂，不现实 |
-| 自动迁移 | 把旧会话直接挂上新版工具，继续用 | 用户无感 | 旧消息里的工具名/语义可能已经不存在，模型会调用死工具 |
-| **标记 stale + 提示重建** | 旧会话保留为只读历史；同 URL 新建会话，索引指向新会话 | 不串版本、可回看、实现简单 | 用户需要多点一次；旧会话不能继续工作 |
-
-**推荐：标记 stale + 提示重建，按 `pageRevision` 判断是否需要。**
-
-打开 URL 时的判断：
-
-1. 索引行的 `appVersion` / `pageRevision` 与当前应用一致 → 正常复用，重新挂载当前工具（版本相同，等价）。
-2. `appVersion` 变了但 `pageRevision` 相同 → 视为兼容：复用会话，重新挂载当前工具；在会话里追加一条 `PAGE updated` 提示（“应用已更新，页面契约未变”），不重建。
-3. `pageRevision` 变了 → 会话标 `stale`：
-   - 旧会话仍然可以打开为**只读历史**：能看到完整对话和页面快照，但页面工具不挂载、页面树不重新渲染（避免用新代码解释旧数据）；
-   - 打开 URL 时弹出选择：「查看旧会话」/「用新版本打开」；
-   - 选“用新版本” → 创建新会话，写新的 `app/page`（`supersededBy` 指回旧会话），索引行更新为新 sessionId；旧会话保留，标 `stale`，不删除；
-   - 任务如果指向该 URL：打开时提示“应用已升级”，任务保持 `open`，用户在新会话里完成后回报；如果任务正文已经过时，可以取消或让应用重发（`task/app-upgraded`）。
-
-为什么旧会话不自动迁移：旧会话的 PAGE 块、工具调用记录、任务块都是旧契约；把新工具挂上去，模型会看到“旧说明 + 新工具”，比只读更危险。只读历史是诚实的状态。
-
-为什么新会话复用同一个 URL：用户的心智是“这个任务页”，不是“这个任务的第 2 条会话”；索引保证同一个 URL 只指向一条 live 会话，旧会话是历史旁支。
+应用版本 `appVersion` 保留：它用于人读展示，以及应用卸载/升级相关的任务判定（`task/target-gone` / `task/app-upgraded`），不参与任何页面会话的版本分叉判断。
 
 ### 7.4 卸载
 
@@ -1284,7 +1258,7 @@ Cordis 插件运行在同一个宿主进程里，拿到 `ctx` 就能碰所有服
 范围：
 
 - `ctx.apps` 应用注册表：id、名称、描述、入口、应用说明、工具前缀、权限声明；激活时校验入口和工具前缀。
-- 页面注册改为应用作用域，URL 加 `/apps/<id>` 前缀；删除页面级的 `preset` 字段；新增 `tools`、`instructions`、`instanceTitle`、`pageRevision`。
+- 页面注册改为应用作用域，URL 加 `/apps/<id>` 前缀；删除页面级的 `preset` 字段；新增 `tools`、`instructions`、`instanceTitle`。
 - 应用工具目录：`ctx.apps.tools(id).define(...)`，工具名应用内唯一，带 `requires`。
 - **页面运行时 + URL 索引**：一个 URL 一个页面实例、一条会话；两阶段创建（reserved → live）；工具随会话创建挂载、随会话销毁释放；会话内不换页；索引持久化、重启可找回、失效可重建。
 - 会话标题：`instanceTitle` 写入 `session/title` 与索引。
@@ -1325,7 +1299,7 @@ Cordis 插件运行在同一个宿主进程里，拿到 `ctx` 就能碰所有服
 > - **Web 收件箱**：收件箱通知走会话内注入（§5.2），Web 再做一份收件箱界面没有增量价值；
 > - **侧栏应用分组**：属于会话列表管理，与"入口"职责无关；
 > - **页面工具指示**（"本页已挂载 N 个工具"）：PAGE 块已把工具清单写给模型，人不需要第二个视图；
-> - **升级 UX**（`pageRevision` 变化提示）：打开一律新建后不存在"复用旧会话"的升级分叉（§3.5.6）。
+> - **升级 UX**（页面契约变化提示）：已随 G11 取消——打开一律新建后不存在"复用旧会话"的升级分叉（§3.5.6）。
 
 - **工具栏应用下拉**：完整交互按 §3.8 实现；第 2 阶段把它接进新会话行和会话头部，并接上 URL 索引（focus 接口已由 app-host 定下）。
 - **权限确认**与**卸载数据选项**。
@@ -1348,7 +1322,7 @@ Cordis 插件运行在同一个宿主进程里，拿到 `ctx` 就能碰所有服
 | URL 规范化规则改变 | 同一个页面被拆成两条实例 | 规范规则纳入兼容承诺；变更时做一次索引迁移 |
 | 索引丢失/损坏 | 打开 URL 时重复建会话 | 启动重建 + `reserved` 清理；重建期间拒绝新开 |
 | 会话列表膨胀 | 工作台难用 | 实例标题 + 应用折叠 + 按应用归档；只对打开过的 URL 建会话 |
-| 页面契约升级未 bump `pageRevision` | 旧会话被错误复用 | 把 `pageRevision` 写进页面审查清单；默认把工具名/说明/参数变化视为需要 bump |
+| ~~页面契约升级未 bump 版本号~~ | 风险已随 G11 消除：打开一律新建，无复用可错 | 已删除，无需审查清单项 |
 | 同一个 URL 跨 workspace | 复用原会话，工作区被切走 | UI 明示会话所属 workspace；需要独立实例时在 URL 里带业务参数，而不是靠 workspace 分区 |
 | 工具名变长 | 模型可能记错或漏写前缀 | PAGE 块列出完整名字；工具描述重复本名；失败时给出“可用工具”清单 |
 | 任务中心成为单点 | 存储失败/写链阻塞影响所有应用 | 存储失败降级为“只读/不可用”，错误码明确；写链按任务串行 |
@@ -1394,7 +1368,7 @@ Cordis 插件运行在同一个宿主进程里，拿到 `ctx` 就能碰所有服
 - **任务租约**：旧设计里会话长期持有任务租约是安全的（会话不会"死"）；废弃语义引入后，废弃必须显式释放租约，否则新会话 `already-taken`、任务被废弃会话占死（§3.5.3）。
 - **页面工具**：恢复路径的"缺席重挂"（hasTools 探测）删除；工具只随新建挂载、随废弃/销毁释放。
 - **崩溃/重启**：不再有"索引找回会话"，重启后打开就是新建；索引行只用于保留"最新活会话"指针与废弃历史。
-- **`page/stale` 与升级 UX**：码表冻结保留但打开路径不再产生；§7.3 的升级分叉随之失效。
+- **`page/stale` 与升级 UX**：已随 G11 从冻结码表删除；§7.3 的升级分叉一并取消。
 
 ### 9.2 待拍板
 
@@ -1409,8 +1383,7 @@ Cordis 插件运行在同一个宿主进程里，拿到 `ctx` 就能碰所有服
 3. **应用与 workspace 的关系**：应用是否声明默认 workspace（选中应用自动带过去），还是跟随当前 workspace？
    推荐：跟随当前 workspace，不声明默认值（§3.7）。理由是应用应该能用于任何仓库，workspace 是用户当次的环境选择；硬编码默认目录会让换项目时莫名其妙。需要确认的是：某些“只针对固定仓库”的应用，是否允许在应用配置里覆盖这个默认。
 
-4. **应用升级后的页面会话策略**：采用“`pageRevision` 兼容则复用，不兼容则旧会话只读 + 新会话重建”，还是允许旧会话在新工具下继续跑？
-   推荐：前者（§7.3）。旧会话只读历史、新会话用新页面，避免旧消息里的工具名/语义和新工具错配。需要确认的是：用户是否接受“升级后旧任务页需要重开一次”，以及 `pageRevision` 是否由应用作者手动 bump。
+4. **应用升级后的页面会话策略**：~~采用“`pageRevision` 兼容则复用，不兼容则旧会话只读 + 新会话重建”，还是允许旧会话在新工具下继续跑？~~ 已由 G11 拍板删除：打开一律新建（§9.1.1），无升级语义，旧会话按 §3.5.3 统一废弃为只读历史。
 
 ---
 
@@ -1436,7 +1409,7 @@ Cordis 插件运行在同一个宿主进程里，拿到 `ctx` 就能碰所有服
 | G8 | 缺声明式 `registerApp({ tools, pages })` | P2 | 待修 |
 | G9 | 缺"复用别包既有工具"的官方模式 | P2 | 待修 |
 | G10 | `requires` 只记录不拦截 | P2 | 待修 |
-| G11 | `pageRevision` 摆设 → **按反转语义重推：删** | P2 | 待修 |
+| G11 | `pageRevision` 摆设 → **按反转语义重推：删** | P2 | **已落地（本轮删除，见 §10.13）** |
 
 **P0 依赖关系**：G13 → G2 → G1。G13 是根：真实宿主上 A 半通、B 1/4、C–F 全部被装配失败阻塞，框架连启动都过不去，其余缺口（含 P1/P2）在真机上根本没有触发机会。G2 依赖 G13 的结论——只有确认了"守卫按属主归因、运行期探测通道不存在"，才能界定 optionalInject 到底要解决哪个问题（见 §10.3 的 G2 修正节）。G1 与前两条无技术依赖，纯 Loader 层，排最后只因优先级让位。
 
@@ -1451,7 +1424,7 @@ flowchart TD
   G4["G4 工具命名规则"]
   G7["G7 异步数据源样板"]
   G10["G10 requires 强制"]
-  G11["G11 pageRevision：删"]
+  G11["G11 pageRevision：已删"]
 ```
 
 **合并/拆分判断**：G11、G13、G14 维持独立条目不合并。表面相近的几对其实修的是不同层：G3（工具返回值契约）与 G4（模型可见工具名）都关于工具，但一个改类型面、一个改注册期校验，合在一起会让两个修复互相等对方；G8（注册 API 形状）与 G9（工具来源）同属"应用装配"但改动面分别是 app-registry 与各工具包的导出，且 G8 依赖 G9 先行，拆开才排得出顺序。G11 严格说不是缺口而是决策，单列是因为它有完整的"删还是改"论证需要留档。
@@ -1790,7 +1763,7 @@ ctx.apps.tools('person-agent').register(existingTool, { requires: ['sessions:rea
 
 **落地阶段与依赖**：P2，无技术前置；排期上与 §9.2.1 的拍板绑定。
 
-### 10.13 G11（P2）：`pageRevision` 的明确判断——**删**（按反转语义重推）
+### 10.13 G11（P2，已落地）：`pageRevision` 的明确判断——**删**（按反转语义重推）
 
 > **2026-10-21 重推**：初版结论是"改用途：升级提示（`PAGE upgraded` + 事件）"。该结论仍暗中假设"存在一个需要被提示的旧会话读者"。会话复用已按 §9.1.1 彻底取消（打开一律新建、旧会话废弃），按新语义逐环节重推后读者消失，结论翻转为**删**。
 
@@ -1808,6 +1781,8 @@ ctx.apps.tools('person-agent').register(existingTool, { requires: ['sessions:rea
 **影响面**：`packages/prompt-page`（PageDefinition）、`plugins/page-registry`（索引行与事件）、`plugins/task-center`（任务快照）、`plugins/app-registry`（注册校验）各删一处字段；四个应用**需要**跟着改（删各自页面定义里的 `pageRevision` 与 bump 维护）。测试：删字段后注册/打开/发任务全链回归；§5.6 的 `app/page-stale` 维持冻结删除状态。
 
 **落地阶段与依赖**：P2，无前置。**与既有决策的关系**：**终结 §7.3 与 §9.2.4**——两节的升级分叉本就随 §9.1.1 失效，本条给出最终答案：升级无分叉、无提示、无拦截；`pageRevision` 不复存在。§9.1.1 的用户决策本身不动。
+
+**落地说明（2026-10-21，本轮删除）**：已从全部承载处删除 `pageRevision`——`PageDefinition`（packages/prompt-page）、页面实例索引行 `PageInstanceRecord`（page-registry）、`InstanceSnapshot` 与 `AppPageEvent`/任务快照（task-center）、app_pages 存储域 schema、bootstrap 工具描述；错误码 `page/stale` 一并从冻结码表删除。本文档 §7.3 已改写为"无升级分叉"说明。
 
 ---
 
@@ -1848,8 +1823,6 @@ interface PageDefinition<S> {
   readonly tools: readonly string[]
   readonly instructions: string
   readonly instanceTitle?: (params: PageParams) => string
-  /** 页面契约版本：URL/参数/工具名/说明不兼容变化时 +1。 */
-  readonly pageRevision: number
   readonly tree: (params: PageParams, state: S) => ElementInput
   readonly events?: PageEventMap
 }
@@ -1871,7 +1844,6 @@ interface PageInstanceRecord {
   readonly page: PageKey
   readonly params: Readonly<Record<string, string>>
   readonly appVersion: string
-  readonly pageRevision: number
   readonly title: string
   readonly state: 'reserved' | 'live' | 'orphaned' | 'stale'
   readonly supersededBy?: SessionId
