@@ -625,6 +625,73 @@ On the client, this is a client plugin: `ctx.slots.inject('conversation.hero.opt
 
 ---
 
+### 3.9 `page_send`: idempotent URL-addressed delivery — the vehicle for autonomous agency
+
+**Problem**: page tools are provisioned by the host per current page, and the page scope masks `app_open`/`app_list`/`app_pages` (the §9.1 inversion plus the anti-self-open-cascade decision, stacked). Result: the intelligence inside a page session is pinned to the page it landed on — it cannot turn the page and holds no write tools for any other page, so cross-page workflows have no vehicle.
+
+**Capability**: the host tool `page_send(url, message, wake?)`, semantically **idempotent delivery addressed by URL**:
+
+```
+canonicalize URL → consult the page instance index
+  · a bound, live session exists → append one message to it (waking it to work)
+  · none → create a session, bind the url (the openUrl two-phase path), then deliver
+returns { sessionId, url, created, redirected }
+```
+
+- It faces **agents** (page agents hold it too: `page_send` is a global tool and is NOT in the page-session deny list);
+- It solves delivery, not switching: the create path never emits a GUI focus — it is never navigation;
+- Division of labor with `session_dispatch`: that one addresses a **sessionId** (point-to-point, settlement watch, reports back); this one addresses a **URL** (idempotent addressing, no settlement, knows the page rather than the session). Never merged, never bypassed — use the former when you know the exact session, the latter when you only know the page.
+
+**Relation to §9.1.1**: "a human open always creates fresh and deprecates the old" stands untouched. `page_send`'s "append if a session exists" consults the index's **live row**, not identity recovery — after a human reopens the url the old session immediately leaves the addressing space; delivery lands on the current live session or creates one. The inverted index semantics ("who is currently alive on this url") is exactly what delivery needs.
+
+**The three risks and their answers**:
+
+1. **Cascade** (A hands to B, B to C…): the delivery runtime keeps a hop ledger (sessionId → depth, in-process) and checks a hard cap at the entry — `MAX_DELIVERY_HOPS = 4`; past it the delivery is refused with the stable code **`page/hop-limit`**. The gate lives in ONE place, page-registry's delivery runtime — no caller can bypass it; it is structural, not caller discipline. Ledger entries are pruned lazily as sessions vanish; a restart resets it (cascade is a live recursion; resetting cannot amplify risk).
+2. **Cost**: every wake is one model round. `wake` is chosen **per call by the caller**: default `true` (the very point of a handoff is to make the target work); `wake: false` only lands the message in the session log — no followup, no round; consumed whenever the target next wakes. Unconsumed-round waste is avoided two ways: delivery never re-sends automatically (no redelivery pump), and the hop cap bounds the worst-case total rounds.
+3. **Deprecation race** (a human reopens the same url right now, §9.1.1 creates fresh and deprecates the old): **re-consult the index after appending** — if the pointer moved, re-deliver the message to the current live session (the message follows the URL, not the session), at most `MAX_DELIVERY_ATTEMPTS = 3` times, reporting `redirected: true` honestly. The copy already landed on the old session is a settled fact (it is deprecated, its tools stripped, it will not act) — readable, harmless.
+
+**Page tool coverage (lightweight)**: page definitions gain an optional `writes?: boolean` ("this page's duty needs write capability"). At assembly time (app-host wire) each page is checked: declares `writes: true` yet mounts no tools → one warning — "the page is open but cannot do its job". A reminder, never a gate; readable in five seconds.
+
+**Where it lands**: the delivery runtime and hop ledger in `plugins/page-registry` (`delivery.ts`, `service.deliverUrl`, the `page_send` tool); the session port's `wake` face and the new message source `page/send`, assembly registration, and the coverage warning in `plugins/app-host`. The platform (cordis / dsh-tools) is untouched.
+
+---
+
+### 3.10 Page information structure: home pages and detail pages (AI-facing)
+
+> Compact version of §3.10 in the Chinese document ([application-concept.cn.md](application-concept.cn.md)); to be expanded. Background decision (2026-10): **this product line is for AI, not for humans** — no visualization, no interaction (GUI is a separate project). A "page" is information organized so an AI can read and act on it directly. A home page must carry base information (e.g. the task list) **plus** the capability map; detail-page parameters must land in context so the agent never calls tools just to locate itself.
+
+**Two-tier classification (first-class, registration-time rules):**
+
+| Tier | URL shape | Responsibility | Audience |
+| --- | --- | --- | --- |
+| **Tier-1 (home)** | no params: `/apps/task-workbench/list` | base info + capability map, both required | human entry + AI overview |
+| **Tier-2 (detail)** | must have `:param`: `/apps/task-workbench/task/:taskId` | single-scenario execution unit; lazily created | AI (task notices, map links, `page_send`) |
+
+**Canonical PAGE block** (currently `pageBlock` in `plugins/page-registry/src/runtime.ts` writes only 4 lines: page key + raw params JSON, tool names, app/page notes — no canonical URL, no data, no map):
+
+```text
+PAGE <pageKey> <canonicalUrl>
+params: {"taskId":"t-6"}                  # keys must match the :param names verbatim
+data: {...}                               # first-screen snapshot from load(); loading/error states must be expressed here — never silent blank
+map: [{"url":"…/:taskId","use":"…"}]      # capability map; non-empty on tier-1
+tools: <prefixed tool names + one-line when-to-use>
+notes: <app + page instructions>
+```
+
+Written once at session creation (two-phase commit awaits `load`); updates are appended as a `PAGE-DATA` block carrying the latest full snapshot (old blocks stay in the log; size/count caps with `truncated: true`).
+
+**Params and first-screen data in one shot.** Params: same resolver as today, but validated against the declared `:param` names (registration + mount). First-screen data: **G7 (§10 of the Chinese document) is promoted from "official recipe" to core capability** — the optional `load: async (params) => data` declaration is the only legitimate source of the `data` field; without it a home page with a task list is impossible. Official pattern: declare `load` on the page, runtime loads once at creation (loading → data, failure → `data: {"error":{code,message}}` + retry hint, `page/load-failed`); refresh = event-driven `pageRuntime.refresh(sessionId)` re-runs `load` and appends a `PAGE-DATA` block on diff. No TTL, no polling. Cost: refresh adds no model round (context append only) but each block costs tokens.
+
+**Measurable saving.** One "round" = one tool-call round trip to obtain one fact. Old shape (map-only home): `list_tasks` (1) + `get_task` (1) + relocating the taskId (0–1) = **2–3 rounds per task handled**; new shape: **0** (PAGE blocks carry the list and the detail). Estimate: rounds saved ≈ 2–3 × page instances opened (≈40–60 model rounds/day at 20 tasks/day).
+
+**Validation rules (registration-time, lightweight):** (1) tier-1: no `:param`, non-empty `map`; (2) tier-1 is **never** warned for lacking write tools (corrects an earlier requirement — a map page is legitimately read-only); (3) tier-2: ≥1 `:param`, ≥1 write tool, non-empty `instructions`; (4) `entry` must be a tier-1 page; (5) PAGE `params` keys ≡ declared `:param` keys; (6) `data` must always be present (loading/error count).
+
+**Deprecation semantics may differ by tier — and should.** Tier-1 sessions hold no record identity and reload data on every visit, so deprecating them eagerly (reopen = new session, §9.1.1) loses nothing; tier-2 sessions carry a record's execution context, so the existing protocol (release leases → deprecate → create, §3.5.3) already covers the dangerous part. This dissolves the rapid-reopen race: worst case is "the map was read twice"; no debounce or merge machinery needed.
+
+**Conflicts found in current code** (recorded only, no code touched this round): PAGE block shape lacks URL/data/map; "write once, never appended" leaves no channel for `PAGE-DATA`; registration does not enforce tiers (literal `/apps/twin/task/1` detail-style page, `entry` may point at a parametrised page); G7's `load` does not exist yet.
+
+---
+
 ## 4. Applications and the task center
 
 ### 4.1 What it is, and is not
