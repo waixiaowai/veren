@@ -1168,6 +1168,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
         version: 3.18.4
+      '@veren/prompt-page':
+        specifier: workspace:^
+        version: link:../../packages/prompt-page
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
@@ -1214,9 +1217,6 @@ importers:
       '@veren/prompt-host-messages':
         specifier: workspace:^
         version: link:../../packages/prompt-host-messages
-      '@veren/prompt-page':
-        specifier: workspace:^
-        version: link:../../packages/prompt-page
       '@veren/task-center':
         specifier: workspace:^
         version: link:../task-center
@@ -1999,6 +1999,10 @@ importers:
         version: 5.0.4(@types/node@26.6.5)(vite@7.3.7(@types/node@26.6.5)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.1))
 
   plugins/page-registry:
+    dependencies:
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
@@ -2027,9 +2031,6 @@ importers:
       vitest:
         specifier: ^5.0.4
         version: 5.0.4(@types/node@26.6.5)(vite@7.3.7(@types/node@26.6.5)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.1))
-      zod:
-        specifier: 4.4.3
-        version: 4.4.3
 
   plugins/page-sync-bench:
     dependencies:
@@ -2418,6 +2419,9 @@ importers:
       '@deepseek-ai/dsh-brand':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
@@ -2483,6 +2487,9 @@ importers:
 
   plugins/startup-autostart-recovery:
     dependencies:
+      '@deepseek-ai/dsh-brand':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
         version: 3.18.4
@@ -2496,9 +2503,6 @@ importers:
       '@deepseek-ai/dsh-api-session-controller':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(1b607bd8db380f1d04dac69eb6cb8abc)
-      '@deepseek-ai/dsh-brand':
-        specifier: 0.2.1-rc.2
-        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
       '@deepseek-ai/dsh-llm':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
@@ -2643,6 +2647,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
         version: 3.18.4
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5

@@ -138,8 +138,24 @@ function resolveWorkspaceSibling(name, fromDir) {
   for (const base of [fromDir, root]) {
     try {
       const require = createRequire(join(base, 'package.json'))
-      const manifestFile = require.resolve(`${name}/package.json`)
-      return relativeToRoot(dirname(manifestFile))
+      // 不是每个包都在 exports 里放行 ./package.json（如 @veren/core）；
+      // 先按子路径解析，失败再按主入口解析后上溯到包根。
+      // Not every package exposes ./package.json in its exports (e.g.
+      // @veren/core); resolve the subpath first, then fall back to the main
+      // entry and walk up to the package root.
+      try {
+        const manifestFile = require.resolve(`${name}/package.json`)
+        return relativeToRoot(dirname(manifestFile))
+      } catch {
+        const entryFile = require.resolve(name)
+        let dir = dirname(entryFile)
+        while (!existsSync(join(dir, 'package.json'))) {
+          const parent = dirname(dir)
+          if (parent === dir) throw new Error(`no package.json above ${entryFile}`)
+          dir = parent
+        }
+        return relativeToRoot(dir)
+      }
     } catch {
       // 换下一个起点再试 / try the next resolution base
     }
