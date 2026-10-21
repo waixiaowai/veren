@@ -1,3 +1,4 @@
+/** @jsxRuntime automatic @jsxImportSource @veren/prompt-core */
 /**
  * 页面作者词汇层：definePage / 动态 preset 构建 / 内置块组件（TSX）
  * Page-authoring vocabulary: definePage / dynamic preset builder / built-in block components.

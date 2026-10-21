@@ -1,3 +1,4 @@
+/** @jsxRuntime automatic @jsxImportSource @veren/prompt-core */
 /**
  * 应用的三个页面：列表 / 详情 / 发布（defineAppPage，URL 统一 /apps/task-workbench/...）。
  * The app's three pages: list / detail / publish via defineAppPage.

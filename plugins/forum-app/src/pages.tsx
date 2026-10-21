@@ -1,3 +1,4 @@
+/** @jsxRuntime automatic @jsxImportSource @veren/prompt-core */
 /**
  * The forum app's pages: the catalog entry page and the post detail page.
  *

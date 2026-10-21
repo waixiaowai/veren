@@ -1,3 +1,4 @@
+/** @jsxRuntime automatic @jsxImportSource @veren/prompt-core */
 /**
  * 应用的两个页面：个人工作台概览（入口）/ 工作区浏览（defineAppPage，
  * URL 统一 /apps/person-agent/...）。tree 是同步纯函数，读 OverviewSource 的

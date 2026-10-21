@@ -47,9 +47,11 @@ const PACKAGES = [
   ['plugins/device-id-mac', '@veren/device-id-mac'],
   ['plugins/device-id-linux', '@veren/device-id-linux'],
   ['plugins/forum', '@veren/forum'],
+  ['plugins/forum-app', '@veren/forum-app'],
   ['plugins/forum-ui', '@veren/forum-ui'],
   ['plugins/forum-bundle', '@veren/forum-bundle'],
   ['plugins/notebook', '@veren/notebook'],
+  ['plugins/notebook-app', '@veren/notebook-app'],
   ['plugins/notebook-ui', '@veren/notebook-ui'],
   ['plugins/notebook-bundle', '@veren/notebook-bundle'],
   ['plugins/startup-autostart', '@veren/startup-autostart'],
@@ -61,6 +63,8 @@ const PACKAGES = [
   ['plugins/auth', '@veren/web-login-gate'],
   ['plugins/session-fork-enhanced', '@imeep/dsh-session-fork-enhanced'],
   ['plugins/cms-bridge', '@veren/cms-bridge'],
+  ['plugins/sub2api-admin', '@veren/sub2api-admin'],
+  ['plugins/sub2api-admin-bundle', '@veren/sub2api-admin-bundle'],
   // Person Agent stack: packed so @veren/person-agent-bundle installs from the
   // same local tarball set as the other bundles.
   // 管家栈：打包进同一套本地 tarball，让 @veren/person-agent-bundle 与其他组合包一致安装。

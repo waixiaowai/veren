@@ -10,6 +10,51 @@
 
 ## 〇、真机验证补充（2026-10-21，稳定测试节点）
 
+### 第六轮真机验证（2026-10-21 14:40–15:45，逐回合 PAGE-DATA 注入专项）
+
+**目的**：在真实宿主上回答一个问题——**"数据变了，模型下一轮知道吗？"**（`e4941f4` 逐回合注入此前只有
+测试证据）。结论：**五项全部 PASS，"数据变了 → 下一轮模型请求里就有新数据的 PAGE-DATA → 模型据此行动"
+在真机上成立。**
+
+**验证基线 = 主工作树**（`pnpm -r --workspace-concurrency=1 test` 全绿、`pnpm check` 全过）。
+
+**本轮修复（我们自己的代码，均为真机首验暴露）**：
+
+1. **宿主加载的页面 TSX 抛 `React is not defined`（`app_open` 首次调用即失败）**。根因：真实宿主以
+   `node --import tsx/esm` 加载插件源码，而 **tsx 按 cwd 链发现 tsconfig，与被编译文件位置无关**
+   （三态对照实验钉死：同一文件，cwd 在 tsconfig 目录 → automatic 生效；cwd 在仓库根（链上无
+   tsconfig.json）→ 退回 esbuild 默认 classic JSX，页面树一执行就炸）。此前从未暴露是因为 vitest
+   的 cwd 恰好等于包目录、tsconfig 总能命中——"单独跑才过"的反面：**换了个 cwd 才炸**。修复：6 个
+   宿主侧含 JSX 的源文件（task-workbench/sub2api-admin/forum-app/person-agent-app/page-sync-bench
+   页面 + prompt-page 内置块）头部加 `/** @jsxRuntime automatic @jsxImportSource @veren/prompt-core */`，
+   让编译不再依赖任何 tsconfig 发现结果；新增 `packages/prompt-page/tests/jsx-runtime-pragma.spec.ts`
+   双层防回归（静态契约扫描 + 用宿主同款 tsx、以仓库根为 cwd 真实加载并执行页面树的行为测试）。
+2. **打包清单缺 sub2api 两包**：`pack-local-plugins.mjs` 补 `sub2api-admin`/`sub2api-admin-bundle`
+   （此前 profile 里的 sub2api tarball 是上轮手工产物，不在受管清单内）。安装面自证：重打包 42 个
+   tarball → 删 profile `node_modules\@veren` 与 `pnpm-lock.yaml` 强制重装 → 5 个改码包的安装产物
+   逐一 `Select-String` 命中 pragma；`fsutil hardlink list` 各只列出自身路径，零共享 inode。
+
+**真机过程**（源码构建 9 gates → `dsh web --port 3080 --no-open` + CDP 无头 Chrome 驱动真实模型会话，
+deepseek-account/deepseek-flash）：
+
+| # | 项 | 结论 | 证据（list 页会话 `29a6241c` 的真实会话日志，多帧 zstd 解出） |
+| --- | --- | --- | --- |
+| 1 | 数据变化 → 下一轮注入新数据 | **PASS** | seq 11 = PAGE-DATA **v1**（5 条任务全 `open`）；模型 turn 1 调 `take_task`×5 后，seq 28 = **v6**（5 条全 `taken` ownerId=model）；再 `complete_task`×5 后 seq 43 = **v11**（全 `done`）——每次 store 变化后，下一 step 的模型请求里出现带新数据的块，source 均为 `page/data`。 |
+| 2 | 模型行为随数据改变 | **PASS** | publish 页会话经 `page_send` 执行 `publish_task` 发布「验收探针任务-R6」后，向 list 会话投递"列出清单并指出是否有含『探针』的任务"；模型**零工具调用**，回复"一共有 6 条任务……6. 验收探针任务-R6……明确结论：是"（seq 55，reasoning 亦写明 "Current snapshot shows 6 tasks"）。t-6 的 id/标题/status/进度**只存在于 PAGE-DATA v12**（seq 53），模型历史里任何旧消息都没有——它只能是从注入块里读到的。 |
+| 3 | 无变化 → 零注入 | **PASS** | 连续两轮向 list 会话投递"不要用工具，直接回复"的 page/send 消息：轮 3 = seq 62（page/send）+ seq 64（回复"第一条收到"），轮 4 = seq 71 + seq 73（"第二条收到"），**两条轮次均无任何 `page/data` 消息**（版本门控：cursor 已到 v12，store 未变 → 不注入）。 |
+| 4 | 截断生效、上下文不爆 | **PASS** | profile patch 临时把 app-host 配为 `pageDataMaxItems: 3 / pageDataMaxBytes: 350`（验后已还原），重启后新开 list 会话 `1bfe8d0b`：首个 PAGE-DATA（seq 11）data = `{"static":["任务工作台 · 列表页"],"fields":{},"collections":{},"truncated":true}`——tasks 段整体放不下即整段丢弃并带截断标记，块文本仅 ~150 字符，`truncated: true` 真实出现在模型请求里。 |
+| 5 | page_send 与 PAGE-DATA 的顺序 | **PASS** | seq 50 `agent/inbox/spliced` 插入 page/send 消息 → seq 52 该消息作为 user/message 落日志（source `page/send`）→ seq 53 PAGE-DATA v12（source `page/data`）：**持久化消息在前、注入块在后**，与测试钉住的顺序一致。 |
+
+**宿主与端口**：验完已关，3080/9222 均无监听；无头 Chrome（临时 user-data-dir）进程与
+`.tmp-cdp-profile` 已清理；本轮全部临时脚本/目录已删除。`~/.dsh` 零改动自证：本轮所有命令只指向
+源码检出与 `deepseek\.dsh`；递归扫描 `~/.dsh` 近 2.5 小时的 24 个 mtime 变化文件全部是 54224 桌面
+实例自身写的（本 GUI 会话的会话日志/投影、桌面 GUI 设置层 `profiles/desktop/cordis.patch.yml` 与
+`storages/workspace.json`——桌面运行时持久化自身状态，验证命令没有产生其中任何一条）。
+
+**对标题问题的最终回答**：现在可以明确说——**页面是活的**：真实宿主里，页面权威数据集的每一次变化
+都会在下一回合以带新数据的 PAGE-DATA 块进入对应页面会话的模型请求，无变化时零打扰，超限时确定性
+截断并标记，且模型已被证实据此改变回答。
+
 ### 第三轮真机验证（2026-10-21 02:20–02:50，G13 显式接线修复后）
 
 > 本小节是第三轮；以下「验证基线/安装与隔离/A–F」各段为第二轮记录，保留作对照。

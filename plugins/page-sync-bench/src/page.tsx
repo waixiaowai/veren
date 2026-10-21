@@ -1,3 +1,4 @@
+/** @jsxRuntime automatic @jsxImportSource @veren/prompt-core */
 /**
  * 任务中心三页面：列表 / 详情 / 发布（TSX 组件 + 事件 + 动态 preset 声明）
  * Task-center pages: list / detail / publish (TSX components + events + dynamic preset)

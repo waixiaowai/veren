@@ -1,3 +1,4 @@
+/** @jsxRuntime automatic @jsxImportSource @veren/prompt-core */
 /**
  * 应用的九个页面：指挥台 / 渠道 / 分组 / 用户 / 订阅 / 资金 / 卡密 / 账号 / 用量。
  * The app's nine pages: home / channels / groups / users / subscriptions /
