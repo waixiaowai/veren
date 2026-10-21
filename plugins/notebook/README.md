@@ -39,31 +39,28 @@ overwriting a newer edit.
 
 ## The notebook application
 
-The plugin declares the application registry (`ctx.apps`) as a **hard inject**
-(G13): where the host mounts it, the plugin registers the `notebook`
-application — an entry list page and a note detail page under
-`/apps/notebook/...`, with page-scoped tools that carry the `notebook__`
-prefix. Where the framework is absent the whole plugin stays pending (no
-half-activation); the old "probe for `apps`, run tools only" degrade channel
-never worked on a live host (the property guard attributes accesses to the
-accessed context's owner, so the access itself throws), and the real
-framework-absent isolation is G2's package split. The `app.enabled` config
-flag remains the explicit switch: with it off the app layer is not registered
-and the global tools keep working.
+The application face (the `notebook` app with `/apps/notebook/...` pages and
+`notebook__*` page tools) lives in the separate **`@veren/notebook-app`**
+package (G2 package split). This Host declares **no** application-framework
+inject at all (G2): it activates — with the global `notebook_*` tools — even in
+headless deployments where the framework is absent, and `tests/app.spec.ts`
+locks that contract (activation with no `apps` service present, tools working
+end to end, and no inject/wait warning). Installing `@veren/notebook-app` is
+what turns the notebook into an app; that package hard-injects the framework
+and the `notebook` service.
 
 | Page | URL | Page tools |
 | --- | --- | --- |
 | Note list (entry) | `/apps/notebook/list` | `notebook__list_notes`, `notebook__write_note` |
 | Note detail | `/apps/notebook/note/:noteId` | `notebook__read_note`, `notebook__rewrite_note`, `notebook__delete_note` |
 
-Registration is single-entry: `src/app.ts` calls `ctx.apps.register`,
-`ctx.apps.tools(id).define`, and `ctx.apps.pages(id).register` only; the page
-registrar mirrors into the page registry internally, so the app is never
-visible in the catalog without also being resolvable by URL. Registration runs
-inside one `ctx.effect` whose body rolls finished steps back in reverse when a
-later one fails (no half-wiring), and the whole layer tears down in reverse
-order when the plugin unloads. Sourcing the app requires `@veren/app-registry`,
-`@veren/page-registry`, and `@veren/prompt-page` as peers.
+Registration is single-entry: `notebook-app`'s `src/app.ts` calls
+`ctx.apps.register`, `ctx.apps.tools(id).define`, and
+`ctx.apps.pages(id).register` only; the page registrar mirrors into the page
+registry internally, so the app is never visible in the catalog without also
+being resolvable by URL. Registration runs inside one `ctx.effect` whose body
+rolls finished steps back in reverse when a later one fails (no half-wiring),
+and the whole layer tears down in reverse order when the plugin unloads.
 
 ## Storage
 

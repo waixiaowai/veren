@@ -1,77 +1,39 @@
 /**
- * Composition specs for the notebook application layer, mounted on the shared
- * @veren/test-support host: a real cordis Context, a real NotebookService over
- * the real storage stack (temp directory), and the real
- * AppRegistryService/PageRegistryService with the mirror seam wired by the
- * harness. They lock the acceptance face: the app is discoverable and active,
- * the entry URL resolves, every page URL lives under /apps/notebook/, page
- * tools carry the notebook__ prefix, registration is single-entry (catalog
- * pages and page-registry pages match one to one), and teardown strips both
- * sides.
+ * Framework-absent deployment specs for the notebook host (the G2 acceptance
+ * face, "framework absent" half): the host no longer declares `apps`, so on a
+ * context with no application framework at all the service must still
+ * activate, the global `notebook_*` tools must register and work end to end,
+ * and the activation must raise no inject/wait warning. The "framework
+ * present" half lives in `@veren/notebook-app`'s own suite.
  *
- * 记事本应用层的组合测试，搭在共享的 @veren/test-support 宿主上：真实 cordis
- * Context、真实存储栈（临时目录）上的 NotebookService，以及由测试基建接好镜像缝
- * 的真实 AppRegistryService/PageRegistryService。用例锁定验收面：应用可发现且
- * active、入口 URL 可解析、页面 URL 全在 /apps/notebook/ 下、页面工具带
- * notebook__ 前缀、单入口注册（应用目录与页面注册表一一对应），以及卸载时两侧
- * 摘干净。
+ * 记事本宿主的「框架缺席」部署用例（G2 验收面的缺席半边）：宿主不再声明 `apps`，
+ * 因此在完全没有应用框架的上下文上，服务必须照常激活、全局 `notebook_*` 工具必须
+ * 登记且端到端可用、激活过程不得产生任何注入等待告警。「框架在场」半边在
+ * `@veren/notebook-app` 自己的套件里。
  */
 
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { Fiber } from '@deepseek-ai/cordis'
-import { AppRegistryService } from '@veren/app-registry'
-import { PageRegistryService } from '@veren/page-registry'
-import type { PageDefinition } from '@veren/prompt-page'
-import { expectPagesRegisteredOnce, mountAppHost } from '@veren/test-support'
-import type { AppHost } from '@veren/test-support'
+import { Context, type Fiber } from '@deepseek-ai/cordis'
+import * as Storage from '@deepseek-ai/dsh-storage'
+import * as StorageJson from '@deepseek-ai/dsh-storage-json'
+import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import NotebookService, { Config } from '../src/index.ts'
-import { APP_DEFINITION, APP_ID } from '../src/app.ts'
-import type { NoteSummary, NoteView } from '../src/types.ts'
 
-/** One app tool as the specs drive it: only the face the calls need. 用例驱动的应用工具：只取调用所需的面。 */
-interface AppTool {
-  readonly name: string
-  execute(args: unknown, exec: unknown): Promise<unknown>
-}
+/** The roots one spec's temp storage lives under, removed after the spec. 每条用例的临时存储根，测后删除。 */
+const roots: string[] = []
 
-/** The app tools in registration order. 按注册顺序的应用工具名。 */
-const TOOL_NAMES = ['list_notes', 'read_note', 'write_note', 'rewrite_note', 'delete_note']
-
-/** Hosts mounted by one test, disposed newest-first after it. 一条用例挂的宿主，测后逆序拆除。 */
-const hosts: AppHost[] = []
-
-afterEach(async () => {
-  for (const host of hosts.reverse()) await host.dispose()
-  hosts.length = 0
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-/** 挂共享宿主并启动配置驱动的记事本服务。Mount the shared host and start the notebook service with a resolved config. */
-async function mountWithConfig(appEnabled: boolean): Promise<{
-  host: AppHost
-  fiber: Fiber
-  apps: AppRegistryService
-  pageRegistry: PageRegistryService
-}> {
-  const host = await mountAppHost({ storage: true })
-  hosts.push(host)
-  const fiber: Fiber = await host.ctx.plugin(NotebookService, Config({
-    tools: { enabled: true },
-    app: { enabled: appEnabled },
-  }))
-  if (host.apps === undefined || host.pageRegistry === undefined) {
-    throw new Error('registries were not mounted')
-  }
-  return { host, fiber, apps: host.apps, pageRegistry: host.pageRegistry }
-}
-
-/** 挂共享宿主（注册表 + 镜像面 + 临时目录上的真实存储）并启动记事本服务。Mount the shared host (registries + mirror + real storage over a temp dir) and start the notebook service. */
-async function mount(): Promise<{
-  host: AppHost
-  fiber: Fiber
-  apps: AppRegistryService
-  pageRegistry: PageRegistryService
-}> {
-  return mountWithConfig(true)
+/** One temporary storage root, removed after the spec. 测试结束后删除的一个临时存储根目录。 */
+function tempRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), 'notebook-headless-'))
+  roots.push(root)
+  return root
 }
 
 /** The execution context one tool call carries. 一次工具调用携带的执行上下文。 */
@@ -84,122 +46,91 @@ function toolValue<T>(result: unknown): T {
   return result as T
 }
 
-describe('应用可发现与可解析 / discoverable and resolvable', () => {
-  it('ctx.apps.catalog() 发现 notebook：active、toolPrefix=notebook', async () => {
-    const { apps, fiber } = await mount()
+/** One registered global tool as the specs drive it. 用例驱动的全局工具。 */
+interface RegisteredTool {
+  readonly name: string
+  execute(args: Record<string, unknown>, exec?: { agent?: unknown }): Promise<unknown>
+}
 
-    const record = apps.get(APP_ID)
-    expect(record).toBeDefined()
-    expect(record?.state).toBe('active')
-    expect(record?.toolPrefix).toBe('notebook')
-    expect(apps.catalog().map((app) => app.definition.id)).toContain('notebook')
+/** The global tools in registration order. 按注册顺序的全局工具名。 */
+const TOOL_NAMES = [
+  'notebook_list', 'notebook_read', 'notebook_create', 'notebook_update', 'notebook_delete',
+]
 
+/**
+ * Mount the real storage stack and the host service on a context that carries
+ * no application framework at all, capturing every logger line emitted while
+ * the activation settles.
+ * 在一个完全不带应用框架的上下文上挂载真实存储栈与宿主服务，并捕获激活稳定期间产生的
+ * 每一条日志。
+ */
+async function mountFrameworkAbsent(): Promise<{
+  ctx: Context
+  fiber: Fiber
+  tools: Map<string, RegisteredTool>
+  lines: string[]
+}> {
+  const ctx = new Context()
+  const tools = new Map<string, RegisteredTool>()
+  ctx.provide('tools', {
+    register(tool: RegisteredTool) {
+      tools.set(tool.name, tool)
+      return () => { tools.delete(tool.name) }
+    },
+  } as unknown as Context['tools'])
+  ctx.provide('agentPresets', {
+    list: async () => [],
+    composedPreset: (agentContext: { preset?: string }) => agentContext.preset,
+  })
+  // No 'apps', no 'pageRegistry', no 'taskCenter': this context IS the
+  // framework-absent deployment.
+  // 没有 'apps'、'pageRegistry'、'taskCenter'：这个上下文就是框架缺席的部署。
+  await ctx.plugin(Storage.default)
+  await ctx.plugin(StorageJson, { root: tempRoot() })
+  await ctx.plugin(StorageDomain, { backend: 'json' })
+
+  const lines: string[] = []
+  const warn = console.warn
+  const error = console.error
+  console.warn = (line: unknown, ...rest: unknown[]) => { lines.push([line, ...rest].map(String).join(' ')) }
+  console.error = (line: unknown, ...rest: unknown[]) => { lines.push([line, ...rest].map(String).join(' ')) }
+  try {
+    const fiber = await ctx.plugin(NotebookService, Config({ tools: { enabled: true } }))
+    return { ctx, fiber, tools, lines }
+  } finally {
+    console.warn = warn
+    console.error = error
+  }
+}
+
+describe('框架缺席仍能激活 / activates without the framework', () => {
+  it('无应用框架时宿主照常激活，无任何注入等待告警', async () => {
+    const { ctx, fiber, lines } = await mountFrameworkAbsent()
+
+    // The framework really is absent on this context.
+    // 框架确实缺席。
+    expect(ctx.get('apps')).toBeUndefined()
+    expect(ctx.get('pageRegistry')).toBeUndefined()
+    // The host activated anyway and [Service.init] ran.
+    // 宿主照样激活，[Service.init] 已执行。
+    expect(ctx.notebook).toBeDefined()
     await fiber.dispose()
+    expect(lines).toHaveLength(0)
   })
 
-  it('入口页 URL 合法（/apps/notebook/list）且能被 page-registry 解析', async () => {
-    const { apps, pageRegistry, fiber } = await mount()
+  it('框架缺席时全局 notebook_* 工具照常登记并端到端可用', async () => {
+    const { fiber, tools } = await mountFrameworkAbsent()
 
-    const entryKey = APP_DEFINITION.entry
-    const entry = apps.listPages(APP_ID).find((page) => page.name === entryKey)
-    expect(entry?.url).toBe('/apps/notebook/list')
-    // pageKey 命名（见 registerAppPage）/ pageKey naming (see registerAppPage)
-    expect(pageRegistry.resolve('/apps/notebook/list')?.page.name).toBe('notebook/list')
-    const match = pageRegistry.resolve('/apps/notebook/note/n-7?focus=chat')
-    expect(match?.params).toEqual({ noteId: 'n-7', focus: 'chat' })
-
-    await fiber.dispose()
-  })
-
-  it('两页 URL 全部在 /apps/notebook/ 下，页面不绑定预设', async () => {
-    const { apps, fiber } = await mount()
-
-    for (const page of apps.listPages(APP_ID)) {
-      expect(page.url.startsWith('/apps/notebook/')).toBe(true)
-      expect(page.pageRevision).toBeGreaterThanOrEqual(1)
-      expect('preset' in page).toBe(false)
-    }
-    const note = apps.listPages(APP_ID).find((page) => page.name === 'note') as PageDefinition<NoteView | undefined>
-    expect(note.url).toBe('/apps/notebook/note/:noteId')
-    expect(note.instanceTitle?.({ noteId: '7' })).toBe('笔记 #7')
-
-    await fiber.dispose()
-  })
-})
-
-describe('应用工具 / app tools', () => {
-  it('页面工具对外名带 notebook__ 前缀', async () => {
-    const { apps, fiber } = await mount()
-
-    expect(apps.listTools(APP_ID).map((tool) => tool.externalName)).toEqual(
-      TOOL_NAMES.map((name) => `notebook__${name}`),
+    expect([...tools.keys()]).toEqual(TOOL_NAMES)
+    // The global capability face works end to end without any framework.
+    // 全局能力面在没有任何框架的情况下端到端可用。
+    const created = toolValue<{ note: { id: string } }>(
+      await tools.get('notebook_create')?.execute({ title: 'headless', body: 'still works' }, execution('ada')),
     )
-
-    await fiber.dispose()
-  })
-
-  it('页面工具经真实 NotebookService 读写调用者自己的笔记', async () => {
-    const { apps, fiber } = await mount()
-    const exec = execution('ada')
-    const toolOf = (name: string): AppTool => apps.listTools(APP_ID).find((tool) => tool.name === name)!
-
-    const created = toolValue<{ note: NoteView }>(
-      await toolOf('write_note').execute({ title: 'Plan', body: 'first draft' }, exec),
+    const listed = toolValue<{ notes: Array<{ id: string }> }>(
+      await tools.get('notebook_list')?.execute({}, execution('ada')),
     )
-    expect(created.note).toMatchObject({ title: 'Plan', body: 'first draft' })
-
-    const listed = toolValue<{ notes: NoteSummary[] }>(await toolOf('list_notes').execute({}, exec))
     expect(listed.notes.map((note) => note.id)).toEqual([created.note.id])
-    await expect(toolOf('read_note').execute({ id: created.note.id }, execution('bob')))
-      .rejects.toMatchObject({ code: 'notebook/note-not-found' })
-
-    await fiber.dispose()
-  })
-
-  it('单入口注册一致：应用目录的页面与 page-registry 可解析的页面一一对应', async () => {
-    const { apps, pageRegistry, fiber } = await mount()
-
-    const listed = apps.listPages(APP_ID).map((page) => `${APP_ID}/${page.name}`).sort()
-    const resolved = apps.listPages(APP_ID)
-      .map((page) => pageRegistry.resolve(page.url)?.page.name)
-      .sort()
-    // pageKey 命名（见 registerAppPage）/ pageKey naming (see registerAppPage)
-    expect(resolved).toEqual(listed)
-    // 断言助手：双向核对（每页可解析且名字一致；前缀下没有目录外页面）。
-    // Assertion helper: both directions (each page resolves with the same
-    // name; nothing under the prefix lives outside the catalog).
-    expectPagesRegisteredOnce(apps, pageRegistry, APP_ID)
-    // 没有目录外的第 /apps/notebook/ 注册（没有第二条注册路径）
-    expect(pageRegistry.catalog().filter((row) => row.url.startsWith('/apps/notebook/'))).toHaveLength(listed.length)
-
-    await fiber.dispose()
-  })
-})
-
-describe('生命周期 / lifecycle', () => {
-  it('插件 fiber 销毁 → 应用从 catalog 与 URL 索引同时摘除', async () => {
-    const { apps, pageRegistry, fiber } = await mount()
-
-    await fiber.dispose()
-    expect(apps.catalog()).toHaveLength(0)
-    expect(pageRegistry.resolve('/apps/notebook/list')).toBeNull()
-    expect(pageRegistry.resolve('/apps/notebook/note/n-1')).toBeNull()
-  })
-
-  it('config.app.enabled=false：应用层不注册，全局工具照常（显式配置，非运行期探测）', async () => {
-    // 应用框架是声明的硬 inject（G13），"apps 缺席照常激活"的降级通道并不存在；
-    // 真正的开关是配置：关掉应用层，全局 `notebook_*` 工具照常登记。
-    // The app framework is a declared hard inject (G13); no "activate without
-    // apps" degrade channel exists. The real switch is config: with the app
-    // layer off, the global `notebook_*` tools still register.
-    const { host, apps, fiber } = await mountWithConfig(false)
-
-    expect(apps.catalog()).toHaveLength(0)
-    // 全局工具照常登记进宿主工具表：恰好五条、全部带 notebook 前缀。
-    // Global tools still land in the host tool table: exactly five, all
-    // carrying the notebook prefix.
-    expect(host.tools.names()).toHaveLength(TOOL_NAMES.length)
-    for (const name of host.tools.names()) expect(name.startsWith('notebook')).toBe(true)
 
     await fiber.dispose()
   })

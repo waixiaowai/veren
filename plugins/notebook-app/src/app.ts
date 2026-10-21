@@ -5,21 +5,21 @@
  *
  * Single-entry registration: `ctx.apps.pages(id).register(page)` mirrors every
  * page into the page registry internally, so this file never calls
- * `ctx.pageRegistry.registerAppPage` itself. The app registry (`ctx.apps`) is a
- * declared hard inject of the owning service (G13): where the application
- * framework is absent the whole plugin stays pending instead of half-activating
- * — the framework-absent isolation this layer needs is G2's package split, not
- * a runtime probe.
+ * `ctx.pageRegistry.registerAppPage` itself.
  *
  * 记事本应用层：`notebook` 应用、它的两个页面与应用级页面工具，经宿主应用注册表
  * （`ctx.apps`）注册，写法与 task-workbench 一致。
  *
  * 单入口注册：`ctx.apps.pages(id).register(page)` 会在内部把页面镜像进页面注册表，
- * 因此本文件绝不直接调用 `ctx.pageRegistry.registerAppPage`。应用注册表（`ctx.apps`）
- * 是所属服务声明的硬 inject（G13）：应用框架缺席时整个插件保持 pending，而不是半激活——
- * 这层"框架缺席也能激活"的隔离属 G2 的拆包工作，不是运行期探测。
+ * 因此本文件绝不直接调用 `ctx.pageRegistry.registerAppPage`。
  *
- * @module @veren/notebook/app
+ * 本文件整体从 `@veren/notebook` 的应用面迁入（G2 拆包）：应用层独立成包，宿主包在
+ * 框架缺席的部署里照常激活。
+ * This file moved verbatim from the `@veren/notebook` app face (G2 split): the
+ * application layer is its own package, so the host package activates even in
+ * framework-absent deployments.
+ *
+ * @module @veren/notebook-app/app
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -32,8 +32,8 @@ import type { PageDefinition } from '@veren/prompt-page'
 // 仅类型导入：把 `ctx.apps` / `ctx.pageRegistry` 的声明拉进本文件。
 import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
-import { DELETE_SCHEMA, LIST_SCHEMA, NOTE_SCHEMA, notebookToolValue, renderValue } from './tools.ts'
-import type { NoteSummary, NoteView, NotebookToolsPort } from './types.ts'
+import { DELETE_SCHEMA, LIST_SCHEMA, NOTE_SCHEMA, notebookToolValue, renderValue } from '@veren/notebook'
+import type { NoteSummary, NoteView, NotebookToolsPort } from '@veren/notebook'
 
 // ---- 应用定义 / the application definition ----
 

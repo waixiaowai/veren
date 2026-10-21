@@ -8,11 +8,11 @@
  * every call. The panel does take an owner because a human is choosing whose
  * notebook to read, which is the requested behaviour rather than a hole.
  *
- * Storage failure degrades rather than throws. The application layer requires
- * the app framework as a declared hard inject (`apps`): where the framework is
- * absent the whole plugin stays pending — the tools-only isolation that used to
- * be a runtime probe was never real on a live host (G13) and belongs to G2's
- * package split.
+ * Storage failure degrades rather than throws. The application layer lives in
+ * the separate `@veren/notebook-app` package (G2 package split): this host no
+ * longer injects the app framework, so the global `notebook_*` tools — the
+ * capability that must survive headless deployments — stay available wherever
+ * the host activates.
  *
  * 记事本：每个 agent 预设一本私密、持久的记事本。
  *
@@ -21,9 +21,9 @@
  * 归属参数，而是在每次调用时从活着的 Agent 解析；面板接受归属，因为人本来就要选择看谁的记事本，
  * 这是需求本身，不是漏洞。
  *
- * 存储失败只降级不抛出。应用层把应用框架声明为硬 inject（`apps`）：框架缺席时整个插件
- * 保持 pending——过去"运行期探测 apps 缺席则只跑工具"的降级在真实宿主上从未生效（G13），
- * 真正的隔离属 G2 的拆包工作。
+ * 存储失败只降级不抛出。应用层住在独立的 `@veren/notebook-app` 包里（G2 拆包）：本宿主不再
+ * inject 应用框架，因此全局 `notebook_*` 工具——headless 部署里必须存活的那个能力——在宿主
+ * 激活的任何地方都可用。
  *
  * @module @veren/notebook
  */
@@ -38,7 +38,6 @@ import {
   NotebookError, applyUpdate, buildNote, ensureExpected, noteKey, noteView, notesOf, ownersOf,
   requireOwner, requireOwned, summariesOf, validateCreate, validateUpdate,
 } from './notes.ts'
-import { registerNotebookApp } from './app.ts'
 import { registerNotebookTools } from './tools.ts'
 // Type-only: pulls the `ctx.agentPresets` service declaration into this face.
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
@@ -62,9 +61,6 @@ export const Config = z.object({
   tools: z.object({
     enabled: z.boolean().default(true),
   }).default({ enabled: true }),
-  app: z.object({
-    enabled: z.boolean().default(true),
-  }).default({ enabled: true }),
 })
 
 /**
@@ -76,12 +72,13 @@ export const Config = z.object({
  * Remote namespace instead, and every owner-scoped read is a plain table query.
  */
 export class NotebookService extends TypertRemoteService {
-  // `apps` is the application registry: the notebook exposes itself as an app
-  // (pages + app-scoped tools) and therefore requires the app framework as a
-  // hard inject (G13) — no runtime probing, no absent-degrade branch.
-  // `apps` 是应用注册表：记事本把自己暴露为一个应用（页面 + 应用级工具），
-  // 因此把应用框架声明为硬 inject（G13）——不做运行期探测，没有缺席降级分支。
-  static inject = ['storageDomain', 'tools', 'agentPresets', 'apps']
+  // The application framework (`apps`) is deliberately NOT here (G2): the app
+  // face lives in the separate `@veren/notebook-app` package, so this host
+  // activates — with its global `notebook_*` tools — even where the framework
+  // is absent.
+  // 应用框架（`apps`）刻意不在其中（G2）：应用面住在独立的 `@veren/notebook-app` 包里，
+  // 因此即使框架缺席，本宿主也照常激活——全局 `notebook_*` 工具仍在。
+  static inject = ['storageDomain', 'tools', 'agentPresets']
   static Config = Config
 
   /** The plugin's own reference to the owning Context. */
@@ -99,10 +96,6 @@ export class NotebookService extends TypertRemoteService {
     this.host = ctx
     this.ready = this.openDomain()
     if (config.tools.enabled) registerNotebookTools(ctx, () => this.toolsPort())
-    // The app face requires the framework: `apps` is a declared hard inject, so
-    // this line only runs where the framework is present.
-    // 应用面依赖应用框架：`apps` 是声明的硬 inject，因此这一行只在框架在场时执行。
-    if (config.app.enabled) registerNotebookApp(ctx, () => this.toolsPort())
   }
 
   async [Service.init](): Promise<void> {
@@ -280,8 +273,14 @@ export class NotebookService extends TypertRemoteService {
     }
   }
 
-  /** The narrow surface the model-facing tools read and write. */
-  private toolsPort(): NotebookToolsPort {
+  /**
+   * The narrow surface the model-facing tools read and write. Public by
+   * design: the application layer (`@veren/notebook-app`) rides the same port,
+   * so page tools and global tools act on one table (G2 package split).
+   * 面向模型的工具读写的窄接口。刻意公开：应用层（`@veren/notebook-app`）走同一端口，
+   * 页面工具与全局工具因此操作同一张表（G2 拆包）。
+   */
+  toolsPort(): NotebookToolsPort {
     return {
       list: owner => this.listSummaries(owner),
       read: (owner, id) => this.readNote(owner, id),
@@ -308,9 +307,15 @@ export {
   noteKey, noteSummary, noteView, notesOf, ownersOf, requireOwner, requireOwned, validateCreate, validateUpdate,
 } from './notes.ts'
 export { NOTEBOOK_DOMAIN_NAME, notebookDomain } from './storage.ts'
-export { APP_DEFINITION, APP_ID, createAppTools, listPage, notePage } from './app.ts'
+// Shared tool plumbing re-exported for the application layer
+// (`@veren/notebook-app`): the page tools are the app-scoped twin of the
+// global tools and must reuse the same helpers and schemas — never a second
+// copy (G2 split).
+// 供应用层（`@veren/notebook-app`）复用的共享工具管线再导出：页面工具是全局工具的
+// 应用级孪生，必须复用同一批助手与模式——绝不做第二份副本（G2 拆包）。
+export { DELETE_SCHEMA, LIST_SCHEMA, NOTE_SCHEMA, notebookToolValue, renderValue } from './tools.ts'
 export type {
-  NoteRecord, NoteSummary, NoteView, NotebookAppConfig, NotebookConfig, NotebookErrorCode, NotebookToolConfig, NotebookToolsPort, OwnerView,
+  NoteRecord, NoteSummary, NoteView, NotebookConfig, NotebookErrorCode, NotebookToolConfig, NotebookToolsPort, OwnerView,
 } from './types.ts'
 
 export default NotebookService

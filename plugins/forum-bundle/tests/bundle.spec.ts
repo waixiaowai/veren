@@ -56,8 +56,8 @@ describe('forum bundle metadata', () => {
     expect(manifest.files).toContain('cordis.patch.yml')
   })
 
-  it('inserts the Host before the Web page', () => {
-    expect(insertedRows().map(row => row.id)).toEqual(['forum', 'forum-ui'])
+  it('inserts the Host, then the app layer, then the Web page', () => {
+    expect(insertedRows().map(row => row.id)).toEqual(['forum', 'forum-app', 'forum-ui'])
   })
 
   it('inserts no application-framework row (G1: app-host-bundle owns them)', () => {
@@ -72,7 +72,7 @@ describe('forum bundle metadata', () => {
   })
 
   it('names the member packages that the bundle depends on', () => {
-    expect(insertedRows().map(row => row.name)).toEqual(['@veren/forum', '@veren/forum-ui'])
+    expect(insertedRows().map(row => row.name)).toEqual(['@veren/forum', '@veren/forum-app', '@veren/forum-ui'])
   })
 
   it('leaves every inserted row enabled', () => {
@@ -84,7 +84,7 @@ describe('forum bundle metadata', () => {
       dependencies?: Readonly<Record<string, string>>
     }
     expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual([
-      '@veren/app-host-bundle', '@veren/forum', '@veren/forum-ui',
+      '@veren/app-host-bundle', '@veren/forum', '@veren/forum-app', '@veren/forum-ui',
     ])
   })
 })

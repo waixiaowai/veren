@@ -18,12 +18,18 @@
  * 会在内部镜像进页面注册表；再手工调 `pageRegistry.registerAppPage` 会造出「目录
  * 可见却解析不到」的漂移，这正是单入口设计所禁止的。
  *
- * @module @veren/forum/app
+ * 本文件整体从 `@veren/forum` 的应用面迁入（G2 拆包）：应用层独立成包，宿主包在
+ * 框架缺席的部署里照常激活。
+ * This file moved verbatim from the `@veren/forum` app face (G2 split): the
+ * application layer is its own package, so the host package activates even in
+ * framework-absent deployments.
+ *
+ * @module @veren/forum-app/app
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { AppId, ApplicationDefinition, PageKey } from '@veren/app-registry'
-import type { ForumToolsPort } from './ports.ts'
+import type { ForumToolsPort } from '@veren/forum'
 import { createForumAppTools } from './app-tools.ts'
 import { catalogPage, postPage } from './pages.tsx'
 

@@ -56,22 +56,35 @@ describe('notebook bundle metadata', () => {
     expect(manifest.files).toContain('cordis.patch.yml')
   })
 
-  it('inserts the Host before the Web page', () => {
-    expect(insertedRows().map(row => row.id)).toEqual(['notebook', 'notebook-ui'])
+  it('inserts the Host, then the app layer, then the Web page', () => {
+    expect(insertedRows().map(row => row.id)).toEqual(['notebook', 'notebook-app', 'notebook-ui'])
+  })
+
+  it('inserts no application-framework row (G1: app-host-bundle owns them)', () => {
+    // The framework rows (app-registry / page-registry / task-center / app-host)
+    // are owned by @veren/app-host-bundle; re-inserting them here would
+    // double-insert whenever both bundles are installed in one profile.
+    // 框架行（app-registry / page-registry / task-center / app-host）由
+    // @veren/app-host-bundle 独占；在这里重插会在同装两个组合包时双插。
+    expect(insertedRows().map(row => row.id).filter(id =>
+      ['app-registry', 'page-registry', 'task-center', 'app-host'].includes(id ?? ''),
+    )).toEqual([])
   })
 
   it('names the member packages that the bundle depends on', () => {
-    expect(insertedRows().map(row => row.name)).toEqual(['@veren/notebook', '@veren/notebook-ui'])
+    expect(insertedRows().map(row => row.name)).toEqual(['@veren/notebook', '@veren/notebook-app', '@veren/notebook-ui'])
   })
 
   it('leaves every inserted row enabled', () => {
     for (const row of insertedRows()) expect(row.disabled).toBeUndefined()
   })
 
-  it('declares both members as runtime dependencies', () => {
+  it('depends on the framework bundle plus the three members', () => {
     const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
       dependencies?: Readonly<Record<string, string>>
     }
-    expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual(['@veren/notebook', '@veren/notebook-ui'])
+    expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual([
+      '@veren/app-host-bundle', '@veren/notebook', '@veren/notebook-app', '@veren/notebook-ui',
+    ])
   })
 })

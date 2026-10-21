@@ -1,32 +1,47 @@
 # Notebook bundle: composes the whole stack in one profile layer.
 # 记事本组合包：用一个 profile 层装好整个技术栈。
 #
-# This bundle is the ONLY profile layer of the Notebook stack: neither member
-# plugin declares `dsh.bundle.patch`, so the dsh plugin reconciliation activates
-# exactly this layer and installing the bundle can never double-insert a row.
-# Each member rides along as a plain dependency.
-# 本组合包是记事本技术栈唯一的 profile 层：两个成员插件都不声明
-# `dsh.bundle.patch`，dsh plugin 的 reconciliation 因此只会激活这一层——安装组合包
-# 绝不会重复插行。各成员只作为普通依赖随行。
+# This bundle inserts only its own members' rows. The application framework
+# (app-registry / page-registry / task-center / app-host) is owned exclusively
+# by `@veren/app-host-bundle`, which this bundle declares as a dependency: the
+# dsh plugin reconciliation adds every installed dependency that declares
+# `dsh.bundle.patch` as its own profile layer, so installing the notebook
+# bundle pulls the framework in, and `app-host` is inserted exactly once no
+# matter how many application bundles are installed alongside it (G1).
+# 本组合包只插自己成员的行。应用框架（app-registry / page-registry / task-center /
+# app-host）由 `@veren/app-host-bundle` 独占插行，而本组合包把它声明为依赖：
+# dsh plugin 的 reconciliation 会把每个声明了 `dsh.bundle.patch` 的已装依赖
+# 自己变成一个 profile 层，所以装记事本组合包会连带装上框架，且无论同装多少个
+# 应用组合包，`app-host` 行都只被插入一次（G1）。
 #
 # The bundle carries zero runtime code. Each `insert` row resolves by package
 # name from the bundle's own dependencies (pnpm installs them into the profile
-# alongside this bundle), so the two @veren plugins travel together as one
+# alongside this bundle), so the @veren plugins travel together as one
 # installable unit and can be toggled as one from the plugin manager.
 # 组合包零运行时代码。每条 `insert` 行按包名从组合包自身的 dependencies 解析
-# （pnpm 会把它们和组合包一起装进 profile），两个 @veren 插件因此作为一个可安装单元随行，
+# （pnpm 会把它们和组合包一起装进 profile），各 @veren 插件因此作为一个可安装单元随行，
 # 并在插件管理页作为一个开关整体启停。
 #
 # Row order matters: the Host first (it owns the storage domain, the `notebook`
-# Remote namespace, and the model-facing tools), then the Web page, which talks
-# to that namespace.
+# Remote namespace, and the model-facing tools), then the application layer,
+# which hard-injects `apps` and the `notebook` service, then the Web page,
+# which talks to that namespace.
 # 行顺序有讲究：先 Host（拥有存储域、`notebook` 远端命名空间与面向模型的工具），再装
-# Web 页面——页面与该命名空间通信。
+# 硬注入 `apps` 与 `notebook` 服务的应用层，最后是 Web 页面——页面与该命名空间通信。
 - insert:
-    # The Host: durable private notebooks and the `notebook_*` tools.
-    # 宿主：持久化的私密记事本与 `notebook_*` 工具。
+    # The Host: durable private notebooks and the `notebook_*` tools. It no
+    # longer injects the application framework (G2): headless deployments can
+    # install @veren/notebook alone.
+    # 宿主：持久化的私密记事本与 `notebook_*` 工具。它不再注入应用框架（G2）：
+    # headless 部署可以只装 @veren/notebook。
     - id: notebook
       name: '@veren/notebook'
+    # The application layer: the notebook as an app (list + detail pages under
+    # /apps/notebook with notebook__* page tools).
+    # 应用层：作为应用的记事本（/apps/notebook 下的列表页与详情页，带 notebook__*
+    # 页面工具）。
+    - id: notebook-app
+      name: '@veren/notebook-app'
     # Web page: the "notebook" sidebar entry and its owner/notes/editor page.
     # Web 页面：侧栏「记事本」入口及其归属/笔记/编辑器页面。
     - id: notebook-ui

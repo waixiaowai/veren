@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "@veren/prompt-core",
+    "skipLibCheck": true,
+    "exactOptionalPropertyTypes": true,
+    "paths": {
+      // The host package ships built `dist/*.js` with no declarations, so the
+      // checker reads the host's TypeScript sources instead (im/wechat
+      // precedent); at test runtime vitest aliases the same specifier to the
+      // same sources (see vitest.config.ts).
+      // 宿主包交付的是不带声明的 `dist/*.js`，因此类型检查改读宿主的 TypeScript 源码
+      // （im/wechat 先例）；测试运行时 vitest 把同一说明符别名到同一份源码（见 vitest.config.ts）。
+      "@veren/notebook": ["../notebook/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "vitest.config.ts"]
+}

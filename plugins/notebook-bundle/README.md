@@ -16,25 +16,30 @@ patch.
 - insert:
     - id: notebook
       name: '@veren/notebook'
+    - id: notebook-app
+      name: '@veren/notebook-app'
     - id: notebook-ui
       name: '@veren/notebook-ui'
 ```
 
 Order matters: the Host owns the storage domain, the `notebook` Remote namespace,
-and the tools; the page talks to that namespace.
+and the tools; the application layer hard-injects `apps` and the `notebook`
+service; the page talks to that namespace.
 
-Neither member declares `dsh.bundle.patch`, so this bundle is the stack's only
-profile layer and installing it cannot double-insert a row. The members ship as
-plain dependencies.
+The bundle declares `@veren/app-host-bundle` as a dependency: that bundle owns
+every application-framework loader row (`app-registry`, `page-registry`,
+`task-center`, `app-host`), so installing the notebook bundle pulls the
+framework in and `app-host` is inserted exactly once no matter how many
+application bundles coexist (G1 dedup contract). Installing only
+`@veren/notebook` gives a headless stack with no app face (G2 package split).
 
 ## Application layer
 
-The Host member now also registers the `notebook` application (pages under
-`/apps/notebook/...` plus `notebook__*` page tools) when the profile provides
-the application registry (`ctx.apps`). That registry is *not* a bundle member:
-compose an app-hosting bundle such as `plugins/app-host-bundle` alongside this
-one to get the pages, or install the Host alone for a tools-only notebook — the
-layer degrades to a logged warning instead of failing the profile.
+The application layer is its own member package, `@veren/notebook-app` (G2
+package split): the `notebook` app (pages under `/apps/notebook/...` plus
+`notebook__*` page tools) riding the Host service's public tools port. It is a
+separate loader row, so a profile can install the Host alone (tools only) or
+the whole stack — the boundary is visible in the plugin page either way.
 
 ## Installation
 

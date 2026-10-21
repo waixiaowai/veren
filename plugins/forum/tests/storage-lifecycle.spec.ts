@@ -19,7 +19,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { AppRegistryService } from '@veren/app-registry'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
@@ -72,12 +71,11 @@ async function boot(root: string): Promise<Context> {
   provideStub(ctx, 'workingDirectory', { get: () => undefined })
   provideStub(ctx, 'workspaceRegistry', { list: () => [] })
   provideStub(ctx, 'agentDefaultModel', { currentSelection: () => undefined })
-  // The app registry is a hard inject of the forum service; the real service
-  // keeps the app registration under test honest. The registry service is
-  // constructed on its own host context, as the real host assembly does.
-  // 应用注册表是论坛服务的硬注入；用真实服务让应用注册路径也处在被测状态。
-  // 注册表服务构造在自己的宿主上下文上，与真实宿主装配一致。
-  ctx.provide('apps', new AppRegistryService(new Context()))
+  // The application framework is deliberately NOT provided (G2): the host no
+  // longer injects `apps`, so these specs double as the framework-absent
+  // activation proof — the service activates, the domain opens, nothing waits.
+  // 刻意不提供应用框架（G2）：宿主不再 inject `apps`，因此这些用例同时就是
+  // 「框架缺席仍能激活」的证明——服务激活、域打开、没有任何等待。
   await ctx.plugin(Storage.default)
   await ctx.plugin(StorageJson, { root })
   await ctx.plugin(StorageDomain, { backend: 'json' })

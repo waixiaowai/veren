@@ -49,7 +49,6 @@ import type { AutoPostSettings, AutoPostSnapshot } from './runner.ts'
 import { AutoPostRunner } from './runner.ts'
 import { generatePost } from './compose.ts'
 import { registerForumTools } from './tools.ts'
-import { registerForumApp } from './app.ts'
 import { Config } from './config.ts'
 import type { ForumConfig } from './config.ts'
 // Type-only: pulls the declared service faces (`ctx.agentPresets`,
@@ -98,15 +97,20 @@ const HOT_LIMIT = 200
  */
 export class ForumService extends TypertRemoteService {
   // Every member is a declared hard inject (G13): the service never probes a
-  // sibling at runtime. `apps` is the application registry (the forum exposes
-  // itself as an app); `workingDirectory` / `workspaceRegistry` resolve the
-  // caller's board; `agentDefaultModel` feeds the auto-post drafting call.
-  // 每一项都是声明的硬 inject（G13）：服务绝不在运行期探测兄弟服务。`apps` 是应用
-  // 注册表（论坛把自己暴露为一个应用）；`workingDirectory` / `workspaceRegistry`
-  // 解析调用者的板块；`agentDefaultModel` 供自动发帖起草调用使用。
+  // sibling at runtime. The application framework (`apps`) is deliberately NOT
+  // here (G2): the app face lives in the separate `@veren/forum-app` package,
+  // so this host activates — with its global tools, notifications, and Remote
+  // namespace — even where the framework is absent. `workingDirectory` /
+  // `workspaceRegistry` resolve the caller's board; `agentDefaultModel` feeds
+  // the auto-post drafting call.
+  // 每一项都是声明的硬 inject（G13）：服务绝不在运行期探测兄弟服务。应用框架
+  // （`apps`）刻意不在其中（G2）：应用面住在独立的 `@veren/forum-app` 包里，
+  // 因此即使框架缺席，本宿主也照常激活——全局工具、通知与远端命名空间都在。
+  // `workingDirectory` / `workspaceRegistry` 解析调用者的板块；`agentDefaultModel`
+  // 供自动发帖起草调用使用。
   static inject = [
     'agents', 'sessions', 'storageDomain', 'systemPrompt', 'tools', 'agentPresets',
-    'llm', 'apps', 'workingDirectory', 'workspaceRegistry', 'agentDefaultModel',
+    'llm', 'workingDirectory', 'workspaceRegistry', 'agentDefaultModel',
   ]
   static Config = Config
 
@@ -144,9 +148,6 @@ export class ForumService extends TypertRemoteService {
       text: (assembly) => this.promptLine(assembly.agent?.session.id),
     })
     if (config.tools.enabled) registerForumTools(ctx, () => this.toolsPort())
-    // The app face (catalog + pages + forum__* app tools) rides the same port.
-    // 应用面（目录 + 页面 + forum__* 应用工具）走同一端口。
-    registerForumApp(ctx, () => this.toolsPort())
     // Storage and drafting faces are constructor parameters (G13): the runner
     // never probes ctx for the domain or the model.
     // 存储与起草面是构造参数（G13）：运行器绝不探测 ctx 拿域或模型。
@@ -567,8 +568,15 @@ export class ForumService extends TypertRemoteService {
     return this.runner
   }
 
-  /** The narrow surface the model-facing tools read and write. */
-  private toolsPort(): ForumToolsPort {
+  /**
+   * The narrow surface the model-facing tools read and write. Public by
+   * design: the application layer (`@veren/forum-app`) rides the same port, so
+   * the page tools and the global tools act on one record set (G2 package
+   * split — the app face is a separate plugin over this service).
+   * 面向模型的工具读写的窄接口。刻意公开：应用层（`@veren/forum-app`）走同一端口，
+   * 页面工具与全局工具因此操作同一份记录集合（G2 拆包——应用面是本服务之上的独立插件）。
+   */
+  toolsPort(): ForumToolsPort {
     return {
       catalog: request => this.catalog(request),
       detail: request => this.post(request),
@@ -620,11 +628,20 @@ export class ForumService extends TypertRemoteService {
 }
 
 export { ForumError } from './types.ts'
-export { FORUM_APP_ID, FORUM_APP_DEFINITION, FORUM_ENTRY_KEY, registerForumApp } from './app.ts'
-export { catalogPage, postPage } from './pages.tsx'
 export { FORUM_DOMAIN_NAME, forumDomain } from './storage.ts'
 export { listBoards, listPosts, listTags } from './posts.ts'
 export { notificationText, FORUM_MESSAGE_SOURCE } from './session-link.ts'
+// Shared tool plumbing re-exported for the application layer (`@veren/forum-app`):
+// the app tools are the page-scoped twin of the global tools and must reuse the
+// very same helpers, schemas, and error types — never a second copy (G2 split).
+// 供应用层（`@veren/forum-app`）复用的共享工具管线再导出：应用工具是全局工具的页面侧
+// 孪生，必须复用同一批助手、模式与错误类型——绝不做第二份副本（G2 拆包）。
+export {
+  ForumToolError, INBOX_SCHEMA, LIST_VIEW_SCHEMA, POST_SCHEMA, VOTE_SCHEMA, WRITE_SCHEMA,
+  callerOf, noCaller, operationError, present, renderValue,
+} from './tools.ts'
+export { jsonOf } from './views.ts'
+export { Config, DEFAULT_MAX_PER_HOUR, DEFAULT_TICK_SECONDS } from './config.ts'
 export type { ForumConfig } from './config.ts'
 export type { AutoPostSettings, AutoPostSnapshot } from './runner.ts'
 export type { ForumToolsPort, ForumRunnerPort } from './ports.ts'

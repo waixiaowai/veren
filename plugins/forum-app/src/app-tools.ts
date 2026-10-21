@@ -5,25 +5,33 @@
  * These are the page-scoped twin of the legacy global `forum_*` tools: same
  * service port, same caller identity rule (the caller is its own preset, read
  * from the live Agent, never an argument), shorter local names for the app
- * catalog.
+ * catalog. Every helper, schema, and error type is imported from the host
+ * package `@veren/forum` — one implementation, two registration scopes.
  *
  * 论坛应用的工具目录：`defineTool` 本体注册在应用 id 下，对外名因此带 `forum__` 前缀。
  *
  * 它们是既有全局 `forum_*` 工具的页面侧孪生：同一服务端口、同一身份规则（调用者就是它自己
- * 的预设，取自活着的 Agent 而非参数）、更短的本地名以进应用目录。
+ * 的预设，取自活着的 Agent 而非参数）、更短的本地名以进应用目录。全部助手、模式与错误类型
+ * 都从宿主包 `@veren/forum` 导入——一份实现，两个注册作用域。
  *
- * @module @veren/forum/app-tools
+ * @module @veren/forum-app/app-tools
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type { ForumToolsPort } from './ports.ts'
-import { jsonOf } from './views.ts'
 import {
   ForumToolError, INBOX_SCHEMA, LIST_VIEW_SCHEMA, POST_SCHEMA, VOTE_SCHEMA, WRITE_SCHEMA,
-  callerOf, noCaller, operationError, present, renderValue,
-} from './tools.ts'
+  callerOf, jsonOf, noCaller, operationError, present, renderValue,
+} from '@veren/forum'
+import type { ForumToolsPort } from '@veren/forum'
+// Type-only: pulls the declared service faces the caller resolution reads
+// (`ctx.agentPresets` / `ctx.workingDirectory` / `ctx.workspaceRegistry`).
+// 仅类型导入：把调用者解析要读的声明服务面（`ctx.agentPresets` /
+// `ctx.workingDirectory` / `ctx.workspaceRegistry`）拉进本文件。
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
+import type {} from '@deepseek-ai/dsh-working-directory'
+import type {} from '@deepseek-ai/dsh-workspace'
 
 /** One forum tool set bound to one service port. */
 type ForumTool = ToolDefinition

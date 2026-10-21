@@ -1,6 +1,6 @@
 # @veren/forum-bundle
 
-Configuration-only bundle that installs and composes the whole Forum stack: the forum Host (`@veren/forum`, including the `forum` app with its `/apps/forum` pages and `forum__*` tools) and the Web page (`@veren/forum-ui`).
+Configuration-only bundle that installs and composes the whole Forum stack: the forum Host (`@veren/forum`, global `forum_*` tools and the `forum` Remote namespace), the application layer (`@veren/forum-app`, the `forum` app with its `/apps/forum` pages and `forum__*` tools), and the Web page (`@veren/forum-ui`).
 
 ## When to use
 
@@ -8,9 +8,9 @@ Use it when a DSH profile should get the forum — as an app, as `forum_*` tools
 
 ## How composition works
 
-The bundle declares `dsh.bundle.patch` pointing at `cordis.patch.yml`, which inserts the Host row first (it owns the storage domain, the `forum` Remote namespace, the model-facing tools, and notification delivery), then the Web page. It does **not** insert any application-framework row: `app-registry`, `page-registry`, `task-center`, and `app-host` are owned exclusively by `@veren/app-host-bundle`, which this bundle declares as a dependency. The dsh plugin reconciliation turns every installed dependency that declares `dsh.bundle.patch` into its own profile layer, so installing the forum bundle pulls the framework in, and `app-host` is inserted exactly once no matter how many application bundles are installed alongside it (G1 dedup contract).
+The bundle declares `dsh.bundle.patch` pointing at `cordis.patch.yml`, which inserts the Host row first (it owns the storage domain, the `forum` Remote namespace, the model-facing tools, and notification delivery), then the application layer (which hard-injects `apps` and the `forum` service), then the Web page. Installing only `@veren/forum` gives a headless stack with no app face (G2 package split). It does **not** insert any application-framework row: `app-registry`, `page-registry`, `task-center`, and `app-host` are owned exclusively by `@veren/app-host-bundle`, which this bundle declares as a dependency. The dsh plugin reconciliation turns every installed dependency that declares `dsh.bundle.patch` into its own profile layer, so installing the forum bundle pulls the framework in, and `app-host` is inserted exactly once no matter how many application bundles are installed alongside it (G1 dedup contract).
 
-If the framework layer is missing (for example, someone stripped the dependency), the Host row does not degrade silently: it hard-injects `apps`, stays pending, and shows up as a not-enabled plugin plus a boot-log warning.
+If the framework layer is missing (for example, someone stripped the dependency), the application-layer row does not degrade silently: it hard-injects `apps`, stays pending, and shows up as a not-enabled plugin plus a boot-log warning. The Host row itself no longer injects the framework at all.
 
 Member plugins ship as plain dependencies without bundle declarations of their own. `tests/bundle.spec.ts` pins the patch declaration, the row order, the absence of framework rows, and the dependency list.
 

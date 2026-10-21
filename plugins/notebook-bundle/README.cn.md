@@ -13,21 +13,25 @@
 - insert:
     - id: notebook
       name: '@veren/notebook'
+    - id: notebook-app
+      name: '@veren/notebook-app'
     - id: notebook-ui
       name: '@veren/notebook-ui'
 ```
 
-顺序有讲究：宿主拥有存储域、`notebook` 远端命名空间与工具；页面与该命名空间通信。
+顺序有讲究：宿主拥有存储域、`notebook` 远端命名空间与工具；应用层硬注入 `apps` 与
+`notebook` 服务；页面与该命名空间通信。
 
-两个成员都不声明 `dsh.bundle.patch`，因此本组合包是该技术栈唯一的 profile 层，安装它不会
-重复插行。成员作为普通依赖随行。
+本组合包把 `@veren/app-host-bundle` 声明为依赖：那个组合包独占所有应用框架 loader 行
+（`app-registry`、`page-registry`、`task-center`、`app-host`），因此装记事本组合包会连带
+装上框架，且无论同装多少个应用组合包，`app-host` 行都只被插入一次（G1 去重契约）。
+只装 `@veren/notebook` 得到的是没有应用面的 headless 技术栈（G2 拆包）。
 
 ## 应用层
 
-profile 提供应用注册表（`ctx.apps`）时，宿主成员还会注册 `notebook` 应用（`/apps/notebook/...`
-下的页面与 `notebook__*` 页面工具）。应用注册表不是本组合包的成员：同时组合一个 app-hosting
-组合包（如 `plugins/app-host-bundle`）即可获得页面；只装宿主则得到纯工具版记事本——该层会
-降级为一条日志警告，不会拖垮 profile。
+应用层是独立的成员包 `@veren/notebook-app`（G2 拆包）：`notebook` 应用（`/apps/notebook/...`
+下的页面与 `notebook__*` 页面工具）经宿主服务的公开工具端口行动。它是独立的 loader 行，
+因此 profile 可以只装宿主（纯工具），也可以装整栈——边界在插件管理页始终可见。
 
 ## 安装
 

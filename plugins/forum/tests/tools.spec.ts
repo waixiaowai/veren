@@ -20,7 +20,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { AppRegistryService } from '@veren/app-registry'
 import type { Fiber } from '@deepseek-ai/cordis'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -150,17 +149,15 @@ async function mount(options: {
   ctx.provide('agentDefaultModel', { currentSelection: () => undefined })
   ctx.provide('workingDirectory', { get: () => cwd })
   ctx.provide('workspaceRegistry', { list: () => [{ id: 'ws-1', path: workspacePath, title: 'Demo' }] })
-  // The app registry is a hard inject of the forum service; the real service
-  // keeps the app registration under test honest. The registry service is
-  // constructed on its own host context, as the real host assembly does.
-  // 应用注册表是论坛服务的硬注入；用真实服务让应用注册路径也处在被测状态。
-  // 注册表服务构造在自己的宿主上下文上，与真实宿主装配一致。
-  ctx.provide('apps', new AppRegistryService(new Context()))
-
+  // The application framework is deliberately NOT provided (G2): the host no
+  // longer declares `apps`, so this mount IS the framework-absent deployment —
+  // the service below must activate, register the global tools, and wait for
+  // nothing. The dedicated specs at the bottom pin that contract.
+  // 刻意不提供应用框架（G2）：宿主不再声明 `apps`，因此这个挂载就是框架缺席的部署——
+  // 下面的服务必须照常激活、登记全局工具、不等待任何东西。文件底部的专项用例钉死该契约。
   await ctx.plugin(Storage.default)
   await ctx.plugin(StorageJson, { root: tempRoot() })
   await ctx.plugin(StorageDomain, { backend: 'json' })
-
   // Config 是 Standard Schema，不是 Plugin.Transform：传配置要经 Config() 解析出
   // 运行时形态（补齐默认值），否则注册表按 schema 校验原始输入并拒绝。
   // Config is a Standard Schema, not a Plugin.Transform: resolve the config
@@ -351,6 +348,66 @@ describe('forum tool registry / 论坛工具注册表', () => {
       name: 'ForumToolError',
       code: 'forum/post-not-found',
     })
+
+    await fiber.dispose()
+  })
+})
+
+describe('framework-absent deployment (G2 package split) / 框架缺席的部署（G2 拆包）', () => {
+  /**
+   * Capture every logger line emitted while one mount settles, so the specs
+   * can prove the activation raised no inject/wait warning at all.
+   * 捕获一次挂载稳定期间产生的每一条日志，用例据此证明激活过程没有产生任何注入等待告警。
+   */
+  async function mountWatchingLogs(options?: Parameters<typeof mount>[0]): Promise<{
+    mounted: Awaited<ReturnType<typeof mount>>
+    lines: string[]
+  }> {
+    const lines: string[] = []
+    const warn = console.warn
+    const error = console.error
+    console.warn = (line: unknown, ...rest: unknown[]) => { lines.push([line, ...rest].map(String).join(' ')) }
+    console.error = (line: unknown, ...rest: unknown[]) => { lines.push([line, ...rest].map(String).join(' ')) }
+    try {
+      const mounted = await mount(options)
+      return { mounted, lines }
+    } finally {
+      console.warn = warn
+      console.error = error
+    }
+  }
+
+  it('activates the host with no app framework present and no inject warning', async () => {
+    const { mounted, lines } = await mountWatchingLogs()
+    const { ctx, fiber } = mounted
+
+    // The framework really is absent: no `apps` service exists on this context.
+    // 框架确实缺席：此上下文上不存在 `apps` 服务。
+    expect(ctx.get('apps')).toBeUndefined()
+    // The host activated anyway: the service face answers and [Service.init] ran.
+    // 宿主照样激活：服务面可用，[Service.init] 已执行。
+    expect(ctx.forum).toBeDefined()
+
+    await fiber.dispose()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('keeps the global capability face in a framework-absent deployment', async () => {
+    const { mounted } = await mountWatchingLogs({ preset: 'ptc' })
+    const { ctx, fiber, tools, cwd } = mounted
+    const boardId = await seedBoard(ctx, cwd)
+
+    // The global `forum_*` tools — the capability that must survive headless —
+    // are registered and fully functional end to end.
+    // 全局 `forum_*` 工具——headless 里必须存活的那个能力——已登记且端到端可用。
+    expect([...tools.keys()]).toEqual(TOOL_NAMES)
+    const published = toolValue<{ value: { id: string } }>(
+      await tools.get('forum_post')?.execute({ title: 'headless', body: 'still works' }, execution(AGENT)),
+    )
+    const listed = toolValue<{ posts: Array<{ id: string }> }>(
+      await tools.get('forum_list')?.execute({ boardId }, execution(AGENT)),
+    )
+    expect(listed.posts.map(post => post.id)).toContain(published.value.id)
 
     await fiber.dispose()
   })

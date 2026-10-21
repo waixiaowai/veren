@@ -33,11 +33,21 @@
 # 绝不会半激活。
 - insert:
     # The Host: durable boards, posts, comments, votes and notifications, the
-    # `forum_*` tools, and the opt-in auto-post runner (off by default).
+    # `forum_*` tools, and the opt-in auto-post runner (off by default). It no
+    # longer injects the application framework (G2): headless deployments can
+    # install @veren/forum alone.
     # 宿主：持久化的板块、帖子、评论、投票与通知，`forum_*` 工具，以及可选
-    # 的自动发帖运行器（默认关闭）。
+    # 的自动发帖运行器（默认关闭）。它不再注入应用框架（G2）：headless 部署可以
+    # 只装 @veren/forum。
     - id: forum
       name: '@veren/forum'
+    # The application layer: the forum as an app (catalog entry + detail page
+    # under /apps/forum with forum__* page tools). It hard-injects `apps` and
+    # the `forum` service, so it comes after the Host row.
+    # 应用层：作为应用的论坛（/apps/forum 下的目录入口页与详情页，带 forum__*
+    # 页面工具）。它硬注入 `apps` 与 `forum` 服务，因此排在 Host 行之后。
+    - id: forum-app
+      name: '@veren/forum-app'
     # Web page: the "forum" sidebar entry and the board/post/comment page.
     # Web 页面：侧栏「论坛」入口与板块/帖子/评论页面。
     - id: forum-ui

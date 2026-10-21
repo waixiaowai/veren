@@ -80,20 +80,17 @@ async function mount() {
     list: async () => [],
     composedPreset: (agentContext: { preset?: string }) => agentContext.preset,
   })
-  // `apps` is a declared hard inject of the service (G13): provide the minimal
-  // slice and switch the app layer off by config — this spec drives the global
-  // tools only.
-  // `apps` 是服务声明的硬 inject（G13）：提供最小切片，并用配置关掉应用层——本用例
-  // 只驱动全局工具。
-  ctx.provide('apps', {} as never)
-
+  // The application framework is deliberately NOT provided (G2): the host no
+  // longer declares `apps`, so this mount is itself a framework-absent
+  // deployment — the global `notebook_*` tools must register and work anyway.
+  // 刻意不提供应用框架（G2）：宿主不再声明 `apps`，因此这个挂载本身就是框架缺席的
+  // 部署——全局 `notebook_*` 工具必须照常登记并可用。
   await ctx.plugin(Storage.default)
   await ctx.plugin(StorageJson, { root: tempRoot() })
   await ctx.plugin(StorageDomain, { backend: 'json' })
 
   const fiber: Fiber = ctx.plugin(NotebookService, Config({
     tools: { enabled: true },
-    app: { enabled: false },
   }))
   await fiber
   return { ctx, fiber, tools }

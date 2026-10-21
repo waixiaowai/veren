@@ -49,7 +49,7 @@ const FRAMEWORK_BUNDLE = '@veren/app-host-bundle'
  * Bundles whose members hard-inject the application framework and therefore
  * must depend on the framework bundle. 成员硬注入应用框架、必须依赖框架组合包的组合包。
  */
-const FRAMEWORK_CONSUMERS = new Set(['@veren/forum-bundle'])
+const FRAMEWORK_CONSUMERS = new Set(['@veren/forum-bundle', '@veren/notebook-bundle'])
 
 /** One inserted row as the patch YAML declares it. patch YAML 声明的一条插入行。 */
 function insertedRows(bundleDir) {

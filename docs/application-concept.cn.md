@@ -1588,6 +1588,20 @@ export const apply = (ctx: Context) => {
 - **optionalInject 不解决的问题**：运行期"偷看"未声明的兄弟服务。那是 G13 明令禁止的松对接，任何注入机制都不能为它翻案。本节初版把"框架缺席降级"和"运行期探测降级"混在一个命题里，现予拆开：前者归 optionalInject，后者直接禁止。
 - **官方形态的权重调整**：三包拆分（结构性隔离）仍是主答案——它是包边界的一次性、可测试、插件页可见的隔离；optionalInject 降为补充（`-app` 包对框架版本漂移的显式降级面）。降级路径的写法必须是"缺席的注入面交付 `undefined`"，而不是任何形式的运行期探测。
 
+#### 10.3.2 落地记录：包结构半边已实现，`optionalInject` 未做（2026-10-21）
+
+> 用户拍板：**本轮只做包结构那一半，不动平台**——不给 cordis 加 `optionalInject`，不改 harness。
+
+**已落地**（提交见 git log，`refactor(forum,notebook): split application layer into dedicated packages`）：
+
+- 新建 `@veren/forum-app` 与 `@veren/notebook-app`：各自收编原宿主包内的应用定义、页面、应用级工具与 `ctx.apps` 接线；宿主包（`@veren/forum`、`@veren/notebook`）只保留服务、全局工具与远端命名空间，**不再 inject `apps`**，并在公开的 `toolsPort()` 上供应用层复用（页面工具与全局工具同一份实现、同一份记录集合，零复制）。
+- 组合包调整：`forum-bundle` / `notebook-bundle` 各插三行（Host → `-app` → `-ui`），`notebook-bundle` 新增对 `app-host-bundle` 的依赖并进入 G1 检查脚本的框架消费者清单；`pnpm check:bundles` 通过。
+- 验收测试（两条都是本轮拆分的全部理由）：
+  - **框架缺席仍能激活**：`plugins/forum/tests/tools.spec.ts`（及 `storage-lifecycle.spec.ts`）与 `plugins/notebook/tests/app.spec.ts` 在**完全不提供 `apps`/`pageRegistry`** 的真实上下文上挂载真实宿主服务——断言服务照常激活、全局 `forum_*` / `notebook_*` 工具登记且端到端可用、全程**无任何注入等待告警**。
+  - **框架在场应用层出现**：`plugins/forum-app/tests/app.spec.ts` 与 `plugins/notebook-app/tests/app.spec.ts` 在真实注册表（app-registry + page-registry + 镜像缝）与真实宿主服务之上挂载应用层插件——断言应用 active、入口 URL 可解析、`forum__*` / `notebook__*` 页面工具带前缀且作用于真实服务、单入口一致、卸载摘干净。
+
+**未解决（留给 `optionalInject`）**：框架**在场但个别注入接缝缺席/版本漂移**的场景。现在 `-app` 包对 `apps`/`forum`/`notebook` 等全是硬 inject：只要其中一个服务因装配漂移没起来，整个应用层包哑掉（插件页 pending），而不是以"声明可选、缺席交付 `undefined`、页面标注不可用"的显式降级面运行。这对应 §10.3.1 收窄后的命题——插件级、属主合法的可选依赖声明；运行期探测仍然禁止（G13）。person-agent-app 对 `workspaceRegistry`/`taskCenter` 的"缺席显示不可用"诉求同属此类。
+
 ### 10.4 G3（已查实，关闭）：`output.schema` 没有"必须包装"这条契约
 
 > **2026-10-21 查实结论：初版命题不成立，本条关闭，降级为文档澄清。** 两个改动过代码的会话给了相反说法（记事本：必须返回 `{note}`/`{notes}` 包装值且"不报错但违背契约"；session-fork-enhanced：直接返回扁平 `ForkValue`），查实代码后后者对。

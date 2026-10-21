@@ -95,18 +95,10 @@ export interface NotebookToolConfig {
   enabled: boolean
 }
 
-/** Application-layer registration (`ctx.apps`). */
-export interface NotebookAppConfig {
-  /** Register the `notebook` application (pages + page tools) when apps exist. */
-  enabled: boolean
-}
-
-/** Notebook plugin configuration. */
+/** Notebook plugin configuration. The application layer lives in `@veren/notebook-app` (G2 split). 记事本插件配置。应用层住在 `@veren/notebook-app`（G2 拆包）。 */
 export interface NotebookConfig {
   /** Model-facing tools. */
   tools: NotebookToolConfig
-  /** The application layer; skipped where no app registry is present. */
-  app: NotebookAppConfig
 }
 
 /** The narrow surface the model-facing tools read and write. */

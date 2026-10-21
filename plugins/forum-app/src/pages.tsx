@@ -12,7 +12,10 @@
  * 同步给模型；页面可执行的动作是 `tools` 里声明的应用工具本地名。没有 `preset` 字段：页面已
  * 与预设解绑。
  *
- * @module @veren/forum/pages
+ * 本文件整体从 `@veren/forum` 的应用面迁入（G2 拆包），实现原样保留。
+ * This file moved verbatim from the `@veren/forum` app face (G2 split).
+ *
+ * @module @veren/forum-app/pages
  */
 
 import { Static, defineAppPage } from '@veren/prompt-page'

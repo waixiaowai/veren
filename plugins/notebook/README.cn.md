@@ -33,23 +33,21 @@
 
 ## 记事本应用
 
-插件把应用注册表（`ctx.apps`）声明为**硬 inject**（G13）：在挂载了应用注册表的宿主里，
-插件注册 `notebook` 应用——`/apps/notebook/...` 下的入口列表页与笔记详情页，页面工具带
-`notebook__` 前缀。应用框架缺席时整个插件保持 pending（不会半激活）；过去"探测到 apps
-缺席就只跑全局工具"的降级通道在真实宿主上从未生效（属性守卫按属主归因，访问本身就抛），
-真正的"框架缺席也照常工作"隔离属 G2 的拆包工作。`app.enabled` 配置项仍是显式开关：
-关掉时应用层不注册，全局工具照常工作。
+应用面（带 `/apps/notebook/...` 页面与 `notebook__*` 页面工具的 `notebook` 应用）住在独立的
+**`@veren/notebook-app`** 包里（G2 拆包）。本宿主完全不声明应用框架 inject（G2）：即使在
+框架缺席的 headless 部署里，它也带着全局 `notebook_*` 工具照常激活；`tests/app.spec.ts`
+钉死了这条契约（在没有 `apps` 服务的上下文上激活、工具端到端可用、全程无注入等待告警）。
+把记事本变成应用要装 `@veren/notebook-app`——该包硬注入应用框架与 `notebook` 服务。
 
 | 页面 | URL | 页面工具 |
 | --- | --- | --- |
 | 笔记列表（入口） | `/apps/notebook/list` | `notebook__list_notes`、`notebook__write_note` |
 | 笔记详情 | `/apps/notebook/note/:noteId` | `notebook__read_note`、`notebook__rewrite_note`、`notebook__delete_note` |
 
-注册走单入口：`src/app.ts` 只调用 `ctx.apps.register`、`ctx.apps.tools(id).define` 与
-`ctx.apps.pages(id).register`，三步收在单个 `ctx.effect` 里，任何一步失败都逆序回滚已完成的
-步骤（不留半接线）；页面注册器在内部镜像进页面注册表，因此应用绝不会出现在目录里
-却无法按 URL 解析。插件卸载时整层按逆序摘除。应用层以 `@veren/app-registry`、
-`@veren/page-registry`、`@veren/prompt-page` 为 peer 依赖。
+注册走单入口：`notebook-app` 的 `src/app.ts` 只调用 `ctx.apps.register`、
+`ctx.apps.tools(id).define` 与 `ctx.apps.pages(id).register`，三步收在单个 `ctx.effect` 里，
+任何一步失败都逆序回滚已完成的步骤（不留半接线）；页面注册器在内部镜像进页面注册表，
+因此应用绝不会出现在目录里却无法按 URL 解析。插件卸载时整层按逆序摘除。
 
 ## 存储
 

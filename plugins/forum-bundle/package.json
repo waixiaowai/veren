@@ -33,6 +33,7 @@
   "dependencies": {
     "@veren/app-host-bundle": "workspace:^",
     "@veren/forum": "workspace:^",
+    "@veren/forum-app": "workspace:^",
     "@veren/forum-ui": "workspace:^"
   },
   "devDependencies": {
