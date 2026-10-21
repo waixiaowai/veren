@@ -7,13 +7,18 @@
  * 掩盖了 `main` 指向 `./src/index.ts` 的包在安装形态下根本无法激活的事实。
  *
  * 规则：
- * 1. 凡声明了 `main` 或 `exports["."]` 的包，运行时入口不得以 `.ts/.tsx/.mts/.cts`
- *    结尾；
- * 2. 入口指向的文件必须真实存在（dist 是 gitignore 的构建产物，缺失时先跑
- *    `pnpm -r build` 再回来检查）；
- * 3. 组合包（bundle）只有配置行没有入口，不声明 `main`/`exports["."]`，自然跳过；
- * 4. 清单里列出的 PENDING 包是已知例外（归属进行中的其他工作），只警告不放行新包——
- *    新包再犯同样的错会当场红。
+ * 1. 凡声明了 `main` 或 `exports` 的包，**运行时入口**（`main`、`exports` 顶层
+ *    字符串、以及任意子路径如 `"./client"` 的字符串/`default` 形态）不得以
+ *    `.ts/.tsx/.mts/.cts` 结尾；
+ * 2. `exports` 声明的**每一条路径**（含 `types` 条件与 `"./package.json"`）在
+ *    打包形态下都必须真实存在——`dist` 与 `lib` 均是 gitignore 的构建产物，缺失
+ *    时先跑 `pnpm -r build` 再回来检查（各包 `prepack` 会在 `pnpm pack` 时自动
+ *    构建，见 AGENTS.md「装插件」条目）；
+ * 3. 含通配符（`*`）的映射（如 `"./locale/*.json"`、`"./src/*"`）无法静态定位
+ *    单个文件，跳过存在性检查；
+ * 4. 组合包（bundle）只有配置行没有入口，不声明 `main`/`exports` 入口，自然跳过；
+ * 5. 清单里列出的 PENDING 包是已知例外（归属进行中的其他工作），只警告不放行
+ *    新包——新包再犯同样的错会当场红。
  *
  * Entry-point gate: a package that will be installed must expose a Node-loadable
  * built artifact as its runtime entry.
@@ -26,12 +31,18 @@
  * activates in the installed form.
  *
  * Rules:
- * 1. Every package declaring `main` or `exports["."]` must not end its runtime
- *    entry with `.ts/.tsx/.mts/.cts`;
- * 2. the entry file must exist (dist is a gitignored build artifact — run
- *    `pnpm -r build` first when missing);
- * 3. bundles carry only configuration rows and no entry, so they skip naturally;
- * 4. PENDING packages below are known exceptions owned by work in flight — they
+ * 1. Every **runtime entry** (`main`, a top-level string in `exports`, or the
+ *    string/`default` form of any subpath such as `"./client"`) must not end
+ *    with `.ts/.tsx/.mts/.cts`;
+ * 2. **every path declared in `exports`** (including `types` conditions and
+ *    `"./package.json"`) must exist in the packed form — `dist` and `lib` are
+ *    gitignored build artifacts, so run `pnpm -r build` first when missing
+ *    (each package's `prepack` builds automatically during `pnpm pack`, see the
+ *    install entry in AGENTS.md);
+ * 3. mappings containing wildcards (`"./locale/*.json"`, `"./src/*"`) cannot be
+ *    resolved to single files statically, so their existence is not checked;
+ * 4. bundles carry only configuration rows and no entry, so they skip naturally;
+ * 5. PENDING packages below are known exceptions owned by work in flight — they
  *    only warn; any NEW package committing the same mistake fails the gate.
  *
  * @module @veren/scripts/check-entry-points
@@ -39,7 +50,7 @@
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -78,6 +89,9 @@ const DEV_ONLY_PACKAGES = new Map([
 /** 运行时入口不允许的扩展名 / extensions a runtime entry must not use. */
 const TS_ENTRY = /\.mts$|\.cts$|\.tsx?$/
 
+/** 通配符映射：无法静态定位单个文件 / wildcard mappings resolve no single file. */
+const GLOB = /\*/
+
 /**
  * 递归收集含 package.json 的包目录，跳过 node_modules。
  * 分组目录可能多层嵌套（plugins/admin/providers/x），靠递归而不是固定层数。
@@ -103,66 +117,108 @@ function packageDirs(base, depth = 0) {
 }
 
 /**
- * 从清单里取运行时入口（main 与 exports["."] 的字符串/default 形态）。
- * Collect the runtime entries declared by a manifest (main plus the string or
- * `default` form of exports["."]).
+ * 深度收集一个 exports 值的全部目标路径。字符串即路径；条件对象里 `default`
+ * 分支承载运行时入口，`types` 等其余条件只是声明文件，沿对象继续下钻。
+ * Collect every target path inside one exports value. A string is a path; in a
+ * conditions object the `default` branch carries the runtime entry while
+ * `types` and the other conditions only declare declaration files — keep
+ * descending through nested objects.
  *
- * @param {object} manifest - parsed package.json / 已解析的清单
- * @returns {string[]} entry paths relative to the package / 相对包目录的入口路径
+ * @param {string|object} value - exports value / exports 的某个值
+ * @param {boolean} runtime - inherited runtime-entry marker / 继承的运行时入口标记
+ * @returns {{path: string, runtime: boolean}[]} collected targets / 收集到的目标
  */
-function runtimeEntries(manifest) {
-  const entries = []
-  if (typeof manifest.main === 'string') entries.push(manifest.main)
-  const dot = manifest.exports?.['.']
-  if (typeof dot === 'string') entries.push(dot)
-  else if (typeof dot?.default === 'string') entries.push(dot.default)
-  return entries
+function collectExportTargets(value, runtime) {
+  if (typeof value === 'string') return [{ path: value, runtime }]
+  const targets = []
+  for (const [condition, nested] of Object.entries(value)) {
+    targets.push(...collectExportTargets(nested, runtime || condition === 'default'))
+  }
+  return targets
 }
 
-const failures = []
-let checked = 0
-let pending = 0
+/**
+ * 从清单里取全部声明目标：`main` 是运行时入口；`exports` 每个子路径都参与
+ * 存在性检查，其中字符串值与 `default` 形态还是运行时入口。
+ * Collect every declared target from a manifest: `main` is a runtime entry;
+ * every `exports` subpath joins the existence check, and string values plus
+ * `default` forms are runtime entries too.
+ *
+ * @param {object} manifest - parsed package.json / 已解析的清单
+ * @returns {{path: string, runtime: boolean}[]} declared targets / 声明的目标
+ */
+function declaredTargets(manifest) {
+  const targets = []
+  if (typeof manifest.main === 'string') targets.push({ path: manifest.main, runtime: true })
+  for (const value of Object.values(manifest.exports ?? {})) {
+    targets.push(...collectExportTargets(value, false))
+  }
+  return targets
+}
 
-for (const base of ['plugins', 'packages']) {
-  for (const dirName of packageDirs(join(root, base))) {
-    const manifestFile = join(root, base, dirName, 'package.json')
-    const manifest = JSON.parse(readFileSync(manifestFile, 'utf8'))
-    const id = `${base}/${dirName}`
-    const label = typeof manifest.name === 'string' ? `${manifest.name} (${id})` : id
-    const entries = runtimeEntries(manifest)
-    if (entries.length === 0) continue // 组合包等无入口载体 / bundles carry no entry
+/**
+ * 门禁主体：扫描 rootDir 下 plugins/packages 的全部包，返回问题清单与计数。
+ * 独立成纯函数，供 CLI 与红灯自测（scripts/tests/）共用同一套逻辑。
+ * Gate core: scan every package under rootDir's plugins/packages and return the
+ * problem list plus counters. Extracted as a pure function so the CLI and the
+ * red-light self test (scripts/tests/) share one implementation.
+ *
+ * @param {string} rootDir - workspace root to scan / 待扫描的工作区根目录
+ * @returns {{checked: number, pending: number, problems: string[]}} gate result / 门禁结果
+ */
+export function collectEntryProblems(rootDir) {
+  const problems = []
+  let checked = 0
+  let pending = 0
+  for (const base of ['plugins', 'packages']) {
+    for (const dirName of packageDirs(join(rootDir, base))) {
+      const manifestFile = join(rootDir, base, dirName, 'package.json')
+      const manifest = JSON.parse(readFileSync(manifestFile, 'utf8'))
+      const id = `${base}/${dirName}`
+      const label = typeof manifest.name === 'string' ? `${manifest.name} (${id})` : id
+      const targets = declaredTargets(manifest)
+      if (targets.length === 0) continue // 组合包等无入口载体 / bundles carry no entry
 
-    const pendingReason = PENDING_PACKAGES.get(id)
-    if (pendingReason !== undefined) {
-      pending += 1
-      process.stdout.write(`pending  ${label}: entry ${entries.join(', ')} — ${pendingReason}\n`)
-      continue
-    }
-    const devReason = DEV_ONLY_PACKAGES.get(id)
-    if (devReason !== undefined) {
-      pending += 1
-      process.stdout.write(`dev-only ${label}: entry ${entries.join(', ')} — ${devReason}\n`)
-      continue
-    }
-
-    checked += 1
-    for (const entry of new Set(entries)) {
-      if (TS_ENTRY.test(entry)) {
-        failures.push(`${label}: runtime entry "${entry}" must be built JavaScript, not TypeScript — Node refuses to strip types under node_modules`)
+      const pendingReason = PENDING_PACKAGES.get(id)
+      const devReason = DEV_ONLY_PACKAGES.get(id)
+      if (pendingReason !== undefined || devReason !== undefined) {
+        pending += 1
+        const reason = pendingReason ?? devReason
+        process.stdout.write(`dev-only ${label}: entry ${[...new Set(targets.map(t => t.path))].join(', ')} — ${reason}\n`)
         continue
       }
-      if (!existsSync(join(root, base, dirName, entry))) {
-        failures.push(`${label}: runtime entry "${entry}" does not exist — run "pnpm -r build" first (dist is gitignored)`)
+
+      checked += 1
+      const seen = new Set()
+      for (const target of targets) {
+        if (seen.has(target.path)) continue // 同一路径只报一次 / report each path once
+        seen.add(target.path)
+        if (GLOB.test(target.path)) continue // 通配符映射不查单文件 / wildcard mappings skip file checks
+        if (target.runtime && TS_ENTRY.test(target.path)) {
+          problems.push(`${label}: runtime entry "${target.path}" must be built JavaScript, not TypeScript — Node refuses to strip types under node_modules`)
+          continue
+        }
+        if (!existsSync(join(rootDir, base, dirName, target.path))) {
+          problems.push(`${label}: declared path "${target.path}" does not exist — run "pnpm -r build" first (dist/lib are gitignored; prepack builds them on pack)`)
+        }
       }
     }
   }
+  return { checked, pending, problems }
 }
 
-if (failures.length > 0) {
-  process.stderr.write(`\n${failures.length} entry-point problem(s):\n`)
-  for (const failure of failures) process.stderr.write(`  - ${failure}\n`)
-  process.stderr.write('\nFix the manifest (main/exports must point at dist) or build the package before checking.\n')
-  process.exit(1)
+/** CLI 直跑判定：被 vitest import 时不自动执行 / run as CLI only, not when imported by vitest. */
+function isDirectInvocation() {
+  return process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href
 }
 
-process.stdout.write(`\n${checked} package entr${checked === 1 ? 'y' : 'ies'} point at loadable build artifacts; ${pending} pending package(s) owned by in-flight work.\n`)
+if (isDirectInvocation()) {
+  const { checked, pending, problems } = collectEntryProblems(root)
+  if (problems.length > 0) {
+    process.stderr.write(`\n${problems.length} entry-point problem(s):\n`)
+    for (const problem of problems) process.stderr.write(`  - ${problem}\n`)
+    process.stderr.write('\nFix the manifest (entries must point at dist/lib) or build the package before checking.\n')
+    process.exit(1)
+  }
+  process.stdout.write(`\n${checked} package entr${checked === 1 ? 'y' : 'ies'} point at loadable build artifacts; ${pending} pending package(s) owned by in-flight work.\n`)
+}

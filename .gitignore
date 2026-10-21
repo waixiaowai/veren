@@ -1,8 +1,24 @@
 /target
 node_modules
 dist
-packages/graph/*/lib
+# 构建产物目录（dist / lib）不入库：源码进 git，产物进包（files 白名单），
+# 打包前由各包的 prepack 自动构建（pnpm pack 触发）。market/lib 是手写源码
+# （market 不是 npm 包），不在 plugins/packages 前缀下，不受影响。唯一例外：
+# 被以 git 仓库/源码路径形式直接安装的包无法触发 prepack，产物必须提交——
+# 见 AGENTS.md「稳定测试节点 · 装插件」条目，不得拿它当不构建的挡箭牌。
+# Build artifact directories (dist / lib) stay out of git: sources are
+# committed, artifacts ship inside the package (files whitelist) and are
+# rebuilt by each package's prepack before packing (triggered by pnpm pack).
+# market/lib is hand-written (market is not an npm package) and lives outside
+# the plugins/packages prefixes, so it is untouched. The single exception: a
+# package installed directly as a git checkout cannot run prepack, so its
+# artifacts must be committed — see the install entry in AGENTS.md; do not
+# invoke it as a pretext for skipping builds.
+plugins/**/lib
+packages/**/lib
 *.tsbuildinfo
+# sourcemap 一律是构建伴生产物，与 dist/lib 同待遇，不入库 / sourcemaps are build companions, treated like dist/lib, never committed
+*.map
 /deepseek
 deepseek/
 .workbuddy

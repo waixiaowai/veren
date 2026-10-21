@@ -38,6 +38,7 @@
   },
   "scripts": {
     "build": "tsc && tsc -p tsconfig.client.json && tsdown",
+    "prepack": "pnpm run build",
     "test": "vitest run --no-fsModuleCache"
   },
   "peerDependencies": {

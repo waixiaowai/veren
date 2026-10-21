@@ -21,6 +21,7 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc",
+    "prepack": "pnpm run build",
     "test": "vitest run"
   },
   "engines": {

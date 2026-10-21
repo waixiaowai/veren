@@ -40,6 +40,7 @@
   "scripts": {
     "bundle": "node scripts/bundle.mjs",
     "build": "node scripts/bundle.mjs",
+    "prepack": "pnpm run build",
     "typecheck": "node scripts/typecheck.mjs",
     "test": "vitest run --no-fsModuleCache"
   },

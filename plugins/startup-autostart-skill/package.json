@@ -27,6 +27,7 @@
   "scripts": {
     "typecheck": "node scripts/typecheck.mjs",
     "build": "node scripts/build.mjs",
+    "prepack": "pnpm run build",
     "test": "vitest run --no-fsModuleCache"
   },
   "peerDependencies": {

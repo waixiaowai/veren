@@ -49,6 +49,7 @@
   "scripts": {
     "paths": "node scripts/gen-tsconfig-paths.mjs",
     "build": "node scripts/build.mjs",
+    "prepack": "pnpm run build",
     "typecheck": "node scripts/typecheck.mjs",
     "test": "node scripts/test.mjs"
   },
