@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "App Host UI",
+    "description": "Adds the application dropdown and app pages to the chat UI, so people can reach application pages from the conversation."
+  }
+}

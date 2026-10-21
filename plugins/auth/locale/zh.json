@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Web 登录门禁",
+    "description": "任何网页或 API 访问前都要求实名登录：基于 DSH 存储域的 Better Auth 用户名/邮箱加密码认证。"
+  }
+}

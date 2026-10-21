@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Admin API Kernel",
+    "description": "Registers audience-prefixed admin routes with request security applied, so providers expose HTTP endpoints without re-implementing it."
+  }
+}

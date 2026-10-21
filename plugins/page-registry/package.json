@@ -1,7 +1,7 @@
 {
   "name": "@veren/page-registry",
   "displayName": "Page Registry",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "icon": "./icon.svg",
   "description": "Use when DSH plugins need to register and resolve LLM page-sessions by unique URL: provides the host-level PageRegistryService (register pages with name/url/description, resolve path params + query, catalog for entry points); skip it when there are no declarative pages.",
   "type": "module",
@@ -16,6 +16,7 @@
   },
   "files": [
     "dist",
+    "locale/*.json",
     "README.md",
     "README.cn.md",
     "icon.svg"

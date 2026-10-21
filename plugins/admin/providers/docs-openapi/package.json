@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-docs-openapi",
   "displayName": "Admin Docs OpenAPI",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Use when a DSH admin deployment must publish generated documentation instead of hand-written specs: it serves the live capability catalog, backend health, a documentation index and the OpenAPI 3.1 document generated from the registered route table; skip it when the deployment already exposes its own docs surface or needs no generated API reference.",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,6 +15,7 @@
   },
   "files": [
     "dist",
+    "locale/*.json",
     "README.md",
     "README.cn.md"
   ],

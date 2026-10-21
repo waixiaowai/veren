@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Access RBAC",
+    "description": "Default role-based authorization: owns the role catalog and user-to-role bindings, derives permissions per request."
+  }
+}

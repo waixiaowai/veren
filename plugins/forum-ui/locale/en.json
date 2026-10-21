@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Forum UI",
+    "description": "Presents the forum as a Web page: board and post views people read and reply in, alongside the model-facing tools."
+  }
+}

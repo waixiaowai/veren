@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Notebook Service",
+    "description": "A private durable notebook per agent preset: notes exposed to agents as notebook_* tools and to people as a Web page."
+  }
+}

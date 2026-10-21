@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Page Registry",
+    "description": "Registers and resolves LLM page-sessions by unique URL: named pages, path params + query resolution, and an entry-point catalog."
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "API Docs",
+    "description": "Publishes generated documentation: the live capability catalog, backend health, and OpenAPI specs."
+  }
+}

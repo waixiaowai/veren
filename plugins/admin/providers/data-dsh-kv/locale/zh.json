@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "数据存储（DSH KV）",
+    "description": "用自声明的 DSH KV 表实现管理数据能力，无需外部数据库。"
+  }
+}

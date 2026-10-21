@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Audit Log",
+    "description": "Append-only audit trail over the shared data port: generated ids, UTC timestamps, queryable entries."
+  }
+}

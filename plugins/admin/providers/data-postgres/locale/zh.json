@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "数据存储（PostgreSQL）",
+    "description": "推荐的生产数据后端：基于 PostgreSQL 的 AdminDatabase 端口实现，表名以 veren_ 前缀。"
+  }
+}

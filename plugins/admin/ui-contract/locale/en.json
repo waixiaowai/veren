@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "UI Contract",
+    "description": "The stable browser-side UI contract: pack manifests, per-audience manifests, and the theme/locale/icon/shared surfaces."
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "App Host Assembly",
+    "description": "Binds the app registry, page registry, and task center together so installing an app plugin needs no manual cross-service wiring."
+  }
+}

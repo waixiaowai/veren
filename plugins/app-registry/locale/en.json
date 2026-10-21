@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "App Registry",
+    "description": "Owns the host-level application registry: stable app ids, entry pages, tool prefixes, capabilities, and application lifecycle records."
+  }
+}

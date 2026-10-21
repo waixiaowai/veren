@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "CMS Bridge",
+    "description": "Keeps a long-lived WebSocket link to a CMS server: dispatches server commands to local actions, queues and replays events while offline."
+  }
+}

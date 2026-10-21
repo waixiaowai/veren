@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "App Host",
+    "description": "Installs the whole Veren application framework as one profile bundle: app registry, page registry, task center, and the app-host assembly, composed in dependency order."
+  }
+}

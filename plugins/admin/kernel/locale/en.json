@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Admin Kernel",
+    "description": "Picks exactly one implementation per admin capability and exposes a stable façade consumers can depend on."
+  }
+}

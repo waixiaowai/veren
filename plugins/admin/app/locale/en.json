@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Admin Console",
+    "description": "Installs the generic AI admin platform as one profile bundle: kernel, gateway, data, auth, access control, navigation, audit, docs, and the default UI."
+  }
+}

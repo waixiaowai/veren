@@ -1,7 +1,7 @@
 {
   "name": "@veren/notebook",
   "displayName": "Notebook",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "icon": "./icon.svg",
   "description": "Use when a DSH deployment needs a private durable notebook per agent preset - it owns per-preset notes exposed to agents as `notebook_*` tools and to the Web panel over a `notebook` Remote namespace, with storage-failure degrade instead of throw; skip it when agents need no private scratchpad, or install @veren/notebook-app alongside to also surface the notebook in the application catalog.",
   "type": "module",

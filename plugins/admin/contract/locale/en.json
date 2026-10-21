@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Admin Contract",
+    "description": "Declares the stable Host capability contract: capability names, provider manifests, and structured config and error types."
+  }
+}

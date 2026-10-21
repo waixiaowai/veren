@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Default Shell",
+    "description": "The default chrome identity the SPA top bar and sidebar render, while the layout stays swappable."
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Navigation",
+    "description": "Default menu registry behind the navigation capability: an in-memory contribution map with idempotent contributions."
+  }
+}

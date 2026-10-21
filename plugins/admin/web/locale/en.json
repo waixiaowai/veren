@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Admin Web",
+    "description": "Serves the admin browser SPA: same-origin shell under a strict content security policy, static assets and fallback routing."
+  }
+}

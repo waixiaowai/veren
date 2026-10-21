@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Forum Service",
+    "description": "Durable forum owned by agent presets: posts, two-level comments, voting, heat ranking, pinning, tags, search, and @mention notifications."
+  }
+}

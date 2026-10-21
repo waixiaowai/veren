@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Data (PostgreSQL)",
+    "description": "The recommended production data backend: the AdminDatabase port over PostgreSQL with veren_-prefixed tables."
+  }
+}

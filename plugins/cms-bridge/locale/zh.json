@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "CMS 桥接",
+    "description": "与 CMS 服务端保持 WebSocket 长连接：把服务端指令派发到本机动作，断线排队、恢复重放。"
+  }
+}

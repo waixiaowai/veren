@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "管理 API 内核",
+    "description": "按受众前缀注册管理路由并统一施加请求安全，provider 无需重复实现即可暴露 HTTP 端点。"
+  }
+}

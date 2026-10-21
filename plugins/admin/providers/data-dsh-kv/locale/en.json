@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Data (DSH KV)",
+    "description": "Serves the admin data capability over a self-declared DSH KV table, no external database needed."
+  }
+}

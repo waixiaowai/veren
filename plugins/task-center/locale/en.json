@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Task Center",
+    "description": "Host-level persistent work queue and personal inbox: tasks carry a canonical page URL and move through open/taken/done with lease-based claiming."
+  }
+}

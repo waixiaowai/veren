@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "UI Kernel",
+    "description": "Serves replaceable browser packs: registers packs from manifests, negotiates the UI contract range, publishes assets."
+  }
+}
