@@ -11,9 +11,13 @@
  * exempts it (no detail pages → the map may be empty), rule 3 cannot trigger,
  * and the §3.9 coverage warning stays silent by construction.
  * - `overview` = **首页（home）**：entry，基础信息 + map（这里列了只读副页——
- *   map 可空但列了真实可去的副页也合法）；
+ *   map 可空但列了真实可去的副页也合法）；挂只读工具 workspace_session_list
+ *   承接"工作区会话明细"的现查承诺（三区快照本身来自 load，不需要工具）；
  *   / the home page: the entry; base info + a map (optional here — listing the
- *   real reachable secondary page is equally legal);
+ *   real reachable secondary page is equally legal); it mounts the read-only
+ *   workspace_session_list tool to carry the "session detail on demand"
+ *   promise (the three section snapshots themselves come from load, no tool
+ *   needed);
  * - `workspaces` = **只读副页**（无参、非入口、只读的剩余形态）：仪表盘应用的
  *   第二屏，除 definePage 基础校验外无额外要求。
  *   / a read-only secondary page (parameterless, non-entry, read-only — the
@@ -52,25 +56,33 @@ export function overviewFirstScreen(snapshot: OverviewSnapshot): OverviewFirstSc
 
 /**
  * 首页（home 档 / entry）：个人工作台概览 / the home page (the home archetype / entry).
- * 基础信息（load 刷新后取真实快照）+ 能力地图（工作区浏览页）；三区数据全部
- * 来自真实服务面。本应用没有详情页 → map 是可选项，这里列只读副页属合法的
- * 额外信息（规则 1 对纯只读应用豁免）。
+ * 基础信息（load 刷新后取真实快照）+ 能力地图（工作区浏览页）。承诺与事实一一对齐
+ * ——不许"承诺了但没有"（真机教训：本页曾一个工具都不挂）：三区快照全部来自 load
+ * 进 data 行，快照本身不需要工具；"某工作区有哪些会话"是现查事实，由本页挂载的
+ * 只读工具 workspace_session_list 承接；apps/tasks 两区明确不承诺下钻。
  * Basic information (a real snapshot via load) plus the capability map (the
- * workspace browser); all three sections come from real service faces. This
- * app has no detail pages → the map is optional; listing the read-only
- * secondary page is legal extra information (rule 1 exempts pure read-only apps).
+ * workspace browser). Every promise is matched to a fact — never "promised but
+ * absent" (the live-host lesson: this page once mounted no tool at all): the
+ * three section snapshots arrive via load, so the snapshots need no tool; a
+ * workspace's per-session detail is an on-demand fact carried by this page's
+ * mounted read-only tool workspace_session_list; the apps/tasks sections
+ * promise no drilldown.
  */
 export function createOverviewPage(source: OverviewSource): PageDefinition<OverviewSnapshot> {
   return defineAppPage<OverviewSnapshot>({
     name: 'overview',
     url: `${URL_PREFIX}/overview`,
     description: '个人工作台概览：一屏看清当前部署、应用目录、工作区/会话与待办任务',
-    tools: [],
+    // 挂本页承诺的现查读工具：说明里点名"看会话明细用它"，它就必须真的在页面上
+    // / mount the read tool the page promises: naming it in the instructions
+    // requires it to really be mounted on this page
+    tools: ['workspace_session_list'],
     instructions: '这是 Person Agent 的首页（个人工作台概览）。data 行是首屏快照，三区数据均为部署真实状态：'
-      + 'apps 区来自应用目录（ctx.apps.catalog），workspaces 区来自工作区注册表，'
-      + 'tasks 区来自任务中心的 open 任务计数。available=false 或 openCount=null '
-      + '表示该数据源缺席或读取失败——如实告知用户，不要编造数字。'
-      + '要看各工作区的会话账目明细时，打开 map 里的工作区浏览页。',
+      + 'apps 区来自应用目录，workspaces 区来自工作区注册表，tasks 区来自任务中心的 open 任务计数。'
+      + 'available=false 或 openCount=null 表示该数据源读取失败——如实告知用户，不要编造数字。'
+      + 'workspaces.rows 的 sessions 只是账目计数；要看某个工作区的会话明细，'
+      + '用本页挂载的 workspace_session_list 工具（workspaceId 取 rows[].id）现查；'
+      + 'apps 区与 tasks 区本页不提供下钻，只报快照。',
     instanceTitle: () => '个人工作台',
     // §3.10.1：首页 = 基础信息（load 刷新真实服务面）+ 能力地图（无详情页 → map 可选）
     // / §3.10.1: the home page = basic information (load refreshes the real

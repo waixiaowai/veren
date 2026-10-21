@@ -734,7 +734,9 @@ flowchart LR
 PAGE task-workbench/list /apps/task-workbench/list
 params: {}
 data: {"open":12,"mine":2,"tasks":[{"id":"t-6","title":"修复登录超时","state":"open"}, …]}
-map: [{"url":"/apps/task-workbench/task/:taskId","use":"处理某条任务时打开","params":{"taskId":"任务 id"}}]
+map:（能力地图——本应用可去的页面；把模板里的 :参数 替换为实际值即为可打开 URL）
+- /apps/task-workbench/task/:taskId → 处理某条任务时打开（查看字段/子任务树，完成、放弃或拆分它）；参数: taskId=任务 id，来自列表 data 的 roots[].id
+- /apps/task-workbench/publish → 要发布新任务时打开发布页（或直接调 publish_task）
 tools: task_workbench__take_task（接取列表中的任务）、task_workbench__publish_task（发布新任务）
 说明：<应用说明 + 页面说明>
 ```
@@ -744,7 +746,7 @@ tools: task_workbench__take_task（接取列表中的任务）、task_workbench_
 | 第 1 行 | `PAGE <pageKey> <规范URL>` | 规范 URL（§3.5.1）必须显式出现，模型引用地址不用自己拼 |
 | `params` | 实例参数，键 = URL 模式声明的 `:param` 名 | 详情页必须非空且与模式一致；首页/工具页/只读副页为 `{}` |
 | `data` | 首屏数据快照（§3.10.3 的 `load` 结果） | 首页 = 列表/统计等全局视图；详情页 = 该条记录的详情；工具页 = 办这件事所需的最小上下文。加载/失败也必须在这里表达，**不许静默空白** |
-| `map` | 能力地图：可去的页面 URL 模板 + 什么时候用 | 首页**仅当本应用还有记录页（详情/只读详情）时**必须非空（规则 1；单页/纯仪表盘应用可空）；详情页/只读详情页/工具页/只读副页可省（或列同级的相邻页） |
+| `map` | 能力地图：**一等数据，逐条成行**——首行讲用法，每行 `- URL 模板 → 什么时候用（；参数: 名=说明）`，模型照抄模板、替换 `:参数` 即得可打开 URL | 首页**仅当本应用还有记录页（详情/只读详情）时**必须非空（规则 1；单页/纯仪表盘应用可空）；详情页/只读详情页/工具页/只读副页可省（或列同级的相邻页） |
 | `tools` | 本页工具全名 + 一句什么时候用 | 沿 §3.4.3 前缀名 + 用途短语（已落地） |
 | `说明` | 应用 `instructions` + 页面 `instructions` | 沿现状；不得充当系统提示词 |
 
@@ -752,7 +754,7 @@ tools: task_workbench__take_task（接取列表中的任务）、task_workbench_
 
 - 拼：page-registry 运行时（和现状同一个拼装点），应用作者只声明 `load` 和地图元数据；
 - 写：会话创建时一次（沿用两阶段 commit：`load` 完成才翻 `live`，PAGE 块随 commit 写入）；
-- 追加：`data` 变了**不重写旧块**（会话日志 append-only），追加一个 `PAGE-DATA` 块携带**最新全量快照**（不是无限增量流）。语义是"同页 data 以最新一次为准"；旧快照自然过时但保留在日志里可回溯。膨胀控制：data 块设条数/字节上限（如列表 ≤50 条、单块 ≤4KB），超限截断并在块内标注 `truncated: true` + 总数——截断也要让模型知道，同样不许静默。
+- 追加：`data` 变了**不重写旧块**（会话日志 append-only），追加一个 `PAGE-DATA` 块携带**最新全量快照**（不是无限增量流）。语义是"同页 data 以最新一次为准"；旧快照自然过时但保留在日志里可回溯。膨胀控制：data 块设条数/字节上限（如列表 ≤50 条、单块 ≤4KB），超限截断并在块内标注 `truncated: true` + 总数——截断也要让模型知道，同样不许静默。**map 不占这份预算**：map 随 PAGE 块在建会话时写一次、永不追加，PAGE-DATA 的截断上限只约束 data 快照块；map 的体积天然有界（一行一个可去页面、用途短语截 60 字），且规则 1 要求列全全部记录页——**有意不做截断**，截断会静默吞掉地图条目，比超预算更糟。真机教训（2026-10-21）：map 曾经只活在页面定义里、PAGE 块里压成一团 JSON 甚至缺行，模型便绕开它自行从任务记录推断地址（假 PASS 比真 FAIL 更危险）——所以 map 必须以"可照抄的行"进块，验收也以**块文本包含模板与用途**为准（`plugins/page-registry` 测试 + AGENTS.md 真机清单第 7 条）。
 
 #### 3.10.3 参数与首屏数据一次性进上下文
 

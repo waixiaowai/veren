@@ -22,7 +22,8 @@ export const APP_DEFINITION: ApplicationDefinition = {
   entry: 'overview' as PageKey,
   instructions: 'Person Agent 是人类与 DSH 之间的桥梁。概览页展示当前部署的真实状态'
     + '（应用目录、工作区、待办任务）；工作区页浏览各工作区及其会话账目。'
-    + '所有操作通过本应用挂载的 person_agent__* 工具完成，数据拿不到时页面会明确标注不可用。',
+    + '页面承诺的信息要么在 data 快照里、要么有本页挂载的 person_agent__* 只读工具现查，'
+    + '数据拿不到时页面会明确标注不可用。',
   // toolPrefix 缺省由 id 推导为 person_agent；显式写出仅为可读性
   toolPrefix: 'person_agent',
 }
@@ -33,14 +34,22 @@ export const APP_DEFINITION: ApplicationDefinition = {
  * 收编既有工具：调用兄弟工具包导出的构建器，拿到与宿主注册完全同一份
  * `ToolDefinition`——这里只登记进应用工具目录，不注册到 ctx.tools，也绝不
  * 复制第二份实现。页面工具按只读/低风险原则挑选：
- * - session_create / session_rename：会话维护，页面流程内合法；
- * - workspace_session_list：只读检索；
+ * - workspace_session_list：只读检索，overview 与 workspaces 两页都挂
+ *   （"工作区会话明细"的现查承诺由它承接）；
+ * - session_create / session_rename：收进目录备用；目前没有任何页面挂载，
+ *   因此也没有任何页面承诺它们——"承诺了但没有"零容忍，挂载与承诺必须同进退；
  * 排除项与理由见 README（派活/归档/置顶/工作区增改不适合页面会话触发）。
  * Collect existing tools: call the sibling tool packages' exported builders to
  * obtain the very same `ToolDefinition` the host registers — this only enters
  * the app tool catalog, never ctx.tools, and never duplicates an
- * implementation. Page tools are picked read-only/low-risk first; exclusions
- * and reasons live in the README.
+ * implementation. Page tools are picked read-only/low-risk first:
+ * - workspace_session_list: a read-only lookup mounted by both the overview
+ *   and the workspaces pages (it carries the "session detail on demand"
+ *   promise);
+ * - session_create / session_rename: collected for future use; no page mounts
+ *   them today, so no page promises them either — "promised but absent" is
+ *   zero-tolerance, mounting and promising must move together;
+ * exclusions and reasons live in the README.
  * @param ctx - 携带注入能力的宿主上下文。The host context carrying injected capabilities.
  * @param maxListSessions - 会话列表单次上限。The per-call session-list cap.
  * @returns 收编的工具定义（本地名即工具名）。The collected definitions (local names).

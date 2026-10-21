@@ -6,11 +6,11 @@
 
 - **应用** `person-agent`（工具前缀 `person_agent`），入口页面 `overview`。
 - **页面**
-  - `overview` — `/apps/person-agent/overview`（入口）：一屏看清部署真实状态——应用目录（`ctx.apps.catalog()`）、工作区/会话账目（`ctx.workspaceRegistry`）、待办任务（`ctx.taskCenter`）。
+  - `overview` — `/apps/person-agent/overview`（入口）：一屏看清部署真实状态——应用目录（`ctx.apps.catalog()`）、工作区/会话账目（`ctx.workspaceRegistry`）、待办任务（`ctx.taskCenter`）。三区快照经首屏 `load` 进 data 行（快照本身不需要工具）；"某工作区有哪些会话"是现查事实，由本页挂载的只读工具 `workspace_session_list` 承接。apps/tasks 两区明确不承诺下钻。
   - `workspaces` — `/apps/person-agent/workspaces`：每个工作区一行，附会话账目数；会话明细走收编的 `workspace_session_list` 工具按需查询。
 - **收编工具**（复用而非重写——本包调用兄弟工具包导出的定义构建器，页面工具与宿主工具是同一份 `ToolDefinition`）：
-  - `session_create`、`session_rename`（来自 `@veren/person-agent-tool-session`）
-  - `workspace_session_list`（来自 `@veren/person-agent-tool-workspace`）
+  - `workspace_session_list`（来自 `@veren/person-agent-tool-workspace`）：`overview` 与 `workspaces` 两页都挂载；
+  - `session_create`、`session_rename`（来自 `@veren/person-agent-tool-session`）：目录备用项，目前没有任何页面挂载——因此也没有任何页面承诺它们（"承诺了但没有"零容忍：挂载与承诺必须同进退）。
 
 刻意排除项及理由：`session_dispatch`（派活语义属于带结算看守的 agent 会话，不属于页面会话）、`session_archive/unarchive/pin/unpin`（改变可见性的维护动词，无页面流程）、`workspace_create/rename`（工作区维护留在桥梁自己的工具面；页面只读）。
 

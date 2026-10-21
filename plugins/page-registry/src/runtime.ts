@@ -25,7 +25,7 @@
  * @module @veren/page-registry/runtime
  */
 import { PageError, PageErrorCode, assertParamsMatchPattern, canonicalizePageUrl } from '@veren/prompt-page'
-import type { PageJsonValue, PageLoadEnv, PageSession } from '@veren/prompt-page'
+import type { PageJsonValue, PageLoadEnv, PageMapEntry, PageSession } from '@veren/prompt-page'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { PageInstanceIndex, PageInstanceKey, PageMatch } from '@veren/prompt-page'
 // 服务面类型只引真正的那一份：应用记录/任务契约来自各自的 declaration merging 出口，
@@ -224,14 +224,62 @@ export function toolUsagePhrase(description: string): string {
   return fallback.length > 60 ? `${fallback.slice(0, 59)}…` : fallback
 }
 
+/** map 行用途短语上限（与工具用途短语同口径，防单条地图行失控）/ the use-phrase cap of a map row (same as the tool phrase; keeps one row bounded) */
+const MAP_USE_CAP = 60
+
+/**
+ * 能力地图行头（§3.10.2）：告诉模型这一组行怎么用——模板里的 `:参数` 替换成
+ * 实际值即为可打开的 URL。"能被模型直接照抄"是本格式的验收标准，不是装饰。
+ * The capability-map header (§3.10.2): tells the model how to use the rows —
+ * substituting the `:params` of a template yields an openable url. "Copy-usable
+ * by the model" is the acceptance bar of this format, not decoration.
+ */
+const MAP_HEADER = 'map:（能力地图——本应用可去的页面；把模板里的 :参数 替换为实际值即为可打开 URL）'
+
+/**
+ * 能力地图条目 → 一行可照抄的文本（§3.10.2）：`- 模板 → 什么时候用；参数: 名=说明`。
+ * 真机教训：map 若只是页面定义里的声明（或压缩成一团 JSON），模型会绕开它自行
+ * 推断地址——所以这里逐条成行、模板原样给出、参数说明跟在同一行，让"我从本页
+ * 能力地图看到的"成为模型唯一自然的答案来源。
+ * One map entry → one copy-usable line (§3.10.2): the lesson from the live host
+ * is that a map that merely lives in the page definition (or as a JSON blob)
+ * gets bypassed — the model infers addresses from other clues instead. So each
+ * entry renders as its own line: the template verbatim, the when-to-use phrase,
+ * and the param notes on the same line, making "I read it in this page's map"
+ * the natural source for the model to cite.
+ */
+export function mapEntryLine(entry: PageMapEntry): string {
+  const use = entry.use.length > MAP_USE_CAP ? `${entry.use.slice(0, MAP_USE_CAP - 1)}…` : entry.use
+  const params = entry.params === undefined
+    ? ''
+    : `；参数: ${Object.entries(entry.params).map(([name, note]) => `${name}=${note}`).join('、')}`
+  return `- ${entry.url} → ${use}${params}`
+}
+
 /**
  * PAGE 块（§3.10.2 的规范形状）：页面键 + 规范 URL、params、data（首屏快照，
- * 永远在场——loading/error/数据/null，禁止静默空白）、能力地图（非空时）、
- * 带"什么时候用"的工具行、应用与页面说明。写一次不再重写（§3.4.2）。
+ * 永远在场——loading/error/数据/null，禁止静默空白）、能力地图（非空时，
+ * 逐条成行可照抄）、带"什么时候用"的工具行、应用与页面说明。写一次不再重写
+ * （§3.4.2）。
  * The PAGE block (the §3.10.2 canonical shape): pageKey + canonical url,
  * params, data (the first-screen snapshot, always present — loading/error/
- * data/null, never a silent blank), the capability map when non-empty, the
- * tools line with when-to-use phrases, and the app/page notes. Written once.
+ * data/null, never a silent blank), the capability map when non-empty (one
+ * copy-usable line per entry), the tools line with when-to-use phrases, and
+ * the app/page notes. Written once, never rewritten (§3.4.2).
+ *
+ * 能力地图与数据快照的预算关系（§3.10.2）：整块只在建会话时写一次，PAGE-DATA
+ * 的截断上限（≤50 条 / 单块 ≤4KB，app-host 的 PageDataCaps）只约束**后续追加的
+ * data 快照块**；map 是静态小数据——一行一个可去页面、用途短语截 60 字——
+ * 不占追加预算，也**有意不做截断**：规则 1 要求列全全部记录页，截断会静默吞掉
+ * 地图条目，比超预算更糟。
+ * Budget relation between the map and the data snapshot (§3.10.2): the whole
+ * block is written once at creation; the PAGE-DATA caps (≤50 rows / ≤4KB per
+ * block, app-host's PageDataCaps) bound only the **appended data snapshots**.
+ * The map is small static data — one line per reachable page, use phrases
+ * capped at 60 chars — consumes none of the append budget, and is
+ * **deliberately never truncated**: rule 1 demands full coverage of record
+ * pages, and truncation would silently drop map entries, which is worse than
+ * exceeding a budget.
  */
 export function pageBlock(
   app: AppRecord,
@@ -246,7 +294,16 @@ export function pageBlock(
     `params: ${JSON.stringify(params)}`,
     `data: ${JSON.stringify(data)}`,
   ]
-  if ((match.page.map ?? []).length > 0) lines.push(`map: ${JSON.stringify(match.page.map)}`)
+  // 能力地图是一等数据（§3.10.1/§3.10.2）：首行讲用法，每条一行"模板 → 什么时候用
+  // （+参数说明）"——模型照抄模板、替换 :参数 即得可打开 URL。
+  // The capability map as first-class data (§3.10.1/§3.10.2): a header stating
+  // the usage, then one line per entry "template → when to open it (+param
+  // notes)" — the model copies the template and substitutes :params.
+  const map = match.page.map ?? []
+  if (map.length > 0) {
+    lines.push(MAP_HEADER)
+    for (const entry of map) lines.push(mapEntryLine(entry))
+  }
   lines.push(tools.length === 0
     ? 'tools: （无）'
     : `tools: ${tools.map((tool) => `${tool.name}（${toolUsagePhrase(tool.description)}）`).join('、')}`)

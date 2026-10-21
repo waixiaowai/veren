@@ -685,12 +685,13 @@ A further, deliberately legal leftover: parameterless, non-entry, read-only (no 
 PAGE <pageKey> <canonicalUrl>
 params: {"taskId":"t-6"}                  # keys must match the :param names verbatim
 data: {...}                               # first-screen snapshot from load(); loading/error states must be expressed here — never silent blank
-map: [{"url":"…/:taskId","use":"…"}]      # capability map; required on home only when record pages (detail/viewer) exist
+map: (capability map — the pages this app can go to; substitute the :params in a template with real values to get an openable url)
+- /apps/…/task/:taskId → when to open it; params: taskId=…   # one copy-usable line per entry; required on home only when record pages (detail/viewer) exist
 tools: <prefixed tool names + one-line when-to-use>
 notes: <app + page instructions>
 ```
 
-Written once at session creation (two-phase commit awaits `load`); updates are appended as a `PAGE-DATA` block carrying the latest full snapshot (old blocks stay in the log; size/count caps with `truncated: true`).
+Written once at session creation (two-phase commit awaits `load`); updates are appended as a `PAGE-DATA` block carrying the latest full snapshot (old blocks stay in the log; size/count caps with `truncated: true`). **The map does not consume that budget**: it rides the PAGE block itself, written once at creation and never appended — the PAGE-DATA caps bound data snapshots only. The map is structurally small (one line per reachable page, use phrases capped at 60 chars) and rule 1 demands full coverage of record pages, so it is deliberately never truncated — truncation would silently drop map entries, which is worse than exceeding a budget. Live-host lesson (2026-10-21): while the map lived only in the page definition (or as a one-line JSON blob), the model bypassed it and inferred addresses from task records — a false PASS, more dangerous than a real FAIL. The map must therefore enter the block as copy-usable lines, and the acceptance assertion is that the block TEXT carries the templates and their use phrases (`plugins/page-registry` tests + AGENTS.md live checklist item 7).
 
 **Params and first-screen data in one shot.** Params: same resolver as today, but validated against the declared `:param` names (registration + mount). First-screen data: **G7 (§10 of the Chinese document) is promoted from "official recipe" to core capability** — the optional `load: async (params, env) => data` declaration is the only legitimate source of the `data` field; without it a home page with a task list is impossible. Official pattern: declare `load` on the page, runtime loads once at creation (loading → data, failure → `data: {"error":{code,message}}` + retry hint, `page/load-failed`); refresh = event-driven `pageRuntime.refresh(sessionId)` re-runs `load` and appends a `PAGE-DATA` block on diff. No TTL, no polling. Cost: refresh adds no model round (context append only) but each block costs tokens.
 

@@ -178,6 +178,40 @@ describe('页面运行时：打开 URL 一律新建，旧会话废弃（§3.5.3�
     expect(block).toContain('先读材料，再作答。')
   })
 
+  it('能力地图作为一等数据进 PAGE 块：模板与"什么时候用"逐条成行，模型可照抄（§3.10.1/§3.10.2）', async () => {
+    const { service, sessions } = makeService()
+    const dispose = service.register(definePage({
+      name: 'home', url: '/apps/demo/list', description: '任务列表页',
+      tools: [],
+      map: [
+        { url: '/apps/demo/task/:taskId', use: '处理某一条任务时打开', params: { taskId: '任务 id，来自列表 data' } },
+        { url: '/apps/demo/publish', use: '要发布新任务时打开发布页' },
+      ],
+      tree: () => [],
+    }) as never)
+    try {
+      const opened = await service.openUrl('/apps/demo/list')
+      const block = (sessions.messages.get(opened.sessionId) ?? [])[0] ?? ''
+      // 主验收断言"PAGE 块文本里包含 map 的模板与用途"：不是"map 字段覆盖了几个
+      // 模板"的结构化断言，而是模型视角的文本断言——模板逐字在块里、可照抄替换
+      // :参数；真机复核判据见 AGENTS.md 真机验证清单第 7 条。
+      // The primary acceptance asserts the PAGE block TEXT carries the map's
+      // template and use phrase — a model-view text assertion, not a structural
+      // field count: the template appears verbatim and is copy-usable; the
+      // next-round live-host check is AGENTS.md's checklist item 7.
+      expect(block).toContain('map:（能力地图')
+      expect(block).toContain('- /apps/demo/task/:taskId → 处理某一条任务时打开；参数: taskId=任务 id，来自列表 data')
+      expect(block).toContain('- /apps/demo/publish → 要发布新任务时打开发布页')
+    } finally { dispose() }
+  })
+
+  it('无 map 的页面不画 map 行（不给模型留"本页有隐藏出口"的想象空间）', async () => {
+    const { service, sessions } = makeService()
+    const opened = await service.openUrl('/apps/demo/task/1')
+    const block = (sessions.messages.get(opened.sessionId) ?? [])[0] ?? ''
+    expect(block).not.toContain('map:')
+  })
+
   it('首屏 load：data 行写 load(params) 的结果——PAGE 块 data 的唯一合法来源（§3.10.3）', async () => {
     const { service, sessions } = makeService()
     const dispose = service.register(definePage({

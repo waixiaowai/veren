@@ -168,6 +168,24 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     expect(typeof home.load).toBe('function')
   })
 
+  it('概览页"会话明细现查"的承诺有工具承接：说明点名 workspace_session_list，页面就真挂着它', async () => {
+    const { apps, fiber } = await install()
+    disposers.push(() => fiber.dispose())
+    const home = apps.listPages(APP_ID).find((page) => page.name === APP_DEFINITION.entry)
+    if (home === undefined) throw new Error('the overview page must be registered')
+    // 真机教训：overview 曾一个 person_agent__* 工具都不挂，说明里的承诺成了空头
+    // 支票。钉死"承诺与挂载一致"：说明里点名现查工具 → tools 必须真挂它；反之
+    // 页面挂的工具也必须被说明提到（不许出现模型看不见来源的能力）。
+    // / Live-host lesson: the overview once mounted no person_agent__* tool at
+    // all, leaving the instructions' promise empty. Pin promise-vs-mount: naming
+    // an on-demand tool in the instructions requires really mounting it; and
+    // every mounted tool must be named in the instructions (no capability whose
+    // source the model cannot see).
+    expect(home.tools).toContain('workspace_session_list')
+    if (home.instructions === undefined) throw new Error('the overview page must carry instructions')
+    expect(home.instructions).toContain('workspace_session_list')
+  })
+
   it('首页 load 刷新真实服务面：三区数据进首屏（本应用全部页面无 :param，map 即工作区浏览页）', async () => {
     const { apps, fiber } = await install({ openTitles: ['唯一任务'] })
     disposers.push(() => fiber.dispose())
