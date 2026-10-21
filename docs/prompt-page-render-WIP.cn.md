@@ -79,3 +79,47 @@
   减法方向）。
 - ComponentPageMeta 保留了 `instanceTitle`（会话列表标题是宿主需求，不进文档正文）
   与 `tools`/`store`（既有目录/store 面的接线字段）。
+
+
+---
+
+## 附：实施收尾与真机验收记录（2026-10-22，本节为最终落盘版本）
+
+### 已完成
+- prompt-core（C1–C4）：hooks 内核（useState/useMemo/useSlot/useContext + 调用序守卫）、
+  假值/text 规范化、宿主 children 对账、组件第二参数 ctx、memo bailout 槽位保留。23/23。
+- prompt-page（C5 + 减法）：Markdown 序列化器（§3.2 映射表 + 转义 + 单元 diff +
+  MarkdownDocHost）；defineComponentPage 适配器；组件 ctx facade（ctx.effect/ctx.on/
+  ctx.tools.register render 期记账）；PageSession.host 宽化；删 mount.ts/Static/Data/
+  Keyed/buildPagePreset/homeMapIssues/prompt-host-messages 依赖。38/38。
+- app-registry（C8）：register 只收 (PageFC, meta) 与预构建注册对象；AppRecord.pages
+  投影；规则 1 组件页豁免。31/31。
+- page-registry（C7）：删 pageBlock v1/mapEntryLine；componentPageBlock（map 注册表
+  推导、无 params/data JSON 行）；视图 setSnapshot 快照下发面。48/48。
+- app-host（C7/C9）：page-sync 只走 PAGE-PATCH（删 renderPageData/PageDataCaps 全套）；
+  Config 删 pageDataMax*；wireAppHost 去 options。18/18。
+- 插件迁移：task-workbench 三页（29/29，DetailMeta 补 name: detail）；person-agent-app
+  （14/14，概览服务补 ExternalStore 面）；forum-app（10/10）；notebook-app（10/10）；
+  sub2api-admin 九页（25/25）。
+- 删 plugins/page-sync-bench；pack-local-plugins 修 Windows GNU tar `C:` 路径 bug
+  （固定 bsdtar + tarball 复制重试）；web profile 以 pnpm 11 重装 + offline tarball 对齐。
+
+### 真机验收（稳定节点 3080，全部通过）
+- harness 构建 9/9 门禁（减法后源码）。
+- openUrl 验收（verify-pages.ts）：/task/1 与 /task/2 双会话创建、REOPENED true
+  （§9.1 重开语义）、真实 app_pages.json 持久化（deprecated/live + 「任务 #1/#2」
+  instanceTitle 落盘）。
+- 模型侧 WYSIWYG（headless + DEEPSEEK_API_KEY 注入）：模型读取真实宿主持久存储，
+  逐字引用组件页渲染的 PAGE 块正文（「# 任务 1 不存在」+ 如实告知 blockquote），
+  并正确推断任务 id 口径不匹配——WYSIWYG 与反编造验收同时通过。
+- headless 车辆判定：dsh headless 引导 CLI coding agent（无 app 工具），不承载
+  页面管线验收；页面验收正确车辆 = GUI（web profile 页面会话）。
+
+### 剩余（需用户/发布流程）
+- GUI 轮模型侧终验：浏览器打开 http://127.0.0.1:3080/?token=<.dsh-web-3080.log
+  最新行>，驱动 /apps/task-workbench/task/t-1（id 口径 t- 前缀）确认模型从 PAGE
+  块正文读出任务标题/状态。
+- registry 版本对齐：把今天的 offline tarball 发布到 npm.veren.top
+  （market/release.mjs），干净安装即取到新版；profile .npmrc 已补 @veren:registry 行。
+- DEEPSEEK_API_KEY 已从 ~/.dsh 凭据 refs 注入节点启动环境；GUI 页面会话 agent
+  持有凭据。
