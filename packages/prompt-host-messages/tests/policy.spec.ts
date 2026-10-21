@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { anthropicPolicy, deepseekPolicy, estimateTokens, planMessages, remount, toChatMessages, tokenBudgetPolicy } from '../src/index.ts'
+import { anthropicPolicy, deepseekPolicy, estimateTokens, openaiPolicy, planMessages, policyFor, remount, toChatMessages, tokenBudgetPolicy } from '../src/index.ts'
 import { MessageHost } from '../src/host.ts'
+
+describe('policyFor', () => {
+  it('已登记 provider 各归其位', () => {
+    expect(policyFor('deepseek')).toBe(deepseekPolicy)
+    expect(policyFor('openai')).toBe(openaiPolicy)
+    expect(policyFor('anthropic')).toBe(anthropicPolicy)
+  })
+  it('未知 provider：显式默认 = deepseek 语义（自动前缀缓存，零断点）', () => {
+    expect(policyFor('moonshot')).toBe(deepseekPolicy)
+    expect(policyFor('')).toBe(deepseekPolicy)
+  })
+})
 
 describe('cache policies', () => {
   it('deepseek：自动前缀缓存，零显式标记，消息原样直通', () => {

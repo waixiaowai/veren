@@ -13,6 +13,7 @@
 - **导航 = resolve → mount**：关旧会话、`mountPage` 新会话；指针经 `session.pointerMessage`（`OPEN /task-detail/t-12 {...}`）作为新会话第一条 user 消息注入。
 - **definePage fail loud**：空名称/空描述、非路径或重复 `:param` 的 url、非函数 tree。
 - **生命周期钩子（预留）**：`onLoad(params)` 挂载后；`onComplete(params)` 供消费方决定是否归档会话（插件经 `workspaceRegistry.archiveSession` 关闭）。
+- **可选策略装配**：给 `mountPage` 传 `assembly: { systemPrompt, provider?, policy?, budget? }`，会话即获得 `assemble()`——预算触顶 remount + 按 provider 规划缓存断点（来自 `@veren/prompt-host-messages`；未知 provider 显式默认 deepseek 语义，见该包 README）。不给 `assembly` 行为与历史完全一致。
 
 ## 运行
 

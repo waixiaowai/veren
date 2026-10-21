@@ -21,7 +21,7 @@ import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@veren/page-registry'
 import { buildPagePreset, mountPage } from '@veren/prompt-page'
 import type { PageSession } from '@veren/prompt-page'
-import { renderSync } from '@veren/prompt-host-messages'
+import { createSyncAssembler, policyFor } from '@veren/prompt-host-messages'
 import { detailPage, dispatchTaskTool, listPage, LIST_CHAT_TOOLS, publishPage } from './page.tsx'
 import { TaskStore, makeList } from './store.ts'
 import type { TaskItem } from './types.ts'
@@ -208,18 +208,34 @@ function applyContext(ctx: Context, config: Config): void {
   })
   const eventDisposersRef = { current: eventDisposers }
 
-  let delivered: number | undefined
+  // 策略层接线：注入改走 createSyncAssembler——预算触顶 → remount（anchor +
+  // 全量快照基线）；provider 变化 = 缓存键变化，重建装配器（丢游标即回落快照）
+  // 并按 policyFor(provider) 换策略。块面（断点）在 DSH 链路上归平台 LLM 层，
+  // 这里只消费 text——deepseek/openai 语义下 text 与断点无关，行为不变。
+  // Policy-layer wiring: injection now goes through createSyncAssembler —
+  // budget over the ceiling → remount (anchor + snapshot baseline); a provider
+  // change is a cache-key change, so the assembler is rebuilt (dropping the
+  // cursor falls back to a snapshot) with policyFor(provider). The block face
+  // (breakpoints) belongs to the platform LLM layer on the DSH chain; only
+  // text is consumed here — under deepseek/openai semantics text is
+  // breakpoint-independent, so behavior is unchanged.
+  let assembler = createSyncAssembler({ host: session.host, policy: policyFor('') })
+  let assemblerProvider = ''
   ctx.on('agent/pre-step', async ({ agent, signal }: { agent: Agent; signal: AbortSignal }, next: () => Promise<PreStepDecision>) => {
     const decision = await next()
     if (decision.kind !== 'enter' || signal.aborted) return decision
-    const sync = session.host.renderSince(delivered)
-    delivered = session.host.currentVersion
-    if (sync.kind === 'patch' && sync.ops.length === 0) return decision
+    const provider = agent.options.provider ?? ''
+    if (provider !== assemblerProvider) {
+      assemblerProvider = provider
+      assembler = createSyncAssembler({ host: session.host, policy: policyFor(provider) })
+    }
+    const assembled = assembler.assemble()
+    if (assembled.empty) return decision
     const keep = decision
     return {
       kind: 'enter',
       messages: [...keep.messages, createUserMessage({
-        content: [{ type: 'text', text: renderSync(sync) }],
+        content: [{ type: 'text', text: assembled.text }],
         source: { kind: SOURCE },
       })],
     }

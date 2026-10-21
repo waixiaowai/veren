@@ -13,6 +13,7 @@ Page runtime over `@veren/prompt-core` + `@veren/prompt-host-messages` — the `
 - **Navigation = resolve → mount**: close the old session, `mountPage` the new one; the pointer rides in `session.pointerMessage` (`OPEN /task-detail/t-12 {...}`) as the first user message of the new session.
 - **definePage fails loud**: empty name/description, non-path or duplicate-`:param` urls, non-function tree.
 - **Lifecycle hooks (reserved)**: `onLoad(params)` after mount; `onComplete(params)` consulted to decide session archive (plugins close sessions via `workspaceRegistry.archiveSession`).
+- **Optional policy assembly**: pass `assembly: { systemPrompt, provider?, policy?, budget? }` to `mountPage` and the session gains `assemble()` — budget-driven remount plus provider-planned cache breakpoints from `@veren/prompt-host-messages` (unknown providers default to deepseek semantics; see that package's README). Without `assembly`, behavior is unchanged.
 
 ## Run
 

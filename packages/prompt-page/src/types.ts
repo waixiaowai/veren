@@ -5,7 +5,7 @@
  * 页面不再绑定预设；应用/实例/工具契约见 contract.ts 与两个插件的 types.ts。
  */
 import type { PromptElement } from '@veren/prompt-core'
-import type { MessageHost } from '@veren/prompt-host-messages'
+import type { AssembledSync, MessageHost } from '@veren/prompt-host-messages'
 
 /** URL 参数：路径参数 + query 合并（path 优先）/ path params + query (path wins) */
 export type PageParams = Record<string, string>
@@ -60,6 +60,14 @@ export interface PageDefinition<S> {
   readonly description: string
   /** 本页挂载的工具（应用工具目录的本地名）/ local tool names from the app tool catalog */
   readonly tools?: readonly string[]
+  /**
+   * 本页职责需要写能力（开发期核对声明，§3.9）：声明 true 而未挂任何工具时，
+   * 装配期打一条警告——"页面开着、活干不了"。只提醒，不做门禁。
+   * This page's duty needs write capability (dev-time self-check, §3.9): a
+   * `true` with no mounted tools logs one assembly-time warning — a page that
+   * is open but cannot do its job. A reminder only, never a gate.
+   */
+  readonly writes?: boolean
   /** 本页给模型的说明；随 PAGE 块附上，不是系统提示词 / page note, not a system prompt */
   readonly instructions?: string
   /** 实例标题函数；缺省用 description 兜底（§3.6.1）/ instance title, falls back to description */
@@ -84,6 +92,14 @@ export interface PageSession<S> {
   get version(): number
   /** 渲染 cursor 之后的同步文本 / sync text after the given cursor */
   syncText(cursor?: number): string
+  /**
+   * 策略层装配（仅在 mountPage 给了 assembly 时存在）：预算 remount + 按
+   * provider 规划缓存断点，见 prompt-host-messages 的 createSyncAssembler。
+   * Policy-layer assembly (present only when mountPage got an assembly):
+   * budget remount + provider-planned cache breakpoints; see
+   * createSyncAssembler in prompt-host-messages.
+   */
+  readonly assemble?: () => AssembledSync
   /** 解除 store 订阅（会话结束）/ detach from the store */
   unsubscribe(): void
 }
