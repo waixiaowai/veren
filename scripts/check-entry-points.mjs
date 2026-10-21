@@ -46,19 +46,16 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 /**
  * 已知例外：main 仍指向 src、由进行中的其他会话负责收尾的包。
  * 每一项都必须写明归属；对应工作落地后应把条目删掉，让门禁恢复全量。
+ * 当前为空：所有待发布包的入口都已指向构建产物。
  *
  * Known exceptions: packages whose main still points at src, to be finished by
  * the sessions that own them. Each entry must name its owner; delete the entry
- * once that work lands so the gate returns to full coverage.
+ * once that work lands so the gate returns to full coverage. Currently empty:
+ * every packagable entry now points at a built artifact.
  *
  * @type {Map<string, string>}
  */
-const PENDING_PACKAGES = new Map([
-  ['plugins/page-registry', 'owned by the page-registry/person-agent-app session'],
-  ['plugins/task-center', 'owned by the task-workbench/task-center session'],
-  ['plugins/task-workbench', 'owned by the task-workbench/task-center session'],
-  ['plugins/person-agent-app', 'owned by the page-registry/person-agent-app session'],
-])
+const PENDING_PACKAGES = new Map([])
 
 /**
  * 仅限工作区的开发基建：从不打包、从不发布、不会被装进任何 profile 的 node_modules，

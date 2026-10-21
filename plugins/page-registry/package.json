@@ -5,17 +5,28 @@
   "icon": "./icon.svg",
   "description": "Use when DSH plugins need to register and resolve LLM page-sessions by unique URL: provides the host-level PageRegistryService (register pages with name/url/description, resolve path params + query, catalog for entry points); skip it when there are no declarative pages.",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
     "./package.json": "./package.json"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "README.cn.md",
+    "icon.svg"
+  ],
   "engines": {
     "dsh": ">=0.2.1-rc.2 <0.3.0"
   },
   "dsh": {},
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -28,6 +39,9 @@
     "@veren/prompt-page": "workspace:^",
     "@veren/task-center": "workspace:^"
   },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
     "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
@@ -37,8 +51,7 @@
     "@veren/prompt-page": "workspace:^",
     "@veren/task-center": "workspace:^",
     "typescript": "^5.6.0",
-    "vitest": "^5.0.4",
-    "zod": "^3.24.1"
+    "vitest": "^5.0.4"
   },
   "license": "MIT"
 }

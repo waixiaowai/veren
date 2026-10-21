@@ -87,19 +87,16 @@ function outputDirectory() {
 /**
  * 入口仍指向 src、由进行中的其他会话收尾的包；它们的 tarball 依然带 src 入口，
  * 打包时只警告不放行新包。清单与 scripts/check-entry-points.mjs 保持一致。
+ * 当前为空：所有待发布包的 tarball 都带构建产物入口。
  *
  * Packages whose entry still points at src, to be finished by their owning
  * sessions; their tarballs still carry a src entry, so packing warns instead of
  * failing. Keep this list in sync with scripts/check-entry-points.mjs.
+ * Currently empty: every packagable tarball now carries a built-artifact entry.
  *
  * @type {Set<string>}
  */
-const PENDING_SRC_ENTRY = new Set([
-  '@veren/page-registry',
-  '@veren/task-center',
-  '@veren/task-workbench',
-  '@veren/person-agent-app',
-])
+const PENDING_SRC_ENTRY = new Set([])
 
 /**
  * 收集打包后清单声明的运行时入口 / collect the runtime entries of a packed manifest.
