@@ -1521,21 +1521,15 @@ importers:
 
   plugins/forum-bundle:
     dependencies:
-      '@veren/app-host':
+      '@veren/app-host-bundle':
         specifier: workspace:^
-        version: link:../app-host
-      '@veren/app-registry':
-        specifier: workspace:^
-        version: link:../app-registry
+        version: link:../app-host-bundle
       '@veren/forum':
         specifier: workspace:^
         version: link:../forum
       '@veren/forum-ui':
         specifier: workspace:^
         version: link:../forum-ui
-      '@veren/page-registry':
-        specifier: workspace:^
-        version: link:../page-registry
     devDependencies:
       js-yaml:
         specifier: ^4.1.0

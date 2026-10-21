@@ -1426,7 +1426,7 @@ Cordis 插件运行在同一个宿主进程里，拿到 `ctx` 就能碰所有服
 | --- | --- | --- | --- |
 | **G13** | 跨服务"结构探测 + 惰性端口"松对接在真实 cordis 上不可用，整套框架真机启动失败 | **P0-1** | 待修（**不修，其余全部轮不到触发**） |
 | G2 | 应用层无可选注入形态；真机守卫按属主归因后命题重新界定 | P0-2 | 待修（表述已按真机修正） |
-| G1 | bundle patch 跨组合包行 id 无去重契约 | P0-3 | 待修 |
+| G1 | bundle patch 跨组合包行 id 无去重契约 | P0-3 | **已修（2026-10-21，路线 A：组合包层去重，见 §10.2）** |
 | G3 | ~~output.schema 契约类型上拦不住裸返回~~ **查实：命题不成立**——运行期有 `ToolOutputError` 强制，包装只是因工具而异的约定 | — | **关闭**（改写为文档澄清） |
 | G14 | `defineTool` 参数根永远开放，未知参数穿透到业务代码抛错，错误路径与错误码变了 | P1 | 待修 |
 | G4 | 全局工具与页面工具命名易混淆 | P1 | 待修 |
@@ -1531,23 +1531,19 @@ export const apply = (ctx: Context): void => {
 
 ### 10.2 G1（P0-3）：bundle patch 跨组合包的行 id 去重契约
 
-**问题陈述**：`forum-bundle` 与 `app-host-bundle` 都 `insert` 了 `id: app-host` 的行，同装时同一行插入两次，Loader 对 insert 是纯追加，行为未定义。四次应用化里 forum 撞到；不修，任何两个都引应用框架的组合包组合起来都可能双插，且是否报错取决于 Loader 内部实现的偶然。
+**问题陈述**：`forum-bundle` 与 `app-host-bundle` 都 `insert` 了 `id: app-host` 的行，同装时同一行插入两次。查实的 Loader 行为（`deepseek-harness` 的 `vendor/include/src/index.ts` 的 `applyEntryPatches`）：对无锚点的顶层 `insert` 是**纯追加**（`data.push(...insert)`），不查重、不报错；行 id 索引只在后续 patch 定位/覆写时使用（同 id 后写覆盖前写的索引），双插的两行都会进挂载列表。行 id 本身是各 bundle 自己写的稳定 id，Loader 只按 id 字符串判等。
 
-**建议方案**（示意）：Loader 对 `insert` 加按 id 的幂等规则，目标列表内已存在同 id 行时：
+**已实现的方案（路线 A，组合包层去重；原路线 B「改 Loader 加 id 幂等」搁置）**：应用类组合包**不再插框架行**——`app-registry` / `page-registry` / `task-center` / `app-host` 由 `app-host-bundle` 独占插入；应用组合包（现 `forum-bundle`）只插自己的行，并把 `@veren/app-host-bundle` 声明为依赖。机制依据（查实于 `plugin-manager/src/operations.ts` 的 reconciliation）：已装依赖里凡是声明了 `dsh.bundle.patch` 的包都会被收进 profile 的 bundles 列表、自己成为一个 patch 层——所以装应用组合包会连带激活框架层，`app-host` 行构造上只有一份。
 
-```text
-同名（name 相同）→ 幂等跳过，记一条 debug 日志（"row already inserted by <patch>"）
-异名           → fail loud，稳定错误码 loader/row-id-conflict，
-                 载荷 { id, existing: <name>, incoming: <name>, patch: <patchPath> }
-```
+**缺失面 fail loud**：应用宿主（如 `@veren/forum`）硬注入 `apps`，框架层缺席时该行保持 pending、插件页显示未启用、启动日志留告警，绝不半激活；不是静默降级。
 
-这是"声明式去重"：组合包作者只要给行写稳定 id，跨组合包同装就在构造上安全。
+**守卫**：仓库根部 `scripts/check-bundle-patch-rows.mjs`（`pnpm check:bundles`）静态强制三件事——任一行 id 至多被一个组合包插入；框架 id 只允许 `app-host-bundle` 插；框架消费者组合包必须依赖 `app-host-bundle`。
 
-**取舍**：被否方案是"只写文档约定：行 id 加 bundle 前缀保证全局唯一"。否掉的理由：两个 bundle 各自带 `app-host` 是**合理**需求（各自成套安装），前缀化治不了"同 id 不同名仍双插"，还把去重责任推给每个作者；且与"misconfiguration fails loud"的既有纪律相悖——静默双插正是 misconfiguration。
+**取舍**：路线 B（Loader 对 insert 按 id 幂等、异名冲突报 `loader/row-id-conflict`）更彻底，但要改平台代码（`deepseek/deepseek-harness` 的 vendor include），代价与纪律约束更高；路线 A 不动宿主即在构造上消除未定义行为，且把「谁拥有框架行」显式化为单一属主，组合更容易推理。若未来出现"两个 bundle 必须各自成套插同名行"的真实需求，再评估路线 B。
 
-**影响面**：DSH Loader 的 patch 合并逻辑（deepseek/deepseek-harness）。四个已上线应用**不需要**改（它们是受益方）。测试：loader-smoke 补组合用例——两 bundle 同装、id 同名（断言单行生效）与 id 异名（断言报错码）。
+**影响面**：`forum-bundle` 的 patch / package.json / README / 测试；`app-host-bundle` README 补充所有权契约；`notebook-bundle`、`person-agent-bundle`、`startup-autostart-bundle` 本就不插框架行，不动。验证：真实宿主同装 `app-host-bundle` + `forum-bundle`，patch 展开后 `app-host` 行恰好一份；再装 `notebook-bundle` 仍一份。
 
-**落地阶段与依赖**：P0，无前置。**与既有决策的关系**：不改任何结论，把 forum-bundle 注释里"reconciliation 只激活这一层"的**文档约定**升级为**机制**。
+**落地阶段与依赖**：P0，无前置。**与既有决策的关系**：不推翻任何结论；把原方案的 Loader 改动换成组合包所有权契约，`forum-bundle` 注释里"reconciliation 只激活这一层"的说法升级为跨组合包的所有权规则。
 
 ### 10.3 G2（P0-2）：可选注入 + 应用层独立成包（升格为官方形态）
 

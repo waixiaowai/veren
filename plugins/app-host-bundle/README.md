@@ -4,6 +4,8 @@ Configuration-only bundle that installs the Veren application framework into a D
 
 Install via the plugin manager / `dsh plugin add`; the bundle's `cordis.patch.yml` is the stack's only profile layer (member plugins are plain dependencies and declare no bundles of their own).
 
+**Exclusive ownership of the framework rows (G1 contract):** this is the only bundle allowed to insert `app-registry`, `page-registry`, `task-center`, and `app-host`. Application bundles (for example `@veren/forum-bundle`) must not re-insert them; they declare this bundle as a dependency instead, and the plugin reconciliation installs it as its own layer, so the framework rows exist exactly once no matter how many application bundles are installed. `scripts/check-bundle-patch-rows.mjs` at the repository root enforces both halves.
+
 ## Commands
 
 ```bash

@@ -1,13 +1,18 @@
-# Forum bundle: composes the whole stack in one profile layer.
-# 论坛组合包：用一个 profile 层装好整个技术栈。
+# Forum bundle: composes the Forum stack in one profile layer.
+# 论坛组合包：用一个 profile 层装好整个论坛技术栈。
 #
-# This bundle is the ONLY profile layer of the Forum stack: neither member
-# plugin declares `dsh.bundle.patch`, so the dsh plugin reconciliation activates
-# exactly this layer and installing the bundle can never double-insert a row.
-# Each member rides along as a plain dependency.
-# 本组合包是论坛技术栈唯一的 profile 层：两个成员插件都不声明
-# `dsh.bundle.patch`，dsh plugin 的 reconciliation 因此只会激活这一层——
-# 安装组合包绝不会重复插行。各成员只作为普通依赖随行。
+# Framework rows are NOT inserted here. The application framework
+# (app-registry / page-registry / task-center / app-host) is owned exclusively
+# by `@veren/app-host-bundle`, which this bundle declares as a dependency: the
+# dsh plugin reconciliation adds every installed dependency that declares
+# `dsh.bundle.patch` as its own profile layer, so installing the forum bundle
+# pulls the framework in, and `app-host` is inserted exactly once no matter how
+# many application bundles are installed alongside it.
+# 这里不插框架行。应用框架（app-registry / page-registry / task-center /
+# app-host）由 `@veren/app-host-bundle` 独占插行，而本组合包把它声明为依赖：
+# dsh plugin 的 reconciliation 会把每个声明了 `dsh.bundle.patch` 的已装依赖
+# 自己变成一个 profile 层，所以装论坛组合包会连带装上框架，且无论同装多少个
+# 应用组合包，`app-host` 行都只被插入一次。
 #
 # The bundle carries zero runtime code. Each `insert` row resolves by package
 # name from the bundle's own dependencies (pnpm installs them into the profile
@@ -17,24 +22,16 @@
 # （pnpm 会把它们和组合包一起装进 profile），两个 @veren 插件因此作为一个可
 # 安装单元随行，并在插件管理页作为一个开关整体启停。
 #
-# Row order matters: the application framework first (app-registry owns
-# `ctx.apps`, page-registry owns the URL index, app-host wires the page mirror
-# the forum's single-entry page registration relies on), then the Host (it owns
-# the storage domain, the `forum` Remote namespace, the model-facing tools, and
-# the notification delivery), then the Web page, which talks to that namespace.
-# 行顺序有讲究：先应用框架（app-registry 拥有 `ctx.apps`，page-registry 拥有 URL 索引，
-# app-host 负责接上论坛单入口页面注册所依赖的页面镜像面），再装 Host（拥有存储域、
-# `forum` 远端命名空间、面向模型的工具与通知投递），最后是 Web 页面——页面与该命名空间通信。
+# Row order matters: the Host first (it owns the storage domain, the `forum`
+# Remote namespace, the model-facing tools, and the notification delivery), then
+# the Web page, which talks to that namespace. The Host hard-injects `apps`, so
+# without the app-host-bundle layer its row stays pending — loudly visible in
+# the plugin page and boot logs — and never half-activates.
+# 行顺序有讲究：先装 Host（拥有存储域、`forum` 远端命名空间、面向模型的工具
+# 与通知投递），最后是 Web 页面——页面与该命名空间通信。Host 硬注入 `apps`，
+# 缺了 app-host-bundle 层时该行会保持 pending——在插件页与启动日志里响亮可见，
+# 绝不会半激活。
 - insert:
-    # 应用注册表：ctx.apps（应用、页面/工具目录与生命周期）
-    - id: app-registry
-      name: '@veren/app-registry'
-    # 页面注册表 + URL 索引 + 页面运行时：ctx.pageRegistry
-    - id: page-registry
-      name: '@veren/page-registry'
-    # 宿主装配层：把上面两个服务接成一处（应用 resolver/页面镜像面）
-    - id: app-host
-      name: '@veren/app-host'
     # The Host: durable boards, posts, comments, votes and notifications, the
     # `forum_*` tools, and the opt-in auto-post runner (off by default).
     # 宿主：持久化的板块、帖子、评论、投票与通知，`forum_*` 工具，以及可选

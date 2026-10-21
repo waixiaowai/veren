@@ -56,28 +56,35 @@ describe('forum bundle metadata', () => {
     expect(manifest.files).toContain('cordis.patch.yml')
   })
 
-  it('inserts the app framework before the Host, and the Host before the Web page', () => {
-    expect(insertedRows().map(row => row.id)).toEqual([
-      'app-registry', 'page-registry', 'app-host', 'forum', 'forum-ui',
-    ])
+  it('inserts the Host before the Web page', () => {
+    expect(insertedRows().map(row => row.id)).toEqual(['forum', 'forum-ui'])
+  })
+
+  it('inserts no application-framework row (G1: app-host-bundle owns them)', () => {
+    // The framework rows (app-registry / page-registry / task-center / app-host)
+    // are owned by @veren/app-host-bundle; re-inserting them here would
+    // double-insert whenever both bundles are installed in one profile.
+    // 框架行（app-registry / page-registry / task-center / app-host）由
+    // @veren/app-host-bundle 独占；在这里重插会在同装两个组合包时双插。
+    expect(insertedRows().map(row => row.id).filter(id =>
+      ['app-registry', 'page-registry', 'task-center', 'app-host'].includes(id ?? ''),
+    )).toEqual([])
   })
 
   it('names the member packages that the bundle depends on', () => {
-    expect(insertedRows().map(row => row.name)).toEqual([
-      '@veren/app-registry', '@veren/page-registry', '@veren/app-host', '@veren/forum', '@veren/forum-ui',
-    ])
+    expect(insertedRows().map(row => row.name)).toEqual(['@veren/forum', '@veren/forum-ui'])
   })
 
   it('leaves every inserted row enabled', () => {
     for (const row of insertedRows()) expect(row.disabled).toBeUndefined()
   })
 
-  it('declares every inserted row as a runtime dependency', () => {
+  it('depends on the framework bundle instead of framework members', () => {
     const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
       dependencies?: Readonly<Record<string, string>>
     }
     expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual([
-      '@veren/app-host', '@veren/app-registry', '@veren/forum', '@veren/forum-ui', '@veren/page-registry',
+      '@veren/app-host-bundle', '@veren/forum', '@veren/forum-ui',
     ])
   })
 })

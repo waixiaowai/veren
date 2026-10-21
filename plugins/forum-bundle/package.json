@@ -1,9 +1,9 @@
 {
   "name": "@veren/forum-bundle",
   "displayName": "Forum Bundle",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "icon": "./icon.svg",
-  "description": "Use when a DSH profile needs the whole Forum stack (the durable Host service with its model-facing `forum_*` tools, the Web page, and the app framework that exposes the forum as the `forum` app with /apps/forum pages) installed and composed in one step: it is a configuration-only bundle whose patch inserts the loader rows in dependency order (app framework first, Host, Web page), and its member plugins ship as plain dependencies without bundle declarations of their own, so this patch is the stack's only profile layer; skip it when you want only the Host service, or prefer composing these plugins row by row in your own patch.",
+  "description": "Use when a DSH profile needs the whole Forum stack (the durable Host service with its model-facing `forum_*` tools and the Web page) installed and composed in one step: it is a configuration-only bundle whose patch inserts the Host and Web-page rows in dependency order, it declares @veren/app-host-bundle as a dependency so the application framework's loader rows stay owned by that single bundle (never double-inserted when several application bundles coexist), and its member plugins ship as plain dependencies without bundle declarations of their own; skip it when you want only the Host service, or prefer composing these plugins row by row in your own patch.",
   "type": "module",
   "engines": {
     "dsh": ">=0.2.1-rc.2 <0.3.0"
@@ -29,13 +29,11 @@
   "scripts": {
     "test": "vitest run --no-fsModuleCache"
   },
-  "_comment_dependencies": "Member packages use workspace ranges, which is what a published bundle needs. A test node installs from local tarballs and its own pnpm run has no workspace to resolve `workspace:^` against, so scripts/repack.mjs rewrites the throwaway tarball's dependency entries to file: paths before the profile consumes it; the committed manifest stays registry-clean.",
+  "_comment_dependencies": "Member packages use workspace ranges, which is what a published bundle needs. The bundle also depends on @veren/app-host-bundle: that bundle owns every application-framework loader row, so the reconciliation installs the framework layer from this dependency instead of this patch re-inserting those rows (G1 dedup contract). A test node installs from local tarballs and its own pnpm run has no workspace to resolve `workspace:^` against, so scripts/repack.mjs rewrites the throwaway tarball's dependency entries to file: paths before the profile consumes it; the committed manifest stays registry-clean.",
   "dependencies": {
-    "@veren/app-host": "workspace:^",
-    "@veren/app-registry": "workspace:^",
+    "@veren/app-host-bundle": "workspace:^",
     "@veren/forum": "workspace:^",
-    "@veren/forum-ui": "workspace:^",
-    "@veren/page-registry": "workspace:^"
+    "@veren/forum-ui": "workspace:^"
   },
   "devDependencies": {
     "js-yaml": "^4.1.0",
