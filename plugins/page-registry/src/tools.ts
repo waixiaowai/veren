@@ -83,7 +83,11 @@ export interface PageSendPort {
  * page-registry's delivery runtime; the caller session feeds the hop ledger
  * through exec.agent.
  */
-export function createPageSendTool(port: () => PageSendPort): ReturnType<typeof defineTool> {
+// 返回类型交给 defineTool 推断：手写 `ReturnType<typeof defineTool>` 会擦掉泛型，
+// 调用方拿到的 parameters 退化成 unknown（测试里 Object.keys 直接报错）。
+// Let defineTool infer the return type: spelling `ReturnType<typeof defineTool>`
+// erases its generics, degrading `parameters` to unknown at call sites.
+export function createPageSendTool(port: () => PageSendPort) {
   return defineTool({
     name: 'page_send',
     description: 'Deliver a message to the page session bound to a canonical page URL '

@@ -85,7 +85,7 @@ export function defineAppPage<S>(definition: Parameters<typeof definePage<S>>[0]
       throw new PageError(PageErrorCode.DetailInvalid,
         `detail page "${page.name}" (${page.url}) must declare writes: true — a page bound to one record exists to act on it`)
     }
-    if (page.tools.length === 0) {
+    if ((page.tools ?? []).length === 0) {
       throw new PageError(PageErrorCode.DetailInvalid,
         `detail page "${page.name}" (${page.url}) must mount at least one tool to fulfill its duty`)
     }

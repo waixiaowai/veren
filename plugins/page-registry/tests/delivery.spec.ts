@@ -49,6 +49,10 @@ function taskPage() {
     url: '/apps/demo/task/:id',
     description: '任务详情页',
     tools: ['read'],
+    // §3.10.5 规则 3：二级页必须 declares 写能力 + 说明非空（夹具随规范落地更新）
+    // / §3.10.5 rule 3: a detail page declares writes and carries instructions (fixture updated with the spec)
+    writes: true,
+    instructions: '只处理 params.id 指定的这一条任务。',
     tree: () => [],
   })
 }
@@ -228,7 +232,11 @@ describe('page_send 工具本体（defineTool 产物）', () => {
   it('名字/参数/调用方注入链深台账', async () => {    const { service } = makeService()
     const tool = createPageSendTool(() => service)
     expect(tool.name).toBe('page_send')
-    expect(Object.keys(tool.parameters.properties)).toEqual(['url', 'message', 'wake'])
+    // ToolSchema.parameters 是 Record<string, unknown>（dsh-llm 侧的原始 JSON Schema），
+    // 取 properties 需要显式收窄。
+    // ToolSchema.parameters is a Record<string, unknown> (raw JSON Schema on the
+    // dsh-llm side), so reading properties needs an explicit narrowing.
+    expect(Object.keys((tool.parameters.properties ?? {}) as Record<string, unknown>)).toEqual(['url', 'message', 'wake'])
     expect(tool.parameters.required).toEqual(['url', 'message'])
     const opened = await service.openUrl('/apps/demo/task/1')
     // execute(args, exec)：exec.agent.session.id 进链深台账（假 exec 只取这条路径）

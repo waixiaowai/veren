@@ -14,7 +14,17 @@ import type { AppId } from '@veren/app-registry'
 import PageRegistryPlugin, { PageRegistryService } from '@veren/page-registry'
 import { apply, inject, name } from '../src/index.ts'
 import { APP_ID, APP_DEFINITION } from '../src/app.ts'
-import { detailPage, listPage, publishPage } from '../src/pages.tsx'
+import { createDetailPage, createListPage, createPublishPage } from '../src/pages.tsx'
+import { TaskStore, makeList } from '../src/store.ts'
+
+// 页面定义是工厂（闭包持有装配时的权威 store），测试用一份独立 store 实例化；
+// 这些断言只读结构（URL/标题），不触碰数据。
+// Page definitions are factories closing over the assembly's store, so the tests
+// instantiate them against a throwaway store; these assertions read structure only.
+const testStore = new TaskStore(makeList(3))
+const listPage = createListPage(testStore)
+const detailPage = createDetailPage(testStore)
+const publishPage = createPublishPage()
 
 /** 假任务中心：记录 send/addSubtask 调用；parentMissing 时 get 找不到父记录
  * / a fake task center recording send calls; with parentMissing, get finds no parent */

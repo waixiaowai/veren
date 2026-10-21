@@ -317,7 +317,7 @@ export function assertParamsMatchPattern(pattern: string, params: Readonly<Recor
  * registration (rule 1; siblings may register later); full coverage is the
  * app's acceptance assertion, pinned by each app's tests via this helper.
  */
-export function homeMapIssues(home: PageDefinition<never>, pages: readonly PageDefinition<never>): readonly string[] {
+export function homeMapIssues(home: PageDefinition<never>, pages: readonly PageDefinition<never>[]): readonly string[] {
   const issues: string[] = []
   if (patternParamsOf(home.url).length > 0) {
     issues.push(`home page "${home.name}" url ${JSON.stringify(home.url)} carries :params; a home page must be parameter-free (§3.10.5 rule 1)`)
