@@ -35,6 +35,12 @@ function registerMiniApp(host: AppHost, scope: Context): void {
     id: MINI_APP_ID, name: 'mini', description: '装配验证应用', entry: MINI_ENTRY,
   }, scope)
   const pages = apps.pages(MINI_APP_ID, scope)
+  // 工具先于页面进目录（注册路径要求）/ tools enter the catalog before pages (the registration path requires it)
+  apps.tools(MINI_APP_ID, scope).define(defineTool({
+    name: 'read', description: '读取', parameters: {},
+    output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+    execute: async () => ({ ok: true }),
+  }))
   // 一级页（entry）：无参 + 非空能力地图（§3.10.5 规则 1）
   // / the home page (entry): parameter-free with a non-empty map (§3.10.5 rule 1)
   pages.register(defineAppPage<never>({
@@ -49,11 +55,6 @@ function registerMiniApp(host: AppHost, scope: Context): void {
     name: 'doc', url: '/apps/mini/doc/:docId', description: '文档页',
     tools: ['read'], writes: true, instructions: '只处理 params.docId 指定的这一篇文档。',
     tree: () => [],
-  }))
-  apps.tools(MINI_APP_ID, scope).define(defineTool({
-    name: 'read', description: '读取', parameters: {},
-    output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
-    execute: async () => ({ ok: true }),
   }))
 }
 
