@@ -13,42 +13,29 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import * as Storage from '@deepseek-ai/dsh-storage'
+import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import TaskCenterService from '../src/index.ts'
+import { MemoryStorageBackend, mountMemoryBackend } from './fake-storage.ts'
 
 interface RegisteredTool {
   readonly name: string
   execute(args: Record<string, unknown>, exec: { agent?: unknown }): Promise<unknown>
 }
 
-/** A tiny map-backed storage domain double, enough for the service to open. */
-function fakeStorageDomain(): unknown {
-  const open = async () => {
-    const tables = new Map<string, Map<string, unknown>>()
-    return {
-      table: (name: string) => {
-        const rows = tables.get(name) ?? tables.set(name, new Map()).get(name)!
-        return {
-          get: (key: string) => rows.get(key),
-          put: async (key: string, value: unknown) => { rows.set(key, value) },
-          delete: async (key: string) => rows.delete(key),
-          entries: () => rows.entries(),
-        }
-      },
-      close: async () => undefined,
-    }
-  }
-  return { get: () => undefined, open }
-}
-
 /**
- * Construct the service with a capturing tools registry.
- * 构造服务，工具注册表用捕获桩。
+ * Construct the service over the real hub + domain stack on the in-memory
+ * backend (no disk IO; see fake-storage.ts), with a capturing tools registry.
+ * 构建服务：真实 hub + domain 栈跑在内存后端上（零落盘，见 fake-storage.ts），
+ * 工具注册表用捕获桩。
  */
-function boot(): { service: TaskCenterService; byName: Map<string, RegisteredTool> } {
+async function boot(): Promise<{ service: TaskCenterService; byName: Map<string, RegisteredTool> }> {
   const tools: RegisteredTool[] = []
   const ctx = new Context()
-  ctx.provide('storageDomain', fakeStorageDomain() as never)
   ctx.provide('tools', { register: (tool: unknown) => (tools.push(tool as RegisteredTool), () => undefined) } as never)
+  await ctx.plugin(Storage.default)
+  mountMemoryBackend(ctx, new MemoryStorageBackend())
+  await ctx.plugin(StorageDomain, { backend: 'memory' })
   const service = new TaskCenterService(ctx as Context, { tools: { enabled: true } })
   return { service, byName: new Map(tools.map(tool => [tool.name, tool])) }
 }
@@ -63,15 +50,15 @@ function draftTask(): Parameters<TaskCenterService['send']>[0] {  return {
 const HOUR = 60 * 60 * 1000
 
 describe('task_* tools', () => {
-  it('registers exactly the contract tools', () => {
-    const { byName } = boot()
+  it('registers exactly the contract tools', async () => {
+    const { byName } = await boot()
     expect([...byName.keys()].sort()).toEqual([
       'task_cancel', 'task_complete', 'task_fail', 'task_get', 'task_list', 'task_split', 'task_take',
     ])
   })
 
   it('task_complete enforces claimant identity before the write', async () => {
-    const { service, byName } = boot()
+    const { service, byName } = await boot()
     const task = await service.send(draftTask())
     await service.take(task.id, { sessionId: 's1', actor: 'agent', leaseUntil: new Date(Date.now() + HOUR).toISOString() })
 
@@ -83,7 +70,7 @@ describe('task_* tools', () => {
   })
 
   it('task_list / task_get round-trip; take and fail surface stable codes', async () => {
-    const { service, byName } = boot()
+    const { service, byName } = await boot()
     const task = await service.send(draftTask())
 
     await expect(byName.get('task_list')!.execute({}, {})).resolves.toMatchObject({ tasks: [{ id: task.id }] })

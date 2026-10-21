@@ -3,15 +3,21 @@
  * Subtask semantics (§4.7): tree building, cycle impossibility, cascades, the
  * completion check, tree-level mutex, safety limits, roots-only inbox.
  *
- * 与 service.spec 同一套路：每个用例起一份全新临时 JSON 存储根，并发安全。
- * Same recipe as service.spec: a fresh temporary JSON storage root per case,
- * safe under concurrent workers.
+ * 两种介质各司其职：持久化/重启语义跑真实 JSON 栈（每个用例一份全新临时根，
+ * 并发安全）；安全上限只关心服务里的树运算，跑内存后端——批量建树的几百次
+ * 写不再被磁盘 fsync 抖动拖进 vitest 的默认超时（顺序整库跑下复现过的缺陷）。
+ * Two media with two jobs: persistence/restart semantics run the real JSON
+ * stack (a fresh temp root per case, safe under concurrent workers); the
+ * safety limits only exercise in-service tree arithmetic and run on the
+ * in-memory backend — hundreds of bulk writes can no longer be dragged past
+ * vitest's default timeout by disk fsync jitter (reproduced under sequential
+ * whole-repo runs).
  */
 
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -22,11 +28,15 @@ import { MAX_TREE_DEPTH, MAX_TREE_SIZE, MAX_TREE_WIDTH } from '../src/tree.ts'
 import { TaskErrorCode } from '../src/types.ts'
 import type { TaskDraft, TaskKind, TaskRecord } from '../src/types.ts'
 import type { PageInstanceKey } from '@veren/prompt-page'
+import { MemoryStorageBackend, mountMemoryBackend } from './fake-storage.ts'
 
 const roots: string[] = []
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  // 假时钟不跨用例泄漏（用例中途失败也要还原）/ the fake clock must not leak
+  // across cases (restore even on a mid-case failure)
+  vi.useRealTimers()
 })
 
 function tempRoot(): string {
@@ -41,6 +51,22 @@ async function boot(root: string): Promise<{ ctx: Context; dispose: () => Promis
   await ctx.plugin(Storage.default)
   await ctx.plugin(StorageJson, { root })
   await ctx.plugin(StorageDomain, { backend: 'json' })
+  const fiber = ctx.plugin(TaskCenterPlugin)
+  await fiber
+  return { ctx, dispose: async () => { await (fiber as { dispose(): Promise<void> }).dispose() } }
+}
+
+/**
+ * 内存介质启动：真实 hub + domain 栈，只有后端是 Map（见 fake-storage.ts）。
+ * Memory-medium boot: the real hub and domain stack with a Map backend only
+ * (see fake-storage.ts).
+ */
+async function bootMemory(): Promise<{ ctx: Context; dispose: () => Promise<void> }> {
+  const ctx = new Context()
+  ctx.provide('tools', { register: () => () => {} } as never)
+  await ctx.plugin(Storage.default)
+  mountMemoryBackend(ctx, new MemoryStorageBackend())
+  await ctx.plugin(StorageDomain, { backend: 'memory' })
   const fiber = ctx.plugin(TaskCenterPlugin)
   await fiber
   return { ctx, dispose: async () => { await (fiber as { dispose(): Promise<void> }).dispose() } }
@@ -201,13 +227,22 @@ describe('级联（§4.7.2 规则二）', () => {
 
   it('父 open 过期 → 子树里 open 后代 expired、taken 后代 cancelled', async () => {
     const { ctx, dispose } = await boot(tempRoot())
-    // 窗口放宽到 500ms，避免慢机器上子任务还没建完根就过期 / widen the window to
-    // 500ms so the root cannot expire before the subtasks exist on a slow machine
+    // 假时钟只替换 Date：死线之后的建树写盘耗时再慢也拨不动时钟，懒清扫不可能
+    // 在建树途中触发；建树完成后才把时钟拨过死线——清扫触发点是确定性的，
+    // 不再依赖"四次落盘必须在 500ms 真实时间内跑完"。
+    // / The fake clock swaps Date only: however slow the post-deadline
+    // tree-building writes are, the frozen clock cannot reach the deadline, so
+    // the lazy sweep cannot fire mid-build. The clock advances past the
+    // deadline only after the tree is built — a deterministic sweep trigger
+    // with no "four durable writes must fit in 500ms of real time" premise.
+    vi.useFakeTimers({ toFake: ['Date'] })
     const root = await ctx.taskCenter.send(draft({ expiresAt: new Date(Date.now() + 500).toISOString() }))
     const child = await ctx.taskCenter.addSubtask(root.id, subDraft(root, '子'))
     const takenChild = await ctx.taskCenter.addSubtask(root.id, subDraft(root, '已接取的子'))
     await ctx.taskCenter.take(takenChild.id, { sessionId: 's1', actor: 'agent', leaseUntil: lease() })
-    await new Promise(resolve => setTimeout(resolve, 550))
+    // 时钟拨过死线 1s（租约仍有 1h，不受影响）/ advance the clock 1s past the
+    // deadline (the 1h lease is unaffected)
+    vi.setSystemTime(Date.now() + 1000)
     await ctx.taskCenter.get(root.id) // 触发懒清扫 / trigger the lazy sweep
     expect((await ctx.taskCenter.get(root.id))?.status).toBe('expired')
     expect((await ctx.taskCenter.get(child.id))?.status).toBe('expired')
@@ -280,8 +315,18 @@ describe('树级互斥（§4.7.3）', () => {
 })
 
 describe('安全上限（§4.7.1）', () => {
+  // 三条用例各自批量建树（7/32/199 条子任务），被测语义是服务里的树运算与
+  // 上限拒绝，与介质无关——跑内存后端，几百次写不再被磁盘 fsync 抖动拖进
+  // vitest 的默认 5s 超时（顺序整库跑下复现过的缺陷）；持久化语义由上面跑
+  // 真实 JSON 栈的用例覆盖。
+  // / Each case bulk-builds a tree (7/32/199 subtasks); the semantics under
+  // test are in-service tree arithmetic and the limit refusals, independent
+  // of the medium — they run on the in-memory backend so hundreds of writes
+  // cannot be dragged past vitest's default 5s timeout by disk fsync jitter
+  // (reproduced under sequential whole-repo runs); persistence semantics stay
+  // covered by the real-JSON-stack cases above.
   it('深度超过 8 → task/subtree-limit（kind: depth）', async () => {
-    const { ctx, dispose } = await boot(tempRoot())
+    const { ctx, dispose } = await bootMemory()
     let node = await ctx.taskCenter.send(draft())
     for (let depth = 2; depth <= MAX_TREE_DEPTH; depth += 1) {
       node = await ctx.taskCenter.addSubtask(node.id, subDraft(node, `第 ${depth} 层`))
@@ -292,7 +337,7 @@ describe('安全上限（§4.7.1）', () => {
   })
 
   it('单节点直接子节点超过 32 → task/subtree-limit（kind: width）', async () => {
-    const { ctx, dispose } = await boot(tempRoot())
+    const { ctx, dispose } = await bootMemory()
     const root = await ctx.taskCenter.send(draft())
     for (let index = 0; index < MAX_TREE_WIDTH; index += 1) {
       await ctx.taskCenter.addSubtask(root.id, subDraft(root, `子任务 ${index + 1}`))
@@ -303,7 +348,7 @@ describe('安全上限（§4.7.1）', () => {
   })
 
   it('单棵树节点数达到 200 后再挂 → task/subtree-limit（kind: size）', async () => {
-    const { ctx, dispose } = await boot(tempRoot())
+    const { ctx, dispose } = await bootMemory()
     const root = await ctx.taskCenter.send(draft())
     // 广度优先铺满 200 个节点（每节点至多 32 个直接子节点）
     // / fill exactly 200 nodes breadth-first (at most 32 direct children per node)
