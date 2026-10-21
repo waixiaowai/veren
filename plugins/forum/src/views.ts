@@ -14,7 +14,7 @@
  */
 
 import type { NotificationRecord } from './domain.ts'
-import type { CommentNodeView, NotificationView, PersonView, PostView } from './types.ts'
+import type { CommentNodeView, NotificationView, PersonView } from './types.ts'
 
 /**
  * The lossless-JSON union, spelled locally because a view must be provably

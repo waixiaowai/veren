@@ -18,7 +18,7 @@
 
 import type { NotificationRecord, VoteValue } from './domain.ts'
 import type {
-  CatalogQuery, CatalogView, CreateCommentInput, CreatePostInput, DeliveryOutcome,
+  CatalogQuery, CatalogView, CreateCommentInput, CreatePostInput,
   NotificationView, PostDetailView, PostView, WriteOutcome,
 } from './types.ts'
 import type { AutoPostSettings, AutoPostSnapshot, AutoPostWorld } from './runner.ts'
