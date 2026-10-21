@@ -47,3 +47,9 @@ pnpm --filter @veren/page-registry test
 - 可选能力：`tasks`（任务接取）、`deliveries`（收件箱投递）、`releaseLeases`（废弃时租约释放）。
 
 宿主装配层（`@veren/app-host`）执行 `bindPorts` 之前，`openUrl` / `releaseApp` 以 `page/host-unavailable` fail loud——绝不假成功。
+
+## 活的视图（`pageData` 端口，§3.10.3）
+
+- `registerAppPage(appId, page, live?)` 接受 `PageLiveBinding`（由 app-registry 从应用声明的 store 封出）：`live.mount(params)` 返回该会话订阅 store 的视图。
+- `openUrl` 在 `index.commit` **之前**经可选 `pageData` 端口绑定该视图——挂载失败走既有的两阶段回滚，不会留下"会话活着、视图死着"的半状态。同 URL 重开的旧会话废弃与回滚路径都调用 `pageData.unbind(sessionId)`。
+- 没有 `pageData` 端口或没有 `live` 绑定时页面保持静态，其余行为不变。渲染、截断与上下文投递归绑定方（`@veren/app-host` 的 `createPageDataSync`）。

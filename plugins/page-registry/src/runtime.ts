@@ -25,6 +25,7 @@
  * @module @veren/page-registry/runtime
  */
 import { PageError, PageErrorCode, canonicalizePageUrl } from '@veren/prompt-page'
+import type { PageSession } from '@veren/prompt-page'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { PageInstanceIndex, PageInstanceKey, PageMatch } from '@veren/prompt-page'
 // 服务面类型只引真正的那一份：应用记录/任务契约来自各自的 declaration merging 出口，
@@ -87,6 +88,31 @@ export interface PageSessionPort {
   destroy(sessionId: string): Promise<void>
 }
 
+/** 实时视图的身份标识：PAGE-DATA 块头用的页面键与规范 URL / the live view identity: pageKey + canonical url for the PAGE-DATA header */
+export interface PageDataIdentity {
+  /** 页面键（应用页即 `<appId>/<本地名>`）/ the page key (app pages: `<appId>/<localName>`) */
+  readonly pageKey: string
+  /** 规范 URL / the canonical url */
+  readonly url: string
+}
+
+/**
+ * 实时视图端口（§3.10.2 的 PAGE-DATA 承载通道）：会话提交后绑定、废弃/回滚时
+ * 解绑。视图本体（订阅 store 的 MessageHost）由绑定方持有——本运行时只宣布
+ * "这条会话现在是这个页面的活视图"，怎么渲染、怎么截断、怎么进上下文都归宿主。
+ * The live-view port (the PAGE-DATA channel of §3.10.2): bound once a session
+ * commits, unbound on deprecation/rollback. The view itself (the store-subscribed
+ * MessageHost) is owned by the binder — this runtime only announces "this
+ * session is now the live view of that page"; rendering, caps, and context
+ * delivery all belong to the host.
+ */
+export interface PageDataPort {
+  /** 会话提交后绑定一个实时视图（视图生命周期自此归端口）/ bind one live view after commit (lifecycle passes to the port) */
+  bind(sessionId: string, view: PageSession<never>, identity: PageDataIdentity): void
+  /** 废弃/回滚：解绑并退订 store / deprecation or rollback: unbind and unsubscribe the store */
+  unbind(sessionId: string): void
+}
+
 /** 运行时端口集：apps/toolsOf 必填，任务相关为可选能力端口（全部是纯参数）
  * / the runtime's ports: apps/toolsOf required, task faces optional capabilities */
 export interface PageRuntimePorts {
@@ -107,6 +133,8 @@ export interface PageRuntimePorts {
   readonly releaseLeases?: (sessionId: string) => Promise<void>
   /** 任务租约时长（分钟），缺省 30 / lease minutes, default 30 */
   readonly leaseMinutes?: number
+  /** 实时视图端口：缺席则页面保持静态（无 PAGE-DATA 同步）/ the live-view port; absent → pages stay static */
+  readonly pageData?: PageDataPort
 }
 
 /** openUrl 的可选参数；createPageSession 另接受 `focus: false`（投递路径不切界面） */
@@ -239,6 +267,16 @@ async function deprecatePrevious(index: PageInstanceIndex, ports: PageRuntimePor
   const previous = await index.lookup(key)
   if (previous === undefined) return
   await ports.sessions.releaseTools(previous.sessionId).catch(() => undefined)
+  // 实时视图随工具一起摘（§3.10.3）：旧会话退出活跃视图，store 订阅同步退订。
+  // The live view leaves with the tools (§3.10.3): the old session stops being
+  // an active view and its store subscription is unsubscribed.
+  try {
+    ports.pageData?.unbind(previous.sessionId)
+  } catch {
+    // 解绑失败不阻断废弃（unbindError 只可能是端口实现内的瞬态故障）：最坏情形
+    // 是旧视图多活一阵，下轮打开重试/覆盖 / an unbind failure never blocks
+    // deprecation: worst case the stale view lingers and the next open retries
+  }
   await ports.releaseLeases?.(previous.sessionId).catch(() => undefined)
   try {
     await index.deprecate(key, `superseded by a fresh open of ${key}`)
@@ -328,12 +366,26 @@ export async function createPageSession(
     tools = resolveMountedTools(app, match, ports.toolsOf)
     await ports.sessions.mountTools(sessionId, tools)
     await ports.sessions.appendUserMessage(sessionId, pageBlock(app, match, params, tools), 'app/page')
+    // 实时视图在 commit 前绑定（§3.10.3）：挂载失败走下方既有回滚（fail loud），
+    // 不产生"会话活着但视图死着"的半状态；commit 后该视图归端口所有。
+    // The live view binds before commit (§3.10.3): a mount failure rides the
+    // existing rollback below (fail loud), so a live session never pairs with
+    // a dead view; after commit the port owns the view.
+    if (match.live !== undefined && ports.pageData !== undefined) {
+      ports.pageData.bind(sessionId, match.live.mount(params), {
+        pageKey: match.page.name.includes('/') ? match.page.name : `${app.definition.id}/${match.page.name}`,
+        url: key,
+      })
+    }
     await index.commit(key, sessionId)
   } catch (error: unknown) {
     // 兜底：摘工具 → 销毁半成品会话 → 删 reserved 行；原始错误码优先透出
     await ports.sessions.releaseTools(sessionId).catch(() => undefined)
     await ports.sessions.destroy(sessionId).catch(() => undefined)
     await index.fail(key, error instanceof Error ? error.message : String(error)).catch(() => undefined)
+    // 已绑定的实时视图随半成品一起摘除（幂等；bind 在 commit 前可能已发生）
+    // / a bound live view dies with the half-built session (idempotent)
+    ports.pageData?.unbind(sessionId)
     throw error
   }
   if (options.taskId !== undefined) await takeTask(ports, options.taskId, sessionId, options.actor)

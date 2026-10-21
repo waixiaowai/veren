@@ -64,11 +64,19 @@ export const apply = (ctx: Context, config: Config): void => {
           : undefined))
       }
       // 3) 页面注册：单入口，app-registry 内部镜像进 page-registry（可被 openUrl
-      //    解析）；镜像失败会回滚并抛错。
+      //    解析）；镜像失败会回滚并抛错。三页都带权威 store（§3.10.3 活的视图）：
+      //    页面会话建立时宿主按参数挂载订阅该 store 的视图，store 变化经
+      //    PAGE-DATA 块同步进上下文——S 在这里的 register 调用处被消费。
+      // 3) Page registration: single entry, app-registry mirrors into
+      //    page-registry internally (resolvable by openUrl); a mirror failure
+      //    rolls back and throws. All three pages carry the authoritative store
+      //    (§3.10.3 live views): the host mounts a store-subscribed view per
+      //    page session and store changes reach the context as PAGE-DATA
+      //    blocks — S is consumed here, at the register call.
       const pages = apps.pages(APP_ID, ctx)
-      for (const page of [listPage, detailPage, publishPage]) {
-        done.push(pages.register(page as never))
-      }
+      done.push(pages.register(listPage, { store }))
+      done.push(pages.register(detailPage, { store }))
+      done.push(pages.register(publishPage, { store }))
     } catch (error: unknown) {
       for (const dispose of done.reverse()) dispose()
       throw error

@@ -14,6 +14,7 @@ Page runtime over `@veren/prompt-core` + `@veren/prompt-host-messages` — the `
 - **definePage fails loud**: empty name/description, non-path or duplicate-`:param` urls, non-function tree.
 - **Lifecycle hooks (reserved)**: `onLoad(params)` after mount; `onComplete(params)` consulted to decide session archive (plugins close sessions via `workspaceRegistry.archiveSession`).
 - **Optional policy assembly**: pass `assembly: { systemPrompt, provider?, policy?, budget? }` to `mountPage` and the session gains `assemble()` — budget-driven remount plus provider-planned cache breakpoints from `@veren/prompt-host-messages` (unknown providers default to deepseek semantics; see that package's README). Without `assembly`, behavior is unchanged.
+- **Live binding (`PageLiveBinding`)**: a page may be registered with an authoritative store, sealed as `{ mount(params): PageSession<never> }` — the state type `S` is consumed where the store lives, so the registry and the mounting site never see it. `mountPage` is the mounting primitive either path uses; store changes are fully synchronous into the `MessageHost` version chain, which is what lets the host inject the latest snapshot at the next model request (§3.10.2/§3.10.3).
 
 ## Run
 

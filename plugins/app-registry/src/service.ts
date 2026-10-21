@@ -16,10 +16,10 @@
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { defineAppPage } from '@veren/prompt-page'
-import type { PageDefinition } from '@veren/prompt-page'
+import { defineAppPage, mountPage } from '@veren/prompt-page'
+import type { PageDefinition, PageLiveBinding } from '@veren/prompt-page'
 import { AppErrorCode } from './types.ts'
-import type { AppCapability, AppId, AppPageRegistrar, AppRecord, AppToolEntry, AppToolRegistrar, ApplicationDefinition, PageKey, PageMirrorFace } from './types.ts'
+import type { AppCapability, AppId, AppPageRegistrar, AppRecord, AppToolEntry, AppToolRegistrar, ApplicationDefinition, PageKey, PageMirrorFace, PageRegistration } from './types.ts'
 import { AppRegistryError, fail } from './errors.ts'
 
 /** 服务名（ctx.apps / inject 'apps'）/ service name */
@@ -42,7 +42,7 @@ interface AppEntry {
   /** 注册方 fiber 上下文（归属校验 + 生命周期绑定）/ owning fiber context */
   ownerContext?: Context
   /** 已注册页面，键为应用内页面键 / registered pages keyed by app-internal page key */
-  pages: Map<string, PageDefinition<never>>
+  pages: Map<string, PageRegistration>
   /** 工具目录：本地名 → DSH 工具本体 + 注册期元数据 / local name → DSH tool + meta */
   tools: Map<string, AppToolEntry>
   /** 镜像注销器（应用级兜底，防止调用方丢弃 disposer）/ mirror disposers (app-level fallback) */
@@ -151,12 +151,18 @@ export class AppRegistryService extends Service {
   pages(id: AppId, caller?: Context): AppPageRegistrar {
     const entry = this.requireOwned(id, caller, 'pages')
     return {
-      register: (page: PageDefinition<never>): (() => void) => this.registerPage(entry, id, page),
+      register: <S>(page: PageDefinition<S>, live?: { readonly store: import('@veren/prompt-core').ExternalStore<S> }): (() => void) =>
+        this.registerPage(entry, id, page, live),
     }
   }
 
+  /** 把注册期声明的 store 封成"按参数挂载"的实时绑定（S 在此被消费）/ seal the registered store into a mount-per-params live binding (S consumed here) */
+  private sealLive<S>(store: import('@veren/prompt-core').ExternalStore<S>, page: PageDefinition<S>): PageLiveBinding {
+    return { mount: (params) => mountPage({ page, store, params }) }
+  }
+
   /** 校验并以应用内唯一键登记一个页面 / validate and add one page under its unique key */
-  private registerPage(entry: AppEntry, id: AppId, raw: PageDefinition<never>): () => void {
+  private registerPage<S>(entry: AppEntry, id: AppId, raw: PageDefinition<S>, live?: { readonly store: import('@veren/prompt-core').ExternalStore<S> }): () => void {
     // 走 prompt-page 的 defineAppPage：强制 /apps/<appId>/... 形态与契约缺省。
     // Re-run prompt-page's defineAppPage: enforces the /apps/<appId>/... shape.
     const page = defineAppPage(raw)
@@ -177,24 +183,24 @@ export class AppRegistryService extends Service {
           { appId: id, page: page.name, tool: localName })
       }
     }
-    entry.pages.set(page.name, page)
+    entry.pages.set(page.name, { page, ...(live === undefined ? {} : { live: this.sealLive(live.store, page) }) })
     this.refreshEntryState(entry, id)
     // 缺口 3：单入口——内部镜像进 page-registry；镜像失败回滚内部登记并抛原错。
     // Gap 3: single entry — mirror into page-registry; a mirror failure rolls
     // the internal registration back and rethrows the original error.
-    const mirrorDispose = this.mirrorPage(id, page)
+    const mirrorDispose = this.mirrorPage(id, page, entry.pages.get(page.name)?.live)
     return () => {
       mirrorDispose?.()
       // 注销幂等：只在自己仍是当前登记时摘除 / idempotent: remove only if still current
-      if (entry.pages.get(page.name) === page) {
+      if (entry.pages.get(page.name)?.page === page) {
         entry.pages.delete(page.name)
         this.refreshEntryState(entry, id)
       }
     }
   }
 
-  /** 镜像一次页面注册；失败回滚内部登记 / mirror one page; roll back on failure */
-  private mirrorPage(id: AppId, page: PageDefinition<never>): (() => void) | undefined {
+  /** 镜像一次页面注册（含实时绑定）；失败回滚内部登记 / mirror one page (live binding included); roll back on failure */
+  private mirrorPage(id: AppId, page: PageDefinition<never>, live: PageLiveBinding | undefined): (() => void) | undefined {
     const face = this.mirror
     if (face === undefined) {
       this.host.logger.warn(
@@ -203,7 +209,7 @@ export class AppRegistryService extends Service {
       return undefined
     }
     try {
-      const dispose = face.registerAppPage(id, page)
+      const dispose = face.registerAppPage(id, page, live)
       const entry = this.apps.get(id)
       entry?.mirrorDisposers.push(dispose)
       return () => {
@@ -214,7 +220,7 @@ export class AppRegistryService extends Service {
       }
     } catch (error: unknown) {
       const entry = this.apps.get(id)
-      if (entry !== undefined && entry.pages.get(page.name) === page) {
+      if (entry !== undefined && entry.pages.get(page.name)?.page === page) {
         entry.pages.delete(page.name)
         this.refreshEntryState(entry, id)
       }
@@ -273,6 +279,17 @@ export class AppRegistryService extends Service {
 
   /** 列出应用已注册页面 / list the app's registered pages */
   listPages(id: AppId): readonly PageDefinition<never>[] {
+    return this.listPageEntries(id).map((entry) => entry.page)
+  }
+
+  /**
+   * 列出应用已注册页面的完整登记（含实时绑定）：宿主装配的回填镜像走这里，
+   * 保证"先注册、后装配"的页面不丢 live 绑定。
+   * The full registrations (live bindings included): the host assembly's
+   * backfill mirror reads this so pages registered before the assembly keep
+   * their live bindings.
+   */
+  listPageEntries(id: AppId): readonly PageRegistration[] {
     const entry = this.apps.get(id)
     if (!entry) fail(AppErrorCode.NotFound, `app "${id}" is not registered`, { appId: id })
     return [...entry.pages.values()]

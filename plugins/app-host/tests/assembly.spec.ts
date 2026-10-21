@@ -15,12 +15,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { agentEvents } from '@deepseek-ai/dsh-agent'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { defineAppPage } from '@veren/prompt-page'
-import type { PageDefinition } from '@veren/prompt-page'
+import { Data, Keyed, defineAppPage, definePage } from '@veren/prompt-page'
+import type { Entity, PageDefinition } from '@veren/prompt-page'
 import AppRegistryPlugin from '@veren/app-registry'
 import type { AppCapability, AppId, PageKey } from '@veren/app-registry'
 import PageRegistryPlugin from '@veren/page-registry'
@@ -152,6 +156,58 @@ function makeHostSessions(ctx: Context, failTool?: string) {
       emit('agent/disposed', { agent: { session: { id } } })
     },
   }
+}
+
+// ---- PAGE-DATA 同步测试的极简件（看板应用 + store + pre-step 派发） ----
+// ---- Minimal pieces for the PAGE-DATA sync tests (board app + store + pre-step dispatch) ----
+
+/** 看板条目 / one board card */
+interface BoardCard extends Entity { readonly title: string }
+
+/** 权威 store 假件：可变、可订阅、引用稳定 / the authoritative store fake */
+function makeBoardStore(initial: BoardCard[]): {
+  getState(): BoardCard[]
+  subscribe(listener: () => void): () => void
+  mutate(next: BoardCard[]): void
+} {
+  let items = initial
+  const listeners = new Set<() => void>()
+  return {
+    getState: () => items,
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+    mutate(next) {
+      items = next
+      for (const listener of listeners) listener()
+    },
+  }
+}
+
+/** 看板页面：一个 keyed 集合块 + 一个字段块 / the board page: one keyed collection + one field */
+function boardPage(): PageDefinition<BoardCard[]> {
+  return definePage<BoardCard[]>({
+    name: 'board',
+    url: '/apps/board/board/:id',
+    description: '看板页',
+    tree: (_params, state) => [...Keyed({ path: 'cards', items: state }), ...Data({ path: 'count', value: state.length })],
+  })
+}
+
+/** 在该会话的 agent 作用域上跑一轮 pre-step（最内层 next 返回已认领消息）
+ * / run one pre-step in that session's agent scope (innermost next returns the claimed messages) */
+async function runPreStep(ctx: Context, agentCtx: Context, sessionId: string): Promise<PreStepDecision> {
+  // 唯一的类型断言：假 Agent 只实现派发所需的身份与作用域（同结算测试的先例）
+  // The single type assertion: the fake carries only the identity and scope dispatch needs
+  const agent = { id: sessionId, ctx: agentCtx, session: { id: sessionId } } as unknown as Agent
+  const claimed: UserMessage[] = [createUserMessage({ content: [{ type: 'text', text: '继续' }] })]
+  return await agentEvents(ctx, agent).waterfall('agent/pre-step', {
+    messages: claimed,
+    turn: 0,
+    step: 0,
+    signal: new AbortController().signal,
+  }, async (): Promise<PreStepDecision> => ({ kind: 'enter', messages: claimed }))
 }
 
 // ---- 装配 + 一个迷你应用 ----
@@ -462,5 +518,31 @@ describe('真机探针的可自动化收编（原 @veren/app-host-verify 六项�
     expect(scope2.followups.some((m) => m.includes('[task-center] 真机验证任务'))).toBe(true)
     // 新会话 PAGE 块也在；旧会话没有收到任务的任何块
     expect(scope.followups.some((m) => m.includes(`TASK ${task.id}`))).toBe(false)
+  })
+})
+
+describe('PAGE-DATA 同步（§3.10.2）走真实装配链：回填镜像携带 live', () => {
+  it('先注册（带 store）、后装配 → openUrl 后 store 变化进下一轮 pre-step 的 PAGE-DATA', async () => {
+    const h = await boot({ enabled: false })
+    // 真机 Loader 的激活顺序：应用插件可能先于装配注册页面（镜像未在，只告警）。
+    // 回填必须把 live 绑定一起带过来，否则页面"能开"但"看不到变化"。
+    // The loader's activation order: the app may register before the assembly.
+    // The backfill must carry the live binding, or the page opens but never syncs.
+    const store = makeBoardStore([{ id: 'i-1', title: '基线卡' }])
+    const apps = h.ctx.apps
+    apps.register({ id: 'board' as AppId, name: 'board', description: '看板应用', entry: 'board' as PageKey }, h.ctx)
+    apps.pages('board' as AppId, h.ctx).register(boardPage(), { store })
+    wireAppHost(h.ctx)
+    const opened = await h.pages.openUrl('/apps/board/board/1' as PageInstanceKey)
+    const scope = h.host.scopes.get(opened.sessionId)
+    if (scope === undefined) throw new Error('expected the page agent to activate at open')
+    // store 变化 → 下一轮 pre-step 的决策消息里真的出现新数据
+    // Store change → the next pre-step decision really carries the new data
+    store.mutate([{ id: 'i-1', title: '基线卡' }, { id: 'i-2', title: '装配链新卡' }])
+    const decision = await runPreStep(h.ctx, scope.ctx, opened.sessionId)
+    const injected = decision.messages.at(-1)
+    const text = injected?.content.map((block) => (block.type === 'text' ? block.text : '')).join('') ?? ''
+    expect(text.startsWith('PAGE-DATA board/board /apps/board/board/1 v')).toBe(true)
+    expect(text).toContain('装配链新卡')
   })
 })

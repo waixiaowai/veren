@@ -15,4 +15,8 @@ pnpm --filter @veren/app-registry typecheck
 pnpm --filter @veren/app-registry test
 ```
 
+## Live pages
+
+`pages(id, caller?).register(page, { store })` marks the page a live view (§3.10.3): the store (any `@veren/prompt-core` `ExternalStore<S>`, e.g. a plugin's own class with `getState` / `subscribe`) is sealed at registration into a `PageLiveBinding` (`live.mount(params)`), so the page runtime mounts a store-subscribed view without ever seeing `S`. The binding travels with the mirror into page-registry and with `listPageEntries(id)` — the host assembly's backfill — so a page registered before the assembly still becomes live. Pages registered without a store stay static.
+
 中文文档见 [README.cn.md](./README.cn.md)。

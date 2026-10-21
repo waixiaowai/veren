@@ -36,6 +36,7 @@ import type {} from '@deepseek-ai/dsh-session-title'
 // 类型-only import：拉取 agentDefaultModel 的 declaration merging（ctx.agentDefaultModel）
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type { MountedTool, PageSessionPort } from '@veren/page-registry'
+import type { PageDataSyncFace } from './page-sync.ts'
 
 /** focus 接缝：把界面切到某会话 / the focus seam: bring a session to the GUI front */
 export interface FocusPort {
@@ -96,8 +97,12 @@ function sourceKind(source: string): PageSourceKind {
  * 也不带"缺席即降级"分支——服务缺席是装配错误，由 inject 等待/fail loud 兜住。
  * @param ctx - 宿主上下文（读 `sessions` / `agents` 服务）
  * @param focus - focus 接缝（GUI 实现归 H）
+ * @param sync - PAGE-DATA 注入面（缺省 = 不注入，页面保持静态）——G13：兄弟能力
+ *   走参数，端口不自己摸装配层
+ * @param sync - the PAGE-DATA injection face (absent → static pages); G13:
+ *   sibling capabilities travel as parameters, the port never reaches for the assembly
  */
-export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocus(ctx)): PageSessionPort {
+export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocus(ctx), sync?: PageDataSyncFace): PageSessionPort {
   const agentOf = (sessionId: string): Agent | undefined => ctx.agents.get(sid(sessionId))
   // 会话 → 该会话当前挂载的注销器（agent 作用域注销器，重挂/清理用）
   const mounted = new Map<string, Array<() => void>>()
@@ -145,6 +150,12 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
     // visible to their own agent" scope rule. The restriction disposer joins
     // the mounted set and is undone with it.
     disposers.push(agent.ctx.tools.restrict({ deny: ['app_open', 'app_list', 'app_pages'] }))
+    // PAGE-DATA 注入器（§3.10.3）：挂在同一 agent 作用域——dsh-scope 过滤保证
+    // 只有本会话的 pre-step 会送达它；注销器随挂载整组撤销。
+    // The PAGE-DATA injector (§3.10.3): registered on the same agent scope —
+    // dsh-scope filtering delivers only this session's pre-steps to it; the
+    // disposer joins the mounted set.
+    if (sync !== undefined) disposers.push(sync.attach(sessionId, agent))
     mounted.set(sessionId, disposers)
     for (const block of pending.blocks) followup(agent, block.text, block.source)
   }
@@ -161,12 +172,14 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
     mountOnAgent(sessionId, agent, pending)
     return undefined
   })
-  // agent 销毁：作用域注册随 fiber 自动消失，这里只清登记
+  // agent 销毁：作用域注册随 fiber 自动消失，这里只清登记；实时视图一并解绑
+  // （外部拆除的 agent 不该留下孤儿视图订阅）。
   ctx.on('agent/disposed', ({ agent }) => {
     const sessionId = agent?.session?.id
     if (sessionId !== undefined) {
       mounted.delete(sessionId)
       handles.delete(sessionId)
+      sync?.drop(sessionId)
     }
   })
 
@@ -260,6 +273,10 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
     async destroy(sessionId) {
       queued.delete(sessionId)
       releaseMounted(sessionId)
+      // 半成品会话不该留下视图订阅（bind 可能已在 commit 前发生；幂等）
+      // / a half-built session must not leave a view subscription behind (bind
+      // may have happened before commit; idempotent)
+      sync?.drop(sessionId)
       // 半成品兜底路径（页面创建失败回滚）：整只拆除本端口创建的 agent——
       // 句柄持有者才有资格 dispose，失败的会话不该留下活 agent。
       // Half-built rollback path (page-create failure): tear down the agent this
@@ -287,6 +304,12 @@ declare module '@deepseek-ai/dsh-llm' {
     'task-center/notice': { kind: 'task-center/notice' }
     /** A page_send delivery message (wake or wake=false log-only). @persistenceSource user */
     'page/send': { kind: 'page/send' }
+    /**
+     * A PAGE-DATA view sync appended at pre-step (§3.10.2). The agent loop
+     * commits decision messages itself, so the block lands as a user message.
+     * @persistenceSource user
+     */
+    'page/data': { kind: 'page/data' }
   }
 }
 

@@ -85,7 +85,14 @@ export function subtaskTree(items: readonly TaskItem[], rootId: string): Subtask
   }))
 }
 
-/** 最小可订阅 store：getSnapshot 引用稳定，变更才通知 / minimal subscribable store */
+/**
+ * 最小可订阅 store：即 @veren/prompt-core 的 ExternalStore<TaskItem[]>（§3.10.3
+ * 的权威数据源）：getState 引用稳定、变更才通知——正是活视图订阅所要求的形状。
+ * The minimal subscribable store: exactly @veren/prompt-core's
+ * ExternalStore<TaskItem[]> (the §3.10.3 authoritative source): getState keeps
+ * a stable reference and notifies only on change — precisely the shape the
+ * live-view subscription requires.
+ */
 export class TaskStore {
   private items: TaskItem[]
   private readonly listeners = new Set<() => void>()
@@ -94,8 +101,8 @@ export class TaskStore {
     this.items = initial
   }
 
-  /** 当前快照（引用稳定，变更才换）/ current snapshot (stable reference between changes) */
-  getSnapshot(): TaskItem[] {
+  /** 当前状态（引用稳定，变更才换）/ current state (stable reference between changes) */
+  getState(): TaskItem[] {
     return this.items
   }
 

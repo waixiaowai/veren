@@ -48,3 +48,9 @@ This service never probes sibling services at runtime (no `ctx.get(...)` on `app
 
 Before the host assembly (`@veren/app-host`) runs `bindPorts`, `openUrl` / `releaseApp` fail loud with `page/host-unavailable` — never a fake success.
 
+## Live views (`pageData` port, §3.10.3)
+
+- `registerAppPage(appId, page, live?)` accepts a `PageLiveBinding` (built by app-registry from the store the app declared): `live.mount(params)` returns the session's store-subscribed view.
+- `openUrl` binds that view through the optional `pageData` port **before** `index.commit` — a mount failure rides the existing two-phase rollback instead of leaving a live session with a dead view. Deprecating the predecessor (same-url reopen) and the rollback path both call `pageData.unbind(sessionId)`.
+- Without a `pageData` port or a `live` binding the page stays static; nothing else changes. Rendering, caps, and context delivery belong to the binder (`@veren/app-host`'s `createPageDataSync`).
+

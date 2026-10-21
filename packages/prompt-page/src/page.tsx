@@ -79,7 +79,7 @@ export function defineAppPage<S>(definition: Parameters<typeof definePage<S>>[0]
  * otherwise undefined. A reminder, never a gate.
  */
 export function pageToolWarning<S>(page: PageDefinition<S>): string | undefined {
-  if (page.writes !== true || page.tools.length > 0) return undefined
+  if (page.writes !== true || (page.tools ?? []).length > 0) return undefined
   return `page "${page.name}" declares writes: true but mounts no tools; it is open yet cannot do its declared job`
 }
 

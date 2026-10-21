@@ -12,7 +12,7 @@
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import { KvPageInstanceIndex, PageError, PageErrorCode, PageRegistry, canonicalizePageUrl, formatPath } from '@veren/prompt-page'
-import type { InstanceKvPort, PageCatalogEntry, PageDefinition, PageInstanceIndex, PageInstanceKey, PageInstanceRecord, PageMatch, PageParams } from '@veren/prompt-page'
+import type { InstanceKvPort, PageCatalogEntry, PageDefinition, PageInstanceIndex, PageInstanceKey, PageInstanceRecord, PageLiveBinding, PageMatch, PageParams } from '@veren/prompt-page'
 import { APP_PAGES_DOMAIN_NAME, appPagesDomain, instanceTableView } from './storage.ts'
 import { openPageUrl } from './runtime.ts'
 import type { OpenPageOptions, OpenPageResult, PageRuntimePorts } from './runtime.ts'
@@ -152,12 +152,12 @@ export class PageRegistryService extends Service {
    * bare makes the second app explode on duplicate-name or get silently
    * skipped by idempotency checks — the round-4 live task-workbench failure.
    */
-  registerAppPage(appId: string, page: PageDefinition<never>): () => void {
+  registerAppPage(appId: string, page: PageDefinition<never>, live?: PageLiveBinding): () => void {
     if (!page.url.startsWith(`/apps/${appId}/`)) {
       throw new PageError(PageErrorCode.UrlInvalid, `page "${page.name}" of app "${appId}" must register under /apps/${appId}/, got ${page.url}`)
     }
     const scoped: PageDefinition<never> = { ...page, name: `${appId}/${page.name}` }
-    return this.registry.register(scoped)
+    return this.registry.register(scoped, live)
   }
 
   /** 解析 URL：路径参数 + query 合并（path 优先）/ resolve a url to a page match */

@@ -1134,6 +1134,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-scope':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
       '@deepseek-ai/dsh-session':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-scope@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))
@@ -1149,6 +1152,9 @@ importers:
       '@veren/page-registry':
         specifier: workspace:^
         version: link:../page-registry
+      '@veren/prompt-host-messages':
+        specifier: workspace:^
+        version: link:../../packages/prompt-host-messages
       '@veren/prompt-page':
         specifier: workspace:^
         version: link:../../packages/prompt-page
@@ -1250,6 +1256,9 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(ba1ddf53552b466b40e58b4551a3f1d0)
+      '@veren/prompt-core':
+        specifier: workspace:^
+        version: link:../../packages/prompt-core
       '@veren/prompt-page':
         specifier: workspace:^
         version: link:../../packages/prompt-page
