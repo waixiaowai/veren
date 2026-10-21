@@ -230,6 +230,39 @@ describe('pages 注册面', () => {
     apps.pages('todo' as AppId).register(homeDef('todo', 'main'))
     expect(() => apps.pages('todo' as AppId).register(detailDef('todo', 'detail', 'detail/:id'))).not.toThrow()
   })
+
+  it('viewer 档（只读详情）：带 :param、不声明 writes、零工具 → 如实注册，首页 map 须列出它', () => {
+    // 上一轮留下的空隙：只读详情页（有记录身份、纯浏览）被规则 3 逼着谎称
+    // writes: true 才能注册。现在它是合法的 viewer——不声明、不挂写工具即通过。
+    // / the gap the previous round left: a read-only drilldown (record identity,
+    // pure browsing) had to claim writes: true to pass rule 3. It is now a legal
+    // viewer — no declaration, no write tool, registration passes.
+    const { apps } = setup('todo')
+    const pages = apps.pages('todo' as AppId)
+    pages.register({
+      ...pageDef('todo', 'main'),
+      map: [{ url: '/apps/todo/workspace/:wsId', use: 'browse one workspace' }],
+    })
+    expect(() => pages.register({ ...pageDef('todo', 'workspace', 'workspace/:wsId') })).not.toThrow()
+    const registered = apps.listPages('todo' as AppId).find((page) => page.name === 'workspace')
+    expect(registered?.writes).toBeUndefined()
+    expect(registered?.tools).toEqual([])
+    // viewer 也是记录页：规则 1 的空 map 门禁对它同口径（空 map 首页 + 来了一个
+    // 带参页 → 拒，两个注册序都以 viewer 为试金石）
+    // / a viewer is a record page too: rule 1's empty-map gate applies to it as
+    // well (an empty-map home + an arriving :param page → refused; the viewer
+    // is the probe on both registration orders)
+    const solo = new AppRegistryService(new Context())
+    solo.register(appDef('solo'))
+    solo.pages('solo' as AppId).register(pageDef('solo', 'main')) // 空 map：此刻合法 / legal so far
+    expect(() => solo.pages('solo' as AppId).register({ ...pageDef('solo', 'workspace', 'workspace/:wsId') }))
+      .toThrowError(expect.objectContaining({ code: 'page/home-invalid' }))
+    // 放宽没有打开详情门：声明 writes: true 却零工具的带参页仍被拒（规则 3）
+    // / the loosening did not open the detail gate: a parameterized page
+    // declaring writes: true with zero tools is still refused (rule 3)
+    expect(() => pages.register({ ...pageDef('todo', 'fake', 'fake/:id'), writes: true }))
+      .toThrowError(expect.objectContaining({ code: 'page/detail-invalid' }))
+  })
 })
 
 describe('tools 注册面与命名空间', () => {

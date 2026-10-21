@@ -184,38 +184,38 @@ export class AppRegistryService extends Service {
       }
     }
     // §3.10.5 规则 1（注册期，fail loud；2026-10-21 收窄）：首页 URL 不含 :param；
-    // map **仅当本应用还有详情页时**强制非空——单页应用/纯仪表盘应用的空 map 合法，
-    // 不许因此报错。规则在两个注册序上都成立：先详情后首页 → 首页注册时在本页查；
-    // 先首页后详情 → 详情页注册时回头查已登记的首页。规则 4 的 entry-not-home
-    // broken 态（refreshEntryState）是未来旁路注册的兜底；经本注册面的参数化
-    // entry 页在此即被拒。
+    // map **仅当本应用还有记录页（详情/只读详情 viewer）时**强制非空——单页应用/
+    // 纯仪表盘应用的空 map 合法，不许因此报错。规则在两个注册序上都成立：先记录
+    // 页后首页 → 首页注册时在本页查；先首页后记录页 → 记录页注册时回头查已登记
+    // 的首页。规则 4 的 entry-not-home broken 态（refreshEntryState）是未来旁路
+    // 注册的兜底；经本注册面的参数化 entry 页在此即被拒。
     // §3.10.5 rule 1 (registration time, fail loud; narrowed 2026-10-21): the
     // home page carries no :param, and its map is demanded **only while the app
-    // also has detail pages** — an empty map is legal for single-page /
-    // pure-dashboard apps and must never be rejected. The rule holds on both
-    // registration orders: detail-then-home is checked here (at the home's own
-    // registration); home-then-detail re-checks the registered home when the
-    // detail page arrives. Rule 4's entry-not-home broken state
-    // (refreshEntryState) stays the backstop for any future bypass; through
-    // this registration path a parameterized entry page is rejected here.
+    // also has record pages (detail / viewer)** — an empty map is legal for
+    // single-page / pure-dashboard apps and must never be rejected. The rule
+    // holds on both registration orders: record-page-then-home is checked here
+    // (at the home's own registration); home-then-record-page re-checks the
+    // registered home when the record page arrives. Rule 4's entry-not-home
+    // broken state (refreshEntryState) stays the backstop for any future bypass;
+    // through this registration path a parameterized entry page is rejected here.
     const entryParams = page.name === entry.definition.entry ? patternParamsOf(page.url) : []
     if (entryParams.length > 0) {
       throw new PageError(PageErrorCode.HomeInvalid,
         `home page "${id}/${page.name}" must be parameter-free, got :params ${JSON.stringify(entryParams)}`,
       )
     }
-    // 本页登记后的详情页与首页各是谁（本页尚未进 entry.pages，detail/home 都要
-    // 把"正在注册的这页"算进去）/ the app's detail and home page as of this
-    // registration (the page under registration is not in entry.pages yet, so
-    // both faces account for it explicitly)
+    // 本页登记后的记录页（详情/只读详情）与首页各是谁（本页尚未进 entry.pages，
+    // 两类都要把"正在注册的这页"算进去）/ the app's record pages (detail/viewer)
+    // and home page as of this registration (the page under registration is not
+    // in entry.pages yet, so both faces account for it explicitly)
     const archetype = pageArchetypeOf(page, entry.definition.entry)
-    const detailAfter = archetype === 'detail'
+    const recordAfter = archetype === 'detail' || archetype === 'viewer'
       || [...entry.pages.values()].some((registered) => patternParamsOf(registered.page.url).length > 0)
     const homeAfter = archetype === 'home' ? page : entry.pages.get(entry.definition.entry)?.page
-    if (detailAfter && homeAfter !== undefined && (homeAfter.map ?? []).length === 0) {
+    if (recordAfter && homeAfter !== undefined && (homeAfter.map ?? []).length === 0) {
       throw new PageError(PageErrorCode.HomeInvalid,
-        `app "${id}" has detail page(s) but its home page "${id}/${homeAfter.name}" lists an empty capability map `
-        + `— add the detail-page url template(s) to the home's map (§3.10.5 rule 1)`,
+        `app "${id}" has record page(s) (detail/viewer) but its home page "${id}/${homeAfter.name}" lists an empty capability map `
+        + `— add their url template(s) to the home's map (§3.10.5 rule 1)`,
       )
     }
     entry.pages.set(page.name, { page, ...(live === undefined ? {} : { live: this.sealLive(live.store, page) }) })

@@ -77,7 +77,7 @@ describe('defineAppPage（应用作用域契约）', () => {
   })
 })
 
-describe('三档页面校验（§3.10.5）', () => {
+describe('两轴四档页面校验（§3.10.5）', () => {
   const home = {
     name: 'list',
     url: '/apps/review-workbench/list',
@@ -88,13 +88,33 @@ describe('三档页面校验（§3.10.5）', () => {
     tree: () => [],
   }
 
-  it('规则 3：详情页缺 writes / 缺工具 / 缺说明 → page/detail-invalid（注册期拒绝）', () => {
-    // writes: false（未声明 true）即违规 / writes: false (not declared true) violates rule 3
-    expect(() => defineAppPage({ ...home, name: 'd1', url: '/apps/review-workbench/review/:pr' }))
+  it('viewer 档（只读详情）：带 :param、不声明 writes、不挂写工具 → 如实注册，不再被迫谎称要写', () => {
+    // 上一轮留下的空隙：只读详情页（有记录身份、纯浏览不做事）被规则 3 逼着
+    // 声明 writes: true 才能注册——那是在教人写假声明。现在它是合法的 viewer。
+    // / the gap the previous round left: a read-only drilldown (record identity,
+    // nothing to do) had to claim writes: true to register — teaching fake
+    // declarations. It is now a legal viewer.
+    const viewer = defineAppPage({
+      name: 'workspace', url: '/apps/review-workbench/workspace/:wsId', description: '工作区只读下钻',
+      tree: () => [],
+    })
+    expect(viewer.writes).toBeUndefined()
+    expect(viewer.tools).toEqual([])
+    // 挂只读工具也不改变档位：viewer 允许为了下钻挂读工具 / a viewer may mount read tools to do its job
+    expect(() => defineAppPage({
+      ...viewer, tools: ['read_diff'],
+    })).not.toThrow()
+    // 显式 writes: false 与缺省同义 / an explicit writes: false reads as read-only
+    expect(() => defineAppPage({ ...viewer, writes: false })).not.toThrow()
+  })
+
+  it('规则 3（收窄后）：声明 writes: true 的带参页缺工具 / 缺说明 → page/detail-invalid', () => {
+    // 规则 3 只约束"声明了写意图"的详情页；没声明的走上一条 viewer 用例
+    // / rule 3 binds only detail pages that declared write intent; undeclared
+    // ones are the viewer case above
+    expect(() => defineAppPage({ ...home, name: 'd2', url: '/apps/review-workbench/review/:pr', writes: true, tools: [] }))
       .toThrowError(expect.objectContaining({ code: 'page/detail-invalid' }))
-    expect(() => defineAppPage({ ...home, name: 'd2', url: '/apps/review-workbench/review/:pr', tools: [] }))
-      .toThrowError(expect.objectContaining({ code: 'page/detail-invalid' }))
-    expect(() => defineAppPage({ ...home, name: 'd3', url: '/apps/review-workbench/review/:pr', instructions: ' ' }))
+    expect(() => defineAppPage({ ...home, name: 'd3', url: '/apps/review-workbench/review/:pr', writes: true, instructions: ' ' }))
       .toThrowError(expect.objectContaining({ code: 'page/detail-invalid' }))
     // 合规详情页照常通过 / a compliant detail page passes
     expect(() => defineAppPage({
@@ -123,9 +143,12 @@ describe('三档页面校验（§3.10.5）', () => {
   })
 })
 
-describe('三档分类（§3.10.1，pageArchetypeOf）', () => {
-  it('推导：带 :param → detail；无参 entry → home；无参非入口 writes → action；无参非入口只读 → readonly', () => {
+describe('两轴四档分类（§3.10.1，pageArchetypeOf）', () => {
+  it('推导：带 :param 写 → detail；带 :param 只读 → viewer；无参 entry → home；无参非入口写 → action；无参非入口只读 → readonly', () => {
     expect(pageArchetypeOf({ name: 'detail', url: '/apps/x/task/:taskId', writes: true }, 'list')).toBe('detail')
+    // viewer：只读详情（/workspace/:wsId 下钻形态）——本轮补上的最后一格
+    // / viewer: the read-only drilldown (the /workspace/:wsId shape) — the last cell, added this round
+    expect(pageArchetypeOf({ name: 'ws', url: '/apps/x/workspace/:wsId' }, 'list')).toBe('viewer')
     expect(pageArchetypeOf({ name: 'list', url: '/apps/x/list' }, 'list')).toBe('home')
     expect(pageArchetypeOf({ name: 'publish', url: '/apps/x/publish', writes: true }, 'list')).toBe('action')
     // 只读副页：person-agent 的工作区浏览页形态 / a read-only secondary page: person-agent's workspace browser
@@ -196,7 +219,12 @@ describe('首页能力地图覆盖查询（§3.10 验收面，homeMapIssues）',
     expect(homeMapIssues(dashHome, [dashHome, workspaces])).toEqual([])
   })
 
-  it('漏掉详情页 / use 为空 / 指向未注册页面 / 首页带 :param → 逐条报告', () => {
+  it('漏掉记录页（详情/viewer，map 对两类带参页一视同仁）/ use 为空 / 指向未注册页面 / 首页带 :param → 逐条报告', () => {
+    // 夹具未声明 writes → 按新推导是 viewer：规则 1 的地图覆盖对 detail/viewer
+    // 同口径（都是记录页，模型不读地图就猜不出 URL 模板）。
+    // / the fixture declares no writes → a viewer under the new derivation: rule
+    // 1's map coverage treats detail/viewer alike (both are record pages the
+    // model cannot guess url patterns for without the map).
     const pages = [home, detail('review', '/apps/x/review/:pr')]
     const missing: PageDefinition<never> = { ...home, map: [{ url: '/apps/x/ghost/:id', use: 'x' }] }
     const issues = homeMapIssues(missing, pages)

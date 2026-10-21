@@ -155,17 +155,20 @@ export function wireAppHost(ctx: Context, options: WireAppHostOptions = {}): () 
 
     // 2c) 页面工具完备性警告（§3.9，开发期轻量核对，只提醒不做门禁）：页面声明
     //     了 writes: true（本页职责需要写能力）却一个工具都没挂 → 打一条警告，
-    //     五秒钟看懂——"页面开着、活干不了"。三档口径（§3.10.1/§3.10.5）：详情页
-    //     已在注册期被规则 3 拦死，这里剩下的 writes 声明者就是工具页（规则 3b
-    //     的通道）；首页与只读副页不声明 writes: true，天然不在此列（规则 2）。
+    //     五秒钟看懂——"页面开着、活干不了"。两轴四档口径（§3.10.1/§3.10.5）：
+    //     带 :param 的 writes 声明者缺工具已在注册期被规则 3 拦死，到达这里的
+    //     writes 声明者只剩无参的工具页（规则 3b 的通道）；viewer（带参只读）、
+    //     首页与只读副页不声明 writes: true，天然不在此列（规则 2）。
     // 2c) Page tool-coverage warning (§3.9, dev-time lightweight self-check,
     //     never a gate): a page declaring `writes: true` (its duty needs write
     //     capability) yet mounting no tools logs one warning — readable in five
-    //     seconds: the page is open but cannot do its job. Three-tier reading
-    //     (§3.10.1/§3.10.5): detail pages are already refused at registration by
-    //     rule 3, so the remaining `writes` declarers here are action pages
-    //     (rule 3b's channel); home and read-only secondary pages never declare
-    //     writes: true and are naturally exempt (rule 2).
+    //     seconds: the page is open but cannot do its job. Two-axis, four-tier
+    //     reading (§3.10.1/§3.10.5): a parameterized `writes` declarer with no
+    //     tools is already refused at registration by rule 3, so the `writes`
+    //     declarers arriving here are parameterless action pages (rule 3b's
+    //     channel); viewer (a parameterized read-only page), home and read-only
+    //     secondary pages never declare writes: true and are naturally exempt
+    //     (rule 2).
     for (const record of apps.catalog()) {
       for (const page of apps.listPages(record.definition.id)) {
         const definition = pageRegistry.get(`${record.definition.id}/${page.name}`)

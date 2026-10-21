@@ -70,33 +70,38 @@ export function definePage<S>(definition: {
  * 并补齐契约缺省：tools 缺省 []（§3.1、§6.1）；详情页结构校验（§3.10.5 规则 3）。
  * `pageRevision` 已删除（G11）：打开一律新建，无升级分叉。
  * 应用注册器（app-registry）的注册路径应使用本函数或等效校验。
- * 三档分类（§3.10.1）在此只判 detail（URL 带 `:param`，纯 URL 形态事实）；
- * home/action 的区分需要 entry 归属，归 app-registry 的注册路径（pageArchetypeOf）。
+ * 两轴四档分类（§3.10.1）在此只看 URL 形态事实与 writes 声明的组合：带 `:param`
+ * 且声明 `writes: true` = detail（规则 3 全套）；带 `:param` 未声明 = viewer
+ * （只读详情，如实注册，豁免规则 3——它不该被迫谎称要写）；home/action 的区分
+ * 需要 entry 归属，归 app-registry 的注册路径（pageArchetypeOf）。
  * App-scoped definePage: enforces the /apps url shape, contract defaults, and
- * the detail-page structure rules (§3.10.5 rule 3). Of the three archetypes
- * (§3.10.1) only `detail` is derivable here (a `:param` in the url — a pure
- * url-shape fact); telling home from action needs the entry, so that belongs
- * to app-registry's registration path (pageArchetypeOf).
+ * the detail-page structure rules (§3.10.5 rule 3). Of the two-axis, four-tier
+ * taxonomy (§3.10.1) only the writes-armed combinations are decidable here: a
+ * `:param` url declaring `writes: true` = detail (full rule 3); a `:param` url
+ * without the declaration = viewer (a read-only drilldown that registers
+ * honestly, exempt from rule 3 — it must never be forced to claim writes);
+ * telling home from action needs the entry, so that belongs to app-registry's
+ * registration path (pageArchetypeOf).
  */
 export function defineAppPage<S>(definition: Parameters<typeof definePage<S>>[0]): PageDefinition<S> {
   assertAppUrlPattern(definition.name, definition.url)
   const page = definePage(definition)
-  const isDetail = patternParamsOf(page.url).length > 0
+  const hasParams = patternParamsOf(page.url).length > 0
+  const isDetail = hasParams && page.writes === true
   if (isDetail) {
-    // §3.10.5 规则 3：详情页必须 declares 写能力 + 至少挂一个工具 + 说明非空。
-    // 写工具的判定 = 页面 writes: true 声明（文档明确其等价性）；目录在位性由
-    // app-registry 的注册路径另行校验。首页/工具页不受此约束（规则 2：只读合法；
-    // 工具页缺写工具走 §3.9 警告通道，不做门禁）。
-    // Rule 3: a detail page must declare write capability, mount at least one
-    // tool, and carry non-empty instructions. "Has a write tool" = the page's
-    // writes: true declaration (the doc's stated equivalence); catalog presence
-    // is validated separately by the app-registry path. Home and action pages
-    // are exempt (rule 2: read-only is legal; an action page missing its write
-    // tools rides the §3.9 warning channel, never a gate).
-    if (page.writes !== true) {
-      throw new PageError(PageErrorCode.DetailInvalid,
-        `detail page "${page.name}" (${page.url}) must declare writes: true — a page bound to one record exists to act on it`)
-    }
+    // §3.10.5 规则 3：只约束"带 :param 且声明了写意图"的详情页——至少挂一个
+    // 工具 + 说明非空（writes: true 本身就是进入本档的声明，缺工具走这里拦）。
+    // 带 :param 而未声明 writes = viewer（只读详情），全部豁免（规则 2：只读
+    // 合法；逼只读详情页谎称 writes 才能注册，比没有校验更糟）。工具页缺写工具
+    // 走 §3.9 警告通道，不做门禁。
+    // Rule 3: binds only parameterized pages that declared write intent — at
+    // least one mounted tool plus non-empty instructions (writes: true is the
+    // declaration that enters this tier; a missing tool is refused here). A
+    // parameterized page without the declaration is a viewer (a read-only
+    // drilldown) and is fully exempt (rule 2: read-only is legal; forcing an
+    // honest read-only page to claim writes is worse than no validation). An
+    // action page missing its write tools rides the §3.9 warning channel,
+    // never a gate.
     if ((page.tools ?? []).length === 0) {
       throw new PageError(PageErrorCode.DetailInvalid,
         `detail page "${page.name}" (${page.url}) must mount at least one tool to fulfill its duty`)
@@ -125,15 +130,19 @@ function validateMapEntries(name: string, map: readonly PageMapEntry[] | undefin
  * 页面工具完备性警告（§3.9，开发期轻量核对）：页面声明了"本页职责需要写能力"
  * 却一个工具都没挂 → 返回一句话警告；否则 undefined。只提醒，不做门禁——
  * 五秒钟看懂在提醒什么："页面开着、活干不了"。§3.10.5 规则 3b（工具页必须有
- * 写工具）走的就是本通道：详情页在注册期已被规则 3 拦死，剩下声明 `writes: true`
- * 的无参页面即工具页，缺工具在这里被警告——口径与 `writes` 警告完全一致。
+ * 写工具）走的就是本通道：声明 `writes: true` 的带参页缺工具在注册期已被规则 3
+ * 拦死，到达装配的 `writes: true` 声明者只剩无参的工具页，缺工具在这里被警告
+ * ——口径与 `writes` 警告完全一致。viewer（带参只读）/首页/只读副页不声明
+ * `writes`，天然不在核对范围（规则 2）。
  * Page tool-coverage warning (§3.9, dev-time lightweight self-check): a page
  * that declares `writes: true` yet mounts no tools returns a one-line warning;
  * otherwise undefined. A reminder, never a gate. §3.10.5 rule 3b (an action
- * page must hold write tools) rides exactly this channel: detail pages are
- * already refused at registration by rule 3, so a parameterless page still
- * declaring `writes: true` IS an action page, and its missing tools warn here —
- * the same channel and criteria as the `writes` warning.
+ * page must hold write tools) rides exactly this channel: a parameterized page
+ * declaring `writes: true` with no tools is already refused at registration by
+ * rule 3, so the `writes` declarers reaching assembly are parameterless action
+ * pages, warned here — the same channel and criteria as the `writes` warning.
+ * viewer (a parameterized read-only page), home and read-only secondary pages
+ * never declare `writes` and are naturally out of scope (rule 2).
  */
 export function pageToolWarning<S>(page: PageDefinition<S>): string | undefined {
   if (page.writes !== true || (page.tools ?? []).length > 0) return undefined

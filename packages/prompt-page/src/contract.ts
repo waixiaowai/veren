@@ -105,9 +105,14 @@ export const PageErrorCode = {
    */
   HomeInvalid: 'page/home-invalid',
   /**
-   * 二级页结构不合规（§3.10.5 规则 3）：未声明 writes、未挂工具或说明为空，
-   * 注册期拒绝。/ detail page structurally invalid (§3.10.5 rule 3): no writes
-   * declaration, no tools, or empty instructions; registration is refused.
+   * 详情页结构不合规（§3.10.5 规则 3）：带 `:param` 且声明 `writes: true` 的页
+   * 缺工具或说明为空，注册期拒绝。带 `:param` 而未声明 writes = viewer（只读
+   * 详情），不走本门禁——如实注册是它的合法形态。
+   * / detail page structurally invalid (§3.10.5 rule 3): a `:param` page that
+   * declares `writes: true` yet lacks tools or instructions; registration is
+   * refused. A `:param` page without a writes declaration is a viewer (a
+   * read-only drilldown) and never sees this gate — honest registration is its
+   * legal shape.
    */
   DetailInvalid: 'page/detail-invalid',
   /**
@@ -288,28 +293,45 @@ export function patternParamsOf(url: string): readonly string[] {
   return url.split('/').filter((segment) => segment.startsWith(':') && segment.length > 1).map((segment) => segment.slice(1))
 }
 
-/** 页面档位（§3.10.1 三档 + 只读剩余形态）/ the page archetype (§3.10.1's three tiers plus the read-only leftover) */
-export type PageArchetype = 'home' | 'detail' | 'action' | 'readonly'
+/**
+ * 页面档位（§3.10.1 两轴四档 + 只读剩余形态）：**记录身份**（URL 是否带 `:param`）
+ * × **写意图**（是否声明 `writes: true`）两轴，加 entry 归属，推出五个格子——
+ * home（入口）/ detail（带参写）/ viewer（带参只读）/ action（无参写）/
+ * readonly（无参只读，剩余形态）。viewer 是 2026-10-21 补上的最后一块：
+ * 只读详情页（如 `/workspace/:wsId` 下钻）不再被迫声明 `writes: true` 才能注册。
+ * The page archetype (§3.10.1's two-axis, four-tier taxonomy plus the read-only
+ * leftover): **record identity** (a `:param` in the url) × **write intent** (a
+ * `writes: true` declaration), plus the entry flag, yields five cells — home
+ * (the entry) / detail (parameterized + writing) / viewer (parameterized +
+ * read-only) / action (parameterless + writing) / readonly (parameterless +
+ * read-only, the legal leftover). `viewer` closes the last gap (2026-10-21):
+ * a read-only drilldown (e.g. `/workspace/:wsId`) no longer has to claim
+ * `writes: true` just to register.
+ */
+export type PageArchetype = 'home' | 'detail' | 'viewer' | 'action' | 'readonly'
 
 /**
- * 三档推导（§3.10.1）：URL 带 `:param` → `detail`；无参且是 entry → `home`；
- * 无参、非 entry、声明 `writes: true` → `action`；其余（无参非入口只读）→
- * `readonly`（只读副页，仪表盘应用的合法第二屏）。`entryKey` 缺省 = 调用方不知道
- * 入口（裸注册场景），此时无参页面不判 `home`。分类写进注册契约：推导规则只有
+ * 两轴四档推导（§3.10.1）：URL 带 `:param` → 声明 `writes: true` 是 `detail`，
+ * 未声明是 `viewer`（只读详情，如实注册，无额外要求）；无参且是 entry → `home`；
+ * 无参、非 entry、声明 `writes: true` → `action`；无参非入口只读 → `readonly`
+ * （只读副页，仪表盘应用的合法第二屏）。`entryKey` 缺省 = 调用方不知道入口
+ * （裸注册场景），此时无参页面不判 `home`。分类写进注册契约：推导规则只有
  * 这一份，app-registry 的注册校验与文档口径共用它。
- * The three-tier derivation (§3.10.1): a `:param` url → `detail`; parameterless
- * and the entry → `home`; parameterless, non-entry, declaring `writes: true` →
- * `action`; the rest (parameterless non-entry read-only) → `readonly` (a legal
- * secondary page of dashboard apps). Without `entryKey` the caller does not know
- * the entry (raw registration), so a parameterless page is never classified home.
- * The taxonomy is part of the registration contract: this is the one derivation,
- * shared by app-registry's registration checks and the doc's wording.
+ * The two-axis, four-tier derivation (§3.10.1): a `:param` url → `detail` when
+ * `writes: true` is declared, `viewer` otherwise (a read-only drilldown that
+ * registers honestly, nothing demanded); parameterless and the entry → `home`;
+ * parameterless, non-entry, declaring `writes: true` → `action`; parameterless
+ * non-entry read-only → `readonly` (a legal secondary page of dashboard apps).
+ * Without `entryKey` the caller does not know the entry (raw registration), so
+ * a parameterless page is never classified home. The taxonomy is part of the
+ * registration contract: this is the one derivation, shared by app-registry's
+ * registration checks and the doc's wording.
  */
 export function pageArchetypeOf(
   page: Pick<PageDefinition<never>, 'name' | 'url' | 'writes'>,
   entryKey?: string,
 ): PageArchetype {
-  if (patternParamsOf(page.url).length > 0) return 'detail'
+  if (patternParamsOf(page.url).length > 0) return page.writes === true ? 'detail' : 'viewer'
   if (entryKey !== undefined && page.name === entryKey) return 'home'
   return page.writes === true ? 'action' : 'readonly'
 }
@@ -334,19 +356,19 @@ export function assertParamsMatchPattern(pattern: string, params: Readonly<Recor
 }
 
 /**
- * 首页能力地图覆盖查询（§3.10 验收面）：有详情页的应用，地图应列全全部详情页的
- * URL 模板、每条都带"什么时候用"、且不指向本应用之外的页面。返回问题清单——
- * 空数组即覆盖成立。规则 1 已收窄：**空 map 只在应用还有详情页时才算问题**
- * （单页应用/纯仪表盘应用合法）；生产校验同此口径（注册期 app-registry 落地），
- * "列全详情页"是应用的验收断言，由各应用测试用本函数钉住。
+ * 首页能力地图覆盖查询（§3.10 验收面）：有记录页（详情/只读详情）的应用，地图应
+ * 列全全部带 `:param` 页面的 URL 模板、每条都带"什么时候用"、且不指向本应用之外
+ * 的页面。返回问题清单——空数组即覆盖成立。规则 1 已收窄：**空 map 只在应用还有
+ * 记录页时才算问题**（单页应用/纯仪表盘应用合法）；生产校验同此口径（注册期
+ * app-registry 落地），"列全记录页"是应用的验收断言，由各应用测试用本函数钉住。
  * The home map coverage query (the §3.10 acceptance face): for an app that has
- * detail pages, the map should list every detail-page url pattern, each with a
- * "when to open it" phrase, and point nowhere outside the app. Returns the
- * problem list — empty means covered. Rule 1 is narrowed: **an empty map is a
- * problem only while the app has detail pages** (single-page / pure-dashboard
- * apps are legal); production validation shares this reading (landed at
- * registration in app-registry), and full coverage stays the app's acceptance
- * assertion, pinned by each app's tests via this helper.
+ * record pages (detail / viewer), the map should list every `:param`-bearing url
+ * pattern, each with a "when to open it" phrase, and point nowhere outside the
+ * app. Returns the problem list — empty means covered. Rule 1 is narrowed: **an
+ * empty map is a problem only while the app has record pages** (single-page /
+ * pure-dashboard apps are legal); production validation shares this reading
+ * (landed at registration in app-registry), and full coverage stays the app's
+ * acceptance assertion, pinned by each app's tests via this helper.
  */
 export function homeMapIssues(home: PageDefinition<never>, pages: readonly PageDefinition<never>[]): readonly string[] {
   const issues: string[] = []
@@ -354,10 +376,11 @@ export function homeMapIssues(home: PageDefinition<never>, pages: readonly PageD
     issues.push(`home page "${home.name}" url ${JSON.stringify(home.url)} carries :params; a home page must be parameter-free (§3.10.5 rule 1)`)
   }
   const map = home.map ?? []
-  // 规则 1（收窄）：map 仅在有详情页时强制非空 / rule 1 (narrowed): the map is demanded only while detail pages exist
-  const hasDetailPages = pages.some((page) => patternParamsOf(page.url).length > 0)
-  if (hasDetailPages && map.length === 0) {
-    issues.push(`home page "${home.name}" has an empty map while the app has detail pages; it must list at least one reachable page (rule 1)`)
+  // 规则 1（收窄）：map 仅在有记录页（详情/只读详情）时强制非空
+  // / rule 1 (narrowed): the map is demanded only while record pages (detail/viewer) exist
+  const hasRecordPages = pages.some((page) => patternParamsOf(page.url).length > 0)
+  if (hasRecordPages && map.length === 0) {
+    issues.push(`home page "${home.name}" has an empty map while the app has record pages; it must list at least one reachable page (rule 1)`)
   }
   const knownUrls = new Set(pages.map((page) => page.url))
   for (const [index, entry] of map.entries()) {
@@ -367,7 +390,7 @@ export function homeMapIssues(home: PageDefinition<never>, pages: readonly PageD
   for (const page of pages) {
     if (page.name === home.name) continue
     if (patternParamsOf(page.url).length > 0 && !map.some((entry) => entry.url === page.url)) {
-      issues.push(`detail page "${page.name}" (${page.url}) is missing from the home map`)
+      issues.push(`record page "${page.name}" (${page.url}) is missing from the home map`)
     }
   }
   return issues

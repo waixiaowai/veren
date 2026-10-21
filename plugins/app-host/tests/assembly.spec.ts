@@ -373,6 +373,46 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
       await jsonFiber.dispose().catch(() => undefined)
     }
   })
+
+  it('§3.9 完备性警告不被本轮 viewer 放宽削弱：writes:true + 零工具仍由装配打出警告，viewer 保持沉默', async () => {
+    // viewer 档落地的回归钉：只读详情页如实注册（不声明 writes）后，
+    // "声明要写却没挂工具"的警告通道必须原样工作——防的是另一种错。
+    // / regression pin for the viewer tier: with read-only drilldowns registering
+    // honestly (no writes declaration), the declares-writes-but-no-tools warning
+    // channel must keep working unchanged — it guards a different mistake.
+    const h = await boot({ enabled: false })
+    const apps = h.ctx.apps
+    apps.register({ id: 'lazy' as AppId, name: 'lazy', description: 'd', entry: 'main' as PageKey }, h.ctx)
+    const pages = apps.pages('lazy' as AppId, h.ctx)
+    pages.register(defineAppPage({
+      // 首页：map 列出 viewer（规则 1 对记录页一视同仁）/ the home: the map lists the viewer (rule 1 treats record pages alike)
+      name: 'main', url: '/apps/lazy/main', description: 'd',
+      map: [{ url: '/apps/lazy/ws/:id', use: 'browse one workspace' }],
+      tree: () => [],
+    }) as unknown as PageDefinition<never>)
+    pages.register(defineAppPage({
+      // viewer：带参、只读、零工具——本轮放宽的受益者，警告对它必须沉默
+      // / the viewer: parameterized, read-only, no tools — this round's
+      // beneficiary, the warning must stay silent for it
+      name: 'ws', url: '/apps/lazy/ws/:id', description: 'd', tree: () => [],
+    }) as unknown as PageDefinition<never>)
+    pages.register(defineAppPage({
+      // action：writes: true + 零工具——警告必须照常打出 / the action page: writes: true + no tools — the warning must still fire
+      name: 'publish', url: '/apps/lazy/publish', description: 'd', writes: true, instructions: '确认后发布', tree: () => [],
+    }) as unknown as PageDefinition<never>)
+    const warnings: string[] = []
+    const original = h.ctx.logger.warn
+    ;(h.ctx.logger as { warn: (m: string) => void }).warn = (m: string) => { warnings.push(m) }
+    try {
+      wireAppHost(h.ctx)
+      const coverage = warnings.filter((m) => m.includes('declares writes: true but mounts no tools'))
+      expect(coverage).toHaveLength(1)
+      expect(coverage[0]).toContain('lazy/publish') // 警告点名的是 pageKey / the warning names the pageKey
+      expect(coverage[0]).not.toContain('lazy/ws')
+    } finally {
+      ;(h.ctx.logger as { warn: (m: string) => void }).warn = original
+    }
+  })
 })
 
 describe('G13 全成或全回滚：接线一步失败，系统回到"什么也没接"', () => {

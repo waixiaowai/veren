@@ -126,33 +126,39 @@ export interface PageDefinition<S> {
   /** 本页挂载的工具（应用工具目录的本地名）/ local tool names from the app tool catalog */
   readonly tools?: readonly string[]
   /**
-   * 本页职责需要写能力（开发期核对声明，§3.9）：声明 true 而未挂任何工具时，
-   * 装配期打一条警告——"页面开着、活干不了"。只提醒，不做门禁。
-   * 三档语义（§3.10.1）：它是**工具页（action）的档位标记**——无参、非入口的页面
-   * 声明 true 即自报"我是做事的页"，必须有写工具（缺了走 §3.9 警告）与说明；
-   * 详情页（URL 带 `:param`）必须声明 true 且至少挂一个工具（§3.10.5 规则 3）；
-   * 首页与只读副页不声明 true，也不因缺写工具报警（规则 2：只读合法）。
-   * This page's duty needs write capability (dev-time self-check, §3.9): a
-   * `true` with no mounted tools logs one assembly-time warning — a page that
-   * is open but cannot do its job. A reminder only, never a gate. Three-tier
-   * reading (§3.10.1): the flag is the **action page's archetype marker** — a
-   * parameterless non-entry page declaring true self-reports "I do a deed" and
-   * must hold write tools (a miss rides the §3.9 warning) and instructions.
-   * Detail pages (a `:param` in the url) must declare true and mount at least
-   * one tool (§3.10.5 rule 3); home and read-only secondary pages never declare
-   * it and are never flagged (rule 2: read-only is legal).
+   * 写意图声明（§3.9/§3.10.1）：**本页职责需要写能力**——它是声明，不是事实，
+   * 价值正在于和"挂没挂工具"这个事实互相核对（§3.9 完备性警告）。两轴四档
+   * （§3.10.1）中的**写意图轴**：详情页（带 `:param`）必须声明 true，且至少挂
+   * 一个工具 + 非空说明（规则 3，注册期拦）；无参非入口页声明 true 即自报
+   * "我是工具页（action）"，缺工具走 §3.9 警告（规则 3b）；**只读详情页
+   * （viewer）不声明**——只读下钻如实注册是合法形态，逼它谎称要写比没有校验
+   * 更糟；首页与只读副页也不声明，且不因缺写工具报警（规则 2）。
+   * 显式 `writes: false` 与缺省同义（都按只读读档）。
+   * The write-intent declaration (§3.9/§3.10.1): **this page's duty needs write
+   * capability** — a declaration, not a fact, and worth keeping precisely
+   * because it is cross-checked against the fact of mounted tools (the §3.9
+   * coverage warning). It is the **write-intent axis** of the two-axis, four-tier
+   * taxonomy (§3.10.1): a detail page (with a `:param`) must declare true and
+   * mount at least one tool with non-empty instructions (rule 3, refused at
+   * registration); a parameterless non-entry page declaring true self-reports
+   * "I am an action page" and its missing tools ride the §3.9 warning (rule 3b);
+   * a **viewer page never declares it** — a read-only drilldown registers
+   * honestly, and forcing it to claim writes is worse than no validation; home
+   * and read-only secondary pages do not declare it either and are never flagged
+   * for lacking write tools (rule 2). An explicit `writes: false` equals the
+   * default (both read as read-only).
    */
   readonly writes?: boolean
   /** 本页给模型的说明；随 PAGE 块附上，不是系统提示词 / page note, not a system prompt */
   readonly instructions?: string
   /**
    * 能力地图（§3.10.1）：本应用可去的页面、各自的 URL 模板与"什么时候去"。
-   * 首页（entry）**仅当本应用还有详情页时**必须非空（§3.10.5 规则 1 收窄后）；
-   * 详情页/工具页/只读副页可省。
+   * 首页（entry）**仅当本应用还有记录页（详情/只读详情 viewer）时**必须非空
+   * （§3.10.5 规则 1 收窄后）；工具页/只读副页可省。
    * The capability map (§3.10.1): where this app can go, each target's url
    * pattern and when to open it. Required on the home page (the entry) **only
-   * while the app also has detail pages** (narrowed rule 1); optional on
-   * detail / action / read-only pages.
+   * while the app also has record pages (detail / viewer)** (narrowed rule 1);
+   * optional on action / read-only pages.
    */
   readonly map?: readonly PageMapEntry[]
   /**
