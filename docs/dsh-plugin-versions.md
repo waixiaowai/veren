@@ -47,6 +47,16 @@ Use `import type` or `import type {}` for packages that contribute only types or
 
 The `@deepseek-ai/dsh-graph-*` packages are ours, not DSH runtime packages, but DSH's compatibility check reads every `@deepseek-ai/dsh-*` peer range as a runtime requirement. They therefore declare `engines.dsh` as well, which takes precedence and stops DSH from judging their workspace peers.
 
+## The workspace install layout
+
+Correct declarations can still install twice. When one `@deepseek-ai/dsh-tools` lands at two physical paths — a user-global `node-linker=hoisted` puts a real directory at the root while each package's `node_modules` links into its own `.pnpm` entry — brand types such as `ToolExecutionToken` split: symbols are keyed by module path, two paths are two symbols, and same-named types stop being assignable while the error reads like an ordinary mismatch.
+
+The project `.npmrc` therefore fixes three things: `node-linker=isolated` (one physical instance per package name), `auto-install-peers=false` (pnpm folds each importer's auto-filled peer set into the virtual-store hash, so one version splits into several entries), and `shamefully-hoist=true` (packages already in the tree are promoted to the root `node_modules` as **links**, so legacy phantom imports keep resolving while the physical copy stays unique).
+
+The root `package.json` `devDependencies` therefore also act as the dev-tree stand-in for the host: packages that `import` their own peers at run time — `dsh-tools`, `dsh-app-boot` — need real copies of `dsh-sandbox`, `dsh-home-paths`, and the rest. Declaring them at the root keeps them out of every plugin's peer combination and only puts them in the root `node_modules` for Node to find upward.
+
+`scripts/check-dsh-instances.mjs` checks the resolution result, not the declarations: one host-shared name resolving to several physical paths or several versions fails, and it names the packages and ranges involved. A declaration check cannot see this, which is why it stands on its own.
+
 ## Upgrading to a new DSH release
 
 1. Point `DSH_CHECKOUT` at the harness checkout for the target release; the generated `tsconfig.paths.json` files and the build scripts follow it.

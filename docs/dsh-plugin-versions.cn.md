@@ -47,6 +47,16 @@ profile 模板设置了 `autoInstallPeers: false`，peer 区间永远不会被�
 
 `@deepseek-ai/dsh-graph-*` 是本仓库自己的包，不是 DSH 运行时包，但 DSH 的兼容性检查会把每个 `@deepseek-ai/dsh-*` peer 区间当成运行时要求。因此它们同样声明 `engines.dsh`，由它优先判定，DSH 就不再检查它们的 workspace peer。
 
+## 工作区的安装布局
+
+声明写对了也可能装出两份。同一份 `@deepseek-ai/dsh-tools` 若在磁盘上出现两条物理路径——用户全局 `node-linker=hoisted` 会在根顶层放一个真实目录，而每个包的 `node_modules` 又各自链接到 `.pnpm` 里的条目——`ToolExecutionToken` 这类 brand 类型就会分裂：symbol 按模块路径区分，两条路径即两个 symbol，同名类型互不兼容，报错却只显示一条普通的"不可赋值"。
+
+因此项目级 `.npmrc` 固定三件事：`node-linker=isolated`（每个包名只有一个物理实例）、`auto-install-peers=false`（pnpm 会把每个 importer 各自补齐的 peer 集合算进虚拟 store 的 hash，同版本因此裂成多个条目）、`shamefully-hoist=true`（把树里已有的包以**链接**提升到根 `node_modules`，历史遗留的"幻影导入"继续可解析，而物理副本仍唯一）。
+
+根 `package.json` 的 `devDependencies` 因此还承担开发树的宿主替身：`dsh-tools`、`dsh-app-boot` 这类运行时会 `import` 自己 peer 的包，需要 `dsh-sandbox`、`dsh-home-paths` 等真实存在的副本。放在根上不会进入任何插件的 peer 组合，只落在根 `node_modules` 供 Node 向上查找。
+
+`scripts/check-dsh-instances.mjs` 检查的是解析结果而不是声明：同一个宿主共享包名解析到多条物理路径或出现多个版本即失败，并点名是哪两个包、哪两段区间。声明检查看不出这类问题，这正是它独立成条的原因。
+
 ## 升级到新的 DSH 版本
 
 1. 把 `DSH_CHECKOUT` 指向目标版本的 harness 检出；生成的 `tsconfig.paths.json` 与构建脚本都会跟随它。
