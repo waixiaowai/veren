@@ -4,8 +4,8 @@
     "zh": "Veren DSH 插件市场"
   },
   "description": {
-    "en": "Profile bundles published by the Veren project: startup autostart, Sub2API operations, Person Agent, forum, notebook, admin console, Web login gate, CMS bridge, and session fork.",
-    "zh": "Veren 项目发布的 profile 组合包：启动自启动、Sub2API 运营、管家 Person Agent、论坛、笔记本、管理台、Web 登录门禁、CMS 桥接与会话分叉。"
+    "en": "Profile bundles published by the Veren project: startup autostart, Sub2API operations, the application framework, Person Agent, forum, notebook, admin console, Web login gate, CMS bridge, and session fork.",
+    "zh": "Veren 项目发布的 profile 组合包：启动自启动、Sub2API 运营、应用框架、管家 Person Agent、论坛、笔记本、管理台、Web 登录门禁、CMS 桥接与会话分叉。"
   },
   "metadata": {
     "categories": {
@@ -63,6 +63,16 @@
       "category": "platform",
       "labels": ["official"],
       "keywords": ["sub2api", "operations", "admin", "运营"]
+    },
+    "@veren/app-host-bundle": {
+      "title": { "en": "App Host", "zh": "应用框架" },
+      "description": {
+        "en": "Installs the whole Veren application framework in one step: a configuration-only bundle that inserts the app registry, page registry, and task center plus the app-host assembly row in dependency order, so app plugins work without manual cross-service wiring.",
+        "zh": "一步装齐 Veren 应用框架：纯配置组合包，按依赖顺序插入应用注册表、页面注册表、任务中心三个宿主服务和 app-host 装配行，应用插件无需手工跨服务接线。"
+      },
+      "category": "platform",
+      "labels": ["official"],
+      "keywords": ["app-host", "apps", "pages", "task-center", "应用框架"]
     },
     "@veren/person-agent-bundle": {
       "title": { "en": "Person Agent", "zh": "管家" },

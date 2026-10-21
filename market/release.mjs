@@ -11,8 +11,11 @@
  *   node market/release.mjs             # 真正发布 / publish for real
  */
 import { execFile } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { loadDotEnv } from './lib/dotenv.mjs'
 import { ROOT_DIR, SOURCES_FILE } from './lib/paths.mjs'
 import { satisfies } from './lib/semver.mjs'
 import { promisify } from 'node:util'
@@ -20,9 +23,16 @@ import { promisify } from 'node:util'
 const run = promisify(execFile)
 const DRY_RUN = process.argv.includes('--dry-run')
 const REGISTRY = 'https://npm.veren.top/'
-// 发布凭据只从环境变量取：token 绝不进 .npmrc、不进脚本、不进 git。
-// The publish credential comes from the environment only: the token never
-// reaches a committed file.
+// 发布凭据只从环境变量取：仓库根的 .env（gitignore 的 *.env 规则覆盖，不入库）
+// 或外部环境变量二选一，已导出的环境变量优先。pnpm publish 不认
+// `--//host/:_authToken=` 形式的 CLI 参数，发布时 token 改经系统临时目录的
+// 专用 .npmrc 传给子进程（见 publish）：绝不进仓库文件、不进 argv。
+// The publish credential comes from the environment only: either the
+// gitignored root .env (loaded below) or an exported variable, which wins.
+// `pnpm publish` ignores a `--//host/:_authToken=` CLI flag, so at publish
+// time the token travels through a dedicated .npmrc under the system temp
+// dir (see publish): never into a committed file, never into argv.
+loadDotEnv()
 const TOKEN = process.env.NPM_TOKEN ?? ''
 /** registry 文档缓存 / registry document cache. */
 const registryCache = new Map()
@@ -153,18 +163,33 @@ function dependencyDrift(local, published) {
 async function publish(manifest) {
   const args = ['--filter', manifest.name, 'publish', '--no-git-checks', '--access', 'public', '--registry', REGISTRY]
   if (DRY_RUN) {
-    console.log(`dry-run: pnpm ${args.join(' ')} --//npm.veren.top/:_authToken=<NPM_TOKEN>`)
+    console.log(`dry-run: pnpm ${args.join(' ')} (auth via temp userconfig)`)
     return
   }
   if (TOKEN === '') {
-    throw new Error('NPM_TOKEN 未设置 / is not set: 从桌面 profile 的 .npmrc 只读复制 //npm.veren.top/:_authToken 进该环境变量，不要写进任何文件')
+    throw new Error('NPM_TOKEN 未设置 / is not set: 把值写进仓库根 .env 的 NPM_TOKEN= 行，或导出同名环境变量；值从桌面 profile 的 .npmrc 只读复制，不要写进任何入库文件')
   }
-  // token 走 CLI 参数，不落盘 / the token travels as a CLI flag, never through a file.
-  args.push(`--//npm.veren.top/:_authToken=${TOKEN}`)
   console.log(`publishing ${manifest.name}@${manifest.version}`)
-  // Windows 上 pnpm 是 .cmd，必须经 shell 启动 / On Windows pnpm is a .cmd shim, so it needs a shell.
-  const { stdout } = await run('pnpm', args, { cwd: ROOT_DIR, maxBuffer: 16 * 1024 * 1024, shell: process.platform === 'win32' })
-  for (const line of stdout.split('\n')) if (line.includes('+ ')) console.log(`  ${line.trim()}`)
+  // token 写进系统临时目录的专用 .npmrc，用 NPM_CONFIG_USERCONFIG 指给发布子进程，
+  // 发布完即删：不进仓库文件、不进 argv（argv 会带进错误日志）。
+  // Write the token into a dedicated .npmrc under the system temp dir, hand it
+  // to the publish subprocess via NPM_CONFIG_USERCONFIG, delete it afterwards:
+  // the token stays out of repo files and out of argv, which leaks into error logs.
+  const authDir = mkdtempSync(join(tmpdir(), 'veren-publish-'))
+  const authFile = join(authDir, '.npmrc')
+  writeFileSync(authFile, `//npm.veren.top/:_authToken=${TOKEN}\n`, { mode: 0o600 })
+  try {
+    // Windows 上 pnpm 是 .cmd，必须经 shell 启动 / On Windows pnpm is a .cmd shim, so it needs a shell.
+    const { stdout } = await run('pnpm', args, {
+      cwd: ROOT_DIR,
+      maxBuffer: 16 * 1024 * 1024,
+      shell: process.platform === 'win32',
+      env: { ...process.env, NPM_CONFIG_USERCONFIG: authFile, npm_config_userconfig: authFile },
+    })
+    for (const line of stdout.split('\n')) if (line.includes('+ ')) console.log(`  ${line.trim()}`)
+  } finally {
+    rmSync(authDir, { recursive: true, force: true })
+  }
 }
 
 /**
@@ -231,6 +256,12 @@ async function main() {
   }
 
   if (DRY_RUN) return
+  // 主流程发布前查过同一批 registry 文档，缓存里还是旧清单；验证必须重新拉取，
+  // 否则刚发布的版本会被误报成 missing。
+  // main() queried the same registry documents before publishing, so the cache
+  // still holds stale manifests; verification must refetch, or freshly
+  // published versions get reported as missing.
+  registryCache.clear()
   const problems = await verifyReleased(packages, publishable)
   for (const problem of problems) console.error(`DEP PROBLEM: ${problem}`)
   if (problems.length > 0) throw new Error(`${problems.length} released manifest(s) do not resolve on ${REGISTRY}`)
