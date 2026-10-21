@@ -32,7 +32,6 @@ export function createOverviewPage(source: OverviewSource): PageDefinition<Overv
       + 'tasks 区来自任务中心的 open 任务计数。available=false 或 openCount=null '
       + '表示该数据源缺席或读取失败——如实告知用户，不要编造数字。',
     instanceTitle: () => '个人工作台',
-    pageRevision: 1,
     onLoad: () => { void source.refresh() },
     tree: (_params, snapshot) => {
       const tasks = snapshot.tasks
@@ -69,7 +68,6 @@ export function createWorkspacesPage(source: OverviewSource): PageDefinition<Ove
       + 'sessions 是该工作区账目下的会话数。要看某个工作区的会话明细，用 '
       + 'workspace_session_list 传 workspaceId 查询；该数据源不可用时如实说明。',
     instanceTitle: () => '工作区浏览',
-    pageRevision: 1,
     onLoad: () => { void source.refresh() },
     tree: (_params, snapshot) => (
       <>

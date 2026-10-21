@@ -64,7 +64,6 @@ export interface TaskRecord {
   readonly target: TaskTarget
   /** 发送时快照，供升级判断（§7.3）/ snapshots for upgrade decisions */
   readonly appVersion: string
-  readonly pageRevision: number
   /** 第 1 阶段固定 'local' / fixed recipient in phase 1 */
   readonly assignee: 'local'
   readonly status: TaskStatus

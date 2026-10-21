@@ -111,7 +111,6 @@ describe('应用可被发现与解析', () => {
     expect(pages.length).toBeGreaterThanOrEqual(2)
     for (const page of pages) {
       expect(page.url.startsWith('/apps/person-agent/')).toBe(true)
-      expect(page.pageRevision).toBeGreaterThanOrEqual(1)
       expect('preset' in page).toBe(false)
       expect(page.instanceTitle?.({})).toBeTypeOf('string')
     }

@@ -26,12 +26,11 @@ export function definePage<S>(definition: {
   tools?: readonly string[]
   instructions?: string
   instanceTitle?: (params: PageParams) => string
-  pageRevision?: number
   tree: (props: PageParams, state: S) => ElementInput
   onLoad?: (params: PageParams) => void
   onComplete?: (params: PageParams) => boolean
 }): PageDefinition<S> {
-  const { name, url, description, events, tools, instructions, instanceTitle, pageRevision, tree, onLoad, onComplete } = definition
+  const { name, url, description, events, tools, instructions, instanceTitle, tree, onLoad, onComplete } = definition
   if (name.length === 0 || name.trim() !== name) {
     throw new Error(`[definePage] invalid page name: ${JSON.stringify(name)}`)
   }
@@ -47,7 +46,6 @@ export function definePage<S>(definition: {
     ...(tools === undefined ? {} : { tools }),
     ...(instructions === undefined ? {} : { instructions }),
     ...(instanceTitle === undefined ? {} : { instanceTitle }),
-    ...(pageRevision === undefined ? {} : { pageRevision }),
     ...(events === undefined ? {} : { events }),
     ...(onLoad === undefined ? {} : { onLoad }),
     ...(onComplete === undefined ? {} : { onComplete }),
@@ -56,7 +54,8 @@ export function definePage<S>(definition: {
 
 /**
  * 应用作用域的页面定义：在 definePage 之上强制 `/apps/<appId>/...` URL 形态，
- * 并补齐契约缺省：pageRevision 缺省 1，tools 缺省 []（§3.1、§6.1）。
+ * 并补齐契约缺省：tools 缺省 []（§3.1、§6.1）。
+ * `pageRevision` 已删除（G11）：打开一律新建，无升级分叉。
  * 应用注册器（app-registry）的注册路径应使用本函数或等效校验。
  * App-scoped definePage: enforces the /apps url shape and contract defaults.
  */
@@ -66,7 +65,6 @@ export function defineAppPage<S>(definition: Parameters<typeof definePage<S>>[0]
   return {
     ...page,
     tools: page.tools ?? [],
-    pageRevision: page.pageRevision ?? 1,
   }
 }
 

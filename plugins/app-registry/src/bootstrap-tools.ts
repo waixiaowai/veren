@@ -39,7 +39,7 @@ const APP_LIST_DESCRIPTION = [
 
 const APP_PAGES_DESCRIPTION = [
   '列出某个应用的全部页面。参数：appId（先用 app_list 查到）。',
-  '返回 { appId, pages: [...] }，每项含：pageKey（形如 <appId>/<pageName>）、urlPattern（形如 /apps/<appId>/...，:xxx 为路径参数）、description、isEntry（是否入口页）、tools（本页可用的工具最终名列表）、pageRevision。',
+  '返回 { appId, pages: [...] }，每项含：pageKey（形如 <appId>/<pageName>）、urlPattern（形如 /apps/<appId>/...，:xxx 为路径参数）、description、isEntry（是否入口页）、tools（本页可用的工具最终名列表）。',
   '要打开某页：把 urlPattern 中的 :参数 替换为实际值得到具体 URL，再用 app_open 工具（参数 url）打开。',
 ].join('')
 
@@ -103,7 +103,6 @@ function pagesView(apps: AppRegistryService, args: { appId: string }): unknown {
       description: page.description,
       isEntry: page.name === record.definition.entry,
       tools: (page.tools ?? []).map((local) => `${record.toolPrefix}__${local}`),
-      pageRevision: page.pageRevision ?? 1,
     })),
   }
 }

@@ -68,7 +68,6 @@ const taskSchema = z.object({
   body: z.string().optional(),
   target: targetSchema,
   appVersion: z.string(),
-  pageRevision: z.number().int().min(0),
   assignee: z.literal('local'),
   status: z.enum(['open', 'taken', 'done', 'failed', 'expired', 'cancelled', 'orphaned']),
   revision: z.number().int().min(1),

@@ -61,7 +61,7 @@ function fakeSessions() {
   }
 }
 
-function taskPage(pageRevision = 1) {
+function taskPage() {
   return definePage({
     name: 'task',
     url: '/apps/demo/task/:id',
@@ -69,7 +69,6 @@ function taskPage(pageRevision = 1) {
     tools: ['read'],
     instructions: '先读材料，再作答。',
     instanceTitle: (params) => `任务 #${params.id ?? '?'}`,
-    pageRevision,
     tree: () => [],
   })
 }
@@ -77,13 +76,12 @@ function taskPage(pageRevision = 1) {
 /** 组装一个带应用/工具/任务假件的注册表服务 */
 function makeService(options: {
   appState?: 'active' | 'disabled' | 'broken'
-  pageRevision?: number
   withApps?: boolean
   tasks?: { take: (id: string, claim: unknown) => Promise<unknown> }
 } = {}) {
   const ctx = new Context()
   const service = new PageRegistryService(ctx)
-  const dispose = service.register(taskPage(options.pageRevision) as never)
+  const dispose = service.register(taskPage() as never)
   const kv = memKv()
   const sessions = fakeSessions()
   // 端口全部是纯参数（G13）：app 假件是完整 AppRecord / the app fake is a full AppRecord
@@ -239,12 +237,12 @@ describe('app_open 错误路径（稳定码）', () => {
       .rejects.toMatchObject({ code: 'app/disabled' })
   })
 
-  it('页面契约版本变化：不再拒绝，直接按新版本新建会话（§9.1）', async () => {
+  it('应用升级（页面定义换新）：打开不再拒绝，直接新建会话（§9.1）', async () => {
     const fresh = makeService()
     const old = await fresh.service.openUrl('/apps/demo/task/1')
-    // 应用升级：页面换成 pageRevision 2（旧定义摘除，新定义注册）
+    // 应用升级：旧页面定义摘除，新定义注册——没有升级分叉，直接新建
     fresh.dispose()
-    fresh.service.register(taskPage(2) as never)
+    fresh.service.register(taskPage() as never)
     const opened = await fresh.service.openUrl('/apps/demo/task/1')
     expect(opened.sessionId).not.toBe(old.sessionId)
     expect(fresh.sessions.created).toHaveLength(2) // 旧会话废弃、新会话建成
@@ -386,7 +384,7 @@ describe('缺口 1/4 收尾：通知投递泵、reserved 清扫', () => {
     // 手工塞一条 reserved 幽灵行 / plant a ghost reserved row
     kv.map.set('/apps/demo/task/ghost', {
       url: '/apps/demo/task/ghost' as never, state: 'reserved', appId: 'demo',
-      page: 'demo/task', sessionId: 's-missing', instanceTitle: 'x', pageRevision: 1,
+      page: 'demo/task', sessionId: 's-missing', instanceTitle: 'x',
       params: {}, appVersion: '1', createdAt: 't', lastOpenedAt: 't',
     })
     const dropped = await service.instances.sweepReserved()

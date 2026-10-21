@@ -65,7 +65,6 @@ export const listPage: PageDefinition<readonly NoteSummary[]> = defineAppPage<re
     + '{"kind":"keyed","path":"notes","items":[...]} 按条目 id 对位。'
     + '用 list_notes 刷新列表，用 write_note 新建笔记；新建后报出笔记标题即可。',
   instanceTitle: () => '笔记列表',
-  pageRevision: 1,
   tree: (_params, notes) => [
     ...Static({ content: '记事本 · 笔记列表' }),
     ...Keyed({ path: 'notes', items: notes }),
@@ -82,7 +81,6 @@ export const notePage: PageDefinition<NoteView | undefined> = defineAppPage<Note
     + '用 read_note 读取全文；用 rewrite_note 改写，携带读到的 updatedAt 作 expectedUpdatedAt 防覆盖；'
     + 'delete_note 永久删除，删除前先向用户确认。',
   instanceTitle: (params) => `笔记 #${params.noteId ?? ''}`,
-  pageRevision: 1,
   tree: (_params, note) => [
     ...Static({ content: '记事本 · 笔记详情' }),
     ...Data({ path: 'note.title', value: note?.title ?? null }),

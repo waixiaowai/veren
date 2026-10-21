@@ -21,7 +21,6 @@ function snapshot(overrides: Partial<Parameters<KvPageInstanceIndex['reserve']>[
     appId: 'demo',
     page: 'demo/task',
     instanceTitle: '任务 #1',
-    pageRevision: 1,
     params: { id: '1' },
     appVersion: '1.0.0',
     ...overrides,

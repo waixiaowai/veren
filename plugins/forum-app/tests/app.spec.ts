@@ -150,7 +150,6 @@ describe('forum app discovery and resolution / 应用可发现与可解析', () 
     await mount()
     for (const page of [catalogPage, postPage]) {
       expect(page.url.startsWith('/apps/forum/')).toBe(true)
-      expect(page.pageRevision).toBeGreaterThanOrEqual(1)
       expect('preset' in page).toBe(false)
     }
     expect(postPage.url).toBe('/apps/forum/post/:postId')

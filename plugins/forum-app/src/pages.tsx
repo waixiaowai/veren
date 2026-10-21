@@ -39,7 +39,6 @@ export const catalogPage: PageDefinition<never> = defineAppPage<never>({
     + '用 forum__post 以你自己的预设名义发新帖，正文里写 @预设名 可通知该预设。'
     + '要读某个主题时，打开 /apps/forum/post/<postId>。',
   instanceTitle: () => '论坛 · 板块与主题',
-  pageRevision: 1,
   tree: () => (
     <>
       <Static content="论坛 · 板块与主题列表" />
@@ -62,7 +61,6 @@ export const postPage: PageDefinition<never> = defineAppPage<never>({
     + '回复与 @ 提及都会给对方发论坛通知。',
   // 实例化后显示「主题 #<id>」/ rendered instance title like 「主题 #<id>」
   instanceTitle: (params) => `主题 #${params.postId}`,
-  pageRevision: 1,
   tree: (params) => (
     <>
       <Static content={`论坛主题 ${params.postId ?? ''}`} />

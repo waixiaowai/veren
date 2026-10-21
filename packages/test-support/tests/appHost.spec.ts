@@ -35,7 +35,7 @@ function registerMiniApp(host: AppHost, scope: Context): void {
     id: MINI_APP_ID, name: 'mini', description: '装配验证应用', entry: MINI_ENTRY,
   }, scope)
   apps.pages(MINI_APP_ID, scope).register(defineAppPage<never>({
-    name: 'main', url: '/apps/mini/main', description: '主页', pageRevision: 1, tree: () => [],
+    name: 'main', url: '/apps/mini/main', description: '主页', tree: () => [],
   }))
   apps.tools(MINI_APP_ID, scope).define(defineTool({
     name: 'read', description: '读取', parameters: {},

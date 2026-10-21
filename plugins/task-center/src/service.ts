@@ -49,7 +49,6 @@ export const MAX_BODY_CHARS = 4000
 export interface AppSnapshot {
   readonly state: 'active' | 'disabled' | 'broken'
   readonly version: string
-  readonly pageRevision?: number
 }
 
 /** Delayed app lookup; the host (or session A) wires it via {@link setAppResolver}. */
@@ -145,7 +144,6 @@ export class TaskCenterService extends Service implements TaskCenterContract {
         ...(draft.body === undefined ? {} : { body: draft.body }),
         target: draft.target,
         appVersion: snapshot?.version ?? 'unknown',
-        pageRevision: snapshot?.pageRevision ?? 0,
         assignee: 'local',
         status: 'open',
         revision: 1,
@@ -219,7 +217,6 @@ export class TaskCenterService extends Service implements TaskCenterContract {
         ...(draft.body === undefined ? {} : { body: draft.body }),
         target: draft.target,
         appVersion: parent.appVersion,
-        pageRevision: parent.pageRevision,
         assignee: 'local',
         status: 'open',
         revision: 1,

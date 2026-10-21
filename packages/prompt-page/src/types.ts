@@ -45,8 +45,10 @@ export type PageEventMap = Readonly<Record<string, PageEventHandler>>
 /**
  * 页面定义（应用作用域）：
  * - **preset 字段已删除**：页面不再绑定预设，静态面归用户自选的会话配置（§2.2）
- * - 新增 tools/instructions/instanceTitle/pageRevision（§3.1）；
+ * - 新增 tools/instructions/instanceTitle（§3.1）；
  *   `tools` 写应用工具目录里的本地名，最终名在挂载时拼前缀（§3.4.3）
+ * - 页面契约版本 `pageRevision` 已删除（G11）：打开一律新建会话（§9.1.1），
+ *   新会话没有旧契约预期，无需版本判断
  * - 应用作用域注册时 URL 必须是 `/apps/<appId>/...` 形态（见 contract.ts 的校验器）
  */
 export interface PageDefinition<S> {
@@ -62,8 +64,6 @@ export interface PageDefinition<S> {
   readonly instructions?: string
   /** 实例标题函数；缺省用 description 兜底（§3.6.1）/ instance title, falls back to description */
   readonly instanceTitle?: (params: PageParams) => string
-  /** 页面契约版本：URL/参数/工具名/说明不兼容变化时 +1；缺省按 1（§7.3）/ page contract revision */
-  readonly pageRevision?: number
   /** 事件监听：键名 = cordis 事件名（ctx.emit 触发）/ listeners keyed by cordis event name */
   readonly events?: PageEventMap
   /** 组件树：params = 路径参数+query，state = 权威 store 状态 / component tree */

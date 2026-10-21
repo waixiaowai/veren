@@ -289,7 +289,6 @@ async function createPageSession(
       // the raw-register path keeps the legacy prefixing.
       page: match.page.name.includes('/') ? match.page.name : `${app.definition.id}/${match.page.name}`,
       instanceTitle: instanceTitleOf(match, params),
-      pageRevision: match.page.pageRevision ?? 1,
       params,
       appVersion: app.version,
     })

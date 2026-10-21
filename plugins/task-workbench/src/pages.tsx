@@ -34,8 +34,6 @@ export const listPage: PageDefinition<TaskItem[]> = defineAppPage<TaskItem[]>({
     + '列表只显示根任务，每条带整棵子树的进度徽标（2/5 = 全树终态/全树节点）。'
     + '用 take_task 接取 open 任务，complete_task 完成 taken 任务；完成后用一句话确认。',
   instanceTitle: () => '任务列表',
-  // v2：条目改为根任务 + 整树进度 / v2: items are roots with whole-tree progress
-  pageRevision: 2,
   tree: (_params, items) => {
     const roots: TaskListItem[] = rootsOf(items).map((item) => ({
       ...item,
@@ -65,8 +63,6 @@ export const detailPage: PageDefinition<TaskItem[]> = defineAppPage<TaskItem[]>(
   // 实例化后显示「任务 #1」，始终是根任务标题（§4.7.4）/ instance title stays the
   // root title (§4.7.4)
   instanceTitle: (params) => `任务 #${params.taskId}`,
-  // v2：新增子任务树区 / v2: adds the subtask tree region
-  pageRevision: 2,
   tree: (params, items) => {
     const taskId = String(params.taskId ?? '')
     const task = items.find((item) => item.id === taskId)
@@ -109,7 +105,6 @@ export const publishPage: PageDefinition<TaskItem[]> = defineAppPage<TaskItem[]>
     + '用 publish_task 确认发布；标题为空时不要调用。'
     + '发布不支持带子任务的模板（§4.7.6），子任务由接取者用 split_task 现拆。',
   instanceTitle: () => '发布任务',
-  pageRevision: 2,
   tree: (params) => (
     <>
       <Static content="任务工作台 · 发布任务" />

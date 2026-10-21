@@ -57,7 +57,6 @@ function reservedRow(
     page: snapshot.page,
     sessionId,
     instanceTitle: snapshot.instanceTitle,
-    pageRevision: snapshot.pageRevision,
     params: snapshot.params,
     appVersion: snapshot.appVersion,
     createdAt: now,

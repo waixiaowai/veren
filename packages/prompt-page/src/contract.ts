@@ -70,8 +70,6 @@ export const PageErrorCode = {
   UrlInvalid: 'page/url-invalid',
   /** URL 没有命中任何已注册页面 / url matched no registered page */
   PageNotFound: 'page/not-found',
-  /** 页面契约版本已变（码表冻结保留；打开一律新建后打开路径不再产生此码）/ page contract revision changed (frozen code; unused since opens always create fresh) */
-  Stale: 'page/stale',
   /** 页面工具与既有工具重名 / page tool name conflicts with an existing tool */
   ToolConflict: 'page/tool-conflict',
   /** 页面引用了不存在的工具 / page references an unknown tool */
@@ -131,8 +129,6 @@ export interface PageInstanceRecord {
   readonly sessionId: string
   /** 会话列表里展示的实例标题 / instance title shown in session lists */
   readonly instanceTitle: string
-  /** 创建时的页面契约版本 / page contract revision at creation */
-  readonly pageRevision: number
   /** 参数快照 / params snapshot */
   readonly params: Readonly<Record<string, string>>
   /** 创建时的应用版本 / app version at creation */
@@ -191,7 +187,6 @@ export interface InstanceSnapshot {
   readonly appId: AppIdString
   readonly page: string
   readonly instanceTitle: string
-  readonly pageRevision: number
   readonly params: Readonly<Record<string, string>>
   readonly appVersion: string
 }

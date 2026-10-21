@@ -23,7 +23,6 @@ const instanceSchema = z.object({
   page: z.string().min(1),
   sessionId: z.string().min(1),
   instanceTitle: z.string().min(1),
-  pageRevision: z.number().int().min(1),
   params: z.record(z.string(), z.string()),
   appVersion: z.string().min(1),
   createdAt: z.string().min(1),

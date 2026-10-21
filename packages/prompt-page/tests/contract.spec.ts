@@ -44,7 +44,6 @@ describe('defineAppPage（应用作用域契约）', () => {
     tools: ['read_diff'],
     instructions: '先读 diff，再给结论。',
     instanceTitle: title as never,
-    pageRevision: 2,
     tree: () => [],
   }
 
@@ -53,14 +52,12 @@ describe('defineAppPage（应用作用域契约）', () => {
     expect(page.url).toBe('/apps/review-workbench/review/:pr')
     expect(page.tools).toEqual(['read_diff'])
     expect(page.instructions).toBe('先读 diff，再给结论。')
-    expect(page.pageRevision).toBe(2)
     expect(page.instanceTitle?.({ pr: '42' })).toBe('审阅 PR #42')
   })
 
-  it('缺省补齐：pageRevision=1、tools=[]', () => {
-    const page = defineAppPage({ ...good, tools: undefined, pageRevision: undefined })
+  it('缺省补齐：tools=[]', () => {
+    const page = defineAppPage({ ...good, tools: undefined })
     expect(page.tools).toEqual([])
-    expect(page.pageRevision).toBe(1)
   })
 
   it('URL 非 /apps 形态 → fail loud（definePage 不做此校验，保证迁移期兼容）', () => {

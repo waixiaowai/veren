@@ -106,7 +106,6 @@ describe('应用可被发现与解析', () => {
     await install()
     for (const page of [listPage, detailPage, publishPage]) {
       expect(page.url.startsWith('/apps/task-workbench/')).toBe(true)
-      expect(page.pageRevision).toBeGreaterThanOrEqual(1)
       expect('preset' in page).toBe(false)
     }
     expect(detailPage.url).toBe('/apps/task-workbench/task/:taskId')

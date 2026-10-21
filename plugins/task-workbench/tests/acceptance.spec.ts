@@ -338,7 +338,7 @@ describe('场景 5：两个应用同名工具 → 不同前缀共存', () => {
     const otherPages = apps.pages('other-app' as AppId, ctx)
     otherPages.register(defineAppPage({
       name: 'task', url: '/apps/other-app/task/:taskId', description: '另一应用任务页',
-      tools: ['take_task'], pageRevision: 1, tree: () => [],
+      tools: ['take_task'], tree: () => [],
     }) as never)
     const a = await open(pages, '1')
     const b = await pages.openUrl('/apps/other-app/task/1')

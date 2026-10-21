@@ -150,7 +150,6 @@ describe('应用可发现与可解析 / discoverable and resolvable', () => {
 
     for (const page of apps.listPages(APP_ID)) {
       expect(page.url.startsWith('/apps/notebook/')).toBe(true)
-      expect(page.pageRevision).toBeGreaterThanOrEqual(1)
       expect('preset' in page).toBe(false)
     }
     const note = apps.listPages(APP_ID).find((page) => page.name === 'note') as PageDefinition<NoteView | undefined>

@@ -230,7 +230,7 @@ function registerMiniApp(h: Boot): void {
   }), { requires: ['files:read' as AppCapability] })
   apps.pages('mini' as AppId, ctx).register(defineAppPage({
     name: 'task', url: '/apps/mini/task/:id', description: '任务页',
-    tools: ['read'], pageRevision: 1, tree: () => [],
+    tools: ['read'], tree: () => [],
   }) as unknown as PageDefinition<never>)
 }
 
@@ -268,7 +268,7 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     try {
       apps.register({ id: 'solo' as AppId, name: 'solo', description: 'd', entry: 'main' as PageKey })
       apps.pages('solo' as AppId).register(defineAppPage({
-        name: 'main', url: '/apps/solo/main', description: 'd', pageRevision: 1, tree: () => [],
+        name: 'main', url: '/apps/solo/main', description: 'd', tree: () => [],
       }) as unknown as PageDefinition<never>)
       expect(warnings.some((m) => m.includes('no page mirror wired'))).toBe(true)
       expect(ctx.pageRegistry.resolve('/apps/solo/main')).toBeNull() // 未镜像
@@ -302,7 +302,7 @@ describe('G13 全成或全回滚：接线一步失败，系统回到"什么也�
         .rejects.toMatchObject({ code: 'page/host-unavailable' })
       // 镜像面不在场：注册页面只告警，不镜像进 page-registry
       h.ctx.apps.pages('mini' as AppId, h.ctx).register(defineAppPage({
-        name: 'solo', url: '/apps/mini/solo', description: 'd', pageRevision: 1, tree: () => [],
+        name: 'solo', url: '/apps/mini/solo', description: 'd', tree: () => [],
       }) as unknown as PageDefinition<never>)
       expect(warnings.some((m) => m.includes('no page mirror wired'))).toBe(true)
       expect(h.pages.resolve('/apps/mini/solo')).toBeNull()
@@ -369,7 +369,7 @@ describe('注册必须发生：宿主工具表里真能看到引导工具（第�
     const apps = h.ctx.apps
     apps.register({ id: 'twin' as AppId, name: 'twin', description: '同名页面应用', entry: 'task' as PageKey }, h.ctx)
     apps.pages('twin' as AppId, h.ctx).register(defineAppPage({
-      name: 'task', url: '/apps/twin/task/1', description: '同名页', pageRevision: 1, tree: () => [],
+      name: 'task', url: '/apps/twin/task/1', description: '同名页', tree: () => [],
     }) as unknown as PageDefinition<never>)
     const a = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
     const b = await h.pages.openUrl('/apps/twin/task/1' as PageInstanceKey)
