@@ -10,9 +10,17 @@
  *   plus the capability map (this app has a detail page → the map must be
  *   non-empty and list both the detail and the publish templates);
  * - `detail` = **详情页（detail）**：URL 带 :param，params + load 取该条记录的
- *   快照 + writes: true + "只干这一件事"的说明；
+ *   快照 + writes: true + "只干这一件事"的说明。工具矩阵以 §3.10.1 为准：
+ *   详情页的活就是"动这一条"——接取（take_page_task，页面作用域：接的就是
+ *   params.taskId 那条，无参数）+ complete/abandon/split。缺接取曾让投递闭环
+ *   断在"详情页接不了被投给它的任务"（failed/task-not-taken）。
  *   / the detail page: a :param url; params + a load of that one record +
- *   writes: true + a "this page does one thing" note;
+ *   writes: true + a "this page does one thing" note. The matrix follows
+ *   §3.10.1: the detail page's job is to act on its one record — take
+ *   (take_page_task, page-scoped: exactly the params.taskId task, no
+ *   parameter) plus complete/abandon/split. Missing take once broke the
+ *   delivery loop at "the detail page cannot claim the task delivered to it"
+ *   (failed/task-not-taken).
  * - `publish` = **工具页（action）**：无参、非入口、writes: true——"发布一件事"
  *   的页面，写工具（publish_task）+ 说明在位，不需要 map。
  *   / the action page: parameterless, non-entry, writes: true — a "do one deed"
@@ -38,7 +46,42 @@ import type { PageJsonValue, PageDefinition } from '@veren/prompt-page'
 import { rootsOf, subtreeProgress, subtaskTree } from './store.ts'
 import type { TaskStore } from './store.ts'
 import type { SubtaskRow, TaskItem, TaskListItem } from './types.ts'
-import { tExpandHint, tProgress } from './texts.ts'
+
+// ---- 双语文案（§4.7.8 第 6 条；原 texts.ts 并入本文件：页面树是唯一取词方）----
+// ---- Bilingual strings (§4.7.8 item 6; the former texts.ts merged here: the page trees are the only consumer) ----
+
+/** 支持的语言 / supported languages */
+export type Lang = 'zh' | 'en'
+
+/** 当前包默认语言（页面树取词）/ the package default language for page trees */
+const DEFAULT_LANG: Lang = 'zh'
+
+/** 两份字典都导出，客户端后续接 locale 服务时直接复用 / both dictionaries exported for a future locale client */
+export const STRINGS = {
+  progress: {
+    zh: (label: string) => `子树进度 ${label}`,
+    en: (label: string) => `Subtree progress ${label}`,
+  },
+  active: { zh: '进行中', en: 'in progress' },
+  expandHint: {
+    zh: '活跃分支已默认展开；终态分支折叠为进度徽标',
+    en: 'Active branches are expanded by default; terminal branches collapse into a progress badge',
+  },
+  collapse: { zh: '折叠', en: 'Collapse' },
+  expand: { zh: '展开', en: 'Expand' },
+  cascadeCancelled: {
+    zh: (count: number) => `父任务已取消，${count} 个子任务一并取消`,
+    en: (count: number) => `The parent task was cancelled; ${count} subtask(s) cancelled with it`,
+  },
+  splitHint: {
+    zh: '用 split_task 把 open 节点拆成子任务；仅当前接取者可用',
+    en: 'Use split_task to break an open node into subtasks; the current claimant only',
+  },
+} as const
+
+/** 取词函数（一个文案一个具名函数，零泛型魔法）/ one named resolver per string — no generic indirection */
+export const tProgress = (label: string, lang: Lang = DEFAULT_LANG) => STRINGS.progress[lang](label)
+export const tExpandHint = (lang: Lang = DEFAULT_LANG) => STRINGS.expandHint[lang]
 
 /** 应用 id（页面 URL 前缀的权威来源）/ the app id (authority of the url prefix) */
 export const APP_ID = 'task-workbench'
@@ -147,10 +190,20 @@ export function createDetailPage(store: TaskStore): PageDefinition<TaskItem[]> {
   return defineAppPage<TaskItem[]>({
     name: 'detail',
     url: `${URL_PREFIX}/task/:taskId`,
-    description: '任务详情页：查看单个任务的标题/状态/负责人与子任务树',
-    tools: ['complete_task', 'abandon_task', 'split_task'],
+    description: '任务详情页：接取本页任务，处理单个任务的标题/状态/负责人与子任务树',
+    // §3.10.1：详情页的活就是"动这一条"——接取在详情页（take_page_task 是
+    // 页面作用域接取：无参数，接的就是 params.taskId 那条；带参 take_task 留在
+    // 列表页，任意 id 的浏览入口职责）。缺接取曾让投递闭环断在第三步。
+    // / §3.10.1: the detail page's job is to act on its one record — take lives
+    // here (take_page_task is the page-scoped take: no parameter, exactly the
+    // params.taskId task; the parametered take_task stays on the list page, the
+    // browsing entry's arbitrary-id duty). Missing take once broke the delivery
+    // loop at its third step.
+    tools: ['take_page_task', 'complete_task', 'abandon_task', 'split_task'],
     writes: true,
     instructions: '这是任务详情页，只处理 params.taskId 指定的这一条任务——这一页只干这一件事。'
+      + '有人把任务投给本页时：先用 take_page_task 接取（无需参数，接的就是本页这条；'
+      + '被别的会话持有时会返回 task/already-taken），再动手。'
       + 'data 行自带该任务的字段与子任务树首屏（found=false 表示任务不存在，不要凭空处理）；'
       + '字段变化经 PAGE-DATA 以最新一次为准。'
       + '用 split_task 把已接取任务拆成子任务（仅当前接取者可用，深度 8 / 单节点 32 子 / 单树 200 节点，'

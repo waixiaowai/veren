@@ -120,6 +120,21 @@ export class TaskStore {
       item.status !== 'open' ? null : { ...item, status: 'taken' as const, ownerId: owner })
   }
 
+  /**
+   * 页面作用域接取的本地投影（take_page_task 专用）：open → taken；已 taken 则
+   * 幂等覆写 owner——互斥的权威在任务中心租约（§4.4），本地 store 只是页面数据，
+   * 废弃会话的陈旧投影不该挡住新会话接取（§3.5.3 的收敛）。只有 done 拒绝。
+   * / The local projection of a page-scoped take (take_page_task only):
+   * open → taken; an already-taken item is overwritten idempotently — the mutex
+   * authority is the task-center lease (§4.4), the local store is page data only,
+   * and a deprecated session's stale projection must not block the fresh
+   * session's take (the §3.5.3 convergence). Only done refuses.
+   */
+  claimTask(id: string, owner: string): Transition {
+    return this.mutate(id, (item) =>
+      item.status === 'done' ? null : { ...item, status: 'taken' as const, ownerId: owner })
+  }
+
   /** 完成 taken 任务 / complete a taken task */
   completeTask(id: string): Transition {
     return this.mutate(id, (item) =>

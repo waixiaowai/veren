@@ -11,10 +11,12 @@ The reference Veren **application**: it registers the `task-workbench` app (id, 
 | App id | `task-workbench` (tool prefix `task_workbench`) |
 | Entry page | `list` → `/apps/task-workbench/list` |
 | Pages | `/apps/task-workbench/list`, `/apps/task-workbench/task/:taskId`, `/apps/task-workbench/publish` |
-| Tools | `task_workbench__take_task`, `__complete_task`, `__abandon_task`, `__publish_task`, `__split_task` |
+| Tools | `task_workbench__take_task`, `__take_page_task`, `__complete_task`, `__abandon_task`, `__publish_task`, `__split_task` |
 | Task channel | `ctx.taskCenter` (a declared hard inject, G13); publish/split failures propagate (fail loud) |
 
 Pages carry no preset. Each page declares `tools` (local names), `instructions` (a note to the model, not a system prompt) and `instanceTitle` (e.g. `任务 #1` for `/task/:id`). All three pages are **live views**: they register with the app's authoritative `TaskStore` (`pages.register(page, { store })`), so the host injects `PAGE-DATA` snapshots into the session's model requests whenever the store changes.
+
+The tool matrix follows the page archetypes (§3.10.1): the parametered `take_task` (an arbitrary id) sits on the list page — the browsing entry's intake duty; the detail page mounts `take_page_task`, a **page-scoped take with no parameters** that claims exactly the task the page instance is bound to (the url's `taskId`, resolved through the page-registry instance index) and, when a task-center record targets that page, takes its 30-minute lease too. That is what closes the delivery loop: a task delivered to a detail page can be claimed by that page's own session instead of dying as `failed/task-not-taken`.
 
 ## Tests
 

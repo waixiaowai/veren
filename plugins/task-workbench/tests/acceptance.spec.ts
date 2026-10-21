@@ -486,3 +486,80 @@ describe('场景 9：旧会话持有任务租约时被废弃 → 租约释放 �
     expect(store.messages(b.sessionId).some((m) => m.startsWith(`TASK ${record.id}`))).toBe(true)
   })
 })
+
+// ---- 场景 10（投递闭环修复：§3.9 page_send → §3.10.1 详情页接取 → done）----
+// 真机缺陷：page_send 把任务投给详情页会话，但详情页按当时的工具矩阵没有接取
+// 工具（只有 complete/abandon 系），三轮跑满后任务落 failed/task-not-taken。
+// The live defect: page_send delivered a task to a detail-page session, but the
+// page's tool matrix had no take tool (complete/abandon only); after its turns
+// ran out the task landed failed/task-not-taken.
+
+describe('场景 10：page_send 投递 → 详情页 take_page_task 接取 → 完成 → 终态 done', () => {
+  it('投递只投消息不接取；详情页会话接的就是本页那条；重复接取幂等；完成后任务翻 done', async () => {
+    const { pages, tasks, tools, store } = await boot(tempRoot())
+    const record = await tasks.send({
+      kind: 'task-workbench/publish' as never,
+      title: '投递给详情页的任务',
+      target: { url: '/apps/task-workbench/task/t-1' as PageInstanceKey, appId: 'task-workbench', page: 'detail', params: { taskId: 't-1' } },
+    })
+    // §3.9 page_send：只投消息，不接取（openUrl 带 taskId 的宿主接取路径不在场）
+    // / §3.9 page_send: message only, no take (the host's openUrl+taskId path is absent here)
+    const delivered = await pages.deliverUrl('/apps/task-workbench/task/t-1', { message: `[task-center] 新任务 ${record.id} 请处理` })
+    expect(delivered.created).toBe(true)
+    // 断裂态重现：投了、会话在、任务没人接、没有 TASK 块
+    // / the broken shape: delivered, session alive, nobody took it, no TASK block
+    expect((await tasks.get(record.id))?.status).toBe('open')
+    expect(store.messages(delivered.sessionId).some((m) => m.startsWith('TASK '))).toBe(false)
+    // 矩阵修复：详情页挂着页面作用域接取（无参数，接的就是本页那条）
+    // / the matrix fix: the detail page mounts the page-scoped take (no parameter)
+    const take = tools.get('task_workbench__take_page_task')
+    expect(take).toBeDefined()
+    const exec = { agent: { session: { id: delivered.sessionId } } } as never
+    expect(await take!.execute({}, exec)).toMatchObject({ ok: true })
+    // 接取者就是本页会话（租约）；同会话重复接取幂等（§4.4）
+    // / the claimant is this page session (the lease); re-take by the same session is idempotent (§4.4)
+    const taken = await tasks.get(record.id)
+    expect(taken?.status).toBe('taken')
+    expect(taken?.claimedBy?.sessionId).toBe(delivered.sessionId)
+    expect(await take!.execute({}, exec)).toMatchObject({ ok: true })
+    // 本地投影同步翻 taken：complete_task（要求 taken）现在走得通
+    // / the local projection flipped to taken: complete_task (taken-only) now goes through
+    expect(await tools.get('task_workbench__complete_task')!.execute({ task_id: 't-1' }, {} as never))
+      .toMatchObject({ ok: true })
+    // 接取者提交 → 终态 done，而不是 failed/task-not-taken
+    // / the claimant submits → terminal done, not failed/task-not-taken
+    await tasks.complete(record.id, { summary: '闭环完成' })
+    expect((await tasks.get(record.id))?.status).toBe('done')
+  })
+
+  it('页面作用域限制：列表页会话调用 take_page_task 被结构化拒绝（page-task-unresolvable）', async () => {
+    const { pages, tools } = await boot(tempRoot())
+    const listed = await pages.openUrl('/apps/task-workbench/list')
+    // 工具表里要有这个工具才轮得到"拒绝"：先开一个详情页让它挂载（列表页按矩阵不声明它）
+    // / the tool must be in the table before a refusal is even possible: mount a
+    // detail page first (the list page does not declare it, by the matrix)
+    await open(pages, 't-1')
+    const take = tools.get('task_workbench__take_page_task')!
+    const outcome = await take.execute({}, { agent: { session: { id: listed.sessionId } } } as never) as { ok: boolean; code?: string }
+    expect(outcome).toMatchObject({ ok: false, code: 'page-task-unresolvable' })
+  })
+
+  it('重开同 URL（旧会话废弃、租约释放）后，新会话依然接得了本页那条（§3.5.3 收敛）', async () => {
+    const { pages, tasks, tools } = await boot(tempRoot())
+    const record = await tasks.send({
+      kind: 'task-workbench/publish' as never,
+      title: '废弃后要能被新会话接走的任务',
+      target: { url: '/apps/task-workbench/task/t-1' as PageInstanceKey, appId: 'task-workbench', page: 'detail', params: { taskId: 't-1' } },
+    })
+    const first = await open(pages, 't-1', { taskId: record.id })
+    expect((await tasks.get(record.id))?.claimedBy?.sessionId).toBe(first.sessionId)
+    const reopened = await open(pages, 't-1')
+    expect(reopened.sessionId).not.toBe(first.sessionId)
+    const take = tools.get('task_workbench__take_page_task')!
+    expect(await take.execute({}, { agent: { session: { id: reopened.sessionId } } } as never))
+      .toMatchObject({ ok: true })
+    const after = await tasks.get(record.id)
+    expect(after?.status).toBe('taken')
+    expect(after?.claimedBy?.sessionId).toBe(reopened.sessionId)
+  })
+})

@@ -47,6 +47,10 @@ function fakeTaskCenter(parentMissing = false) {
         splits.push({ parentId, draft })
         return { id: 'task-2', status: 'open', parentId }
       },
+      // take_page_task 的中心面（本文件不执行它，只为通道完整性提供）
+      // / the center face of take_page_task (never executed here; present for channel completeness)
+      list: async () => [] as never[],
+      take: async (id: string, claim: Record<string, unknown>) => ({ id, status: 'taken', claimedBy: claim }),
     },
   }
 }
@@ -121,6 +125,14 @@ describe('应用可被发现与解析', () => {
     }
     expect(detailPage.url).toBe('/apps/task-workbench/task/:taskId')
     expect(detailPage.instanceTitle?.({ taskId: '1' })).toBe('任务 #1')
+    // 矩阵（§3.10.1）：详情页的活是"动这一条"——页面作用域接取必须挂在详情页，
+    // 且带参 take_task 留在列表页（任意 id 的浏览入口职责）。
+    // / Matrix (§3.10.1): the detail page's job is to act on its one record — the
+    // page-scoped take must sit here, while the parametered take_task stays on
+    // the list page (the browsing entry's arbitrary-id duty).
+    expect(detailPage.tools).toContain('take_page_task')
+    expect(detailPage.tools).not.toContain('take_task')
+    expect(listPage.tools).toContain('take_task')
   })
 
   it('页面工具对外名带 task_workbench__ 前缀', async () => {
@@ -129,6 +141,7 @@ describe('应用可被发现与解析', () => {
     const externalNames = apps.listTools(APP_ID as AppId).map((tool) => tool.externalName)
     expect(externalNames).toEqual([
       'task_workbench__take_task',
+      'task_workbench__take_page_task',
       'task_workbench__complete_task',
       'task_workbench__abandon_task',
       'task_workbench__publish_task',

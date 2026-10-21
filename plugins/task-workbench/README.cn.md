@@ -11,10 +11,12 @@ Veren **应用**的参考实现：在 `@veren/app-registry`、`@veren/page-regis
 | 应用 id | `task-workbench`（工具前缀 `task_workbench`） |
 | 入口页面 | `list` → `/apps/task-workbench/list` |
 | 页面 | `/apps/task-workbench/list`、`/apps/task-workbench/task/:taskId`、`/apps/task-workbench/publish` |
-| 工具 | `task_workbench__take_task`、`__complete_task`、`__abandon_task`、`__publish_task`、`__split_task` |
+| 工具 | `task_workbench__take_task`、`__take_page_task`、`__complete_task`、`__abandon_task`、`__publish_task`、`__split_task` |
 | 任务通道 | `ctx.taskCenter`（声明的硬 inject，G13）；发布/拆分失败原样抛出（fail loud） |
 
 页面不再绑定预设。每页声明 `tools`（应用内本地名）、`instructions`（给模型的说明，不是系统提示词）与 `instanceTitle`（如 `/task/:id` 实例化为「任务 #1」）。三个页面都是**活的视图**：注册时带上应用的权威 `TaskStore`（`pages.register(page, { store })`），store 一变化，宿主就把 `PAGE-DATA` 快照注入该会话的下一轮模型请求。
+
+工具矩阵跟随页面原型（§3.10.1）：带参的 `take_task`（任意 id）挂在列表页——浏览入口的接取职责；详情页挂的是 `take_page_task`——**无参数的页面作用域接取**，接的恰好是该页面实例绑定的那条任务（URL 里的 `taskId`，经 page-registry 实例索引解析），且当任务中心有记录以该页为目标时同时接取其 30 分钟租约。投递闭环由此闭合：被投递给详情页的任务能被该页自己的会话接走，而不是落成 `failed/task-not-taken`。
 
 ## 测试
 

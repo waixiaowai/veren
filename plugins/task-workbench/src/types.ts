@@ -74,3 +74,37 @@ export interface ToolOutcome {
   readonly code?: string
   readonly detail?: string
 }
+
+/** 页面工具拿到的执行上下文（本应用只用会话 id）/ the execution context page tools read (session id only) */
+export interface ToolCallContext {
+  readonly agent?: {
+    readonly session?: {
+      readonly id?: string
+    }
+  }
+}
+
+/**
+ * 详情页会话解析出的那条任务：taskId 供本地投影，url 是任务中心 target 的
+ * 主键（§4.2「任务目标存规范 URL」）。
+ * / The task a detail-page session resolves to: taskId feeds the local
+ * projection; url is the task center's target primary key (§4.2).
+ */
+export interface PageTaskRef {
+  readonly taskId: string
+  readonly url: string
+}
+
+/**
+ * 详情页→任务 的作用域解析面（§3.10.1：详情页的活就是"动这一条"）。实现由
+ * index.ts 用 page-registry 实例索引承担：本会话在 `task-workbench/detail`
+ * 上的那条 live 行——URL 里已有 taskId，接取天然限定在"本页那条"，不靠参数。
+ * / The detail-page→task scope resolver (§3.10.1: a detail page's job is to act
+ * on its one record). index.ts implements it over the page-registry instance
+ * index: this session's live `task-workbench/detail` row — the url already
+ * carries the taskId, so the take is naturally scoped to "this page's task",
+ * with no parameter to forge.
+ */
+export interface PageTaskScope {
+  readonly liveDetailTaskOf: (sessionId: string) => Promise<PageTaskRef | undefined>
+}
