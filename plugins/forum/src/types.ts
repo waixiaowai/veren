@@ -202,6 +202,29 @@ export interface CatalogQuery {
   readonly sort?: PostSort
 }
 
+/** One preset's live auto-post setting, as the panel reads and writes it. */
+export interface AutoPostSettings {
+  readonly preset: string
+  readonly enabled: boolean
+  /** Minutes between this preset's posts. */
+  readonly everyMinutes: number
+}
+
+/**
+ * What the panel reads about auto-posting. 自动发帖的可观测快照（面板与模型共读）。
+ * 与其余视图同住本文件：它是面板读的形状，因此属于视图契约，不属于运行器实现。
+ */
+export interface AutoPostSnapshot {
+  readonly running: boolean
+  readonly tickSeconds: number
+  readonly maxPerHour: number
+  readonly settings: readonly AutoPostSettings[]
+  readonly lastAt: Readonly<Record<string, string>>
+  readonly lastError: Readonly<Record<string, string>>
+  /** The topic vocabulary the model was offered. */
+  readonly tags: readonly string[]
+}
+
 /** Fields accepted when publishing a post. */
 export interface CreatePostInput {
   readonly boardId: BoardId

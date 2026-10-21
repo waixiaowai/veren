@@ -28,21 +28,17 @@ export const MAX_TITLE_CHARS = 200
 /** Longest body the Host accepts; keep in step with `@veren/notebook`. */
 export const MAX_BODY_CHARS = 100_000
 
-/** One preset that owns a notebook, declared or remembered by its notes. */
-export interface OwnerView {
-  readonly id: string
-  readonly declared: boolean
-  readonly noteCount: number
-}
+/**
+ * 视图类型只有一份：直接引宿主源码的那份声明，不再在此处抄一遍同形接口。
+ * `import type` 在打包时被 esbuild 整条擦除，客户端不会因此把服务端代码打进来。
+ *
+ * The view types live in exactly one place — the Host source — so this module
+ * forwards them instead of restating the same shapes. `import type` is erased
+ * by esbuild at bundle time, so no server code reaches the client bundle.
+ */
+import type { NoteView, OwnerView } from '../../../notebook/src/types.ts'
 
-/** One note as the page reads it. */
-export interface NoteView {
-  readonly id: string
-  readonly title: string
-  readonly body: string
-  readonly createdAt: string
-  readonly updatedAt: string
-}
+export type { NoteView, OwnerView }
 
 /** A Remote call result: the committed value, or the Host's structured refusal. */
 export type NotebookRemoteResult<Value> =

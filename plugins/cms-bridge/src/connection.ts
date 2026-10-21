@@ -7,7 +7,7 @@
  * (backoff); invalid credential → awaiting-credential; unload → disposed.
  */
 
-import type { Context } from '@deepseek-ai/cordis';
+import type { Context, LoggerType } from '@deepseek-ai/cordis';
 import { Service } from '@deepseek-ai/cordis';
 import { Dispatcher } from './dispatcher.js';
 import type { BridgeState, BridgeStatus, SocketFactory, SocketLike } from './protocol.js';
@@ -265,14 +265,19 @@ export class ConnectionManager {
 
   /**
    * 纯文本日志出口:dispose 阶段绕过可能失效的 ctx 代理直读 logger。 The plain-text log sink: dispose runs where the ctx proxy may be gone; read the logger directly.
+   *
+   * `ctx.get('logger', false)` 即 cordis 的非严格读取:服务不在场时给 undefined
+   * 而不是抛 without-inject,类型仍来自声明合并（不再用 Record 索引强转）。
+   * `ctx.get('logger', false)` is cordis's non-strict read: undefined instead of a
+   * without-inject throw, still typed by the declaration merge (no Record cast).
    */
-  private log(type: 'info' | 'warn' | 'error' | 'debug', message: string): void {
-    const logger = (this.ctx as unknown as Record<string, unknown>)['logger'] as
-      | { [k in 'info' | 'warn' | 'error' | 'debug']?: (format: string, ...param: unknown[]) => void }
-      | undefined;
-    const method = logger?.[type];
-    if (typeof method === 'function') method.call(logger, 'cms-bridge: %s', message);
-    else console[type === 'debug' ? 'log' : type](`[cms-bridge] ${message}`);
+  private log(type: LoggerType, message: string): void {
+    const logger = this.ctx.get('logger', false);
+    if (logger === undefined) {
+      console[type === 'debug' ? 'log' : type](`[cms-bridge] ${message}`);
+      return;
+    }
+    logger[type]('cms-bridge: %s', message);
   }
 }
 

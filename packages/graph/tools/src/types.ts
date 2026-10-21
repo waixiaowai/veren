@@ -8,9 +8,17 @@
  */
 
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import type { FlowRunStatus } from '@deepseek-ai/dsh-graph-flow-engine'
 
-/** 一次运行的状态（与引擎 FlowRunStatus 同形）/ one run's status (same shape as the engine's FlowRunStatus) */
-export type GraphRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+/**
+ * 一次运行的状态：直接取引擎那份声明。此处原本抄了一份同形副本（注释也写着「与引擎
+ * FlowRunStatus 同形」），引擎增删一个状态就会悄悄漂移；本包本来就依赖引擎，没有理由再抄。
+ * One run's status: taken from the engine's own declaration. This file used to
+ * carry a same-shaped copy (its comment even said so), which would drift
+ * silently the moment the engine gained or lost a state — and this package
+ * already depends on the engine, so there was no reason to copy it.
+ */
+export type { FlowRunStatus }
 
 /** flow 清单项（graph_list 面）/ one flow list item (the graph_list surface) */
 export interface GraphFlowItem {
@@ -36,7 +44,7 @@ export interface GraphListPayload {
 export interface GraphRunPayload {
     flowId: string;
     runId: string;
-    status: GraphRunStatus;
+    status: FlowRunStatus;
     /** 解析后的输出变量；未完成时为空对象 / resolved output variables; empty while running */
     output: Record<string, JsonValue>;
     /** 每节点状态；未完成时为空数组 / per-node status; empty while running */

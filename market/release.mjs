@@ -80,8 +80,14 @@ function releaseOrder(packages, roots) {
     const manifest = packages.get(name)
     if (manifest === undefined) throw new Error(`${name} 不在工作区里 / is not a workspace package`)
     state.set(name, 'visiting')
-    for (const dependency of Object.keys(manifest.dependencies ?? {})) {
-      if (packages.has(dependency)) visit(dependency)
+    // peerDependencies 也是安装闭包的一部分：市场装的包若 peer 指向 workspace 包，
+    // registry 上必须存在，否则客户端安装时 peer 解析失败。
+    // peerDependencies are part of the install closure: a market install fails peer
+    // resolution when a peer points at a workspace package the registry lacks.
+    for (const field of ['dependencies', 'peerDependencies']) {
+      for (const dependency of Object.keys(manifest[field] ?? {})) {
+        if (packages.has(dependency)) visit(dependency)
+      }
     }
     state.set(name, 'done')
     ordered.push(manifest)

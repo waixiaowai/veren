@@ -23,7 +23,7 @@ import { FlowEngineToken } from '@deepseek-ai/dsh-graph-flow-engine'
 import { createGraphTools } from './tools.js'
 
 export { createGraphTools } from './tools.js'
-export type { GraphFlowItem, GraphListPayload, GraphNodeItem, GraphRunPayload, GraphRunStatus } from './types.js'
+export type { FlowRunStatus, GraphFlowItem, GraphListPayload, GraphNodeItem, GraphRunPayload } from './types.js'
 
 /** 插件配置 / the plugin config */
 export interface Config {

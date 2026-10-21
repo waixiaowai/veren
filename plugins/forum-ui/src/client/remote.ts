@@ -23,133 +23,54 @@ import { z } from 'zod'
 import { createTypertRemoteInfo } from '@deepseek-ai/dsh-typert-protocol/remote-info'
 import type { TypertRemoteCodecSpec, TypertRemoteParameterSpec } from '@deepseek-ai/dsh-typert-protocol'
 
-/** One board (one workspace) as the page lists it. */
-export interface BoardView {
-  readonly id: string
-  readonly path: string
-  readonly title: string
-  readonly postCount: number
+/**
+ * 视图类型只有一份：直接引宿主源码的那份声明，不再在此处抄一遍同形接口。
+ * `import type` 在打包时被 esbuild 整条擦除，客户端不会因此把服务端代码打进来。
+ *
+ * The view types live in exactly one place — the Host source — so this module
+ * forwards them instead of restating the same shapes. `import type` is erased
+ * by esbuild at bundle time, so no server code reaches the client bundle.
+ */
+import type {
+  AutoPostSettings,
+  AutoPostSnapshot,
+  BoardView,
+  CatalogQuery,
+  CatalogView,
+  CommentNodeView,
+  DeliveryOutcome,
+  NotificationView,
+  PersonView,
+  PostDetailView,
+  PostSort,
+  PostView,
+  WriteOutcome,
+} from '../../../forum/src/types.ts'
+
+export type {
+  AutoPostSettings,
+  AutoPostSnapshot,
+  BoardView,
+  CatalogQuery,
+  CatalogView,
+  CommentNodeView,
+  DeliveryOutcome,
+  NotificationView,
+  PersonView,
+  PostDetailView,
+  PostSort,
+  PostView,
+  WriteOutcome,
 }
 
-/** One preset as the page offers it. */
-export interface PersonView {
-  readonly name: string
-  readonly autoPost: boolean
-}
-
-/** One post as a list row renders it. */
-export interface PostView {
-  readonly id: string
-  readonly boardId: string
-  readonly author: string
-  readonly title: string
-  readonly excerpt: string
-  readonly tags: readonly string[]
-  readonly mentions: readonly string[]
-  readonly pinned: boolean
-  readonly views: number
-  readonly up: number
-  readonly down: number
-  readonly commentCount: number
-  readonly heat: number
-  readonly createdAt: string
-  readonly updatedAt: string
-  readonly myVote?: 'up' | 'down'
-}
-
-/** One comment plus its direct replies. */
-export interface CommentNodeView {
-  readonly id: string
-  readonly postId: string
-  readonly parentId: string
-  readonly parentKind: 'post' | 'comment'
-  readonly depth: number
-  readonly author: string
-  readonly body: string
-  readonly mentions: readonly string[]
-  readonly foldable: boolean
-  readonly createdAt: string
-  readonly up: number
-  readonly down: number
-  readonly myVote?: 'up' | 'down'
-  readonly replies: readonly CommentNodeView[]
-}
-
-/** One post with its whole comment tree. */
-export interface PostDetailView {
-  readonly post: PostView
-  readonly body: string
-  readonly comments: readonly CommentNodeView[]
-}
-
-/** One delivery attempt's result. */
-export interface DeliveryOutcome {
-  readonly id: string
-  readonly recipient: string
-  readonly status: 'woken' | 'inboxed'
-  readonly sessionId?: string
-  readonly detail?: string
-}
-
-/** Sort keys the page offers, in display order. */
-export const POST_SORTS = ['heat', 'new', 'views'] as const
-
-/** One post ordering. */
-export type PostSort = (typeof POST_SORTS)[number]
-
-/** Search and ordering arguments of one catalog read. */
-export interface CatalogQuery {
-  readonly boardId?: string
-  readonly query?: string
-  readonly tag?: string
-  readonly sort?: PostSort
-}
-
-/** The page's whole read surface. */
-export interface CatalogView {
-  readonly boards: readonly BoardView[]
-  readonly posts: readonly PostView[]
-  readonly boardId?: string
-  readonly people: readonly PersonView[]
-}
-
-/** One write's result: the stored value plus what its notices did. */
-export interface WriteOutcome<Value> {
-  readonly value: Value
-  readonly deliveries: readonly DeliveryOutcome[]
-}
-
-/** One preset's auto-post setting. */
-export interface AutoPostSetting {
-  readonly preset: string
-  readonly enabled: boolean
-  readonly everyMinutes: number
-}
-
-/** What the page reads about auto-posting. */
-export interface AutoPostSnapshot {
-  readonly running: boolean
-  readonly tickSeconds: number
-  readonly maxPerHour: number
-  readonly settings: readonly AutoPostSetting[]
-  readonly lastAt: Readonly<Record<string, string>>
-  readonly lastError: Readonly<Record<string, string>>
-  readonly tags: readonly string[]
-}
-
-/** One notification. */
-export interface NotificationView {
-  readonly id: string
-  readonly recipient: string
-  readonly author: string
-  readonly reason: 'reply' | 'mention'
-  readonly boardId: string
-  readonly postId: string
-  readonly commentId?: string
-  readonly summary: string
-  readonly state: 'pending' | 'delivered' | 'read'
-  readonly createdAt: string
-}
+/**
+ * 排序选项是 UI 的自由（页面决定暴露哪几种、按什么顺序），但每个取值都必须仍是宿主
+ * 承认的排序键，因此用 `satisfies` 钉在宿主类型上：宿主改名或删除某个键，这里立刻编译失败。
+ * Which sorts the page offers, in which order, is a UI choice — but every value
+ * must still be a key the Host accepts, so `satisfies` pins the list to the Host
+ * type and a rename or removal becomes a compile error here.
+ */
+export const POST_SORTS = ['heat', 'new', 'views'] as const satisfies readonly PostSort[]
 
 /** A Remote call result: the committed value, or the Host's structured refusal. */
 export type ForumRemoteResult<Value> =
@@ -209,7 +130,7 @@ export interface ForumRemoteApi {
     readonly all?: boolean
   }) => Promise<ForumRemoteResult<{ readonly changed: number }>>
   /** Read or replace the per-preset auto-post settings. */
-  readonly autoPost: (request: { readonly settings?: readonly AutoPostSetting[] }) => Promise<ForumRemoteResult<AutoPostSnapshot>>
+  readonly autoPost: (request: { readonly settings?: readonly AutoPostSettings[] }) => Promise<ForumRemoteResult<AutoPostSnapshot>>
   /** Register one workspace as a board. */
   readonly ensureBoard: (request: {
     readonly workspaceId: string

@@ -9,32 +9,40 @@
  * without a webServer (plain CLI assemblies).
  */
 
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Context } from '@deepseek-ai/cordis';
+import type { WebServer } from '@deepseek-ai/dsh-host-webserver';
+import type { ConfigEditor } from '@deepseek-ai/dsh-config-editor';
 import type { CmsBridgeService, NodeIdentity } from './connection.js';
 import type { BridgeStatus } from './protocol.js';
 
-/** 非严格探测 webServer(缺失返回 undefined,不抛 without inject)/ probes webServer non-strictly (undefined instead of a without-inject throw) */
-function probeWebServer(ctx: Context): WebServerLike | undefined {
-  return (ctx as unknown as { reflect: { get(name: string, strict: boolean): unknown } })
-    .reflect.get('webServer', false) as WebServerLike | undefined;
-}
-
-/** webServer 最小结构面 / the minimal webServer surface */
-interface WebServerLike {
-  register(route: { kind: 'exact'; path: string; handler: (req: unknown, res: unknown) => void | Promise<void> }): () => void;
+/**
+ * 非严格读取宿主服务：`ctx.get` 缺失时返回 undefined 而不是抛 without-inject，
+ * 正是这里要的「宿主没有 webServer/configEditor 就静默降级」语义。
+ * 类型来自声明合并，因此没有影子结构面、也没有 `ctx as unknown as …` 断言。
+ * Reads a host service non-strictly: `ctx.get` yields undefined instead of
+ * throwing without-inject, which is exactly the "skip when the host has no
+ * webServer/configEditor" semantics. The type comes from the declaration merge,
+ * so there is no shadow surface and no `ctx as unknown as …` assertion.
+ *
+ * @param ctx 宿主上下文 / the host context
+ * @param name 服务名 / the service name
+ * @returns 服务实例或 undefined / the service, or undefined when absent
+ */
+function probe<K extends string & keyof Context>(ctx: Context, name: K): Context[K] | undefined {
+  return ctx.get(name);
 }
 
 /** 注册全部 Web UI 路由;宿主无 webServer 时静默跳过 / registers every Web UI route; skipped on hosts without a webServer */
 export function registerWebApi(ctx: Context, service: CmsBridgeService): void {
-  const webServer = probeWebServer(ctx);
+  const webServer = probe(ctx, 'webServer');
   if (!webServer) {
     ctx.logger.warn('cms-bridge: no webServer on this host; web UI API skipped');
     return;
   }
-  const json = (res: unknown, code: number, body: unknown): void => {
-    const r = res as { writeHead(code: number, headers: Record<string, string>): unknown; end(body: string): unknown };
-    r.writeHead(code, { 'content-type': 'application/json' });
-    r.end(JSON.stringify(body));
+  const json = (res: ServerResponse, code: number, body: unknown): void => {
+    res.writeHead(code, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(body));
   };
   ctx.effect(() => webServer.register({
     kind: 'exact',
@@ -60,7 +68,7 @@ export function registerWebApi(ctx: Context, service: CmsBridgeService): void {
     path: '/cms-bridge/api/identity',
     handler: async (req, res) => {
       try {
-        if ((req as { method?: string }).method === 'POST') {
+        if (req.method === 'POST') {
           const identity = await readBodyIdentity(req);
           await persistIdentity(ctx, service, identity);
           ctx.logger.info('cms-bridge: identity updated via web UI: %s (%s)', identity.nodeName, identity.nodeId);
@@ -98,29 +106,24 @@ export function registerWebApi(ctx: Context, service: CmsBridgeService): void {
  */
 function registerEventStream(
   ctx: Context,
-  webServer: WebServerLike,
+  webServer: WebServer,
   service: CmsBridgeService,
 ): void {
   ctx.effect(() => webServer.register({
     kind: 'exact',
     path: '/cms-bridge/api/events',
     handler: (req, res) => {
-      const r = res as {
-        writeHead(code: number, headers: Record<string, string>): unknown;
-        write(chunk: string): unknown;
-        on(event: string, cb: () => void): unknown;
-      };
-      r.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
       let open = true;
       const send = (status: BridgeStatus): void => {
-        if (open) r.write(`data: ${JSON.stringify(status)}\n\n`);
+        if (open) res.write(`data: ${JSON.stringify(status)}\n\n`);
       };
       send(service.status());
       const off = ctx.on('cms-bridge/status', (status) => send(status));
       const heartbeat = setInterval(() => {
-        if (open) r.write(': hb\n\n');
+        if (open) res.write(': hb\n\n');
       }, 25_000);
-      (req as { on(event: string, cb: () => void): unknown }).on('close', () => {
+      req.on('close', () => {
         open = false;
         off();
         clearInterval(heartbeat);
@@ -144,11 +147,10 @@ const ICON_MAX_BYTES = 2 * 1024 * 1024;
  * through verbatim (with the browser-built boundary header), then
  * /v1/files/{id}/url exchanges the id for the permanent /f/ address.
  */
-async function uploadIcon(service: CmsBridgeService, req: unknown): Promise<string> {
+async function uploadIcon(service: CmsBridgeService, req: IncomingMessage): Promise<string> {
   const cfg = service.connectionConfig();
   const origin = cmsOrigin(cfg.url);
-  const headers = (req as { headers?: Record<string, string | string[] | undefined> }).headers ?? {};
-  const contentType = headers['content-type'];
+  const contentType = req.headers['content-type'];
   if (typeof contentType !== 'string' || !contentType.includes('multipart/form-data')) {
     throw new Error('expected multipart/form-data');
   }
@@ -171,10 +173,10 @@ async function uploadIcon(service: CmsBridgeService, req: unknown): Promise<stri
 }
 
 /** 读原始请求体(带上限)/ reads the raw request body (with a cap) */
-async function readRawBody(req: unknown, cap: number): Promise<Buffer[]> {
+async function readRawBody(req: IncomingMessage, cap: number): Promise<Buffer[]> {
   const chunks: Buffer[] = [];
   let total = 0;
-  for await (const chunk of (req as AsyncIterable<Buffer>)) {
+  for await (const chunk of req) {
     total += chunk.length;
     if (total > cap) throw new Error('body too large');
     chunks.push(chunk);
@@ -183,12 +185,12 @@ async function readRawBody(req: unknown, cap: number): Promise<Buffer[]> {
 }
 
 /** 读 JSON body / reads a JSON body */
-async function readJsonBody(req: unknown, cap: number): Promise<Record<string, unknown>> {
+async function readJsonBody(req: IncomingMessage, cap: number): Promise<Record<string, unknown>> {
   return JSON.parse(Buffer.concat(await readRawBody(req, cap)).toString('utf8')) as Record<string, unknown>;
 }
 
 /** 读取并校验 POST body 里的节点身份 / reads and validates the identity from a POST body */
-async function readBodyIdentity(req: unknown): Promise<NodeIdentity> {
+async function readBodyIdentity(req: IncomingMessage): Promise<NodeIdentity> {
   const body = await readJsonBody(req, 16_384);
   const str = (v: unknown, label: string): string => {
     if (typeof v !== 'string') throw new Error(`${label} must be a string`);
@@ -203,23 +205,14 @@ async function readBodyIdentity(req: unknown): Promise<NodeIdentity> {
 }
 
 /** 读取并校验 POST body 里的 { token } / reads and validates { token } from the POST body */
-async function readBodyToken(req: unknown): Promise<string> {
+async function readBodyToken(req: IncomingMessage): Promise<string> {
   const body = await readJsonBody(req, 4096);
   if (typeof body.token !== 'string' || body.token.length === 0) throw new Error('token required');
   return body.token;
 }
 
-/** configEditor 最小结构面 / the minimal configEditor surface */
-interface ConfigEditorLike {
-  entries(): Array<Record<string, unknown>>;
-  edit(entry: Record<string, unknown>, change: (current: Record<string, unknown>) => Record<string, unknown>): Promise<void>;
-}
-
-/** configEditor 非严格探测 / a non-strict configEditor probe */
-function findConfigEditor(ctx: Context): ConfigEditorLike | undefined {
-  return (ctx as unknown as { reflect: { get(name: string, strict: boolean): unknown } })
-    .reflect.get('configEditor', false) as ConfigEditorLike | undefined;
-}
+/** configEditor 提供的行类型:`ConfigEditor['entries']` 的元素,不再手写影子 / the row type ConfigEditor hands out, not a shadow */
+type ConfigEntry = ReturnType<ConfigEditor['entries']>[number];
 
 /**
  * 找本插件在 profile patch 里的行。Entry 是类实例:id 为 getter、包名在
@@ -229,12 +222,13 @@ function findConfigEditor(ctx: Context): ConfigEditorLike | undefined {
  * (id is a getter, the package name lives in options.name); some entries can
  * be Context proxies where JSON.stringify throws "without inject", so the
  * stringify probe comes last and is failure-tolerant.
+ *
+ * @param editor 宿主 configEditor / the host config editor
+ * @returns 本插件的行,或 undefined / this plugin's row, or undefined
  */
-function findOwnEntry(editor: ConfigEditorLike): Record<string, unknown> | undefined {
+function findOwnEntry(editor: ConfigEditor): ConfigEntry | undefined {
   return editor.entries().find((e) => {
-    if (e.id === 'cms-bridge' || e.name === '@veren/cms-bridge') return true;
-    const options = e.options as { name?: unknown } | undefined;
-    if (options && options.name === '@veren/cms-bridge') return true;
+    if (e.id === 'cms-bridge' || e.options.name === '@veren/cms-bridge') return true;
     try {
       return JSON.stringify(e).includes('@veren/cms-bridge');
     } catch {
@@ -251,17 +245,17 @@ function findOwnEntry(editor: ConfigEditorLike): Record<string, unknown> | undef
  * so hosts without configEditor still take effect for this run.
  */
 async function persistIdentity(ctx: Context, service: CmsBridgeService, identity: NodeIdentity): Promise<void> {
-  const editor = findConfigEditor(ctx);
-  const entry = editor && findOwnEntry(editor);
-  if (editor && entry) await editor.edit(entry, (current) => ({ ...current, ...identity }));
+  const editor = probe(ctx, 'configEditor');
+  const entry = editor === undefined ? undefined : findOwnEntry(editor);
+  if (editor !== undefined && entry !== undefined) await editor.edit(entry, (current) => ({ ...current, ...identity }));
   service.setIdentity(identity);
 }
 
 /** 持久化换凭证:configEditor 可用则写 profile patch,否则仅本进程生效 / persists the rotation: profile patch via configEditor, else run-scoped */
 async function persistCredential(ctx: Context, service: CmsBridgeService, token: string): Promise<void> {
-  const editor = findConfigEditor(ctx);
-  const entry = editor && findOwnEntry(editor);
-  if (editor && entry) {
+  const editor = probe(ctx, 'configEditor');
+  const entry = editor === undefined ? undefined : findOwnEntry(editor);
+  if (editor !== undefined && entry !== undefined) {
     await editor.edit(entry, (current) => ({ ...current, token }));
     return;
   }

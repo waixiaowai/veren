@@ -27,25 +27,16 @@ import type { ForumStore } from './storage.ts'
 import { view } from './storage.ts'
 import type { ComposeInput, PostDraft } from './compose.ts'
 
-/** One preset's live auto-post setting, as the panel reads and writes it. */
-export interface AutoPostSettings {
-  readonly preset: string
-  readonly enabled: boolean
-  /** Minutes between this preset's posts. */
-  readonly everyMinutes: number
-}
+/**
+ * 自动发帖的视图类型与其余视图同住 `types.ts`（它们就是面板读的那两个形状），
+ * 此处按原名转出，`runner` 的公共面不变。
+ * The auto-post view shapes live in `types.ts` with the other views — they are
+ * exactly what the panel reads — and are forwarded here under their own names so
+ * `runner`'s public surface is unchanged.
+ */
+import type { AutoPostSettings, AutoPostSnapshot } from './types.ts'
 
-/** What the panel reads about auto-posting. */
-export interface AutoPostSnapshot {
-  readonly running: boolean
-  readonly tickSeconds: number
-  readonly maxPerHour: number
-  readonly settings: readonly AutoPostSettings[]
-  readonly lastAt: Readonly<Record<string, string>>
-  readonly lastError: Readonly<Record<string, string>>
-  /** The topic vocabulary the model was offered. */
-  readonly tags: readonly string[]
-}
+export type { AutoPostSettings, AutoPostSnapshot }
 
 /** The world the runner reads and writes; the service supplies it. */
 export interface AutoPostWorld {

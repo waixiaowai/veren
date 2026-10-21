@@ -513,7 +513,12 @@ window.__ModuleLoader__.load({
     };
 
     // src/client/remote.ts
-    var STARTUP_ACTIONS = ["new_session", "resume_session", "message_session", "queue_message"];
+    var STARTUP_ACTIONS = [
+      "new_session",
+      "resume_session",
+      "message_session",
+      "queue_message"
+    ];
     var MODEL_SCHEMA = import_zod.z.looseObject({
       provider: import_zod.z.string(),
       model: import_zod.z.string(),

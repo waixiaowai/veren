@@ -30,7 +30,7 @@ import type { WorkspaceSnapshot, WorkspaceView } from '@deepseek-ai/dsh-api-work
 import type { ForumCatalog, ForumCatalogSnapshot } from './catalog.ts'
 import { POST_SORTS } from './remote.ts'
 import type {
-  AutoPostSetting, AutoPostSnapshot, BoardView, CatalogQuery, CommentNodeView, NotificationView,
+  AutoPostSettings, AutoPostSnapshot, BoardView, CatalogQuery, CommentNodeView, NotificationView,
   PersonView, PostDetailView, PostSort, PostView,
 } from './remote.ts'
 import type { ForumKey } from './locales.ts'
@@ -76,7 +76,7 @@ export interface ForumPanelInjected {
   /** Mark every notification of one preset read. */
   readonly onMarkAllRead: (recipient: string) => Promise<void>
   /** Replace the per-preset auto-post settings. */
-  readonly onSaveAutoPost: (settings: readonly AutoPostSetting[]) => Promise<void>
+  readonly onSaveAutoPost: (settings: readonly AutoPostSettings[]) => Promise<void>
 }
 
 /** The one write payload the composer builds. */
@@ -319,7 +319,7 @@ function ForumBody(props: BodyProps) {
     }, t('toastMarkedRead'))
   }
 
-  const saveAutoPost = async (settings: readonly AutoPostSetting[]): Promise<boolean> => {
+  const saveAutoPost = async (settings: readonly AutoPostSettings[]): Promise<boolean> => {
     return run(async () => {
       await actions.onSaveAutoPost(settings)
       reload()
@@ -949,7 +949,7 @@ function SettingsPage(props: {
   readonly autoPost: AutoPostSnapshot
   readonly onRead: () => void
   readonly onMarkAllRead: () => void
-  readonly onSave: (settings: readonly AutoPostSetting[]) => Promise<boolean>
+  readonly onSave: (settings: readonly AutoPostSettings[]) => Promise<boolean>
   readonly onBack: () => void
 }) {
   const { t } = props
@@ -1041,10 +1041,10 @@ function AutoPostCard(props: {
   readonly readOnly: boolean
   readonly open: boolean
   readonly onToggle: () => void
-  readonly onSave: (settings: readonly AutoPostSetting[]) => Promise<boolean>
+  readonly onSave: (settings: readonly AutoPostSettings[]) => Promise<boolean>
 }) {
   const { t, snapshot, readOnly, open, onToggle, onSave } = props
-  const [drafts, setDrafts] = useState<Readonly<Record<string, AutoPostSetting>>>({})
+  const [drafts, setDrafts] = useState<Readonly<Record<string, AutoPostSettings>>>({})
   const [pending, setPending] = useState(false)
   const settings = snapshot.settings.map(setting => drafts[setting.preset] ?? setting)
   const dirty = Object.keys(drafts).length > 0

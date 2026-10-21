@@ -33,25 +33,36 @@ import { z } from 'zod'
 import { createTypertRemoteInfo } from '@deepseek-ai/dsh-typert-protocol/remote-info'
 import type { TypertRemoteCodecSpec, TypertRemoteParameterSpec } from '@deepseek-ai/dsh-typert-protocol'
 
-/** The four actions an item can perform. */
-export const STARTUP_ACTIONS = ['new_session', 'resume_session', 'message_session', 'queue_message'] as const
+/**
+ * 视图类型只有一份：直接引宿主源码的那份声明，不再在此处抄一遍同形接口。
+ * `import type` 在打包时被 esbuild 整条擦除，客户端不会因此把服务端代码打进来。
+ *
+ * The view types live in exactly one place — the Host source — so this module
+ * forwards them instead of restating the same shapes. `import type` is erased
+ * by esbuild at bundle time, so no server code reaches the client bundle.
+ */
+import type {
+  StartupAction,
+  StartupItemView,
+  StartupModelTarget,
+  StartupOutcome,
+} from '../../../startup-autostart/src/domain.ts'
 
-/** One action name. */
-export type StartupAction = (typeof STARTUP_ACTIONS)[number]
+export type { StartupAction, StartupItemView, StartupModelTarget, StartupOutcome }
 
-/** A model target an item can pin for a session it creates. */
-export interface StartupModelTarget {
-  readonly provider: string
-  readonly model: string
-  readonly reasoningEffort?: string
-}
-
-/** The retained result of one delivery attempt. */
-export interface StartupOutcome {
-  readonly status: 'ok' | 'failed'
-  readonly detail: string
-  readonly at: string
-}
+/**
+ * 选项清单是 UI 的自由（页面只暴露这四个），但每个取值都必须仍是宿主承认的动作，
+ * 因此用 `satisfies` 钉在宿主类型上：宿主改名或删除某个动作，这里立刻编译失败。
+ * Which actions the page offers is a UI choice, but every value must still be an
+ * action the Host accepts, so `satisfies` pins the list to the Host type: renaming
+ * or dropping an action becomes a compile error here.
+ */
+export const STARTUP_ACTIONS = [
+  'new_session',
+  'resume_session',
+  'message_session',
+  'queue_message',
+] as const satisfies readonly StartupAction[]
 
 /** Fields accepted when registering or editing an item. */
 export interface StartupItemRequest {
@@ -64,25 +75,6 @@ export interface StartupItemRequest {
   readonly cwd?: string
   readonly workspaceId?: string
   readonly preset?: string
-}
-
-/** One item as the Host reports it and the panel renders it. */
-export interface StartupItemView {
-  readonly id: string
-  readonly name: string
-  readonly enabled: boolean
-  readonly action: StartupAction
-  readonly cwd?: string
-  readonly workspaceId?: string
-  readonly sessionId?: string
-  readonly preset?: string
-  readonly model?: StartupModelTarget
-  readonly message?: string
-  readonly createdAt: string
-  readonly updatedAt: string
-  readonly lastRunAt?: string
-  readonly lastOutcome?: StartupOutcome
-  readonly runCount: number
 }
 
 /** A Remote call result: the committed value, or the Host's structured refusal. */
