@@ -15,7 +15,8 @@ const API_URL = 'https://api.deepseek.com/chat/completions'
 const MODEL = 'deepseek-chat'
 const LIST_SIZE = 150
 
-/** 读取密钥：环境变量优先，其次 ~/.dsh/.credentials.yaml 的 refs / load API key */
+/** 读取密钥：环境变量优先，其次 ~/.dsh/.credentials.yaml 的 refs。
+ * 基准工具的公开入口，测试即产品 / benchmark entry point; the specs ARE the product. */
 export function loadApiKey(): string | undefined {
   if (process.env.DEEPSEEK_API_KEY) return process.env.DEEPSEEK_API_KEY
   try {
@@ -90,13 +91,15 @@ async function chat(apiKey: string, messages: ChatMessage[]): Promise<{ message:
   return { message: data.choices[0].message, usage }
 }
 
-/** 组装列表页会话，返回其消息宿主（测试辅助）/ mount the list page and return its host (test helper) */
+/** 组装列表页会话，返回其消息宿主。基准工具公开入口，测试即产品
+ * / benchmark entry point; the specs ARE the product (test-only callers). */
 export function assemblePageSession(store: TaskStore): MessageHost {
   return mountPage({ page: listPage, store }).host
 }
 
 /**
  * 跑一场基准：mountPage 挂载列表页 → 每轮服务端演化（自动重渲染）→ 注入同步 → 模型执行指令 → 服务端验证。
+ * 基准工具公开入口，测试即产品 / benchmark entry point; the specs ARE the product.
  */
 export async function runBench(apiKey: string, mode: 'full' | 'delta', rounds = 6): Promise<BenchReport> {
   const store = new TaskStore(makeList(LIST_SIZE))

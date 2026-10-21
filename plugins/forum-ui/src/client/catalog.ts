@@ -124,7 +124,9 @@ export function createForumCatalog(api: ForumRemoteApi): ForumCatalog {
   }
 }
 
-/** Read one post with its comment tree. */
+/**
+ * Read one post with its comment tree. 仅供测试/对外契约 / test-only / external contract.
+ */
 export async function readPost(
   api: ForumRemoteApi, postId: string, reader: string | undefined,
 ): Promise<PostDetailView> {
@@ -140,7 +142,7 @@ export async function readInbox(api: ForumRemoteApi, recipient: string): Promise
   return result.value
 }
 
-/** Read the auto-post settings and what the runner is doing. */
+/** Read the auto-post settings and what the runner is doing. 仅供测试/对外契约 / test-only / external contract. */
 export async function readAutoPost(api: ForumRemoteApi): Promise<AutoPostSnapshot> {
   const result = await api.autoPost({})
   if (!result.ok) throw new Error(result.error.message)

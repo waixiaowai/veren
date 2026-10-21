@@ -100,7 +100,12 @@ export function pendingApproval(runtime: CanvasNodeRuntime | undefined): FlowApp
     return undefined
 }
 
-/** The last settled approval of a node (audit minimum for the card line). */
+/**
+ * The last settled approval of a node (audit minimum for the card line).
+ * 仅供测试/对外契约；若审批卡最终不展示审计行，此导出应升级为"该接没接"再评估。
+ * Test-only / external contract; if the approval card never shows the audit
+ * line, re-evaluate this export as unwired surface.
+ */
 export function settledApproval(runtime: CanvasNodeRuntime | undefined): FlowApprovalAudit | undefined {
     const approvals = runtime?.approvals
     if (approvals === undefined) return undefined

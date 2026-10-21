@@ -240,7 +240,10 @@ function rankNodes(flow: CanvasFlow): Map<string, number> {
     return ranks
 }
 
-/** Whether the flow projection declares any edge with a visible condition label. */
+/**
+ * Whether the flow projection declares any edge with a visible condition label.
+ * 仅供测试/对外契约 / test-only / external contract.
+ */
 export function hasConditionalEdges(edges: readonly CanvasEdge[]): boolean {
     return edges.some(edge => edge.condition.kind !== 'always')
 }

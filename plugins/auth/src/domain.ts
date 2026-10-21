@@ -33,6 +33,7 @@ export const LOGIN_GATE_DOMAIN_NAME = 'web_login_gate'
 
 /** Models this domain accepts from the adapter; anything else is a bug. 适配器接受的模型集合，其余视为缺陷。 */
 export const LOGIN_GATE_MODELS = ['user', 'session', 'account', 'verification'] as const
+/** 单个模型名。仅供测试/对外契约 / one model name; test-only / external contract. */
 export type LoginGateModel = (typeof LOGIN_GATE_MODELS)[number]
 
 /**

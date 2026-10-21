@@ -102,7 +102,9 @@ type ConfigPins = [
 ]
 
 // 引用一次，避免「未使用」告警；纯类型，不产生任何运行时语句。
-// Referenced once so nothing reads as unused; pure types, no runtime statement.
+// 刻意的编译期契约钉：仅供测试/对外契约，禁止删（删掉 = 契约漂移无报警）。
+// Intentional compile-time contract pins: test-only / external contract. Do
+// not delete — removal silences the drift alarm.
 export type ContractPins = [
   ViewProjectionPins, OneSourcePins, HostColumnPins, OwnSignaturePins, PreStepPins, ConfigPins,
 ]

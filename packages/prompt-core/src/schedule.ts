@@ -35,7 +35,12 @@ export function scheduleRender(root: PromptRoot, elements: ElementInput, lane: L
   commitEffects(root.host, batch)
 }
 
-/** 手动冲洗 background 缓冲 / flush buffered background effects */
+/**
+ * 手动冲洗 background 缓冲。仅供测试/对外契约使用——生产路径由调度器自动冲洗，
+ * 不要在业务代码里调用。
+ * Flush buffered background effects. Test-only / external contract: the
+ * scheduler flushes automatically in production; do not call from app code.
+ */
 export function flushBackground(root: PromptRoot): void {
   if (root.pending.length === 0) return
   const batch = root.pending

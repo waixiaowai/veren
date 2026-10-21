@@ -233,7 +233,13 @@ export function assertAppUrlPattern(pageName: string, url: string): void {
   }
 }
 
-/** `/apps/<appId>/<应用内路径>` 是否合法形态 / whether a url has a valid app-scoped shape */
+/**
+ * `/apps/<appId>/<应用内路径>` 是否合法形态。仅供测试/对外契约——生产校验走
+ * `assertAppUrlPattern`（fail loud），本函数是其布尔查询面。
+ * Whether a url has a valid app-scoped shape. Test-only / external contract:
+ * production validation is `assertAppUrlPattern` (fail loud); this is its
+ * boolean query face.
+ */
 export function isAppUrlPattern(url: string): boolean {
   try {
     assertAppUrlPattern('check', url)
