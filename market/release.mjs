@@ -14,11 +14,18 @@ import { execFile } from 'node:child_process'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { ROOT_DIR, SOURCES_FILE } from './lib/paths.mjs'
+import { satisfies } from './lib/semver.mjs'
 import { promisify } from 'node:util'
 
 const run = promisify(execFile)
 const DRY_RUN = process.argv.includes('--dry-run')
 const REGISTRY = 'https://npm.veren.top/'
+// 发布凭据只从环境变量取：token 绝不进 .npmrc、不进脚本、不进 git。
+// The publish credential comes from the environment only: the token never
+// reaches a committed file.
+const TOKEN = process.env.NPM_TOKEN ?? ''
+/** registry 文档缓存 / registry document cache. */
+const registryCache = new Map()
 /** 扫描的目录 / Directories scanned for workspace packages. */
 const ROOTS = ['plugins', 'packages']
 
@@ -98,14 +105,18 @@ function releaseOrder(packages, roots) {
 
 /**
  * registry 上已有的各版本清单 / The manifest the registry holds for every published version.
+ * 逐包验证会反复查同一批文档，这里缓存一次 / cached: verification queries the same documents repeatedly.
  * @param {string} name - 包名 / Package name.
  * @returns {Promise<Record<string, object>>} 版本号到清单的映射 / Version to published manifest.
  */
 async function registryManifests(name) {
+  const cached = registryCache.get(name)
+  if (cached !== undefined) return cached
   const response = await fetch(`${REGISTRY}${name.replace('/', '%2f')}`)
-  if (response.status === 404) return {}
-  if (!response.ok) throw new Error(`${name}: registry HTTP ${response.status}`)
-  return (await response.json()).versions ?? {}
+  if (!response.ok && response.status !== 404) throw new Error(`${name}: registry HTTP ${response.status}`)
+  const versions = response.status === 404 ? {} : (await response.json()).versions ?? {}
+  registryCache.set(name, versions)
+  return versions
 }
 
 /**
@@ -142,13 +153,53 @@ function dependencyDrift(local, published) {
 async function publish(manifest) {
   const args = ['--filter', manifest.name, 'publish', '--no-git-checks', '--access', 'public', '--registry', REGISTRY]
   if (DRY_RUN) {
-    console.log(`dry-run: pnpm ${args.join(' ')}`)
+    console.log(`dry-run: pnpm ${args.join(' ')} --//npm.veren.top/:_authToken=<NPM_TOKEN>`)
     return
   }
+  if (TOKEN === '') {
+    throw new Error('NPM_TOKEN 未设置 / is not set: 从桌面 profile 的 .npmrc 只读复制 //npm.veren.top/:_authToken 进该环境变量，不要写进任何文件')
+  }
+  // token 走 CLI 参数，不落盘 / the token travels as a CLI flag, never through a file.
+  args.push(`--//npm.veren.top/:_authToken=${TOKEN}`)
   console.log(`publishing ${manifest.name}@${manifest.version}`)
   // Windows 上 pnpm 是 .cmd，必须经 shell 启动 / On Windows pnpm is a .cmd shim, so it needs a shell.
   const { stdout } = await run('pnpm', args, { cwd: ROOT_DIR, maxBuffer: 16 * 1024 * 1024, shell: process.platform === 'win32' })
   for (const line of stdout.split('\n')) if (line.includes('+ ')) console.log(`  ${line.trim()}`)
+}
+
+/**
+ * 发布后验证：目标版本在 registry 上，且已发布清单里声明的每个第一方依赖都能在
+ * registry 上找到满足区间的版本。这正是"file: 删掉之后到底装不装得上"的判据。
+ * Post-publish verification: the target version is on the registry and every
+ * first-party dependency the published manifest declares resolves there — the
+ * test that dependencies still install now that file: rewriting is gone.
+ *
+ * @param {Map<string, object>} packages - 工作区清单 / workspace manifests.
+ * @param {object[]} manifests - 待验证清单 / manifests to verify.
+ * @returns {Promise<string[]>} 问题列表 / problems.
+ */
+async function verifyReleased(packages, manifests) {
+  const problems = []
+  for (const manifest of manifests) {
+    const before = problems.length
+    const versions = await registryManifests(manifest.name)
+    if (!Object.hasOwn(versions, manifest.version)) {
+      problems.push(`${manifest.name}@${manifest.version} is missing from the registry`)
+    } else {
+      const declared = versions[manifest.version]
+      for (const section of ['dependencies', 'peerDependencies']) {
+        for (const [name, spec] of Object.entries(declared[section] ?? {})) {
+          if (!packages.has(name)) continue
+          const candidates = Object.keys(await registryManifests(name))
+          if (!candidates.some(version => satisfies(version, spec) === true)) {
+            problems.push(`${manifest.name}@${manifest.version} → ${name}@${spec} has no published version on the registry`)
+          }
+        }
+      }
+    }
+    if (problems.length === before) console.log(`ok ${manifest.name}@${manifest.version} — every first-party dependency resolves`)
+  }
+  return problems
 }
 
 /**
@@ -178,6 +229,12 @@ async function main() {
     }
     await publish(manifest)
   }
+
+  if (DRY_RUN) return
+  const problems = await verifyReleased(packages, publishable)
+  for (const problem of problems) console.error(`DEP PROBLEM: ${problem}`)
+  if (problems.length > 0) throw new Error(`${problems.length} released manifest(s) do not resolve on ${REGISTRY}`)
+  console.log(`verified ${publishable.length} manifest(s): every version and first-party dependency resolves on ${REGISTRY}`)
 }
 
 await main()

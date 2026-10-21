@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-kernel",
   "displayName": "Admin Kernel",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Use when a DSH admin deployment must pick exactly one implementation per capability and let consumers depend on a stable façade: it registers providers from their manifests, negotiates the contract range, refuses incompatible or conflicting providers, derives the capability catalog and health, and enforces the essential-capability boot gate; skip it when you only need the contract types.",
   "type": "module",
   "main": "./dist/index.js",

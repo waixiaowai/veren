@@ -6,8 +6,9 @@
  * 与 `scripts/verify-packed-entries.mjs` 的分工：那个脚本从源码目录现打包，
  * @veren/* 兄弟包链回工作区，且不能处理没有 `.` 导出的配置型组合包；本脚本
  * 只吃**已经打好的 tarball 产物**，额外覆盖三件交付期才暴露的事：
- * 1. 组合包的成员依赖必须已被改写成 `file:` 且目标文件真实存在（`workspace:^`
- *    原样出厂会让安装方去 registry 找一个不存在的版本）；
+ * 1. 组合包的成员依赖必须是 registry 可解析的区间（`^x.y.z`），**不允许**
+ *    `file:`/`workspace:`——成员已由 `market/release.mjs` 按拓扑序发布，
+ *    产物因此能分发给任何机器；`--offline` 时反过来校验兄弟 `file:` tarball；
  * 2. 组合包按 `dsh.bundle.patch` 声明校验 patch 文件在包内；
  * 3. 入口解析证明：`require.resolve` 命中的是 dist 产物，而不是 src 源码。
  *
@@ -25,9 +26,10 @@
  * workspace, and cannot handle configuration-only bundles without a `.`
  * export; this one consumes **already packed tarballs** and additionally
  * covers three delivery-time facts:
- * 1. a bundle's member dependencies must have been rewritten to `file:` and
- *    the targets must really exist (a shipped `workspace:^` sends the
- *    installer to a registry version that does not exist);
+ * 1. a bundle's member dependencies must be registry-resolvable ranges
+ *    (`^x.y.z`), **never** `file:`/`workspace:` — members are published in
+ *    dependency order by `market/release.mjs`, so the artifact is installable
+ *    on any machine; `--offline` checks the sibling `file:` tarballs instead;
  * 2. a bundle's `dsh.bundle.patch` file must be present inside the package;
  * 3. entry-resolution proof: `require.resolve` must hit the dist artifact,
  *    not the src source.
@@ -39,7 +41,7 @@
  * only writes the system temp directory; no DSH profile is touched.
  *
  * Usage / 用法:
- *   node scripts/verify-dist-tgz.mjs <tarball> [tarball...]
+ *   node scripts/verify-dist-tgz.mjs [--offline] <tarball> [tarball...]
  *
  * @module @veren/scripts/verify-dist-tgz
  */
@@ -60,11 +62,14 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-const tarballs = process.argv.slice(2)
+const tarballs = process.argv.slice(2).filter(argument => argument !== '--offline')
 if (tarballs.length === 0) {
-  process.stderr.write('usage: node scripts/verify-dist-tgz.mjs <tarball> [tarball...]\n')
+  process.stderr.write('usage: node scripts/verify-dist-tgz.mjs [--offline] <tarball> [tarball...]\n')
   process.exit(2)
 }
+
+/** 校验口径：默认要求 registry 区间；`--offline` 要求兄弟 file: tarball / expected dependency form. */
+const OFFLINE = process.argv.includes('--offline')
 
 const fakeRoot = mkdtempSync(join(tmpdir(), 'veren-dist-tgz-check-'))
 const modulesDir = join(fakeRoot, 'node_modules')
@@ -182,10 +187,12 @@ function entryOf(manifest) {
 
 /**
  * 断言清单自身的交付事实：入口落在 dist、组合包 patch 在包内、组合包成员依赖
- * 已改写为 file: 且目标存在。返回问题列表。
+ * 是 registry 区间（或 `--offline` 下已改写的兄弟 file: 且目标存在）。
+ * 返回问题列表。
  * Assert the manifest's delivery facts: the entry lives under dist, a bundle's
- * patch file is inside the package, and a bundle's member deps are rewritten
- * to existing file: targets. Returns the problem list.
+ * patch file is inside the package, and a bundle's member deps are registry
+ * ranges (or, with `--offline`, sibling file: targets that exist). Returns the
+ * problem list.
  *
  * @param {object} manifest - the installed manifest / 安装形态清单
  * @param {string} dir - installed package directory / 安装目录
@@ -204,12 +211,16 @@ function manifestProblems(manifest, dir) {
     for (const section of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
       for (const [name, spec] of Object.entries(manifest[section] ?? {})) {
         if (!name.startsWith('@veren/')) continue
-        if (!spec.startsWith('file:')) {
-          problems.push(`${section} ${name} is "${spec}", not a file: rewrite — the installer would hit the registry`)
-          continue
-        }
-        if (!existsSync(spec.slice('file:'.length))) {
-          problems.push(`${section} ${name} points at a missing tarball: ${spec}`)
+        if (OFFLINE) {
+          if (!spec.startsWith('file:')) {
+            problems.push(`${section} ${name} is "${spec}", not a file: rewrite — offline tarballs must point at sibling tarballs`)
+            continue
+          }
+          if (!existsSync(spec.slice('file:'.length))) {
+            problems.push(`${section} ${name} points at a missing tarball: ${spec}`)
+          }
+        } else if (/^(file|workspace|link):/.test(spec)) {
+          problems.push(`${section} ${name} is "${spec}" — deliverable tarballs must resolve from the registry`)
         }
       }
     }
@@ -267,7 +278,7 @@ for (const tarball of tarballs) {
       if (!resolved.startsWith(modulesDir.replaceAll('\\', '/'))) {
         throw new Error(`./package.json resolved outside the installed copy: ${resolved}`)
       }
-      process.stdout.write(`ok       ${manifest.name}@${manifest.version} (config bundle) deps rewritten to sibling tarballs\n`)
+      process.stdout.write(`ok       ${manifest.name}@${manifest.version} (config bundle) deps ${OFFLINE ? 'rewritten to sibling tarballs' : 'resolve from the registry'}\n`)
       continue
     }
     const keys = loadWithPlainNode(manifest.name)

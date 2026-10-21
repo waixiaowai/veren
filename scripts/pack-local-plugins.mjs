@@ -1,27 +1,46 @@
 /**
- * Pack the repository's first-party plugins into local tarballs for an isolated
- * DSH test profile.
+ * Pack the repository's first-party plugins into tarballs.
  *
- * `pnpm pack` rewrites every `workspace:` range to the package's current
- * version, and those versions are not published on any registry. A test
- * profile installs from tarballs only, so this script rewrites every `@veren/*`
- * dependency of a packed manifest to the sibling tarball in the same output
- * directory. The committed manifests stay registry-clean.
+ * Default (registry mode) runs plain `pnpm pack`: pnpm rewrites every
+ * `workspace:` range into the package's current version, and
+ * `market/release.mjs` publishes that version to https://npm.veren.top/, so a
+ * packed manifest installs from the registry alone. The script asserts the
+ * packed manifest declares no `file:` and no leftover `workspace:` dependency
+ * on a first-party package, so the registry-clean property cannot silently
+ * regress.
  *
- * 把仓库自研插件打成供隔离 DSH 测试 profile 使用的本地 tarball。
+ * `--offline` keeps the no-network smoke path: it rewrites every first-party
+ * dependency of the packed manifest to the sibling tarball in the same output
+ * directory. Offline tarballs are for local smoke tests only; never
+ * distribute them.
  *
- * `pnpm pack` 会把所有 `workspace:` 区间改写成包当前版本，而这些版本并未发布到
- * 任何 registry。测试 profile 只从 tarball 安装，因此本脚本把打包后清单里的
- * 每个 `@veren/*` 依赖改写为同目录下的兄弟 tarball。提交的清单保持 registry 干净。
+ * 把仓库自研插件打成 tarball。
+ *
+ * 默认（registry 模式）就是原生 `pnpm pack`：pnpm 把 `workspace:` 区间改写为包
+ * 当前版本，而该版本由 `market/release.mjs` 发布到 https://npm.veren.top/，
+ * 打包产物因此只靠 registry 即可安装。脚本断言打包后清单对第一方包的依赖既
+ * 不是 `file:` 也不是残留的 `workspace:`，防止"registry 干净"这一性质悄悄退化。
+ *
+ * `--offline` 保留无网冒烟路径：把打包后清单里的第一方依赖改写为同目录的兄弟
+ * tarball。offline 产物只供本机冒烟测试，不得分发。
  *
  * Usage / 用法:
- *   node scripts/pack-local-plugins.mjs [--out <dir>]
+ *   node scripts/pack-local-plugins.mjs [--out <dir>] [--offline]
  *
  * @module @veren/scripts/pack-local-plugins
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -82,6 +101,11 @@ function outputDirectory() {
   const index = process.argv.indexOf('--out')
   const configured = index === -1 ? undefined : process.argv[index + 1]
   return resolve(configured ?? join(root, '.tmp-plugin-packs'))
+}
+
+/** Whether `--offline` was requested / 是否要求 offline（file: 兄弟改写）模式 */
+function offlineRequested() {
+  return process.argv.includes('--offline')
 }
 
 /**
@@ -152,8 +176,66 @@ function tarballName(name, version) {
 }
 
 /**
- * Rewrite one packed manifest's `@veren/*` dependencies to sibling tarballs.
- * 把单个打包后清单的 `@veren/*` 依赖改写为兄弟 tarball。
+ * 清掉输出目录里的旧 tarball：新产物一旦换版本号，旧文件若不删就会与新版并存，
+ * "两套口径"正是从这种目录里长出来的。
+ *
+ * Delete stale tarballs from the output directory: once versions change, keeping
+ * the old files means two generations of artifacts sitting side by side — the
+ * exact mixed-state this script exists to prevent.
+ *
+ * @param {string} outDir - output directory / 输出目录
+ */
+function clearPackedTarballs(outDir) {
+  const stale = readdirSync(outDir).filter(file => file.endsWith('.tgz'))
+  for (const file of stale) unlinkSync(join(outDir, file))
+  if (stale.length > 0) process.stdout.write(`cleared ${stale.length} stale tarball(s) from ${outDir}\n`)
+}
+
+/**
+ * 只解出 tarball 里的 package/package.json 供清单级断言使用 / extract only package/package.json for manifest-level assertions.
+ *
+ * @param {string} tarball - packed tarball / 打包产物
+ * @returns {object} the packed manifest / 打包后的清单
+ */
+function packedManifest(tarball) {
+  const work = mkdtempSync(join(tmpdir(), 'veren-pack-read-'))
+  try {
+    // bsdtar 的 -C 必须写在成员模式之前 / bsdtar requires -C before the member patterns.
+    execFileSync('tar', ['-xzf', tarball, '-C', work, 'package/package.json'], { stdio: 'pipe' })
+    return JSON.parse(readFileSync(join(work, 'package', 'package.json'), 'utf8'))
+  } finally {
+    rmSync(work, { recursive: true, force: true })
+  }
+}
+
+/**
+ * registry 模式断言：打包后清单里第一方依赖必须是 registry 可解析的区间，
+ * `file:`/`workspace:`/`link:` 一律报错——这是防止再次退化成 file: 的那道闸。
+ *
+ * Registry-mode assertion: a packed manifest's first-party dependencies must be
+ * registry-resolvable ranges; `file:`/`workspace:`/`link:` all fail — this is
+ * the gate that keeps the old file: regression from coming back.
+ *
+ * @param {string} tarball - packed tarball / 打包产物
+ * @param {Set<string>} firstParty - first-party package names / 第一方包名集合
+ */
+function assertRegistryDependencies(tarball, firstParty) {
+  const manifest = packedManifest(tarball)
+  const problems = []
+  for (const section of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
+    for (const [name, spec] of Object.entries(manifest[section] ?? {})) {
+      if (!firstParty.has(name)) continue
+      if (/^(file|workspace|link):/.test(spec)) {
+        problems.push(`${manifest.name}: ${section} ${name} is "${spec}" — publish members via market/release.mjs, never ship file: links`)
+      }
+    }
+  }
+  if (problems.length > 0) throw new Error(`\n${problems.join('\n')}`)
+}
+
+/**
+ * offline 模式：把打包后清单的第一方依赖改写为兄弟 tarball / rewrite the packed
+ * manifest's first-party dependencies to sibling tarballs (offline mode only).
  *
  * @param {string} tarball - packed tarball to rewrite / 待改写的 tarball
  * @param {string} outDir - directory holding every tarball / 存放全部 tarball 的目录
@@ -169,18 +251,15 @@ function rewriteDependencies(tarball, outDir, siblings) {
     let changed = false
     for (const section of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
       for (const [name] of Object.entries(manifest[section] ?? {})) {
-        if (!name.startsWith('@veren/')) continue
+        if (!siblings.has(name)) continue
         const sibling = siblings.get(name)
-        if (sibling === undefined) {
-          throw new Error(`${manifest.name}: ${name} is not part of this pack set`)
-        }
         manifest[section][name] = `file:${join(outDir, sibling).replaceAll('\\', '/')}`
         changed = true
       }
     }
     if (changed) {
-      manifest.comment_dependencies = 'Rewritten by scripts/pack-local-plugins.mjs for local tarball installation; '
-        + 'the committed manifest declares workspace ranges.'
+      manifest.comment_dependencies = 'Rewritten by scripts/pack-local-plugins.mjs --offline for local smoke tests; '
+        + 'the committed manifest declares registry ranges.'
       writeFileSync(manifestFile, `${JSON.stringify(manifest, undefined, 2)}\n`)
       rmSync(tarball, { force: true })
       execFileSync('tar', ['-czf', tarball, '-C', work, 'package'], { stdio: 'inherit' })
@@ -193,6 +272,11 @@ function rewriteDependencies(tarball, outDir, siblings) {
 
 const outDir = outputDirectory()
 mkdirSync(outDir, { recursive: true })
+clearPackedTarballs(outDir)
+
+const offline = offlineRequested()
+const firstParty = new Set(PACKAGES.map(([, name]) => name))
+process.stdout.write(`packing in ${offline ? 'offline (file: siblings for local smoke tests)' : 'registry (pnpm native)'} mode\n`)
 
 /** Package name -> its tarball file name, read from the source manifests. */
 const siblings = new Map()
@@ -210,8 +294,9 @@ for (const [directory, name] of PACKAGES) {
   execFileSync('pnpm', ['pack', '--pack-destination', outDir], { cwd, stdio: 'inherit', shell: true })
   if (!existsSync(tarball)) throw new Error(`${name}: pnpm pack produced no ${tarball}`)
   assertPackedEntries(tarball, name)
-  const changed = rewriteDependencies(tarball, outDir, siblings)
-  process.stdout.write(`packed ${name}@${manifest.version}${changed ? ' (local deps rewritten)' : ''}\n`)
+  if (offline) rewriteDependencies(tarball, outDir, siblings)
+  else assertRegistryDependencies(tarball, firstParty)
+  process.stdout.write(`packed ${name}@${manifest.version}${offline ? ' (offline siblings)' : ' (registry deps)'}\n`)
 }
 
 process.stdout.write(`\n${PACKAGES.length} plugin tarballs in ${outDir}\n`)

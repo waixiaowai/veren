@@ -1,7 +1,7 @@
 {
   "name": "@veren/person-agent-reanchor",
   "displayName": "管家-重锚",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "icon": "./icon.svg",
   "description": "Use when a delegating Person Agent session can drift into doing the work itself during long conversations: it watches the session log for a run of consecutive analysis-only steps with no dispatch and appends one short, numeric notice about that fact before the next model request; append-only, configurable, and off when disabled. Skip it when a session is supposed to do hands-on work.",
   "type": "module",
