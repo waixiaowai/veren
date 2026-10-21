@@ -1,17 +1,22 @@
 /**
- * 数据面：概览快照的构建与缓存。三个服务面都是所属插件声明的硬 inject（G13），
- * 以参数显式传入——这里不做任何运行期探测，也没有"服务缺席"分支。
+ * 数据面服务：概览快照的构建与缓存，挂载为 `ctx.personAgentOverview`。
+ * 读取的三个服务面（apps / workspaceRegistry / taskCenter）经 `static inject`
+ * 声明为自身依赖（G13）——`this.ctx` 上直接用 declaration merging 暴露的服务面，
+ * 不做任何运行期探测，也没有"服务缺席"分支。
  * - `ctx.apps.catalog()` / `ctx.workspaceRegistry.list()` 是同步内存读；
  * - `ctx.taskCenter.list()` 是异步读：页面 tree 是同步纯函数，所以任务区走
  *   「刷新 + 缓存」——读取失败显式标注不可用，绝不假装有数据。
- * The data plane: overview snapshot building and caching. All three service
- * faces are hard injects of the owning plugin (G13) and arrive as explicit
- * parameters — no runtime probing, no "service absent" branch.
+ * The overview data-plane service: snapshot building and caching, mounted as
+ * `ctx.personAgentOverview`. The three service faces it reads (apps /
+ * workspaceRegistry / taskCenter) are declared as its own dependencies via
+ * `static inject` (G13) — the declaration-merged service faces on `this.ctx`
+ * are used directly; no runtime probing, no "service absent" branch.
  * - `apps.catalog()` / `workspaces.list()` are sync in-memory reads;
  * - `tasks.list()` is async, and the page tree is a sync pure function, so the
  *   tasks section is refresh-and-cache — a failed read is reported, never faked.
  * @module @veren/person-agent-app
  */
+import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 // 类型-only import：拉取 apps / taskCenter / workspaceRegistry 的 Context 声明合并。
 // Type-only imports: pull the apps / taskCenter / workspaceRegistry merging.
@@ -19,7 +24,10 @@ import type {} from '@veren/app-registry'
 import type {} from '@veren/task-center'
 import type {} from '@deepseek-ai/dsh-workspace'
 
-/** 概览页依赖的三个服务面：全部来自声明的 inject，纯参数传递（G13）/ the three injected service faces */
+/** 服务名（ctx.personAgentOverview / inject 'personAgentOverview'）/ service name */
+export const PERSON_AGENT_OVERVIEW_NAME = 'personAgentOverview'
+
+/** 概览页依赖的三个服务面：纯函数数据入口的显式参数面（G13 规则 2）/ the explicit faces parameter of the pure builders */
 export interface OverviewFaces {
   readonly apps: Context['apps']
   readonly workspaces: Context['workspaceRegistry']
@@ -61,7 +69,7 @@ export interface OverviewSnapshot {
   readonly tasks: TasksSection
 }
 
-/** 应用目录分区（apps 是硬 inject，读取本身不会缺席）/ the catalog section */
+/** 应用目录分区（apps 是声明的依赖，读取本身不会缺席）/ the catalog section */
 function catalogSection(apps: Context['apps']): Section<AppCatalogRow> {
   const rows = apps.catalog().map((record) => ({
     id: record.definition.id,
@@ -72,7 +80,7 @@ function catalogSection(apps: Context['apps']): Section<AppCatalogRow> {
   return { available: true, rows }
 }
 
-/** 工作区分区（注册表是硬 inject，读取本身不会缺席）/ the workspace section */
+/** 工作区分区（注册表是声明的依赖，读取本身不会缺席）/ the workspace section */
 function workspaceSection(workspaces: Context['workspaceRegistry']): Section<WorkspaceRow> {
   const rows = workspaces.list().map((workspace) => ({
     id: workspace.id,
@@ -120,16 +128,23 @@ function emptySnapshot(): OverviewSnapshot {
 }
 
 /**
- * 概览数据源：页面 tree 同步读缓存，onLoad 触发异步刷新。三个服务面由装配处
- * 以参数显式传入，本类不接触 ctx。
- * The overview source: the page tree reads the cache synchronously; onLoad
- * triggers an async refresh. The three service faces are passed in explicitly
- * by the assembly; this class never touches ctx.
+ * 概览数据源服务：页面 tree 同步读最新缓存，onLoad 触发异步刷新。
+ * 快照状态是本服务唯一的自有状态；三个服务面在读取时经 `this.ctx` 解析
+ * （static inject 已声明），服务自身不持有它们的引用。
+ * The overview source service: the page tree reads the latest cache
+ * synchronously; onLoad triggers an async refresh. The snapshot is the only
+ * state owned here; the three service faces are resolved through `this.ctx`
+ * at read time (declared by static inject) — no references are held.
  */
-export class OverviewSource {
+export class PersonAgentOverviewService extends Service {
+  /** 本服务读取的三个兄弟服务面 / the three sibling service faces read here */
+  static inject = ['apps', 'workspaceRegistry', 'taskCenter']
+
   private snapshot: OverviewSnapshot = emptySnapshot()
 
-  constructor(private readonly faces: OverviewFaces) {}
+  constructor(ctx: Context) {
+    super(ctx, PERSON_AGENT_OVERVIEW_NAME)
+  }
 
   /** 最新已知快照（引用稳定，可能尚未刷新）/ the latest known snapshot (stable, maybe stale) */
   current(): OverviewSnapshot {
@@ -138,6 +153,17 @@ export class OverviewSource {
 
   /** 重新读取全部服务面并换掉快照引用 / re-read every service face and swap the snapshot */
   async refresh(): Promise<void> {
-    this.snapshot = await buildOverviewSnapshot(this.faces)
+    this.snapshot = await buildOverviewSnapshot({
+      apps: this.ctx.apps,
+      workspaces: this.ctx.workspaceRegistry,
+      tasks: this.ctx.taskCenter,
+    })
+  }
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** 概览数据源：页面 load/tree 的数据面（@veren/person-agent-app 提供）。 */
+    personAgentOverview: PersonAgentOverviewService
   }
 }

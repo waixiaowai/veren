@@ -17,8 +17,14 @@
 ## 依赖与失败语义（G13）
 
 四个服务依赖全部是**声明的硬 inject**：`apps`、`pageRegistry`、`workspaceRegistry`、
-`taskCenter`。概览页的三个数据面以参数显式传入视图层，不做任何运行期探测
-（`ctx.get('…')` 的探测通道在真实宿主上根本不存在——属性守卫按属主归因，访问本身就抛）。
+`taskCenter`，不做任何运行期探测（`ctx.get('…')` 的探测通道在真实宿主上根本
+不存在——属性守卫按属主归因，访问本身就抛）。
+
+概览数据面挂载为 **`ctx.personAgentOverview` 服务**（`views.ts` 的
+`PersonAgentOverviewService`）：它经自身 `static inject` 声明读取
+`apps` / `workspaceRegistry` / `taskCenter` 三个服务面，页面 `load`/`tree`
+读它的快照缓存。其他插件把 `personAgentOverview` 加进自己的 `inject`
+即可拿到同一实例。
 
 - 目录与工作区是同步内存读，读取本身不会失败；
 - 任务中心是异步读：读取失败（存储后端故障等）时 tasks 区显式 `available=false`

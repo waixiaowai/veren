@@ -20,7 +20,7 @@ import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
 import { APP_DEFINITION, APP_ID, collectAppTools } from './app.ts'
 import { createOverviewPage, createWorkspacesPage } from './pages.tsx'
-import { OverviewSource } from './views.ts'
+import { PersonAgentOverviewService } from './views.ts'
 
 export const name = 'personAgentApp'
 
@@ -34,23 +34,25 @@ export const Config: z<Config> = z.object({
 })
 
 // 四个服务依赖全部显式声明（G13）：本插件就是应用；workspaceRegistry /
-// taskCenter 是概览页的数据面，硬 inject、参数显式传入——不做运行期探测。
+// taskCenter 同时也是概览服务（views.ts）经 static inject 声明的自身依赖——
+// 在此声明保证服务构造时它们必然在场，不做运行期探测。
 // All four service dependencies are declared explicitly (G13): this plugin IS
-// an app; workspaceRegistry / taskCenter feed the overview pages as hard
-// injects passed as parameters — no runtime probing.
+// an app; workspaceRegistry / taskCenter are also declared by the overview
+// service (views.ts) as its own static injects — declaring them here
+// guarantees they are present when the service is constructed, no probing.
 export const inject = ['apps', 'pageRegistry', 'workspaceRegistry', 'taskCenter']
 export const provide = []
 
 export const apply = (ctx: Context, config: Config): void => {
   const apps = ctx.apps
-  // 三个概览数据面以参数显式传入（G13 规则 2）：source 不接触 ctx。
-  // The three overview data faces are passed as explicit parameters (G13 rule
-  // 2): the source never touches ctx.
-  const source = new OverviewSource({
-    apps: ctx.apps,
-    workspaces: ctx.workspaceRegistry,
-    tasks: ctx.taskCenter,
-  })
+  // 概览数据面挂载为 ctx.personAgentOverview 服务：它经 static inject 声明读取
+  // apps / workspaceRegistry / taskCenter 三个服务面（G13），而这三者正是本插件
+  // 已声明的 inject，构造时必然在场；注册随本 fiber 卸载自动摘除，不泄漏。
+  // The overview data plane mounts as the ctx.personAgentOverview service: it
+  // declares the apps / workspaceRegistry / taskCenter faces via its own static
+  // inject (G13) — the very faces this plugin already declares, so they are
+  // guaranteed present at construction; registration is removed with this fiber.
+  const overview = new PersonAgentOverviewService(ctx)
 
   // 单一 effect 收线（G13 规则 3）：定义 → 工具 → 页面，体内任何一步失败都把
   // 已完成的步骤逆序回滚——绝不留下"应用在、工具缺页"的半接线状态。
@@ -72,7 +74,7 @@ export const apply = (ctx: Context, config: Config): void => {
       // 3) 页面注册：单入口，内部自动镜像进 page-registry（可被 openUrl 解析）。
       //    Page registration: single entry, mirrored automatically.
       const pages = apps.pages(APP_ID, ctx)
-      for (const page of [createOverviewPage(source), createWorkspacesPage(source)]) {
+      for (const page of [createOverviewPage(overview), createWorkspacesPage(overview)]) {
         // 接缝断言：注册面是 PageDefinition<never>（registry 的不变式视角），
         // 与 task-workbench 样板同型——仅此一处收窄，不改页面字段。
         // Seam: the registrar takes PageDefinition<never> (the registry's

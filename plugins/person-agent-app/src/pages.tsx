@@ -24,16 +24,16 @@
  *   leftover shape): a dashboard app's second screen, nothing beyond the
  *   definePage basics.
  *
- * tree 是同步纯函数，读 OverviewSource 的最新缓存；load 刷新后取首屏快照进
- * PAGE 块——数据拿不到就显示「不可用」，不假装。
- * The tree is a sync pure function over the OverviewSource's latest cache; load
- * refreshes and hands the first-screen snapshot to the PAGE block —
- * unavailable data says so, never faked.
+ * tree 是同步纯函数，读概览服务（ctx.personAgentOverview）的最新缓存；load 刷新
+ * 后取首屏快照进 PAGE 块——数据拿不到就显示「不可用」，不假装。
+ * The tree is a sync pure function over the overview service's
+ * (ctx.personAgentOverview) latest cache; load refreshes and hands the
+ * first-screen snapshot to the PAGE block — unavailable data says so, never faked.
  * @module @veren/person-agent-app
  */
 import { Data, Keyed, Static, defineAppPage } from '@veren/prompt-page'
 import type { PageJsonValue, PageDefinition } from '@veren/prompt-page'
-import type { OverviewSnapshot, OverviewSource } from './views.ts'
+import type { OverviewSnapshot, PersonAgentOverviewService } from './views.ts'
 
 /** 应用内 URL 前缀 / the app-scoped url prefix */
 const URL_PREFIX = '/apps/person-agent'
@@ -68,7 +68,7 @@ export function overviewFirstScreen(snapshot: OverviewSnapshot): OverviewFirstSc
  * mounted read-only tool workspace_session_list; the apps/tasks sections
  * promise no drilldown.
  */
-export function createOverviewPage(source: OverviewSource): PageDefinition<OverviewSnapshot> {
+export function createOverviewPage(overview: PersonAgentOverviewService): PageDefinition<OverviewSnapshot> {
   return defineAppPage<OverviewSnapshot>({
     name: 'overview',
     url: `${URL_PREFIX}/overview`,
@@ -88,13 +88,13 @@ export function createOverviewPage(source: OverviewSource): PageDefinition<Overv
     // / §3.10.1: the home page = basic information (load refreshes the real
     // service faces) + the capability map (no detail pages → the map is optional)
     load: async () => {
-      await source.refresh()
-      return overviewFirstScreen(source.current()) satisfies PageJsonValue
+      await overview.refresh()
+      return overviewFirstScreen(overview.current()) satisfies PageJsonValue
     },
     map: [
       { url: `${URL_PREFIX}/workspaces`, use: '要看各工作区的会话账目明细时打开' },
     ],
-    onLoad: () => { void source.refresh() },
+    onLoad: () => { void overview.refresh() },
     tree: (_params, snapshot) => {
       const tasks = snapshot.tasks
       return (
@@ -121,7 +121,7 @@ export function createOverviewPage(source: OverviewSource): PageDefinition<Overv
  * One row per workspace (id/title/session ledger count), read-only; per-session
  * detail goes through the collected workspace_session_list tool on demand.
  */
-export function createWorkspacesPage(source: OverviewSource): PageDefinition<OverviewSnapshot> {
+export function createWorkspacesPage(overview: PersonAgentOverviewService): PageDefinition<OverviewSnapshot> {
   return defineAppPage<OverviewSnapshot>({
     name: 'workspaces',
     url: `${URL_PREFIX}/workspaces`,
@@ -132,11 +132,11 @@ export function createWorkspacesPage(source: OverviewSource): PageDefinition<Ove
       + 'workspace_session_list 传 workspaceId 查询；该数据源不可用时如实说明。',
     instanceTitle: () => '工作区浏览',
     load: async () => {
-      await source.refresh()
-      const workspaces = source.current().workspaces
+      await overview.refresh()
+      const workspaces = overview.current().workspaces
       return { available: workspaces.available, rows: workspaces.rows.map((row) => ({ ...row })) } satisfies PageJsonValue
     },
-    onLoad: () => { void source.refresh() },
+    onLoad: () => { void overview.refresh() },
     tree: (_params, snapshot) => (
       <>
         <Static content="Person Agent · 工作区浏览" />

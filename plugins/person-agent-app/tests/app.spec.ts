@@ -142,13 +142,17 @@ describe('应用可被发现与解析', () => {
 })
 
 describe('生命周期', () => {
-  it('插件 fiber 销毁 → 整应用从 catalog 与 URL 索引同时摘除', async () => {
-    const { apps, pageRegistry, fiber } = await install()
+  it('插件 fiber 销毁 → 整应用从 catalog 与 URL 索引同时摘除，概览服务同步卸载', async () => {
+    const { ctx, apps, pageRegistry, fiber } = await install()
+    expect(ctx.get('personAgentOverview', false)).toBeDefined()
     await fiber.dispose()
     expect(apps.catalog()).toHaveLength(0)
     expect(pageRegistry.resolve('/apps/person-agent/overview')).toBeNull()
     expect(pageRegistry.resolve('/apps/person-agent/workspaces')).toBeNull()
     expect(() => apps.listTools(APP_ID)).toThrow()
+    // 概览服务随 fiber 卸载从共享 store 摘除（注册动作不泄漏）。
+    // The overview service is removed from the shared store with the fiber (no leak).
+    expect(ctx.get('personAgentOverview', false)).toBeUndefined()
   })
 })
 
@@ -255,15 +259,12 @@ describe('真实数据与读取失败降级', () => {
     expect(none.workspaces.rows).toEqual([])
   })
 
-  it('OverviewSource：current 在刷新前显式不可用，refresh 后换成真实快照', async () => {
+  it('概览服务挂载在 ctx：current 未刷新时显式不可用，refresh 后换成真实快照', async () => {
     const { ctx, fiber } = await install({ openTitles: ['唯一任务'] })
     disposers.push(() => fiber.dispose())
-    const { OverviewSource } = await import('../src/views.ts')
-    const source = new OverviewSource({
-      apps: ctx.apps,
-      workspaces: ctx.workspaceRegistry,
-      tasks: ctx.taskCenter,
-    })
+    // 走真实挂载路径：服务由插件 apply 构造并注册，ctx 上直接可读。
+    // The real mount path: the service is constructed by the plugin apply and readable on ctx.
+    const source = ctx.personAgentOverview
     expect(source.current().tasks.detail).toContain('not refreshed')
     await source.refresh()
     expect(source.current().tasks.openCount).toBe(1)

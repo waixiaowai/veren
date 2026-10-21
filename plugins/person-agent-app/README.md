@@ -17,11 +17,16 @@ Excluded on purpose, with reasons: `session_dispatch` (dispatch semantics belong
 ## Dependencies and failure semantics (G13)
 
 All four service dependencies are **declared hard injects**: `apps`,
-`pageRegistry`, `workspaceRegistry`, `taskCenter`. The overview's three data
-faces are passed into the view layer as explicit parameters; there is no
-runtime probing at all (`ctx.get('…')` probing does not exist on a live host —
-the property guard attributes accesses to the accessed context's owner, so the
-access itself throws).
+`pageRegistry`, `workspaceRegistry`, `taskCenter`; there is no runtime probing
+at all (`ctx.get('…')` probing does not exist on a live host — the property
+guard attributes accesses to the accessed context's owner, so the access
+itself throws).
+
+The overview data plane mounts as the **`ctx.personAgentOverview` service**
+(`PersonAgentOverviewService` in `views.ts`): it declares the three faces it
+reads (`apps` / `workspaceRegistry` / `taskCenter`) via its own `static
+inject`, and the pages' `load`/`tree` read its snapshot cache. Other plugins
+get the same instance by adding `personAgentOverview` to their `inject`.
 
 - The catalog and workspaces are synchronous in-memory reads that cannot fail;
 - the task center is an async read: when a read fails (a storage backend down,
