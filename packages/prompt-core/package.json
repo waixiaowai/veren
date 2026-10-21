@@ -1,17 +1,33 @@
 {
   "name": "@veren/prompt-core",
   "description": "React-style reconciler kernel for LLM prompt streams: elements, function components, memo bailout, fiber diffing, two-phase schedule with lanes; use to build declarative page components whose diffs become append-only context effects, never for I/O or message formats.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./jsx-runtime": "./src/jsx-runtime.ts",
-    "./jsx-dev-runtime": "./src/jsx-runtime.ts",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./jsx-runtime": {
+      "types": "./dist/jsx-runtime.d.ts",
+      "default": "./dist/jsx-runtime.js"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./dist/jsx-runtime.d.ts",
+      "default": "./dist/jsx-runtime.js"
+    },
     "./package.json": "./package.json"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "README.cn.md"
+  ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

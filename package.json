@@ -7,10 +7,12 @@
     "build": "pnpm -r build",
     "test": "pnpm -r --workspace-concurrency=1 test",
     "cli": "node scripts/commander.mjs",
-    "check": "pnpm check:plugins && pnpm check:platform-modules && pnpm check:bundles",
+    "check": "pnpm check:plugins && pnpm check:entries && pnpm check:platform-modules && pnpm check:bundles && pnpm check:src-artifacts",
     "check:bundles": "node scripts/check-bundle-patch-rows.mjs",
+    "check:entries": "node scripts/check-entry-points.mjs",
     "check:platform-modules": "node scripts/check-platform-modules.mjs",
     "check:plugins": "node scripts/check-plugin-manifests.mjs",
+    "check:src-artifacts": "node scripts/check-src-artifacts.mjs",
     "market:build": "node market/build.mjs",
     "market:deploy": "node market/deploy.mjs"
   },
@@ -22,6 +24,7 @@
   "pnpm": {
     "overrides": {
       "@deepseek-ai/cordis": "^4.0.5",
+      "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0",
       "zod": "4.4.3"
     }
   }

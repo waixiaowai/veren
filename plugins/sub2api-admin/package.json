@@ -1,19 +1,23 @@
 {
   "name": "@veren/sub2api-admin",
   "displayName": "Sub2API 杩愯惀",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "icon": "./icon.svg",
   "description": "Use when a DSH profile should carry the Sub2API operations app: registers the 'Sub2API 杩愯惀' application (dashboard/accounts/usage pages backed by a live-data store) and six model-facing admin tools sharing one API client and one credential config; omit it when agent sessions and the GUI need no Sub2API operations.",
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
     "./package.json": "./package.json",
     "./icon": "./icon.svg",
     "./locale/*.json": "./locale/*.json"
   },
   "files": [
-    "src",
+    "dist",
     "README.md",
     "README.cn.md",
     "icon.svg",
@@ -24,6 +28,8 @@
   },
   "dsh": {},
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --no-fsModuleCache"
   },

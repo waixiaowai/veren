@@ -84,6 +84,71 @@ function outputDirectory() {
   return resolve(configured ?? join(root, '.tmp-plugin-packs'))
 }
 
+/**
+ * 入口仍指向 src、由进行中的其他会话收尾的包；它们的 tarball 依然带 src 入口，
+ * 打包时只警告不放行新包。清单与 scripts/check-entry-points.mjs 保持一致。
+ *
+ * Packages whose entry still points at src, to be finished by their owning
+ * sessions; their tarballs still carry a src entry, so packing warns instead of
+ * failing. Keep this list in sync with scripts/check-entry-points.mjs.
+ *
+ * @type {Set<string>}
+ */
+const PENDING_SRC_ENTRY = new Set([
+  '@veren/page-registry',
+  '@veren/task-center',
+  '@veren/task-workbench',
+  '@veren/person-agent-app',
+])
+
+/**
+ * 收集打包后清单声明的运行时入口 / collect the runtime entries of a packed manifest.
+ *
+ * @param {object} manifest - the packed manifest / 打包后的清单
+ * @returns {string[]} entry paths relative to the package root / 相对包根的入口路径
+ */
+function packedEntries(manifest) {
+  const entries = []
+  if (typeof manifest.main === 'string') entries.push(manifest.main)
+  const dot = manifest.exports?.['.']
+  if (typeof dot === 'string') entries.push(dot)
+  else if (typeof dot?.default === 'string') entries.push(dot.default)
+  return entries
+}
+
+/**
+ * 验证 tarball 里真实带着入口文件：`files` 写漏 dist 时 pnpm pack 会静默产出
+ * 一个装上即崩的空壳包，这里在打包当场报错。
+ *
+ * Verify the tarball really contains its entry files: a wrong `files` glob makes
+ * `pnpm pack` silently produce a shell that crashes on activation, so fail right
+ * here at pack time.
+ *
+ * @param {string} tarball - packed tarball / 打包产物
+ * @param {string} name - package name / 包名
+ */
+function assertPackedEntries(tarball, name) {
+  const work = mkdtempSync(join(tmpdir(), 'veren-pack-verify-'))
+  try {
+    execFileSync('tar', ['-xzf', tarball, '-C', work], { stdio: 'inherit' })
+    const manifest = JSON.parse(readFileSync(join(work, 'package', 'package.json'), 'utf8'))
+    const entries = packedEntries(manifest)
+    if (entries.length === 0) return
+    if (PENDING_SRC_ENTRY.has(manifest.name)) {
+      process.stdout.write(`warning: ${manifest.name} still packs a src entry (owned by in-flight work); it will not load from node_modules\n`)
+      return
+    }
+    for (const entry of entries) {
+      const file = join(work, 'package', entry.replaceAll('./', ''))
+      if (!existsSync(file)) {
+        throw new Error(`${name}: packed tarball has no entry file "${entry}" — fix "files" or run the package build`)
+      }
+    }
+  } finally {
+    rmSync(work, { recursive: true, force: true })
+  }
+}
+
 /** Turn a package name and version into pnpm's tarball file name / 生成 pnpm 的 tarball 文件名 */
 function tarballName(name, version) {
   return `${name.replace('@', '').replace('/', '-')}-${version}.tgz`
@@ -147,6 +212,7 @@ for (const [directory, name] of PACKAGES) {
   rmSync(tarball, { force: true })
   execFileSync('pnpm', ['pack', '--pack-destination', outDir], { cwd, stdio: 'inherit', shell: true })
   if (!existsSync(tarball)) throw new Error(`${name}: pnpm pack produced no ${tarball}`)
+  assertPackedEntries(tarball, name)
   const changed = rewriteDependencies(tarball, outDir, siblings)
   process.stdout.write(`packed ${name}@${manifest.version}${changed ? ' (local deps rewritten)' : ''}\n`)
 }
