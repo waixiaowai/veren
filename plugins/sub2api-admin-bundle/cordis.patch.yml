@@ -1,0 +1,17 @@
+# Sub2API Admin bundle: composes the operations toolkit in one profile layer.
+# Sub2API 运营组合包：用一个 profile 层装好整套运营工具。
+#
+# This bundle is the ONLY profile layer of the stack: the member plugin declares
+# no `dsh.bundle.patch` of its own, so installing the bundle can never
+# double-insert the row. The row's config stays empty — credentials resolve from
+# the `SUB2API_*` environment or the plugin config form, never from this file.
+# 本组合包是该技术栈唯一的 profile 层：成员插件不带 `dsh.bundle.patch`，安装组合包
+# 绝不会重复插行。行配置保持为空——凭据来自 `SUB2API_*` 环境变量或插件配置表单，
+# 不写进本文件。
+- insert:
+    # Model-facing Sub2API admin tools: accounts, usage, users, redeem codes,
+    # health overview, and a raw admin passthrough.
+    # 面向模型的 Sub2API 管理工具：账号、用量、用户、兑换码、健康概览与原始直通。
+    - id: sub2api-admin
+      name: '@veren/sub2api-admin'
+      config: {}

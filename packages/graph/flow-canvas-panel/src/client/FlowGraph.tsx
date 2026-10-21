@@ -109,6 +109,3 @@ export function FlowGraph({ flow, run, selectedNodeId, renderNode, onClearSelect
         </div>
     )
 }
-
-/** Kept for the panel's prop typing. */
-export type { FlowGraphProps as FlowGraphComponentProps }

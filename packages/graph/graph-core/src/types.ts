@@ -134,18 +134,6 @@ export type GraphFailureStrategy = (info: {
     records: Record<string, GraphNodeRecord>;
 }) => 'failFast' | 'continue';
 
-/** run 调度选项 / scheduling options for one run */
-export interface GraphRunOptions {
-    /** 承载 run 子 context 的父上下文 / the parent context for the run child context */
-    ctx: Context;
-    /** 未指定则生成 / generated when omitted */
-    runId?: string;
-    /** 就绪集并发上限，缺省取服务配置 / ready-set concurrency cap; defaults to the service config */
-    concurrency?: number;
-    /** 失败传播策略，缺省 fail-fast / failure strategy; fail-fast by default */
-    onNodeFailure?: GraphFailureStrategy;
-}
-
 /** 事件共用载荷：只含中性字段 / shared event payload: neutral fields only */
 export interface GraphRunEventMeta {
     graphId: string;

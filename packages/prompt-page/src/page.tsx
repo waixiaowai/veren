@@ -154,6 +154,3 @@ export function buildPagePreset<S>(
     plugins,
   }
 }
-
-/** 事件处理器 IO 的默认空实现（测试/占位）/ no-op PageIO for tests */
-export const noopPageIO: PageIO = { append: () => undefined, navigate: () => undefined }

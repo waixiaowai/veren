@@ -13,17 +13,6 @@ export const NS = '@veren/cms-bridge';
  * The dictionary key union: locale.register wants the exact key type, not Record<string, string>. */
 export type BridgeKey = keyof typeof zh;
 
-/** 插值替换 / placeholder interpolation */
-function format(template: string, params?: Record<string, string>): string {
-  if (!params) return template;
-  return template.replace(/\{(\w+)\}/g, (_, key: string) => params[key] ?? `{${key}}`);
-}
-
-/** 由字典生成 Translate / builds a Translate from a dict */
-export function translateFrom(dict: Record<string, string>): Translate {
-  return (key, params) => format(dict[key] ?? key, params);
-}
-
 /** 英文键集由中文键联合约束,两边少任何一个键都是编译错误。
  *  The Chinese dictionary defines the key union; the English one must match it exactly. */
 export const zh = {

@@ -1,0 +1,6 @@
+# Overlay for headless verification: mount the Sub2API admin toolkit row.
+# headless 验证 overlay：挂载 Sub2API 运营工具行。
+- insert:
+    - id: sub2api-admin
+      name: '@veren/sub2api-admin'
+      config: {}

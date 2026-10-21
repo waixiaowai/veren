@@ -48,11 +48,6 @@ export type ToolsFace = (appId: string) => ReadonlyMap<string, ToolDefinition>
  */
 export type MountedTool = ToolDefinition
 
-/** 任务中心面（B 的 TaskCenterContract.take）/ minimal task-center face */
-export interface TaskFace {
-  take(id: string, claim: { sessionId: string; actor: string; leaseUntil: string }): Promise<unknown>
-}
-
 /**
  * 任务通知投递面（B 的 pendingDeliveries/markDelivered 投影）：只留投递必需的
  * 两个方法与 { deliveryId, text }，避免页面运行时耦合完整 TaskRecord。

@@ -79,12 +79,6 @@ export const ESSENTIAL_CAPABILITIES = ['data', 'auth', 'access', 'navigation', '
 /** Capabilities that may be absent; absence hides their endpoints and UI. 可以缺失的能力；缺失时关闭其端点与 UI。 */
 export const OPTIONAL_CAPABILITIES = ['settings', 'docs'] as const
 
-/** One essential capability name. 单个必需能力名。 */
-export type EssentialCapability = (typeof ESSENTIAL_CAPABILITIES)[number]
-
-/** One optional capability name. 单个可选能力名。 */
-export type OptionalCapability = (typeof OPTIONAL_CAPABILITIES)[number]
-
 /** Health verdict shared by capabilities and backend components. 能力与后端组件共用的健康结论。 */
 export type HealthStatus = 'ok' | 'degraded' | 'down'
 

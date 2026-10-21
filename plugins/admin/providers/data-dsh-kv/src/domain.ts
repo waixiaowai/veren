@@ -55,8 +55,5 @@ export const adminDataDomain = defineDomain({
   tables: { [RECORDS_TABLE]: domainTable(adminDataRecord) },
 })
 
-/** Stored record value as the domain spec validates it. domain 声明所校验的存储记录值。 */
-export type AdminDataRecord = z.infer<typeof adminDataRecord>
-
 /** The opened handle type of {@link adminDataDomain}. {@link adminDataDomain} 打开后的句柄类型。 */
 export type AdminDataDomain = Domain<typeof adminDataDomain>

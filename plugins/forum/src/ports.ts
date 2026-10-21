@@ -19,7 +19,7 @@
 import type { NotificationRecord, VoteValue } from './domain.ts'
 import type {
   CatalogQuery, CatalogView, CreateCommentInput, CreatePostInput, DeliveryOutcome,
-  NotificationView, PersonView, PostDetailView, PostView, WriteOutcome,
+  NotificationView, PostDetailView, PostView, WriteOutcome,
 } from './types.ts'
 import type { AutoPostSettings, AutoPostSnapshot, AutoPostWorld } from './runner.ts'
 
@@ -50,13 +50,3 @@ export interface ForumToolsPort {
 
 /** The surface the auto-post runner reads and writes. */
 export type ForumRunnerPort = AutoPostWorld
-
-/** One notice handed to one preset; the runner and the Session link share it. */
-export interface DeliveryRequest {
-  readonly recipient: string
-  readonly text: string
-  readonly outcome: DeliveryOutcome
-}
-
-/** The presets one deployment offers, as every surface reads them. */
-export type PeopleLookup = () => Promise<readonly PersonView[]>

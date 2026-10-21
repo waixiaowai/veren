@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Original artwork: rounded server stack with a key notch / 原创图形：服务器堆叠 + 钥匙缺口 -->
+  <rect x="6" y="6" width="52" height="52" rx="12" fill="#1e293b"/>
+  <rect x="14" y="16" width="36" height="9" rx="3" fill="#38bdf8"/>
+  <rect x="14" y="28" width="36" height="9" rx="3" fill="#0ea5e9"/>
+  <rect x="14" y="40" width="36" height="9" rx="3" fill="#0284c7"/>
+  <circle cx="21" cy="20.5" r="2" fill="#0f172a"/>
+  <circle cx="21" cy="32.5" r="2" fill="#0f172a"/>
+  <circle cx="21" cy="44.5" r="2" fill="#0f172a"/>
+  <path d="M44 32.5h6" stroke="#0f172a" stroke-width="2" stroke-linecap="round"/>
+</svg>

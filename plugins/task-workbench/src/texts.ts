@@ -46,8 +46,3 @@ export const DEFAULT_LANG: Lang = 'zh'
  */
 export const tProgress = (label: string, lang: Lang = DEFAULT_LANG) => STRINGS.progress[lang](label)
 export const tExpandHint = (lang: Lang = DEFAULT_LANG) => STRINGS.expandHint[lang]
-export const tActive = (lang: Lang = DEFAULT_LANG) => STRINGS.active[lang]
-export const tExpand = (lang: Lang = DEFAULT_LANG) => STRINGS.expand[lang]
-export const tCollapse = (lang: Lang = DEFAULT_LANG) => STRINGS.collapse[lang]
-export const tCascadeCancelled = (count: number, lang: Lang = DEFAULT_LANG) => STRINGS.cascadeCancelled[lang](count)
-export const tSplitHint = (lang: Lang = DEFAULT_LANG) => STRINGS.splitHint[lang]

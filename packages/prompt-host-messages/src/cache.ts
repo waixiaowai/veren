@@ -19,7 +19,6 @@ export interface CachePolicy {
 }
 
 export const deepseekPolicy: CachePolicy = { name: 'deepseek', supportsExplicitBreakpoints: false, maxBreakpoints: 0 }
-export const openaiPolicy: CachePolicy = { name: 'openai', supportsExplicitBreakpoints: false, maxBreakpoints: 0 }
 export const anthropicPolicy: CachePolicy = { name: 'anthropic', supportsExplicitBreakpoints: true, maxBreakpoints: 4 }
 
 /**

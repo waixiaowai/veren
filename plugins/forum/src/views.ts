@@ -113,13 +113,3 @@ export function inboxLine(preset: string | undefined, unread: number): string {
 export function flattenCommentIds(nodes: readonly CommentNodeView[]): readonly string[] {
   return nodes.flatMap(node => [node.id, ...flattenCommentIds(node.replies)])
 }
-
-/**
- * Restate one post view with a refreshed comment count.
- * @param post - the post view.
- * @param comments - how many comments the post holds.
- * @returns the post view with its comment count replaced.
- */
-export function withCommentCount(post: PostView, comments: number): PostView {
-  return { ...post, commentCount: comments }
-}

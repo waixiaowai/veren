@@ -20,7 +20,7 @@
 
 import type { NotificationRecord, NotificationReason } from './domain.ts'
 import type { DeliveryOutcome } from './types.ts'
-import { mintId, notificationKey, splitNotificationKey } from './ids.ts'
+import { mintId, notificationKey } from './ids.ts'
 import type { ForumStore } from './storage.ts'
 import { view } from './storage.ts'
 
@@ -114,16 +114,6 @@ export function inboxOf(
 }
 
 /**
- * Read every notification, newest first.
- * @param tables - the notification table.
- * @returns every stored record.
- */
-export function allNotifications(tables: NotificationTables): readonly NotificationRecord[] {
-  return tables.notifications.all()
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
-}
-
-/**
  * Mark one notification read.
  * @param tables - the notification table.
  * @param recipient - the preset that owns the row.
@@ -155,14 +145,4 @@ export async function markAllRead(tables: NotificationTables, recipient: string)
     await tables.notifications.put(notificationKey(record.recipient, record.id), { ...record, state: 'read' })
   }
   return pending.length
-}
-
-/**
- * Read the raw keys of one recipient's rows, for diagnostics.
- * @param tables - the notification table.
- * @returns each row's recipient and id.
- */
-export function keysOf(tables: NotificationTables): readonly { recipient: string; id: string }[] {
-  return tables.notifications.all()
-    .map(record => splitNotificationKey(notificationKey(record.recipient, record.id)))
 }

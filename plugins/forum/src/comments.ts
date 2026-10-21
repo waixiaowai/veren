@@ -46,9 +46,6 @@ export function commentTablesOf(domain: ForumStore): CommentTables {
   }
 }
 
-/** Supply one subject's counters; the votes table lives in `./votes.ts`. */
-export type CounterLookup = (subjectKind: 'post' | 'comment', subjectId: string) => SubjectCounters
-
 /**
  * Validate one comment body.
  * @param body - the caller-supplied text.

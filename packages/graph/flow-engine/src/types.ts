@@ -231,6 +231,3 @@ declare module '@deepseek-ai/cordis' {
         'flow/run-end'(payload: FlowRunEndPayload): void;
     }
 }
-
-/** slot 引用的再导出（'${node.slot}' 字面量模板）/ re-export of the slot-ref template */
-export type SlotRefPattern = SlotRef;
