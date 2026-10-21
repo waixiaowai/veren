@@ -88,6 +88,13 @@ export const PageErrorCode = {
   AppDisabled: 'app/disabled',
   /** 任务已过期 / task expired before take */
   TaskExpired: 'task/expired',
+  /**
+   * 投递链深超硬上限（§3.9 级联闸门）：A 投 B、B 投 C…… 超过
+   * MAX_DELIVERY_HOPS 跳即拒绝，构造上阻断"页面自开页"式级联复发。
+   * Delivery chain exceeded the hard hop cap (§3.9 cascade gate): A→B→C…
+   * is refused past MAX_DELIVERY_HOPS — a structural brake, not caller discipline.
+   */
+  HopLimit: 'page/hop-limit',
 } as const
 
 export type PageErrorCode = (typeof PageErrorCode)[keyof typeof PageErrorCode]

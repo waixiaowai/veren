@@ -31,6 +31,14 @@ pnpm --filter @veren/page-registry test
 - `registerAppPage(appId, page)`: app-scoped registration (pairs with app-registry's `ctx.apps.pages(id)`); the `page.<name>` preset path stays deprecated. Pages register under their **pageKey** (`<appId>/<localName>`) — local names collide across apps, bare names would make the second app fail on duplicate-name.
 - `app_open` tool body built by `createAppOpenTool(port)`; the host assembly (`app-host`) registers it into `ctx.tools` inside its single all-or-nothing wiring effect (G13) — this module no longer opens its own effect.
 
+## URL-addressed delivery (`page_send`, §3.9)
+
+- `service.deliverUrl(url, { message, wake?, callerSessionId? })`: idempotent delivery — append to the url's live session, or create one first (the `openUrl` path, but **no GUI focus**: delivery is not navigation). Returns `{ sessionId, url, created, redirected }`.
+- Cascade gate: a hop ledger caps any delivery chain at `MAX_DELIVERY_HOPS` (4); past it the call fails with `page/hop-limit` — one structural gate, no caller discipline involved.
+- Deprecation race: after appending, the index is re-consulted; if the pointer moved (a human reopened the url), the message is re-delivered to the current live session (≤ `MAX_DELIVERY_ATTEMPTS` = 3) and `redirected: true` is reported.
+- Wake policy: default wakes the target (one model round); `wake: false` only lands in the session log for the next wake.
+- The `page_send` tool body is built by `createPageSendTool(port)` and registered by the host assembly; page agents hold it (it is not in the page-session deny list).
+
 ## Explicit wiring (G13)
 
 This service never probes sibling services at runtime (no `ctx.get(...)` on `apps` / `taskCenter` / `sessions` / `agents` — the real-machine property guard attributes accesses to the accessed context's owner, so probing cannot work). Its declared inject is `['storageDomain']` only. Every runtime capability arrives through `bindPorts(ports, index?)` as **pure parameters** (whole-set replacement, no partial merge):

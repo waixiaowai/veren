@@ -29,7 +29,8 @@ import type {} from '@veren/page-registry'
 import type {} from '@veren/task-center'
 import type { AppId } from '@veren/app-registry'
 import { createBootstrapTools } from '@veren/app-registry'
-import { createAppOpenTool } from '@veren/page-registry'
+import { createAppOpenTool, createPageSendTool } from '@veren/page-registry'
+import { pageToolWarning } from '@veren/prompt-page'
 import { createRealSessionPort } from './session-port.ts'
 
 /** 显式解析三个服务与工具注册表；缺任何一个 fail loud（misconfiguration fails loud）。
@@ -66,6 +67,7 @@ export function wireAppHost(ctx: Context): () => void {
   // the assembly's own unload removes them in reverse order.
   const bootstrap = createBootstrapTools(apps)
   const appOpen = createAppOpenTool(() => pageRegistry)
+  const pageSend = createPageSendTool(() => pageRegistry)
   // 装配持有的全部注册注销器（工具行 + 回填镜像行），逆序撤销
   // / every registration disposer the assembly holds (tool rows + backfilled
   // mirror rows), undone in reverse.
@@ -126,21 +128,31 @@ export function wireAppHost(ctx: Context): () => void {
       }
     }
 
-    // 3) 宿主工具注册：app_list / app_pages / app_open 挂进真实工具表。
-    //    没有这一步，模型侧永远看不到这三个工具（第三轮真机验证的失败点）——
-    //    注册行必须发生，注销器留在装配手里，失败/卸载时逆序摘除。
-    //    注册放在 bindPorts **之前**：bindPorts 没有解绑面（整体替换语义），
-    //    让它是最后一步，失败时已注册的工具行可被整体摘掉，端口侧天然留在
-    //    "从未绑定"状态——不留半接线。
-    // 3) Host tool registration: app_list / app_pages / app_open land in the
-    //    real tool table. Without this step the model never sees the three
-    //    tools (the round-3 live failure) — the registration must happen, its
-    //    disposers stay with the assembly, and removal is reverse on failure
-    //    or unload. It runs *before* bindPorts: bindPorts has no unbind face
-    //    (wholesale-replace semantics), so making it the last step means a
-    //    failure strips every registered tool row while the port side stays
-    //    naturally "never bound" — no half-wired state.
-    for (const tool of [bootstrap.appList, bootstrap.appPages, appOpen]) {
+    // 2c) 页面工具完备性警告（§3.9，开发期轻量核对，只提醒不做门禁）：页面声明
+    //     了 writes: true（本页职责需要写能力）却一个工具都没挂 → 打一条警告，
+    //     五秒钟看懂——"页面开着、活干不了"。
+    // 2c) Page tool-coverage warning (§3.9, dev-time lightweight self-check,
+    //     never a gate): a page declaring `writes: true` (its duty needs write
+    //     capability) yet mounting no tools logs one warning — readable in five
+    //     seconds: the page is open but cannot do its job.
+    for (const record of apps.catalog()) {
+      for (const page of apps.listPages(record.definition.id)) {
+        const definition = pageRegistry.get(`${record.definition.id}/${page.name}`)
+        const warning = definition === undefined ? undefined : pageToolWarning(definition)
+        if (warning !== undefined) ctx.logger.warn(`app-host: ${warning} (app "${record.definition.id}")`)
+      }
+    }
+
+    // 3) 宿主工具注册：app_list / app_pages / app_open / page_send 挂进真实工具表。
+    //    page_send（§3.9）不在页面会话的屏蔽名单里（session-port 只屏 app_open /
+    //    app_list / app_pages）——页面 agent 必须能拿到它，按 URL 投递是智能
+    //    自主行动的承载物；级联由 page-registry 的链深台账硬上限兜住。
+    // 3) Host tool registration: app_list / app_pages / app_open / page_send
+    //    land in the real tool table. page_send (§3.9) is NOT in the page-session
+    //    deny list (session-port masks only app_open / app_list / app_pages) —
+    //    page agents must hold it: url-addressed delivery is what lets an agent
+    //    act autonomously; cascade is capped by page-registry's hop ledger.
+    for (const tool of [bootstrap.appList, bootstrap.appPages, appOpen, pageSend]) {
       disposers.push(tools.register(tool))
     }
 

@@ -16,6 +16,8 @@ import type { InstanceKvPort, PageCatalogEntry, PageDefinition, PageInstanceInde
 import { APP_PAGES_DOMAIN_NAME, appPagesDomain, instanceTableView } from './storage.ts'
 import { openPageUrl } from './runtime.ts'
 import type { OpenPageOptions, OpenPageResult, PageRuntimePorts } from './runtime.ts'
+import { deliverToPageUrl, HopLedger } from './delivery.ts'
+import type { DeliverPageOptions, DeliveryResult } from './delivery.ts'
 
 /** 服务名（ctx.pageRegistry / inject 'pageRegistry'）/ service name */
 export const PAGE_REGISTRY_NAME = 'pageRegistry'
@@ -48,6 +50,8 @@ export class PageRegistryService extends Service {
   private readonly registry: PageRegistry<never>
   /** 运行时端口：装配层 bindPorts 纯参数传入；未接线前是 undefined（fail loud）。 */
   private runtimePorts: PageRuntimePorts | undefined
+  /** 投递链深台账（§3.9 级联闸门的状态）/ the hop ledger (§3.9 cascade gate state) */
+  private readonly ledger = new HopLedger()
 
   /** 页面实例索引：规范 URL → 当前活会话 + 废弃历史（持久化在 app-pages 域）*/
   get instances(): PageInstanceIndex { return this.indexFace }
@@ -183,6 +187,17 @@ export class PageRegistryService extends Service {
   openUrl(url: PageInstanceKey | string, options: OpenPageOptions = {}): Promise<OpenPageResult> {
     // async：端口未接线的 fail loud 以 rejected promise 透出，而非同步抛
     return Promise.resolve().then(() => openPageUrl(this.registry, this.instances, this.ports, url, options))
+  }
+
+  /**
+   * 按 URL 幂等投递（§3.9）：该 URL 有活会话则直接 append（唤醒它干活），
+   * 没有则新建会话再投。级联硬上限与废弃竞态重投都在投递运行时收口。
+   * Idempotent url-addressed delivery (§3.9): append to the url's live session,
+   * or create one first. The cascade hard cap and the deprecation-race
+   * re-delivery both close inside the delivery runtime.
+   */
+  deliverUrl(url: PageInstanceKey | string, options: DeliverPageOptions): Promise<DeliveryResult> {
+    return Promise.resolve().then(() => deliverToPageUrl(this.registry, this.instances, this.ports, this.ledger, url, options))
   }
 
   /**

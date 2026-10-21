@@ -57,3 +57,58 @@ export function createAppOpenTool(port: () => AppOpenPort): ReturnType<typeof de
     presentCall: args => ({ card: 'generic' as const, title: '打开页面', kind: 'other' as const, ...(args === undefined ? {} : { rawInput: args }) }),
   })
 }
+
+/** page_send 需要的最小服务面 / the minimal service face page_send needs */
+export interface PageSendPort {
+  deliverUrl(url: string, options: {
+    message: string
+    wake?: boolean
+    callerSessionId?: string
+  }): Promise<{ sessionId: string; url: string; created: boolean; redirected: boolean }>
+}
+
+/**
+ * 构造 `page_send` 工具本体（§3.9）：按 URL 幂等投递——该 URL 有活会话则
+ * 直接 append（唤醒它干活），没有则新建页面会话再投；返回 sessionId 与
+ * created/redirected 标记。它与 `session_dispatch` 的分工：那个按 sessionId
+ * （点对点、带结算看守），这个按 URL（幂等寻址、无结算回报）——互不合并、
+ * 互不绕行。级联硬上限（page/hop-limit）与废弃竞态重投都在 page-registry
+ * 的投递运行时收口。调用方会话经 exec.agent 注入链深台账。
+ * Build the `page_send` tool body (§3.9): idempotent url-addressed delivery —
+ * append to the url's live session, or create the page session first; returns
+ * sessionId plus created/redirected. Division of labor with `session_dispatch`:
+ * that one addresses a sessionId (point-to-point, settlement watch), this one
+ * addresses a URL (idempotent addressing, no settlement) — never merged, never
+ * bypassed. The cascade hard cap and deprecation-race re-delivery close inside
+ * page-registry's delivery runtime; the caller session feeds the hop ledger
+ * through exec.agent.
+ */
+export function createPageSendTool(port: () => PageSendPort): ReturnType<typeof defineTool> {
+  return defineTool({
+    name: 'page_send',
+    description: 'Deliver a message to the page session bound to a canonical page URL '
+      + '(/apps/<appId>/...). If that url has a live session the message is appended to it '
+      + '(waking it to do the work); otherwise a fresh page session is created for the url '
+      + 'first and the message is delivered there. Returns { sessionId, url, created, redirected }. '
+      + 'This is delivery, not navigation: no GUI switch happens. Cascade is capped — a chain '
+      + 'deeper than 4 hops is refused with page/hop-limit. '
+      + 'Use session_dispatch when you already know the exact sessionId; use page_send when '
+      + 'you know the page URL.',
+    parameters: {
+      url: { type: 'string', required: true, description: 'Canonical page URL: /apps/<appId>/<path>[/more][?query]' },
+      message: { type: 'string', required: true, description: 'The message text delivered to that page session.' },
+      wake: { type: 'boolean', description: 'Wake the target agent (one model round). Default true; false only logs the message for the next wake.' },
+    },
+    output: { schema: { type: 'object', additionalProperties: true } as const, render: renderValue },
+    async execute(args, exec) {
+      // 调用方会话进链深台账（级联闸门的输入）/ the caller feeds the hop ledger
+      const callerSessionId = exec?.agent?.session?.id
+      return await port().deliverUrl(args.url, {
+        message: args.message,
+        ...(args.wake === undefined ? {} : { wake: args.wake }),
+        ...(callerSessionId === undefined ? {} : { callerSessionId }),
+      })
+    },
+    presentCall: args => ({ card: 'generic' as const, title: '投递到页面', kind: 'other' as const, ...(args === undefined ? {} : { rawInput: args }) }),
+  })
+}

@@ -71,7 +71,14 @@ export interface PageSessionPort {
   exists(sessionId: string): boolean
   mintId(): string
   create(sessionId: string, title: string): Promise<void>
-  appendUserMessage(sessionId: string, text: string, source: string): Promise<void>
+  /**
+   * 追加一条消息。`options.wake === false` 时不唤醒 agent（消息只落会话日志，
+   * 等该会话下一次被唤醒时一并消费）；缺省唤醒（§3.9 唤醒策略）。
+   * Append one message. `wake === false` appends without waking the agent (the
+   * message lands in the session log and is consumed on the next wake);
+   * default wakes (§3.9 wake policy).
+   */
+  appendUserMessage(sessionId: string, text: string, source: string, options?: { readonly wake?: boolean }): Promise<void>
   /** 挂页面工具；重名冲突抛 PageError(page/tool-conflict) / mount; conflicts raise */
   mountTools(sessionId: string, tools: readonly MountedTool[]): Promise<void>
   releaseTools(sessionId: string): Promise<void>
@@ -102,11 +109,13 @@ export interface PageRuntimePorts {
   readonly leaseMinutes?: number
 }
 
-/** openUrl 的可选参数 / openUrl options */
+/** openUrl 的可选参数；createPageSession 另接受 `focus: false`（投递路径不切界面） */
 export interface OpenPageOptions {
   /** 任务场景：先 take 再追加 TASK 块（§5.3）/ take the task, then append TASK */
   readonly taskId?: string
   readonly actor?: string
+  /** 投递路径置 false：建会话但不发 GUI focus（投递不是导航，§3.9） */
+  readonly focus?: boolean
 }
 
 /** openUrl 的结果：打开一律新建，结果就是新会话 / openUrl result: the fresh session */
@@ -171,17 +180,16 @@ export function taskBlock(taskId: string, task: TaskRecord | undefined): string 
 }
 
 /**
- * 打开一个 URL：一律新建会话；同 URL 旧会话先废弃（§3.5.3、§9.1）。
- * Open a url: always create a fresh session; the previous one on the same url
- * is deprecated first.
+ * 解析并校验一个页面 URL 目标（canonicalize + 应用在场/启用 + 页面命中）。
+ * openUrl 与投递路径（§3.9 delivery）共用的同一段校验。
+ * Resolve and validate a page-url target (canonicalize + app present/active +
+ * page hit). Shared by openUrl and the delivery path (§3.9).
  */
-export async function openPageUrl(
+export function resolvePageTarget(
   registry: { resolve(url: string): PageMatch<never> | null },
-  index: PageInstanceIndex,
   ports: PageRuntimePorts,
   url: string,
-  options: OpenPageOptions = {},
-): Promise<OpenPageResult> {
+): { key: PageInstanceKey; app: AppRecord; match: PageMatch<never> } {
   const key = canonicalizePageUrl(url)
   const appId = appIdOf(key)
   if (appId === undefined) throw new PageError(PageErrorCode.UrlInvalid, `url ${key} carries no /apps/<appId> segment`)
@@ -195,7 +203,22 @@ export async function openPageUrl(
   }
   const match = registry.resolve(key)
   if (match === null) throw new PageError(PageErrorCode.PageNotFound, `no page matches ${key}`)
+  return { key, app, match }
+}
 
+/**
+ * 打开一个 URL：一律新建会话；同 URL 旧会话先废弃（§3.5.3、§9.1）。
+ * Open a url: always create a fresh session; the previous one on the same url
+ * is deprecated first.
+ */
+export async function openPageUrl(
+  registry: { resolve(url: string): PageMatch<never> | null },
+  index: PageInstanceIndex,
+  ports: PageRuntimePorts,
+  url: string,
+  options: OpenPageOptions = {},
+): Promise<OpenPageResult> {
+  const { key, app, match } = resolvePageTarget(registry, ports, url)
   await deprecatePrevious(index, ports, key)
   return createPageSession(index, ports, key, app, match, options)
 }
@@ -264,8 +287,9 @@ export async function pumpDeliveries(ports: PageRuntimePorts, sessionId: string)
   }
 }
 
-/** 两阶段创建；每一步失败都清理半成品 + 删 reserved 行 */
-async function createPageSession(
+/** 两阶段创建；每一步失败都清理半成品 + 删 reserved 行。`focus: false` 用于
+ *  投递路径（§3.9）：建会话但不把 GUI 切过去——投递不是导航。 */
+export async function createPageSession(
   index: PageInstanceIndex,
   ports: PageRuntimePorts,
   key: PageInstanceKey,
@@ -315,7 +339,7 @@ async function createPageSession(
   if (options.taskId !== undefined) await takeTask(ports, options.taskId, sessionId, options.actor)
   // 新会话启动即注入收件箱通知（§5.2 inbox）；失败只降级
   await pumpDeliveries(ports, sessionId)
-  await ports.sessions.focus(sessionId)
+  if (options.focus !== false) await ports.sessions.focus(sessionId)
   return { sessionId, url: key, title }
 }
 

@@ -20,8 +20,10 @@ export type {
   DeliveryFace, MountedTool, OpenPageOptions, OpenPageResult, PageRuntimePorts, PageSessionPort,
   ToolsFace,
 } from './runtime.ts'
-export { createAppOpenTool } from './tools.ts'
-export type { AppOpenPort } from './tools.ts'
+export { createAppOpenTool, createPageSendTool } from './tools.ts'
+export type { AppOpenPort, PageSendPort } from './tools.ts'
+export { MAX_DELIVERY_ATTEMPTS, MAX_DELIVERY_HOPS, PAGE_SEND_SOURCE, deliverToPageUrl, HopLedger } from './delivery.ts'
+export type { DeliverPageOptions, DeliveryResult } from './delivery.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {

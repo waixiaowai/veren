@@ -31,6 +31,14 @@ pnpm --filter @veren/page-registry test
 - `registerAppPage(appId, page)`：应用作用域注册（与 app-registry 的 `ctx.apps.pages(id)` 对接）；`page.<name>` 预设路径保持废弃。页面以 **pageKey（`<appId>/<本地名>`）** 为名登记——本地名跨应用必然重名，按裸名登记会让第二个应用在 duplicate-name 上失败。
 - 宿主工具 `app_open` 的本体由 `createAppOpenTool(port)` 构造；注册由宿主装配层（app-host）在它唯一的"全成或全回滚"接线 effect 里 `ctx.tools.register` 完成（G13）——本模块不再自带 effect。
 
+## 按 URL 幂等投递（`page_send`，§3.9）
+
+- `service.deliverUrl(url, { message, wake?, callerSessionId? })`：幂等投递——该 URL 有活会话则直接 append，没有则新建（走 `openUrl` 创建路径，但**不发 GUI focus**：投递不是导航）。返回 `{ sessionId, url, created, redirected }`。
+- 级联闸门：链深台账把任意投递链封顶在 `MAX_DELIVERY_HOPS`（4）；超限以 `page/hop-limit` 拒绝——构造上一处闸门，不靠调用方自觉。
+- 废弃竞态：投递后重查索引；指针已易主（人重开了该 URL）则把消息补投给当前活会话（≤ `MAX_DELIVERY_ATTEMPTS` = 3 次），结果如实带 `redirected: true`。
+- 唤醒策略：缺省唤醒目标（一个模型回合）；`wake: false` 只落会话日志，等下次唤醒一并消费。
+- 宿主工具 `page_send` 本体由 `createPageSendTool(port)` 构造、由宿主装配层注册；页面 agent 也拿得到（不在页面会话屏蔽名单里）。
+
 ## 显式接线（G13）
 
 本服务从不在运行期探测兄弟服务（没有对 `apps` / `taskCenter` / `sessions` / `agents` 的 `ctx.get(...)`——真机属性守卫按被访问 ctx 的属主归因，探测通道不存在）。声明的 inject 只有 `['storageDomain']`。全部运行期能力经 `bindPorts(ports, index?)` 以**纯参数**传入（整体替换，无部分合并）：

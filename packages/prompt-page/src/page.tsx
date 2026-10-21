@@ -24,13 +24,14 @@ export function definePage<S>(definition: {
   preset?: PagePresetSpec
   events?: PageEventMap
   tools?: readonly string[]
+  writes?: boolean
   instructions?: string
   instanceTitle?: (params: PageParams) => string
   tree: (props: PageParams, state: S) => ElementInput
   onLoad?: (params: PageParams) => void
   onComplete?: (params: PageParams) => boolean
 }): PageDefinition<S> {
-  const { name, url, description, events, tools, instructions, instanceTitle, tree, onLoad, onComplete } = definition
+  const { name, url, description, events, tools, writes, instructions, instanceTitle, tree, onLoad, onComplete } = definition
   if (name.length === 0 || name.trim() !== name) {
     throw new Error(`[definePage] invalid page name: ${JSON.stringify(name)}`)
   }
@@ -44,6 +45,7 @@ export function definePage<S>(definition: {
   return {
     name, url, description, tree,
     ...(tools === undefined ? {} : { tools }),
+    ...(writes === undefined ? {} : { writes }),
     ...(instructions === undefined ? {} : { instructions }),
     ...(instanceTitle === undefined ? {} : { instanceTitle }),
     ...(events === undefined ? {} : { events }),
@@ -66,6 +68,19 @@ export function defineAppPage<S>(definition: Parameters<typeof definePage<S>>[0]
     ...page,
     tools: page.tools ?? [],
   }
+}
+
+/**
+ * 页面工具完备性警告（§3.9，开发期轻量核对）：页面声明了"本页职责需要写能力"
+ * 却一个工具都没挂 → 返回一句话警告；否则 undefined。只提醒，不做门禁——
+ * 五秒钟看懂在提醒什么："页面开着、活干不了"。
+ * Page tool-coverage warning (§3.9, dev-time lightweight self-check): a page
+ * that declares `writes: true` yet mounts no tools returns a one-line warning;
+ * otherwise undefined. A reminder, never a gate.
+ */
+export function pageToolWarning<S>(page: PageDefinition<S>): string | undefined {
+  if (page.writes !== true || page.tools.length > 0) return undefined
+  return `page "${page.name}" declares writes: true but mounts no tools; it is open yet cannot do its declared job`
 }
 
 /** URL 模式校验 / validate a url pattern */

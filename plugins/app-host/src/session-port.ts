@@ -72,9 +72,10 @@ export function loggingFocus(logger: { info(message: string): void }): FocusPort
 /** 消息源 kind 常量（MessageSourceMap 的扩充点在文件尾 declaration merging） */export const PAGE_MESSAGE_SOURCE = 'app/page' as const
 export const TASK_MESSAGE_SOURCE = 'app/task' as const
 export const NOTICE_MESSAGE_SOURCE = 'task-center/notice' as const
+export const PAGE_SEND_MESSAGE_SOURCE = 'page/send' as const
 
 /** 消息源 → MessageSourceMap kind 的白名单（declaration merging 见文件尾） */
-type PageSourceKind = typeof PAGE_MESSAGE_SOURCE | typeof TASK_MESSAGE_SOURCE | typeof NOTICE_MESSAGE_SOURCE
+type PageSourceKind = typeof PAGE_MESSAGE_SOURCE | typeof TASK_MESSAGE_SOURCE | typeof NOTICE_MESSAGE_SOURCE | typeof PAGE_SEND_MESSAGE_SOURCE
 
 /** 会话 id 的 brand 收窄：端口面收 plain string，跨边界在此一次性收窄
  * / the one brand narrowing where plain port strings cross the SessionId boundary */
@@ -84,6 +85,7 @@ function sourceKind(source: string): PageSourceKind {
   switch (source) {
     case TASK_MESSAGE_SOURCE: return TASK_MESSAGE_SOURCE
     case NOTICE_MESSAGE_SOURCE: return NOTICE_MESSAGE_SOURCE
+    case PAGE_SEND_MESSAGE_SOURCE: return PAGE_SEND_MESSAGE_SOURCE
     default: return PAGE_MESSAGE_SOURCE
   }
 }
@@ -210,7 +212,19 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
       // rewrites it.
       ctx.sessions.get(sid(sessionId))?.append('session/title', { title, messageSeqs: [], source: { kind: 'user' } })
     },
-    async appendUserMessage(sessionId, text, source) {
+    async appendUserMessage(sessionId, text, source, options) {
+      // wake=false（§3.9 唤醒策略的可选面）：只把消息落会话日志，不 followup、
+      // 不产生模型回合；目标 agent 下一次被唤醒时一并消费。
+      // wake=false (the optional wake policy, §3.9): land the message in the
+      // session log only — no followup, no model round; consumed whenever the
+      // target agent next wakes.
+      if (options?.wake === false) {
+        ctx.sessions.get(sid(sessionId))?.append('user/message', createUserMessage({
+          content: [{ type: 'text', text }],
+          source: { kind: sourceKind(source) },
+        }))
+        return
+      }
       const agent = agentOf(sessionId)
       if (agent !== undefined) {
         followup(agent, text, source)
@@ -271,6 +285,8 @@ declare module '@deepseek-ai/dsh-llm' {
     'app/task': { kind: 'app/task' }
     /** A task-center inbox notice pumped into a page session. @persistenceSource user */
     'task-center/notice': { kind: 'task-center/notice' }
+    /** A page_send delivery message (wake or wake=false log-only). @persistenceSource user */
+    'page/send': { kind: 'page/send' }
   }
 }
 
