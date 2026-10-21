@@ -4,17 +4,20 @@
 
 安装后，通过插件配置表单（Web 插件页）或启动 DSH 前的 `SUB2API_*` 环境变量设置凭据——本组合包内不落任何敏感信息。
 
-## 安装（本地 tarball，稳定测试节点）
+## 安装
+
+前置：`@veren/app-host-bundle`——应用框架，提供本技术栈硬注入的 `apps` 服务与 prompt 栈。
 
 ```powershell
-mkdir dist-tgz -Force
-pnpm --dir plugins\sub2api-admin pack --pack-destination dist-tgz
-pnpm --dir plugins\sub2api-admin-bundle pack --pack-destination dist-tgz
-node plugins\sub2api-admin-bundle\scripts\repack.mjs dist-tgz
-$env:DSH_HOME = 'C:\Users\imeep\Documents\cursour\deepseek\.dsh'
-pnpm --dir deepseek\deepseek-harness dsh plugin --profile web add <cursour>\dist-tgz\veren-sub2api-admin-bundle-1.0.0.tgz
+# 先装应用框架（profile 里已有则跳过）。
+pnpm dsh plugin --profile <profile> add @veren/app-host-bundle@0.2.6
+# 再装本组合包；成员插件随包一起装上。
+pnpm dsh plugin --profile <profile> add @veren/sub2api-admin-bundle@1.2.1
 ```
+
+所有依赖都按语义化版本区间从 `@veren` registry 解析：打包后的清单把 `@veren/sub2api-admin` 声明为 `^1.2.1`，任何产物都不引用本地 `file:` 路径。
 
 ## 已知限制
 
 - patch 中行配置保持为空；凭据必须来自环境变量或插件配置表单。
+- 未先安装应用框架层时，该行会等待 `apps` 注入而不激活。
