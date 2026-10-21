@@ -350,9 +350,12 @@ window.__ModuleLoader__.load({
         },
         "appHost/open": {
           service: SERVICE,
-          description: "Open one app entry page into a fresh page session and focus it.",
+          description: "Open one app page (entry by default, or the given url of the same app) into a fresh page session and focus it.",
           invocation: { kind: "direct" },
-          parameters: [parameter("appId", "app-host:open:appId", () => import_zod.z.string())],
+          parameters: [
+            parameter("appId", "app-host:open:appId", () => import_zod.z.string()),
+            parameter("url", "app-host:open:url", () => import_zod.z.string().optional())
+          ],
           result: codec("app-host:open:result", () => OPEN_SCHEMA)
         }
       }

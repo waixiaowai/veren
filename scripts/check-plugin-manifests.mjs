@@ -33,6 +33,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { collectInstanceProblems } from './check-dsh-instances.mjs'
 
 /** 所有插件与组合包使用的唯一 DSH 版本区间 / the one DSH runtime range every plugin declares. */
 export const DSH_RUNTIME_RANGE = '>=0.2.1-rc.2 <0.3.0'
@@ -233,7 +234,12 @@ const packageFailures = workspacePackageDirs()
     .filter(([name]) => isHostShared(name) && !STATELESS_DSH.has(name))
     .map(([name, spec]) => `${manifest.name}: ${name}@${spec} belongs in peerDependencies, not dependencies`))
 
-const allFailures = [...failures, ...packageFailures]
+// 清单之外再查解析结果：同一个宿主共享包被解析成多版本/多物理路径时，
+// brand 类型按模块路径分裂，报错却看不出是"装了两份"（详见 check-dsh-instances.mjs）。
+// Beyond manifests, check the resolution: one host-shared package resolving to
+// several versions or physical paths splits brand symbols per module path while
+// the error hides the root cause (see check-dsh-instances.mjs).
+const allFailures = [...failures, ...packageFailures, ...collectInstanceProblems()]
 if (allFailures.length > 0) {
   console.error(`\n${allFailures.length} manifest problem(s):`)
   for (const failure of allFailures) console.error(`  - ${failure}`)

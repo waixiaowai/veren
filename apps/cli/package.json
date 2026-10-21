@@ -1,30 +1,35 @@
 {
-    "name":  "@veren/cli",
-    "version":  "0.1.0",
-    "private":  true,
-    "type":  "module",
-    "description":  "Use when you want to run the veren CLI (`pnpm cli \u003ccommand\u003e`): it is the executable shell that assembles the plugin manifest (YAML parsing, the command registry, the project service, the discovery service, list/doc/help) and dispatches argv through the registry service; depend on @veren/commander-core and the individual plugin packages instead when you compose your own runtime.",
-    "main":  "./src/cli.ts",
-    "scripts":  {
-                    "build":  "tsc --noEmit",
-                    "test":  "vitest run"
-                },
-    "dependencies":  {
-                         "@deepseek-ai/cordis":  "^4.0.4",
-                         "@deepseek-ai/dsh-fs":  "0.2.0-rc.2",
-                         "@deepseek-ai/dsh-fs-local":  "0.2.0-rc.2",
-                         "@veren/commander-core":  "workspace:*",
-                         "@veren/commander-discovery":  "workspace:*",
-                         "@veren/commander-doc":  "workspace:*",
-                         "@veren/commander-help":  "workspace:*",
-                         "@veren/commander-list":  "workspace:*",
-                         "@veren/commander-project":  "workspace:*",
-                         "@veren/commander-tests":  "workspace:*",
-                         "@veren/core":  "workspace:*",
-                         "@veren/yaml-parser":  "workspace:*",
-                         "@veren/commander-build":  "workspace:*"
-                     },
-    "devDependencies":  {
-                            "typescript":  "^5.9.3"
-                        }
+    "name": "@veren/cli",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "description": "Use when you want to run the veren CLI (`pnpm cli \u003ccommand\u003e`): it is the executable shell that assembles the plugin manifest (YAML parsing, the command registry, the project service, the discovery service, list/doc/help) and dispatches argv through the registry service; depend on @veren/commander-core and the individual plugin packages instead when you compose your own runtime.",
+    "main": "./src/cli.ts",
+    "scripts": {
+        "build": "tsc --noEmit",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@veren/commander-core": "workspace:*",
+        "@veren/commander-discovery": "workspace:*",
+        "@veren/commander-doc": "workspace:*",
+        "@veren/commander-help": "workspace:*",
+        "@veren/commander-list": "workspace:*",
+        "@veren/commander-project": "workspace:*",
+        "@veren/commander-tests": "workspace:*",
+        "@veren/core": "workspace:*",
+        "@veren/yaml-parser": "workspace:*",
+        "@veren/commander-build": "workspace:*"
+    },
+    "devDependencies": {
+        "@deepseek-ai/cordis": "^4.0.5",
+        "@deepseek-ai/dsh-fs": "0.2.1-rc.2",
+        "@deepseek-ai/dsh-fs-local": "0.2.1-rc.2",
+        "typescript": "^5.9.3"
+    },
+    "peerDependencies": {
+        "@deepseek-ai/cordis": "^4.0.5",
+        "@deepseek-ai/dsh-fs": ">=0.2.1-rc.2 <0.3.0",
+        "@deepseek-ai/dsh-fs-local": ">=0.2.1-rc.2 <0.3.0"
+    }
 }

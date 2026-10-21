@@ -33,6 +33,14 @@ mkdirSync(OUT, { recursive: true })
 const SRC = join(root, 'src')
 
 for (const entry of readdirSync(SRC)) {
+  // `.d.ts` also ends with `.ts`, but it is not a source: transpiling one yields no
+  // output and TypeScript answers with a bare "Output generation failed" debug
+  // failure. Skipping it by name keeps a stray declaration file from breaking the
+  // build with an unreadable error (scripts/check-src-artifacts.mjs reports it).
+  // `.d.ts` 同样以 `.ts` 结尾，但它不是源码：转译它没有产物，TypeScript 只会抛
+  // 出一句 "Output generation failed" 的 debug 失败。按名字跳过，让误落的声明文件
+  // 不再以不可读的错误打断构建（真正的报告由 check-src-artifacts.mjs 负责）。
+  if (entry.endsWith('.d.ts') || entry.endsWith('.d.tsx')) continue
   if (!entry.endsWith('.ts') && !entry.endsWith('.tsx')) continue
   const source = readFileSync(join(SRC, entry), 'utf8')
   const emitted = ts.transpileModule(source, {

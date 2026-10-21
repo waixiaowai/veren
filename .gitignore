@@ -42,10 +42,29 @@ dist-tgz/
 # 0.1.10 旧版面板调试截图保留在本地 / legacy 0.1.10 panel captures stay local
 packages/graph/flow-canvas-panel/docs/shot-*.png
 
-# 误跑 tsc 时落在源码旁的编译产物 / stray tsc output next to sources
+# 误跑 tsc / 编辑器"保存即编译"时落在源码旁的编译产物：与同名 .ts 并排的
+# .js、.js.map、.d.ts、.d.ts.map 都是生成物，交付产物只应出现在 dist（或 lib）。
+# 规则只覆盖 src/ 顶层的这四种形态，不做一刀切：插件里真正手写的 .js 在
+# scripts/、ui/、web/client/、tests/ 下，纯 ambient 声明（如
+# plugins/cms-bridge/src/client/css.d.ts）在更深一层，两者都不会被误伤。
+# 守卫 scripts/check-src-artifacts.mjs 负责在复发时报错。
+#
+# Stray tsc / editor "compile on save" output next to sources: a .js, .js.map,
+# .d.ts or .d.ts.map sitting beside its same-named .ts is generated — shippable
+# artifacts belong in dist (or lib). The patterns only cover the top level of
+# src/ on purpose, so they are not a blanket ignore: hand-written plugin .js
+# lives in scripts/, ui/, web/client/ and tests/, and pure ambient declarations
+# (e.g. plugins/cms-bridge/src/client/css.d.ts) sit one level deeper.
+# scripts/check-src-artifacts.mjs is the guard that fails when this regrows.
 packages/**/src/*.js
 packages/**/src/*.js.map
-packages/**/src/index.d.ts
-packages/**/src/index.d.ts.map
-packages/**/src/types.d.ts
-packages/**/src/types.d.ts.map
+packages/**/src/*.d.ts
+packages/**/src/*.d.ts.map
+plugins/**/src/*.js
+plugins/**/src/*.js.map
+plugins/**/src/*.d.ts
+plugins/**/src/*.d.ts.map
+apps/**/src/*.js
+apps/**/src/*.js.map
+apps/**/src/*.d.ts
+apps/**/src/*.d.ts.map
