@@ -107,9 +107,10 @@ export function apply(ctx: Context): void { ... }
     1. 服务解析：装好组合包启动后，在宿主日志确认 `apps`/`pageRegistry`/`taskCenter` 三个服务都激活（无 inject 等待告警）；看什么——启动日志无 "waiting for inject" 行；通过标准——web 插件页三服务 enabled。
     2. `agent/created` 真实载荷形状：**它是运行时 serial 事件，不落会话日志**——别去会话日志里找（那个前提已被第三轮真机验证证伪）。观测方式：写一个一次性探针插件（或在临时诊断插件里）`ctx.on('agent/created', ...)` 监听并把载荷 JSON 写进文件（如 `deepseek\.dsh\storages\` 下的诊断目录），新建一个会话并随便发一句话后读该文件；看什么——载荷含 `agent`/`source` 键且 `agent.session.id` 与会话一致（真实签名见 `packages/core/agent/src/runtime-types.ts`）；通过标准——键齐全、id 对得上。
     3. 真实会话创建：浏览器打开 `/apps/task-workbench/task/1` 与 `/list`；看什么——`app-pages` 存储域里出现两条 live 实例行、sessionId 互不相同；通过标准——两行 state=live 且分别属于两个会话。
-    4. 工具作用域互斥：两个会话各自问 agent"你有哪些工具"；看什么——list 页会话只见 `task_workbench__take_task` 系、detail 页会话只见 `abandon_task`/`complete_task` 系，交叉不可见；通过标准——同名工具集合不跨会话出现。
+    4. 工具作用域互斥：两个会话各自问 agent"你有哪些工具"；看什么——list 页会话只见 `task_workbench__take_task` 系、detail 页会话只见 `abandon_task`/`complete_task`/`split_task`/`take_page_task` 系（2026-10-21 起 detail 增页面作用域接取 `take_page_task`：无参数，接的就是本页 params.taskId 那条；带参 `take_task` 仍在 list 页），交叉不可见；通过标准——同名工具集合不跨会话出现。
     5. 重开同 URL 总是新建（§9.1 反转）：同一 URL 再开一次；看什么——新建会话、旧会话标废弃（工具摘除、索引指向新会话）；通过标准——`app-pages` 里该 URL 的 live 行 sessionId 变为新会话，旧 sessionId 行 state=deprecated（自动化已有，真机复核持久化跨重启）。
     6. 任务通知落真实日志：`taskCenter.send` 一条 target 指向 detail 页的任务，再带 taskId 打开该页；看什么——真实会话日志里出现 `TASK <id>` 块与 `[task-center] <标题>` 收件箱文本；通过标准——两条都进日志且任务翻 delivered（真实 followup + 投递泵跑在真宿主上的判据）。
+    7. 能力地图进 PAGE 块（§3.10.2 一等数据，2026-10-21 加）：打开 `/apps/task-workbench/list` 会话，先看日志里 PAGE 块有 `map:（能力地图…` 头行与 `- /apps/task-workbench/task/:taskId → …` 逐条行，再问该会话 agent"要处理某条任务应打开哪个 URL，你是从哪里知道的"；看什么——回答含详情页 URL，且**来源自述为"本页 PAGE 块的 map"**，而不是"根据任务记录的 target.url 推断"（本轮真机抓到的假 PASS 正是后者）；通过标准——模板与用途能被模型引用作答，会话挂载的工具含 `task_workbench__*` 而模型不再依赖推断。顺带复核：person-agent `/apps/person-agent/overview` 会话挂有 `person_agent__workspace_session_list`（此前一个工具都没挂，承诺落空）。
 
 ## 注意
 - 跨包共享用 import type，行为走注入的 Cordis 服务，UI 走 slots
@@ -132,3 +133,14 @@ import type { } from '@deepseek-ai/dsh-tools';
   - 类型能复用就复用：declaration merging 暴露的服务面（`ctx.apps` / `ctx.taskCenter` …）直接用，禁止 `ctx.get('x') as {…}` 把服务面重新手写一遍
   - 禁止同一类型多处声明（影子副本）：跨包用 `import type` 引真正那份；依赖不够就补 `workspace:^`（peer+dev），不是再抄一份
 - 特别注意：禁止任何修改~/.dsh 目录下的任何文件，所有的插件不能安装到~/.dsh目录切记，特别是执行 dsh plugin 命令时，一定要确保 DSH_HOME 对不对，一旦搞错，会彻底崩溃，因为你在dsh desktop下工作，崩溃等于自杀
+
+
+
+## 终止条件
+一个插件开发完成的最终条件是：这框架能交付给别人用，通过应用市场，且所有功能均符合预期
+
+## 派会话时
+- tokenav/deepseek-v4.1-flash-1017 这个是日卡，不限量，如果可用的话优先使用
+- opencode-go/deepseek-v4.1-flash 这个是 opencode go v2 10美刀的套餐，性价比和速度都不错，次之
+- zai-coding-cn/glm-5.3-flash glm 包月套餐，性价比不错，速度略慢，代码质量比较高
+- zq4i/deepseek-v4.1-flash 价格是官方的1折，速度不错，效果不如1017
