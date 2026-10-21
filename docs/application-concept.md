@@ -656,39 +656,48 @@ returns { sessionId, url, created, redirected }
 
 ---
 
-### 3.10 Page information structure: home pages and detail pages (AI-facing)
+### 3.10 Page information structure: three page archetypes (AI-facing)
 
 > Compact version of §3.10 in the Chinese document ([application-concept.cn.md](application-concept.cn.md)); to be expanded. Background decision (2026-10): **this product line is for AI, not for humans** — no visualization, no interaction (GUI is a separate project). A "page" is information organized so an AI can read and act on it directly. A home page must carry base information (e.g. the task list) **plus** the capability map; detail-page parameters must land in context so the agent never calls tools just to locate itself.
 
-**Two-tier classification (first-class, registration-time rules):**
+> **2026-10-21 second revision (the migration falsified the two-tier assumption).** Migrating the four apps surfaced three counter-examples: task-workbench's publish page is a *parameterless write page* (neither a map nor a record-bound detail); person-agent has no `:param` page at all (drill-down happens through tools), so the two-tier model idles on read-only dashboards; and rule 1 ("home map non-empty") forced **every app to have ≥2 pages**, which is unsolvable for single-page apps. The taxonomy is now **three archetypes**; rule 1 only binds apps that have detail pages.
 
-| Tier | URL shape | Responsibility | Audience |
-| --- | --- | --- | --- |
-| **Tier-1 (home)** | no params: `/apps/task-workbench/list` | base info + capability map, both required | human entry + AI overview |
-| **Tier-2 (detail)** | must have `:param`: `/apps/task-workbench/task/:taskId` | single-scenario execution unit; lazily created | AI (task notices, map links, `page_send`) |
+**Three archetypes (first-class, derived by url shape + entry + `writes` — no extra field):**
 
-**Canonical PAGE block** (currently `pageBlock` in `plugins/page-registry/src/runtime.ts` writes only 4 lines: page key + raw params JSON, tool names, app/page notes — no canonical URL, no data, no map):
+| Archetype | URL shape | Responsibility | Must have | Audience |
+| --- | --- | --- | --- | --- |
+| **home** | no `:param`, is the app's `entry` | base info + capability map; the human/AI entrance | base info (load/data); `map` **required only when the app also has detail pages** (rule 1) | human entry + AI overview |
+| **detail** | ≥1 `:param`: `/apps/task-workbench/task/:taskId` | single-record execution unit; lazily created | `writes: true` + ≥1 tool + non-empty `instructions` (rule 3) | AI (task notices, map links, `page_send`) |
+| **action** | no `:param`, not the entry, declares `writes: true`: `/apps/task-workbench/publish` | a "do one thing" page (publish, import, bulk ops) | write tools (= the `writes: true` declaration + ≥1 mounted tool; a miss raises the §3.9 coverage warning) + non-empty `instructions`; **no map needed** | AI (from the home map or task flows) |
+
+A fourth, deliberately legal leftover: parameterless, non-entry, read-only (no `writes`) = a **read-only secondary page** (person-agent's workspace browser) — no requirements beyond the definePage basics. **Pure read-only apps** (person-agent) are a legal shape: rule 1 exempts them (no detail pages → an empty map is fine), rule 3 cannot trigger, and the §3.9 warning stays silent.
+
+**detail vs action — the dividing test:** does the page's subject have *record identity*? If the URL answers "which one" (a `:param` pins an existing record; the page exists for it), it is a detail page. If the URL cannot answer "which one" (the page performs an action on the world or creates a new record; there is no "this one" on the page), it is an action page. Self-check: reopening the same URL — a detail page redoes *the same record*; an action page redoes *the deed*.
+
+**Canonical PAGE block** (currently `pageBlock` in `plugins/page-registry/src/runtime.ts` writes the canonical shape: page key + canonical url, params, data, map when non-empty, tools with when-to-use, app/page notes):
 
 ```text
 PAGE <pageKey> <canonicalUrl>
 params: {"taskId":"t-6"}                  # keys must match the :param names verbatim
 data: {...}                               # first-screen snapshot from load(); loading/error states must be expressed here — never silent blank
-map: [{"url":"…/:taskId","use":"…"}]      # capability map; non-empty on tier-1
+map: [{"url":"…/:taskId","use":"…"}]      # capability map; required on home only when detail pages exist
 tools: <prefixed tool names + one-line when-to-use>
 notes: <app + page instructions>
 ```
 
 Written once at session creation (two-phase commit awaits `load`); updates are appended as a `PAGE-DATA` block carrying the latest full snapshot (old blocks stay in the log; size/count caps with `truncated: true`).
 
-**Params and first-screen data in one shot.** Params: same resolver as today, but validated against the declared `:param` names (registration + mount). First-screen data: **G7 (§10 of the Chinese document) is promoted from "official recipe" to core capability** — the optional `load: async (params) => data` declaration is the only legitimate source of the `data` field; without it a home page with a task list is impossible. Official pattern: declare `load` on the page, runtime loads once at creation (loading → data, failure → `data: {"error":{code,message}}` + retry hint, `page/load-failed`); refresh = event-driven `pageRuntime.refresh(sessionId)` re-runs `load` and appends a `PAGE-DATA` block on diff. No TTL, no polling. Cost: refresh adds no model round (context append only) but each block costs tokens.
+**Params and first-screen data in one shot.** Params: same resolver as today, but validated against the declared `:param` names (registration + mount). First-screen data: **G7 (§10 of the Chinese document) is promoted from "official recipe" to core capability** — the optional `load: async (params, env) => data` declaration is the only legitimate source of the `data` field; without it a home page with a task list is impossible. Official pattern: declare `load` on the page, runtime loads once at creation (loading → data, failure → `data: {"error":{code,message}}` + retry hint, `page/load-failed`); refresh = event-driven `pageRuntime.refresh(sessionId)` re-runs `load` and appends a `PAGE-DATA` block on diff. No TTL, no polling. Cost: refresh adds no model round (context append only) but each block costs tokens.
+
+**`PageLoadEnv` — page-session facts, and "identity never enters the URL".** `load(params, env)` receives `env: PageLoadEnv` = facts about the page session the host supplies at creation: `preset?: string` (the page session's preset id, provided by the host assembly's session port, same source as the session header's `agentPreset`; absent = the host did not expose it, and `load` must state "owner unknown" explicitly, never fake data). The principle: the URL is a shareable, reproducible locator that answers "which page, which record"; caller identity is not a property of the page, so it travels through `PageLoadEnv` (and the tools' caller resolution, same source) and **never appears in the url pattern** (`:param`s are record identifiers only). Consequence, intentional: the same URL opened under different presets yields different data (preset-scoped apps such as the notebook or the forum) — that is definitionally what preset-scoped data isolation means, and the PAGE `data` line must say who the data belongs to (never a silent blank).
 
 **Measurable saving.** One "round" = one tool-call round trip to obtain one fact. Old shape (map-only home): `list_tasks` (1) + `get_task` (1) + relocating the taskId (0–1) = **2–3 rounds per task handled**; new shape: **0** (PAGE blocks carry the list and the detail). Estimate: rounds saved ≈ 2–3 × page instances opened (≈40–60 model rounds/day at 20 tasks/day).
 
-**Validation rules (registration-time, lightweight):** (1) tier-1: no `:param`, non-empty `map`; (2) tier-1 is **never** warned for lacking write tools (corrects an earlier requirement — a map page is legitimately read-only); (3) tier-2: ≥1 `:param`, ≥1 write tool, non-empty `instructions`; (4) `entry` must be a tier-1 page; (5) PAGE `params` keys ≡ declared `:param` keys; (6) `data` must always be present (loading/error count).
+**Validation rules (registration-time, lightweight; heavy gates are out):** (1) home: no `:param`; `map` non-empty **only if the app has detail pages** — a single-page or pure-dashboard app with an empty map must **not** be rejected; (2) home and read-only secondary pages are never warned for lacking write tools; (3) detail: ≥1 `:param`, `writes: true` + ≥1 tool, non-empty `instructions` — registration refuses (`page/detail-invalid`); (3b) action: must hold write tools and non-empty `instructions`, enforced through the §3.9 coverage warning (same channel and criteria as `writes` — no new gate); (4) `entry` must be the home page; (5) PAGE `params` keys ≡ declared `:param` keys; (6) `data` must always be present (loading/error count). Rule 1's map check holds on both registration orders (home-then-detail and detail-then-home), and the error says in one line what to fix.
 
-**Deprecation semantics may differ by tier — and should.** Tier-1 sessions hold no record identity and reload data on every visit, so deprecating them eagerly (reopen = new session, §9.1.1) loses nothing; tier-2 sessions carry a record's execution context, so the existing protocol (release leases → deprecate → create, §3.5.3) already covers the dangerous part. This dissolves the rapid-reopen race: worst case is "the map was read twice"; no debounce or merge machinery needed.
+**Deprecation semantics follow parameterlessness, not the tiers.** Parameterless pages (home / action / read-only) hold no record identity and reload data on every visit, so deprecating them eagerly (reopen = new session, §9.1.1) loses nothing; detail pages carry a record's execution context, so the existing protocol (release leases → deprecate → create, §3.5.3) already covers the dangerous part. This dissolves the rapid-reopen race: worst case is "the map was read twice"; no debounce or merge machinery needed.
 
-**Conflicts found in current code** (recorded only, no code touched this round): PAGE block shape lacks URL/data/map; "write once, never appended" leaves no channel for `PAGE-DATA`; registration does not enforce tiers (literal `/apps/twin/task/1` detail-style page, `entry` may point at a parametrised page); G7's `load` does not exist yet.
+**Conflicts found by the earlier code-reading round** (original findings kept, statuses appended): the PAGE block shape lacked url/data/map (landed — `pageBlock` now assembles the canonical §3.10 shape); "write once, never appended" left no channel for `PAGE-DATA` (landed — append face and caps in page-registry/app-host); registration did not enforce tiers (landed — rules 1/3 enforced at registration since 2026-10-21; the action archetype closes the parameterless-write-page gap and rule 1 now binds only apps with detail pages); G7's `load` did not exist yet (landed — `load`/`PageLoadEnv`, §3.10.3/§3.10.8; all four apps' first screens go through it).
 
 ---
 

@@ -1,12 +1,28 @@
 /** @jsxRuntime automatic @jsxImportSource @veren/prompt-core */
 /**
- * 应用的两个页面：个人工作台概览（一级页 / entry）/ 工作区浏览（defineAppPage，
- * URL 统一 /apps/person-agent/...）。tree 是同步纯函数，读 OverviewSource 的
- * 最新缓存；load 刷新后取首屏快照进 PAGE 块——数据拿不到就显示「不可用」，
- * 不假装。
- * The app's two pages: the personal workbench overview (the home page) and the
- * workspace browser (defineAppPage, urls under /apps/person-agent). The tree
- * is a sync pure function over the OverviewSource's latest cache; load
+ * 应用的两个页面（defineAppPage，URL 统一 /apps/person-agent/...）。
+ * The app's two pages (defineAppPage, urls under /apps/person-agent).
+ *
+ * §3.10.1 三档标注：本应用是**纯只读应用**（所有页面都不声明 writes，下钻靠工具）
+ * ——合法形态：规则 1 自动豁免（没有详情页 → map 可空）、规则 3 无从触发、
+ * §3.9 完备性警告天然沉默。
+ * §3.10.1 archetype annotations: this app is a **pure read-only app** (no page
+ * declares writes; drill-down happens through tools) — a legal shape: rule 1
+ * exempts it (no detail pages → the map may be empty), rule 3 cannot trigger,
+ * and the §3.9 coverage warning stays silent by construction.
+ * - `overview` = **首页（home）**：entry，基础信息 + map（这里列了只读副页——
+ *   map 可空但列了真实可去的副页也合法）；
+ *   / the home page: the entry; base info + a map (optional here — listing the
+ *   real reachable secondary page is equally legal);
+ * - `workspaces` = **只读副页**（无参、非入口、只读的剩余形态）：仪表盘应用的
+ *   第二屏，除 definePage 基础校验外无额外要求。
+ *   / a read-only secondary page (parameterless, non-entry, read-only — the
+ *   leftover shape): a dashboard app's second screen, nothing beyond the
+ *   definePage basics.
+ *
+ * tree 是同步纯函数，读 OverviewSource 的最新缓存；load 刷新后取首屏快照进
+ * PAGE 块——数据拿不到就显示「不可用」，不假装。
+ * The tree is a sync pure function over the OverviewSource's latest cache; load
  * refreshes and hands the first-screen snapshot to the PAGE block —
  * unavailable data says so, never faked.
  * @module @veren/person-agent-app
@@ -35,11 +51,14 @@ export function overviewFirstScreen(snapshot: OverviewSnapshot): OverviewFirstSc
 }
 
 /**
- * 入口页：个人工作台概览 / the entry page: the personal workbench overview.
+ * 首页（home 档 / entry）：个人工作台概览 / the home page (the home archetype / entry).
  * 基础信息（load 刷新后取真实快照）+ 能力地图（工作区浏览页）；三区数据全部
- * 来自真实服务面。
+ * 来自真实服务面。本应用没有详情页 → map 是可选项，这里列只读副页属合法的
+ * 额外信息（规则 1 对纯只读应用豁免）。
  * Basic information (a real snapshot via load) plus the capability map (the
- * workspace browser); all three sections come from real service faces.
+ * workspace browser); all three sections come from real service faces. This
+ * app has no detail pages → the map is optional; listing the read-only
+ * secondary page is legal extra information (rule 1 exempts pure read-only apps).
  */
 export function createOverviewPage(source: OverviewSource): PageDefinition<OverviewSnapshot> {
   return defineAppPage<OverviewSnapshot>({
@@ -53,8 +72,9 @@ export function createOverviewPage(source: OverviewSource): PageDefinition<Overv
       + '表示该数据源缺席或读取失败——如实告知用户，不要编造数字。'
       + '要看各工作区的会话账目明细时，打开 map 里的工作区浏览页。',
     instanceTitle: () => '个人工作台',
-    // §3.10.1：一级页 = 基础信息（load 刷新真实服务面）+ 能力地图
-    // / §3.10.1: the home page = basic information (load refreshes the real service faces) + the capability map
+    // §3.10.1：首页 = 基础信息（load 刷新真实服务面）+ 能力地图（无详情页 → map 可选）
+    // / §3.10.1: the home page = basic information (load refreshes the real
+    // service faces) + the capability map (no detail pages → the map is optional)
     load: async () => {
       await source.refresh()
       return overviewFirstScreen(source.current()) satisfies PageJsonValue
@@ -82,7 +102,8 @@ export function createOverviewPage(source: OverviewSource): PageDefinition<Overv
 }
 
 /**
- * 工作区浏览页（无参数工具页）/ the workspace browser page (a parameterless tool page).
+ * 工作区浏览页（只读副页：无参、非入口、只读）/ the workspace browser page (a
+ * read-only secondary page: parameterless, non-entry, read-only).
  * 每个工作区一行（id/标题/会话账目数），只读；会话明细用收编的
  * workspace_session_list 工具按需查询。
  * One row per workspace (id/title/session ledger count), read-only; per-session

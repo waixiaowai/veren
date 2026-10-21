@@ -67,25 +67,32 @@ export function definePage<S>(definition: {
 
 /**
  * 应用作用域的页面定义：在 definePage 之上强制 `/apps/<appId>/...` URL 形态，
- * 并补齐契约缺省：tools 缺省 []（§3.1、§6.1）；二级页结构校验（§3.10.5 规则 3）。
+ * 并补齐契约缺省：tools 缺省 []（§3.1、§6.1）；详情页结构校验（§3.10.5 规则 3）。
  * `pageRevision` 已删除（G11）：打开一律新建，无升级分叉。
  * 应用注册器（app-registry）的注册路径应使用本函数或等效校验。
+ * 三档分类（§3.10.1）在此只判 detail（URL 带 `:param`，纯 URL 形态事实）；
+ * home/action 的区分需要 entry 归属，归 app-registry 的注册路径（pageArchetypeOf）。
  * App-scoped definePage: enforces the /apps url shape, contract defaults, and
- * the detail-page structure rules (§3.10.5 rule 3).
+ * the detail-page structure rules (§3.10.5 rule 3). Of the three archetypes
+ * (§3.10.1) only `detail` is derivable here (a `:param` in the url — a pure
+ * url-shape fact); telling home from action needs the entry, so that belongs
+ * to app-registry's registration path (pageArchetypeOf).
  */
 export function defineAppPage<S>(definition: Parameters<typeof definePage<S>>[0]): PageDefinition<S> {
   assertAppUrlPattern(definition.name, definition.url)
   const page = definePage(definition)
   const isDetail = patternParamsOf(page.url).length > 0
   if (isDetail) {
-    // §3.10.5 规则 3：二级页必须 declares 写能力 + 至少挂一个工具 + 说明非空。
+    // §3.10.5 规则 3：详情页必须 declares 写能力 + 至少挂一个工具 + 说明非空。
     // 写工具的判定 = 页面 writes: true 声明（文档明确其等价性）；目录在位性由
-    // app-registry 的注册路径另行校验。一级页不受此约束（规则 2：只读合法）。
+    // app-registry 的注册路径另行校验。首页/工具页不受此约束（规则 2：只读合法；
+    // 工具页缺写工具走 §3.9 警告通道，不做门禁）。
     // Rule 3: a detail page must declare write capability, mount at least one
     // tool, and carry non-empty instructions. "Has a write tool" = the page's
     // writes: true declaration (the doc's stated equivalence); catalog presence
-    // is validated separately by the app-registry path. Home pages are exempt
-    // (rule 2: read-only is legal there).
+    // is validated separately by the app-registry path. Home and action pages
+    // are exempt (rule 2: read-only is legal; an action page missing its write
+    // tools rides the §3.9 warning channel, never a gate).
     if (page.writes !== true) {
       throw new PageError(PageErrorCode.DetailInvalid,
         `detail page "${page.name}" (${page.url}) must declare writes: true — a page bound to one record exists to act on it`)
@@ -117,10 +124,16 @@ function validateMapEntries(name: string, map: readonly PageMapEntry[] | undefin
 /**
  * 页面工具完备性警告（§3.9，开发期轻量核对）：页面声明了"本页职责需要写能力"
  * 却一个工具都没挂 → 返回一句话警告；否则 undefined。只提醒，不做门禁——
- * 五秒钟看懂在提醒什么："页面开着、活干不了"。
+ * 五秒钟看懂在提醒什么："页面开着、活干不了"。§3.10.5 规则 3b（工具页必须有
+ * 写工具）走的就是本通道：详情页在注册期已被规则 3 拦死，剩下声明 `writes: true`
+ * 的无参页面即工具页，缺工具在这里被警告——口径与 `writes` 警告完全一致。
  * Page tool-coverage warning (§3.9, dev-time lightweight self-check): a page
  * that declares `writes: true` yet mounts no tools returns a one-line warning;
- * otherwise undefined. A reminder, never a gate.
+ * otherwise undefined. A reminder, never a gate. §3.10.5 rule 3b (an action
+ * page must hold write tools) rides exactly this channel: detail pages are
+ * already refused at registration by rule 3, so a parameterless page still
+ * declaring `writes: true` IS an action page, and its missing tools warn here —
+ * the same channel and criteria as the `writes` warning.
  */
 export function pageToolWarning<S>(page: PageDefinition<S>): string | undefined {
   if (page.writes !== true || (page.tools ?? []).length > 0) return undefined

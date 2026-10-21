@@ -97,9 +97,11 @@ export const PageErrorCode = {
    */
   HopLimit: 'page/hop-limit',
   /**
-   * 一级页（entry）结构不合规（§3.10.5 规则 1）：URL 带 :param 或 map 为空，
-   * 注册期拒绝。/ home page structurally invalid (§3.10.5 rule 1): the url
-   * carries a :param or the map is empty; registration is refused.
+   * 首页（home 档）结构不合规（§3.10.5 规则 1）：URL 带 :param，或——仅当本应用
+   * 还有详情页时——map 为空。单页/纯仪表盘应用的空 map 合法，不报错。
+   * / home page structurally invalid (§3.10.5 rule 1): the url carries a :param,
+   * or — only when the app also has detail pages — the map is empty. An empty
+   * map is legal for single-page / pure-dashboard apps and must not be rejected.
    */
   HomeInvalid: 'page/home-invalid',
   /**
@@ -286,6 +288,32 @@ export function patternParamsOf(url: string): readonly string[] {
   return url.split('/').filter((segment) => segment.startsWith(':') && segment.length > 1).map((segment) => segment.slice(1))
 }
 
+/** 页面档位（§3.10.1 三档 + 只读剩余形态）/ the page archetype (§3.10.1's three tiers plus the read-only leftover) */
+export type PageArchetype = 'home' | 'detail' | 'action' | 'readonly'
+
+/**
+ * 三档推导（§3.10.1）：URL 带 `:param` → `detail`；无参且是 entry → `home`；
+ * 无参、非 entry、声明 `writes: true` → `action`；其余（无参非入口只读）→
+ * `readonly`（只读副页，仪表盘应用的合法第二屏）。`entryKey` 缺省 = 调用方不知道
+ * 入口（裸注册场景），此时无参页面不判 `home`。分类写进注册契约：推导规则只有
+ * 这一份，app-registry 的注册校验与文档口径共用它。
+ * The three-tier derivation (§3.10.1): a `:param` url → `detail`; parameterless
+ * and the entry → `home`; parameterless, non-entry, declaring `writes: true` →
+ * `action`; the rest (parameterless non-entry read-only) → `readonly` (a legal
+ * secondary page of dashboard apps). Without `entryKey` the caller does not know
+ * the entry (raw registration), so a parameterless page is never classified home.
+ * The taxonomy is part of the registration contract: this is the one derivation,
+ * shared by app-registry's registration checks and the doc's wording.
+ */
+export function pageArchetypeOf(
+  page: Pick<PageDefinition<never>, 'name' | 'url' | 'writes'>,
+  entryKey?: string,
+): PageArchetype {
+  if (patternParamsOf(page.url).length > 0) return 'detail'
+  if (entryKey !== undefined && page.name === entryKey) return 'home'
+  return page.writes === true ? 'action' : 'readonly'
+}
+
 /**
  * §3.10.5 规则 5（挂载期，写 PAGE 块前）：实例参数必须覆盖 URL 模式声明的
  * 每个 `:param`，逐字一致。查询参数允许作为额外键存在（模式不含查询串）。
@@ -306,16 +334,19 @@ export function assertParamsMatchPattern(pattern: string, params: Readonly<Recor
 }
 
 /**
- * 一级页能力地图覆盖查询（§3.10 验收面）：地图应列全本应用全部二级页的 URL
- * 模板、每条都带"什么时候用"、且不指向本应用之外的页面。返回问题清单——
- * 空数组即覆盖成立。生产校验只在注册期查"map 非空"（规则 1，兄弟页面可能
- * 尚未注册）；"列全详情页"是应用的验收断言，由各应用测试用本函数钉住。
- * The home map coverage query (the §3.10 acceptance face): the map should list
- * every detail-page url pattern of the app, each with a "when to open it"
- * phrase, and point nowhere outside the app. Returns the problem list — empty
- * means covered. Production validation only demands a non-empty map at
- * registration (rule 1; siblings may register later); full coverage is the
- * app's acceptance assertion, pinned by each app's tests via this helper.
+ * 首页能力地图覆盖查询（§3.10 验收面）：有详情页的应用，地图应列全全部详情页的
+ * URL 模板、每条都带"什么时候用"、且不指向本应用之外的页面。返回问题清单——
+ * 空数组即覆盖成立。规则 1 已收窄：**空 map 只在应用还有详情页时才算问题**
+ * （单页应用/纯仪表盘应用合法）；生产校验同此口径（注册期 app-registry 落地），
+ * "列全详情页"是应用的验收断言，由各应用测试用本函数钉住。
+ * The home map coverage query (the §3.10 acceptance face): for an app that has
+ * detail pages, the map should list every detail-page url pattern, each with a
+ * "when to open it" phrase, and point nowhere outside the app. Returns the
+ * problem list — empty means covered. Rule 1 is narrowed: **an empty map is a
+ * problem only while the app has detail pages** (single-page / pure-dashboard
+ * apps are legal); production validation shares this reading (landed at
+ * registration in app-registry), and full coverage stays the app's acceptance
+ * assertion, pinned by each app's tests via this helper.
  */
 export function homeMapIssues(home: PageDefinition<never>, pages: readonly PageDefinition<never>[]): readonly string[] {
   const issues: string[] = []
@@ -323,8 +354,10 @@ export function homeMapIssues(home: PageDefinition<never>, pages: readonly PageD
     issues.push(`home page "${home.name}" url ${JSON.stringify(home.url)} carries :params; a home page must be parameter-free (§3.10.5 rule 1)`)
   }
   const map = home.map ?? []
-  if (map.length === 0) {
-    issues.push(`home page "${home.name}" has an empty map; it must list at least one reachable page (rule 1)`)
+  // 规则 1（收窄）：map 仅在有详情页时强制非空 / rule 1 (narrowed): the map is demanded only while detail pages exist
+  const hasDetailPages = pages.some((page) => patternParamsOf(page.url).length > 0)
+  if (hasDetailPages && map.length === 0) {
+    issues.push(`home page "${home.name}" has an empty map while the app has detail pages; it must list at least one reachable page (rule 1)`)
   }
   const knownUrls = new Set(pages.map((page) => page.url))
   for (const [index, entry] of map.entries()) {

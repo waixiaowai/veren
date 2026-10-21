@@ -1,17 +1,25 @@
 /** @jsxRuntime automatic @jsxImportSource @veren/prompt-core */
 /**
- * 应用的三个页面：列表 / 详情 / 发布（defineAppPage，URL 统一 /apps/task-workbench/...）。
- * The app's three pages: list / detail / publish via defineAppPage.
+ * 应用的三个页面（defineAppPage，URL 统一 /apps/task-workbench/...）。
+ * The app's three pages via defineAppPage.
  *
- * §3.10 页面信息组织：列表页是一级页（基础信息 = load 取的真实任务列表 + 能力
- * 地图 = 详情/发布页的 URL 模板）；详情页是二级页（params + load 取该条记录的
- * 快照 + writes: true + "只干这一件事"的说明）。页面是工厂：load 闭包引用本
- * 次装配的权威 store，同一条数据同时供给 PAGE 块首屏（load）与 PAGE-DATA
- * 增量同步（tree/live 视图），不存在第二份数据源。
- * §3.10 page information organization: the list page is the home page (basic
- * information = the real task list via load; capability map = the detail and
- * publish url templates); the detail page is a second-level page (params + a
- * load of that one record + writes: true + a "this page does one thing" note).
+ * §3.10.1 三档标注 / §3.10.1 archetype annotations:
+ * - `list`  = **首页（home）**：entry，基础信息（load 取的真实任务列表）+ 能力地图
+ *   （本应用有详情页 → map 必须非空，列全详情/发布两页的 URL 模板）；
+ *   / the home page: the entry; base information (the real task list via load)
+ *   plus the capability map (this app has a detail page → the map must be
+ *   non-empty and list both the detail and the publish templates);
+ * - `detail` = **详情页（detail）**：URL 带 :param，params + load 取该条记录的
+ *   快照 + writes: true + "只干这一件事"的说明；
+ *   / the detail page: a :param url; params + a load of that one record +
+ *   writes: true + a "this page does one thing" note;
+ * - `publish` = **工具页（action）**：无参、非入口、writes: true——"发布一件事"
+ *   的页面，写工具（publish_task）+ 说明在位，不需要 map。
+ *   / the action page: parameterless, non-entry, writes: true — a "do one deed"
+ *   page with its write tool and instructions in place; no map needed.
+ *
+ * 页面是工厂：load 闭包引用本次装配的权威 store，同一条数据同时供给 PAGE 块首屏
+ * （load）与 PAGE-DATA 增量同步（tree/live 视图），不存在第二份数据源。
  * Pages are factories: load closes over the authoritative store of this
  * assembly — the same data feeds the PAGE block's first screen (load) and the
  * PAGE-DATA sync (the tree/live view); there is no second data source.
@@ -90,7 +98,7 @@ export function detailFirstScreen(items: readonly TaskItem[], taskId: string): T
   }
 }
 
-// ---- 列表页（一级页 / entry）---- List page (the home page / entry) ----
+// ---- 列表页（首页 home / entry）---- List page (the home page / entry) ----
 
 export function createListPage(store: TaskStore): PageDefinition<TaskItem[]> {
   return defineAppPage<TaskItem[]>({
@@ -104,9 +112,11 @@ export function createListPage(store: TaskStore): PageDefinition<TaskItem[]> {
       + 'data 行是首屏快照（open/taken/done 计数 + roots 列表），PAGE-DATA 块以最新一次为准。'
       + '用 take_task 接取 open 任务，complete_task 完成 taken 任务；完成后用一句话确认。',
     instanceTitle: () => '任务列表',
-    // §3.10.1：一级页 = 基础信息（load 取真实列表）+ 能力地图（可去的页面与时机）
+    // §3.10.1：首页 = 基础信息（load 取真实列表）+ 能力地图（可去的页面与时机；
+    // 本应用有详情页 → map 必须非空，规则 1）
     // / §3.10.1: the home page = basic information (the real list via load) +
-    // the capability map (reachable pages and when to open them)
+    // the capability map (reachable pages and when; this app has a detail page,
+    // so the map must be non-empty — rule 1)
     load: async () => listFirstScreen(store.getState()) satisfies PageJsonValue,
     map: [
       {
@@ -131,7 +141,7 @@ export function createListPage(store: TaskStore): PageDefinition<TaskItem[]> {
   })
 }
 
-// ---- 详情页（二级页 / detail）---- Detail page (a second-level page) ----
+// ---- 详情页（详情页 detail）---- Detail page (the detail archetype) ----
 
 export function createDetailPage(store: TaskStore): PageDefinition<TaskItem[]> {
   return defineAppPage<TaskItem[]>({
@@ -149,7 +159,7 @@ export function createDetailPage(store: TaskStore): PageDefinition<TaskItem[]> {
     // 实例化后显示「任务 #1」，始终是根任务标题（§4.7.4）/ instance title stays the
     // root title (§4.7.4)
     instanceTitle: (params) => `任务 #${params.taskId}`,
-    // §3.10.3：二级页 load 按参数取该条记录的首屏快照
+    // §3.10.3：详情页 load 按参数取该条记录的首屏快照
     // / §3.10.3: a detail page's load fetches that one record's first screen by params
     load: async (params) => detailFirstScreen(store.getState(), String(params.taskId ?? '')) satisfies PageJsonValue,
     tree: (params, items) => {
@@ -184,7 +194,8 @@ export function createDetailPage(store: TaskStore): PageDefinition<TaskItem[]> {
   })
 }
 
-// ---- 发布页（无参数工具页 / publish: a parameterless tool page）----
+// ---- 发布页（工具页 action：无参 + 写工具 publish_task，不需要 map）----
+// ---- Publish page (the action archetype: parameterless + the publish_task write tool, no map) ----
 
 export function createPublishPage(): PageDefinition<TaskItem[]> {
   return defineAppPage<TaskItem[]>({

@@ -16,7 +16,7 @@
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { PageError, PageErrorCode, defineAppPage, mountPage, patternParamsOf } from '@veren/prompt-page'
+import { PageError, PageErrorCode, defineAppPage, mountPage, pageArchetypeOf, patternParamsOf } from '@veren/prompt-page'
 import type { PageDefinition, PageLiveBinding } from '@veren/prompt-page'
 import { AppErrorCode } from './types.ts'
 import type { AppCapability, AppId, AppPageRegistrar, AppRecord, AppToolEntry, AppToolRegistrar, ApplicationDefinition, PageKey, PageMirrorFace, PageRegistration } from './types.ts'
@@ -183,21 +183,40 @@ export class AppRegistryService extends Service {
           { appId: id, page: page.name, tool: localName })
       }
     }
-    // §3.10.5 规则 1（注册期，fail loud）：一级页（entry）URL 不含 :param 且
-    // 能力地图非空。规则 4 的 entry-not-home broken 态（refreshEntryState）是
-    // 未来旁路注册的兜底；经本注册面的参数化 entry 页在此即被拒。
-    // §3.10.5 rule 1 (registration time, fail loud): the home page (the entry)
-    // carries no :param and a non-empty map. Rule 4's entry-not-home broken
-    // state (refreshEntryState) is the backstop for any future bypass; through
+    // §3.10.5 规则 1（注册期，fail loud；2026-10-21 收窄）：首页 URL 不含 :param；
+    // map **仅当本应用还有详情页时**强制非空——单页应用/纯仪表盘应用的空 map 合法，
+    // 不许因此报错。规则在两个注册序上都成立：先详情后首页 → 首页注册时在本页查；
+    // 先首页后详情 → 详情页注册时回头查已登记的首页。规则 4 的 entry-not-home
+    // broken 态（refreshEntryState）是未来旁路注册的兜底；经本注册面的参数化
+    // entry 页在此即被拒。
+    // §3.10.5 rule 1 (registration time, fail loud; narrowed 2026-10-21): the
+    // home page carries no :param, and its map is demanded **only while the app
+    // also has detail pages** — an empty map is legal for single-page /
+    // pure-dashboard apps and must never be rejected. The rule holds on both
+    // registration orders: detail-then-home is checked here (at the home's own
+    // registration); home-then-detail re-checks the registered home when the
+    // detail page arrives. Rule 4's entry-not-home broken state
+    // (refreshEntryState) stays the backstop for any future bypass; through
     // this registration path a parameterized entry page is rejected here.
-    if (page.name === entry.definition.entry) {
-      const entryParams = patternParamsOf(page.url)
-      if (entryParams.length > 0 || (page.map ?? []).length === 0) {
-        throw new PageError(PageErrorCode.HomeInvalid,
-          `home page "${id}/${page.name}" must be parameter-free (got :params ${JSON.stringify(entryParams)}) `
-          + `and list a non-empty capability map (got ${(page.map ?? []).length} entries)`,
-        )
-      }
+    const entryParams = page.name === entry.definition.entry ? patternParamsOf(page.url) : []
+    if (entryParams.length > 0) {
+      throw new PageError(PageErrorCode.HomeInvalid,
+        `home page "${id}/${page.name}" must be parameter-free, got :params ${JSON.stringify(entryParams)}`,
+      )
+    }
+    // 本页登记后的详情页与首页各是谁（本页尚未进 entry.pages，detail/home 都要
+    // 把"正在注册的这页"算进去）/ the app's detail and home page as of this
+    // registration (the page under registration is not in entry.pages yet, so
+    // both faces account for it explicitly)
+    const archetype = pageArchetypeOf(page, entry.definition.entry)
+    const detailAfter = archetype === 'detail'
+      || [...entry.pages.values()].some((registered) => patternParamsOf(registered.page.url).length > 0)
+    const homeAfter = archetype === 'home' ? page : entry.pages.get(entry.definition.entry)?.page
+    if (detailAfter && homeAfter !== undefined && (homeAfter.map ?? []).length === 0) {
+      throw new PageError(PageErrorCode.HomeInvalid,
+        `app "${id}" has detail page(s) but its home page "${id}/${homeAfter.name}" lists an empty capability map `
+        + `— add the detail-page url template(s) to the home's map (§3.10.5 rule 1)`,
+      )
     }
     entry.pages.set(page.name, { page, ...(live === undefined ? {} : { live: this.sealLive(live.store, page) }) })
     this.refreshEntryState(entry, id)
@@ -326,13 +345,15 @@ export class AppRegistryService extends Service {
   }
 
   /**
-   * 入口页面在位且为一级页 → active；缺失 → broken（EntryMissing）；在位但带
-   * :param → broken（§3.10.5 规则 4 的 entry-not-home，同路不抛异常）。经正常
-   * 注册面参数化的 entry 页已在 registerPage 被拒（规则 1），本分支是旁路的兜底。
-   * Entry page present and a home page → active; missing → broken
-   * (EntryMissing); present but parameterized → broken (§3.10.5 rule 4's
-   * entry-not-home, same route, no throw). The normal registration path already
-   * rejects a parameterized entry (rule 1); this branch is the bypass backstop.
+   * 入口页面在位且为首页（home 档，无 :param）→ active；缺失 → broken
+   * （EntryMissing）；在位但带 :param → broken（§3.10.5 规则 4 的 entry-not-home，
+   * 同路不抛异常）。经正常注册面参数化的 entry 页已在 registerPage 被拒（规则 1），
+   * 本分支是旁路的兜底。
+   * Entry page present and a home page (the home archetype, no :param) → active;
+   * missing → broken (EntryMissing); present but parameterized → broken
+   * (§3.10.5 rule 4's entry-not-home, same route, no throw). The normal
+   * registration path already rejects a parameterized entry (rule 1); this
+   * branch is the bypass backstop.
    */
   private refreshEntryState(entry: AppEntry, id: string): void {
     const entryPage = entry.pages.get(entry.definition.entry as PageKey)

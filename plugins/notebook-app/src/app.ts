@@ -91,7 +91,7 @@ function firstScreenOwner(env: { readonly preset?: string }): string | null {
   return env.preset ?? null
 }
 
-/** 入口页（笔记列表）工厂 / the entry page (the note list) factory */
+/** 首页（home 档 / entry，笔记列表）工厂 / the home page (the home archetype / entry, the note list) factory */
 export function createListPage(port: () => NotebookToolsPort): PageDefinition<readonly NoteSummary[]> {
   return defineAppPage<readonly NoteSummary[]>({
     name: 'list',
@@ -104,9 +104,11 @@ export function createListPage(port: () => NotebookToolsPort): PageDefinition<re
       + '用 list_notes 刷新列表，用 write_note 新建笔记；新建后报出笔记标题即可。'
       + '要读/改/删某一条笔记时，打开 map 里的笔记详情页 URL。',
     instanceTitle: () => '笔记列表',
-    // §3.10.1：一级页 = 基础信息（load 取当前预设的真实笔记列表）+ 能力地图
+    // §3.10.1：首页 = 基础信息（load 取当前预设的真实笔记列表）+ 能力地图
+    // （本应用有详情页 → map 必须非空，规则 1）
     // / §3.10.1: the home page = basic information (the current preset's real
-    // note list via load) + the capability map
+    // note list via load) + the capability map (this app has a detail page, so
+    // the map must be non-empty — rule 1)
     load: async (_params, env) => {
       const owner = firstScreenOwner(env)
       if (owner === null) return { available: false, owner: null, notes: [] } satisfies PageJsonValue
@@ -133,7 +135,7 @@ export function createListPage(port: () => NotebookToolsPort): PageDefinition<re
   })
 }
 
-/** 笔记详情页工厂 / the note detail page factory */
+/** 笔记详情页（detail 档）工厂 / the note detail page (the detail archetype) factory */
 export function createNotePage(port: () => NotebookToolsPort): PageDefinition<NoteView | undefined> {
   return defineAppPage<NoteView | undefined>({
     name: 'note',
@@ -146,7 +148,7 @@ export function createNotePage(port: () => NotebookToolsPort): PageDefinition<No
       + '用 read_note 读取全文；用 rewrite_note 改写，携带读到的 updatedAt 作 expectedUpdatedAt 防覆盖；'
       + 'delete_note 永久删除，删除前先向用户确认。',
     instanceTitle: (params) => `笔记 #${params.noteId ?? ''}`,
-    // §3.10.3：二级页 load 按参数取该条记录的首屏；笔记不存在时 load 抛
+    // §3.10.3：详情页 load 按参数取该条记录的首屏；笔记不存在时 load 抛
     // notebook/note-not-found，data 行如实给出失败态。
     // §3.10.3: the detail load fetches that one record's first screen; a missing
     // note throws notebook/note-not-found and the data line carries the error state.

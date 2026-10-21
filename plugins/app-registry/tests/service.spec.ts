@@ -21,7 +21,8 @@ function pageDef(appId: string, name: string, path = name): PageDefinition<never
   }
 }
 
-/** 一级页夹具：无参 + 非空能力地图（§3.10.5 规则 1）/ a compliant home fixture: no params + a non-empty map (rule 1) */
+/** 首页夹具：无参 + 非空能力地图（有详情页的应用，§3.10.5 规则 1）
+ * / a compliant home fixture: no params + a non-empty map (rule 1, apps with detail pages) */
 function homeDef(appId: string, name: string, path = name): PageDefinition<never> {
   return {
     ...pageDef(appId, name, path),
@@ -29,7 +30,7 @@ function homeDef(appId: string, name: string, path = name): PageDefinition<never
   }
 }
 
-/** 二级页夹具：带 :param + writes + 工具 + 说明（§3.10.5 规则 3；引用的工具必须已定义）
+/** 二级页夹具 → 详情页夹具：带 :param + writes + 工具 + 说明（§3.10.5 规则 3；引用的工具必须已定义）
  * / a compliant detail fixture: a :param + writes + a tool + instructions (rule 3; the referenced tool must exist) */
 function detailDef(appId: string, name: string, path: string, tool = 'read'): PageDefinition<never> {
   return {
@@ -188,10 +189,39 @@ describe('pages 注册面', () => {
       .toThrowError(expect.objectContaining({ code: 'page/home-invalid' }))
   })
 
-  it('§3.10.5 规则 1：entry 页 map 为空 → 注册期拒绝（首页必须有能力地图）', () => {
+  it('§3.10.5 规则 1（收窄）：单页应用的空 map 合法——注册不再被拒', () => {
+    // 上一轮迁移实测：旧口径强制每个应用 ≥2 页，单页应用的 map 无处可指。
+    // / live migration feedback: the old rule forced every app to have ≥2
+    // pages; a single-page app has nothing for its map to point at.
     const { apps } = setup('todo')
+    expect(() => apps.pages('todo' as AppId).register(pageDef('todo', 'main'))).not.toThrow()
+    expect(apps.get('todo' as AppId)?.state).toBe('active')
+  })
+
+  it('§3.10.5 规则 1：有详情页的应用，首页空 map 仍被拒（home-then-detail 序）', () => {
+    const { apps } = setup('todo')
+    apps.pages('todo' as AppId).register(pageDef('todo', 'main')) // 空 map 首页：此刻合法 / an empty-map home: legal so far
+    apps.tools('todo' as AppId).define(makeTool())
+    expect(() => apps.pages('todo' as AppId).register(detailDef('todo', 'detail', 'detail/:id')))
+      .toThrowError(expect.objectContaining({ code: 'page/home-invalid' }))
+    // 报错直说该改什么：给首页的 map 补详情页模板 / the error says what to fix
+    let message = ''
+    try {
+      apps.pages('todo' as AppId).register(detailDef('todo', 'detail', 'detail/:id'))
+    } catch (error) {
+      message = (error as Error).message
+    }
+    expect(message).toContain('empty capability map')
+    expect(apps.listPages('todo' as AppId)).toHaveLength(1) // 被拒的详情页不留残注册
+  })
+
+  it('§3.10.5 规则 1：detail-then-home 序同样被拒（先注册详情页，后补空 map 首页）', () => {
+    const { apps } = setup('todo')
+    apps.tools('todo' as AppId).define(makeTool())
+    apps.pages('todo' as AppId).register(detailDef('todo', 'detail', 'detail/:id'))
     expect(() => apps.pages('todo' as AppId).register(pageDef('todo', 'main')))
       .toThrowError(expect.objectContaining({ code: 'page/home-invalid' }))
+    expect(apps.listPages('todo' as AppId)).toHaveLength(1) // 被拒的首页不留残注册
   })
 
   it('§3.10.5 规则 1 不约束非 entry 页：合规二级页可正常注册', () => {

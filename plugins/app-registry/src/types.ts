@@ -153,10 +153,10 @@ export const AppErrorCode = {
   /** 入口页面缺失 / entry page missing */
   EntryMissing: 'app/entry-missing',
   /**
-   * 入口指向了带 :param 的页面（§3.10.5 规则 4）：entry 必须指向一级页；
+   * 入口指向了带 :param 的页面（§3.10.5 规则 4）：entry 必须指向首页（home 档）；
    * 应用标 broken，不抛到宿主启动。
-   * / the entry points at a :param page (§3.10.5 rule 4): entry must be a home
-   * page; the app turns broken instead of failing host startup.
+   * / the entry points at a :param page (§3.10.5 rule 4): entry must be the home
+   * page (the home archetype); the app turns broken instead of failing host startup.
    */
   EntryNotHome: 'app/entry-not-home',
   /** 工具本地名重复 / duplicate tool local name */

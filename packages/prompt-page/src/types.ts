@@ -65,15 +65,24 @@ export interface PageMapEntry {
 }
 
 /**
- * 首屏载入环境（§3.10.3）：宿主在建会话跑 `load` 时提供的页面会话事实。
- * 按预设隔离数据的应用（如记事本）以 `preset` 解析归属——与页面工具取调用者的
- * 口径一致（会话头 agentPreset）。缺省 = 宿主未暴露该事实，load 应显式表达
+ * 首屏载入环境（§3.10.3/§3.10.8）：宿主在建会话跑 `load` 时提供的页面会话事实。
+ * 按预设隔离数据的应用（记事本、论坛）以 `preset` 解析归属——与页面工具取调用者
+ * 的口径同源（会话头 agentPreset）。缺省 = 宿主未暴露该事实，load 应显式表达
  * "归属未知"，不编造数据。
- * The first-screen load environment (§3.10.3): facts about the page session
- * the host hands `load` at session creation. Preset-scoped apps (the notebook)
- * resolve their owner from `preset` — the same face the page tools read the
- * caller from (the session header's agentPreset). Absent = the host did not
- * expose it; `load` must then say "owner unknown" explicitly, never fake data.
+ * **"身份类信息不进 URL"原则（§3.10.8）**：URL 是可分享、可复现的定位符，只回答
+ * "哪一页、哪条记录"；调用者是谁走本环境进入取数路径，永远不出现在 URL 模式里。
+ * 因此同一 URL 在不同 preset 下拿到不同数据是有意的取数语义，不是泄漏。
+ * The first-screen load environment (§3.10.3/§3.10.8): facts about the page
+ * session the host hands `load` at session creation. Preset-scoped apps (the
+ * notebook, the forum) resolve their owner from `preset` — the same face the
+ * page tools read the caller from (the session header's agentPreset). Absent =
+ * the host did not expose it; `load` must then say "owner unknown" explicitly,
+ * never fake data.
+ * The "identity never enters the URL" principle (§3.10.8): the url is a
+ * shareable, reproducible locator answering "which page, which record"; caller
+ * identity travels through this environment and never appears in a url pattern.
+ * The same url yielding different data under different presets is therefore
+ * intentional semantics, not a leak.
  */
 export interface PageLoadEnv {
   /** 页面会话的预设 id / the page session's preset id */
@@ -119,24 +128,31 @@ export interface PageDefinition<S> {
   /**
    * 本页职责需要写能力（开发期核对声明，§3.9）：声明 true 而未挂任何工具时，
    * 装配期打一条警告——"页面开着、活干不了"。只提醒，不做门禁。
-   * 二级页（URL 带 `:param`）必须声明 true 且至少挂一个工具（§3.10.5 规则 3）；
-   * 一级页不因缺写工具报警（规则 2：一级页是地图，只读合法）。
+   * 三档语义（§3.10.1）：它是**工具页（action）的档位标记**——无参、非入口的页面
+   * 声明 true 即自报"我是做事的页"，必须有写工具（缺了走 §3.9 警告）与说明；
+   * 详情页（URL 带 `:param`）必须声明 true 且至少挂一个工具（§3.10.5 规则 3）；
+   * 首页与只读副页不声明 true，也不因缺写工具报警（规则 2：只读合法）。
    * This page's duty needs write capability (dev-time self-check, §3.9): a
    * `true` with no mounted tools logs one assembly-time warning — a page that
-   * is open but cannot do its job. A reminder only, never a gate. Detail pages
-   * (a `:param` in the url) must declare true and mount at least one tool
-   * (§3.10.5 rule 3); home pages are never flagged for lacking write tools
-   * (rule 2: a home page is a map, read-only is legal).
+   * is open but cannot do its job. A reminder only, never a gate. Three-tier
+   * reading (§3.10.1): the flag is the **action page's archetype marker** — a
+   * parameterless non-entry page declaring true self-reports "I do a deed" and
+   * must hold write tools (a miss rides the §3.9 warning) and instructions.
+   * Detail pages (a `:param` in the url) must declare true and mount at least
+   * one tool (§3.10.5 rule 3); home and read-only secondary pages never declare
+   * it and are never flagged (rule 2: read-only is legal).
    */
   readonly writes?: boolean
   /** 本页给模型的说明；随 PAGE 块附上，不是系统提示词 / page note, not a system prompt */
   readonly instructions?: string
   /**
    * 能力地图（§3.10.1）：本应用可去的页面、各自的 URL 模板与"什么时候去"。
-   * 一级页（entry）必须非空（§3.10.5 规则 1）；二级页可省。
+   * 首页（entry）**仅当本应用还有详情页时**必须非空（§3.10.5 规则 1 收窄后）；
+   * 详情页/工具页/只读副页可省。
    * The capability map (§3.10.1): where this app can go, each target's url
-   * pattern and when to open it. Required non-empty on the home page (rule 1);
-   * optional on detail pages.
+   * pattern and when to open it. Required on the home page (the entry) **only
+   * while the app also has detail pages** (narrowed rule 1); optional on
+   * detail / action / read-only pages.
    */
   readonly map?: readonly PageMapEntry[]
   /**

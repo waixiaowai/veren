@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defineAppPage, definePage } from '../src/index.ts'
+import { defineAppPage, definePage, pageToolWarning } from '../src/index.ts'
 import {
   APPS_URL_PREFIX,
   RESERVED_APP_IDS,
@@ -8,6 +8,7 @@ import {
   homeMapIssues,
   isAppUrlPattern,
   isValidAppId,
+  pageArchetypeOf,
   patternParamsOf,
 } from '../src/contract.ts'
 import type { PageDefinition } from '../src/index.ts'
@@ -46,7 +47,7 @@ describe('defineAppPage（应用作用域契约）', () => {
     url: '/apps/review-workbench/review/:pr',
     description: '审阅一个 PR 的改动',
     tools: ['read_diff'],
-    // 二级页规则 3：writes + 工具 + 说明缺一不可 / rule 3: writes + tools + instructions
+    // 详情页规则 3：writes + 工具 + 说明缺一不可 / rule 3: writes + tools + instructions
     writes: true,
     instructions: '先读 diff，再给结论。',
     instanceTitle: title as never,
@@ -61,8 +62,8 @@ describe('defineAppPage（应用作用域契约）', () => {
     expect(page.instanceTitle?.({ pr: '42' })).toBe('审阅 PR #42')
   })
 
-  it('缺省补齐：tools=[]（一级页允许无工具；二级页由规则 3 拒绝空工具）', () => {
-    // 一级页（无 :param、无 writes）：工具缺省 [] 合法 / a home page: the tools default [] is legal
+  it('缺省补齐：tools=[]（首页/工具页之外的只读页允许无工具；详情页由规则 3 拒绝空工具）', () => {
+    // 首页（无 :param、无 writes）：工具缺省 [] 合法 / a home page: the tools default [] is legal
     const page = defineAppPage({
       ...good, url: '/apps/review-workbench/list',
       writes: false, instructions: undefined, tools: undefined,
@@ -76,7 +77,7 @@ describe('defineAppPage（应用作用域契约）', () => {
   })
 })
 
-describe('两级页面校验（§3.10.5）', () => {
+describe('三档页面校验（§3.10.5）', () => {
   const home = {
     name: 'list',
     url: '/apps/review-workbench/list',
@@ -87,7 +88,7 @@ describe('两级页面校验（§3.10.5）', () => {
     tree: () => [],
   }
 
-  it('规则 3：二级页缺 writes / 缺工具 / 缺说明 → page/detail-invalid（注册期拒绝）', () => {
+  it('规则 3：详情页缺 writes / 缺工具 / 缺说明 → page/detail-invalid（注册期拒绝）', () => {
     // writes: false（未声明 true）即违规 / writes: false (not declared true) violates rule 3
     expect(() => defineAppPage({ ...home, name: 'd1', url: '/apps/review-workbench/review/:pr' }))
       .toThrowError(expect.objectContaining({ code: 'page/detail-invalid' }))
@@ -95,20 +96,21 @@ describe('两级页面校验（§3.10.5）', () => {
       .toThrowError(expect.objectContaining({ code: 'page/detail-invalid' }))
     expect(() => defineAppPage({ ...home, name: 'd3', url: '/apps/review-workbench/review/:pr', instructions: ' ' }))
       .toThrowError(expect.objectContaining({ code: 'page/detail-invalid' }))
-    // 合规二级页照常通过 / a compliant detail page passes
+    // 合规详情页照常通过 / a compliant detail page passes
     expect(() => defineAppPage({
       ...home, name: 'd0', url: '/apps/review-workbench/review/:pr',
       writes: true, tools: ['read_diff'], instructions: '只处理这一条审阅。',
     })).not.toThrow()
   })
 
-  it('规则 2（不校验）：一级页没有写工具也不报警——pageToolWarning 只认 writes: true 声明', () => {
-    // 一级页不声明 writes → 装配期完备性警告对它天然沉默（见 page.spec 的警告用例）
-    // / a home page declares no writes → the assembly warning stays silent for it
+  it('规则 2（不校验）：首页/只读副页没有写工具也不报警——pageToolWarning 只认 writes: true 声明', () => {
+    // 首页与只读副页不声明 writes → 装配期完备性警告对它们天然沉默（见下方规则 3b 用例）
+    // / home and read-only secondary pages declare no writes → the assembly
+    // warning stays silent for them (see the rule 3b case below)
     expect(() => defineAppPage(home)).not.toThrow()
   })
 
-  it('规则 1/4 的静态面：patternParamsOf 区分一级（无 :param）与二级（有 :param）', () => {
+  it('规则 1/4 的静态面：patternParamsOf 区分无参（首页/工具页）与带参（详情页）', () => {
     expect(patternParamsOf('/apps/x/list')).toEqual([])
     expect(patternParamsOf('/apps/x/review/:pr')).toEqual(['pr'])
     expect(patternParamsOf('/apps/x/a/:one/b/:two')).toEqual(['one', 'two'])
@@ -121,7 +123,39 @@ describe('两级页面校验（§3.10.5）', () => {
   })
 })
 
-describe('一级页能力地图覆盖查询（§3.10 验收面，homeMapIssues）', () => {
+describe('三档分类（§3.10.1，pageArchetypeOf）', () => {
+  it('推导：带 :param → detail；无参 entry → home；无参非入口 writes → action；无参非入口只读 → readonly', () => {
+    expect(pageArchetypeOf({ name: 'detail', url: '/apps/x/task/:taskId', writes: true }, 'list')).toBe('detail')
+    expect(pageArchetypeOf({ name: 'list', url: '/apps/x/list' }, 'list')).toBe('home')
+    expect(pageArchetypeOf({ name: 'publish', url: '/apps/x/publish', writes: true }, 'list')).toBe('action')
+    // 只读副页：person-agent 的工作区浏览页形态 / a read-only secondary page: person-agent's workspace browser
+    expect(pageArchetypeOf({ name: 'workspaces', url: '/apps/x/workspaces' }, 'overview')).toBe('readonly')
+    // 不知道入口（裸注册）：无参页面不判 home / without the entry (raw registration): never home
+    expect(pageArchetypeOf({ name: 'list', url: '/apps/x/list' })).toBe('readonly')
+  })
+})
+
+describe('规则 3b：工具页必须有写工具——警告通道，不是门禁', () => {
+  const action = {
+    name: 'publish',
+    url: '/apps/x/publish',
+    description: '发布一条新任务',
+    instructions: '用 publish_task 确认发布；标题为空时不要调用。',
+    tree: () => [],
+  }
+
+  it('工具页（无参非入口 writes: true）合法注册，但缺工具会被 pageToolWarning 警告', () => {
+    // 与详情页的规则 3 不同：工具页缺写工具不拒绝注册（§3.9 同一条警告通道，口径一致）
+    // / unlike rule 3 for detail pages: a tool-less action page is not refused;
+    // it rides the same §3.9 warning channel (same criteria)
+    const silent = defineAppPage({ ...action, writes: true, tools: [] })
+    expect(pageToolWarning(silent)).toContain('declares writes: true but mounts no tools')
+    const armed = defineAppPage({ ...action, writes: true, tools: ['publish_task'] })
+    expect(pageToolWarning(armed)).toBeUndefined()
+  })
+})
+
+describe('首页能力地图覆盖查询（§3.10 验收面，homeMapIssues）', () => {
   const home: PageDefinition<never> = {
     name: 'list',
     url: '/apps/x/list',
@@ -132,7 +166,7 @@ describe('一级页能力地图覆盖查询（§3.10 验收面，homeMapIssues�
     name, url, description: name, tree: (() => []) as PageDefinition<never>['tree'],
   })
 
-  it('map 列全全部二级页模板 + 每条带"什么时候用" → 空问题清单', () => {
+  it('map 列全全部详情页模板 + 每条带"什么时候用" → 空问题清单', () => {
     const pages = [home, detail('review', '/apps/x/review/:pr'), detail('note', '/apps/x/note/:noteId')]
     const covered: PageDefinition<never> = {
       ...home,
@@ -144,7 +178,25 @@ describe('一级页能力地图覆盖查询（§3.10 验收面，homeMapIssues�
     expect(homeMapIssues(covered, pages)).toEqual([])
   })
 
-  it('漏掉二级页 / use 为空 / 指向未注册页面 / 一级页带 :param → 逐条报告', () => {
+  it('规则 1（收窄）：单页应用——唯一一页就是首页，map 为空不再算问题', () => {
+    // 上一轮迁移实测：单页应用的 map 无处可指，旧口径强制 ≥2 页是无解的。
+    // / live migration feedback: a single-page app has nothing for its map to
+    // point at; the old rule's forced ≥2 pages was unsolvable.
+    const solo: PageDefinition<never> = {
+      name: 'main', url: '/apps/solo/main', description: '单页应用的唯一一页',
+      tree: (() => []) as PageDefinition<never>['tree'],
+    }
+    expect(homeMapIssues(solo, [solo])).toEqual([])
+    // 纯仪表盘应用（无详情页、map 只列只读副页）同样零问题
+    // / a pure dashboard app (no detail pages, the map lists read-only siblings) is clean too
+    const dashHome: PageDefinition<never> = {
+      ...home, map: [{ url: '/apps/x/workspaces', use: '要看工作区明细时打开' }],
+    }
+    const workspaces = detail('workspaces', '/apps/x/workspaces')
+    expect(homeMapIssues(dashHome, [dashHome, workspaces])).toEqual([])
+  })
+
+  it('漏掉详情页 / use 为空 / 指向未注册页面 / 首页带 :param → 逐条报告', () => {
     const pages = [home, detail('review', '/apps/x/review/:pr')]
     const missing: PageDefinition<never> = { ...home, map: [{ url: '/apps/x/ghost/:id', use: 'x' }] }
     const issues = homeMapIssues(missing, pages)
