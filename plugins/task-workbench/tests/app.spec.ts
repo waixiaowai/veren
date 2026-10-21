@@ -12,10 +12,10 @@ import type { Fiber } from '@deepseek-ai/cordis'
 import AppRegistryPlugin, { AppRegistryService } from '@veren/app-registry'
 import type { AppId } from '@veren/app-registry'
 import PageRegistryPlugin, { PageRegistryService } from '@veren/page-registry'
-import { homeMapIssues } from '@veren/prompt-page'
 import { apply, inject, name } from '../src/index.ts'
 import { APP_ID, APP_DEFINITION } from '../src/app.ts'
-import { createDetailPage, createListPage, createPublishPage } from '../src/pages.tsx'
+import { defineComponentPage, isMarkdownDocHost } from '@veren/prompt-page'
+import { createTaskPages } from '../src/pages.tsx'
 import { TaskStore, makeList } from '../src/store.ts'
 
 // 页面定义是工厂（闭包持有装配时的权威 store），测试用一份独立 store 实例化；
@@ -23,9 +23,12 @@ import { TaskStore, makeList } from '../src/store.ts'
 // Page definitions are factories closing over the assembly's store, so the tests
 // instantiate them against a throwaway store; these assertions read structure only.
 const testStore = new TaskStore(makeList(3))
-const listPage = createListPage(testStore)
-const detailPage = createDetailPage(testStore)
-const publishPage = createPublishPage()
+// 组件页工厂（组件形态，RFC prompt-page-render §3.5）：组件与契约面成对导出
+// / the component-page factory (the component form): components and contract faces ship as pairs
+const taskPages = createTaskPages(testStore)
+const listPage = { ...taskPages.ListMeta, component: taskPages.ListPage }
+const detailPage = { ...taskPages.DetailMeta, component: taskPages.DetailPage }
+const publishPage = { ...taskPages.PublishMeta, component: taskPages.PublishPage }
 
 /** 假任务中心：记录 send/addSubtask 调用；parentMissing 时 get 找不到父记录
  * / a fake task center recording send calls; with parentMissing, get finds no parent */
@@ -269,18 +272,22 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     if (entryKey === undefined) throw new Error('task-workbench must declare an entry page')
     const home = pages.find((page) => page.name === entryKey)
     if (home === undefined) throw new Error(`entry page ${entryKey} is not registered`)
-    // 判据：模型读完首页能直接说出"下一步该打开哪个 URL"——结构校验器
-    // homeMapIssues 对首页报零问题（map 非空、覆盖全部 :param 页、每条 use 非空、
-    // 且 map 指向的都是本应用已注册页面）。
+    // 判据：模型读完首页能直接说出"下一步该打开哪个 URL"——map 由注册表推导
+    // （RFC prompt-page-render §3.5），AppRecord.pages 投影就是事实源：详情页
+    // 模板在其中，构造上列全。
     // The criterion: after reading the home page a model can name the next URL —
-    // the structural checker homeMapIssues reports zero issues (non-empty map,
-    // every :param page covered, every entry carrying a use, every map url a
-    // registered page of this app).
-    expect(homeMapIssues(home, pages)).toEqual([])
-    // 而且显式可读：详情页模板在 map 里 / and explicitly readable: the detail template sits in the map
-    expect(home.map?.map((entry) => entry.url)).toContain('/apps/task-workbench/task/:taskId')
-    // 首页自带 load（真实首屏，不许写死）/ the home page carries a load (a real first screen)
-    expect(typeof home.load).toBe('function')
+    // the map is registry-derived (§3.5), and the AppRecord.pages projection is
+    // the fact source: the detail template sits in it, coverage holds by construction.
+    const record = apps.get(APP_ID as AppId)
+    const derived = [...(record?.pages ?? new Map()).entries()]
+    expect(derived.map(([, p]) => p.url)).toContain('/apps/task-workbench/task/:taskId')
+    // 首屏真实性由权威 store 订阅保证（store-backed 组件页）：home 是组件页
+    // （component 标记）且 live 绑定订阅 store——首屏不是写死的。
+    // / The real-first-screen guarantee rides the authoritative store
+    // subscription: home is a component page (the component flag) whose live
+    // binding subscribes to the store — the first screen is not hard-coded.
+    const homeRegistration = record?.pages?.get(entryKey)
+    expect(homeRegistration?.component).toBe(true)
   })
 
   it('首页 load 取真实列表数据（换 store 首屏随之变，不许写死）', async () => {
@@ -291,23 +298,31 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
       { id: 't-1', title: '任务 t-1', status: 'open' },
       { id: 't-2', title: '任务 t-2', status: 'open' },
     ])
-    const screen = await createListPage(store).load?.({}, {})
-    if (screen === undefined) throw new Error('the list page must carry a load')
-    expect(screen).toMatchObject({
-      open: 2, taken: 0, done: 0,
-      roots: [
-        { id: 't-1', title: '任务 t-1', status: 'open', progress: '0/1' },
-        { id: 't-2', title: '任务 t-2', status: 'open', progress: '0/1' },
-      ],
-    })
+    // WYSIWYG：组件读 store 渲染 Markdown——标题与子树进度逐字来自 store
+    // / WYSIWYG: the component renders the store to Markdown — titles and
+    // subtree progress come verbatim from the store
+    const pages = createTaskPages(store)
+    const registration = defineComponentPage(pages.ListPage, pages.ListMeta)
+    const view = registration.live.mount({})
+    const body = isMarkdownDocHost(view.host) ? view.host.bodyText() : ''
+    expect(body).toContain('任务 t-1')
+    expect(body).toContain('任务 t-2')
+    expect(body).toContain('0/1')
+    expect(body).toContain('open 2')
   })
 
-  it('详情页 load 按参数取该条记录（§3.10.3）：存在与不存在都如实', async () => {
-    const detail = createDetailPage(new TaskStore([{ id: 't-1', title: '任务 t-1', status: 'open' }]))
-    const found = await detail.load?.({ taskId: 't-1' }, {})
-    if (found === undefined) throw new Error('the detail page must carry a load')
-    expect(found).toMatchObject({ found: true, task: { id: 't-1', title: '任务 t-1', status: 'open' } })
-    const missing = await detail.load?.({ taskId: 'ghost' }, {})
-    expect(missing).toMatchObject({ found: false, task: null })
+  it('详情页按参数取该条记录（§3.10.3）：存在与不存在都如实渲染', () => {
+    const foundStore = new TaskStore([{ id: 't-1', title: '任务 t-1', status: 'open' }])
+    const found = createTaskPages(foundStore)
+    const foundView = defineComponentPage(found.DetailPage, found.DetailMeta).live.mount({ taskId: 't-1' })
+    const foundBody = isMarkdownDocHost(foundView.host) ? foundView.host.bodyText() : ''
+    expect(foundBody).toContain('t-1 任务 t-1')
+    expect(foundBody).toContain('open')
+
+    const missingStore = new TaskStore([])
+    const missing = createTaskPages(missingStore)
+    const missingView = defineComponentPage(missing.DetailPage, missing.DetailMeta).live.mount({ taskId: 'ghost' })
+    const missingBody = isMarkdownDocHost(missingView.host) ? missingView.host.bodyText() : ''
+    expect(missingBody).toContain('任务 ghost 不存在')
   })
 })

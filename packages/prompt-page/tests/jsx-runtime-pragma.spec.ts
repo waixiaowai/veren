@@ -35,14 +35,13 @@ import { describe, expect, it } from 'vitest'
 const packageDir = dirname(dirname(fileURLToPath(import.meta.url)))
 const repoRoot = resolve(packageDir, '..', '..')
 
-/** 宿主侧 tsx 源文件（不含 client 构建面与测试）/ host-side tsx sources (no client build face, no tests) */
+/** 宿主侧 tsx 源文件（不含 client 构建面与测试；减法后 prompt-page/page.tsx 已无 JSX，移出清单）
+ * / host-side tsx sources (no client build face, no tests; after the subtraction prompt-page/page.tsx has no JSX and leaves the list) */
 const HOST_TSX_SOURCES = [
-  'packages/prompt-page/src/page.tsx',
   'plugins/task-workbench/src/pages.tsx',
   'plugins/sub2api-admin/src/pages.tsx',
   'plugins/forum-app/src/pages.tsx',
   'plugins/person-agent-app/src/pages.tsx',
-  'plugins/page-sync-bench/src/page.tsx',
 ] as const
 
 const PRAGMA_MARKER = '@jsxRuntime automatic'
@@ -59,23 +58,34 @@ describe('host-side TSX pragma contract', () => {
 /** harness 检出的 tsx 加载器入口；缺席（非稳定节点结构）时行为测试跳过 */
 const harnessTsxEntry = join(repoRoot, 'deepseek', 'deepseek-harness', 'node_modules', 'tsx', 'dist', 'esm', 'index.mjs')
 
-describe.skipIf(!existsSync(harnessTsxEntry))('page tree executes under the host tsx loader', () => {
-  it('task-workbench listPage.tree runs with the repo root as cwd (no tsconfig on the chain)', () => {
-    // 动态入口：加载源码 pages.tsx 并执行页面树——classic 编译恰好在此抛错
-    // / dynamic entry: load the source pages.tsx and execute its page tree —
+describe.skipIf(!existsSync(harnessTsxEntry))('page component executes under the host tsx loader', () => {
+  it('task-workbench ListPage renders with the repo root as cwd (no tsconfig on the chain)', () => {
+    // 动态入口：加载源码 pages.tsx 并执行页面组件——classic 编译恰好在此抛错
+    // / dynamic entry: load the source pages.tsx and execute the page component —
     // classic compilation fails exactly here
     const work = mkdtempSync(join(tmpdir(), 'veren-jsx-pragma-'))
     try {
       const entry = join(work, 'entry.mjs')
       const pagesUrl = pathToFileURL(join(repoRoot, 'plugins', 'task-workbench', 'src', 'pages.tsx')).href
       const storeUrl = pathToFileURL(join(repoRoot, 'plugins', 'task-workbench', 'src', 'store.ts')).href
+      const fakeCtxUrl = pathToFileURL(join(work, 'ctx.mjs')).href
+      writeFileSync(join(work, 'ctx.mjs'), [
+        'export const ctx = {',
+        '  tools: { register: () => undefined },',
+        '  effect: () => undefined,',
+        '  on: () => () => undefined,',
+        '}',
+        '',
+      ].join('\n'), 'utf8')
       writeFileSync(entry, [
         `const pages = await import(${JSON.stringify(pagesUrl)})`,
         `const { TaskStore, makeList } = await import(${JSON.stringify(storeUrl)})`,
+        `const { ctx } = await import(${JSON.stringify(fakeCtxUrl)})`,
         'const store = new TaskStore(makeList(2))',
-        // 页面是工厂：用本地 store 实例化列表页再执行页面树
-        // / pages are factories: instantiate the list page against a local store, then run its tree
-        'const nodes = pages.createListPage(store).tree({}, store.getState())',
+        // 组件页：实例化组件并执行（组件体是 JSX——classic 编译在此抛错）
+        // / component pages: instantiate the component and run it (the body is JSX — classic compilation fails here)
+        'const taskPages = pages.createTaskPages(store)',
+        "const nodes = taskPages.ListPage({}, ctx)",
         "process.stdout.write('TREE_OK ' + (nodes !== undefined))",
         '',
       ].join('\n'), 'utf8')

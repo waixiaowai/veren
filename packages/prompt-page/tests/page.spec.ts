@@ -1,47 +1,26 @@
+/**
+ * PageRegistry / definePage 契约测试（减法后）：URL 匹配、目录、fail loud 校验。
+ * PageRegistry / definePage contract tests (after the subtraction): url
+ * matching, the catalog, fail-loud validation.
+ *
+ * mountPage 的块宿主测试已随块管线删除；组件页的会话行为见 component.spec.ts。
+ * The mountPage block-host tests died with the block pipeline; component-page
+ * session behavior lives in component.spec.ts.
+ */
 import { describe, expect, it } from 'vitest'
-import { createElement } from '@veren/prompt-core'
-import { definePage, formatPath, matchPath, mountPage, normalizePath, PageRegistry, splitUrl } from '../src/index.ts'
+import { definePage, formatPath, matchPath, normalizePath, PageRegistry, splitUrl } from '../src/index.ts'
 import type { PageDefinition } from '../src/types.ts'
 
-interface AppState {
-  items: { id: string; title: string }[]
-}
-
-function makeStore(initial: AppState) {
-  let state = initial
-  const listeners = new Set<() => void>()
-  return {
-    getState: () => state,
-    subscribe(listener: () => void): () => void {
-      listeners.add(listener)
-      return () => { listeners.delete(listener) }
-    },
-    set(next: AppState): void {
-      state = next
-      for (const listener of listeners) listener()
-    },
-  }
-}
-
-const ListPage: PageDefinition<AppState> = definePage({
+const ListPage: PageDefinition<never> = definePage({
   name: 'list',
   url: '/task-list',
   description: '任务列表页',
-  tree: (_params, state) => state.items.map((item) =>
-    createElement('item', { key: item.id, path: 'tasks', value: item })),
 })
 
-const DetailPage: PageDefinition<AppState> = definePage({
+const DetailPage: PageDefinition<never> = definePage({
   name: 'detail',
   url: '/task-detail/:taskId',
   description: '任务详情页',
-  tree: (params, state) => {
-    const task = state.items.find((item) => item.id === params.taskId)
-    return [
-      createElement('static', { content: `详情 ${params.taskId}` }),
-      createElement('data', { key: 'title', path: 'task.title', value: task?.title ?? null }),
-    ]
-  },
 })
 
 describe('url matching', () => {
@@ -69,7 +48,7 @@ describe('url matching', () => {
 
 describe('PageRegistry', () => {
   it('resolve：路径参数 + query 合并（path 优先），返回规范化 URL', () => {
-    const registry = new PageRegistry<AppState>()
+    const registry = new PageRegistry()
     registry.register(ListPage)
     registry.register(DetailPage)
 
@@ -86,7 +65,7 @@ describe('PageRegistry', () => {
   })
 
   it('catalog 与 disposer（HMR/卸载安全）', () => {
-    const registry = new PageRegistry<AppState>()
+    const registry = new PageRegistry()
     const dispose = registry.register(ListPage)
     expect(registry.catalog()).toEqual([{ name: 'list', url: '/task-list', description: '任务列表页' }])
     dispose()
@@ -95,7 +74,7 @@ describe('PageRegistry', () => {
   })
 
   it('重名/URL 模式冲突 fail loud', () => {
-    const registry = new PageRegistry<AppState>()
+    const registry = new PageRegistry()
     registry.register(ListPage)
     expect(() => registry.register(ListPage)).toThrow(/duplicate page name/)
     expect(() => registry.register(DetailPage)).not.toThrow()
@@ -107,37 +86,11 @@ describe('PageRegistry', () => {
 
 describe('definePage', () => {
   it('misconfiguration fails loud：空名/空描述/坏 URL/重复 :param', () => {
-    expect(() => definePage({ name: '', url: '/a', description: 'x', tree: () => [] })).toThrow()
-    expect(() => definePage({ name: 'p', url: '/a', description: '', tree: () => [] })).toThrow()
-    expect(() => definePage({ name: 'p', url: 'a/b', description: 'x', tree: () => [] })).toThrow()
-    expect(() => definePage({ name: 'p', url: '/a?b=1', description: 'x', tree: () => [] })).toThrow()
-    expect(() => definePage({ name: 'p', url: '/a/:x/:x', description: 'x', tree: () => [] })).toThrow()
-    expect(() => definePage({ name: 'p', url: '/a/:', description: 'x', tree: () => [] })).toThrow()
-  })
-})
-
-describe('mountPage', () => {
-  it('一页一会话：指针消息携带具体 URL，状态变化自动渲染', () => {
-    const store = makeStore({ items: [{ id: 'a', title: 'A' }] })
-    const session = mountPage({ page: ListPage, store })
-    expect(session.pointerMessage).toBe('OPEN /task-list {}')
-    expect(session.syncText()).toContain('"items":[{"id":"a","title":"A"}]')
-
-    const v0 = session.version
-    store.set({ items: [{ id: 'a', title: 'A' }, { id: 'b', title: 'B' }] })
-    expect(session.version).toBeGreaterThan(v0)
-    expect(session.syncText(v0)).toContain('"id":"b"')
-    session.unsubscribe()
-    store.set({ items: [] })
-    expect(session.version).toBe(2)
-  })
-
-  it('props 指针参与组件树：详情页按路径参数取数', () => {
-    const store = makeStore({ items: [{ id: 't-9', title: '九' }] })
-    const session = mountPage({ page: DetailPage, store, params: { taskId: 't-9' } })
-    expect(session.pointerMessage).toBe('OPEN /task-detail/t-9 {"taskId":"t-9"}')
-    expect(session.syncText()).toContain('详情 t-9')
-    expect(session.syncText()).toContain('"value":"九"')
-    session.unsubscribe()
+    expect(() => definePage({ name: '', url: '/a', description: 'x' })).toThrow()
+    expect(() => definePage({ name: 'p', url: '/a', description: '' })).toThrow()
+    expect(() => definePage({ name: 'p', url: 'a/b', description: 'x' })).toThrow()
+    expect(() => definePage({ name: 'p', url: '/a?b=1', description: 'x' })).toThrow()
+    expect(() => definePage({ name: 'p', url: '/a/:x/:x', description: 'x' })).toThrow()
+    expect(() => definePage({ name: 'p', url: '/a/:', description: 'x' })).toThrow()
   })
 })

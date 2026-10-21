@@ -32,6 +32,7 @@
 
 import { execFileSync } from 'node:child_process'
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -44,6 +45,17 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+/**
+ * Windows 上 PATH 里的 GNU tar（Git Bash）会把 `C:\...` 绝对路径当远程主机
+ * （"Cannot connect to C:"）——固定用系统自带的 bsdtar（能处理盘符路径）。
+ * On Windows the PATH-resolved GNU tar (Git Bash) treats `C:\...` as a remote
+ * host ("Cannot connect to C:") — pin the bundled bsdtar, which handles drive
+ * paths fine.
+ */
+const tarBin = process.platform === 'win32'
+  ? join(process.env.SystemRoot ?? 'C:\Windows', 'System32', 'tar.exe')
+  : 'tar'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -150,8 +162,28 @@ function packedEntries(manifest) {
  */
 function assertPackedEntries(tarball, name) {
   const work = mkdtempSync(join(tmpdir(), 'veren-pack-verify-'))
+  // Windows 上 pnpm pack 的子进程退出后写入可能仍在回写缓存，紧随其后的 tar 读取
+  // 偶发 "unexpected end of file"。先把 tarball 复制到临时目录（带重试），再从
+  // 本地副本解包——避开 tar 与写入方的竞态。
+  // On Windows pnpm pack's child process may exit while the write is still
+  // flushing; an immediate tar read can hit "unexpected end of file". Copy the
+  // tarball into the temp dir first (with retries), then untar the local copy —
+  // keeping tar out of the race with the writer.
+  const copyWithRetry = (attempts) => {
+    try {
+      copyFileSync(tarball, join(work, 'pack.tgz'))
+    } catch (error) {
+      if (attempts <= 1) throw error
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
+      copyWithRetry(attempts - 1)
+    }
+  }
+  const extract = () => {
+    execFileSync(tarBin, ['-xzf', join(work, 'pack.tgz'), '-C', work], { stdio: 'inherit' })
+  }
   try {
-    execFileSync('tar', ['-xzf', tarball, '-C', work], { stdio: 'inherit' })
+    copyWithRetry(5)
+    extract()
     const manifest = JSON.parse(readFileSync(join(work, 'package', 'package.json'), 'utf8'))
     const entries = packedEntries(manifest)
     if (entries.length === 0) return
@@ -201,7 +233,7 @@ function packedManifest(tarball) {
   const work = mkdtempSync(join(tmpdir(), 'veren-pack-read-'))
   try {
     // bsdtar 的 -C 必须写在成员模式之前 / bsdtar requires -C before the member patterns.
-    execFileSync('tar', ['-xzf', tarball, '-C', work, 'package/package.json'], { stdio: 'pipe' })
+    execFileSync(tarBin, ['-xzf', tarball, '-C', work, 'package/package.json'], { stdio: 'pipe' })
     return JSON.parse(readFileSync(join(work, 'package', 'package.json'), 'utf8'))
   } finally {
     rmSync(work, { recursive: true, force: true })
@@ -245,7 +277,7 @@ function assertRegistryDependencies(tarball, firstParty) {
 function rewriteDependencies(tarball, outDir, siblings) {
   const work = mkdtempSync(join(tmpdir(), 'veren-pack-'))
   try {
-    execFileSync('tar', ['-xzf', tarball, '-C', work], { stdio: 'inherit' })
+    execFileSync(tarBin, ['-xzf', tarball, '-C', work], { stdio: 'inherit' })
     const manifestFile = join(work, 'package', 'package.json')
     const manifest = JSON.parse(readFileSync(manifestFile, 'utf8'))
     let changed = false
@@ -262,7 +294,7 @@ function rewriteDependencies(tarball, outDir, siblings) {
         + 'the committed manifest declares registry ranges.'
       writeFileSync(manifestFile, `${JSON.stringify(manifest, undefined, 2)}\n`)
       rmSync(tarball, { force: true })
-      execFileSync('tar', ['-czf', tarball, '-C', work, 'package'], { stdio: 'inherit' })
+      execFileSync(tarBin, ['-czf', tarball, '-C', work, 'package'], { stdio: 'inherit' })
     }
     return changed
   } finally {

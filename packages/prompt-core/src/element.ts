@@ -39,7 +39,7 @@ export function memo<P extends Record<string, unknown>>(
   component: Component<P>,
   areEqual?: (a: P, b: P) => boolean,
 ): Component<P> {
-  const wrapped = ((props: P) => component(props)) as Component<P>
+  const wrapped = ((props: P, ctx?: unknown) => component(props, ctx)) as Component<P>
   wrapped.__memoCompare = areEqual === undefined
     ? (a: unknown, b: unknown) => canonicalJson(a) === canonicalJson(b)
     : (a: unknown, b: unknown) => areEqual(a as P, b as P)

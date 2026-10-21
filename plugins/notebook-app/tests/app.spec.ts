@@ -28,7 +28,6 @@ import { PageRegistryService } from '@veren/page-registry'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
-import { homeMapIssues } from '@veren/prompt-page'
 import * as NotebookApp from '../src/index.ts'
 import { APP_DEFINITION, APP_ID, Config as AppConfig } from '../src/index.ts'
 import type { NoteSummary, NoteView } from '@veren/notebook'
@@ -227,10 +226,13 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全 / the
     if (entryKey === undefined) throw new Error('the notebook app must declare an entry page')
     const home = pages.find((page) => page.name === entryKey)
     if (home === undefined) throw new Error(`entry page ${entryKey} is not registered`)
-    // 判据：结构校验器零问题（map 非空、覆盖全部 :param 页、use 非空、指向已注册页面）
-    // / the criterion: zero issues from the structural checker (non-empty map, every :param page covered, non-empty use, registered targets)
-    expect(homeMapIssues(home, pages)).toEqual([])
-    expect(home.map?.map((entry) => entry.url)).toContain('/apps/notebook/note/:noteId')
+    // 判据：map 由注册表推导（RFC prompt-page-render §3.5）——AppRecord.pages
+    // 投影列全兄弟页（笔记详情页），构造上覆盖；首页自带 load。
+    // / the criterion: the map is registry-derived (§3.5) — the AppRecord.pages
+    // projection lists the sibling (the note detail page), coverage by
+    // construction; the home carries a load.
+    const record = apps.get(APP_ID)
+    expect(record?.pages?.get('note')?.url).toBe('/apps/notebook/note/:noteId')
     expect(typeof home.load).toBe('function')
     await fiber.dispose()
   })

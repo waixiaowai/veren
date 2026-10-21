@@ -68,7 +68,7 @@ export interface PageCatalogEntry {
   readonly description: string
 }
 
-export class PageRegistry<S> {
+export class PageRegistry<S = never> {
   /** 登记条目：页面定义 + 可选实时绑定 / one entry: page definition + optional live binding */
   private readonly entries: Array<{ page: PageDefinition<S>; live?: PageLiveBinding }> = []
 

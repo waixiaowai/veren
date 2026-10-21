@@ -14,7 +14,6 @@ function detailPage() {
     name: 'task-detail',
     url: '/task-detail/:taskId',
     description: '详情页',
-    tree: () => [],
   })
 }
 

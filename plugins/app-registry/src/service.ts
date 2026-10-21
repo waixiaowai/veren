@@ -16,8 +16,8 @@
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { PageError, PageErrorCode, defineAppPage, mountPage, pageArchetypeOf, patternParamsOf } from '@veren/prompt-page'
-import type { PageDefinition, PageLiveBinding } from '@veren/prompt-page'
+import { PageError, PageErrorCode, defineAppPage, defineComponentPage, pageArchetypeOf, patternParamsOf } from '@veren/prompt-page'
+import type { ComponentPageMeta, PageDefinition, PageFC, PageLiveBinding } from '@veren/prompt-page'
 import { AppErrorCode } from './types.ts'
 import type { AppCapability, AppId, AppPageRegistrar, AppRecord, AppToolEntry, AppToolRegistrar, ApplicationDefinition, PageKey, PageMirrorFace, PageRegistration } from './types.ts'
 import { AppRegistryError, fail } from './errors.ts'
@@ -150,19 +150,32 @@ export class AppRegistryService extends Service {
    */
   pages(id: AppId, caller?: Context): AppPageRegistrar {
     const entry = this.requireOwned(id, caller, 'pages')
-    return {
-      register: <S>(page: PageDefinition<S>, live?: { readonly store: import('@veren/prompt-core').ExternalStore<S> }): (() => void) =>
-        this.registerPage(entry, id, page, live),
-    }
+    const owner = caller ?? this.host
+    // 组件页是唯一形态（RFC prompt-page-render 减法）：PageFC + meta →
+    // defineComponentPage → PageDefinition + 每会话视图。没有第二种页面。
+    // The component page is the only shape (RFC prompt-page-render subtraction):
+    // PageFC + meta → defineComponentPage → PageDefinition + a per-session view.
+    // There is no second kind of page.
+    const register = ((componentOrRegistration: PageFC | import('@veren/prompt-page').ComponentPageRegistration, meta?: ComponentPageMeta): (() => void) => {
+      // 两种形态：PageFC + meta（现场适配）｜预构建注册对象（调用方自持）
+      // / two shapes: PageFC + meta (adapted here) | a pre-built registration (caller-held)
+      const registration = typeof componentOrRegistration === 'function'
+        ? defineComponentPage(componentOrRegistration as PageFC, (meta ?? {}) as ComponentPageMeta, owner)
+        : componentOrRegistration
+      return this.registerPage(entry, id, registration.page, registration.live, true)
+    }) as unknown as AppPageRegistrar['register']
+    return { register }
   }
 
-  /** 把注册期声明的 store 封成"按参数挂载"的实时绑定（S 在此被消费）/ seal the registered store into a mount-per-params live binding (S consumed here) */
-  private sealLive<S>(store: import('@veren/prompt-core').ExternalStore<S>, page: PageDefinition<S>): PageLiveBinding {
-    return { mount: (params) => mountPage({ page, store, params }) }
-  }
-
-  /** 校验并以应用内唯一键登记一个页面 / validate and add one page under its unique key */
-  private registerPage<S>(entry: AppEntry, id: AppId, raw: PageDefinition<S>, live?: { readonly store: import('@veren/prompt-core').ExternalStore<S> }): () => void {
+  /** 校验并以应用内唯一键登记一个页面；live 是组件页的每会话视图绑定
+   * / validate and register one page under its unique key; `live` is the component page's per-session view binding */
+  private registerPage(
+    entry: AppEntry,
+    id: AppId,
+    raw: PageDefinition<never>,
+    live?: PageLiveBinding,
+    component = false,
+  ): () => void {
     // 走 prompt-page 的 defineAppPage：强制 /apps/<appId>/... 形态与契约缺省。
     // Re-run prompt-page's defineAppPage: enforces the /apps/<appId>/... shape.
     const page = defineAppPage(raw)
@@ -212,13 +225,12 @@ export class AppRegistryService extends Service {
     const recordAfter = archetype === 'detail' || archetype === 'viewer'
       || [...entry.pages.values()].some((registered) => patternParamsOf(registered.page.url).length > 0)
     const homeAfter = archetype === 'home' ? page : entry.pages.get(entry.definition.entry)?.page
-    if (recordAfter && homeAfter !== undefined && (homeAfter.map ?? []).length === 0) {
-      throw new PageError(PageErrorCode.HomeInvalid,
-        `app "${id}" has record page(s) (detail/viewer) but its home page "${id}/${homeAfter.name}" lists an empty capability map `
-        + `— add their url template(s) to the home's map (§3.10.5 rule 1)`,
-      )
-    }
-    entry.pages.set(page.name, { page, ...(live === undefined ? {} : { live: this.sealLive(live.store, page) }) })
+    const liveBinding: PageLiveBinding | undefined = live
+    entry.pages.set(page.name, {
+      page,
+      ...(liveBinding === undefined ? {} : { live: liveBinding }),
+      ...(component ? { component: true } : {}),
+    })
     this.refreshEntryState(entry, id)
     // 缺口 3：单入口——内部镜像进 page-registry；镜像失败回滚内部登记并抛原错。
     // Gap 3: single entry — mirror into page-registry; a mirror failure rolls
@@ -439,6 +451,14 @@ export class AppRegistryService extends Service {
       toolPrefix: entry.toolPrefix,
       state: entry.state,
       ...(entry.brokenReason === undefined ? {} : { brokenReason: entry.brokenReason }),
+      // 页面投影（map 推导与规则 1 的事实源）：按访问重建，小应用零开销
+      // / the page projection (the fact source for map derivation and rule 1): rebuilt per access, trivial for app-scale maps
+      pages: new Map(
+        [...entry.pages.entries()].map(([key, registered]) => [
+          key,
+          { url: registered.page.url, description: registered.page.description, component: registered.component ?? false },
+        ]),
+      ),
     }
   }
 }

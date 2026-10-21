@@ -8,8 +8,9 @@
 import { describe, expect, it } from 'vitest'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { Context } from '@deepseek-ai/cordis'
-import { KvPageInstanceIndex, Keyed, definePage, mountPage } from '@veren/prompt-page'
-import type { InstanceKvPort, PageDefinition, PageInstanceRecord, PageSession } from '@veren/prompt-page'
+import { KvPageInstanceIndex, defineComponentPage } from '@veren/prompt-page'
+import { createElement } from '@veren/prompt-core'
+import type { ComponentPageRegistration, InstanceKvPort, PageInstanceRecord, PageSession } from '@veren/prompt-page'
 import { PageRegistryService } from '../src/index.ts'
 import type { PageDataIdentity, PageDataPort, PageRuntimePorts, PageSessionPort } from '../src/runtime.ts'
 import type { AppRecord } from '@veren/app-registry'
@@ -59,14 +60,12 @@ function fakePageData() {
   return { port, bound, unbound, failBind: (error?: Error) => { failBind = error } }
 }
 
-/** 任务页面树：一个 keyed 集合块 / the task page tree: one keyed collection block */
-function taskPage(): PageDefinition<TaskItem[]> {
-  return definePage<TaskItem[]>({
-    name: 'task',
-    url: '/apps/demo/task/:id',
-    description: '任务详情页',
-    tree: (_params, state) => [...Keyed({ path: 'tasks', items: state })],
-  })
+/** 组件页（组件形态，RFC prompt-page-render §3.5）：订阅权威 store / the component page (subscribing to the authoritative store) */
+function taskPage(store: { getState(): TaskItem[]; subscribe(listener: () => void): () => void }): ComponentPageRegistration {
+  return defineComponentPage(
+    () => createElement('ul', { children: store.getState().map((t) => createElement('li', { key: t.id, children: t.title })) }),
+    { url: '/apps/demo/task/:id', description: '任务详情页', store },
+  )
 }
 
 /** 会话端口假件（与 runtime.spec 同形，只记录）/ the session-port fake (same shape as runtime.spec, recording only) */
@@ -105,12 +104,10 @@ function makeService(options: { pageData?: ReturnType<typeof fakePageData>; with
   const ctx = new Context()
   const service = new PageRegistryService(ctx)
   const store = fakeStore([{ id: 't-1', title: '初始任务' }])
-  const page = taskPage()
-  // live = "按参数挂载"的闭包（与 app-registry 的 sealLive 同构）/ live = the mount-per-params closure (isomorphic to app-registry's sealLive)
-  const live = { mount: (params: Record<string, string>): PageSession<never> => mountPage({ page, store, params }) }
+  const registration = taskPage(store)
   const dispose = options.withLive === false
-    ? service.registerAppPage('demo', page as PageDefinition<never>)
-    : service.registerAppPage('demo', page as PageDefinition<never>, live)
+    ? service.registerAppPage('demo', registration.page)
+    : service.registerAppPage('demo', registration.page, registration.live)
   void dispose
   const sessions = fakeSessions()
   const app: AppRecord = {

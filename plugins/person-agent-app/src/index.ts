@@ -19,7 +19,7 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
 import { APP_DEFINITION, APP_ID, collectAppTools } from './app.ts'
-import { createOverviewPage, createWorkspacesPage } from './pages.tsx'
+import { createPersonAgentPages } from './pages.tsx'
 import { PersonAgentOverviewService } from './views.ts'
 
 export const name = 'personAgentApp'
@@ -71,16 +71,16 @@ export const apply = (ctx: Context, config: Config): void => {
       for (const tool of collectAppTools(ctx, config.maxListSessions)) {
         done.push(tools.define(tool))
       }
-      // 3) 页面注册：单入口，内部自动镜像进 page-registry（可被 openUrl 解析）。
-      //    Page registration: single entry, mirrored automatically.
+      // 3) 页面注册（组件形态，RFC prompt-page-render §3.5）：单入口，内部自动
+      //    镜像进 page-registry（可被 openUrl 解析）。组件经 useSnapshot 读概览
+      //    服务，变化经 PAGE-PATCH 增量进上下文。
+      //    Page registration (component form, RFC prompt-page-render §3.5):
+      //    single entry, mirrored automatically. Components read the overview
+      //    service via useSnapshot; changes flow as PAGE-PATCH blocks.
       const pages = apps.pages(APP_ID, ctx)
-      for (const page of [createOverviewPage(overview), createWorkspacesPage(overview)]) {
-        // 接缝断言：注册面是 PageDefinition<never>（registry 的不变式视角），
-        // 与 task-workbench 样板同型——仅此一处收窄，不改页面字段。
-        // Seam: the registrar takes PageDefinition<never> (the registry's
-        // invariant view); the one narrowing, no page fields touched.
-        done.push(pages.register(page as never))
-      }
+      const taskAppPages = createPersonAgentPages(overview)
+      done.push(pages.register(taskAppPages.OverviewPage, taskAppPages.OverviewMeta))
+      done.push(pages.register(taskAppPages.WorkspacesPage, taskAppPages.WorkspacesMeta))
     } catch (error: unknown) {
       for (const dispose of done.reverse()) dispose()
       throw error

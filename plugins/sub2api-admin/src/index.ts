@@ -12,12 +12,11 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@veren/app-registry'
-import type { PageDefinition } from '@veren/prompt-page'
 import { Sub2AdminClient } from './client.ts'
 import type { AdminConfig } from './client.ts'
+import { createSub2ApiPages } from './pages.tsx'
 import { Sub2ApiStore } from './store.ts'
 import { APP_DEFINITION, APP_ID, createAppTools } from './tools.ts'
-import { accountsPage, channelsPage, codesPage, financePage, groupsPage, homePage, subscriptionsPage, usagePage, usersPage } from './pages.tsx'
 
 export const name = 'veren-sub2api-admin'
 
@@ -66,8 +65,22 @@ export const apply = (ctx: Context, config: Config): void => {
         done.push(tools.define(tool))
       }
       const pages = apps.pages(APP_ID, ctx)
-      for (const page of [homePage, channelsPage, groupsPage, usersPage, subscriptionsPage, financePage, codesPage, accountsPage, usagePage] as unknown as PageDefinition<never>[]) {
-        done.push(pages.register(page))
+      // 组件页（组件形态，RFC prompt-page-render §3.5）：组件 + 契约面成对注册
+      // / component pages: components and contract faces registered as pairs
+      const app9 = createSub2ApiPages(store)
+      const pairs: Array<[unknown, unknown]> = [
+        [app9.HomePage, app9.HomeMeta],
+        [app9.ChannelsPage, app9.ChannelsMeta],
+        [app9.GroupsPage, app9.GroupsMeta],
+        [app9.UsersPage, app9.UsersMeta],
+        [app9.SubscriptionsPage, app9.SubscriptionsMeta],
+        [app9.FinancePage, app9.FinanceMeta],
+        [app9.CodesPage, app9.CodesMeta],
+        [app9.AccountsPage, app9.AccountsMeta],
+        [app9.UsagePage, app9.UsageMeta],
+      ]
+      for (const [component, meta] of pairs) {
+        done.push((pages.register as (c: unknown, m: unknown) => () => void)(component, meta))
       }
     } catch (error: unknown) {
       for (const dispose of done.reverse()) dispose()

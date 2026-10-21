@@ -24,8 +24,8 @@
  *
  * @module @veren/page-registry/runtime
  */
-import { PageError, PageErrorCode, assertParamsMatchPattern, canonicalizePageUrl } from '@veren/prompt-page'
-import type { PageJsonValue, PageLoadEnv, PageMapEntry, PageSession } from '@veren/prompt-page'
+import { PageError, PageErrorCode, assertParamsMatchPattern, canonicalizePageUrl, isMarkdownDocHost, snapshotSinkOf } from '@veren/prompt-page'
+import type { PageJsonValue, PageLoadEnv, PageSession } from '@veren/prompt-page'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { PageInstanceIndex, PageInstanceKey, PageMatch } from '@veren/prompt-page'
 // 服务面类型只引真正的那一份：应用记录/任务契约来自各自的 declaration merging 出口，
@@ -200,6 +200,58 @@ function resolveMountedTools(
   })
 }
 
+/** 组件页视图的扩展面（prompt-page/component.tsx 的每会话视图）/ the component-page view's extension face (prompt-page/component.tsx) */
+interface ComponentPageView extends PageSession<never> {
+  takeRecordedTools(): ToolDefinition[]
+}
+
+/** 组件页视图守卫：有 takeRecordedTools 即组件页视图 / a component-page view guard: takeRecordedTools marks one */
+function componentViewOf(view: PageSession<never> | undefined): ComponentPageView | undefined {
+  if (view === undefined) return undefined
+  return typeof (view as { takeRecordedTools?: unknown }).takeRecordedTools === 'function'
+    ? (view as ComponentPageView)
+    : undefined
+}
+
+/**
+ * 组件页 PAGE 块（RFC prompt-page-render §3.3/C7 的骨架）：PAGE 定位行 + map
+ * （注册表推导：本应用兄弟页、排除自身、按注册序，`- 模板 → description`）+
+ * tools 行（目录解析 + 会话内动态注册，改外名）+ 可选说明行 + Markdown 正文。
+ * 无 params/data JSON 行——URL 本身表达 params，meta.load 经 useSnapshot 进组件、
+ * 由组件渲染为正文（失败态也是正文）。
+ * The component-page PAGE block (the §3.3/C7 skeleton of RFC prompt-page-render):
+ * the PAGE locator line + map (registry-derived: sibling pages of this app,
+ * excluding self, in registration order, `- template → description`) + the tools
+ * line (catalog resolution + in-session dynamic registration, renamed) + an
+ * optional notes line + the Markdown body. No params/data JSON lines — params
+ * ride the URL itself, and meta.load reaches the component via useSnapshot to be
+ * rendered into the body (failure states included).
+ */
+export function componentPageBlock(
+  app: AppRecord,
+  match: PageMatch<never>,
+  canonicalUrl: string,
+  tools: readonly MountedTool[],
+  body: string,
+): string {
+  const selfKey = pageKeyOf(app, match.page.name)
+  const lines = [`PAGE ${selfKey} ${canonicalUrl}`]
+  // 自排除按本地名（registerAppPage 会把 page.name 改写为 pageKey，取末段对齐投影键）
+  // / self-exclusion by local name (registerAppPage renames page.name to the pageKey; align via the last segment)
+  const selfLocal = match.page.name.includes('/') ? (match.page.name.split('/').pop() ?? match.page.name) : match.page.name
+  const siblings = [...(app.pages ?? new Map()).entries()].filter(([name]) => name !== selfLocal)
+  if (siblings.length > 0) {
+    lines.push(MAP_HEADER)
+    for (const [, page] of siblings) lines.push(`- ${page.url} → ${page.description}`)
+  }
+  lines.push(tools.length === 0
+    ? 'tools: （无）'
+    : `tools: ${tools.map((tool) => `${tool.name}（${toolUsagePhrase(tool.description)}）`).join('、')}`)
+  if (match.page.instructions !== undefined) lines.push(`说明：${match.page.instructions}`)
+  lines.push(body)
+  return lines.join('\n')
+}
+
 /** 全局页面键：应用页为 `<appId>/<本地名>`，裸名路径（raw register）补前缀 / the global pageKey */
 export function pageKeyOf(app: AppRecord, pageName: string): string {
   return pageName.includes('/') ? pageName : `${app.definition.id}/${pageName}`
@@ -236,81 +288,7 @@ const MAP_USE_CAP = 60
  */
 const MAP_HEADER = 'map:（能力地图——本应用可去的页面；把模板里的 :参数 替换为实际值即为可打开 URL）'
 
-/**
- * 能力地图条目 → 一行可照抄的文本（§3.10.2）：`- 模板 → 什么时候用；参数: 名=说明`。
- * 真机教训：map 若只是页面定义里的声明（或压缩成一团 JSON），模型会绕开它自行
- * 推断地址——所以这里逐条成行、模板原样给出、参数说明跟在同一行，让"我从本页
- * 能力地图看到的"成为模型唯一自然的答案来源。
- * One map entry → one copy-usable line (§3.10.2): the lesson from the live host
- * is that a map that merely lives in the page definition (or as a JSON blob)
- * gets bypassed — the model infers addresses from other clues instead. So each
- * entry renders as its own line: the template verbatim, the when-to-use phrase,
- * and the param notes on the same line, making "I read it in this page's map"
- * the natural source for the model to cite.
- */
-export function mapEntryLine(entry: PageMapEntry): string {
-  const use = entry.use.length > MAP_USE_CAP ? `${entry.use.slice(0, MAP_USE_CAP - 1)}…` : entry.use
-  const params = entry.params === undefined
-    ? ''
-    : `；参数: ${Object.entries(entry.params).map(([name, note]) => `${name}=${note}`).join('、')}`
-  return `- ${entry.url} → ${use}${params}`
-}
 
-/**
- * PAGE 块（§3.10.2 的规范形状）：页面键 + 规范 URL、params、data（首屏快照，
- * 永远在场——loading/error/数据/null，禁止静默空白）、能力地图（非空时，
- * 逐条成行可照抄）、带"什么时候用"的工具行、应用与页面说明。写一次不再重写
- * （§3.4.2）。
- * The PAGE block (the §3.10.2 canonical shape): pageKey + canonical url,
- * params, data (the first-screen snapshot, always present — loading/error/
- * data/null, never a silent blank), the capability map when non-empty (one
- * copy-usable line per entry), the tools line with when-to-use phrases, and
- * the app/page notes. Written once, never rewritten (§3.4.2).
- *
- * 能力地图与数据快照的预算关系（§3.10.2）：整块只在建会话时写一次，PAGE-DATA
- * 的截断上限（≤50 条 / 单块 ≤4KB，app-host 的 PageDataCaps）只约束**后续追加的
- * data 快照块**；map 是静态小数据——一行一个可去页面、用途短语截 60 字——
- * 不占追加预算，也**有意不做截断**：规则 1 要求列全全部记录页，截断会静默吞掉
- * 地图条目，比超预算更糟。
- * Budget relation between the map and the data snapshot (§3.10.2): the whole
- * block is written once at creation; the PAGE-DATA caps (≤50 rows / ≤4KB per
- * block, app-host's PageDataCaps) bound only the **appended data snapshots**.
- * The map is small static data — one line per reachable page, use phrases
- * capped at 60 chars — consumes none of the append budget, and is
- * **deliberately never truncated**: rule 1 demands full coverage of record
- * pages, and truncation would silently drop map entries, which is worse than
- * exceeding a budget.
- */
-export function pageBlock(
-  app: AppRecord,
-  match: PageMatch<never>,
-  canonicalUrl: string,
-  params: Record<string, string>,
-  tools: readonly MountedTool[],
-  data: PageJsonValue,
-): string {
-  const lines = [
-    `PAGE ${pageKeyOf(app, match.page.name)} ${canonicalUrl}`,
-    `params: ${JSON.stringify(params)}`,
-    `data: ${JSON.stringify(data)}`,
-  ]
-  // 能力地图是一等数据（§3.10.1/§3.10.2）：首行讲用法，每条一行"模板 → 什么时候用
-  // （+参数说明）"——模型照抄模板、替换 :参数 即得可打开 URL。
-  // The capability map as first-class data (§3.10.1/§3.10.2): a header stating
-  // the usage, then one line per entry "template → when to open it (+param
-  // notes)" — the model copies the template and substitutes :params.
-  const map = match.page.map ?? []
-  if (map.length > 0) {
-    lines.push(MAP_HEADER)
-    for (const entry of map) lines.push(mapEntryLine(entry))
-  }
-  lines.push(tools.length === 0
-    ? 'tools: （无）'
-    : `tools: ${tools.map((tool) => `${tool.name}（${toolUsagePhrase(tool.description)}）`).join('、')}`)
-  if (app.definition.instructions !== undefined) lines.push(`应用说明：${app.definition.instructions}`)
-  if (match.page.instructions !== undefined) lines.push(`说明：${match.page.instructions}`)
-  return lines.join('\n')
-}
 
 /**
  * 首屏数据（§3.10.3）：load 是 PAGE 块 data 的唯一合法来源。未声明 load →
@@ -499,6 +477,7 @@ export async function createPageSession(
   }
   const title = instanceTitleOf(match, params)
   let tools: MountedTool[] = []
+  let view: PageSession<never> | undefined
   try {
     await ports.sessions.create(sessionId, title)
   } catch (error: unknown) {
@@ -508,30 +487,58 @@ export async function createPageSession(
     throw wrap(error, PageErrorCode.SessionCreateFailed, `session create failed for ${key}`)
   }
   try {
-    tools = resolveMountedTools(app, match, ports.toolsOf)
-    await ports.sessions.mountTools(sessionId, tools)
     // 首屏数据（§3.10.3）在写 PAGE 块前取齐：两阶段 commit 允许先落 reserved，
-    // load 完成（或失败态定形）才翻 live——首屏数据建会话时就进上下文。
+    // load 完成（或失败态定形）才翻 live——首屏数据建会话时就进上下文。组件页
+    // 的 load 适配器把快照交给 live.mount 的 useSnapshot（含失败态）。
     // The first-screen data (§3.10.3) settles before the PAGE block: the
     // two-phase commit keeps the row reserved until load resolves (or its
     // error state forms) — the first screen enters the context at creation.
+    // A component page's load adapter hands the snapshot to live.mount's
+    // useSnapshot (failure states included).
     const env: PageLoadEnv = ports.presetOf === undefined ? {} : { preset: ports.presetOf(sessionId) }
     const data = await firstScreenData(match.page, params, env)
-    await ports.sessions.appendUserMessage(sessionId, pageBlock(app, match, key, params, tools, data), 'app/page')
+    // 实时视图提前建（组件页在视图里完成首帧渲染、ctx.effect/ctx.on 运行与
+    // ctx.tools.register 记录——都在写 PAGE 块之前，正文与工具行由此有据）。
+    // The live view is built early (a component page does its first-frame
+    // render, ctx.effect/ctx.on runs and ctx.tools.register recording inside the
+    // view — all before the PAGE block, so the body and the tools line have
+    // their facts).
+    view = match.live?.mount(params)
+    // load 结果下发进组件（含失败态）：组件渲染为正文，绝不静默空白
+    // / push the load result into the component (failures included): rendered into the body, never a silent blank
+    snapshotSinkOf(view)?.setSnapshot(data)
+    // 工具：目录解析（meta.tools 本地名）+ 组件会话内动态注册的 defineTool 产物；
+    // 两者都改外名（`<toolPrefix>__<name>`）后一次挂载。
+    // Tools: catalog resolution (meta.tools local names) + the defineTool
+    // products dynamically registered in-session by the component; both renamed
+    // to the external form and mounted in one call.
+    const dynamicTools = componentViewOf(view)?.takeRecordedTools() ?? []
+    tools = [
+      ...resolveMountedTools(app, match, ports.toolsOf),
+      ...dynamicTools.map((definition) => ({ ...definition, name: externalToolName(app.toolPrefix, definition.name) })),
+    ]
+    await ports.sessions.mountTools(sessionId, tools)
+    // PAGE 块：组件页 = 头行（map 注册表推导）+ Markdown 正文；旧块页 = 既有形状。
+    // The PAGE block: a component page = header (registry-derived map) + the
+    // Markdown body; a legacy block page keeps its existing shape.
+    const markdownView = isMarkdownDocHost(view?.host) ? view!.host : undefined
+    const block = componentPageBlock(app, match, key, tools, markdownView !== undefined ? markdownView.bodyText() : '')
+    await ports.sessions.appendUserMessage(sessionId, block, 'app/page')
     // 实时视图在 commit 前绑定（§3.10.3）：挂载失败走下方既有回滚（fail loud），
     // 不产生"会话活着但视图死着"的半状态；commit 后该视图归端口所有。
     // The live view binds before commit (§3.10.3): a mount failure rides the
     // existing rollback below (fail loud), so a live session never pairs with
     // a dead view; after commit the port owns the view.
-    if (match.live !== undefined && ports.pageData !== undefined) {
-      ports.pageData.bind(sessionId, match.live.mount(params), {
+    if (view !== undefined && ports.pageData !== undefined) {
+      ports.pageData.bind(sessionId, view, {
         pageKey: pageKeyOf(app, match.page.name),
         url: key,
       })
     }
     await index.commit(key, sessionId)
   } catch (error: unknown) {
-    // 兜底：摘工具 → 销毁半成品会话 → 删 reserved 行；原始错误码优先透出
+    // 兜底：半成品视图退订 → 摘工具 → 销毁半成品会话 → 删 reserved 行；原始错误码优先透出
+    view?.unsubscribe()
     await ports.sessions.releaseTools(sessionId).catch(() => undefined)
     await ports.sessions.destroy(sessionId).catch(() => undefined)
     await index.fail(key, error instanceof Error ? error.message : String(error)).catch(() => undefined)

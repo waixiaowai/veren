@@ -7,19 +7,46 @@
  * - render 阶段纯函数：只产出 effect list，不触碰宿主
  */
 import { canonicalJson } from './element.ts'
-import type { Component, Effect, Fiber, HostInstance, Lane, PromptElement } from './types.ts'
+import { runWithHookScope } from './hooks.ts'
+import type { Component, Effect, Fiber, HostInstance, Lane, PromptElement, PromptRoot } from './types.ts'
 
 function sameType(fiber: Fiber, element: PromptElement): boolean {
   return fiber.type === element.type
 }
 
-/** 顶层 children 对账 / reconcile one children list */
+/**
+ * children 规范化（C1）：深压平嵌套数组；跳过假值（null/undefined/布尔——`cond && <X/>` 的
+ * 合法产物）；裸字符串/数字包成 `text` 块（Markdown 文档的主载体，宿主侧解释）。
+ * Children normalization (C1): deep-flatten nested arrays; skip falsy values
+ * (null/undefined/booleans — the legal products of `cond && <X/>`); wrap bare
+ * strings/numbers into `text` blocks (Markdown's primary carrier, interpreted host-side).
+ */
+export function normalizeChildren(input: readonly unknown[] | unknown): PromptElement[] {
+  const out: PromptElement[] = []
+  const walk = (item: unknown): void => {
+    if (item === null || item === undefined || typeof item === 'boolean' || typeof item === 'function') return
+    if (Array.isArray(item)) {
+      for (const child of item) walk(child)
+      return
+    }
+    if (typeof item === 'string' || typeof item === 'number') {
+      out.push({ type: 'text', props: Object.freeze({ content: String(item) }) } as PromptElement)
+      return
+    }
+    out.push(item as PromptElement)
+  }
+  walk(input)
+  return out
+}
+
+/** 顶层 children 对账（root 沿树穿透：hooks 通道 + 组件第二参数依赖它）/ reconcile one children list (root threads down the tree) */
 export function reconcileChildren(
   parent: Fiber,
   altChild: Fiber | null,
   elements: readonly PromptElement[],
   lane: Lane,
   effects: Effect[],
+  root: PromptRoot | null = null,
 ): Fiber | null {
   const altByKey = new Map<string, Fiber>()
   const altList: Fiber[] = []
@@ -38,7 +65,7 @@ export function reconcileChildren(
     if (element.key === undefined) altIndex++
     if (alt !== undefined) claimed.add(alt)
 
-    const fiber = beginWork(element, alt, lane, effects)
+    const fiber = beginWork(element, alt, lane, effects, root)
     fiber.parent = parent
     if (prev === null) first = fiber
     else prev.sibling = fiber
@@ -52,16 +79,24 @@ export function reconcileChildren(
 }
 
 /** 单元素入口：组件递归展开 / host 产出实例与 effect / begin one element */
-function beginWork(element: PromptElement, alt: Fiber | undefined, lane: Lane, effects: Effect[]): Fiber {
+function beginWork(element: PromptElement, alt: Fiber | undefined, lane: Lane, effects: Effect[], root: PromptRoot | null): Fiber {
   if (typeof element.type === 'function') {
     const component = element.type as Component
     if (alt !== undefined && alt.type === component && component.__memoCompare?.(alt.props, element.props)) {
-      return cloneSubtree(alt, null) // memo bailout：整棵复用，零 effect
+      return cloneSubtree(alt, null) // memo bailout：整棵复用，零 effect；hooks 槽位随 fiber 原样保留
     }
     const fiber: Fiber = { type: element.type, key: element.key, props: element.props, tag: 'component', child: null, sibling: null, parent: null }
-    const produced = component(element.props)
-    const children = Array.isArray(produced) ? produced : [produced]
-    fiber.child = reconcileChildren(fiber, alt?.child ?? null, children, lane, effects)
+    // hooks 槽位随位置持久：同位同型复用旧 fiber 的槽位；异型重建 = 全新槽位（重挂语义）
+    // / hook slots persist by position: a same-type reuse carries the old fiber's slots; a type change remounts with fresh slots
+    fiber.hooks = alt?.hooks ?? []
+    fiber.child = reconcileChildren(
+      fiber,
+      alt?.child ?? null,
+      normalizeChildren(runWithHookScope(root, fiber.hooks, () => component(element.props, root?.componentCtx))),
+      lane,
+      effects,
+      root,
+    )
     return fiber
   }
 
@@ -72,6 +107,19 @@ function beginWork(element: PromptElement, alt: Fiber | undefined, lane: Lane, e
   } else if (canonicalJson(alt.props) !== canonicalJson(element.props)) {
     effects.push({ tag: 'update', instance, prevInstance: alt.instance, lane })
   }
+  // 宿主元素的 children 也对账（HTML 词汇的结构树：ul→li、table→tr……Markdown
+  // 序列化沿 fiber 树走，结构必须真实存在）。无 children 的旧块零开销（空数组）。
+  // Host children reconcile too (the HTML vocabulary's structural tree: ul→li,
+  // table→tr…; the Markdown serializer walks the fiber tree, so structure must
+  // really exist). Childless legacy blocks pay nothing (an empty array).
+  fiber.child = reconcileChildren(
+    fiber,
+    alt?.child ?? null,
+    normalizeChildren(element.props.children),
+    lane,
+    effects,
+    root,
+  )
   return fiber
 }
 

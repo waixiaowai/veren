@@ -84,3 +84,8 @@ apps/**/src/*.js
 apps/**/src/*.js.map
 apps/**/src/*.d.ts
 apps/**/src/*.d.ts.map
+# 真机自测临时产物 / real-env probe artifacts
+.headless-out.txt
+.headless-t1.txt
+.verify-out.txt
+.dsh-web-3080.log

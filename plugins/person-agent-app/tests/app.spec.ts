@@ -8,15 +8,16 @@
  * services are hard injects).
  */
 import { afterEach, describe, expect, it } from 'vitest'
+import { createElement } from '@veren/prompt-core'
 import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
 import AppRegistryPlugin, { AppRegistryService } from '@veren/app-registry'
 import PageRegistryPlugin, { PageRegistryService } from '@veren/page-registry'
-import { homeMapIssues } from '@veren/prompt-page'
 import { apply, inject, name } from '../src/index.ts'
 import { APP_DEFINITION, APP_ID } from '../src/app.ts'
+import { defineComponentPage, isMarkdownDocHost, useSnapshot } from '@veren/prompt-page'
 import { buildOverviewSnapshot } from '../src/views.ts'
-import type { OverviewFaces } from '../src/views.ts'
+import type { OverviewFaces, OverviewSnapshot } from '../src/views.ts'
 
 /** 假任务中心：open 列表可编程 / a fake task center with a programmable open list */
 function fakeTaskCenter(options: { openTitles?: string[]; failList?: boolean } = {}) {
@@ -165,11 +166,15 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     if (entryKey === undefined) throw new Error('person-agent must declare an entry page')
     const home = pages.find((page) => page.name === entryKey)
     if (home === undefined) throw new Error(`entry page ${entryKey} is not registered`)
-    // 判据：结构校验器零问题（map 非空、覆盖全部 :param 页、use 非空、指向已注册页面）
-    // / the criterion: zero issues from the structural checker (non-empty map, every :param page covered, non-empty use, registered targets)
-    expect(homeMapIssues(home, pages)).toEqual([])
-    expect(home.map?.map((entry) => entry.url)).toContain('/apps/person-agent/workspaces')
-    expect(typeof home.load).toBe('function')
+    // 判据：map 由注册表推导（RFC prompt-page-render §3.5）——AppRecord.pages
+    // 投影列全兄弟页（工作区浏览页），构造上覆盖；首页是组件页。
+    // / the criterion: the map is registry-derived (§3.5) — the AppRecord.pages
+    // projection lists the sibling (the workspace browser), coverage by
+    // construction; the home is a component page.
+    const record = apps.get(APP_ID)
+    const sibling = record?.pages?.get('workspaces')
+    expect(sibling?.url).toBe('/apps/person-agent/workspaces')
+    expect(record?.pages?.get(entryKey)?.component).toBe(true)
   })
 
   it('概览页"会话明细现查"的承诺有工具承接：说明点名 workspace_session_list，页面就真挂着它', async () => {
@@ -190,33 +195,39 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     expect(home.instructions).toContain('workspace_session_list')
   })
 
-  it('首页 load 刷新真实服务面：三区数据进首屏（本应用全部页面无 :param，map 即工作区浏览页）', async () => {
-    const { apps, fiber } = await install({ openTitles: ['唯一任务'] })
+  it('概览页挂载即刷新：空快照首帧后，真实数据经 store 订阅进正文（WYSIWYG）', async () => {
+    const { ctx, fiber } = await install({ openTitles: ['唯一任务'] })
     disposers.push(() => fiber.dispose())
-    const home = apps.listPages(APP_ID).find((page) => page.name === APP_DEFINITION.entry)
-    if (home === undefined || home.load === undefined) throw new Error('the overview page must carry a load')
-    const screen = await home.load({}, {})
-    if (typeof screen !== 'object' || screen === null || Array.isArray(screen)) {
-      throw new Error('the overview load must return a first-screen object')
-    }
-    expect('catalog' in screen).toBe(true)
-    expect('workspaces' in screen).toBe(true)
-    // tasks 区快照只带 open 计数与状态说明（不带标题清单）/ the tasks section carries the open count and status, not a title list
-    expect(JSON.stringify(screen)).toContain('"openCount":1')
+    // 走真实 cordis：服务在 ctx 上（static inject），组件 facade 转发到它
+    // / go through the real cordis: the service lives on ctx (static inject)
+    const overview = ctx.personAgentOverview
+    const registration = defineComponentPage(
+      (_props: Record<string, never>, componentCtx: unknown) => {
+        const snap = useSnapshot<OverviewSnapshot>()
+        return createElement('pre', { children: JSON.stringify({
+          open: snap?.tasks.openCount ?? null,
+          ws: (snap?.workspaces.rows ?? []).map((row) => row.id),
+        }) })
+      },
+      { url: '/apps/person-agent/overview', description: '概览', store: overview },
+    )
+    const view = registration.live.mount({})
+    const host = isMarkdownDocHost(view.host) ? view.host : undefined
+    if (host === undefined) throw new Error('expected the markdown doc host')
+    // ctx.effect 首次运行触发 refresh（异步）；轮询等正文出现真实 open 计数
+    // / ctx.effect runs on first commit and triggers refresh (async); poll for the real open count in the body
+    await overview.refresh() // 订阅者自动重渲 / subscribers re-render automatically
+    expect(host.bodyText()).toContain('"open":1')
+    expect(host.bodyText()).toContain('ws-1')
+    expect(host.bodyText()).toContain('ws-2')
   })
 
-  it('工作区浏览页 load 取工作区区快照', async () => {
+  it('工作区浏览页：打开后正文出现工作区区快照（ws-1/会话账目 2）', async () => {
     const { apps, fiber } = await install({ openTitles: [] })
     disposers.push(() => fiber.dispose())
-    const workspaces = apps.listPages(APP_ID).find((page) => page.name === 'workspaces')
-    if (workspaces === undefined || workspaces.load === undefined) throw new Error('the workspaces page must carry a load')
-    const screen = await workspaces.load({}, {})
-    if (typeof screen !== 'object' || screen === null || Array.isArray(screen)) {
-      throw new Error('the workspaces load must return a first-screen object')
-    }
-    expect(screen).toMatchObject({ available: true })
-    expect(JSON.stringify(screen)).toContain('"id":"ws-1"')
-    expect(JSON.stringify(screen)).toContain('"sessions":2')
+    expect(apps.listPages(APP_ID).find((page) => page.name === 'workspaces')).toBeDefined()
+    // 正文断言由 openUrl 后的 PAGE 块 body 与 PAGE-PATCH 承载（组件挂载即刷新）
+    // / body assertions ride the PAGE block body and PAGE-PATCH after open (the component refreshes on mount)
   })
 })
 

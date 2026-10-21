@@ -141,9 +141,22 @@ export class PersonAgentOverviewService extends Service {
   static inject = ['apps', 'workspaceRegistry', 'taskCenter']
 
   private snapshot: OverviewSnapshot = emptySnapshot()
+  /** 变更监听（ExternalStore 面，组件页 useSnapshot 的重渲通道）/ change listeners (the ExternalStore face; the component pages' re-render channel) */
+  private readonly listeners = new Set<() => void>()
 
   constructor(ctx: Context) {
     super(ctx, PERSON_AGENT_OVERVIEW_NAME)
+  }
+
+  /** ExternalStore 面：等价 current()（组件页 meta.store 用）/ the ExternalStore face: alias of current() (used by component pages' meta.store) */
+  getState(): OverviewSnapshot {
+    return this.snapshot
+  }
+
+  /** 订阅变更；返回退订函数 / subscribe to changes; returns an unsubscribe */
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => { this.listeners.delete(listener) }
   }
 
   /** 最新已知快照（引用稳定，可能尚未刷新）/ the latest known snapshot (stable, maybe stale) */
@@ -151,13 +164,14 @@ export class PersonAgentOverviewService extends Service {
     return this.snapshot
   }
 
-  /** 重新读取全部服务面并换掉快照引用 / re-read every service face and swap the snapshot */
+  /** 重新读取全部服务面并换掉快照引用，通知订阅者 / re-read every service face, swap the snapshot, and notify subscribers */
   async refresh(): Promise<void> {
     this.snapshot = await buildOverviewSnapshot({
       apps: this.ctx.apps,
       workspaces: this.ctx.workspaceRegistry,
       tasks: this.ctx.taskCenter,
     })
+    for (const listener of [...this.listeners]) listener()
   }
 }
 

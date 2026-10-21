@@ -53,7 +53,6 @@ function taskPage() {
     // / §3.10.5 rule 3: a detail page declares writes and carries instructions (fixture updated with the spec)
     writes: true,
     instructions: '只处理 params.id 指定的这一条任务。',
-    tree: () => [],
   })
 }
 
@@ -219,11 +218,11 @@ describe('废弃竞态（§3.9 风险 3：投递途中指针易主）', () => {
 
 describe('页面工具完备性警告（§3.9，只提醒不做门禁）', () => {
   it('writes: true 且零工具 → 一句话警告；有工具或未声明 → undefined', () => {
-    const silent = defineAppPage({ name: 'read-only', url: '/apps/demo/ro', description: '只读页', tree: () => [] })
+    const silent = defineAppPage({ name: 'read-only', url: '/apps/demo/ro', description: '只读页' })
     expect(pageToolWarning(silent)).toBeUndefined()
-    const fine = defineAppPage({ name: 'writer', url: '/apps/demo/w', description: 'd', writes: true, tools: ['read'], tree: () => [] })
+    const fine = defineAppPage({ name: 'writer', url: '/apps/demo/w', description: 'd', writes: true, tools: ['read'] })
     expect(pageToolWarning(fine)).toBeUndefined()
-    const broken = defineAppPage({ name: 'broken', url: '/apps/demo/b', description: 'd', writes: true, tree: () => [] })
+    const broken = defineAppPage({ name: 'broken', url: '/apps/demo/b', description: 'd', writes: true })
     expect(pageToolWarning(broken)).toContain('declares writes: true but mounts no tools')
   })
 })

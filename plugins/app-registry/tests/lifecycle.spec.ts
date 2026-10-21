@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { createElement } from '@veren/prompt-core'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { Context } from '@deepseek-ai/cordis'
-import type { PageDefinition } from '@veren/prompt-page'
+import type { ComponentPageMeta, PageFC } from '@veren/prompt-page'
 import { AppErrorCode, AppRegistryError, AppRegistryService } from '../src/index.ts'
 import { createBootstrapTools } from '../src/bootstrap-tools.ts'
 import type { AppId, ApplicationDefinition } from '../src/index.ts'
@@ -23,21 +24,14 @@ function makeTool(name: string) {
 }
 
 /**
- * 最小页面定义；一级页（本套夹具里都叫 main）按 §3.10.5 规则 1 带上非空能力地图。
- * 只查注册期"非空"，覆盖完整性由应用的验收断言负责。
- * Minimal page definition; the home page (named `main` throughout this suite)
- * carries a non-empty capability map for §3.10.5 rule 1. Registration only
- * demands non-emptiness — coverage belongs to each app's acceptance test.
+ * 最小组件页夹具：[PageFC, meta] 二元组（组件形态，RFC prompt-page-render §3.5）。
+ * A minimal component-page fixture: a [PageFC, meta] tuple (the component form).
  */
-function pageDef(appId: string, name: string): PageDefinition<never> {
-  const home = name === 'main'
-  return {
-    name,
-    url: `/apps/${appId}/${name}`,
-    description: `page ${name}`,
-    ...(home ? { map: [{ url: `/apps/${appId}/detail/:id`, use: `open one ${name} record` }] } : {}),
-    tree: (() => []) as unknown as PageDefinition<never>['tree'],
-  }
+function pageDef(appId: string, name: string): [PageFC, ComponentPageMeta] {
+  return [
+    () => createElement('p', { children: name }),
+    { url: `/apps/${appId}/${name}`, description: `page ${name}` },
+  ]
 }
 
 /**
@@ -51,7 +45,7 @@ describe('fiber 归属与生命周期', () => {
     let dispose: (() => void) | undefined
     const fiber = await root.plugin((ctx: Context) => {
       dispose = apps.register(appDef('todo'), ctx)
-      apps.pages('todo' as AppId, ctx).register(pageDef('todo', 'main'))
+      apps.pages('todo' as AppId, ctx).register(...pageDef('todo', 'main'))
       apps.tools('todo' as AppId, ctx).define(makeTool('add'))
     })
     expect(apps.catalog()).toHaveLength(1)
@@ -108,7 +102,7 @@ describe('宿主引导工具 app_list / app_pages', () => {
   it('app_list 返回 id/entryUrl/state，broken 应用 entryUrl 为 null', async () => {
     const apps = new AppRegistryService(new Context())
     apps.register(appDef('todo'))
-    apps.pages('todo' as AppId).register(pageDef('todo', 'main'))
+    apps.pages('todo' as AppId).register(...pageDef('todo', 'main'))
     apps.register(appDef('ghost-app'))
     const tools = createBootstrapTools(apps)
     const result = await tools.appList.execute({}, {} as never) as { apps: Array<Record<string, unknown>> }
@@ -123,7 +117,8 @@ describe('宿主引导工具 app_list / app_pages', () => {
     const apps = new AppRegistryService(new Context())
     apps.register(appDef('todo'))
     apps.tools('todo' as AppId).define(makeTool('add'))
-    apps.pages('todo' as AppId).register({ ...pageDef('todo', 'main'), tools: ['add'] } as PageDefinition<never>)
+    const [component, meta] = pageDef('todo', 'main')
+    apps.pages('todo' as AppId).register(component, { ...meta, tools: ['add'] })
     const tools = createBootstrapTools(apps)
     const ok = await tools.appPages.execute({ appId: 'todo' }, {} as never) as { pages: Array<Record<string, unknown>> }
     expect(ok.pages[0]).toMatchObject({

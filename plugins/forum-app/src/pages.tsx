@@ -24,8 +24,9 @@
  * @module @veren/forum-app/pages
  */
 
-import { Static, defineAppPage } from '@veren/prompt-page'
-import type { PageJsonValue, PageDefinition } from '@veren/prompt-page'
+import { createElement } from '@veren/prompt-core'
+import { defineComponentPage } from '@veren/prompt-page'
+import type { ComponentPageRegistration } from '@veren/prompt-page'
 import type { CatalogView, CommentNodeView, ForumToolsPort, PostDetailView } from '@veren/forum'
 
 /** The app-scoped URL prefix; the app id is its authority. */
@@ -111,34 +112,21 @@ export function postFirstScreen(view: PostDetailView): ForumPostFirstScreen {
  * `forum__list` 与 `forum__post` 行动。本应用有详情页 → 首页 map 必须非空
  * （§3.10.5 规则 1）。
  */
-export function createCatalogPage(port: () => ForumToolsPort): PageDefinition<never> {
-  return defineAppPage<never>({
-    name: 'catalog',
-    url: `${URL_PREFIX}/catalog`,
-    description: '论坛入口页：浏览板块与主题列表，发新帖',
-    tools: ['list', 'post'],
-    instructions: '这是论坛的首页（板块与主题列表）。data 行是首屏快照：boards（板块）、posts（最新主题，heat 为默认热度）、people（可发帖/提及的预设名）。'
-      + '用 forum__list 浏览板块与主题，可按关键词（query）、标签（tag）过滤，并按 heat/new/views 排序；'
-      + '用 forum__post 以你自己的预设名义发新帖，正文里写 @预设名 可通知该预设。'
-      + '要读某个主题时，打开 map 里的主题详情页 URL。',
-    instanceTitle: () => '论坛 · 板块与主题',
-    // §3.10.1：首页 = 基础信息（load 取真实目录）+ 能力地图（有详情页 → map 必须非空）
-    // / §3.10.1: the home page = basic information (a real catalog read via load)
-    // + the capability map (a detail page exists → the map must be non-empty)
-    load: async () => catalogFirstScreen(await port().catalog({})) satisfies PageJsonValue,
-    map: [
-      {
-        url: `${URL_PREFIX}/post/:postId`,
-        use: '读某个主题及其评论树、回复或投票时打开',
-        params: { postId: '主题 id，来自列表 data 的 posts[].id' },
-      },
-    ],
-    tree: () => (
-      <>
-        <Static content="论坛 · 板块与主题列表" />
-      </>
-    ),
-  })
+export function createCatalogPage(port: () => ForumToolsPort): ComponentPageRegistration {
+  return defineComponentPage(
+    () => createElement('h1', { children: '论坛 · 板块与主题列表' }),
+    {
+      url: `${URL_PREFIX}/catalog`,
+      description: '论坛入口页：浏览板块与主题列表，发新帖',
+      tools: ['list', 'post'],
+      instructions: '这是论坛的首页（板块与主题列表）。正文首屏：boards（板块）、posts（最新主题，heat 为默认热度）、people（可发帖/提及的预设名）。'
+        + '用 forum__list 浏览板块与主题，可按关键词（query）、标签（tag）过滤，并按 heat/new/views 排序；'
+        + '用 forum__post 以你自己的预设名义发新帖，正文里写 @预设名 可通知该预设。'
+        + '要读某个主题时，打开 map 里的主题详情页 URL。',
+      instanceTitle: () => '论坛 · 板块与主题',
+      load: async () => catalogFirstScreen(await port().catalog({})),
+    },
+  )
 }
 
 /**
@@ -147,30 +135,26 @@ export function createCatalogPage(port: () => ForumToolsPort): PageDefinition<ne
  * 主题详情页（detail 档）：一个主题及其评论树；为"处理这一条主题"而存在的页面
  * （回复、投票）。
  */
-export function createPostPage(port: () => ForumToolsPort): PageDefinition<never> {
-  return defineAppPage<never>({
-    name: 'post',
-    url: `${URL_PREFIX}/post/:postId`,
-    description: '论坛主题详情页：读一个主题及其评论树，回复与投票',
-    tools: ['read', 'comment', 'vote'],
-    writes: true,
-    instructions: '这是论坛主题详情页，只处理 params.postId 指定的这一条主题——这一页只干这一件事。'
-      + 'data 行自带主题字段、正文与展平的评论树（parent 为空串即回复主题本身）；'
-      + '用 forum__read 读取全文与最新评论树（读取会计一次浏览量），'
-      + '用 forum__comment 回复——parentCommentId 省略即回复主题本身，评论嵌套最多两层；'
-      + '用 forum__vote 以你自己的预设名义对主题或评论投 up/down，重复投票同一态度即收回。'
-      + '回复与 @ 提及都会给对方发论坛通知。',
-    // 实例化后显示「主题 #<id>」/ rendered instance title like 「主题 #<id>」
-    instanceTitle: (params) => `主题 #${params.postId}`,
-    // §3.10.3：详情页 load 按参数取该条记录的首屏快照；主题不存在时 load 抛
-    // forum/post-not-found，data 行如实给出失败态与重试指引。
-    // §3.10.3: the detail load fetches that one record's first screen; a missing
-    // post throws forum/post-not-found and the data line carries the error state.
-    load: async (params) => postFirstScreen(await port().detail({ postId: String(params.postId ?? '') })) satisfies PageJsonValue,
-    tree: (params) => (
-      <>
-        <Static content={`论坛主题 ${params.postId ?? ''}`} />
-      </>
-    ),
-  })
+export function createPostPage(port: () => ForumToolsPort): ComponentPageRegistration {
+  return defineComponentPage(
+    (props) => createElement('h1', { children: `论坛主题 ${props.postId ?? ''}` }),
+    {
+      url: `${URL_PREFIX}/post/:postId`,
+      description: '论坛主题详情页：读一个主题及其评论树，回复与投票',
+      tools: ['read', 'comment', 'vote'],
+      writes: true,
+      instructions: '这是论坛主题详情页，只处理 params.postId 指定的这一条主题——这一页只干这一件事。'
+        + '正文自带主题字段、正文与展平的评论树（parent 为空串即回复主题本身）；'
+        + '用 forum__read 读取全文与最新评论树（读取会计一次浏览量），'
+        + '用 forum__comment 回复——parentCommentId 省略即回复主题本身，评论嵌套最多两层；'
+        + '用 forum__vote 以你自己的预设名义对主题或评论投 up/down，重复投票同一态度即收回。'
+        + '回复与 @ 提及都会给对方发论坛通知。',
+      instanceTitle: (params) => `主题 #${params.postId}`,
+      // §3.10.3：详情页 load 按参数取该条记录的首屏快照；主题不存在时 load 抛
+      // forum/post-not-found，失败态进组件如实渲染。
+      // §3.10.3: the detail load fetches that one record's first screen; a missing
+      // post throws forum/post-not-found and the component renders the error state.
+      load: async (params) => postFirstScreen(await port().detail({ postId: String(params.postId ?? '') })),
+    },
+  )
 }

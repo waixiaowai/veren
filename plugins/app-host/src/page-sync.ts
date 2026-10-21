@@ -42,7 +42,7 @@
  */
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { SnapshotNode } from '@veren/prompt-host-messages'
+import { isMarkdownDocHost } from '@veren/prompt-page'
 import type { PageDataIdentity, PageDataPort } from '@veren/page-registry'
 import type { PageSession } from '@veren/prompt-page'
 
@@ -50,16 +50,6 @@ import type { PageSession } from '@veren/prompt-page'
  * / the PAGE-DATA message-source kind (merged in session-port.ts) */
 export const PAGE_DATA_MESSAGE_SOURCE = 'page/data' as const
 
-/** 截断上限（§3.10.2 示例值：列表 ≤50 条、单块 ≤4KB）/ the truncation caps (§3.10.2's example values) */
-export interface PageDataCaps {
-  /** 每个集合最多列出的条目数 / max items listed per collection */
-  readonly maxItems: number
-  /** 单个 PAGE-DATA 块 data 部分的序列化字节上限 / serialization byte ceiling for one block's data section */
-  readonly maxBytes: number
-}
-
-/** 缺省上限：50 条 / 4KB（§3.10.2 的示例值，宿主 Config 可覆盖）/ defaults: 50 items / 4KB (host Config overrides) */
-export const DEFAULT_PAGE_DATA_CAPS: PageDataCaps = { maxItems: 50, maxBytes: 4096 }
 
 /** 一条已绑定的实时视图：视图 + 身份 + 注入游标 / one bound live view: view + identity + injection cursor */
 interface PageDataEntry {
@@ -88,8 +78,6 @@ export interface PageDataSyncHub extends PageDataSyncFace {
 }
 
 export interface PageDataSyncOptions {
-  /** 截断上限（宿主 Config 透传）/ the caps (passed through host Config) */
-  readonly caps: PageDataCaps
   /** 降级告警出口（渲染失败不毁模型回合）/ the degrade-warn outlet (a render failure must not break the model turn) */
   readonly warn?: (message: string) => void
 }
@@ -103,16 +91,23 @@ export interface PageDataSyncOptions {
  * this session's agent through dsh-scope filtering — both lines point at the
  * same single entry.
  */
-export function createPageDataSync(options: PageDataSyncOptions): PageDataSyncHub {
-  const { caps, warn } = options
+export function createPageDataSync(options: PageDataSyncOptions = {}): PageDataSyncHub {
+  const { warn } = options
   const entries = new Map<string, PageDataEntry>()
-  /** 版本门控取块：有变化返回 PAGE-DATA 文本并推进游标 / gated take: text when changed, cursor advanced */
+  /** 版本门控取块：有变化返回 PAGE-DATA/PAGE-PATCH 文本并推进游标 / gated take: text when changed, cursor advanced */
   const takeText = (sessionId: string): string | undefined => {
     const entry = entries.get(sessionId)
     if (entry === undefined || entry.view.host.currentVersion <= entry.cursor) return undefined
-    const text = renderPageData(entry.view, entry.identity, caps)
-    entry.cursor = entry.view.host.currentVersion
-    return text
+    // 组件页（Markdown 文档宿主）→ PAGE-PATCH：变化即补丁，只发变化的单元行。
+    // 减法后所有页面都是组件页；非 Markdown 宿主按构造不可达，降级跳过。
+    // / component pages (the Markdown doc host) → PAGE-PATCH: change means patch,
+    // only the changed unit lines. After the subtraction every page is a
+    // component page; a non-Markdown host is unreachable by construction — degrade by skipping.
+    if (!isMarkdownDocHost(entry.view.host)) return undefined
+    const patch = entry.view.host.takeMarkdownPatch(entry.cursor)
+    if (patch === undefined) return undefined
+    entry.cursor = patch.version
+    return `PAGE-PATCH ${entry.identity.pageKey} ${entry.identity.url} v${patch.version}\n${patch.text}`
   }
   const drop = (sessionId: string): void => {
     const entry = entries.get(sessionId)
@@ -164,84 +159,4 @@ export interface PageDataPayload {
   readonly collections: Record<string, { readonly total: number; readonly items: readonly unknown[] }>
   /** 任一截断发生时为 true / true when anything was truncated */
   readonly truncated?: true
-}
-
-/** 渲染一个 PAGE-DATA 块：头行（页面键 + 规范 URL + 版本）+ data 快照 / render one PAGE-DATA block */
-export function renderPageData(view: PageSession<never>, identity: PageDataIdentity, caps: PageDataCaps): string {
-  const sync = view.host.renderSince(undefined)
-  const nodes = sync.kind === 'snapshot' ? sync.nodes : []
-  const header = `PAGE-DATA ${identity.pageKey} ${identity.url} v${view.host.currentVersion}`
-  return `${header}\ndata: ${JSON.stringify(collectData(nodes, caps))}`
-}
-
-/** 装配中的可变草稿 / the mutable packing draft */
-interface PayloadDraft {
-  static: string[]
-  fields: Record<string, unknown>
-  collections: Record<string, { total: number; items: unknown[] }>
-}
-
-/** 一段候选区（收集阶段产出，装箱阶段消费）/ one candidate section (collected, then packed) */
-interface DataSection {
-  /** 把本区写进草稿并返回新草稿（纯函数）/ write this section into the draft, returning a new draft (pure) */
-  readonly apply: (draft: PayloadDraft) => PayloadDraft
-  /** 本区在收集阶段已被条数上限截断 / this section was already item-capped during collection */
-  readonly capped: boolean
-}
-
-/** 快照节点 → 候选区序列（集合按 maxItems 预截、total 保留原值）
- * / snapshot nodes → candidate sections (collections pre-capped by maxItems, true total kept) */
-function collectSections(nodes: readonly SnapshotNode[], caps: PageDataCaps): DataSection[] {
-  const sections: DataSection[] = []
-  for (const node of nodes) {
-    if (node.kind === 'static') {
-      sections.push({
-        apply: (draft) => ({ ...draft, static: [...draft.static, node.content] }),
-        capped: false,
-      })
-    } else if (node.kind === 'data') {
-      const value = capValue(node.value, caps)
-      sections.push({
-        apply: (draft) => ({ ...draft, fields: { ...draft.fields, [node.path]: value } }),
-        capped: value !== node.value,
-      })
-    } else {
-      const items = node.items.slice(0, caps.maxItems)
-      sections.push({
-        apply: (draft) => ({
-          ...draft,
-          collections: { ...draft.collections, [node.path]: { total: node.items.length, items } },
-        }),
-        capped: items.length < node.items.length,
-      })
-    }
-  }
-  return sections
-}
-
-/** 单值字节上限兜底：超大值替换为省略标记 / per-value byte guard: oversized values become omission markers */
-function capValue(value: unknown, caps: PageDataCaps): unknown {
-  const json = JSON.stringify(value) ?? ''
-  if (json.length <= Math.max(caps.maxBytes / 2, 256)) return value
-  return `…(omitted ${json.length} bytes)`
-}
-
-/** 按序装箱候选区，超预算即整区截断（确定性：写不下的区与其后全部丢弃；代价按真实序列化算）
- * / pack sections in order; the first non-fitting section and everything after it are dropped
- * (deterministic; the budget is measured on the real serialization) */
-function packSections(sections: readonly DataSection[], caps: PageDataCaps): PageDataPayload {
-  let draft: PayloadDraft = { static: [], fields: {}, collections: {} }
-  let truncated = false
-  for (const section of sections) {
-    const candidate = section.apply(draft)
-    if (JSON.stringify(candidate).length > caps.maxBytes) return { ...draft, truncated: true }
-    draft = candidate
-    truncated ||= section.capped
-  }
-  return truncated ? { ...draft, truncated: true } : draft
-}
-
-/** 快照节点 → data 载荷（装箱 + 截断标记）/ snapshot nodes → the data payload (packed, truncation-marked) */
-function collectData(nodes: readonly SnapshotNode[], caps: PageDataCaps): PageDataPayload {
-  return packSections(collectSections(nodes, caps), caps)
 }

@@ -28,7 +28,6 @@ import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as ForumApp from '../src/index.ts'
 import { Config as AppConfig, FORUM_APP_DEFINITION, FORUM_APP_ID } from '../src/index.ts'
-import { homeMapIssues } from '@veren/prompt-page'
 import ForumService, { Config as HostConfig } from '@veren/forum'
 
 /** The roots one spec's temp storage lives under, removed after the spec. 每条用例的临时存储根，测后删除。 */
@@ -235,10 +234,13 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全 / the
     if (entryKey === undefined) throw new Error('the forum app must declare an entry page')
     const home = pages.find((page) => page.name === entryKey)
     if (home === undefined) throw new Error(`entry page ${entryKey} is not registered`)
-    // 判据：结构校验器零问题（map 非空、覆盖全部 :param 页、use 非空、指向已注册页面）
-    // / the criterion: zero issues from the structural checker (non-empty map, every :param page covered, non-empty use, registered targets)
-    expect(homeMapIssues(home, pages)).toEqual([])
-    expect(home.map?.map((entry) => entry.url)).toContain('/apps/forum/post/:postId')
+    // 判据：map 由注册表推导（RFC prompt-page-render §3.5）——AppRecord.pages
+    // 投影列全兄弟页（主题详情页），构造上覆盖；首页自带 load。
+    // / the criterion: the map is registry-derived (§3.5) — the AppRecord.pages
+    // projection lists the sibling (the post detail page), coverage by
+    // construction; the home carries a load.
+    const record = apps.get(FORUM_APP_ID)
+    expect(record?.pages?.get('post')?.url).toBe('/apps/forum/post/:postId')
     expect(typeof home.load).toBe('function')
     await fiber.dispose()
   })

@@ -55,6 +55,16 @@ export interface AppRecord {
   readonly toolPrefix: string
   readonly state: 'active' | 'disabled' | 'broken'
   readonly brokenReason?: string
+  /**
+   * 本应用已注册页面的投影（键 = 应用内页面键）：map 由注册表推导（RFC
+   * prompt-page-render §3.5）与规则 1 的"列全记录页"都从这里取事实。可选：
+   * 手工构造 AppRecord 的既有测试/消费方缺省视为无页面。
+   * A projection of the app's registered pages (keyed by app-internal page
+   * key): the registry-derived map (RFC prompt-page-render §3.5) and rule 1's
+   * "list all record pages" both take their facts from here. Optional: legacy
+   * consumers/tests that hand-build AppRecord default to no pages.
+   */
+  readonly pages?: ReadonlyMap<string, { readonly url: string; readonly description: string; readonly component: boolean }>
 }
 
 /**
@@ -81,6 +91,9 @@ export interface AppToolEntry {
 export interface PageRegistration {
   readonly page: PageDefinition<never>
   readonly live?: PageLiveBinding
+  /** 组件页标记（RFC prompt-page-render §3.5）：map 由注册表推导，正文渲染为 Markdown
+   * / the component-page marker (RFC prompt-page-render §3.5): the map is registry-derived and the body renders as Markdown */
+  readonly component?: boolean
 }
 
 /** 页面注册面：只有应用自己能拿到 / app-scoped page registrar */
@@ -96,7 +109,26 @@ export interface AppPageRegistrar {
    * store changes reach the context as PAGE-DATA blocks. The state type S is
    * consumed here; the registry and the runtime see only the erased closure.
    */
-  register<S>(page: PageDefinition<S>, live?: { readonly store: import('@veren/prompt-core').ExternalStore<S> }): () => void
+  /**
+   * 组件页注册（RFC prompt-page-render §3.5/C8 的唯一注册签名扩展）：传 PageFC
+   * 组件 + 契约 meta，适配器（defineComponentPage）内部包成 PageDefinition 与
+   * 每会话实时视图——正文渲染为 Markdown，`ctx.effect`/`ctx.on`/`ctx.tools.register`
+   * 走槽位记账。返回 disposer（HMR/卸载安全）。P 由组件与 meta 同时推断。
+   * Component-page registration (the single registration-signature extension of
+   * RFC prompt-page-render §3.5/C8): pass a PageFC component + contract meta;
+   * the adapter (defineComponentPage) wraps them into a PageDefinition plus a
+   * per-session live view — the body renders as Markdown and `ctx.effect` /
+   * `ctx.on` / `ctx.tools.register` record through hook slots. Returns a
+   * disposer (HMR/unload safe). P is inferred from both the component and meta.
+   */
+  register<P extends Record<string, unknown>>(component: import('@veren/prompt-page').PageFC<P>, meta: import('@veren/prompt-page').ComponentPageMeta<P>): () => void
+  /**
+   * 预构建注册对象（prompt-page 的 defineComponentPage 产物）直接登记——
+   * 调用方自己持有适配结果时用这个形态。
+   * Register a pre-built registration object (defineComponentPage's product)
+   * directly — for callers that already hold the adapter's result.
+   */
+  register(registration: import('@veren/prompt-page').ComponentPageRegistration): () => void
 }
 
 /**

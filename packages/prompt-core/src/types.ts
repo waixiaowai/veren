@@ -19,9 +19,11 @@ export type Lane = 'sync' | 'transition' | 'background'
 /** 宿主块类型名（如 'static' | 'item' | 'data'）/ host block kind */
 export type HostKind = string
 
-/** 组件：props → 元素（单个 Fragment 元素或数组均可，reconciler 归一化）/ component: props -> element(s) */
+/** 组件：props → 元素（单个 Fragment 元素或数组均可，reconciler 归一化）；第二参数为渲染期 ctx（C2 透传）
+ * / component: props -> element(s) (a single fragment element or an array; normalized by the reconciler);
+ * the second parameter is the render-time ctx (C2 pass-through) */
 export interface Component<P = Record<string, unknown>> {
-  (props: P): PromptElement[] | PromptElement
+  (props: P, ctx?: unknown): PromptElement[] | PromptElement
   /** memo 比较器（挂在本体上，reconciler 读取）/ memo comparator attached to the fn */
   __memoCompare?: (a: unknown, b: unknown) => boolean
 }
@@ -51,6 +53,9 @@ export interface Fiber {
   parent: Fiber | null
   /** 宿主实例（仅 host fiber）/ host instance (host fibers only) */
   instance?: HostInstance
+  /** hook 槽位（仅组件 fiber；按调用序索引、跨渲染持久，见 hooks.ts）
+   * / hook slots (component fibers only; call-order indexed, persistent across renders, see hooks.ts) */
+  hooks?: HookCell[]
 }
 
 /** 页面树/组件可返回的元素形态 / element or element array */
@@ -77,6 +82,36 @@ export interface PromptHost {
   revise?(prev: HostInstance, next: HostInstance): void
   evict?(instance: HostInstance): void
   flush?(): void
+}
+
+/**
+ * hook 槽位：按调用序索引的持久单元（hooks.ts 消费）/ one hook cell: call-order
+ * indexed and persistent (consumed by hooks.ts)。类型放这里避免 hooks↔types 循环。
+ */
+export interface HookCell {
+  /** 槽位种类（混用即调用序被打破，fail loud）/ the cell kind (a mix means broken call order — fail loud) */
+  kind: 'state' | 'memo' | 'slot'
+  /** 槽位载荷（state 值 / memo 结果与依赖指纹 / slot 的 current 包装）/ the payload */
+  value?: unknown
+  /** 创建时的根引用：dispatch 经 refresh 通道触发重渲 / the root captured at creation: dispatch schedules via refresh */
+  root?: PromptRoot | null
+}
+
+/**
+ * 渲染根：宿主 + 当前已提交树 + background 缓冲 + hooks 的重渲/ctx 通道。
+ * The render root: the host + the committed tree + the background buffer + the
+ * hooks re-render/ctx channels.
+ */
+export interface PromptRoot {
+  readonly host: PromptHost
+  current: Fiber | null
+  pending: Effect[]
+  /** 重渲通道：hooks 的 setState dispatch 经此触发"重跑树"（mount 侧接线）
+   * / the re-render channel: hooks' setState dispatch schedules "re-run the tree" (wired by the mount side) */
+  refresh?: () => void
+  /** 组件第二参数：render 期 ctx（页面适配器注入 facade；缺省 undefined）
+   * / the components' second argument: the render-time ctx (injected by the page adapter; undefined by default) */
+  componentCtx?: unknown
 }
 
 /** 可订阅外部状态源（bindStore 的输入）/ subscribable external store */

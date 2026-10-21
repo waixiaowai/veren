@@ -1,44 +1,37 @@
 import { describe, expect, it } from 'vitest'
+import { createElement } from '@veren/prompt-core'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { Context, Service } from '@deepseek-ai/cordis'
-import type { PageDefinition } from '@veren/prompt-page'
 import AppRegistryPlugin, { AppRegistryService } from '../src/index.ts'
 import { AppErrorCode, AppRegistryError } from '../src/index.ts'
 import type { AppId, ApplicationDefinition } from '../src/index.ts'
+import type { ComponentPageMeta, PageFC } from '@veren/prompt-page'
 
 /** 构造一个最小合法应用定义 / minimal valid app definition */
 function appDef(id: string, overrides: Partial<ApplicationDefinition> = {}): ApplicationDefinition {
   return { id: id as AppId, name: id, description: `app ${id}`, entry: 'main' as never, ...overrides }
 }
 
-/** 构造一个最小合法页面定义（URL 走 /apps/<appId>/ 形态）/ minimal valid page definition */
-function pageDef(appId: string, name: string, path = name): PageDefinition<never> {
-  return {
-    name,
-    url: `/apps/${appId}/${path}`,
-    description: `page ${name}`,
-    tree: (() => []) as unknown as PageDefinition<never>['tree'],
-  }
+/** 组件页夹具（组件形态，RFC prompt-page-render §3.5）：返回 [PageFC, meta] 二元组
+ * / a component-page fixture (the component form): returns a [PageFC, meta] tuple */
+function pageDef(appId: string, name: string, path = name): [PageFC, ComponentPageMeta] {
+  const url = `/apps/${appId}/${path}`
+  return [
+    () => createElement('p', { children: name }),
+    { url, description: `page ${name}` },
+  ]
 }
 
-/** 首页夹具：无参 + 非空能力地图（有详情页的应用，§3.10.5 规则 1）
- * / a compliant home fixture: no params + a non-empty map (rule 1, apps with detail pages) */
-function homeDef(appId: string, name: string, path = name): PageDefinition<never> {
-  return {
-    ...pageDef(appId, name, path),
-    map: [{ url: `/apps/${appId}/${name}-detail/:id`, use: `open one ${name} record` }],
-  }
+/** 首页夹具：无参入口 / a home fixture: parameterless entry */
+function homeDef(appId: string, name: string, path = name): [PageFC, ComponentPageMeta] {
+  return pageDef(appId, name, path)
 }
 
-/** 二级页夹具 → 详情页夹具：带 :param + writes + 工具 + 说明（§3.10.5 规则 3；引用的工具必须已定义）
- * / a compliant detail fixture: a :param + writes + a tool + instructions (rule 3; the referenced tool must exist) */
-function detailDef(appId: string, name: string, path: string, tool = 'read'): PageDefinition<never> {
-  return {
-    ...pageDef(appId, name, path),
-    tools: [tool],
-    writes: true,
-    instructions: `handle one ${name} record`,
-  }
+/** 详情页夹具：带 :param + writes + 工具 + 说明（§3.10.5 规则 3；引用的工具必须已定义）
+ * / a detail fixture: a :param + writes + a tool + instructions (rule 3; the referenced tool must exist) */
+function detailDef(appId: string, name: string, path: string, tool = 'read'): [PageFC, ComponentPageMeta] {
+  const [component, meta] = pageDef(appId, name, path)
+  return [component, { ...meta, tools: [tool], writes: true, instructions: `handle one ${name} record` }]
 }
 
 /** defineTool 产物：目录测试通用的最小工具 / minimal defineTool product */
@@ -51,6 +44,7 @@ function makeTool(name = 'read') {
     execute: async () => ({}),
   })
 }
+
 /** 建好服务并注册一个应用（无 fiber 绑定的便捷入口）/ service with one registered app */
 function setup(id = 'todo'): { apps: AppRegistryService; dispose: () => void } {
   const apps = new AppRegistryService(new Context())
@@ -124,7 +118,7 @@ describe('entry 与状态机', () => {
   it('入口页面注册后自动愈合为 active；注销入口页又回到 broken', () => {
     const { apps, dispose } = setup('todo')
     const pages = apps.pages('todo' as AppId)
-    const removeEntry = pages.register(homeDef('todo', 'main'))
+    const removeEntry = pages.register(...homeDef('todo', 'main'))
     expect(apps.get('todo' as AppId)?.state).toBe('active')
     removeEntry()
     removeEntry() // 幂等 / idempotent
@@ -134,7 +128,7 @@ describe('entry 与状态机', () => {
 
   it('disable 后 get/catalog 仍可见但 state=disabled；enable 恢复（broken 不被掩盖）', () => {
     const { apps } = setup('todo')
-    apps.pages('todo' as AppId).register(homeDef('todo', 'main')) // 先愈合为 active
+    apps.pages('todo' as AppId).register(...homeDef('todo', 'main')) // 先愈合为 active
     apps.disable('todo' as AppId)
     expect(apps.get('todo' as AppId)?.state).toBe('disabled')
     apps.enable('todo' as AppId)
@@ -153,20 +147,20 @@ describe('pages 注册面', () => {
   it('页面必须走 defineAppPage 形态校验：URL 前缀不对/应用段不符均拒绝', () => {
     const { apps } = setup('todo')
     const pages = apps.pages('todo' as AppId)
-    expect(() => pages.register(pageDef('other', 'main'))).toThrowError(AppErrorCode.ManifestInvalid)
-    expect(() => pages.register({ ...pageDef('todo', 'main'), url: '/other/main' as never })).toThrowError()
+    expect(() => pages.register(...pageDef('other', 'main'))).toThrowError(AppErrorCode.ManifestInvalid)
+    expect(() => pages.register(...pageDef('todo', 'main', '../other/main'))).toThrowError()
     expect(apps.listPages('todo' as AppId)).toHaveLength(0)
   })
 
   it('页面键应用内唯一；注销后整组摘除', () => {
     const { apps } = setup('todo')
     const pages = apps.pages('todo' as AppId)
-    pages.register(homeDef('todo', 'main'))
-    expect(() => pages.register(homeDef('todo', 'main'))).toThrowError(/duplicate page key/)
+    pages.register(...homeDef('todo', 'main'))
+    expect(() => pages.register(...homeDef('todo', 'main'))).toThrowError(/duplicate page key/)
     apps.tools('todo' as AppId).define(makeTool())
-    pages.register(detailDef('todo', 'detail', 'detail/:id'))
+    pages.register(...detailDef('todo', 'detail', 'detail/:id'))
     expect(apps.listPages('todo' as AppId)).toHaveLength(2)
-    const removeTmp = pages.register(pageDef('todo', 'tmp'))
+    const removeTmp = pages.register(...pageDef('todo', 'tmp'))
     expect(apps.listPages('todo' as AppId)).toHaveLength(3)
     removeTmp()
     removeTmp() // 幂等 / idempotent
@@ -176,8 +170,8 @@ describe('pages 注册面', () => {
   it('页面引用未定义工具 → ManifestInvalid（工具需先定义）', () => {
     const { apps } = setup('todo')
     const pages = apps.pages('todo' as AppId)
-    const bad = { ...pageDef('todo', 'main'), tools: ['nope'] } as unknown as PageDefinition<never>
-    expect(() => pages.register(bad)).toThrowError(AppErrorCode.ManifestInvalid)
+    const [component, meta] = pageDef('todo', 'main')
+    expect(() => pages.register(component, { ...meta, tools: ['nope'] })).toThrowError(AppErrorCode.ManifestInvalid)
   })
 
   it('§3.10.5 规则 1：entry 指向带 :param 的页面 → 注册期拒绝（page/home-invalid）', () => {
@@ -185,82 +179,50 @@ describe('pages 注册面', () => {
     apps.tools('todo' as AppId).define(makeTool())
     // 规则 3 已在 defineAppPage 满足（writes/工具/说明齐全），拦下它的是规则 1
     // / rule 3 is satisfied at defineAppPage (writes/tools/instructions), so rule 1 is what rejects
-    expect(() => apps.pages('todo' as AppId).register(detailDef('todo', 'main', 'main/:id')))
+    expect(() => apps.pages('todo' as AppId).register(...detailDef('todo', 'main', 'main/:id')))
       .toThrowError(expect.objectContaining({ code: 'page/home-invalid' }))
   })
 
-  it('§3.10.5 规则 1（收窄）：单页应用的空 map 合法——注册不再被拒', () => {
-    // 上一轮迁移实测：旧口径强制每个应用 ≥2 页，单页应用的 map 无处可指。
-    // / live migration feedback: the old rule forced every app to have ≥2
-    // pages; a single-page app has nothing for its map to point at.
+  it('§3.10.5 规则 1（map 推导后收窄为构造成立）：单页应用合法', () => {
+    // map 由注册表推导后，"列全记录页"构造上成立——单页应用注册不再有任何 map 负担
+    // / with the registry-derived map, full coverage holds by construction — a
+    // single-page app carries no map burden at all
     const { apps } = setup('todo')
-    expect(() => apps.pages('todo' as AppId).register(pageDef('todo', 'main'))).not.toThrow()
+    expect(() => apps.pages('todo' as AppId).register(...pageDef('todo', 'main'))).not.toThrow()
     expect(apps.get('todo' as AppId)?.state).toBe('active')
   })
 
-  it('§3.10.5 规则 1：有详情页的应用，首页空 map 仍被拒（home-then-detail 序）', () => {
+  it('§3.10.5 规则 1（map 推导）：有详情页的应用，首页注册照常通过（推导 map 构造上列全）', () => {
     const { apps } = setup('todo')
-    apps.pages('todo' as AppId).register(pageDef('todo', 'main')) // 空 map 首页：此刻合法 / an empty-map home: legal so far
+    apps.pages('todo' as AppId).register(...pageDef('todo', 'main'))
     apps.tools('todo' as AppId).define(makeTool())
-    expect(() => apps.pages('todo' as AppId).register(detailDef('todo', 'detail', 'detail/:id')))
-      .toThrowError(expect.objectContaining({ code: 'page/home-invalid' }))
-    // 报错直说该改什么：给首页的 map 补详情页模板 / the error says what to fix
-    let message = ''
-    try {
-      apps.pages('todo' as AppId).register(detailDef('todo', 'detail', 'detail/:id'))
-    } catch (error) {
-      message = (error as Error).message
-    }
-    expect(message).toContain('empty capability map')
-    expect(apps.listPages('todo' as AppId)).toHaveLength(1) // 被拒的详情页不留残注册
-  })
-
-  it('§3.10.5 规则 1：detail-then-home 序同样被拒（先注册详情页，后补空 map 首页）', () => {
-    const { apps } = setup('todo')
-    apps.tools('todo' as AppId).define(makeTool())
-    apps.pages('todo' as AppId).register(detailDef('todo', 'detail', 'detail/:id'))
-    expect(() => apps.pages('todo' as AppId).register(pageDef('todo', 'main')))
-      .toThrowError(expect.objectContaining({ code: 'page/home-invalid' }))
-    expect(apps.listPages('todo' as AppId)).toHaveLength(1) // 被拒的首页不留残注册
+    expect(() => apps.pages('todo' as AppId).register(...detailDef('todo', 'detail', 'detail/:id'))).not.toThrow()
+    expect(apps.listPages('todo' as AppId)).toHaveLength(2)
   })
 
   it('§3.10.5 规则 1 不约束非 entry 页：合规二级页可正常注册', () => {
     const { apps } = setup('todo')
     apps.tools('todo' as AppId).define(makeTool())
-    apps.pages('todo' as AppId).register(homeDef('todo', 'main'))
-    expect(() => apps.pages('todo' as AppId).register(detailDef('todo', 'detail', 'detail/:id'))).not.toThrow()
+    apps.pages('todo' as AppId).register(...homeDef('todo', 'main'))
+    expect(() => apps.pages('todo' as AppId).register(...detailDef('todo', 'detail', 'detail/:id'))).not.toThrow()
   })
 
-  it('viewer 档（只读详情）：带 :param、不声明 writes、零工具 → 如实注册，首页 map 须列出它', () => {
-    // 上一轮留下的空隙：只读详情页（有记录身份、纯浏览）被规则 3 逼着谎称
-    // writes: true 才能注册。现在它是合法的 viewer——不声明、不挂写工具即通过。
-    // / the gap the previous round left: a read-only drilldown (record identity,
-    // pure browsing) had to claim writes: true to pass rule 3. It is now a legal
-    // viewer — no declaration, no write tool, registration passes.
+  it('viewer 档（只读详情）：带 :param、不声明 writes、零工具 → 如实注册', () => {
+    // 只读详情页（有记录身份、纯浏览）不声明 writes、不挂写工具即通过——它是合法的 viewer
+    // / a read-only drilldown registers honestly — a legal viewer with no writes claim and no write tools
     const { apps } = setup('todo')
     const pages = apps.pages('todo' as AppId)
-    pages.register({
-      ...pageDef('todo', 'main'),
-      map: [{ url: '/apps/todo/workspace/:wsId', use: 'browse one workspace' }],
-    })
-    expect(() => pages.register({ ...pageDef('todo', 'workspace', 'workspace/:wsId') })).not.toThrow()
+    pages.register(...pageDef('todo', 'main'))
+    const [component, meta] = pageDef('todo', 'workspace', 'workspace/:wsId')
+    expect(() => pages.register(component, meta)).not.toThrow()
     const registered = apps.listPages('todo' as AppId).find((page) => page.name === 'workspace')
     expect(registered?.writes).toBeUndefined()
     expect(registered?.tools).toEqual([])
-    // viewer 也是记录页：规则 1 的空 map 门禁对它同口径（空 map 首页 + 来了一个
-    // 带参页 → 拒，两个注册序都以 viewer 为试金石）
-    // / a viewer is a record page too: rule 1's empty-map gate applies to it as
-    // well (an empty-map home + an arriving :param page → refused; the viewer
-    // is the probe on both registration orders)
-    const solo = new AppRegistryService(new Context())
-    solo.register(appDef('solo'))
-    solo.pages('solo' as AppId).register(pageDef('solo', 'main')) // 空 map：此刻合法 / legal so far
-    expect(() => solo.pages('solo' as AppId).register({ ...pageDef('solo', 'workspace', 'workspace/:wsId') }))
-      .toThrowError(expect.objectContaining({ code: 'page/home-invalid' }))
     // 放宽没有打开详情门：声明 writes: true 却零工具的带参页仍被拒（规则 3）
     // / the loosening did not open the detail gate: a parameterized page
     // declaring writes: true with zero tools is still refused (rule 3)
-    expect(() => pages.register({ ...pageDef('todo', 'fake', 'fake/:id'), writes: true }))
+    const [fakeComponent, fakeMeta] = pageDef('todo', 'fake', 'fake/:id')
+    expect(() => pages.register(fakeComponent, { ...fakeMeta, writes: true }))
       .toThrowError(expect.objectContaining({ code: 'page/detail-invalid' }))
   })
 })
@@ -305,7 +267,7 @@ describe('缺口 3 收尾：页面镜像面（单入口注册）', () => {
     const definition = appDef('gamma', { entry: 'list' as never })
     const disposeApp = apps.register(definition)
     apps.tools('gamma' as AppId).define(makeTool())
-    const disposePage = apps.pages('gamma' as AppId).register(homeDef('gamma', 'list'))
+    const disposePage = apps.pages('gamma' as AppId).register(...homeDef('gamma', 'list'))
     expect(mirrored).toEqual(['gamma/list'])
     disposePage()
     expect(mirrorDisposers).toEqual(['gamma/list']) // 先摘镜像再摘内部登记
@@ -320,7 +282,7 @@ describe('缺口 3 收尾：页面镜像面（单入口注册）', () => {
     const definition = appDef('delta', { entry: 'list' as never })
     const disposeApp = apps.register(definition)
     apps.tools('delta' as AppId).define(makeTool())
-    expect(() => apps.pages('delta' as AppId).register(homeDef('delta', 'list'))).toThrow('url pattern conflict')
+    expect(() => apps.pages('delta' as AppId).register(...homeDef('delta', 'list'))).toThrow('url pattern conflict')
     expect(apps.listPages('delta' as AppId)).toHaveLength(0) // 已回滚
     disposeApp()
   })
@@ -331,7 +293,7 @@ describe('缺口 3 收尾：页面镜像面（单入口注册）', () => {
     const definition = appDef('epsilon', { entry: 'list' as never })
     const disposeApp = apps.register(definition)
     apps.tools('epsilon' as AppId).define(makeTool())
-    expect(() => apps.pages('epsilon' as AppId).register(homeDef('epsilon', 'list'))).not.toThrow()
+    expect(() => apps.pages('epsilon' as AppId).register(...homeDef('epsilon', 'list'))).not.toThrow()
     expect(apps.listPages('epsilon' as AppId)).toHaveLength(1)
     disposeApp()
   })

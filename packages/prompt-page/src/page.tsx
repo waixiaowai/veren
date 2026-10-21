@@ -1,45 +1,68 @@
-/** @jsxRuntime automatic @jsxImportSource @veren/prompt-core */
 /**
- * 页面作者词汇层：definePage / 动态 preset 构建 / 内置块组件（TSX）
- * Page-authoring vocabulary: definePage / dynamic preset builder / built-in block components.
+ * 页面作者词汇层（减法后）：definePage / defineAppPage / 工具完备性警告。
+ * The page-authoring vocabulary after the subtraction: definePage /
+ * defineAppPage / the tool-coverage warning.
  *
- * - 静态面经 preset 字段动态声明（DSH preset 注册，参考 person-agent-preset），不用 yml
- * - 事件系统用宿主自带的 cordis 事件（ctx.emit / ctx.on）；本包只定义处理器 IO 形状
- * - 事件处理器形状（键名 = cordis 事件名）
+ * v2（RFC prompt-page-render）：页面 = 组件（PageFC，component.tsx）。本文件
+ * 只保留两件事——契约校验（URL 形态、§3.10.5 规则 3）与 §3.9 工具完备性警告；
+ * 旧块词汇（Static/Data/Keyed）、块宿主挂载（mountPage）与动态 preset 构建
+ * 已整体删除——组件管线是唯一路径，不存在第二套。
+ * v2 (RFC prompt-page-render): a page IS a component (PageFC, component.tsx).
+ * This file keeps only two things — contract validation (url shape, §3.10.5
+ * rule 3) and the §3.9 tool-coverage warning. The legacy block vocabulary
+ * (Static/Data/Keyed), the block-host mounting (mountPage) and the dynamic
+ * preset builder are deleted outright — the component pipeline is the only
+ * path; there is no second one.
+ * @module @veren/prompt-page
  */
-import { createElement } from '@veren/prompt-core'
-import type { ElementInput, Entity, PromptElement } from '@veren/prompt-core'
-import type { PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
 import { PageError, PageErrorCode, assertAppUrlPattern, patternParamsOf } from './contract.ts'
-import type { PageDefinition, PageEventMap, PageIO, PageLoadEnv, PageJsonValue, PageMapEntry, PageParams, PagePresetSpec } from './types.ts'
+import type { PageDefinition, PageEventMap, PageLoadEnv, PageJsonValue, PageParams } from './types.ts'
 
-export type { PageEventMap, PageIO, PagePresetSpec } from './types.ts'
-// `Entity` 是 Keyed/Data 的 T 边界（页面数据的最小实体约束）：由本包一并出口，
-// 调用方不必为了给 `Keyed<T>` 定约束再去依赖 prompt-core。
-// `Entity` bounds `Keyed`/`Data`, so it ships with this package: callers must not
-// need a prompt-core dependency just to constrain `Keyed<T>`.
-export type { Entity } from '@veren/prompt-core'
+export type { PageEventMap } from './types.ts'
 
-// ---- definePage ----
+/** URL 模式校验（应用内形态；/apps/<appId> 前缀由 assertAppUrlPattern 在 defineAppPage 强制）
+ * / url pattern validation (the app-internal shape; the /apps/<appId> prefix is enforced by assertAppUrlPattern in defineAppPage) */
+function validateUrlPattern(name: string, url: string): void {
+  if (!url.startsWith('/') || url.includes('?')) {
+    throw new Error(`[definePage] page "${name}" url must be a path pattern like /xx/:id, got ${JSON.stringify(url)}`)
+  }
+  const segments = url.split('/').filter((segment) => segment.length > 0)
+  const paramNames = new Set<string>()
+  for (const segment of segments) {
+    // 相对段（'.'/'..'）不是页面身份的一部分：canonicalize 会解析掉它们，注册期直接拒绝
+    // / relative segments ('.'/'..') are not part of page identity: canonicalize resolves them away, so registration refuses them
+    if (segment === '.' || segment === '..') {
+      throw new Error(`[definePage] page "${name}" url has a relative segment ${JSON.stringify(segment)}`)
+    }
+    if (!segment.startsWith(':')) continue
+    const paramName = segment.slice(1)
+    if (paramName.length === 0 || paramNames.has(paramName)) {
+      throw new Error(`[definePage] page "${name}" has an invalid or duplicate :param: ${JSON.stringify(segment)}`)
+    }
+    paramNames.add(paramName)
+  }
+}
 
+/**
+ * definePage：组件页的契约校验入口（组件形态由 component.tsx 的
+ * defineComponentPage 构造 PageDefinition，两入口共用本校验）。
+ * definePage: the contract-validation entry for component pages (the component
+ * form builds its PageDefinition via defineComponentPage in component.tsx; both
+ * entries share this validation).
+ */
 export function definePage<S>(definition: {
   name: string
   url: string
   description: string
-  /** @deprecated 页面不再绑定预设；此输入被忽略（仅为 page-sync-bench 迁移期编译兼容保留）。 */
-  preset?: PagePresetSpec
   events?: PageEventMap
   tools?: readonly string[]
   writes?: boolean
   instructions?: string
-  map?: readonly PageMapEntry[]
   load?: (params: PageParams, env: PageLoadEnv) => Promise<PageJsonValue>
   instanceTitle?: (params: PageParams) => string
-  tree: (props: PageParams, state: S) => ElementInput
-  onLoad?: (params: PageParams) => void
   onComplete?: (params: PageParams) => boolean
 }): PageDefinition<S> {
-  const { name, url, description, events, tools, writes, instructions, map, load, instanceTitle, tree, onLoad, onComplete } = definition
+  const { name, url, description, events, tools, writes, instructions, load, instanceTitle, onComplete } = definition
   if (name.length === 0 || name.trim() !== name) {
     throw new Error(`[definePage] invalid page name: ${JSON.stringify(name)}`)
   }
@@ -47,20 +70,14 @@ export function definePage<S>(definition: {
   if (description.length === 0 || description.trim() !== description) {
     throw new Error(`[definePage] page "${name}" needs a non-empty description`)
   }
-  if (typeof tree !== 'function') {
-    throw new Error(`[definePage] page "${name}" tree must be a function`)
-  }
-  validateMapEntries(name, map)
   return {
-    name, url, description, tree,
+    name, url, description,
     ...(tools === undefined ? {} : { tools }),
     ...(writes === undefined ? {} : { writes }),
     ...(instructions === undefined ? {} : { instructions }),
-    ...(map === undefined ? {} : { map }),
     ...(load === undefined ? {} : { load }),
     ...(instanceTitle === undefined ? {} : { instanceTitle }),
     ...(events === undefined ? {} : { events }),
-    ...(onLoad === undefined ? {} : { onLoad }),
     ...(onComplete === undefined ? {} : { onComplete }),
   }
 }
@@ -68,20 +85,10 @@ export function definePage<S>(definition: {
 /**
  * 应用作用域的页面定义：在 definePage 之上强制 `/apps/<appId>/...` URL 形态，
  * 并补齐契约缺省：tools 缺省 []（§3.1、§6.1）；详情页结构校验（§3.10.5 规则 3）。
- * `pageRevision` 已删除（G11）：打开一律新建，无升级分叉。
- * 应用注册器（app-registry）的注册路径应使用本函数或等效校验。
- * 两轴四档分类（§3.10.1）在此只看 URL 形态事实与 writes 声明的组合：带 `:param`
- * 且声明 `writes: true` = detail（规则 3 全套）；带 `:param` 未声明 = viewer
- * （只读详情，如实注册，豁免规则 3——它不该被迫谎称要写）；home/action 的区分
- * 需要 entry 归属，归 app-registry 的注册路径（pageArchetypeOf）。
+ * 组件注册器（app-registry）的注册路径应使用本函数或等效校验。
  * App-scoped definePage: enforces the /apps url shape, contract defaults, and
- * the detail-page structure rules (§3.10.5 rule 3). Of the two-axis, four-tier
- * taxonomy (§3.10.1) only the writes-armed combinations are decidable here: a
- * `:param` url declaring `writes: true` = detail (full rule 3); a `:param` url
- * without the declaration = viewer (a read-only drilldown that registers
- * honestly, exempt from rule 3 — it must never be forced to claim writes);
- * telling home from action needs the entry, so that belongs to app-registry's
- * registration path (pageArchetypeOf).
+ * the detail-page structure rules (§3.10.5 rule 3). App-registry's registration
+ * path should use this function or equivalent validation.
  */
 export function defineAppPage<S>(definition: Parameters<typeof definePage<S>>[0]): PageDefinition<S> {
   assertAppUrlPattern(definition.name, definition.url)
@@ -90,18 +97,13 @@ export function defineAppPage<S>(definition: Parameters<typeof definePage<S>>[0]
   const isDetail = hasParams && page.writes === true
   if (isDetail) {
     // §3.10.5 规则 3：只约束"带 :param 且声明了写意图"的详情页——至少挂一个
-    // 工具 + 说明非空（writes: true 本身就是进入本档的声明，缺工具走这里拦）。
-    // 带 :param 而未声明 writes = viewer（只读详情），全部豁免（规则 2：只读
-    // 合法；逼只读详情页谎称 writes 才能注册，比没有校验更糟）。工具页缺写工具
-    // 走 §3.9 警告通道，不做门禁。
+    // 工具 + 说明非空。带 :param 而未声明 writes = viewer（只读详情），全部豁免
+    // （规则 2）。工具页缺写工具走 §3.9 警告通道，不做门禁。
     // Rule 3: binds only parameterized pages that declared write intent — at
-    // least one mounted tool plus non-empty instructions (writes: true is the
-    // declaration that enters this tier; a missing tool is refused here). A
-    // parameterized page without the declaration is a viewer (a read-only
-    // drilldown) and is fully exempt (rule 2: read-only is legal; forcing an
-    // honest read-only page to claim writes is worse than no validation). An
-    // action page missing its write tools rides the §3.9 warning channel,
-    // never a gate.
+    // least one mounted tool plus non-empty instructions. A parameterized page
+    // without the declaration is a viewer (a read-only drilldown) and is fully
+    // exempt (rule 2). An action page missing its write tools rides the §3.9
+    // warning channel, never a gate.
     if ((page.tools ?? []).length === 0) {
       throw new PageError(PageErrorCode.DetailInvalid,
         `detail page "${page.name}" (${page.url}) must mount at least one tool to fulfill its duty`)
@@ -117,121 +119,14 @@ export function defineAppPage<S>(definition: Parameters<typeof definePage<S>>[0]
   }
 }
 
-/** 能力地图条目形状校验：url 与 use 必须是非空字符串 / map entries need non-empty url and use */
-function validateMapEntries(name: string, map: readonly PageMapEntry[] | undefined): void {
-  for (const [index, entry] of (map ?? []).entries()) {
-    if (typeof entry.url !== 'string' || entry.url.trim().length === 0 || typeof entry.use !== 'string' || entry.use.trim().length === 0) {
-      throw new Error(`[definePage] page "${name}" map entry #${index} needs a non-empty url and a non-empty use ("when to open it")`)
-    }
-  }
-}
-
 /**
  * 页面工具完备性警告（§3.9，开发期轻量核对）：页面声明了"本页职责需要写能力"
- * 却一个工具都没挂 → 返回一句话警告；否则 undefined。只提醒，不做门禁——
- * 五秒钟看懂在提醒什么："页面开着、活干不了"。§3.10.5 规则 3b（工具页必须有
- * 写工具）走的就是本通道：声明 `writes: true` 的带参页缺工具在注册期已被规则 3
- * 拦死，到达装配的 `writes: true` 声明者只剩无参的工具页，缺工具在这里被警告
- * ——口径与 `writes` 警告完全一致。viewer（带参只读）/首页/只读副页不声明
- * `writes`，天然不在核对范围（规则 2）。
- * Page tool-coverage warning (§3.9, dev-time lightweight self-check): a page
- * that declares `writes: true` yet mounts no tools returns a one-line warning;
- * otherwise undefined. A reminder, never a gate. §3.10.5 rule 3b (an action
- * page must hold write tools) rides exactly this channel: a parameterized page
- * declaring `writes: true` with no tools is already refused at registration by
- * rule 3, so the `writes` declarers reaching assembly are parameterless action
- * pages, warned here — the same channel and criteria as the `writes` warning.
- * viewer (a parameterized read-only page), home and read-only secondary pages
- * never declare `writes` and are naturally out of scope (rule 2).
+ * 却一个工具都没挂 → 返回一句话警告；否则 undefined。
+ * The page tool-coverage warning (§3.9, a dev-time lightweight self-check): a
+ * page that declares `writes: true` yet mounts no tools returns a one-line
+ * warning; otherwise undefined.
  */
 export function pageToolWarning<S>(page: PageDefinition<S>): string | undefined {
   if (page.writes !== true || (page.tools ?? []).length > 0) return undefined
   return `page "${page.name}" declares writes: true but mounts no tools; it is open yet cannot do its declared job`
-}
-
-/** URL 模式校验 / validate a url pattern */
-function validateUrlPattern(name: string, url: string): void {
-  if (!url.startsWith('/') || url.includes('?')) {
-    throw new Error(`[definePage] page "${name}" url must be a path pattern like /xx/:id, got ${JSON.stringify(url)}`)
-  }
-  const segments = url.split('/').filter((segment) => segment.length > 0)
-  const paramNames = new Set<string>()
-  for (const segment of segments) {
-    if (!segment.startsWith(':')) continue
-    const paramName = segment.slice(1)
-    if (paramName.length === 0 || paramNames.has(paramName)) {
-      throw new Error(`[definePage] page "${name}" url has an invalid or duplicate :param: ${JSON.stringify(segment)}`)
-    }
-    paramNames.add(paramName)
-  }
-}
-
-// ---- 内置块组件：宿主块词汇（TSX）/ built-in block components ----
-
-/** 静态块：一次渲染终身复用（永不进补丁）/ static block: never diffed */
-export function Static(props: { content: string }): PromptElement[] {
-  return [createElement('static', { content: props.content })]
-}
-
-/** 字段块：值变化 → 一个 set op / data block: value change → one set op */
-export function Data(props: { path: string; value: unknown }): PromptElement[] {
-  return [createElement('data', { path: props.path, value: props.value })]
-}
-
-/** keyed 集合块：按 id 对位，变化 → splice op / keyed collection: keyed by id */
-export function Keyed<T extends Entity>(props: { path: string; items: readonly T[] }): PromptElement[] {
-  return props.items.map((item) => createElement('item', { key: item.id, path: props.path, value: item }))
-}
-
-// ---- 动态 preset 构建（参考 person-agent-preset）/ dynamic preset builder ----
-
-export interface BuildPagePresetOptions {
-  /** preset id 缺省 page.<name> / defaults to page.<name> */
-  readonly presetId?: string
-  /** 工具/技能插件行（工具插件、skill 行等）/ tool & skill rows */
-  readonly toolRows?: readonly PresetDefinition['plugins'][number][]
-  /** 页面工作记忆行的包名（页面插件自身）/ package name of the page working-memory row */
-  readonly contextRowName?: string
-  /** 工作记忆行的配置（如 role/page 选择）/ config for the working-memory row */
-  readonly contextRowConfig?: Record<string, unknown>
-}
-
-/** 迁移期载体：preset 不再在 PageDefinition 上，旧调用方直接传这个形状 / legacy carrier shape */
-export interface LegacyPresetCarrier {
-  readonly name: string
-  readonly description: string
-  readonly preset: PagePresetSpec
-}
-
-/**
- * @deprecated 构建页面 preset 定义（迁移期兼容，§8.4）。新代码不注册页面预设。
- */
-export function buildPagePreset<S>(
-  page: PageDefinition<S> | LegacyPresetCarrier,
-  options: BuildPagePresetOptions = {},
-): PresetDefinition {
-  const presetSpec = 'preset' in page && page.preset !== undefined ? page.preset : undefined
-  if (presetSpec === undefined) {
-    throw new Error(`[buildPagePreset] page "${page.name}" has no preset.systemPrompt`)
-  }
-  const plugins: PresetDefinition['plugins'] = [
-    {
-      id: 'persona',
-      name: '@deepseek-ai/dsh-persona',
-      config: { prefix: presetSpec.systemPrompt },
-    },
-    ...(options.toolRows ?? []),
-    ...(options.contextRowName === undefined ? [] : [{
-      id: 'page-context',
-      name: options.contextRowName,
-      config: { role: 'context', page: page.name, ...(options.contextRowConfig ?? {}) },
-    }]),
-  ]
-  return {
-    id: options.presetId ?? `page.${page.name}`,
-    name: page.name,
-    description: page.description,
-    order: presetSpec.order ?? 100,
-    plugins,
-  }
 }

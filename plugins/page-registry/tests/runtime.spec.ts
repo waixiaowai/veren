@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { Context } from '@deepseek-ai/cordis'
-import { KvPageInstanceIndex, PageError, definePage, deprecatedRowKey } from '@veren/prompt-page'
+import { KvPageInstanceIndex, PageError, defineComponentPage, deprecatedRowKey, useSnapshot } from '@veren/prompt-page'
+import { createElement } from '@veren/prompt-core'
 import type { InstanceKvPort, PageJsonValue } from '@veren/prompt-page'
 import type { PageInstanceRecord } from '@veren/prompt-page'
 import PageRegistryPlugin, { PAGE_LOAD_TIMEOUT_MS, PageRegistryService } from '../src/index.ts'
@@ -62,15 +63,20 @@ function fakeSessions() {
 }
 
 function taskPage() {
-  return definePage({
-    name: 'task',
-    url: '/apps/demo/task/:id',
-    description: '任务详情页',
-    tools: ['read'],
-    instructions: '先读材料，再作答。',
-    instanceTitle: (params) => `任务 #${params.id ?? '?'}`,
-    tree: () => [],
-  })
+  const items = [{ id: 't-1', title: '九' }]
+  const store = { getState: () => items, subscribe: () => () => undefined }
+  const registration = defineComponentPage(
+    (props: { id?: string }) => createElement('p', { children: `任务 #${props.id ?? '?'}` }),
+    {
+      url: '/apps/demo/task/:id',
+      description: '任务详情页',
+      tools: ['read'],
+      instructions: '先读材料，再作答。',
+      instanceTitle: (params) => `任务 #${params.id ?? '?'}`,
+      store,
+    },
+  )
+  return { ...registration, store }
 }
 
 /** 组装一个带应用/工具/任务假件的注册表服务 */
@@ -79,10 +85,13 @@ function makeService(options: {
   withApps?: boolean
   tasks?: { take: (id: string, claim: unknown) => Promise<unknown> }
   presetOf?: (sessionId: string) => string | undefined
+  /** app 假件的兄弟页投影（map 推导的事实源）/ the app fake's sibling projection (the fact source for map derivation) */
+  siblings?: ReadonlyArray<{ name: string; url: string; description: string }>
 } = {}) {
   const ctx = new Context()
   const service = new PageRegistryService(ctx)
-  const dispose = service.register(taskPage() as never)
+  const task = taskPage()
+  const dispose = service.registerAppPage('demo', task.page, task.live)
   const kv = memKv()
   const sessions = fakeSessions()
   // 端口全部是纯参数（G13）：app 假件是完整 AppRecord / the app fake is a full AppRecord
@@ -92,6 +101,10 @@ function makeService(options: {
     version: '1.0.0',
     toolPrefix: 'demo',
     state: options.appState ?? 'active',
+    pages: new Map([
+      ['task', { url: '/apps/demo/task/:id', description: '任务详情页', component: true }],
+      ...(options.siblings ?? []).map((s): [string, { url: string; description: string; component: boolean }] => [s.name, { url: s.url, description: s.description, component: true }]),
+    ]),
   }
   // 目录值就是 DSH ToolDefinition 本体（defineTool 产物）/ the catalog value IS a DSH ToolDefinition
   const toolsOf = () => new Map([['read', defineTool({
@@ -162,119 +175,128 @@ describe('页面运行时：打开 URL 一律新建，旧会话废弃（§3.5.3�
     expect(kv.map.get('/apps/demo/task/1')?.instanceTitle).toBe('任务 #1')
   })
 
-  it('PAGE 块随新会话写一次，呈 §3.10.2 规范形状：pageKey + 规范 URL / params / data / tools（带用途）/ 说明', async () => {
+  it('PAGE 块随新会话写一次，呈 §3.3 骨架：pageKey + 规范 URL / tools（带用途）/ 说明 / Markdown 正文（无 params/data JSON 行）', async () => {
     const { service, sessions } = makeService()
     const opened = await service.openUrl('/apps/demo/task/1')
     const blocks = sessions.messages.get(opened.sessionId) ?? []
     expect(blocks).toHaveLength(1)
     const block = blocks[0] ?? ''
-    expect(block.startsWith('app/page::PAGE demo/task /apps/demo/task/1\n')).toBe(true)
-    expect(block).toContain('params: {"id":"1"}')
-    // 页面未声明 load → data 行如实为 null（禁止静默空白，§3.10.2）
-    // / the page declares no load → the data line is an explicit null (never a silent blank, §3.10.2)
-    expect(block).toContain('data: null')
-    // 工具行带"什么时候用"（description 第一句）/ the tools line carries the when-to-use phrase
+    expect(block.startsWith('app/page::PAGE demo/task /apps/demo/task/1')).toBe(true)
+    expect(block).not.toContain('params:')
+    expect(block).not.toContain('data:')
     expect(block).toContain('tools: demo__read（读材料）')
     expect(block).toContain('先读材料，再作答。')
+    expect(block).toContain('任务 #1')
   })
 
-  it('能力地图作为一等数据进 PAGE 块：模板与"什么时候用"逐条成行，模型可照抄（§3.10.1/§3.10.2）', async () => {
-    const { service, sessions } = makeService()
-    const dispose = service.register(definePage({
-      name: 'home', url: '/apps/demo/list', description: '任务列表页',
-      tools: [],
-      map: [
-        { url: '/apps/demo/task/:taskId', use: '处理某一条任务时打开', params: { taskId: '任务 id，来自列表 data' } },
-        { url: '/apps/demo/publish', use: '要发布新任务时打开发布页' },
+  it('能力地图由注册表推导进 PAGE 块：兄弟页"模板 → description"逐条成行，模型可照抄（§3.5 定案）', async () => {
+    // map 不再手写：app 假件的 pages 投影就是事实源（排除自身、按注册序）
+    const { service, sessions } = makeService({
+      siblings: [
+        { name: 'publish', url: '/apps/demo/publish', description: '要发布新任务时打开发布页' },
       ],
-      tree: () => [],
-    }) as never)
-    try {
-      const opened = await service.openUrl('/apps/demo/list')
-      const block = (sessions.messages.get(opened.sessionId) ?? [])[0] ?? ''
-      // 主验收断言"PAGE 块文本里包含 map 的模板与用途"：不是"map 字段覆盖了几个
-      // 模板"的结构化断言，而是模型视角的文本断言——模板逐字在块里、可照抄替换
-      // :参数；真机复核判据见 AGENTS.md 真机验证清单第 7 条。
-      // The primary acceptance asserts the PAGE block TEXT carries the map's
-      // template and use phrase — a model-view text assertion, not a structural
-      // field count: the template appears verbatim and is copy-usable; the
-      // next-round live-host check is AGENTS.md's checklist item 7.
-      expect(block).toContain('map:（能力地图')
-      expect(block).toContain('- /apps/demo/task/:taskId → 处理某一条任务时打开；参数: taskId=任务 id，来自列表 data')
-      expect(block).toContain('- /apps/demo/publish → 要发布新任务时打开发布页')
-    } finally { dispose() }
+    })
+    const opened = await service.openUrl('/apps/demo/task/1')
+    const block = (sessions.messages.get(opened.sessionId) ?? [])[0] ?? ''
+    expect(block).toContain('map:（能力地图')
+    expect(block).toContain('- /apps/demo/publish → 要发布新任务时打开发布页')
+    expect(block).not.toContain('- /apps/demo/task/:taskId')
   })
 
-  it('无 map 的页面不画 map 行（不给模型留"本页有隐藏出口"的想象空间）', async () => {
+  it('单页应用不画 map 行（无兄弟页 → 推导为空，不给模型"隐藏出口"的想象空间）', async () => {
     const { service, sessions } = makeService()
     const opened = await service.openUrl('/apps/demo/task/1')
     const block = (sessions.messages.get(opened.sessionId) ?? [])[0] ?? ''
     expect(block).not.toContain('map:')
   })
 
-  it('首屏 load：data 行写 load(params) 的结果——PAGE 块 data 的唯一合法来源（§3.10.3）', async () => {
+  it('首屏 load：结果经 useSnapshot 由组件渲染为正文（§3.10.3 组件页语义）', async () => {
     const { service, sessions } = makeService()
-    const dispose = service.register(definePage({
-      name: 'brief', url: '/apps/demo/brief/:briefId', description: '简报页',
-      instructions: '只读这份简报。',
-      load: async (params) => ({ id: params.briefId, lines: ['a', 'b'] }),
-      tree: () => [],
-    }) as never)
+    const registration = defineComponentPage(
+      () => {
+        const snap = useSnapshot<{ id: string; lines: string[] }>()
+        return createElement('p', { children: [snap?.id, ...(snap?.lines ?? [])].join(' ') })
+      },
+      {
+        url: '/apps/demo/brief/:briefId', description: '简报页',
+        instructions: '只读这份简报。',
+        load: async (params) => ({ id: params.briefId, lines: ['a', 'b'] }),
+      },
+    )
+    const dispose = service.registerAppPage('demo', registration.page, registration.live)
     try {
       const opened = await service.openUrl('/apps/demo/brief/7')
       const block = (sessions.messages.get(opened.sessionId) ?? [])[0] ?? ''
-      expect(block).toContain('data: {"id":"7","lines":["a","b"]}')
+      expect(block).toContain('7 a b')
     } finally { dispose() }
   })
 
-  it('首屏 load 的 env 带页面会话的预设 id（PageLoadEnv.preset，按预设隔离数据的应用据此解析归属）', async () => {
+  it('首屏 load 的 env 带页面会话的预设 id（PageLoadEnv.preset），组件可把它渲染进正文', async () => {
     const { service, sessions } = makeService({ presetOf: (sessionId) => `preset-of-${sessionId}` })
-    const dispose = service.register(definePage({
-      name: 'brief', url: '/apps/demo/brief/:briefId', description: '简报页',
-      instructions: '只读这份简报。',
-      load: async (_params, env) => ({ preset: env.preset ?? null }),
-      tree: () => [],
-    }) as never)
+    const registration = defineComponentPage(
+      () => {
+        const snap = useSnapshot<{ preset: string | null }>()
+        return createElement('p', { children: `preset=${snap?.preset ?? 'null'}` })
+      },
+      {
+        url: '/apps/demo/brief/:briefId', description: '简报页',
+        instructions: '只读这份简报。',
+        load: async (_params, env) => ({ preset: env.preset ?? null }),
+      },
+    )
+    const dispose = service.registerAppPage('demo', registration.page, registration.live)
     try {
       const opened = await service.openUrl('/apps/demo/brief/7')
       const block = (sessions.messages.get(opened.sessionId) ?? [])[0] ?? ''
-      expect(block).toContain('data: {"preset":"preset-of-s-1"}')
+      expect(block).toContain('preset=preset-of-s-1')
     } finally { dispose() }
   })
 
-  it('首屏 load 抛错 → data 行如实给失败态（page/load-failed + 重试指引），不静默空白', async () => {
+  it('首屏 load 抛错 → 失败态进组件、由组件渲染为正文（page/load-failed + 重试指引），不静默空白', async () => {
     const { service, sessions } = makeService()
-    const dispose = service.register(definePage({
-      name: 'brief', url: '/apps/demo/brief/:briefId', description: '简报页',
-      instructions: '只读这份简报。',
-      load: async () => { throw new Error('boom') },
-      tree: () => [],
-    }) as never)
+    const registration = defineComponentPage(
+      () => {
+        const snap = useSnapshot<{ error?: { code: string; message: string }; retry?: string }>()
+        return createElement('pre', { children: JSON.stringify(snap) })
+      },
+      {
+        url: '/apps/demo/brief/:briefId', description: '简报页',
+        instructions: '只读这份简报。',
+        load: async () => { throw new Error('boom') },
+      },
+    )
+    const dispose = service.registerAppPage('demo', registration.page, registration.live)
     try {
       const opened = await service.openUrl('/apps/demo/brief/7')
       const block = (sessions.messages.get(opened.sessionId) ?? [])[0] ?? ''
-      expect(block).toContain('"code":"page/load-failed"')
-      expect(block).toContain('"message":"boom"')
-      expect(block).toContain('"retry":')
+      expect(block).toContain('page/load-failed')
+      expect(block).toContain('boom')
+      expect(block).toContain('重开本页 URL')
     } finally { dispose() }
   })
 
-  it('首屏 load 超时 → 失败态（§3.10.3 的超时兜底），会话照常建成', async () => {
+  it('首屏 load 超时 → 失败态进组件（§3.10.3 的超时兜底），会话照常建成', async () => {
     vi.useFakeTimers()
     try {
       const { service, sessions } = makeService()
-      const dispose = service.register(definePage({
-        name: 'slow', url: '/apps/demo/slow/:snap', description: '慢页',
-        instructions: '慢慢读。',
-        load: () => new Promise<PageJsonValue>(() => {}),
-        tree: () => [],
-      }) as never)
+      const registration = defineComponentPage(
+        () => {
+          const snap = useSnapshot<{ error?: { message: string } }>()
+          return createElement('pre', { children: JSON.stringify(snap) })
+        },
+        {
+          url: '/apps/demo/slow/:snap', description: '慢页',
+          instructions: '慢慢读。',
+          load: () => new Promise(() => {}),
+        },
+      )
+      const dispose = service.registerAppPage('demo', registration.page, registration.live)
       try {
         const opening = service.openUrl('/apps/demo/slow/1')
         await vi.advanceTimersByTimeAsync(PAGE_LOAD_TIMEOUT_MS + 1)
         const opened = await opening
         const block = (sessions.messages.get(opened.sessionId) ?? [])[0] ?? ''
-        expect(block).toContain('"code":"page/load-failed"')
+        expect(block).toContain('page/load-failed')
         expect(block).toContain('timed out')
       } finally { dispose() }
     } finally { vi.useRealTimers() }
@@ -352,7 +374,7 @@ describe('app_open 错误路径（稳定码）', () => {
     const old = await fresh.service.openUrl('/apps/demo/task/1')
     // 应用升级：旧页面定义摘除，新定义注册——没有升级分叉，直接新建
     fresh.dispose()
-    fresh.service.register(taskPage() as never)
+    fresh.service.register((taskPage() as unknown as { page: never }).page)
     const opened = await fresh.service.openUrl('/apps/demo/task/1')
     expect(opened.sessionId).not.toBe(old.sessionId)
     expect(fresh.sessions.created).toHaveLength(2) // 旧会话废弃、新会话建成
@@ -409,7 +431,7 @@ describe('任务闭环（§5.3：先 take 再追加 TASK 块）', () => {
   it('索引不可用：openUrl 给 page/index-unavailable，不假成功', async () => {
     const ctx = new Context()
     const service = new PageRegistryService(ctx)
-    service.register(taskPage() as never)
+    service.register((taskPage() as unknown as { page: never }).page)
     // 端口齐备但 bindPorts 不传索引 → UnavailableIndex（fail loud，不假成功）
     service.bindPorts({ sessions: fakeSessions().port, apps: { get: () => ({ definition: { id: 'demo' as never, name: 'Demo', description: 'd', entry: 'task' as never }, owner: 'test', version: '1.0.0', toolPrefix: 'demo', state: 'active' }) }, toolsOf: () => new Map() })
     await expect(service.openUrl('/apps/demo/task/1'))

@@ -35,14 +35,7 @@ import { createBootstrapTools } from '@veren/app-registry'
 import { createAppOpenTool, createPageSendTool } from '@veren/page-registry'
 import { pageToolWarning } from '@veren/prompt-page'
 import { createPresetOf, createRealSessionPort } from './session-port.ts'
-import { createPageDataSync, DEFAULT_PAGE_DATA_CAPS } from './page-sync.ts'
-import type { PageDataCaps } from './page-sync.ts'
-
-/** 装配级可调项（宿主 Config 透传）/ assembly-level tunables (host Config passthrough) */
-export interface WireAppHostOptions {
-  /** PAGE-DATA 截断上限；缺省 50 条 / 4KB / the PAGE-DATA caps; defaults: 50 items / 4KB */
-  readonly pageData?: PageDataCaps
-}
+import { createPageDataSync } from './page-sync.ts'
 
 /** 显式解析三个服务与工具注册表；缺任何一个 fail loud（misconfiguration fails loud）。
  *  服务经属性代理解析（本插件声明了 inject，属主合法）；返回面直接复用
@@ -66,17 +59,16 @@ export function requireFaces(ctx: Context): Pick<Context, 'apps' | 'pageRegistry
  * On any step failure the executed steps are rolled back in reverse before
  * the error rethrows — no half-wired state is ever left behind.
  */
-export function wireAppHost(ctx: Context, options: WireAppHostOptions = {}): () => void {
+export function wireAppHost(ctx: Context): () => void {
   const { apps, pageRegistry, taskCenter, tools } = requireFaces(ctx)
-  // PAGE-DATA 同步枢纽（§3.10.3）：会话提交后接实时视图、agent 激活时挂
-  // pre-step 注入器；截断上限来自宿主 Config。枢纽是纯闭包，不注册任何宿主
-  // 级资源——卸载走 disposer 里的 dispose()（退订全部视图）。
-  // The PAGE-DATA sync hub (§3.10.3): receives live views after session commit
-  // and mounts the pre-step injector at agent activation; caps come from host
-  // Config. The hub is a pure closure registering nothing host-level — unload
-  // goes through dispose() in the disposer (unsubscribes every view).
+  // PAGE-PATCH 同步枢纽（§3.10.3）：会话提交后接实时视图、agent 激活时挂
+  // pre-step 注入器。枢纽是纯闭包，不注册任何宿主级资源——卸载走 disposer 里的
+  // dispose()（退订全部视图）。
+  // The PAGE-PATCH sync hub (§3.10.3): receives live views after session commit
+  // and mounts the pre-step injector at agent activation. The hub is a pure
+  // closure registering nothing host-level — unload goes through dispose() in
+  // the disposer (unsubscribes every view).
   const pageSync = createPageDataSync({
-    caps: options.pageData ?? DEFAULT_PAGE_DATA_CAPS,
     warn: (message) => ctx.logger.warn(message),
   })
 

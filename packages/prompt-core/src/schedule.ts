@@ -4,26 +4,23 @@
  * render 阶段（reconcile）纯函数、可丢弃；commit 阶段原子地交给宿主并 flush。
  * background lane 的 effect 先入 pending 缓冲，随下一次 sync commit 一并落盘。
  */
-import type { Effect, ElementInput, ExternalStore, Fiber, Lane, PromptHost } from './types.ts'
-import { reconcileChildren } from './reconciler.ts'
+import type { Effect, ElementInput, ExternalStore, Fiber, Lane, PromptHost, PromptRoot } from './types.ts'
+import { normalizeChildren, reconcileChildren } from './reconciler.ts'
 
-export interface PromptRoot {
-  readonly host: PromptHost
-  current: Fiber | null
-  pending: Effect[]
-}
+export type { PromptRoot }
 
 /** 创建根 / create a root bound to a host */
 export function createRoot(host: PromptHost): PromptRoot {
   return { host, current: null, pending: [] }
 }
 
-/** 渲染一帧：顶层组件树（单个 Fragment 元素或数组均可）/ render one frame */
+/** 渲染一帧：顶层组件树（单个 Fragment 元素或数组均可；入口做假值/文本规范化）
+ * / render one frame: the top component tree (a single fragment element or an array; falsy/text normalization at the entry) */
 export function scheduleRender(root: PromptRoot, elements: ElementInput, lane: Lane = 'sync'): void {
-  const normalized = Array.isArray(elements) ? elements : [elements]
+  const normalized = normalizeChildren(Array.isArray(elements) ? elements : [elements])
   const rootFiber: Fiber = { type: '⌂root', tag: 'component', props: {}, child: null, sibling: null, parent: null }
   const effects: Effect[] = []
-  rootFiber.child = reconcileChildren(rootFiber, root.current?.child ?? null, normalized, lane, effects)
+  rootFiber.child = reconcileChildren(rootFiber, root.current?.child ?? null, normalized, lane, effects, root)
   root.current = rootFiber
 
   if (lane === 'background') {

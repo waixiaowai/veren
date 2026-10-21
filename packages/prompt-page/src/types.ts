@@ -5,7 +5,6 @@
  * 页面不再绑定预设；应用/实例/工具契约见 contract.ts 与两个插件的 types.ts。
  */
 import type { PromptElement } from '@veren/prompt-core'
-import type { AssembledSync, MessageHost } from '@veren/prompt-host-messages'
 
 /** URL 参数：路径参数 + query 合并（path 优先）/ path params + query (path wins) */
 export type PageParams = Record<string, string>
@@ -24,19 +23,6 @@ export interface PageLiveBinding {
   mount(params: PageParams): PageSession<never>
 }
 
-/**
- * @deprecated 页面不再绑定预设（页面 = 用户自选会话上的动态层）。
- * 本类型仅为 page-sync-bench 等迁移期消费方的 `buildPagePreset` 保留；
- * 新代码禁止使用（应用说明走 `ApplicationDefinition.instructions`，
- * 页面说明走 `PageDefinition.instructions`，都不是系统提示词）。
- * Legacy preset spec kept only for migration-era `buildPagePreset` callers.
- */
-export interface PagePresetSpec {
-  /** 系统提示词（→ persona.prefix）/ system prompt (→ persona.prefix) */
-  readonly systemPrompt: string
-  /** 客户端选择器排序 / roster order */
-  readonly order?: number
-}
 
 /**
  * 页面侧的 JSON 值面（§3.10.2 的 `data` / `map` 序列化契约）：PAGE 块里出现的一切
@@ -50,19 +36,6 @@ export interface PagePresetSpec {
  */
 export type PageJsonValue = null | boolean | number | string | PageJsonValue[] | { [key: string]: PageJsonValue | undefined }
 
-/**
- * 能力地图条目（§3.10.1）：一级页 PAGE 块 `map` 行的元素——"可去哪、什么时候去"。
- * A capability-map entry (§3.10.1): one row of the home PAGE block's `map` —
- * "where to go next, and when".
- */
-export interface PageMapEntry {
-  /** 可去页面的 URL 模板（含 `:param`）/ the target page's url pattern (with `:param`s) */
-  readonly url: string
-  /** 什么时候该去：一句话，模型据此决定下一步 / when to open it: one phrase the model decides on */
-  readonly use: string
-  /** 模板参数说明：键 = `:param` 名 / the template's parameter notes, keyed by `:param` name */
-  readonly params?: Readonly<Record<string, string>>
-}
 
 /**
  * 首屏载入环境（§3.10.3/§3.10.8）：宿主在建会话跑 `load` 时提供的页面会话事实。
@@ -152,55 +125,49 @@ export interface PageDefinition<S> {
   /** 本页给模型的说明；随 PAGE 块附上，不是系统提示词 / page note, not a system prompt */
   readonly instructions?: string
   /**
-   * 能力地图（§3.10.1）：本应用可去的页面、各自的 URL 模板与"什么时候去"。
-   * 首页（entry）**仅当本应用还有记录页（详情/只读详情 viewer）时**必须非空
-   * （§3.10.5 规则 1 收窄后）；工具页/只读副页可省。
-   * The capability map (§3.10.1): where this app can go, each target's url
-   * pattern and when to open it. Required on the home page (the entry) **only
-   * while the app also has record pages (detail / viewer)** (narrowed rule 1);
-   * optional on action / read-only pages.
-   */
-  readonly map?: readonly PageMapEntry[]
-  /**
-   * 首屏数据（§3.10.3）：建会话时跑一次，结果写进 PAGE 块的 `data` 行——
-   * PAGE 块 data 的唯一合法来源。参数来自 URL 解析；env 带页面会话事实。
-   * 抛错按失败态处理（data 写 page/load-failed），不允许静默空白。
-   * The first-screen data (§3.10.3): runs once at session creation and lands
-   * in the PAGE block's `data` line — the only legal source of that field.
-   * Params come from the url; env carries page-session facts. A throw becomes
-   * the error state (data renders page/load-failed) — never a silent blank.
+   * 首屏数据（§3.10.3，组件页语义）：建会话时跑一次，结果经 useSnapshot() 进
+   * 组件——组件把它渲染为正文（失败态也是数据，如实渲染，不允许静默空白）。
+   * 参数来自 URL 解析；env 带页面会话事实。
+   * The first-screen data (§3.10.3, component-page semantics): runs once at
+   * session creation and reaches the component via useSnapshot() — the
+   * component renders it into the body (failure states are data too, rendered
+   * honestly, never a silent blank). Params come from the url; env carries
+   * page-session facts.
    */
   readonly load?: (params: PageParams, env: PageLoadEnv) => Promise<PageJsonValue>
   /** 实例标题函数；缺省用 description 兜底（§3.6.1）/ instance title, falls back to description */
   readonly instanceTitle?: (params: PageParams) => string
   /** 事件监听：键名 = cordis 事件名（ctx.emit 触发）/ listeners keyed by cordis event name */
   readonly events?: PageEventMap
-  /** 组件树：params = 路径参数+query，state = 权威 store 状态 / component tree */
-  readonly tree: (params: PageParams, state: S) => import('@veren/prompt-core').ElementInput
-  /** 生命周期：挂载后调用（预留：首帧上下文装载）/ called after mount */
-  readonly onLoad?: (params: PageParams) => void
   /** 生命周期：由消费方征询以决定是否归档会话 / consulted to decide session archive */
   readonly onComplete?: (params: PageParams) => boolean
+}
+
+/**
+ * 会话宿主的结构面（C5）：MessageHost 结构性满足；Markdown 文档宿主
+ * （component.tsx 的 MarkdownDocHost）亦满足——组件页与旧块页共用 PageSession。
+ * The session host's structural face (C5): MessageHost satisfies it
+ * structurally; the Markdown doc host (MarkdownDocHost in component.tsx) does
+ * too — component pages and legacy block pages share PageSession.
+ */
+export interface PageHostFace {
+  /** 当前版本号（交付门控来源）/ the current version (the delivery gating source) */
+  readonly currentVersion: number
+  /** cursor 之后的增量（patch）或全量快照 / the delta after the cursor (patch) or the full snapshot */
+  renderSince(cursor?: number): import('@veren/prompt-host-messages').Sync
 }
 
 /** 一个已挂载的页面会话 / one mounted page-session */
 export interface PageSession<S> {
   readonly page: PageDefinition<S>
   readonly params: PageParams
-  readonly host: MessageHost
+  readonly host: PageHostFace
   /** 打开指针注入文本（新会话第一条 user 消息）/ pointer message injected at open */
   readonly pointerMessage: string
   get version(): number
   /** 渲染 cursor 之后的同步文本 / sync text after the given cursor */
   syncText(cursor?: number): string
-  /**
-   * 策略层装配（仅在 mountPage 给了 assembly 时存在）：预算 remount + 按
-   * provider 规划缓存断点，见 prompt-host-messages 的 createSyncAssembler。
-   * Policy-layer assembly (present only when mountPage got an assembly):
-   * budget remount + provider-planned cache breakpoints; see
-   * createSyncAssembler in prompt-host-messages.
-   */
-  readonly assemble?: () => AssembledSync
-  /** 解除 store 订阅（会话结束）/ detach from the store */
+  /** 解除 store 订阅（会话结束；组件页 = teardown：effect 清理逆序 + 订阅退订）
+   * / detach from the store (session end; for component pages this is teardown: cleanups in reverse + subscriptions) */
   unsubscribe(): void
 }

@@ -23,8 +23,10 @@ import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { Data, Keyed, defineAppPage, definePage } from '@veren/prompt-page'
-import type { Entity, PageDefinition } from '@veren/prompt-page'
+import { defineComponentPage } from '@veren/prompt-page'
+import type { ComponentPageRegistration } from '@veren/prompt-page'
+import { createElement } from '@veren/prompt-core'
+import type { Entity } from '@veren/prompt-core'
 import AppRegistryPlugin from '@veren/app-registry'
 import type { AppCapability, AppId, PageKey } from '@veren/app-registry'
 import PageRegistryPlugin from '@veren/page-registry'
@@ -197,18 +199,21 @@ function makeBoardStore(initial: BoardCard[]): {
   }
 }
 
-/** 看板详情页（二级页夹具，§3.10 合规）：一个 keyed 集合块 + 一个字段块
- * / the board detail page (a compliant second-level fixture): one keyed collection + one field */
-function boardPage(): PageDefinition<BoardCard[]> {
-  return definePage<BoardCard[]>({
-    name: 'board',
-    url: '/apps/board/board/:id',
-    description: '看板页',
-    tools: ['pin'],
-    writes: true,
-    instructions: '只处理 params.id 指定的这一块看板。',
-    tree: (_params, state) => [...Keyed({ path: 'cards', items: state }), ...Data({ path: 'count', value: state.length })],
-  })
+/** 看板详情页（二级页夹具，§3.10 合规）：组件读权威 store 渲染卡片列表
+ * / the board detail page (a compliant second-level fixture): the component reads the authoritative store to render cards */
+function boardPage(store: { getState(): BoardCard[]; subscribe(listener: () => void): () => void }): ComponentPageRegistration {
+  return defineComponentPage(
+    () => createElement('ul', { children: store.getState().map((c) => createElement('li', { key: c.id, children: c.title })) }),
+    {
+      name: 'board',
+      url: '/apps/board/board/:id',
+      description: '看板页',
+      tools: ['pin'],
+      writes: true,
+      instructions: '只处理 params.id 指定的这一块看板。',
+      store,
+    },
+  )
 }
 
 /** 在该会话的 agent 作用域上跑一轮 pre-step（最内层 next 返回已认领消息）
@@ -312,19 +317,17 @@ function registerMiniApp(h: Boot): void {
     execute: async () => ({ ok: true }),
   }))
   const pages = apps.pages('mini' as AppId, ctx)
-  // 一级页（entry）：无参数 + 能力地图 / the home page (entry): no params + a capability map
-  pages.register(defineAppPage({
-    name: 'list', url: '/apps/mini/list', description: '任务列表页',
-    instructions: '这是 mini 应用的首页：看列表，去详情。',
-    map: [{ url: '/apps/mini/task/:id', use: '处理某一条任务时打开' }],
-    tree: () => [],
-  }) as unknown as PageDefinition<never>)
+  // 一级页（entry）：map 由注册表推导（§3.5 定案），不再手写
+  // / the home page (entry): the map is registry-derived (§3.5), never hand-written
+  pages.register(
+    (props: { id?: string }) => createElement('p', { children: `任务 ${props.id ?? ''}` }),
+    { url: '/apps/mini/list', description: '任务列表页', instructions: '这是 mini 应用的首页：看列表，去详情。' },
+  )
   // 二级页：带参数 + writes + 工具 + 说明 / the detail page: params + writes + tools + instructions
-  pages.register(defineAppPage({
-    name: 'task', url: '/apps/mini/task/:id', description: '任务页',
-    tools: ['read', 'write'], writes: true, instructions: '只处理 params.id 指定的这一条任务。',
-    tree: () => [],
-  }) as unknown as PageDefinition<never>)
+  pages.register(
+    (props: { id?: string }) => createElement('p', { children: `任务 ${props.id ?? ''}` }),
+    { url: '/apps/mini/task/:id', description: '任务页', tools: ['read', 'write'], writes: true, instructions: '只处理 params.id 指定的这一条任务。' },
+  )
 }
 
 describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
@@ -360,12 +363,10 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     ;(ctx.logger as { warn: (m: string) => void }).warn = (m: string) => { warnings.push(m) }
     try {
       apps.register({ id: 'solo' as AppId, name: 'solo', description: 'd', entry: 'main' as PageKey })
-      apps.pages('solo' as AppId).register(defineAppPage({
-        // 一级页：无参数 + 非空能力地图（§3.10.5 规则 1）/ home: no params + a non-empty map (rule 1)
-        name: 'main', url: '/apps/solo/main', description: 'd',
-        map: [{ url: '/apps/solo/item/:id', use: 'open one item' }],
-        tree: () => [],
-      }) as unknown as PageDefinition<never>)
+      apps.pages('solo' as AppId).register(
+        () => createElement('p', { children: 'main' }),
+        { url: '/apps/solo/main', description: 'd' },
+      )
       expect(warnings.some((m) => m.includes('no page mirror wired'))).toBe(true)
       expect(ctx.pageRegistry.resolve('/apps/solo/main')).toBeNull() // 未镜像
     } finally {
@@ -384,22 +385,21 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     const apps = h.ctx.apps
     apps.register({ id: 'lazy' as AppId, name: 'lazy', description: 'd', entry: 'main' as PageKey }, h.ctx)
     const pages = apps.pages('lazy' as AppId, h.ctx)
-    pages.register(defineAppPage({
-      // 首页：map 列出 viewer（规则 1 对记录页一视同仁）/ the home: the map lists the viewer (rule 1 treats record pages alike)
-      name: 'main', url: '/apps/lazy/main', description: 'd',
-      map: [{ url: '/apps/lazy/ws/:id', use: 'browse one workspace' }],
-      tree: () => [],
-    }) as unknown as PageDefinition<never>)
-    pages.register(defineAppPage({
+    pages.register(
+      () => createElement('p', { children: 'main' }),
+      { url: '/apps/lazy/main', description: 'd' },
+    )
+    pages.register(
       // viewer：带参、只读、零工具——本轮放宽的受益者，警告对它必须沉默
-      // / the viewer: parameterized, read-only, no tools — this round's
-      // beneficiary, the warning must stay silent for it
-      name: 'ws', url: '/apps/lazy/ws/:id', description: 'd', tree: () => [],
-    }) as unknown as PageDefinition<never>)
-    pages.register(defineAppPage({
+      // / the viewer: parameterized, read-only, no tools — this round's beneficiary, the warning must stay silent for it
+      () => createElement('p', { children: 'ws' }),
+      { url: '/apps/lazy/ws/:id', description: 'd' },
+    )
+    pages.register(
       // action：writes: true + 零工具——警告必须照常打出 / the action page: writes: true + no tools — the warning must still fire
-      name: 'publish', url: '/apps/lazy/publish', description: 'd', writes: true, instructions: '确认后发布', tree: () => [],
-    }) as unknown as PageDefinition<never>)
+      () => createElement('p', { children: 'publish' }),
+      { url: '/apps/lazy/publish', description: 'd', writes: true, instructions: '确认后发布' },
+    )
     const warnings: string[] = []
     const original = h.ctx.logger.warn
     ;(h.ctx.logger as { warn: (m: string) => void }).warn = (m: string) => { warnings.push(m) }
@@ -437,9 +437,10 @@ describe('G13 全成或全回滚：接线一步失败，系统回到"什么也�
       await expect(h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey))
         .rejects.toMatchObject({ code: 'page/host-unavailable' })
       // 镜像面不在场：注册页面只告警，不镜像进 page-registry
-      h.ctx.apps.pages('mini' as AppId, h.ctx).register(defineAppPage({
-        name: 'solo', url: '/apps/mini/solo', description: 'd', tree: () => [],
-      }) as unknown as PageDefinition<never>)
+      h.ctx.apps.pages('mini' as AppId, h.ctx).register(
+        () => createElement('p', { children: 'solo' }),
+        { url: '/apps/mini/solo', description: 'd' },
+      )
       expect(warnings.some((m) => m.includes('no page mirror wired'))).toBe(true)
       expect(h.pages.resolve('/apps/mini/solo')).toBeNull()
     } finally {
@@ -515,17 +516,14 @@ describe('注册必须发生：宿主工具表里真能看到引导工具（第�
       execute: async () => ({}),
     }))
     const twinPages = apps.pages('twin' as AppId, h.ctx)
-    twinPages.register(defineAppPage({
-      name: 'list', url: '/apps/twin/list', description: '同名页列表',
-      instructions: 'twin 首页。',
-      map: [{ url: '/apps/twin/task/:taskId', use: '处理某一条任务时打开' }],
-      tree: () => [],
-    }) as unknown as PageDefinition<never>)
-    twinPages.register(defineAppPage({
-      name: 'task', url: '/apps/twin/task/:taskId', description: '同名页',
-      tools: ['read'], writes: true, instructions: '只处理这一条任务。',
-      tree: () => [],
-    }) as unknown as PageDefinition<never>)
+    twinPages.register(
+      () => createElement('p', { children: 'twin list' }),
+      { url: '/apps/twin/list', description: '同名页列表', instructions: 'twin 首页。' },
+    )
+    twinPages.register(
+      () => createElement('p', { children: 'twin task' }),
+      { url: '/apps/twin/task/:taskId', description: '同名页', tools: ['read'], writes: true, instructions: '只处理这一条任务。' },
+    )
     const a = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
     const b = await h.pages.openUrl('/apps/twin/task/1' as PageInstanceKey)
     expect(a.sessionId).not.toBe(b.sessionId)
@@ -638,13 +636,12 @@ describe('PAGE-DATA 同步（§3.10.2）走真实装配链：回填镜像携带 
       execute: async () => ({ ok: true }),
     }))
     const boardPages = apps.pages('board' as AppId, h.ctx)
-    boardPages.register(defineAppPage({
-      name: 'home', url: '/apps/board/board', description: '看板首页',
-      instructions: '看板首页。',
-      map: [{ url: '/apps/board/board/:id', use: '查看某一块看板时打开' }],
-      tree: () => [],
-    }) as unknown as PageDefinition<never>)
-    boardPages.register(boardPage(), { store })
+    boardPages.register(
+      () => createElement('p', { children: '看板首页' }),
+      { name: 'home', url: '/apps/board/board', description: '看板首页', instructions: '看板首页。' },
+    )
+    const boardRegistration = boardPage(store)
+    boardPages.register(boardRegistration)
     wireAppHost(h.ctx)
     const opened = await h.pages.openUrl('/apps/board/board/1' as PageInstanceKey)
     const scope = h.host.scopes.get(opened.sessionId)
@@ -658,7 +655,7 @@ describe('PAGE-DATA 同步（§3.10.2）走真实装配链：回填镜像携带 
     if (decision.kind !== 'enter') throw new Error('expected the pre-step to admit messages')
     const injected = decision.messages.at(-1)
     const text = injected?.content.map((block) => (block.type === 'text' ? block.text : '')).join('') ?? ''
-    expect(text.startsWith('PAGE-DATA board/board /apps/board/board/1 v')).toBe(true)
+    expect(text.startsWith('PAGE-PATCH board/board /apps/board/board/1 v')).toBe(true)
     expect(text).toContain('装配链新卡')
   })
 })

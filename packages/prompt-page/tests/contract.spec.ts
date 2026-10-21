@@ -5,7 +5,6 @@ import {
   RESERVED_APP_IDS,
   assertAppUrlPattern,
   assertParamsMatchPattern,
-  homeMapIssues,
   isAppUrlPattern,
   isValidAppId,
   pageArchetypeOf,
@@ -51,7 +50,6 @@ describe('defineAppPage（应用作用域契约）', () => {
     writes: true,
     instructions: '先读 diff，再给结论。',
     instanceTitle: title as never,
-    tree: () => [],
   }
 
   it('合法：契约字段原样保留', () => {
@@ -84,8 +82,6 @@ describe('两轴四档页面校验（§3.10.5）', () => {
     description: '审阅列表',
     tools: ['pick'],
     instructions: '浏览全部审阅。',
-    map: [{ url: '/apps/review-workbench/review/:pr', use: '处理某一条审阅时打开', params: { pr: 'PR 号' } }],
-    tree: () => [],
   }
 
   it('viewer 档（只读详情）：带 :param、不声明 writes、不挂写工具 → 如实注册，不再被迫谎称要写', () => {
@@ -96,7 +92,6 @@ describe('两轴四档页面校验（§3.10.5）', () => {
     // declarations. It is now a legal viewer.
     const viewer = defineAppPage({
       name: 'workspace', url: '/apps/review-workbench/workspace/:wsId', description: '工作区只读下钻',
-      tree: () => [],
     })
     expect(viewer.writes).toBeUndefined()
     expect(viewer.tools).toEqual([])
@@ -164,7 +159,6 @@ describe('规则 3b：工具页必须有写工具——警告通道，不是门�
     url: '/apps/x/publish',
     description: '发布一条新任务',
     instructions: '用 publish_task 确认发布；标题为空时不要调用。',
-    tree: () => [],
   }
 
   it('工具页（无参非入口 writes: true）合法注册，但缺工具会被 pageToolWarning 警告', () => {
@@ -175,69 +169,5 @@ describe('规则 3b：工具页必须有写工具——警告通道，不是门�
     expect(pageToolWarning(silent)).toContain('declares writes: true but mounts no tools')
     const armed = defineAppPage({ ...action, writes: true, tools: ['publish_task'] })
     expect(pageToolWarning(armed)).toBeUndefined()
-  })
-})
-
-describe('首页能力地图覆盖查询（§3.10 验收面，homeMapIssues）', () => {
-  const home: PageDefinition<never> = {
-    name: 'list',
-    url: '/apps/x/list',
-    description: '列表',
-    tree: (() => []) as PageDefinition<never>['tree'],
-  }
-  const detail = (name: string, url: string): PageDefinition<never> => ({
-    name, url, description: name, tree: (() => []) as PageDefinition<never>['tree'],
-  })
-
-  it('map 列全全部详情页模板 + 每条带"什么时候用" → 空问题清单', () => {
-    const pages = [home, detail('review', '/apps/x/review/:pr'), detail('note', '/apps/x/note/:noteId')]
-    const covered: PageDefinition<never> = {
-      ...home,
-      map: [
-        { url: '/apps/x/review/:pr', use: '处理某条审阅时打开' },
-        { url: '/apps/x/note/:noteId', use: '读某条笔记时打开' },
-      ],
-    }
-    expect(homeMapIssues(covered, pages)).toEqual([])
-  })
-
-  it('规则 1（收窄）：单页应用——唯一一页就是首页，map 为空不再算问题', () => {
-    // 上一轮迁移实测：单页应用的 map 无处可指，旧口径强制 ≥2 页是无解的。
-    // / live migration feedback: a single-page app has nothing for its map to
-    // point at; the old rule's forced ≥2 pages was unsolvable.
-    const solo: PageDefinition<never> = {
-      name: 'main', url: '/apps/solo/main', description: '单页应用的唯一一页',
-      tree: (() => []) as PageDefinition<never>['tree'],
-    }
-    expect(homeMapIssues(solo, [solo])).toEqual([])
-    // 纯仪表盘应用（无详情页、map 只列只读副页）同样零问题
-    // / a pure dashboard app (no detail pages, the map lists read-only siblings) is clean too
-    const dashHome: PageDefinition<never> = {
-      ...home, map: [{ url: '/apps/x/workspaces', use: '要看工作区明细时打开' }],
-    }
-    const workspaces = detail('workspaces', '/apps/x/workspaces')
-    expect(homeMapIssues(dashHome, [dashHome, workspaces])).toEqual([])
-  })
-
-  it('漏掉记录页（详情/viewer，map 对两类带参页一视同仁）/ use 为空 / 指向未注册页面 / 首页带 :param → 逐条报告', () => {
-    // 夹具未声明 writes → 按新推导是 viewer：规则 1 的地图覆盖对 detail/viewer
-    // 同口径（都是记录页，模型不读地图就猜不出 URL 模板）。
-    // / the fixture declares no writes → a viewer under the new derivation: rule
-    // 1's map coverage treats detail/viewer alike (both are record pages the
-    // model cannot guess url patterns for without the map).
-    const pages = [home, detail('review', '/apps/x/review/:pr')]
-    const missing: PageDefinition<never> = { ...home, map: [{ url: '/apps/x/ghost/:id', use: 'x' }] }
-    const issues = homeMapIssues(missing, pages)
-    expect(issues.some((issue) => issue.includes('missing from the home map'))).toBe(true)
-    expect(issues.some((issue) => issue.includes('not a registered page'))).toBe(true)
-
-    const emptyUse: PageDefinition<never> = { ...home, map: [{ url: '/apps/x/review/:pr', use: ' ' }] }
-    expect(homeMapIssues(emptyUse, pages).some((issue) => issue.includes('empty "use"'))).toBe(true)
-
-    const noMap: PageDefinition<never> = { ...home }
-    expect(homeMapIssues(noMap, pages).some((issue) => issue.includes('empty map'))).toBe(true)
-
-    const paramHome: PageDefinition<never> = { ...home, url: '/apps/x/list/:view', map: [] }
-    expect(homeMapIssues(paramHome, [paramHome]).some((issue) => issue.includes('parameter-free'))).toBe(true)
   })
 })

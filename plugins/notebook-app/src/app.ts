@@ -26,8 +26,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { ApplicationDefinition, AppId, PageKey } from '@veren/app-registry'
-import { Data, Keyed, Static, defineAppPage } from '@veren/prompt-page'
-import type { PageJsonValue, PageDefinition } from '@veren/prompt-page'
+import { createElement } from '@veren/prompt-core'
+import { defineComponentPage, useSnapshot } from '@veren/prompt-page'
+import type { ComponentPageRegistration, PageJsonValue } from '@veren/prompt-page'
 // Type-only: pulls `ctx.apps` / `ctx.pageRegistry` declarations into this face.
 // 仅类型导入：把 `ctx.apps` / `ctx.pageRegistry` 的声明拉进本文件。
 import type {} from '@veren/app-registry'
@@ -53,8 +54,8 @@ export const APP_DEFINITION: ApplicationDefinition = {
 /** 应用内 URL 前缀 / the app-scoped url prefix */
 const URL_PREFIX = `/apps/${APP_ID}`
 
-// ---- 页面（defineAppPage，URL 统一 /apps/notebook/...）----
-// ---- the pages (defineAppPage, urls under /apps/notebook) ----
+// ---- 页面（组件形态，RFC prompt-page-render §3.5，URL 统一 /apps/notebook/...）----
+// ---- the pages (component form, urls under /apps/notebook) ----
 
 /** 首屏列表条数上限（与 PAGE-DATA 的 50 条上限同口径）/ the first-screen list cap (aligned with the PAGE-DATA cap) */
 const FIRST_SCREEN_LIMIT = 50
@@ -91,83 +92,83 @@ function firstScreenOwner(env: { readonly preset?: string }): string | null {
   return env.preset ?? null
 }
 
-/** 首页（home 档 / entry，笔记列表）工厂 / the home page (the home archetype / entry, the note list) factory */
-export function createListPage(port: () => NotebookToolsPort): PageDefinition<readonly NoteSummary[]> {
-  return defineAppPage<readonly NoteSummary[]>({
-    name: 'list',
-    url: `${URL_PREFIX}/list`,
-    description: '记事本列表页：浏览当前预设的全部笔记，并可新建笔记',
-    tools: ['list_notes', 'write_note'],
-    instructions: '这是记事本的首页（笔记列表）。data 行是首屏快照：owner（归属预设）与 notes（该预设的笔记，id/title/excerpt/updatedAt）；'
-      + 'available=false 表示宿主未暴露归属，此时如实告知用户，用 list_notes 让模型自行取列表。'
-      + '页面状态经 SNAPSHOT/PATCH 同步，{"kind":"keyed","path":"notes","items":[...]} 按条目 id 对位。'
-      + '用 list_notes 刷新列表，用 write_note 新建笔记；新建后报出笔记标题即可。'
-      + '要读/改/删某一条笔记时，打开 map 里的笔记详情页 URL。',
-    instanceTitle: () => '笔记列表',
-    // §3.10.1：首页 = 基础信息（load 取当前预设的真实笔记列表）+ 能力地图
-    // （本应用有详情页 → map 必须非空，规则 1）
-    // / §3.10.1: the home page = basic information (the current preset's real
-    // note list via load) + the capability map (this app has a detail page, so
-    // the map must be non-empty — rule 1)
-    load: async (_params, env) => {
-      const owner = firstScreenOwner(env)
-      if (owner === null) return { available: false, owner: null, notes: [] } satisfies PageJsonValue
-      const notes = await port().list(owner)
-      return {
-        available: true,
-        owner,
-        notes: notes.slice(0, FIRST_SCREEN_LIMIT).map((note) => ({
-          id: note.id, title: note.title, excerpt: note.excerpt, updatedAt: note.updatedAt,
-        })),
-      } satisfies PageJsonValue
+/** 首页（home 档 / entry，笔记列表）组件注册 / the home page (the home archetype / entry, the note list) component registration */
+export function createListPage(port: () => NotebookToolsPort): ComponentPageRegistration {
+  return defineComponentPage(
+    () => {
+      const snap = useSnapshot<NotebookListFirstScreen>()
+      const notes = snap?.notes ?? []
+      return createElement('ul', { children: notes.map((note) => createElement('li', { key: note.id, children: [createElement('strong', { children: note.id }), ' ', note.title] })) })
     },
-    map: [
-      {
-        url: `${URL_PREFIX}/note/:noteId`,
-        use: '读取/改写/删除某一条笔记时打开',
-        params: { noteId: '笔记 id，来自列表 data 的 notes[].id' },
+    {
+      url: `${URL_PREFIX}/list`,
+      description: '记事本列表页：浏览当前预设的全部笔记，并可新建笔记',
+      tools: ['list_notes', 'write_note'],
+      instructions: '这是记事本的首页（笔记列表）。正文即首屏快照：owner（归属预设）与 notes（该预设的笔记，id/title/excerpt/updatedAt）；'
+        + 'available=false 表示宿主未暴露归属，此时如实告知用户，用 list_notes 让模型自行取列表。'
+        + '数据变化经 PAGE-PATCH 增量同步（按行首笔记 id 对位）。'
+        + '用 list_notes 刷新列表，用 write_note 新建笔记；新建后报出笔记标题即可。'
+        + '要读/改/删某一条笔记时，打开 map 里的笔记详情页 URL。',
+      instanceTitle: () => '笔记列表',
+      // §3.10.3（组件页语义）：首屏归属解析自 env.preset——身份走 load，不进 URL
+      // / §3.10.3 (component-page semantics): the first screen resolves the owner from env.preset — identity rides load, never the url
+      load: async (_params, env) => {
+        const owner = firstScreenOwner(env)
+        if (owner === null) return { available: false, owner: null, notes: [] } satisfies PageJsonValue
+        const notes = await port().list(owner)
+        return {
+          available: true,
+          owner,
+          notes: notes.slice(0, FIRST_SCREEN_LIMIT).map((note) => ({
+            id: note.id, title: note.title, excerpt: note.excerpt, updatedAt: note.updatedAt,
+          })),
+        } satisfies PageJsonValue
       },
-    ],
-    tree: (_params, notes) => [
-      ...Static({ content: '记事本 · 笔记列表' }),
-      ...Keyed({ path: 'notes', items: notes }),
-    ],
-  })
+    },
+  )
 }
 
-/** 笔记详情页（detail 档）工厂 / the note detail page (the detail archetype) factory */
-export function createNotePage(port: () => NotebookToolsPort): PageDefinition<NoteView | undefined> {
-  return defineAppPage<NoteView | undefined>({
-    name: 'note',
-    url: `${URL_PREFIX}/note/:noteId`,
-    description: '笔记详情页：查看并改写单条笔记的标题与正文，或删除它',
-    tools: ['read_note', 'rewrite_note', 'delete_note'],
-    writes: true,
-    instructions: '这是笔记详情页，只处理 params.noteId 指定的这一条笔记——这一页只干这一件事。'
-      + 'data 行自带该笔记的首屏（owner/note 字段）；note 为 null 表示归属未知或笔记不存在，不要凭空操作。'
-      + '用 read_note 读取全文；用 rewrite_note 改写，携带读到的 updatedAt 作 expectedUpdatedAt 防覆盖；'
-      + 'delete_note 永久删除，删除前先向用户确认。',
-    instanceTitle: (params) => `笔记 #${params.noteId ?? ''}`,
-    // §3.10.3：详情页 load 按参数取该条记录的首屏；笔记不存在时 load 抛
-    // notebook/note-not-found，data 行如实给出失败态。
-    // §3.10.3: the detail load fetches that one record's first screen; a missing
-    // note throws notebook/note-not-found and the data line carries the error state.
-    load: async (params, env) => {
-      const owner = firstScreenOwner(env)
-      if (owner === null) return { owner: null, note: null } satisfies PageJsonValue
-      const note = await port().read(owner, String(params.noteId ?? ''))
-      return {
-        owner,
-        note: { id: note.id, title: note.title, body: note.body, createdAt: note.createdAt, updatedAt: note.updatedAt },
-      } satisfies PageJsonValue
+/** 笔记详情页（detail 档）组件注册 / the note detail page (the detail archetype) component registration */
+export function createNotePage(port: () => NotebookToolsPort): ComponentPageRegistration {
+  return defineComponentPage(
+    () => {
+      const snap = useSnapshot<NotebookNoteFirstScreen>()
+      const note = snap?.note
+      if (note === null || note === undefined) {
+        return createElement('blockquote', { children: '该笔记不存在或归属未知——不要凭空操作。' })
+      }
+      return createElement('div', { children: [
+        createElement('h1', { children: [note.id, ' ', note.title] }),
+        createElement('p', { children: ['更新于 ', note.updatedAt] }),
+        createElement('pre', { children: note.body }),
+      ] })
     },
-    tree: (_params, note) => [
-      ...Static({ content: '记事本 · 笔记详情' }),
-      ...Data({ path: 'note.title', value: note?.title ?? null }),
-      ...Data({ path: 'note.body', value: note?.body ?? null }),
-      ...Data({ path: 'note.updatedAt', value: note?.updatedAt ?? null }),
-    ],
-  })
+    {
+      url: `${URL_PREFIX}/note/:noteId`,
+      description: '笔记详情页：查看并改写单条笔记的标题与正文，或删除它',
+      tools: ['read_note', 'rewrite_note', 'delete_note'],
+      writes: true,
+      instructions: '这是笔记详情页，只处理 params.noteId 指定的这一条笔记——这一页只干这一件事。'
+        + '正文自带该笔记的首屏（owner/note 字段）；note 为 null 表示归属未知或笔记不存在，不要凭空操作。'
+        + '用 read_note 读取全文；用 rewrite_note 改写，携带读到的 updatedAt 作 expectedUpdatedAt 防覆盖；'
+        + 'delete_note 永久删除，删除前先向用户确认。',
+      instanceTitle: (params) => `笔记 #${params.noteId ?? ''}`,
+      // §3.10.3（组件页语义）：详情 load 按参数取该条记录的首屏；笔记不存在时
+      // load 抛 notebook/note-not-found，失败态进组件如实渲染。
+      // §3.10.3 (component-page semantics): the detail load fetches that one
+      // record's first screen; a missing note throws notebook/note-not-found and
+      // the component renders the error state.
+      load: async (params, env) => {
+        const owner = firstScreenOwner(env)
+        if (owner === null) return { owner: null, note: null } satisfies PageJsonValue
+        const note = await port().read(owner, String(params.noteId ?? ''))
+        return {
+          owner,
+          note: { id: note.id, title: note.title, body: note.body, createdAt: note.createdAt, updatedAt: note.updatedAt },
+        } satisfies PageJsonValue
+      },
+    },
+  )
 }
 
 // ---- 应用级工具 / app-scoped tools ----
@@ -304,8 +305,8 @@ export function registerNotebookApp(ctx: Context, port: () => NotebookToolsPort)
       // The two pages carry different load payloads (a list vs one record); the
       // registration face only cares about PageDefinition's common shape, so
       // widen explicitly instead of letting the array infer a union.
-      const registered: Array<PageDefinition<never>> = [createListPage(port), createNotePage(port)]
-      for (const page of registered) disposers.push(pages.register(page))
+      const registered = [createListPage(port), createNotePage(port)]
+      for (const registration of registered) disposers.push(pages.register(registration))
     } catch (error: unknown) {
       for (const dispose of disposers.reverse()) dispose()
       throw error

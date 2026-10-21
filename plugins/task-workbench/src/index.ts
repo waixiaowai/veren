@@ -19,7 +19,7 @@ import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
 import type {} from '@veren/task-center'
 import { APP_DEFINITION, APP_ID, createAppTools, createTaskChannel, PUBLISH_TASK_REQUIRES } from './app.ts'
-import { createDetailPage, createListPage, createPublishPage } from './pages.tsx'
+import { createTaskPages } from './pages.tsx'
 import { TaskStore, makeList } from './store.ts'
 import type { PageTaskScope } from './types.ts'
 
@@ -85,22 +85,22 @@ export const apply = (ctx: Context, config: Config): void => {
           ? { requires: [...PUBLISH_TASK_REQUIRES] as AppCapability[] }
           : undefined))
       }
-      // 3) 页面注册：单入口，app-registry 内部镜像进 page-registry（可被 openUrl
-      //    解析）；镜像失败会回滚并抛错。三页都是工厂，闭包引用本次装配的权威
-      //    store（§3.10.3）：列表/详情页的 load 用它取 PAGE 块首屏，实时视图订阅
-      //    同一 store、变化经 PAGE-DATA 块同步进上下文——S 在这里的 register
-      //    调用处被消费。
-      // 3) Page registration: single entry, app-registry mirrors into
-      //    page-registry internally (resolvable by openUrl); a mirror failure
-      //    rolls back and throws. All three pages are factories closing over
-      //    this assembly's authoritative store (§3.10.3): the list/detail
-      //    loads read the PAGE block's first screen from it, and the live view
-      //    subscribes to the same store so changes reach the context as
-      //    PAGE-DATA blocks — S is consumed here, at the register call.
+      // 3) 页面注册（组件形态，RFC prompt-page-render §3.5）：单入口，app-registry
+      //    内部镜像进 page-registry（可被 openUrl 解析）；镜像失败会回滚并抛错。
+      //    三页闭包引用本次装配的权威 store（§3.10.3）：组件经 useSnapshot 读它，
+      //    变化经 PAGE-PATCH 增量进上下文——单一事实源，无第二数据源。
+      // 3) Page registration (component form, RFC prompt-page-render §3.5):
+      //    single entry, app-registry mirrors into page-registry internally
+      //    (resolvable by openUrl); a mirror failure rolls back and throws. All
+      //    three pages close over this assembly's authoritative store
+      //    (§3.10.3): components read it via useSnapshot, and changes reach the
+      //    context as PAGE-PATCH blocks — a single source of fact, no second
+      //    data source.
       const pages = apps.pages(APP_ID, ctx)
-      done.push(pages.register(createListPage(store), { store }))
-      done.push(pages.register(createDetailPage(store), { store }))
-      done.push(pages.register(createPublishPage(), { store }))
+      const taskPages = createTaskPages(store)
+      done.push(pages.register(taskPages.ListPage, taskPages.ListMeta))
+      done.push(pages.register(taskPages.DetailPage, taskPages.DetailMeta))
+      done.push(pages.register(taskPages.PublishPage, taskPages.PublishMeta))
     } catch (error: unknown) {
       for (const dispose of done.reverse()) dispose()
       throw error
