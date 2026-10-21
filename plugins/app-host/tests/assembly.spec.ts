@@ -185,12 +185,16 @@ function makeBoardStore(initial: BoardCard[]): {
   }
 }
 
-/** 看板页面：一个 keyed 集合块 + 一个字段块 / the board page: one keyed collection + one field */
+/** 看板详情页（二级页夹具，§3.10 合规）：一个 keyed 集合块 + 一个字段块
+ * / the board detail page (a compliant second-level fixture): one keyed collection + one field */
 function boardPage(): PageDefinition<BoardCard[]> {
   return definePage<BoardCard[]>({
     name: 'board',
     url: '/apps/board/board/:id',
     description: '看板页',
+    tools: ['pin'],
+    writes: true,
+    instructions: '只处理 params.id 指定的这一块看板。',
     tree: (_params, state) => [...Keyed({ path: 'cards', items: state }), ...Data({ path: 'count', value: state.length })],
   })
 }
@@ -422,10 +426,29 @@ describe('注册必须发生：宿主工具表里真能看到引导工具（第�
     // 第二个应用注册同名本地页：裸名登记会让它在 duplicate-name 上炸掉
     // （或在幂等检查里被别的应用顶掉）——真机上 notebook/list 与
     // task-workbench/list 正是这么互相吞掉的。
+    // 夹具按 §3.10 合规：详情页是真正的 :param 页（旧夹具是字面量
+    // /apps/twin/task/1 的"详情形态"页，本轮已清掉）。
+    // The fixture is §3.10-compliant: the detail page is a real :param page (the
+    // old fixture was a literal /apps/twin/task/1 "detail-shaped" page, removed
+    // this round).
     const apps = h.ctx.apps
-    apps.register({ id: 'twin' as AppId, name: 'twin', description: '同名页面应用', entry: 'task' as PageKey }, h.ctx)
-    apps.pages('twin' as AppId, h.ctx).register(defineAppPage({
-      name: 'task', url: '/apps/twin/task/1', description: '同名页', tree: () => [],
+    apps.register({ id: 'twin' as AppId, name: 'twin', description: '同名页面应用', entry: 'list' as PageKey }, h.ctx)
+    apps.tools('twin' as AppId, h.ctx).define(defineTool({
+      name: 'read', description: '读取', parameters: {},
+      output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+      execute: async () => ({}),
+    }))
+    const twinPages = apps.pages('twin' as AppId, h.ctx)
+    twinPages.register(defineAppPage({
+      name: 'list', url: '/apps/twin/list', description: '同名页列表',
+      instructions: 'twin 首页。',
+      map: [{ url: '/apps/twin/task/:taskId', use: '处理某一条任务时打开' }],
+      tree: () => [],
+    }) as unknown as PageDefinition<never>)
+    twinPages.register(defineAppPage({
+      name: 'task', url: '/apps/twin/task/:taskId', description: '同名页',
+      tools: ['read'], writes: true, instructions: '只处理这一条任务。',
+      tree: () => [],
     }) as unknown as PageDefinition<never>)
     const a = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
     const b = await h.pages.openUrl('/apps/twin/task/1' as PageInstanceKey)
@@ -446,8 +469,8 @@ describe('隔离是真的：同一宿主两个会话的 agent 作用域互不可
     const scopeB = h.host.scopes.get(b.sessionId)
     if (scopeA === undefined || scopeB === undefined) throw new Error('expected both agents to be created at open')
     // 各自作用域里恰好挂了一次页面工具（同名工具不互相覆盖、不串台）
-    expect([...scopeA.registry.keys()]).toEqual(['mini__read'])
-    expect([...scopeB.registry.keys()]).toEqual(['mini__read'])
+    expect([...scopeA.registry.keys()]).toEqual(['mini__read', 'mini__write'])
+    expect([...scopeB.registry.keys()]).toEqual(['mini__read', 'mini__write'])
     // 页面引导工具在页面作用域内被屏蔽（递归自开防护 + 作用域互斥）
     expect(scopeA.denials).toEqual(['app_open', 'app_list', 'app_pages'])
     // 作用域实例不同：A 的登记与 B 的登记是两个真实的、分开的表
@@ -455,7 +478,7 @@ describe('隔离是真的：同一宿主两个会话的 agent 作用域互不可
     // 销毁 A 的 agent（作用域随 fiber 注销）：A 工具消失，B 原样
     h.host.stopAgent(a.sessionId)
     expect(scopeA.registry.size).toBe(0)
-    expect([...scopeB.registry.keys()]).toEqual(['mini__read'])
+    expect([...scopeB.registry.keys()]).toEqual(['mini__read', 'mini__write'])
   })
 
   it('打开即激活：openUrl 返回时 agent 已在场，页面工具已挂、PAGE 块已 followup、标题已落盘', async () => {
@@ -466,7 +489,7 @@ describe('隔离是真的：同一宿主两个会话的 agent 作用域互不可
     const opened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
     const scope = h.host.scopes.get(opened.sessionId)
     if (scope === undefined) throw new Error('expected the page agent to activate at open')
-    expect([...scope.registry.keys()]).toEqual(['mini__read']) // 工具只对该 agent 可见
+    expect([...scope.registry.keys()]).toEqual(['mini__read', 'mini__write']) // 工具只对该 agent 可见
     expect(scope.followups.some((m) => m.startsWith('PAGE mini/task'))).toBe(true) // PAGE 块（pageKey 名）经 followup 进入会话
     // instanceTitle 以 user source 的 session/title 落盘：侧栏按它显示
     const titles = h.sessions.get(opened.sessionId)?.titles ?? []
@@ -484,7 +507,7 @@ describe('真机探针的可自动化收编（原 @veren/app-host-verify 六项�
     // 打开即激活：旧会话的 agent 已在场（工具挂进它的作用域），再重开同 URL
     const scopeA = h.host.scopes.get(first.sessionId)
     if (scopeA === undefined) throw new Error('expected the page agent to activate at open')
-    expect([...scopeA.registry.keys()]).toEqual(['mini__read'])
+    expect([...scopeA.registry.keys()]).toEqual(['mini__read', 'mini__write'])
     const second = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
     expect(second.sessionId).not.toBe(first.sessionId)
     // 索引（URL 键）指向新会话；旧行挪进废弃历史且状态 deprecated
@@ -530,8 +553,22 @@ describe('PAGE-DATA 同步（§3.10.2）走真实装配链：回填镜像携带 
     // The backfill must carry the live binding, or the page opens but never syncs.
     const store = makeBoardStore([{ id: 'i-1', title: '基线卡' }])
     const apps = h.ctx.apps
-    apps.register({ id: 'board' as AppId, name: 'board', description: '看板应用', entry: 'board' as PageKey }, h.ctx)
-    apps.pages('board' as AppId, h.ctx).register(boardPage(), { store })
+    // entry 是无参一级页（§3.10.5 规则 1/4）；带参的看板页是二级页
+    // / the entry is a parameterless home page (rules 1/4); the parameterized board page is a detail page
+    apps.register({ id: 'board' as AppId, name: 'board', description: '看板应用', entry: 'home' as PageKey }, h.ctx)
+    apps.tools('board' as AppId, h.ctx).define(defineTool({
+      name: 'pin', description: '置顶一张卡片', parameters: {},
+      output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+      execute: async () => ({ ok: true }),
+    }))
+    const boardPages = apps.pages('board' as AppId, h.ctx)
+    boardPages.register(defineAppPage({
+      name: 'home', url: '/apps/board/board', description: '看板首页',
+      instructions: '看板首页。',
+      map: [{ url: '/apps/board/board/:id', use: '查看某一块看板时打开' }],
+      tree: () => [],
+    }) as unknown as PageDefinition<never>)
+    boardPages.register(boardPage(), { store })
     wireAppHost(h.ctx)
     const opened = await h.pages.openUrl('/apps/board/board/1' as PageInstanceKey)
     const scope = h.host.scopes.get(opened.sessionId)
