@@ -14,7 +14,8 @@ import { PageRegistryService } from './service.ts'
 export { PAGE_REGISTRY_NAME, PageRegistryService } from './service.ts'
 export { APP_PAGES_DOMAIN_NAME, appPagesDomain, instanceTableView } from './storage.ts'
 export {
-  appIdOf, externalToolName, instanceTitleOf, openPageUrl, pageBlock, pumpDeliveries, taskBlock,
+  PAGE_LOAD_TIMEOUT_MS, appIdOf, externalToolName, firstScreenData, instanceTitleOf, openPageUrl,
+  pageBlock, pageKeyOf, pumpDeliveries, taskBlock, toolUsagePhrase,
 } from './runtime.ts'
 export type {
   DeliveryFace, MountedTool, OpenPageOptions, OpenPageResult, PageDataIdentity, PageDataPort,

@@ -10,6 +10,7 @@
  * Implementation (index storage, canonicalizer body) belongs to session C.
  */
 import { normalizePath } from './registry.ts'
+import type { PageDefinition } from './types.ts'
 
 /** 规范 URL：页面实例的主键（brand，零运行时开销）/ canonical url, the page-instance primary key */
 export type PageInstanceKey = string & { readonly __brand: 'PageInstanceKey' }
@@ -95,6 +96,30 @@ export const PageErrorCode = {
    * is refused past MAX_DELIVERY_HOPS — a structural brake, not caller discipline.
    */
   HopLimit: 'page/hop-limit',
+  /**
+   * 一级页（entry）结构不合规（§3.10.5 规则 1）：URL 带 :param 或 map 为空，
+   * 注册期拒绝。/ home page structurally invalid (§3.10.5 rule 1): the url
+   * carries a :param or the map is empty; registration is refused.
+   */
+  HomeInvalid: 'page/home-invalid',
+  /**
+   * 二级页结构不合规（§3.10.5 规则 3）：未声明 writes、未挂工具或说明为空，
+   * 注册期拒绝。/ detail page structurally invalid (§3.10.5 rule 3): no writes
+   * declaration, no tools, or empty instructions; registration is refused.
+   */
+  DetailInvalid: 'page/detail-invalid',
+  /**
+   * PAGE 块 params 与 URL 模式 :param 不一致（§3.10.5 规则 5），挂载期 fail loud。
+   * / the PAGE block params disagree with the url pattern's :params (rule 5);
+   * fails loud at mount.
+   */
+  ParamsMismatch: 'page/params-mismatch',
+  /**
+   * 首屏 load 失败（§3.10.3）：错误本身写进 PAGE 块 data 行，附重试指引。
+   * / the first-screen load failed (§3.10.3): the error lands in the PAGE
+   * block's data line with a retry hint.
+   */
+  LoadFailed: 'page/load-failed',
 } as const
 
 export type PageErrorCode = (typeof PageErrorCode)[keyof typeof PageErrorCode]
@@ -254,4 +279,63 @@ export function isAppUrlPattern(url: string): boolean {
   } catch {
     return false
   }
+}
+
+/** URL 模式里声明的全部 `:param` 名（按出现顺序）/ every `:param` name a url pattern declares, in order */
+export function patternParamsOf(url: string): readonly string[] {
+  return url.split('/').filter((segment) => segment.startsWith(':') && segment.length > 1).map((segment) => segment.slice(1))
+}
+
+/**
+ * §3.10.5 规则 5（挂载期，写 PAGE 块前）：实例参数必须覆盖 URL 模式声明的
+ * 每个 `:param`，逐字一致。查询参数允许作为额外键存在（模式不含查询串）。
+ * 解析器（matchPath）在构造上已保证这一点；本断言是挂载路径的廉价防线，
+ * 违反即 `page/params-mismatch` fail loud。
+ * §3.10.5 rule 5 (mount-time, before the PAGE block): the instance params must
+ * cover every `:param` the pattern declares, verbatim. Query params may appear
+ * as extra keys (patterns never carry a query). The resolver guarantees this by
+ * construction; this assertion is the mount path's cheap tripwire, failing loud
+ * with `page/params-mismatch`.
+ */
+export function assertParamsMatchPattern(pattern: string, params: Readonly<Record<string, string>>): void {
+  const missing = patternParamsOf(pattern).filter((name) => !(name in params))
+  if (missing.length > 0) {
+    throw new PageError(PageErrorCode.ParamsMismatch,
+      `params ${JSON.stringify(Object.keys(params))} do not cover the :params ${JSON.stringify(missing)} declared by ${JSON.stringify(pattern)}`)
+  }
+}
+
+/**
+ * 一级页能力地图覆盖查询（§3.10 验收面）：地图应列全本应用全部二级页的 URL
+ * 模板、每条都带"什么时候用"、且不指向本应用之外的页面。返回问题清单——
+ * 空数组即覆盖成立。生产校验只在注册期查"map 非空"（规则 1，兄弟页面可能
+ * 尚未注册）；"列全详情页"是应用的验收断言，由各应用测试用本函数钉住。
+ * The home map coverage query (the §3.10 acceptance face): the map should list
+ * every detail-page url pattern of the app, each with a "when to open it"
+ * phrase, and point nowhere outside the app. Returns the problem list — empty
+ * means covered. Production validation only demands a non-empty map at
+ * registration (rule 1; siblings may register later); full coverage is the
+ * app's acceptance assertion, pinned by each app's tests via this helper.
+ */
+export function homeMapIssues(home: PageDefinition<never>, pages: readonly PageDefinition<never>): readonly string[] {
+  const issues: string[] = []
+  if (patternParamsOf(home.url).length > 0) {
+    issues.push(`home page "${home.name}" url ${JSON.stringify(home.url)} carries :params; a home page must be parameter-free (§3.10.5 rule 1)`)
+  }
+  const map = home.map ?? []
+  if (map.length === 0) {
+    issues.push(`home page "${home.name}" has an empty map; it must list at least one reachable page (rule 1)`)
+  }
+  const knownUrls = new Set(pages.map((page) => page.url))
+  for (const [index, entry] of map.entries()) {
+    if (entry.use.trim().length === 0) issues.push(`map entry #${index} (${entry.url}) has an empty "use"; every entry needs a when-to-open phrase`)
+    if (!knownUrls.has(entry.url)) issues.push(`map entry #${index} url ${JSON.stringify(entry.url)} is not a registered page of this app`)
+  }
+  for (const page of pages) {
+    if (page.name === home.name) continue
+    if (patternParamsOf(page.url).length > 0 && !map.some((entry) => entry.url === page.url)) {
+      issues.push(`detail page "${page.name}" (${page.url}) is missing from the home map`)
+    }
+  }
+  return issues
 }

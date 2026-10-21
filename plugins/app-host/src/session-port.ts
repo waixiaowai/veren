@@ -270,6 +270,14 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
       releaseMounted(sessionId)
     },
     focus: (sessionId) => focus.focus(sessionId),
+    // 页面会话的预设 id（§3.10.3 PageLoadEnv.preset）：与会话头同源——页面工具
+    // 解析调用者（如 notebook callerOf）读的就是 header.agentPreset，两条路径
+    // 口径一致，load 看到的归属与工具调用看到的归属不会分叉。
+    // The page session's preset id (§3.10.3's PageLoadEnv.preset): sourced from
+    // the session header — the same field page tools read their caller from
+    // (e.g. notebook's callerOf), so what load sees as the owner never drifts
+    // from what a tool call sees.
+    presetOf: (sessionId) => ctx.sessions.get(sid(sessionId))?.header.agentPreset,
     async destroy(sessionId) {
       queued.delete(sessionId)
       releaseMounted(sessionId)

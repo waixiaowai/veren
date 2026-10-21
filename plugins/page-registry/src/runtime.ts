@@ -24,8 +24,8 @@
  *
  * @module @veren/page-registry/runtime
  */
-import { PageError, PageErrorCode, canonicalizePageUrl } from '@veren/prompt-page'
-import type { PageSession } from '@veren/prompt-page'
+import { PageError, PageErrorCode, assertParamsMatchPattern, canonicalizePageUrl } from '@veren/prompt-page'
+import type { PageJsonValue, PageLoadEnv, PageSession } from '@veren/prompt-page'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { PageInstanceIndex, PageInstanceKey, PageMatch } from '@veren/prompt-page'
 // 服务面类型只引真正的那一份：应用记录/任务契约来自各自的 declaration merging 出口，
@@ -135,6 +135,16 @@ export interface PageRuntimePorts {
   readonly leaseMinutes?: number
   /** 实时视图端口：缺席则页面保持静态（无 PAGE-DATA 同步）/ the live-view port; absent → pages stay static */
   readonly pageData?: PageDataPort
+  /**
+   * 页面会话的预设 id（§3.10.3 PageLoadEnv.preset 的来源）：按预设隔离数据的
+   * 应用（记事本）在首屏 load 里以此解析归属。缺席 → env 不带 preset，load
+   * 自行显式表达"归属未知"。
+   * The page session's preset id (the source of PageLoadEnv.preset, §3.10.3):
+   * preset-scoped apps (the notebook) resolve their owner in the first-screen
+   * load from it. Absent → env carries no preset and the load states "owner
+   * unknown" explicitly.
+   */
+  readonly presetOf?: (sessionId: string) => string | undefined
 }
 
 /** openUrl 的可选参数；createPageSession 另接受 `focus: false`（投递路径不切界面） */
@@ -190,15 +200,90 @@ function resolveMountedTools(
   })
 }
 
-/** PAGE 块：页面实例的开场白，写一次不再重写（§3.4.2）/ the one PAGE block */
-export function pageBlock(app: AppRecord, match: PageMatch<never>, params: Record<string, string>, tools: readonly MountedTool[]): string {
+/** 全局页面键：应用页为 `<appId>/<本地名>`，裸名路径（raw register）补前缀 / the global pageKey */
+export function pageKeyOf(app: AppRecord, pageName: string): string {
+  return pageName.includes('/') ? pageName : `${app.definition.id}/${pageName}`
+}
+
+/** 首屏 load 超时（§3.10.3：超时兜底按失败态处理，不静默悬挂）/ the first-screen load timeout (§3.10.3: timeout degrades to the error state) */
+export const PAGE_LOAD_TIMEOUT_MS = 10_000
+
+/** data 失败态的重试指引（§3.10.3：错误也是信息，必须带重试路径）/ the retry hint of the data error state (§3.10.3) */
+const LOAD_RETRY_HINT = '重开本页 URL 即可重取首屏数据'
+
+/**
+ * 工具用途短语（§3.10.2 的 tools 行）：取 description 的第一句——中英文都以
+ * 句号为界，超长截断。"只有名字没有什么时候用"正是本轮要消灭的形状。
+ * The tool usage phrase (§3.10.2's tools line): the first sentence of the
+ * description, capped. "Names without when-to-use" is exactly what this round
+ * removes.
+ */
+export function toolUsagePhrase(description: string): string {
+  const sentence = description.split('。')[0] ?? description
+  const fallback = sentence.length >= 4 ? sentence : (description.split('. ')[0] ?? description)
+  return fallback.length > 60 ? `${fallback.slice(0, 59)}…` : fallback
+}
+
+/**
+ * PAGE 块（§3.10.2 的规范形状）：页面键 + 规范 URL、params、data（首屏快照，
+ * 永远在场——loading/error/数据/null，禁止静默空白）、能力地图（非空时）、
+ * 带"什么时候用"的工具行、应用与页面说明。写一次不再重写（§3.4.2）。
+ * The PAGE block (the §3.10.2 canonical shape): pageKey + canonical url,
+ * params, data (the first-screen snapshot, always present — loading/error/
+ * data/null, never a silent blank), the capability map when non-empty, the
+ * tools line with when-to-use phrases, and the app/page notes. Written once.
+ */
+export function pageBlock(
+  app: AppRecord,
+  match: PageMatch<never>,
+  canonicalUrl: string,
+  params: Record<string, string>,
+  tools: readonly MountedTool[],
+  data: PageJsonValue,
+): string {
   const lines = [
-    `PAGE ${match.page.name} ${JSON.stringify(params)}`,
-    `本页工具：${tools.map((tool) => tool.name).join('、') || '（无）'}`,
+    `PAGE ${pageKeyOf(app, match.page.name)} ${canonicalUrl}`,
+    `params: ${JSON.stringify(params)}`,
+    `data: ${JSON.stringify(data)}`,
   ]
+  if ((match.page.map ?? []).length > 0) lines.push(`map: ${JSON.stringify(match.page.map)}`)
+  lines.push(tools.length === 0
+    ? 'tools: （无）'
+    : `tools: ${tools.map((tool) => `${tool.name}（${toolUsagePhrase(tool.description)}）`).join('、')}`)
   if (app.definition.instructions !== undefined) lines.push(`应用说明：${app.definition.instructions}`)
   if (match.page.instructions !== undefined) lines.push(`说明：${match.page.instructions}`)
   return lines.join('\n')
+}
+
+/**
+ * 首屏数据（§3.10.3）：load 是 PAGE 块 data 的唯一合法来源。未声明 load →
+ * null（如实表达"本页无可预载的数据"，仍不许空白）；抛错/超时 → 失败态
+ * （page/load-failed + 重试指引）——错误也是信息。
+ * The first-screen data (§3.10.3): load is the only legal source of the PAGE
+ * block's data line. No loader → null (an explicit "nothing to preload", still
+ * not a blank); a throw or timeout → the error state (page/load-failed with a
+ * retry hint) — errors are information too.
+ */
+export async function firstScreenData(page: PageMatch<never>['page'], params: Record<string, string>, env: PageLoadEnv): Promise<PageJsonValue> {
+  const load = page.load
+  if (load === undefined) return null
+  try {
+    return await new Promise<PageJsonValue>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`first-screen load timed out after ${PAGE_LOAD_TIMEOUT_MS}ms`)), PAGE_LOAD_TIMEOUT_MS)
+      load(params, env).then(
+        (value) => { clearTimeout(timer); resolve(value) },
+        (error: unknown) => { clearTimeout(timer); reject(error) },
+      )
+    })
+  } catch (error: unknown) {
+    return {
+      error: {
+        code: PageErrorCode.LoadFailed,
+        message: error instanceof Error ? error.message : String(error),
+      },
+      retry: LOAD_RETRY_HINT,
+    }
+  }
 }
 
 /** TASK 块：任务成功接取后追加一次（§5.4）/ the TASK block, appended once */
@@ -336,6 +421,9 @@ export async function createPageSession(
   options: OpenPageOptions,
 ): Promise<OpenPageResult> {
   const params = { ...match.params }
+  // §3.10.5 规则 5（挂载期）：params 必须覆盖 URL 模式的每个 :param，写 PAGE 块前 fail loud。
+  // §3.10.5 rule 5 (mount time): params must cover every :param of the pattern, failing loud before the PAGE block.
+  assertParamsMatchPattern(match.page.url, params)
   const sessionId = ports.sessions.mintId()
   try {
     await index.reserve(key, sessionId, {
@@ -344,7 +432,7 @@ export async function createPageSession(
       // registerAppPage）；裸名路径（raw register）保留旧的前缀拼接。
       // app pages already carry the pageKey as their name (registerAppPage);
       // the raw-register path keeps the legacy prefixing.
-      page: match.page.name.includes('/') ? match.page.name : `${app.definition.id}/${match.page.name}`,
+      page: pageKeyOf(app, match.page.name),
       instanceTitle: instanceTitleOf(match, params),
       params,
       appVersion: app.version,
@@ -365,7 +453,14 @@ export async function createPageSession(
   try {
     tools = resolveMountedTools(app, match, ports.toolsOf)
     await ports.sessions.mountTools(sessionId, tools)
-    await ports.sessions.appendUserMessage(sessionId, pageBlock(app, match, params, tools), 'app/page')
+    // 首屏数据（§3.10.3）在写 PAGE 块前取齐：两阶段 commit 允许先落 reserved，
+    // load 完成（或失败态定形）才翻 live——首屏数据建会话时就进上下文。
+    // The first-screen data (§3.10.3) settles before the PAGE block: the
+    // two-phase commit keeps the row reserved until load resolves (or its
+    // error state forms) — the first screen enters the context at creation.
+    const env: PageLoadEnv = ports.presetOf === undefined ? {} : { preset: ports.presetOf(sessionId) }
+    const data = await firstScreenData(match.page, params, env)
+    await ports.sessions.appendUserMessage(sessionId, pageBlock(app, match, key, params, tools, data), 'app/page')
     // 实时视图在 commit 前绑定（§3.10.3）：挂载失败走下方既有回滚（fail loud），
     // 不产生"会话活着但视图死着"的半状态；commit 后该视图归端口所有。
     // The live view binds before commit (§3.10.3): a mount failure rides the
@@ -373,7 +468,7 @@ export async function createPageSession(
     // a dead view; after commit the port owns the view.
     if (match.live !== undefined && ports.pageData !== undefined) {
       ports.pageData.bind(sessionId, match.live.mount(params), {
-        pageKey: match.page.name.includes('/') ? match.page.name : `${app.definition.id}/${match.page.name}`,
+        pageKey: pageKeyOf(app, match.page.name),
         url: key,
       })
     }

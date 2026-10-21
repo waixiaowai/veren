@@ -152,11 +152,14 @@ export function wireAppHost(ctx: Context, options: WireAppHostOptions = {}): () 
 
     // 2c) 页面工具完备性警告（§3.9，开发期轻量核对，只提醒不做门禁）：页面声明
     //     了 writes: true（本页职责需要写能力）却一个工具都没挂 → 打一条警告，
-    //     五秒钟看懂——"页面开着、活干不了"。
+    //     五秒钟看懂——"页面开着、活干不了"。§3.10.5 规则 2：一级页不在此列——
+    //     一级页是地图，只读合法，不因缺写工具报警（它们也不声明 writes: true）。
     // 2c) Page tool-coverage warning (§3.9, dev-time lightweight self-check,
     //     never a gate): a page declaring `writes: true` (its duty needs write
     //     capability) yet mounting no tools logs one warning — readable in five
-    //     seconds: the page is open but cannot do its job.
+    //     seconds: the page is open but cannot do its job. §3.10.5 rule 2: home
+    //     pages are exempt — a home page is a map, read-only is legal, and it is
+    //     never flagged for lacking write tools (it declares no writes: true).
     for (const record of apps.catalog()) {
       for (const page of apps.listPages(record.definition.id)) {
         const definition = pageRegistry.get(`${record.definition.id}/${page.name}`)

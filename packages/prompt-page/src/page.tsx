@@ -10,8 +10,8 @@
 import { createElement } from '@veren/prompt-core'
 import type { ElementInput, Entity, PromptElement } from '@veren/prompt-core'
 import type { PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
-import { assertAppUrlPattern } from './contract.ts'
-import type { PageDefinition, PageEventMap, PageIO, PageParams, PagePresetSpec } from './types.ts'
+import { PageError, PageErrorCode, assertAppUrlPattern, patternParamsOf } from './contract.ts'
+import type { PageDefinition, PageEventMap, PageIO, PageLoadEnv, PageJsonValue, PageMapEntry, PageParams, PagePresetSpec } from './types.ts'
 
 export type { PageEventMap, PageIO, PagePresetSpec } from './types.ts'
 
@@ -27,12 +27,14 @@ export function definePage<S>(definition: {
   tools?: readonly string[]
   writes?: boolean
   instructions?: string
+  map?: readonly PageMapEntry[]
+  load?: (params: PageParams, env: PageLoadEnv) => Promise<PageJsonValue>
   instanceTitle?: (params: PageParams) => string
   tree: (props: PageParams, state: S) => ElementInput
   onLoad?: (params: PageParams) => void
   onComplete?: (params: PageParams) => boolean
 }): PageDefinition<S> {
-  const { name, url, description, events, tools, writes, instructions, instanceTitle, tree, onLoad, onComplete } = definition
+  const { name, url, description, events, tools, writes, instructions, map, load, instanceTitle, tree, onLoad, onComplete } = definition
   if (name.length === 0 || name.trim() !== name) {
     throw new Error(`[definePage] invalid page name: ${JSON.stringify(name)}`)
   }
@@ -43,11 +45,14 @@ export function definePage<S>(definition: {
   if (typeof tree !== 'function') {
     throw new Error(`[definePage] page "${name}" tree must be a function`)
   }
+  validateMapEntries(name, map)
   return {
     name, url, description, tree,
     ...(tools === undefined ? {} : { tools }),
     ...(writes === undefined ? {} : { writes }),
     ...(instructions === undefined ? {} : { instructions }),
+    ...(map === undefined ? {} : { map }),
+    ...(load === undefined ? {} : { load }),
     ...(instanceTitle === undefined ? {} : { instanceTitle }),
     ...(events === undefined ? {} : { events }),
     ...(onLoad === undefined ? {} : { onLoad }),
@@ -57,17 +62,50 @@ export function definePage<S>(definition: {
 
 /**
  * 应用作用域的页面定义：在 definePage 之上强制 `/apps/<appId>/...` URL 形态，
- * 并补齐契约缺省：tools 缺省 []（§3.1、§6.1）。
+ * 并补齐契约缺省：tools 缺省 []（§3.1、§6.1）；二级页结构校验（§3.10.5 规则 3）。
  * `pageRevision` 已删除（G11）：打开一律新建，无升级分叉。
  * 应用注册器（app-registry）的注册路径应使用本函数或等效校验。
- * App-scoped definePage: enforces the /apps url shape and contract defaults.
+ * App-scoped definePage: enforces the /apps url shape, contract defaults, and
+ * the detail-page structure rules (§3.10.5 rule 3).
  */
 export function defineAppPage<S>(definition: Parameters<typeof definePage<S>>[0]): PageDefinition<S> {
   assertAppUrlPattern(definition.name, definition.url)
   const page = definePage(definition)
+  const isDetail = patternParamsOf(page.url).length > 0
+  if (isDetail) {
+    // §3.10.5 规则 3：二级页必须 declares 写能力 + 至少挂一个工具 + 说明非空。
+    // 写工具的判定 = 页面 writes: true 声明（文档明确其等价性）；目录在位性由
+    // app-registry 的注册路径另行校验。一级页不受此约束（规则 2：只读合法）。
+    // Rule 3: a detail page must declare write capability, mount at least one
+    // tool, and carry non-empty instructions. "Has a write tool" = the page's
+    // writes: true declaration (the doc's stated equivalence); catalog presence
+    // is validated separately by the app-registry path. Home pages are exempt
+    // (rule 2: read-only is legal there).
+    if (page.writes !== true) {
+      throw new PageError(PageErrorCode.DetailInvalid,
+        `detail page "${page.name}" (${page.url}) must declare writes: true — a page bound to one record exists to act on it`)
+    }
+    if (page.tools.length === 0) {
+      throw new PageError(PageErrorCode.DetailInvalid,
+        `detail page "${page.name}" (${page.url}) must mount at least one tool to fulfill its duty`)
+    }
+    if (page.instructions === undefined || page.instructions.trim().length === 0) {
+      throw new PageError(PageErrorCode.DetailInvalid,
+        `detail page "${page.name}" (${page.url}) must carry non-empty instructions ("this page does exactly one thing")`)
+    }
+  }
   return {
     ...page,
     tools: page.tools ?? [],
+  }
+}
+
+/** 能力地图条目形状校验：url 与 use 必须是非空字符串 / map entries need non-empty url and use */
+function validateMapEntries(name: string, map: readonly PageMapEntry[] | undefined): void {
+  for (const [index, entry] of (map ?? []).entries()) {
+    if (typeof entry.url !== 'string' || entry.url.trim().length === 0 || typeof entry.use !== 'string' || entry.use.trim().length === 0) {
+      throw new Error(`[definePage] page "${name}" map entry #${index} needs a non-empty url and a non-empty use ("when to open it")`)
+    }
   }
 }
 

@@ -79,6 +79,20 @@ export const homePage: PageDefinition<Sub2ApiState> = defineAppPage<Sub2ApiState
     + '创建优惠码→promo_codes create；开通订阅→subscriptions assign；新建渠道→channels create；调整倍率→groups set_rates。'
     + '所有写入前先向用户确认。',
   instanceTitle: () => 'Sub2API 运营指挥台',
+  // §3.10.5 规则 1：一级页必须携带能力地图（本应用无 :param 详情页，
+  // 地图列的是各工具页与"什么时候去"）。
+  // §3.10.5 rule 1: the home page must carry a capability map (this app has no
+  // :param detail pages; the map lists its tool pages and when to open them).
+  map: [
+    { url: `${URL_PREFIX}/channels`, use: '渠道管理：新建/修改/下架渠道时打开' },
+    { url: `${URL_PREFIX}/groups`, use: '分组与倍率：调整分组倍率时打开' },
+    { url: `${URL_PREFIX}/users`, use: '用户与充值：给用户充值或封禁时打开' },
+    { url: `${URL_PREFIX}/subscriptions`, use: '订阅：开通/分配订阅时打开' },
+    { url: `${URL_PREFIX}/finance`, use: '订单与套餐：查订单、改套餐时打开' },
+    { url: `${URL_PREFIX}/codes`, use: '兑换码与优惠码：生成码时打开' },
+    { url: `${URL_PREFIX}/accounts`, use: '账号运维：处理异常账号时打开' },
+    { url: `${URL_PREFIX}/usage`, use: '用量分析：看消耗趋势时打开' },
+  ],
   tree: (_params, state) => {
     const stats = state.home?.stats ?? {}
     const payment = state.home?.payment ?? {}

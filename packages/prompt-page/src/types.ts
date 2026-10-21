@@ -39,6 +39,48 @@ export interface PagePresetSpec {
 }
 
 /**
+ * 页面侧的 JSON 值面（§3.10.2 的 `data` / `map` 序列化契约）：PAGE 块里出现的一切
+ * 结构化数据都必须能落进这个闭集。只有 fresh 字面量与 type 别名能直接赋值；
+ * 接口类型请在装配处展开成字面量行（保持 JSON 可序列化，不为绕类型造 as）。
+ * The page-side JSON value face (the serialization contract of §3.10.2's
+ * `data` / `map`): every structured value a PAGE block carries must fit this
+ * closed set. Only fresh literals and type aliases assign directly; interface
+ * instances are projected into literal rows at the assembly site (JSON-
+ * serializable, no `as` escapes).
+ */
+export type PageJsonValue = null | boolean | number | string | PageJsonValue[] | { [key: string]: PageJsonValue | undefined }
+
+/**
+ * 能力地图条目（§3.10.1）：一级页 PAGE 块 `map` 行的元素——"可去哪、什么时候去"。
+ * A capability-map entry (§3.10.1): one row of the home PAGE block's `map` —
+ * "where to go next, and when".
+ */
+export interface PageMapEntry {
+  /** 可去页面的 URL 模板（含 `:param`）/ the target page's url pattern (with `:param`s) */
+  readonly url: string
+  /** 什么时候该去：一句话，模型据此决定下一步 / when to open it: one phrase the model decides on */
+  readonly use: string
+  /** 模板参数说明：键 = `:param` 名 / the template's parameter notes, keyed by `:param` name */
+  readonly params?: Readonly<Record<string, string>>
+}
+
+/**
+ * 首屏载入环境（§3.10.3）：宿主在建会话跑 `load` 时提供的页面会话事实。
+ * 按预设隔离数据的应用（如记事本）以 `preset` 解析归属——与页面工具取调用者的
+ * 口径一致（会话头 agentPreset）。缺省 = 宿主未暴露该事实，load 应显式表达
+ * "归属未知"，不编造数据。
+ * The first-screen load environment (§3.10.3): facts about the page session
+ * the host hands `load` at session creation. Preset-scoped apps (the notebook)
+ * resolve their owner from `preset` — the same face the page tools read the
+ * caller from (the session header's agentPreset). Absent = the host did not
+ * expose it; `load` must then say "owner unknown" explicitly, never fake data.
+ */
+export interface PageLoadEnv {
+  /** 页面会话的预设 id / the page session's preset id */
+  readonly preset?: string
+}
+
+/**
  * 事件处理器的 IO 面：改上下文（append）/ 导航（navigate）。
  * 事件系统本身用宿主自带的 cordis 事件（ctx.emit / ctx.on，declaration merging），
  * 本包不另造总线；这里只定义页面声明处理器时拿到的 IO 形状。
@@ -77,13 +119,36 @@ export interface PageDefinition<S> {
   /**
    * 本页职责需要写能力（开发期核对声明，§3.9）：声明 true 而未挂任何工具时，
    * 装配期打一条警告——"页面开着、活干不了"。只提醒，不做门禁。
+   * 二级页（URL 带 `:param`）必须声明 true 且至少挂一个工具（§3.10.5 规则 3）；
+   * 一级页不因缺写工具报警（规则 2：一级页是地图，只读合法）。
    * This page's duty needs write capability (dev-time self-check, §3.9): a
    * `true` with no mounted tools logs one assembly-time warning — a page that
-   * is open but cannot do its job. A reminder only, never a gate.
+   * is open but cannot do its job. A reminder only, never a gate. Detail pages
+   * (a `:param` in the url) must declare true and mount at least one tool
+   * (§3.10.5 rule 3); home pages are never flagged for lacking write tools
+   * (rule 2: a home page is a map, read-only is legal).
    */
   readonly writes?: boolean
   /** 本页给模型的说明；随 PAGE 块附上，不是系统提示词 / page note, not a system prompt */
   readonly instructions?: string
+  /**
+   * 能力地图（§3.10.1）：本应用可去的页面、各自的 URL 模板与"什么时候去"。
+   * 一级页（entry）必须非空（§3.10.5 规则 1）；二级页可省。
+   * The capability map (§3.10.1): where this app can go, each target's url
+   * pattern and when to open it. Required non-empty on the home page (rule 1);
+   * optional on detail pages.
+   */
+  readonly map?: readonly PageMapEntry[]
+  /**
+   * 首屏数据（§3.10.3）：建会话时跑一次，结果写进 PAGE 块的 `data` 行——
+   * PAGE 块 data 的唯一合法来源。参数来自 URL 解析；env 带页面会话事实。
+   * 抛错按失败态处理（data 写 page/load-failed），不允许静默空白。
+   * The first-screen data (§3.10.3): runs once at session creation and lands
+   * in the PAGE block's `data` line — the only legal source of that field.
+   * Params come from the url; env carries page-session facts. A throw becomes
+   * the error state (data renders page/load-failed) — never a silent blank.
+   */
+  readonly load?: (params: PageParams, env: PageLoadEnv) => Promise<PageJsonValue>
   /** 实例标题函数；缺省用 description 兜底（§3.6.1）/ instance title, falls back to description */
   readonly instanceTitle?: (params: PageParams) => string
   /** 事件监听：键名 = cordis 事件名（ctx.emit 触发）/ listeners keyed by cordis event name */

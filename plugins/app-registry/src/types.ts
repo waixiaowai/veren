@@ -152,6 +152,13 @@ export const AppErrorCode = {
   PresetRestricted: 'app/preset-restricted',
   /** 入口页面缺失 / entry page missing */
   EntryMissing: 'app/entry-missing',
+  /**
+   * 入口指向了带 :param 的页面（§3.10.5 规则 4）：entry 必须指向一级页；
+   * 应用标 broken，不抛到宿主启动。
+   * / the entry points at a :param page (§3.10.5 rule 4): entry must be a home
+   * page; the app turns broken instead of failing host startup.
+   */
+  EntryNotHome: 'app/entry-not-home',
   /** 工具本地名重复 / duplicate tool local name */
   ToolDuplicate: 'app/tool-duplicate',
   /** 工具前缀冲突 / tool prefix conflict */

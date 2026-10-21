@@ -31,7 +31,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { AppId, ApplicationDefinition, PageKey } from '@veren/app-registry'
 import type { ForumToolsPort } from '@veren/forum'
 import { createForumAppTools } from './app-tools.ts'
-import { catalogPage, postPage } from './pages.tsx'
+import { createCatalogPage, createPostPage } from './pages.tsx'
 
 /** The app id; the URL prefix `/apps/forum` and the `forum__` tool prefix follow it. */
 export const FORUM_APP_ID = 'forum' as AppId
@@ -89,9 +89,12 @@ export function registerForumApp(ctx: Context, port: () => ForumToolsPort): void
         disposers.push(tools.define(tool))
       }
       // 3) Pages: the single entry — app-registry mirrors into the page registry.
-      //    页面：单入口——app-registry 内部镜像进页面注册表。
+      //    Pages are factories closing over this assembly's port, so each
+      //    page's `load` reads the same record set its page tools act on.
+      //    页面：单入口——app-registry 内部镜像进页面注册表。页面是工厂，闭包
+      //    引用本次装配的端口，各页 load 与页面工具读的是同一份记录集合。
       const pages = apps.pages(FORUM_APP_ID, ctx)
-      for (const page of [catalogPage, postPage]) {
+      for (const page of [createCatalogPage(port), createPostPage(port)]) {
         disposers.push(pages.register(page))
       }
     } catch (error: unknown) {
