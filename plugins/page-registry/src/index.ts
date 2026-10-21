@@ -17,8 +17,8 @@ export {
   appIdOf, externalToolName, instanceTitleOf, openPageUrl, pageBlock, pumpDeliveries, taskBlock,
 } from './runtime.ts'
 export type {
-  DeliveryFace, MountedTool, OpenPageOptions, OpenPageResult, PageRuntimePorts, PageSessionPort,
-  ToolsFace,
+  DeliveryFace, MountedTool, OpenPageOptions, OpenPageResult, PageDataIdentity, PageDataPort,
+  PageRuntimePorts, PageSessionPort, ToolsFace,
 } from './runtime.ts'
 export { createAppOpenTool, createPageSendTool } from './tools.ts'
 export type { AppOpenPort, PageSendPort } from './tools.ts'

@@ -20,7 +20,7 @@ function grow(): { store: TaskStore; items: TaskItem[] } {
   store.splitTask('t-1', '子 2')
   store.takeTask('t-3', 'model')
   store.splitTask('t-3', '孙 1')
-  return { store, items: store.getSnapshot() }
+  return { store, items: store.getState() }
 }
 
 describe('整树进度（§4.7.8 第 1 条）', () => {
@@ -72,6 +72,6 @@ describe('split（§4.7.6）', () => {
     store.takeTask(first.item!.id, 'model')
     const underChild = store.splitTask(first.item!.id, '孙')
     expect(underChild.item!.parentId).toBe(first.item!.id)
-    expect((store.getSnapshot().find((item) => item.id === 't-1'))?.parentId).toBeUndefined()
+    expect((store.getState().find((item) => item.id === 't-1'))?.parentId).toBeUndefined()
   })
 })

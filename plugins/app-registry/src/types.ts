@@ -8,7 +8,7 @@
  * and the other sessions; field semantics follow the design doc §2.3/§3.1/§6.2.
  */
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type { PageDefinition } from '@veren/prompt-page'
+import type { PageDefinition, PageLiveBinding } from '@veren/prompt-page'
 
 /** 应用 id：安装后稳定，进入页面 URL、存储域、任务 kind、工具前缀 / stable app identity */
 export type AppId = string & { readonly __brand: 'AppId' }
@@ -73,10 +73,30 @@ export interface AppToolEntry {
   readonly requires?: readonly AppCapability[]
 }
 
+/**
+ * 一条页面登记：定义 + 可选实时数据绑定（§3.10.3 的权威 store）。
+ * One page registration: the definition plus an optional live data binding
+ * (the §3.10.3 authoritative store).
+ */
+export interface PageRegistration {
+  readonly page: PageDefinition<never>
+  readonly live?: PageLiveBinding
+}
+
 /** 页面注册面：只有应用自己能拿到 / app-scoped page registrar */
 export interface AppPageRegistrar {
-  /** 注册页面：URL 由宿主拼上 `/apps/<appId>` 前缀；返回 disposer（HMR/卸载安全） */
-  register(page: PageDefinition<never>): () => void
+  /**
+   * 注册页面：URL 由宿主拼上 `/apps/<appId>` 前缀；返回 disposer（HMR/卸载安全）。
+   * `live.store` 让本页成为"活的视图"（§3.10.3）：宿主在页面会话建立时按参数
+   * 挂载订阅该 store 的视图，store 变化经 PAGE-DATA 块同步进上下文。状态类型
+   * S 在这里（注册处）被消费；registry/运行时只见擦除后的绑定闭包。
+   * Register a page; the url gains the `/apps/<appId>` prefix; returns a
+   * disposer (HMR/unload safe). `live.store` makes the page a live view
+   * (§3.10.3): the host mounts a store-subscribed view per page session, and
+   * store changes reach the context as PAGE-DATA blocks. The state type S is
+   * consumed here; the registry and the runtime see only the erased closure.
+   */
+  register<S>(page: PageDefinition<S>, live?: { readonly store: import('@veren/prompt-core').ExternalStore<S> }): () => void
 }
 
 /**
@@ -86,8 +106,8 @@ export interface AppPageRegistrar {
  * mirrors automatically so app authors register once.
  */
 export interface PageMirrorFace {
-  /** 镜像一条页面注册；失败抛错（内部登记会回滚）/ mirror one page; throw to roll back */
-  registerAppPage(appId: AppId, page: PageDefinition<never>): () => void
+  /** 镜像一条页面注册（含可选实时绑定）；失败抛错（内部登记会回滚）/ mirror one page (live binding included); throw to roll back */
+  registerAppPage(appId: AppId, page: PageDefinition<never>, live?: PageLiveBinding): () => void
   /** 应用卸载/禁用：摘掉该应用所有活会话的页面工具（§7.2/§7.4）/ strip page tools on teardown */
   releaseApp?(appId: AppId): Promise<void> | void
 }

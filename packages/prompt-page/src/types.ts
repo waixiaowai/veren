@@ -11,6 +11,20 @@ import type { AssembledSync, MessageHost } from '@veren/prompt-host-messages'
 export type PageParams = Record<string, string>
 
 /**
+ * 页面的实时数据绑定（§3.10.3 的最小闭环面）：注册页面时由应用一并声明权威
+ * store，这里把它封成"按参数挂载一个视图会话"的闭包——挂载点（页面运行时）
+ * 不接触 store 类型，状态类型在注册处（S 在场的地方）就被消费掉。
+ * The page's live data binding (the minimal §3.10.3 loop): the app declares the
+ * authoritative store at page registration; it is sealed here as a
+ * mount-per-params closure so the mounting site (the page runtime) never sees
+ * the store type — the state type is consumed where S is still in scope.
+ */
+export interface PageLiveBinding {
+  /** 为一个页面会话挂载实时视图（已订阅 store）/ mount one live view (store-subscribed) */
+  mount(params: PageParams): PageSession<never>
+}
+
+/**
  * @deprecated 页面不再绑定预设（页面 = 用户自选会话上的动态层）。
  * 本类型仅为 page-sync-bench 等迁移期消费方的 `buildPagePreset` 保留；
  * 新代码禁止使用（应用说明走 `ApplicationDefinition.instructions`，

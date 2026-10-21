@@ -32,6 +32,14 @@ import { createBootstrapTools } from '@veren/app-registry'
 import { createAppOpenTool, createPageSendTool } from '@veren/page-registry'
 import { pageToolWarning } from '@veren/prompt-page'
 import { createRealSessionPort } from './session-port.ts'
+import { createPageDataSync, DEFAULT_PAGE_DATA_CAPS } from './page-sync.ts'
+import type { PageDataCaps } from './page-sync.ts'
+
+/** 装配级可调项（宿主 Config 透传）/ assembly-level tunables (host Config passthrough) */
+export interface WireAppHostOptions {
+  /** PAGE-DATA 截断上限；缺省 50 条 / 4KB / the PAGE-DATA caps; defaults: 50 items / 4KB */
+  readonly pageData?: PageDataCaps
+}
 
 /** 显式解析三个服务与工具注册表；缺任何一个 fail loud（misconfiguration fails loud）。
  *  服务经属性代理解析（本插件声明了 inject，属主合法）；返回面直接复用
@@ -55,8 +63,19 @@ export function requireFaces(ctx: Context): Pick<Context, 'apps' | 'pageRegistry
  * On any step failure the executed steps are rolled back in reverse before
  * the error rethrows — no half-wired state is ever left behind.
  */
-export function wireAppHost(ctx: Context): () => void {
+export function wireAppHost(ctx: Context, options: WireAppHostOptions = {}): () => void {
   const { apps, pageRegistry, taskCenter, tools } = requireFaces(ctx)
+  // PAGE-DATA 同步枢纽（§3.10.3）：会话提交后接实时视图、agent 激活时挂
+  // pre-step 注入器；截断上限来自宿主 Config。枢纽是纯闭包，不注册任何宿主
+  // 级资源——卸载走 disposer 里的 dispose()（退订全部视图）。
+  // The PAGE-DATA sync hub (§3.10.3): receives live views after session commit
+  // and mounts the pre-step injector at agent activation; caps come from host
+  // Config. The hub is a pure closure registering nothing host-level — unload
+  // goes through dispose() in the disposer (unsubscribes every view).
+  const pageSync = createPageDataSync({
+    caps: options.pageData ?? DEFAULT_PAGE_DATA_CAPS,
+    warn: (message) => ctx.logger.warn(message),
+  })
 
   // 宿主引导工具（app_list / app_pages，归 app-registry）与 app_open（归
   // page-registry）的工具本体在这里构造——**注册**发生在本装配的最后一步，
@@ -95,7 +114,7 @@ export function wireAppHost(ctx: Context): () => void {
     // 2) 页面镜像面：注册单入口（apps.pages(id).register 内部镜像进 URL 索引），
     //    卸载时先摘该应用所有活会话的页面工具
     apps.setPageMirror({
-      registerAppPage: (appId, page) => pageRegistry.registerAppPage(appId, page as never),
+      registerAppPage: (appId, page, live) => pageRegistry.registerAppPage(appId, page as never, live),
       releaseApp: (appId) => pageRegistry.releaseApp(appId),
     })
 
@@ -117,14 +136,17 @@ export function wireAppHost(ctx: Context): () => void {
     //     after the assembly ran, its backfilled row lingers until the assembly
     //     unloads — openUrl already rejects via app/not-found by then.
     for (const record of apps.catalog()) {
-      for (const page of apps.listPages(record.definition.id)) {
+      // 走 listPageEntries（含实时绑定）：先注册、后装配的页面不丢 live 绑定
+      // / listPageEntries (live bindings included): pages registered before the
+      // assembly keep their live bindings
+      for (const entry of apps.listPageEntries(record.definition.id)) {
         // 幂等键是 pageKey（<appId>/<本地名>）：本地名跨应用重名（两个应用都有
         // "list"），按裸名判存在会把别的应用的页面误当成自己的。
         // The idempotency key is the pageKey (<appId>/<localName>): local names
         // collide across apps (every app has a "list"), so a bare-name check
         // would mistake another app's page for this one.
-        if (pageRegistry.get(`${record.definition.id}/${page.name}`) !== undefined) continue
-        disposers.push(pageRegistry.registerAppPage(record.definition.id, page))
+        if (pageRegistry.get(`${record.definition.id}/${entry.page.name}`) !== undefined) continue
+        disposers.push(pageRegistry.registerAppPage(record.definition.id, entry.page as never, entry.live))
       }
     }
 
@@ -162,7 +184,9 @@ export function wireAppHost(ctx: Context): () => void {
     //    plugin owns apps/taskCenter via inject and hands their capability
     //    faces through public interfaces to pageRegistry.
     pageRegistry.bindPorts({
-      sessions: createRealSessionPort(ctx),
+      // focus 走缺省（eventFocus）；PAGE-DATA 枢纽作为注入面纯参数传入
+      // / focus keeps its default (eventFocus); the PAGE-DATA hub travels as the injection-face parameter
+      sessions: createRealSessionPort(ctx, undefined, pageSync),
       apps,
       // 目录值就是 DSH ToolDefinition 本体；单应用目录异常不炸整面（回空目录）
       toolsOf: (appId) => {
@@ -185,6 +209,9 @@ export function wireAppHost(ctx: Context): () => void {
           await taskCenter.release(task.id, `page session ${sessionId} deprecated`).catch(() => undefined)
         }
       },
+      // 实时视图端口（§3.10.3）：会话提交后 bind、废弃/回滚时 unbind
+      // / the live-view port (§3.10.3): bind after commit, unbind on deprecation/rollback
+      pageData: pageSync.port,
     })
   } catch (error: unknown) {
     // 逆序回滚已执行步骤（G13 规则 3）：工具行最先摘（注册最晚），然后镜像
@@ -197,10 +224,16 @@ export function wireAppHost(ctx: Context): () => void {
     undoRegistrations()
     try { apps.setPageMirror(undefined) } catch (e: unknown) { ctx.logger.error(`app-host: rollback setPageMirror failed: ${String(e)}`) }
     try { taskCenter.setAppResolver(undefined) } catch (e: unknown) { ctx.logger.error(`app-host: rollback setAppResolver failed: ${String(e)}`) }
+    // 已接入的枢纽一并收掉（可能已有视图绑定）/ the hub (possibly holding views) unwinds with the rollback
+    pageSync.dispose()
     throw error
   }
 
   return () => {
+    // 实时视图最先退订（视图引用应用侧 store，先于镜像面消失）
+    // / live views unsubscribe first (they reference app-side stores, which can
+    // disappear before the mirror face does)
+    pageSync.dispose()
     undoRegistrations()
     apps.setPageMirror(undefined)
     taskCenter.setAppResolver(undefined)
