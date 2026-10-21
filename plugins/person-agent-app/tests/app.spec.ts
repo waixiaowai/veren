@@ -12,6 +12,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
 import AppRegistryPlugin, { AppRegistryService } from '@veren/app-registry'
 import PageRegistryPlugin, { PageRegistryService } from '@veren/page-registry'
+import { homeMapIssues } from '@veren/prompt-page'
 import { apply, inject, name } from '../src/index.ts'
 import { APP_DEFINITION, APP_ID } from '../src/app.ts'
 import { buildOverviewSnapshot } from '../src/views.ts'
@@ -148,6 +149,49 @@ describe('生命周期', () => {
     expect(pageRegistry.resolve('/apps/person-agent/overview')).toBeNull()
     expect(pageRegistry.resolve('/apps/person-agent/workspaces')).toBeNull()
     expect(() => apps.listTools(APP_ID)).toThrow()
+  })
+})
+
+describe('§3.10 页面信息组织：首页必须把该给的信息给全', () => {
+  it('首页（entry）零结构问题：map 覆盖全部详情页、每条带"什么时候用"，且自带 load', async () => {
+    const { apps, fiber } = await install()
+    disposers.push(() => fiber.dispose())
+    const pages = apps.listPages(APP_ID)
+    const entryKey = APP_DEFINITION.entry
+    if (entryKey === undefined) throw new Error('person-agent must declare an entry page')
+    const home = pages.find((page) => page.name === entryKey)
+    if (home === undefined) throw new Error(`entry page ${entryKey} is not registered`)
+    // 判据：结构校验器零问题（map 非空、覆盖全部 :param 页、use 非空、指向已注册页面）
+    // / the criterion: zero issues from the structural checker (non-empty map, every :param page covered, non-empty use, registered targets)
+    expect(homeMapIssues(home, pages)).toEqual([])
+    expect(home.map?.map((entry) => entry.url)).toContain('/apps/person-agent/workspaces')
+    expect(typeof home.load).toBe('function')
+  })
+
+  it('首页 load 刷新真实服务面：三区数据进首屏（本应用全部页面无 :param，map 即工作区浏览页）', async () => {
+    const { apps, fiber } = await install({ openTitles: ['唯一任务'] })
+    disposers.push(() => fiber.dispose())
+    const home = apps.listPages(APP_ID).find((page) => page.name === APP_DEFINITION.entry)
+    if (home === undefined || home.load === undefined) throw new Error('the overview page must carry a load')
+    const screen = await home.load({}, {})
+    if (typeof screen !== 'object' || screen === null || Array.isArray(screen)) {
+      throw new Error('the overview load must return a first-screen object')
+    }
+    expect('catalog' in screen).toBe(true)
+    expect('workspaces' in screen).toBe(true)
+    expect(JSON.stringify(screen)).toContain('唯一任务')
+  })
+
+  it('工作区浏览页 load 取工作区区快照', async () => {
+    const { apps, fiber } = await install({ openTitles: [] })
+    disposers.push(() => fiber.dispose())
+    const workspaces = apps.listPages(APP_ID).find((page) => page.name === 'workspaces')
+    if (workspaces === undefined || workspaces.load === undefined) throw new Error('the workspaces page must carry a load')
+    const screen = await workspaces.load({}, {})
+    if (typeof screen !== 'object' || screen === null || Array.isArray(screen)) {
+      throw new Error('the workspaces load must return a first-screen object')
+    }
+    expect(screen).toMatchObject({ available: true, rows: [{ id: 'ws-1', title: '主工作区', sessions: 2 }] })
   })
 })
 

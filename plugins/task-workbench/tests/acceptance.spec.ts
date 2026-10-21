@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 第 1 阶段验收（docs/application-concept.cn.md §8.1 八场景）。
  * Phase-1 acceptance: the eight §8.1 scenarios end to end.
  *
@@ -69,7 +69,11 @@ class FileSessionStore {
 
   /** 宿主 `sessions` 服务的最小面 / the minimal host `sessions` face */
   readonly dsh = {
-    get: (id: string) => (this.alive(id) ? { dispose: () => { this.data.sessions[id]!.alive = false; this.save() } } : undefined),
+    // header 是 app-host 会话端口 presetOf 的同源字段（页面 load 的 PageLoadEnv）
+    // / header feeds app-host's session-port presetOf (the page load's PageLoadEnv)
+    get: (id: string) => (this.alive(id)
+      ? { header: { agentPreset: 'standard' }, dispose: () => { this.data.sessions[id]!.alive = false; this.save() } }
+      : undefined),
     create: (id: string, title?: string) => {
       this.data.sessions[id] = { title: title ?? id, messages: [], alive: true }
       this.save()
@@ -326,7 +330,7 @@ describe('场景 5：两个应用同名工具 → 不同前缀共存', () => {
     const { ctx, apps, pages, tools } = await boot(tempRoot())
     // 第二个应用：同名工具 take_task，页面 /apps/other-app/task/:taskId
     const { defineAppPage } = await import('@veren/prompt-page')
-    apps.register({ id: 'other-app' as AppId, name: '另一个应用', description: '同名工具共存验证', entry: 'task' as PageKey }, ctx)
+    apps.register({ id: 'other-app' as AppId, name: '另一个应用', description: '同名工具共存验证', entry: 'list' as PageKey }, ctx)
     const otherTools = apps.tools('other-app' as AppId, ctx)
     // defineTool 产物进目录（与本应用同一正路）/ defineTool product, same path as the host app
     const { defineTool } = await import('@deepseek-ai/dsh-tools')
@@ -336,9 +340,20 @@ describe('场景 5：两个应用同名工具 → 不同前缀共存', () => {
       execute: async () => ({ ok: true }),
     }))
     const otherPages = apps.pages('other-app' as AppId, ctx)
+    // 一级页（entry）：无参数 + 非空能力地图（§3.10.5 规则 1）
+    // home (entry): parameter-free with a non-empty map (rule 1)
+    otherPages.register(defineAppPage({
+      name: 'list', url: '/apps/other-app/list', description: '另一应用列表页',
+      instructions: '这是 other-app 的首页：看列表，去详情。',
+      map: [{ url: '/apps/other-app/task/:taskId', use: '处理某一条任务时打开' }],
+      tree: () => [],
+    }) as never)
+    // 二级页：带 :param + writes + 工具 + 说明（规则 3）
+    // detail page: a :param plus writes, a tool and instructions (rule 3)
     otherPages.register(defineAppPage({
       name: 'task', url: '/apps/other-app/task/:taskId', description: '另一应用任务页',
-      tools: ['take_task'], tree: () => [],
+      tools: ['take_task'], writes: true, instructions: '只处理 params.taskId 指定的这一条任务。',
+      tree: () => [],
     }) as never)
     const a = await open(pages, '1')
     const b = await pages.openUrl('/apps/other-app/task/1')

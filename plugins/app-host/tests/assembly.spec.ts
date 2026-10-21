@@ -78,6 +78,18 @@ function makeAgentScope(parent: Context): AgentScope {
   }
 }
 
+/** 替身会话记录：页面运行时只读 header.agentPreset（presetOf 的同源字段）与 append
+ * / stub session record: the runtime reads only header.agentPreset (presetOf's
+ * source) and append */
+interface StubSession {
+  id: string
+  header: { agentPreset: string }
+  messages: string[]
+  alive: boolean
+  titles: Array<{ title: string; source: { kind: string } }>
+  append(type: string, data: { title: string; source: { kind: string } }): void
+}
+
 /** 最小 agents/sessions 结构面：live agent 表 + agent/created、agent/disposed 事件 */
 function makeHostSessions(ctx: Context, failTool?: string) {
   // task-center / app-host 的 inject 都要 'tools'；装配测试给真实登记的工具表
@@ -90,12 +102,12 @@ function makeHostSessions(ctx: Context, failTool?: string) {
       return () => { hostTools.delete(tool.name) }
     },
   })
-  const sessions = new Map<string, { id: string; messages: string[]; alive: boolean; titles: Array<{ title: string; source: { kind: string } }>; append(type: string, data: { title: string; source: { kind: string } }): void }>()
+  const sessions = new Map<string, StubSession>()
   const scopes = new Map<string, AgentScope>()
-  /** 替身会话工厂：带上 append，session/title 的落盘断言用 / stub session factory with append for title assertions */
+  /** 替身会话工厂：带上 append 与会话头（presetOf 的同源字段）/ stub session factory with append and the header (presetOf's source) */
   const newSession = (id: string) => {
-    const record: { id: string; messages: string[]; alive: boolean; titles: Array<{ title: string; source: { kind: string } }>; append(type: string, data: { title: string; source: { kind: string } }): void } = {
-      id, messages: [], alive: true, titles: [],
+    const record: StubSession = {
+      id, header: { agentPreset: 'standard' }, messages: [], alive: true, titles: [],
       append: (_type, data) => { record.titles.push(data) },
     }
     return record
@@ -205,7 +217,7 @@ async function runPreStep(ctx: Context, agentCtx: Context, sessionId: string): P
   // 唯一的类型断言：假 Agent 只实现派发所需的身份与作用域（同结算测试的先例）
   // The single type assertion: the fake carries only the identity and scope dispatch needs
   const agent = { id: sessionId, ctx: agentCtx, session: { id: sessionId } } as unknown as Agent
-  const claimed: UserMessage[] = [createUserMessage({ content: [{ type: 'text', text: '继续' }] })]
+  const claimed: UserMessage[] = [createUserMessage({ content: [{ type: 'text', text: '继续' }], source: { kind: 'user' } })]
   return await agentEvents(ctx, agent).waterfall('agent/pre-step', {
     messages: claimed,
     turn: 0,
@@ -276,21 +288,42 @@ async function boot(options: { enabled?: boolean; failTool?: string } = {}): Pro
   }
 }
 
-/** 迷你应用：一页一工具（defineTool 本体）/ a mini app: one page, one defineTool tool */
+/** 迷你应用：两级页面（一级首页 + 参数化详情）+ 一读一写两个工具（§3.10 合规夹具）
+ * / a mini app: two levels (a home page + a parameterized detail) and one read +
+ * one write tool (a §3.10-compliant fixture) */
 function registerMiniApp(h: Boot): void {
   const { ctx } = h
   const apps = ctx.apps
-  apps.register({ id: 'mini' as AppId, name: 'mini', description: '装配层验证应用', entry: 'task' as PageKey }, ctx)
-  apps.tools('mini' as AppId, ctx).define(defineTool({
+  apps.register({ id: 'mini' as AppId, name: 'mini', description: '装配层验证应用', entry: 'list' as PageKey }, ctx)
+  const tools = apps.tools('mini' as AppId, ctx)
+  tools.define(defineTool({
     name: 'read',
     description: '读取材料',
     parameters: {},
     output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
     execute: async () => ({ ok: true }),
   }), { requires: ['files:read' as AppCapability] })
-  apps.pages('mini' as AppId, ctx).register(defineAppPage({
+  // 写工具：二级页规则 3 要求详情页至少挂一个写工具 / the write tool: rule 3 wants a write tool on the detail page
+  tools.define(defineTool({
+    name: 'write',
+    description: '写入材料。Parameters: text.',
+    parameters: { text: { type: 'string', required: true, description: '要写入的文本' } },
+    output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+    execute: async () => ({ ok: true }),
+  }))
+  const pages = apps.pages('mini' as AppId, ctx)
+  // 一级页（entry）：无参数 + 能力地图 / the home page (entry): no params + a capability map
+  pages.register(defineAppPage({
+    name: 'list', url: '/apps/mini/list', description: '任务列表页',
+    instructions: '这是 mini 应用的首页：看列表，去详情。',
+    map: [{ url: '/apps/mini/task/:id', use: '处理某一条任务时打开' }],
+    tree: () => [],
+  }) as unknown as PageDefinition<never>)
+  // 二级页：带参数 + writes + 工具 + 说明 / the detail page: params + writes + tools + instructions
+  pages.register(defineAppPage({
     name: 'task', url: '/apps/mini/task/:id', description: '任务页',
-    tools: ['read'], tree: () => [],
+    tools: ['read', 'write'], writes: true, instructions: '只处理 params.id 指定的这一条任务。',
+    tree: () => [],
   }) as unknown as PageDefinition<never>)
 }
 
@@ -328,7 +361,10 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     try {
       apps.register({ id: 'solo' as AppId, name: 'solo', description: 'd', entry: 'main' as PageKey })
       apps.pages('solo' as AppId).register(defineAppPage({
-        name: 'main', url: '/apps/solo/main', description: 'd', tree: () => [],
+        // 一级页：无参数 + 非空能力地图（§3.10.5 规则 1）/ home: no params + a non-empty map (rule 1)
+        name: 'main', url: '/apps/solo/main', description: 'd',
+        map: [{ url: '/apps/solo/item/:id', use: 'open one item' }],
+        tree: () => [],
       }) as unknown as PageDefinition<never>)
       expect(warnings.some((m) => m.includes('no page mirror wired'))).toBe(true)
       expect(ctx.pageRegistry.resolve('/apps/solo/main')).toBeNull() // 未镜像
@@ -577,6 +613,9 @@ describe('PAGE-DATA 同步（§3.10.2）走真实装配链：回填镜像携带 
     // Store change → the next pre-step decision really carries the new data
     store.mutate([{ id: 'i-1', title: '基线卡' }, { id: 'i-2', title: '装配链新卡' }])
     const decision = await runPreStep(h.ctx, scope.ctx, opened.sessionId)
+    // PreStepDecision 是可判别联合：reject 在测试里就是失败
+    // PreStepDecision is a discriminated union; a reject decision is a test failure here
+    if (decision.kind !== 'enter') throw new Error('expected the pre-step to admit messages')
     const injected = decision.messages.at(-1)
     const text = injected?.content.map((block) => (block.type === 'text' ? block.text : '')).join('') ?? ''
     expect(text.startsWith('PAGE-DATA board/board /apps/board/board/1 v')).toBe(true)

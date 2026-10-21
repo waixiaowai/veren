@@ -35,6 +35,11 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
 // 类型-only import：拉取 agentDefaultModel 的 declaration merging（ctx.agentDefaultModel）
 import type {} from '@deepseek-ai/dsh-agent-default-model'
+// 类型-only import：拉取 ctx.tools（agent 作用域挂工具 / restrict 的实际服务面来源）。
+// 不能靠 dsh-agent 间接带上：间接 merge 一旦上游调整就静默失效。
+// type-only import: declares ctx.tools — the actual service surface behind
+// `agent.ctx.tools.register` / `.restrict`. Never rely on a transitive merge.
+import type {} from '@deepseek-ai/dsh-tools'
 import type { MountedTool, PageSessionPort } from '@veren/page-registry'
 import type { PageDataSyncFace } from './page-sync.ts'
 
@@ -89,6 +94,21 @@ function sourceKind(source: string): PageSourceKind {
     case PAGE_SEND_MESSAGE_SOURCE: return PAGE_SEND_MESSAGE_SOURCE
     default: return PAGE_MESSAGE_SOURCE
   }
+}
+
+/**
+ * 页面会话的预设 id（§3.10.3 PageLoadEnv.preset 的来源）：与会话头同源——页面
+ * 工具解析调用者（如 notebook callerOf）读的就是 header.agentPreset，两条路径
+ * 口径一致，load 看到的归属与工具调用看到的归属不会分叉。
+ * 它挂在 PageRuntimePorts 上（不是会话面）：这是宿主对"这条会话属于谁"的回答。
+ * The page session's preset id (the source of PageLoadEnv.preset, §3.10.3):
+ * sourced from the session header — the same field page tools read their caller
+ * from (e.g. notebook's callerOf), so what load sees as the owner never drifts
+ * from what a tool call sees. It belongs to PageRuntimePorts rather than the
+ * session face: it is the host's answer to "whose session is this".
+ */
+export function createPresetOf(ctx: Context): (sessionId: string) => string | undefined {
+  return (sessionId) => ctx.sessions.get(sid(sessionId))?.header.agentPreset
 }
 
 /**
@@ -235,7 +255,7 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
         ctx.sessions.get(sid(sessionId))?.append('user/message', createUserMessage({
           content: [{ type: 'text', text }],
           source: { kind: sourceKind(source) },
-        }))
+        }), { surfaceOp: 'append' })
         return
       }
       const agent = agentOf(sessionId)
@@ -270,14 +290,6 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
       releaseMounted(sessionId)
     },
     focus: (sessionId) => focus.focus(sessionId),
-    // 页面会话的预设 id（§3.10.3 PageLoadEnv.preset）：与会话头同源——页面工具
-    // 解析调用者（如 notebook callerOf）读的就是 header.agentPreset，两条路径
-    // 口径一致，load 看到的归属与工具调用看到的归属不会分叉。
-    // The page session's preset id (§3.10.3's PageLoadEnv.preset): sourced from
-    // the session header — the same field page tools read their caller from
-    // (e.g. notebook's callerOf), so what load sees as the owner never drifts
-    // from what a tool call sees.
-    presetOf: (sessionId) => ctx.sessions.get(sid(sessionId))?.header.agentPreset,
     async destroy(sessionId) {
       queued.delete(sessionId)
       releaseMounted(sessionId)

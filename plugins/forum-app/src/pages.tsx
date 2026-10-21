@@ -106,7 +106,7 @@ export function postFirstScreen(view: PostDetailView): ForumPostFirstScreen {
  * 入口页：板块与主题列表。首屏来自真实目录读取；模型经 `forum__list` 与
  * `forum__post` 行动。
  */
-export function createCatalogPage(port: ForumToolsPort): PageDefinition<never> {
+export function createCatalogPage(port: () => ForumToolsPort): PageDefinition<never> {
   return defineAppPage<never>({
     name: 'catalog',
     url: `${URL_PREFIX}/catalog`,
@@ -119,7 +119,7 @@ export function createCatalogPage(port: ForumToolsPort): PageDefinition<never> {
     instanceTitle: () => '论坛 · 板块与主题',
     // §3.10.1：一级页 = 基础信息（load 取真实目录）+ 能力地图
     // / §3.10.1: the home page = basic information (a real catalog read via load) + the capability map
-    load: async () => catalogFirstScreen(await port.catalog({})) satisfies PageJsonValue,
+    load: async () => catalogFirstScreen(await port().catalog({})) satisfies PageJsonValue,
     map: [
       {
         url: `${URL_PREFIX}/post/:postId`,
@@ -140,7 +140,7 @@ export function createCatalogPage(port: ForumToolsPort): PageDefinition<never> {
  * exists to act on that one post (comment, vote).
  * 主题详情页：一个主题及其评论树；为"处理这一条主题"而存在的二级页（回复、投票）。
  */
-export function createPostPage(port: ForumToolsPort): PageDefinition<never> {
+export function createPostPage(port: () => ForumToolsPort): PageDefinition<never> {
   return defineAppPage<never>({
     name: 'post',
     url: `${URL_PREFIX}/post/:postId`,
@@ -159,7 +159,7 @@ export function createPostPage(port: ForumToolsPort): PageDefinition<never> {
     // forum/post-not-found，data 行如实给出失败态与重试指引。
     // §3.10.3: the detail load fetches that one record's first screen; a missing
     // post throws forum/post-not-found and the data line carries the error state.
-    load: async (params) => postFirstScreen(await port.detail({ postId: String(params.postId ?? '') })) satisfies PageJsonValue,
+    load: async (params) => postFirstScreen(await port().detail({ postId: String(params.postId ?? '') })) satisfies PageJsonValue,
     tree: (params) => (
       <>
         <Static content={`论坛主题 ${params.postId ?? ''}`} />

@@ -6,79 +6,98 @@
  * QueryCompiler：遍历 Kysely operation-node 树，序列化为结构化 JSON 指令放入
  * `CompiledQuery.sql`。只支持单表 CRUD 实际会产生节点种类；其余一律带稳定错误码
  * 显式失败。
+ *
+ * 收窄纪律：`OperationNode` 是**单一 interface**（`kind` 是宽联合），`node.kind === 'X'`
+ * 不产生类型收窄。这里的收窄一律走 Kysely 自带的 `XxxNode.is()` 类型守卫——不再用
+ * `node as unknown as { … }` 手写结构断言（那种断言绕过检查，字段改名时静默失效）。
+ * Narrowing discipline: `OperationNode` is a single interface whose `kind` is a
+ * wide union, so `node.kind === 'X'` does not narrow. Every narrowing here goes
+ * through Kysely's own `XxxNode.is()` guards instead of hand-written
+ * `as unknown as { … }` structural assertions, which bypass checking entirely.
  * @module src/compiler
  */
-import type {
+import {
+  AliasNode,
+  AndNode,
+  BinaryOperationNode,
   ColumnNode,
-  CompiledQuery,
   DeleteQueryNode,
+  FunctionNode,
   InsertQueryNode,
+  OperatorNode,
+  OrNode,
+  ParensNode,
+  PrimitiveValueListNode,
+  RawNode,
+  ReferenceNode,
+  SelectAllNode,
+  SelectQueryNode,
+  SelectionNode,
+  TableNode,
+  UpdateQueryNode,
+  ValueListNode,
+  ValueNode,
+  ValuesNode,
+} from 'kysely'
+import type {
+  CompiledQuery,
   OperationNode,
+  OrderByNode,
   QueryCompiler,
   QueryId,
   RootOperationNode,
-  SelectQueryNode,
-  UpdateQueryNode,
-  ValuesNode,
 } from 'kysely'
 import { DialectError, type CompareOp, type Instruction, type OrderItem, type Predicate } from './types.js'
 
 /** Unwrap one boolean tree node into a Predicate. 把一个布尔树节点展开为 Predicate。 */
 function compilePredicate(node: OperationNode): Predicate {
-  if (node.kind === 'ParensNode') return compilePredicate((node as unknown as { node: OperationNode }).node)
-  if (node.kind === 'AndNode') {
-    const { left, right } = node as unknown as { left: OperationNode, right: OperationNode }
-    return { all: [compilePredicate(left), compilePredicate(right)] }
-  }
-  if (node.kind === 'OrNode') {
-    const { left, right } = node as unknown as { left: OperationNode, right: OperationNode }
-    return { any: [compilePredicate(left), compilePredicate(right)] }
-  }
-  if (node.kind === 'BinaryOperationNode') {
-    return compileComparison(node as unknown as { leftOperand: OperationNode, operator: OperationNode, rightOperand: OperationNode })
-  }
+  if (ParensNode.is(node)) return compilePredicate(node.node)
+  if (AndNode.is(node)) return { all: [compilePredicate(node.left), compilePredicate(node.right)] }
+  if (OrNode.is(node)) return { any: [compilePredicate(node.left), compilePredicate(node.right)] }
+  if (BinaryOperationNode.is(node)) return compileComparison(node)
   throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported where node kind: ${node.kind}`)
 }
 
 /** Field reference on the left side, including the `lower()` insensitive wrapper. 左侧字段引用，含 `lower()` 大小写不敏感包装。 */
 function compileFieldRef(node: OperationNode): { field: string, insensitive: boolean } {
-  if (node.kind === 'ReferenceNode') {
-    const column = (node as unknown as { column: OperationNode }).column
-    if (column.kind !== 'ColumnNode') throw new DialectError('DIALECT_NODE_UNSUPPORTED', 'field must be a column')
-    return { field: (column as unknown as { column: { name: string } }).column.name, insensitive: false }
+  if (ReferenceNode.is(node)) {
+    const { column } = node
+    if (!ColumnNode.is(column)) throw new DialectError('DIALECT_NODE_UNSUPPORTED', 'field must be a column')
+    return { field: column.column.name, insensitive: false }
   }
-  if (node.kind === 'FunctionNode') {
-    const fn = node as unknown as { func: string, arguments: readonly OperationNode[] }
-    if (fn.func.toLowerCase() !== 'lower' || fn.arguments.length !== 1) {
-      throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported function in where: ${fn.func}`)
+  if (FunctionNode.is(node)) {
+    if (node.func.toLowerCase() !== 'lower' || node.arguments.length !== 1) {
+      throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported function in where: ${node.func}`)
     }
-    return { ...compileFieldRef(fn.arguments[0]!), insensitive: true }
+    return { ...compileFieldRef(node.arguments[0]!), insensitive: true }
   }
   throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported comparison operand: ${node.kind}`)
 }
 
 /** Extract the literal value(s) on the right side. 提取右侧字面量。 */
 function compileValue(node: OperationNode): { value?: unknown, values?: readonly unknown[] } {
-  if (node.kind === 'ValueNode') return { value: (node as unknown as { value: unknown }).value }
-  if (node.kind === 'PrimitiveValueListNode') return { values: (node as unknown as { values: readonly unknown[] }).values }
-  if (node.kind === 'ValueListNode') {
+  if (ValueNode.is(node)) return { value: node.value }
+  if (ValueListNode.is(node)) {
     return {
-      values: (node as unknown as { values: readonly OperationNode[] }).values.map(item => {
-        if (item.kind !== 'ValueNode') throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported in-list item: ${item.kind}`)
-        return (item as unknown as { value: unknown }).value
+      values: node.values.map((item) => {
+        if (!ValueNode.is(item)) throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported in-list item: ${item.kind}`)
+        return item.value
       }),
     }
   }
+  // PrimitiveValueListNode carries raw primitives rather than child nodes.
+  // PrimitiveValueListNode 携带原始值而非子节点。
+  if (PrimitiveValueListNode.is(node)) return { values: node.values }
   throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported comparison value: ${node.kind}`)
 }
 
 /** Map one binary comparison to a CompareOp leaf. 把一个二元比较映射为 CompareOp 叶子。 */
-function compileComparison(node: { leftOperand: OperationNode, operator: OperationNode, rightOperand: OperationNode }): Predicate {
+function compileComparison(node: BinaryOperationNode): Predicate {
   const { field, insensitive } = compileFieldRef(node.leftOperand)
-  if (node.operator.kind !== 'OperatorNode') {
+  if (!OperatorNode.is(node.operator)) {
     throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported operator node: ${node.operator.kind}`)
   }
-  const op = (node.operator as unknown as { operator: string }).operator.toLowerCase()
+  const op = node.operator.operator.toLowerCase()
   const right = compileValue(node.rightOperand)
   const table: Record<string, CompareOp> = {
     '=': 'eq', '!=': 'ne', '<>': 'ne', '<': 'lt', '<=': 'lte', '>': 'gt', '>=': 'gte',
@@ -96,25 +115,21 @@ function compileComparison(node: { leftOperand: OperationNode, operator: Operati
 
 /** Read the raw SQL text of a RawNode fragment (order directions, scalars). 读取 RawNode 片段原始文本（排序方向、标量）。 */
 function rawText(node: OperationNode): string {
-  if (node.kind === 'RawNode') return (node as unknown as { sqlFragments: readonly string[] }).sqlFragments.join('')
-  if (node.kind === 'ValueNode') return String((node as unknown as { value: unknown }).value)
+  if (RawNode.is(node)) return node.sqlFragments.join('')
+  if (ValueNode.is(node)) return String(node.value)
   throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported literal fragment: ${node.kind}`)
 }
 
 /** Extract the single numeric scalar of a limit/offset wrapper. 提取 limit/offset 包装内的单个数值。 */
 function compileScalar(node: OperationNode): number {
-  if (node.kind === 'ValueNode') {
-    const value = (node as unknown as { value: unknown }).value
-    if (typeof value === 'number') return value
-  }
-  if (node.kind === 'RawNode') return compileScalar((node as unknown as { parameters: readonly OperationNode[] }).parameters[0]!)
+  if (ValueNode.is(node) && typeof node.value === 'number') return node.value
+  if (RawNode.is(node)) return compileScalar(node.parameters[0]!)
   throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported limit/offset: ${node.kind}`)
 }
 
 /** Compile an order-by clause into order items. 把 order-by 子句编译为排序项。 */
-function compileOrderBy(node: OperationNode): OrderItem[] {
-  const items = (node as unknown as { items: readonly { orderBy: OperationNode, direction?: OperationNode }[] }).items
-  return items.map(item => {
+function compileOrderBy(node: OrderByNode): OrderItem[] {
+  return node.items.map((item) => {
     const field = compileFieldRef(item.orderBy).field
     const dir = item.direction === undefined ? 'asc' : rawText(item.direction).toLowerCase()
     return { field, dir: dir === 'desc' ? 'desc' as const : 'asc' as const }
@@ -126,12 +141,12 @@ function compileSelections(selections: readonly OperationNode[] | undefined): st
   if (selections === undefined || selections.length === 0) return undefined
   const columns: string[] = []
   for (const selection of selections) {
-    const inner = selection.kind === 'SelectionNode' ? (selection as unknown as { selection: OperationNode }).selection : selection
-    const column = inner.kind === 'ReferenceNode'
-      ? (inner as unknown as { column: OperationNode }).column
-      : inner.kind === 'AliasNode' ? (inner as unknown as { node: OperationNode }).node : inner
-    if (column.kind === 'SelectAllNode') return undefined
-    if (column.kind === 'ColumnNode') columns.push((column as unknown as { column: { name: string } }).column.name)
+    const inner = SelectionNode.is(selection) ? selection.selection : selection
+    const column = ReferenceNode.is(inner)
+      ? inner.column
+      : AliasNode.is(inner) ? inner.node : inner
+    if (SelectAllNode.is(column)) return undefined
+    if (ColumnNode.is(column)) columns.push(column.column.name)
   }
   return columns.length > 0 ? columns : undefined
 }
@@ -139,9 +154,9 @@ function compileSelections(selections: readonly OperationNode[] | undefined): st
 /** Physical table name of a from-source; joins and schemas fail loud. from 源的物理表名；join 与 schema 显式失败。 */
 function tableName(source: OperationNode | undefined): string {
   if (source === undefined) throw new DialectError('DIALECT_UNSUPPORTED', 'missing from source')
-  const node = source.kind === 'AliasNode' ? (source as unknown as { node: OperationNode }).node : source
-  if (node.kind !== 'TableNode') throw new DialectError('DIALECT_UNSUPPORTED', `unsupported from source: ${node.kind} (joins not supported)`)
-  return (node as unknown as { table: { identifier: { name: string } } }).table.identifier.name
+  const node = AliasNode.is(source) ? source.node : source
+  if (!TableNode.is(node)) throw new DialectError('DIALECT_UNSUPPORTED', `unsupported from source: ${node.kind} (joins not supported)`)
+  return node.table.identifier.name
 }
 
 /** Extract the where tree of a query node. 提取查询节点的 where 树。 */
@@ -154,14 +169,14 @@ function compileSelect(select: SelectQueryNode): Instruction {
   const froms = select.from?.froms ?? []
   if (froms.length !== 1) throw new DialectError('DIALECT_UNSUPPORTED', 'select needs exactly one from source')
   const source = froms[0]!
-  if (source.kind === 'AliasNode') {
+  if (AliasNode.is(source)) {
     // better-auth wraps every select: `select * from (<inner>) as alias`. The
     // inner query carries where/order/limit; the outer only projects.
     // better-auth 会包一层 select：`select * from (<inner>) as alias`。
     // where/排序/分页在内层，外层只做投影。
-    const inner = (source as unknown as { node: OperationNode }).node
-    if (inner.kind !== 'SelectQueryNode') throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported subquery: ${inner.kind}`)
-    return compileSelect(inner as unknown as SelectQueryNode)
+    const { node: inner } = source
+    if (!SelectQueryNode.is(inner)) throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported subquery: ${inner.kind}`)
+    return compileSelect(inner)
   }
   return {
     v: 1,
@@ -178,21 +193,25 @@ function compileSelect(select: SelectQueryNode): Instruction {
 /** Compile insert values into the payload object. 把 insert 的 values 编译为载荷对象。 */
 function compileInsertValues(node: ValuesNode, columns: readonly string[]): Record<string, unknown> {
   if (node.values.length !== 1) throw new DialectError('DIALECT_UNSUPPORTED', 'multi-row insert not supported')
-  const row = node.values[0]!.values
+  const row = node.values[0]!
   const payload: Record<string, unknown> = {}
+  // 两个来源分支各自类型精确：ValueListNode 是子节点列表，PrimitiveValueListNode 是原始值列表。
+  // The two item shapes keep exact types: ValueListNode holds child nodes,
+  // PrimitiveValueListNode holds raw primitives.
+  if (ValueListNode.is(row)) {
+    columns.forEach((name, i) => {
+      const child = row.values[i]
+      if (child === undefined) return
+      if (child.kind === 'DefaultInsertValueNode') return
+      if (!ValueNode.is(child)) throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported insert value: ${child.kind}`)
+      payload[name] = child.value
+    })
+    return payload
+  }
   columns.forEach((name, i) => {
-    const cell = row[i]
-    if (cell === undefined) return
-    // A cell is either a ValueNode (kind discriminant) or a raw primitive.
-    // 单元格要么是 ValueNode（kind 判别），要么是原始值。
-    if (typeof (cell as { kind?: unknown } | null | undefined)?.kind === 'string') {
-      const kind = (cell as { kind: string }).kind
-      if (kind === 'DefaultInsertValueNode') return
-      if (kind !== 'ValueNode') throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported insert value: ${kind}`)
-      payload[name] = (cell as unknown as { value: unknown }).value
-      return
-    }
-    payload[name] = cell
+    const value = row.values[i]
+    if (value === undefined) return
+    payload[name] = value
   })
   return payload
 }
@@ -201,9 +220,9 @@ function compileInsertValues(node: ValuesNode, columns: readonly string[]): Reco
 function compileUpdates(node: UpdateQueryNode): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   for (const update of node.updates ?? []) {
-    if (update.value.kind !== 'ValueNode') throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported update value: ${update.value.kind}`)
-    const column = update.column as unknown as ColumnNode
-    values[column.column.name] = (update.value as unknown as { value: unknown }).value
+    if (!ValueNode.is(update.value)) throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported update value: ${update.value.kind}`)
+    if (!ColumnNode.is(update.column)) throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported update column: ${update.column.kind}`)
+    values[update.column.column.name] = update.value.value
   }
   return values
 }
@@ -216,18 +235,17 @@ function compileUpdates(node: UpdateQueryNode): Record<string, unknown> {
  */
 export function createDomainQueryCompiler(): QueryCompiler {
   return {
-    compileQuery(root: OperationNode, queryId: QueryId): CompiledQuery {
-      // `OperationNode` is a single interface, so `kind` checks do not narrow;
-      // dispatch casts to the concrete node types are the honest boundary.
-      // `OperationNode` 是单一接口，kind 判断不收窄；分发处转换为具体节点类型
-      // 是如实的边界。
+    compileQuery(root: RootOperationNode, queryId: QueryId): CompiledQuery {
+      // `RootOperationNode` 是可判别联合，`.is()` 守卫直接收窄，无需转换。
+      // `RootOperationNode` is a discriminated union, so the `.is()` guards
+      // narrow directly — no assertion needed anywhere in this dispatch.
       let instruction: Instruction
-      if (root.kind === 'SelectQueryNode') instruction = compileSelect(root as unknown as SelectQueryNode)
-      else if (root.kind === 'InsertQueryNode') instruction = compileInsert(root as unknown as InsertQueryNode)
-      else if (root.kind === 'UpdateQueryNode') instruction = compileUpdate(root as unknown as UpdateQueryNode)
-      else if (root.kind === 'DeleteQueryNode') instruction = compileDelete(root as unknown as DeleteQueryNode)
+      if (SelectQueryNode.is(root)) instruction = compileSelect(root)
+      else if (InsertQueryNode.is(root)) instruction = compileInsert(root)
+      else if (UpdateQueryNode.is(root)) instruction = compileUpdate(root)
+      else if (DeleteQueryNode.is(root)) instruction = compileDelete(root)
       else throw new DialectError('DIALECT_NODE_UNSUPPORTED', `unsupported root node: ${root.kind}`)
-      return { query: root as unknown as RootOperationNode, queryId, sql: JSON.stringify(instruction), parameters: [] }
+      return { query: root, queryId, sql: JSON.stringify(instruction), parameters: [] }
     },
   }
 }
@@ -235,12 +253,15 @@ export function createDomainQueryCompiler(): QueryCompiler {
 /** Compile an insert query node. 编译 insert 查询节点。 */
 function compileInsert(node: InsertQueryNode): Instruction {
   if (node.onConflict || node.onDuplicateKey) throw new DialectError('DIALECT_UNSUPPORTED', 'upsert not supported')
+  if (node.values === undefined || !ValuesNode.is(node.values)) {
+    throw new DialectError('DIALECT_NODE_UNSUPPORTED', 'insert without a values list')
+  }
   const columns = (node.columns ?? []).map(c => c.column.name)
   return {
     v: 1,
     op: 'insert',
-    from: tableName(node.into === undefined ? undefined : node.into as unknown as OperationNode),
-    values: compileInsertValues(node.values as unknown as ValuesNode, columns),
+    from: tableName(node.into),
+    values: compileInsertValues(node.values, columns),
     returning: node.returning !== undefined,
   }
 }

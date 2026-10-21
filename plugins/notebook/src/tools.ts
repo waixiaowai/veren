@@ -28,30 +28,12 @@ import type { NotebookToolsPort } from './types.ts'
 // 仅类型导入：把 `ctx.agentPresets` 的服务声明拉进本文件（所属服务的硬 inject，
 // 直接读取，绝不探测）。
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
-
-/** The lossless-JSON union, spelled locally for the tool-result boundary. */
-type Json = null | boolean | number | string | Json[] | { [key: string]: Json | undefined }
-
-/**
- * A view as the plain, mutable JSON a Tool result carries.
- * 视图作为 Tool 结果所携带的、可变的一般 JSON。
- */
-export type JsonShape<T> = T extends readonly (infer Item)[]
-  ? JsonShape<Item>[]
-  : T extends object
-    ? { [K in keyof T]: JsonShape<T[K]> }
-    : T extends Json
-      ? T
-      : never
-
-/**
- * Project a view onto the lossless-JSON value a Tool result carries.
- * @param value - the view or list of views to project.
- * @returns the same data as canonical JSON.
- */
-function jsonOf<T>(value: T): JsonShape<T> {
-  return JSON.parse(JSON.stringify(value)) as JsonShape<T>
-}
+// 无损 JSON 投影只有一份实现（@veren/core）；此处按原名转出，公共面不变。
+// The lossless-JSON projection lives in exactly one place (@veren/core); it is
+// re-exported here under the original names, so the surface stays unchanged.
+import { jsonOf } from '@veren/core'
+export type { Json, JsonShape } from '@veren/core'
+import type { JsonShape } from '@veren/core'
 
 /** One refused call: a stable notebook code plus a model-facing account. */
 class NotebookToolError extends Error {

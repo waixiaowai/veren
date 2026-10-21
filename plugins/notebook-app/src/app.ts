@@ -297,7 +297,13 @@ export function registerNotebookApp(ctx: Context, port: () => NotebookToolsPort)
       const tools = apps.tools(APP_ID, ctx)
       for (const tool of createAppTools(ctx, port)) disposers.push(tools.define(tool))
       const pages = apps.pages(APP_ID, ctx)
-      for (const page of [createListPage(port), createNotePage(port)]) disposers.push(pages.register(page))
+      // 两页的 load 载荷类型不同（列表 vs 单条），注册面只关心 PageDefinition
+      // 的公共面：显式抹平为 never，避免数组被推成两个不相交页类型的联合。
+      // The two pages carry different load payloads (a list vs one record); the
+      // registration face only cares about PageDefinition's common shape, so
+      // widen explicitly instead of letting the array infer a union.
+      const registered: Array<PageDefinition<never>> = [createListPage(port), createNotePage(port)]
+      for (const page of registered) disposers.push(pages.register(page))
     } catch (error: unknown) {
       for (const dispose of disposers.reverse()) dispose()
       throw error

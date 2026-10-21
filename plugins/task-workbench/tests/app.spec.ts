@@ -12,6 +12,7 @@ import type { Fiber } from '@deepseek-ai/cordis'
 import AppRegistryPlugin, { AppRegistryService } from '@veren/app-registry'
 import type { AppId } from '@veren/app-registry'
 import PageRegistryPlugin, { PageRegistryService } from '@veren/page-registry'
+import { homeMapIssues } from '@veren/prompt-page'
 import { apply, inject, name } from '../src/index.ts'
 import { APP_ID, APP_DEFINITION } from '../src/app.ts'
 import { createDetailPage, createListPage, createPublishPage } from '../src/pages.tsx'
@@ -243,5 +244,57 @@ describe('生命周期', () => {
     expect(apps.catalog()).toHaveLength(0)
     expect(pageRegistry.resolve('/apps/task-workbench/list')).toBeNull()
     expect(pageRegistry.resolve('/apps/task-workbench/task/t-1')).toBeNull()
+  })
+})
+
+describe('§3.10 页面信息组织：首页必须把该给的信息给全', () => {
+  it('首页（entry）能被结构校验器零问题放行：map 覆盖全部详情页模板、每条带"什么时候用"', async () => {
+    const { apps, fiber } = await install()
+    disposers.push(() => fiber.dispose())
+    const pages = apps.listPages(APP_ID as AppId)
+    const entryKey = APP_DEFINITION.entry
+    if (entryKey === undefined) throw new Error('task-workbench must declare an entry page')
+    const home = pages.find((page) => page.name === entryKey)
+    if (home === undefined) throw new Error(`entry page ${entryKey} is not registered`)
+    // 判据：模型读完首页能直接说出"下一步该打开哪个 URL"——结构校验器
+    // homeMapIssues 对首页报零问题（map 非空、覆盖全部 :param 页、每条 use 非空、
+    // 且 map 指向的都是本应用已注册页面）。
+    // The criterion: after reading the home page a model can name the next URL —
+    // the structural checker homeMapIssues reports zero issues (non-empty map,
+    // every :param page covered, every entry carrying a use, every map url a
+    // registered page of this app).
+    expect(homeMapIssues(home, pages)).toEqual([])
+    // 而且显式可读：详情页模板在 map 里 / and explicitly readable: the detail template sits in the map
+    expect(home.map?.map((entry) => entry.url)).toContain('/apps/task-workbench/task/:taskId')
+    // 首页自带 load（真实首屏，不许写死）/ the home page carries a load (a real first screen)
+    expect(typeof home.load).toBe('function')
+  })
+
+  it('首页 load 取真实列表数据（换 store 首屏随之变，不许写死）', async () => {
+    // 用自建数据而不是 makeList 的示例数据：标题逐字来自 store，才证得"首屏不是写死的"。
+    // Hand-built data rather than makeList's demo rows: the titles come verbatim
+    // from the store, which is what proves the first screen is not hard-coded.
+    const store = new TaskStore([
+      { id: 't-1', title: '任务 t-1', status: 'open' },
+      { id: 't-2', title: '任务 t-2', status: 'open' },
+    ])
+    const screen = await createListPage(store).load?.({}, {})
+    if (screen === undefined) throw new Error('the list page must carry a load')
+    expect(screen).toMatchObject({
+      open: 2, taken: 0, done: 0,
+      roots: [
+        { id: 't-1', title: '任务 t-1', status: 'open', progress: '0/1' },
+        { id: 't-2', title: '任务 t-2', status: 'open', progress: '0/1' },
+      ],
+    })
+  })
+
+  it('详情页 load 按参数取该条记录（§3.10.3）：存在与不存在都如实', async () => {
+    const detail = createDetailPage(new TaskStore([{ id: 't-1', title: '任务 t-1', status: 'open' }]))
+    const found = await detail.load?.({ taskId: 't-1' }, {})
+    if (found === undefined) throw new Error('the detail page must carry a load')
+    expect(found).toMatchObject({ found: true, task: { id: 't-1', title: '任务 t-1', status: 'open' } })
+    const missing = await detail.load?.({ taskId: 'ghost' }, {})
+    expect(missing).toMatchObject({ found: false, task: null })
   })
 })

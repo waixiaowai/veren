@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { Context } from '@deepseek-ai/cordis'
 import { KvPageInstanceIndex, PageError, definePage, deprecatedRowKey } from '@veren/prompt-page'
-import type { InstanceKvPort } from '@veren/prompt-page'
+import type { InstanceKvPort, PageJsonValue } from '@veren/prompt-page'
 import type { PageInstanceRecord } from '@veren/prompt-page'
-import PageRegistryPlugin, { PageRegistryService } from '../src/index.ts'
+import PageRegistryPlugin, { PAGE_LOAD_TIMEOUT_MS, PageRegistryService } from '../src/index.ts'
 import { externalToolName } from '../src/runtime.ts'
 import type { MountedTool, PageRuntimePorts, PageSessionPort } from '../src/runtime.ts'
 import type { AppRecord } from '@veren/app-registry'
@@ -78,6 +78,7 @@ function makeService(options: {
   appState?: 'active' | 'disabled' | 'broken'
   withApps?: boolean
   tasks?: { take: (id: string, claim: unknown) => Promise<unknown> }
+  presetOf?: (sessionId: string) => string | undefined
 } = {}) {
   const ctx = new Context()
   const service = new PageRegistryService(ctx)
@@ -103,6 +104,7 @@ function makeService(options: {
     apps: options.withApps === false ? { get: () => undefined } : { get: () => app },
     toolsOf,
     ...(options.tasks === undefined ? {} : { tasks: { take: (id: never, claim: never) => options.tasks!.take(String(id), claim) as Promise<TaskRecord> } }),
+    ...(options.presetOf === undefined ? {} : { presetOf: options.presetOf }),
   } satisfies PageRuntimePorts
   service.bindPorts(ports, new KvPageInstanceIndex(kv, { sessionExists: (id) => sessions.port.exists(id) }))
   return { service, kv, sessions, ports, dispose }
@@ -160,14 +162,88 @@ describe('页面运行时：打开 URL 一律新建，旧会话废弃（§3.5.3�
     expect(kv.map.get('/apps/demo/task/1')?.instanceTitle).toBe('任务 #1')
   })
 
-  it('PAGE 块随新会话写一次：应用说明 + 页面说明 + 带前缀的工具清单', async () => {
+  it('PAGE 块随新会话写一次，呈 §3.10.2 规范形状：pageKey + 规范 URL / params / data / tools（带用途）/ 说明', async () => {
     const { service, sessions } = makeService()
     const opened = await service.openUrl('/apps/demo/task/1')
     const blocks = sessions.messages.get(opened.sessionId) ?? []
     expect(blocks).toHaveLength(1)
-    expect(blocks[0]).toContain('app/page::PAGE task {"id":"1"}')
-    expect(blocks[0]).toContain('demo__read')
-    expect(blocks[0]).toContain('先读材料，再作答。')
+    const block = blocks[0] ?? ''
+    expect(block.startsWith('app/page::PAGE demo/task /apps/demo/task/1\n')).toBe(true)
+    expect(block).toContain('params: {"id":"1"}')
+    // 页面未声明 load → data 行如实为 null（禁止静默空白，§3.10.2）
+    // / the page declares no load → the data line is an explicit null (never a silent blank, §3.10.2)
+    expect(block).toContain('data: null')
+    // 工具行带"什么时候用"（description 第一句）/ the tools line carries the when-to-use phrase
+    expect(block).toContain('tools: demo__read（读材料）')
+    expect(block).toContain('先读材料，再作答。')
+  })
+
+  it('首屏 load：data 行写 load(params) 的结果——PAGE 块 data 的唯一合法来源（§3.10.3）', async () => {
+    const { service, sessions } = makeService()
+    const dispose = service.register(definePage({
+      name: 'brief', url: '/apps/demo/brief/:briefId', description: '简报页',
+      instructions: '只读这份简报。',
+      load: async (params) => ({ id: params.briefId, lines: ['a', 'b'] }),
+      tree: () => [],
+    }) as never)
+    try {
+      const opened = await service.openUrl('/apps/demo/brief/7')
+      const block = (sessions.messages.get(opened.sessionId) ?? [])[0] ?? ''
+      expect(block).toContain('data: {"id":"7","lines":["a","b"]}')
+    } finally { dispose() }
+  })
+
+  it('首屏 load 的 env 带页面会话的预设 id（PageLoadEnv.preset，按预设隔离数据的应用据此解析归属）', async () => {
+    const { service, sessions } = makeService({ presetOf: (sessionId) => `preset-of-${sessionId}` })
+    const dispose = service.register(definePage({
+      name: 'brief', url: '/apps/demo/brief/:briefId', description: '简报页',
+      instructions: '只读这份简报。',
+      load: async (_params, env) => ({ preset: env.preset ?? null }),
+      tree: () => [],
+    }) as never)
+    try {
+      const opened = await service.openUrl('/apps/demo/brief/7')
+      const block = (sessions.messages.get(opened.sessionId) ?? [])[0] ?? ''
+      expect(block).toContain('data: {"preset":"preset-of-s-1"}')
+    } finally { dispose() }
+  })
+
+  it('首屏 load 抛错 → data 行如实给失败态（page/load-failed + 重试指引），不静默空白', async () => {
+    const { service, sessions } = makeService()
+    const dispose = service.register(definePage({
+      name: 'brief', url: '/apps/demo/brief/:briefId', description: '简报页',
+      instructions: '只读这份简报。',
+      load: async () => { throw new Error('boom') },
+      tree: () => [],
+    }) as never)
+    try {
+      const opened = await service.openUrl('/apps/demo/brief/7')
+      const block = (sessions.messages.get(opened.sessionId) ?? [])[0] ?? ''
+      expect(block).toContain('"code":"page/load-failed"')
+      expect(block).toContain('"message":"boom"')
+      expect(block).toContain('"retry":')
+    } finally { dispose() }
+  })
+
+  it('首屏 load 超时 → 失败态（§3.10.3 的超时兜底），会话照常建成', async () => {
+    vi.useFakeTimers()
+    try {
+      const { service, sessions } = makeService()
+      const dispose = service.register(definePage({
+        name: 'slow', url: '/apps/demo/slow/:snap', description: '慢页',
+        instructions: '慢慢读。',
+        load: () => new Promise<PageJsonValue>(() => {}),
+        tree: () => [],
+      }) as never)
+      try {
+        const opening = service.openUrl('/apps/demo/slow/1')
+        await vi.advanceTimersByTimeAsync(PAGE_LOAD_TIMEOUT_MS + 1)
+        const opened = await opening
+        const block = (sessions.messages.get(opened.sessionId) ?? [])[0] ?? ''
+        expect(block).toContain('"code":"page/load-failed"')
+        expect(block).toContain('timed out')
+      } finally { dispose() }
+    } finally { vi.useRealTimers() }
   })
 
   it('索引指向的会话被删除后：行失效并重建新会话', async () => {

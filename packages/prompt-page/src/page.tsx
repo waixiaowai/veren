@@ -14,6 +14,11 @@ import { PageError, PageErrorCode, assertAppUrlPattern, patternParamsOf } from '
 import type { PageDefinition, PageEventMap, PageIO, PageLoadEnv, PageJsonValue, PageMapEntry, PageParams, PagePresetSpec } from './types.ts'
 
 export type { PageEventMap, PageIO, PagePresetSpec } from './types.ts'
+// `Entity` 是 Keyed/Data 的 T 边界（页面数据的最小实体约束）：由本包一并出口，
+// 调用方不必为了给 `Keyed<T>` 定约束再去依赖 prompt-core。
+// `Entity` bounds `Keyed`/`Data`, so it ships with this package: callers must not
+// need a prompt-core dependency just to constrain `Keyed<T>`.
+export type { Entity } from '@veren/prompt-core'
 
 // ---- definePage ----
 

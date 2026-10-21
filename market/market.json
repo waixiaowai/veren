@@ -4,8 +4,8 @@
     "zh": "Veren DSH 插件市场"
   },
   "description": {
-    "en": "Profile bundles published by the Veren project: startup autostart, Person Agent, forum, notebook, admin console, Web login gate, CMS bridge, and session fork.",
-    "zh": "Veren 项目发布的 profile 组合包：启动自启动、管家 Person Agent、论坛、笔记本、管理台、Web 登录门禁、CMS 桥接与会话分叉。"
+    "en": "Profile bundles published by the Veren project: startup autostart, Sub2API operations, Person Agent, forum, notebook, admin console, Web login gate, CMS bridge, and session fork.",
+    "zh": "Veren 项目发布的 profile 组合包：启动自启动、Sub2API 运营、管家 Person Agent、论坛、笔记本、管理台、Web 登录门禁、CMS 桥接与会话分叉。"
   },
   "metadata": {
     "categories": {
@@ -53,6 +53,16 @@
       "category": "automation",
       "labels": ["official"],
       "keywords": ["startup", "autostart", "boot", "启动项"]
+    },
+    "@veren/sub2api-admin-bundle": {
+      "title": { "en": "Sub2API Operations", "zh": "Sub2API 运营" },
+      "description": {
+        "en": "Runs a Sub2API instance from DSH: an ops-console home page plus channels, groups, users, subscriptions, finance, redeem/promo codes, accounts, and usage pages, with eleven model-facing admin tools sharing one credential config.",
+        "zh": "在 DSH 里运营 Sub2API 实例：指挥台首页加渠道、分组、用户、订阅、资金、卡密、账号、用量九个页面，配十一个共凭据的管理工具。装好后按插件 README 配置 baseUrl 与管理员凭据即可用。"
+      },
+      "category": "platform",
+      "labels": ["official"],
+      "keywords": ["sub2api", "operations", "admin", "运营"]
     },
     "@veren/person-agent-bundle": {
       "title": { "en": "Person Agent", "zh": "管家" },

@@ -2,31 +2,19 @@
  * Model-facing tool definitions of the managed web instance. The tools only
  * read a snapshot or ask the lifecycle owner to restart; they never touch the
  * child process directly, so failures stay in the returned ERROR field.
+ *
+ * 工具定义直接走 `defineTool`（与仓库里其它工具插件同一路子）：参数、输出、
+ * 执行体的类型都由 schema 推导，本文件不再持有任何手写的工具类型。
+ * The tools are declared through `defineTool`, like every other tool plugin in
+ * this repository: parameters, output and body are all derived from the schema,
+ * so this file holds no hand-written tool types at all.
+ *
+ * @module @local/dsh-test/tools
  */
-import type { DshTestInfo, ToolDefinition } from './types.js'
-
-/** Shared JSON output contract of both instance tools. */
-const INFO_OUTPUT: ToolDefinition['output'] = {
-  schema: {
-    type: 'object',
-    additionalProperties: false,
-    required: ['DSH_HOME', 'DSH_SRC', 'STATUS'],
-    properties: {
-      WEB_URL: { type: 'string', description: 'Token-bearing access URL of the managed web instance.' },
-      DSH_HOME: { type: 'string' },
-      DSH_SRC: { type: 'string' },
-      PORT: {
-        type: 'integer',
-        minimum: 1,
-        maximum: 65535,
-        description: 'Target port pre-checked before launch; absent when the CLI picked the port and no check ran.',
-      },
-      STATUS: { type: 'string', enum: ['starting', 'ready', 'error'] },
-      ERROR: { type: 'string', description: 'Readable startup or restart failure reason; present only after a failure.' },
-    },
-  },
-  render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
-}
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { INFO_OUTPUT_SCHEMA } from './types.js'
+import type { DshTestInfo } from './types.js'
 
 /**
  * Build the two instance tools.
@@ -39,7 +27,7 @@ export function createInstanceTools(
   restart: () => Promise<DshTestInfo>,
 ): readonly ToolDefinition[] {
   return [
-    {
+    defineTool({
       name: 'get_dsh_test_info',
       description:
         'Read the managed dsh profile web instance launched by the dsh-test plugin: '
@@ -49,14 +37,17 @@ export function createInstanceTools(
         + 'This tool is read-only and never starts, stops, or repairs the instance; '
         + 'call restart_dsh_test when WEB_URL is unreachable or the instance must be recycled.',
       parameters: {},
-      output: INFO_OUTPUT,
+      output: {
+        schema: INFO_OUTPUT_SCHEMA,
+        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+      },
       isConcurrencySafe: () => true,
       async execute() {
         // Read-only snapshot; startup failures surface here instead of throwing.
         return read()
       },
-    },
-    {
+    }),
+    defineTool({
       name: 'restart_dsh_test',
       description:
         'Restart the managed dsh profile web instance: stop its current process tree, wait for the target port, '
@@ -67,12 +58,15 @@ export function createInstanceTools(
         + 'otherwise the CLI picks the port, no occupancy check or cleanup happens, and the result has no PORT. '
         + 'A failed restart reports STATUS=error and a readable ERROR instead of throwing.',
       parameters: {},
-      output: INFO_OUTPUT,
+      output: {
+        schema: INFO_OUTPUT_SCHEMA,
+        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+      },
       isConcurrencySafe: () => false,
       async execute() {
         // Queued after any in-flight startup; a second call restarts the fresh instance.
         return restart()
       },
-    },
+    }),
   ]
 }

@@ -28,7 +28,7 @@ import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as ForumApp from '../src/index.ts'
 import { Config as AppConfig, FORUM_APP_DEFINITION, FORUM_APP_ID } from '../src/index.ts'
-import { catalogPage, postPage } from '../src/pages.tsx'
+import { homeMapIssues } from '@veren/prompt-page'
 import ForumService, { Config as HostConfig } from '@veren/forum'
 
 /** The roots one spec's temp storage lives under, removed after the spec. 每条用例的临时存储根，测后删除。 */
@@ -147,13 +147,18 @@ describe('forum app discovery and resolution / 应用可发现与可解析', () 
   })
 
   it('every page URL lives under /apps/forum/, carries no preset, and titles its instances', async () => {
-    await mount()
-    for (const page of [catalogPage, postPage]) {
+    const { apps, fiber } = await mount()
+    // 页面是工厂（闭包持有装配端口），结构断言直接读注册表里挂好的实例
+    // / pages are factories (closing over the assembly port); structural asserts read the registered instances
+    const listed = apps.listPages(FORUM_APP_ID)
+    for (const page of listed) {
       expect(page.url.startsWith('/apps/forum/')).toBe(true)
       expect('preset' in page).toBe(false)
     }
-    expect(postPage.url).toBe('/apps/forum/post/:postId')
-    expect(postPage.instanceTitle?.({ postId: '12' })).toBe('主题 #12')
+    const post = listed.find((page) => page.name === 'post')
+    expect(post?.url).toBe('/apps/forum/post/:postId')
+    expect(post?.instanceTitle?.({ postId: '12' })).toBe('主题 #12')
+    await fiber.dispose()
   })
 
   it('page tools carry the forum__ external-name prefix', async () => {
@@ -219,5 +224,57 @@ describe('forum app lifecycle / 生命周期', () => {
     // HMR safety: the same context can mount the app again after disposal.
     // HMR 安全：卸载后同一上下文可以再次挂载应用。
     expect(apps.get(FORUM_APP_ID)).toBeUndefined()
+  })
+})
+
+describe('§3.10 页面信息组织：首页必须把该给的信息给全 / the home page hands over complete information', () => {
+  it('首页（entry）零结构问题：map 覆盖详情页模板、每条带"什么时候用"，且自带 load', async () => {
+    const { apps, fiber } = await mount()
+    const pages = apps.listPages(FORUM_APP_ID)
+    const entryKey = FORUM_APP_DEFINITION.entry
+    if (entryKey === undefined) throw new Error('the forum app must declare an entry page')
+    const home = pages.find((page) => page.name === entryKey)
+    if (home === undefined) throw new Error(`entry page ${entryKey} is not registered`)
+    // 判据：结构校验器零问题（map 非空、覆盖全部 :param 页、use 非空、指向已注册页面）
+    // / the criterion: zero issues from the structural checker (non-empty map, every :param page covered, non-empty use, registered targets)
+    expect(homeMapIssues(home, pages)).toEqual([])
+    expect(home.map?.map((entry) => entry.url)).toContain('/apps/forum/post/:postId')
+    expect(typeof home.load).toBe('function')
+    await fiber.dispose()
+  })
+
+  it('首页 load 读真实服务目录：板块、主题与可提及的人进首屏', async () => {
+    const { ctx, apps, fiber } = await mount()
+    const pages = apps.listPages(FORUM_APP_ID)
+    const home = pages.find((page) => page.name === FORUM_APP_DEFINITION.entry)
+    if (home === undefined || home.load === undefined) throw new Error('the catalog page must carry a load')
+    const screen = await home.load({}, {})
+    if (typeof screen !== 'object' || screen === null || Array.isArray(screen)) {
+      throw new Error('the catalog load must return a first-screen object')
+    }
+    expect('boards' in screen).toBe(true)
+    expect('posts' in screen).toBe(true)
+    expect('people' in screen).toBe(true)
+    await fiber.dispose()
+  })
+
+  it('详情页 load 按参数取该条主题与评论树（§3.10.3）', async () => {
+    const { ctx, apps, fiber } = await mount()
+    const pages = apps.listPages(FORUM_APP_ID)
+    const post = pages.find((page) => page.name === 'post')
+    if (post === undefined || post.load === undefined) throw new Error('the post page must carry a load')
+    // 发一篇真帖：真实服务面 → 详情页 load 取回同一条记录
+    // / publish a real post: the real service face → the detail load reads back that very record
+    const board = await ctx.forum.ensureBoardRemote({ workspaceId: 'ws-1', path: 'C:/work/demo' })
+    const created = await ctx.forum.toolsPort().publish({
+      boardId: board.id, author: 'standard', title: '首屏帖', body: '正文',
+    })
+    const screen = await post.load({ postId: created.value.id }, {})
+    if (typeof screen !== 'object' || screen === null || Array.isArray(screen)) {
+      throw new Error('the post load must return a first-screen object')
+    }
+    expect('post' in screen).toBe(true)
+    expect('comments' in screen).toBe(true)
+    await fiber.dispose()
   })
 })

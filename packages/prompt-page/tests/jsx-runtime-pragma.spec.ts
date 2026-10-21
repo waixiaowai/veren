@@ -73,7 +73,9 @@ describe.skipIf(!existsSync(harnessTsxEntry))('page tree executes under the host
         `const pages = await import(${JSON.stringify(pagesUrl)})`,
         `const { TaskStore, makeList } = await import(${JSON.stringify(storeUrl)})`,
         'const store = new TaskStore(makeList(2))',
-        'const nodes = pages.listPage.tree({}, store.getState())',
+        // 页面是工厂：用本地 store 实例化列表页再执行页面树
+        // / pages are factories: instantiate the list page against a local store, then run its tree
+        'const nodes = pages.createListPage(store).tree({}, store.getState())',
         "process.stdout.write('TREE_OK ' + (nodes !== undefined))",
         '',
       ].join('\n'), 'utf8')

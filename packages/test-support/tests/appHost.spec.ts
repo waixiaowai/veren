@@ -28,14 +28,27 @@ function requireRegistries(host: AppHost): { apps: AppRegistryService; pageRegis
   return { apps: host.apps, pageRegistry: host.pageRegistry }
 }
 
-/** 注册一个一页一工具的迷你应用 / register a mini app with one page and one tool */
+/** 注册一个两级一工具的迷你应用（§3.10 合规夹具）/ register a mini app with two levels and one tool (a §3.10-compliant fixture) */
 function registerMiniApp(host: AppHost, scope: Context): void {
   const { apps } = requireRegistries(host)
   apps.register({
     id: MINI_APP_ID, name: 'mini', description: '装配验证应用', entry: MINI_ENTRY,
   }, scope)
-  apps.pages(MINI_APP_ID, scope).register(defineAppPage<never>({
-    name: 'main', url: '/apps/mini/main', description: '主页', tree: () => [],
+  const pages = apps.pages(MINI_APP_ID, scope)
+  // 一级页（entry）：无参 + 非空能力地图（§3.10.5 规则 1）
+  // / the home page (entry): parameter-free with a non-empty map (§3.10.5 rule 1)
+  pages.register(defineAppPage<never>({
+    name: 'main', url: '/apps/mini/main', description: '主页',
+    instructions: 'mini 首页。',
+    map: [{ url: '/apps/mini/doc/:docId', use: '查看某一篇文档时打开' }],
+    tree: () => [],
+  }))
+  // 二级页：带 :param + writes + 工具 + 说明（§3.10.5 规则 3）
+  // / the detail page: a :param plus writes, a tool and instructions (§3.10.5 rule 3)
+  pages.register(defineAppPage<never>({
+    name: 'doc', url: '/apps/mini/doc/:docId', description: '文档页',
+    tools: ['read'], writes: true, instructions: '只处理 params.docId 指定的这一篇文档。',
+    tree: () => [],
   }))
   apps.tools(MINI_APP_ID, scope).define(defineTool({
     name: 'read', description: '读取', parameters: {},

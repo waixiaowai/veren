@@ -15,8 +15,10 @@ import z from '@deepseek-ai/schemastery';
 import { deviceIdDomain } from './domain.js';
 import { DeviceIdService, portablePlatform, resolveDeviceId } from './service.js';
 import { DeviceIdToken, DeviceIdPlatformToken, DeviceId } from './protocol.js';
-import type { DeviceIdRecord, DeviceIdSource } from './protocol.js';
-import type { DomainGlobal } from '@deepseek-ai/dsh-storage-domain';
+import type { DeviceIdSource } from './protocol.js';
+// 类型-only import：只为拉取 dsh-storage-domain 的 declaration merging（ctx.storageDomain）。
+// type-only import: pulls the declaration merge that declares ctx.storageDomain.
+import type {} from '@deepseek-ai/dsh-storage-domain';
 
 export { DeviceIdToken, DeviceIdPlatformToken, DeviceId } from './protocol.js';
 export type { DeviceIdSource, DeviceIdRecord, DeviceIdPlatform } from './protocol.js';
@@ -51,9 +53,9 @@ export const Config: z<Config> = z.object({});
  */
 export const apply = async (ctx: Context, _config: Config): Promise<void> => {
   const domain = await ctx.storageDomain.open(deviceIdDomain);
-  // rc.1 的类型面未发布，这里把 global 槽窄化为我们的记录类型。
-  // the rc.1 type surface is unpublished; narrow the global slot to our record type.
-  const globalStore = domain.global as unknown as DomainGlobal<DeviceIdRecord>;
+  // `global` 由 spec 推导（DomainGlobalHandleOf）：不写断言、不重复声明记录类型。
+  // `global` is derived from the spec (DomainGlobalHandleOf): no cast, no second copy.
+  const globalStore = domain.global;
   const platform = ctx.get(DeviceIdPlatformToken) ?? portablePlatform;
   const resolved = resolveDeviceId({ stored: globalStore.get(), platform, now: Date.now() });
   const service = new DeviceIdService(ctx, resolved.id, resolved.source, globalStore, platform);

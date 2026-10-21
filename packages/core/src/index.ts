@@ -9,6 +9,17 @@
  */
 
 import { Context, Service, type Tracker } from '@deepseek-ai/cordis';
+
+/**
+ * 无损 JSON 投影的唯一出口：`Json` / `JsonShape` / `jsonOf`。
+ * The single home of the lossless JSON projection.
+ *
+ * NodeNext 解析下相对导入写 `.js`（本包 tsc 直出 JS，不用 allowImportingTsExtensions）。
+ * Relative specifiers carry `.js` under NodeNext: this package emits JS with plain tsc.
+ */
+export type { Json, JsonShape } from './json.js'
+export { jsonOf } from './json.js'
+
 const TOKEN = Symbol.for('@veren/core/token')
 export type Token<T> = string & { readonly [TOKEN]?: T }
 export const defineToken = <T>(desc: string): Token<T> => {

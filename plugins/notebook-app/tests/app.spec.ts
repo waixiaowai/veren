@@ -28,7 +28,7 @@ import { PageRegistryService } from '@veren/page-registry'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
-import type { PageDefinition } from '@veren/prompt-page'
+import { homeMapIssues } from '@veren/prompt-page'
 import * as NotebookApp from '../src/index.ts'
 import { APP_DEFINITION, APP_ID, Config as AppConfig } from '../src/index.ts'
 import type { NoteSummary, NoteView } from '@veren/notebook'
@@ -152,7 +152,10 @@ describe('应用可发现与可解析 / discoverable and resolvable', () => {
       expect(page.url.startsWith('/apps/notebook/')).toBe(true)
       expect('preset' in page).toBe(false)
     }
-    const note = apps.listPages(APP_ID).find((page) => page.name === 'note') as PageDefinition<NoteView | undefined>
+    // 页面是工厂（闭包持有装配端口），结构断言直接读注册表里挂好的实例
+    // / pages are factories (closing over the assembly port); structural asserts read the registered instances
+    const note = apps.listPages(APP_ID).find((page) => page.name === 'note')
+    if (note === undefined) throw new Error('the note page is not registered')
     expect(note.url).toBe('/apps/notebook/note/:noteId')
     expect(note.instanceTitle?.({ noteId: '7' })).toBe('笔记 #7')
 
@@ -213,5 +216,59 @@ describe('生命周期 / lifecycle', () => {
     expect(apps.catalog()).toHaveLength(0)
     expect(pageRegistry.resolve('/apps/notebook/list')).toBeNull()
     expect(pageRegistry.resolve('/apps/notebook/note/n-1')).toBeNull()
+  })
+})
+
+describe('§3.10 页面信息组织：首页必须把该给的信息给全 / the home page hands over complete information', () => {
+  it('首页（entry）零结构问题：map 覆盖详情页模板、每条带"什么时候用"，且自带 load', async () => {
+    const { apps, fiber } = await mount()
+    const pages = apps.listPages(APP_ID)
+    const entryKey = APP_DEFINITION.entry
+    if (entryKey === undefined) throw new Error('the notebook app must declare an entry page')
+    const home = pages.find((page) => page.name === entryKey)
+    if (home === undefined) throw new Error(`entry page ${entryKey} is not registered`)
+    // 判据：结构校验器零问题（map 非空、覆盖全部 :param 页、use 非空、指向已注册页面）
+    // / the criterion: zero issues from the structural checker (non-empty map, every :param page covered, non-empty use, registered targets)
+    expect(homeMapIssues(home, pages)).toEqual([])
+    expect(home.map?.map((entry) => entry.url)).toContain('/apps/notebook/note/:noteId')
+    expect(typeof home.load).toBe('function')
+    await fiber.dispose()
+  })
+
+  it('首页 load 按页面会话的预设取真实笔记列表：归属未知如实降级，不编造', async () => {
+    const { apps, fiber } = await mount()
+    const pages = apps.listPages(APP_ID)
+    const home = pages.find((page) => page.name === APP_DEFINITION.entry)
+    if (home === undefined || home.load === undefined) throw new Error('the list page must carry a load')
+    // 归属未知（env.preset 缺席）→ available=false，绝不跨预设读数据
+    // / unknown owner (env.preset absent) → available=false; another preset's notes are never read
+    expect(await home.load({}, {})).toMatchObject({ available: false, owner: null, notes: [] })
+    // 写一条真笔记 → 同一预设的首页首屏能看到它
+    // / write a real note → the same preset's home first screen lists it
+    const exec = execution('ada')
+    const toolOf = (name: string): AppTool => apps.listTools(APP_ID).find((tool) => tool.name === name)!
+    const created = toolValue<{ note: NoteView }>(await toolOf('write_note').execute({ title: 'Plan', body: 'x' }, exec))
+    const screen = await home.load({}, { preset: 'ada' })
+    if (typeof screen !== 'object' || screen === null || Array.isArray(screen)) {
+      throw new Error('the list load must return a first-screen object')
+    }
+    expect(screen).toMatchObject({ available: true, owner: 'ada' })
+    expect(JSON.stringify(screen)).toContain(created.note.id)
+    await fiber.dispose()
+  })
+
+  it('详情页 load 按参数取该条笔记（§3.10.3）：归属对得上才给，别人的笔记如实找不到', async () => {
+    const { apps, fiber } = await mount()
+    const pages = apps.listPages(APP_ID)
+    const note = pages.find((page) => page.name === 'note')
+    if (note === undefined || note.load === undefined) throw new Error('the note page must carry a load')
+    const exec = execution('ada')
+    const toolOf = (name: string): AppTool => apps.listTools(APP_ID).find((tool) => tool.name === name)!
+    const created = toolValue<{ note: NoteView }>(await toolOf('write_note').execute({ title: 'Plan', body: 'x' }, exec))
+    const screen = await note.load({ noteId: created.note.id }, { preset: 'ada' })
+    expect(screen).toMatchObject({ owner: 'ada', note: { id: created.note.id, title: 'Plan' } })
+    // 归属不匹配 = 笔记不存在（存储按预设隔离）/ a mismatched owner = the note does not exist (preset-scoped storage)
+    await expect(note.load({ noteId: created.note.id }, { preset: 'bob' })).rejects.toMatchObject({ code: 'notebook/note-not-found' })
+    await fiber.dispose()
   })
 })

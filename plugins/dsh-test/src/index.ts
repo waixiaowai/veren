@@ -18,7 +18,13 @@ import { fileURLToPath } from 'node:url'
 import { buildLaunchArgs, preparePort, resolveTargetPort } from './port.js'
 import { childEnvironment, errorMessage, terminateProcessTree } from './process.js'
 import { createInstanceTools } from './tools.js'
-import type { DshTestConfig, DshTestInfo, PluginContext, StandardValidation } from './types.js'
+import type { DshTestConfig, DshTestInfo, StandardValidation } from './types.js'
+// Cordis 的真实上下文类型；`import type {}` 只拉取 dsh-tools 的 declaration
+// merging（ctx.tools），本插件不再手写一份 ToolRegistry/PluginContext。
+// The real Cordis context type; the bare type import only pulls the dsh-tools
+// declaration merge (ctx.tools), so no hand-written ToolRegistry/PluginContext.
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-tools'
 
 /** Startup line the production web runner prints once its listener is ready. */
 const READY_URL_PATTERN = /dsh web: (\S+)/u
@@ -121,7 +127,7 @@ export const inject = ['tools'] as const
  * @param config - validated {@link DshTestConfig} values.
  * @returns the effect disposer releasing the tools and the subprocess.
  */
-export function apply(ctx: PluginContext, config: DshTestConfig) {
+export function apply(ctx: Context, config: DshTestConfig) {
   return ctx.effect(() => {
     const srcDir = config.srcDir ?? defaultSrcDir()
     const dshHome = config.dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh')

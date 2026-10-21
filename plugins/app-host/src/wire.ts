@@ -27,11 +27,14 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
 import type {} from '@veren/task-center'
+// 类型-only import：ctx.tools 来自 dsh-tools 的 declaration merging（本文件 `ctx.tools.register` 用它）
+// type-only import: ctx.tools comes from the dsh-tools declaration merge.
+import type {} from '@deepseek-ai/dsh-tools'
 import type { AppId } from '@veren/app-registry'
 import { createBootstrapTools } from '@veren/app-registry'
 import { createAppOpenTool, createPageSendTool } from '@veren/page-registry'
 import { pageToolWarning } from '@veren/prompt-page'
-import { createRealSessionPort } from './session-port.ts'
+import { createPresetOf, createRealSessionPort } from './session-port.ts'
 import { createPageDataSync, DEFAULT_PAGE_DATA_CAPS } from './page-sync.ts'
 import type { PageDataCaps } from './page-sync.ts'
 
@@ -191,6 +194,8 @@ export function wireAppHost(ctx: Context, options: WireAppHostOptions = {}): () 
       // / focus keeps its default (eventFocus); the PAGE-DATA hub travels as the injection-face parameter
       sessions: createRealSessionPort(ctx, undefined, pageSync),
       apps,
+      // 页面会话归属（§3.10.3 PageLoadEnv.preset 的来源）/ page-session ownership
+      presetOf: createPresetOf(ctx),
       // 目录值就是 DSH ToolDefinition 本体；单应用目录异常不炸整面（回空目录）
       toolsOf: (appId) => {
         try {

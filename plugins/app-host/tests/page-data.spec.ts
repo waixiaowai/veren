@@ -82,7 +82,7 @@ function mountSession(hub: PageDataSyncHub, ctx: Context, sessionId: string, ite
   const view: PageSession<never> = mountPage({ page, store, params: { id: '1' } })
   hub.port.bind(sessionId, view, { pageKey: 'demo/board', url: '/apps/demo/board/1' })
   const agent = makeAgent(ctx, sessionId)
-  const detach = hub.attach(sessionId, agent)
+  const detach = hub.attach(sessionId, agent as unknown as Agent)
   return { store, view, agent, detach }
 }
 
@@ -101,7 +101,15 @@ async function runPreStep(ctx: Context, agent: FakeAgent, claimed: UserMessage[]
 
 /** 一条用户消息的便捷构造 / a user-message convenience constructor */
 function user(text: string): UserMessage {
-  return createUserMessage({ content: [{ type: 'text', text }] })
+  return createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+}
+
+/** 取决策里被认领的消息：PreStepDecision 是可判别联合，reject 在测试里就是失败
+ * / the messages a decision admits: PreStepDecision is a discriminated union, and a
+ * reject decision is a test failure here */
+function messagesOf(decision: PreStepDecision): readonly UserMessage[] {
+  if (decision.kind !== 'enter') throw new Error('expected the pre-step to admit messages, got a reject decision')
+  return decision.messages
 }
 
 /** 消息里的文本 / the text inside one message */
@@ -111,8 +119,9 @@ function textOf(message: UserMessage): string {
 
 /** 取最后一个 PAGE-DATA 块的 data 载荷 / the data payload of the last PAGE-DATA block */
 function pageDataPayload(decision: PreStepDecision): { header: string; data: Record<string, unknown> } | undefined {
-  for (let index = decision.messages.length - 1; index >= 0; index -= 1) {
-    const text = textOf(decision.messages[index]!)
+  const messages = messagesOf(decision)
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const text = textOf(messages[index]!)
     if (!text.startsWith('PAGE-DATA ')) continue
     const [header, dataLine] = text.split('\n')
     return { header: header ?? '', data: JSON.parse((dataLine ?? '').slice('data: '.length)) as Record<string, unknown> }
@@ -150,7 +159,7 @@ describe('PAGE-DATA 同步（§3.10.2）：store 变化 → 下一轮模型请�
     // The injected version advanced: no change → no injection next turn
     const third = await runPreStep(ctx, agent, [user('第三轮')])
     expect(pageDataPayload(third)).toBeUndefined()
-    expect(third.messages).toHaveLength(1)
+    expect(messagesOf(third)).toHaveLength(1)
   })
 
   it('②顺序钉死：page_send 的已认领消息在前，PAGE-DATA 追加在后', async () => {
@@ -161,8 +170,8 @@ describe('PAGE-DATA 同步（§3.10.2）：store 变化 → 下一轮模型请�
     // followup（page_send 语义）先入队，成为下一轮的已认领消息
     // The followup (page_send semantics) enqueues first and becomes the claimed message
     const decision = await runPreStep(ctx, agent, [user('page/send 投递文本')])
-    expect(textOf(decision.messages[0]!)).toBe('page/send 投递文本')
-    expect(textOf(decision.messages[1]!).startsWith('PAGE-DATA ')).toBe(true)
+    expect(textOf(messagesOf(decision)[0]!)).toBe('page/send 投递文本')
+    expect(textOf(messagesOf(decision)[1]!).startsWith('PAGE-DATA ')).toBe(true)
   })
 
   it('③多会话隔离：只有本会话的 agent 收到本会话页面的注入', async () => {
@@ -180,7 +189,7 @@ describe('PAGE-DATA 同步（§3.10.2）：store 变化 → 下一轮模型请�
     expect(JSON.stringify(pageDataPayload(decisionA)?.data)).toContain('α的新变化')
     const decisionB = await runPreStep(ctx, b.agent, [user('B 轮')])
     expect(pageDataPayload(decisionB)).toBeUndefined()
-    expect(decisionB.messages).toHaveLength(1)
+    expect(messagesOf(decisionB)).toHaveLength(1)
   })
 
   it('④废弃（unbind）后：视图退订（版本不再前进），agent 再跑 pre-step 零注入', async () => {
@@ -237,7 +246,7 @@ describe('PAGE-DATA 同步（§3.10.2）：store 变化 → 下一轮模型请�
     const view: PageSession<never> = mountPage({ page, store, params: { id: '1' } })
     hub.port.bind('s-1', view, { pageKey: 'demo/board', url: '/apps/demo/board/1' })
     const agent = makeAgent(ctx, 's-1')
-    hub.attach('s-1', agent)
+    hub.attach('s-1', agent as unknown as Agent)
     store.mutate([{ id: 'i-1', title: '任务' }, { id: 'i-2', title: '新任务' }])
     const decision = await runPreStep(ctx, agent, [user('大值轮')])
     const payload = pageDataPayload(decision)

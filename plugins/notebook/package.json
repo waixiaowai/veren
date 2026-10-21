@@ -35,9 +35,11 @@
     "@deepseek-ai/dsh-typert-protocol": ">=0.2.1-rc.2 <0.3.0"
   },
   "dependencies": {
+    "@veren/core": "workspace:^",
     "@deepseek-ai/schemastery": "^3.18.4"
   },
   "devDependencies": {
+    "@veren/core": "workspace:^",
     "@deepseek-ai/cordis": "^4.0.5",
     "@deepseek-ai/dsh-agent": "0.2.1-rc.2",
     "@deepseek-ai/dsh-agent-preset-registry": "0.2.1-rc.2",

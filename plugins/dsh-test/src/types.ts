@@ -1,3 +1,19 @@
+/**
+ * dsh-test types: the Config the launch reads, and the tool output contract.
+ *
+ * 输出契约只有一处声明：schema 用 DSH 的 `ValueSchemaSpec` 写死，`DshTestInfo`
+ * 由 `InferValue` 从它推导。以前这里是「手写 interface + 手写 JSON Schema」两份，
+ * 而那份 schema 还带着 DSH 强制子集不接受的 `minimum`/`maximum`（会在注册期被
+ * 拒绝），类型改不动 schema、schema 也改不动类型。
+ * The output contract has exactly one declaration: the schema is authored once in
+ * DSH's `ValueSchemaSpec` and `DshTestInfo` is inferred from it. It used to be a
+ * hand-written interface beside a hand-written JSON Schema — and that schema
+ * carried `minimum`/`maximum`, which the enforced subset rejects at registration.
+ *
+ * @module @local/dsh-test/types
+ */
+import type { InferValue, ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
+
 /** Request for one `dsh web` launch after Config validation. */
 export interface DshTestConfig {
   /** Executable that launches the dsh CLI, for example `pnpm` or an absolute `dsh` path. */
@@ -16,58 +32,30 @@ export interface DshTestConfig {
   startupTimeoutMs: number
 }
 
-/** One model-facing content block; this plugin only renders plain text. */
-export interface TextContentBlock {
-  type: 'text'
-  text: string
-}
-
-/** Canonical JSON output contract of the instance tools. */
-export interface DshTestInfo {
-  /** Token-bearing access URL of the managed web instance; present once ready. */
-  WEB_URL?: string | undefined
-  /** Harness home directory. */
-  DSH_HOME: string
-  /** Source directory of the deepseek-harness checkout. */
-  DSH_SRC: string
-  /**
-   * Target port pre-checked before launch; absent when neither `port` nor a
-   * `--port` argument was configured, so the CLI picked the port itself.
-   */
-  PORT?: number | undefined
-  /** Lifecycle of the managed instance. */
-  STATUS: 'starting' | 'ready' | 'error'
-  /** Readable startup or restart failure reason; present only after a failure. */
-  ERROR?: string | undefined
-}
-
 /**
- * The subset of the Cordis tool registry this plugin consumes. Full
- * `@deepseek-ai/cordis` typings live in the harness tree; the bundle stays
- * dependency-free and validates its Config through the Standard Schema.
+ * Canonical output schema of the instance tools (the enforced DSH subset:
+ * `required` is a per-property annotation, numeric bounds are not part of it).
+ * 实例工具的规范输出 schema（DSH 强制子集：`required` 是逐属性注解，数值上下限
+ * 不属于该子集）。
  */
-export interface ToolRegistry {
-  register(definition: ToolDefinition): () => void
-}
+export const INFO_OUTPUT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    WEB_URL: { type: 'string', description: 'Token-bearing access URL of the managed web instance; present once ready.' },
+    DSH_HOME: { type: 'string', required: true, description: 'Harness home directory.' },
+    DSH_SRC: { type: 'string', required: true, description: 'Source directory of the deepseek-harness checkout.' },
+    PORT: {
+      type: 'integer',
+      description: 'Target port pre-checked before launch; absent when the CLI picked the port and no check ran.',
+    },
+    STATUS: { type: 'string', enum: ['starting', 'ready', 'error'], required: true, description: 'Lifecycle of the managed instance.' },
+    ERROR: { type: 'string', description: 'Readable startup or restart failure reason; present only after a failure.' },
+  },
+} as const satisfies ValueSchemaSpec
 
-/** Minimal Cordis context carrying the declared injections and effect scope. */
-export interface PluginContext {
-  tools: ToolRegistry
-  effect(register: () => () => void | Promise<void>): () => Promise<void>
-}
-
-/** A registered tool: schema plus execution function (structural subset). */
-export interface ToolDefinition {
-  name: string
-  description: string
-  parameters: Record<string, unknown>
-  output: {
-    schema: Record<string, unknown>
-    render(args: unknown, value: DshTestInfo): TextContentBlock[]
-  }
-  isConcurrencySafe?(args: unknown): boolean
-  execute(args: unknown, exec: { signal: AbortSignal }): Promise<DshTestInfo>
-}
+/** Canonical output value of the instance tools, inferred from the schema. */
+export type DshTestInfo = InferValue<typeof INFO_OUTPUT_SCHEMA>
 
 /** Standard Schema validation result. */
 export type StandardValidation =

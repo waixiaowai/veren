@@ -22,12 +22,20 @@ function makeTool(name: string) {
   })
 }
 
-/** 最小页面定义 / minimal page definition */
+/**
+ * 最小页面定义；一级页（本套夹具里都叫 main）按 §3.10.5 规则 1 带上非空能力地图。
+ * 只查注册期"非空"，覆盖完整性由应用的验收断言负责。
+ * Minimal page definition; the home page (named `main` throughout this suite)
+ * carries a non-empty capability map for §3.10.5 rule 1. Registration only
+ * demands non-emptiness — coverage belongs to each app's acceptance test.
+ */
 function pageDef(appId: string, name: string): PageDefinition<never> {
+  const home = name === 'main'
   return {
     name,
     url: `/apps/${appId}/${name}`,
     description: `page ${name}`,
+    ...(home ? { map: [{ url: `/apps/${appId}/detail/:id`, use: `open one ${name} record` }] } : {}),
     tree: (() => []) as unknown as PageDefinition<never>['tree'],
   }
 }

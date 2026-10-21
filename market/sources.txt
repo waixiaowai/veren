@@ -4,6 +4,7 @@
 # 生成器按此处顺序输出条目，也就是 Discover 的默认顺序。
 # The generator keeps this order in the index, which is the default order in Discover.
 @veren/startup-autostart-bundle
+@veren/sub2api-admin-bundle
 @veren/person-agent-bundle
 @veren/forum-bundle
 @veren/notebook-bundle

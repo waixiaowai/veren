@@ -13,14 +13,36 @@
     "./icon": "./icon.svg"
   },
   "types": "./dist/index.d.ts",
-  "files": ["dist/index.js", "dist/index.d.ts", "dist/port.js", "dist/port.d.ts", "dist/process.js", "dist/process.d.ts", "dist/tools.js", "dist/tools.d.ts", "dist/types.js", "dist/types.d.ts", "cordis.patch.yml", "locale/*.json", "icon.svg"],
+  "files": [
+    "dist/index.js",
+    "dist/index.d.ts",
+    "dist/port.js",
+    "dist/port.d.ts",
+    "dist/process.js",
+    "dist/process.d.ts",
+    "dist/tools.js",
+    "dist/tools.d.ts",
+    "dist/types.js",
+    "dist/types.d.ts",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
     "typescript": "^5.9.3"
   },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" }
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0"
   }
 }
