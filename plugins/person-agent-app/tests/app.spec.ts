@@ -214,8 +214,8 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     const { host } = mountPage(OverviewPage, OverviewMeta, ctx)
     // 同步面（apps/workspaces）正文直读：首帧即真实数据，无 loading 态
     // / sync faces (apps/workspaces) read straight in the body: real data on frame 1, no loading state
-    expect(host.bodyText()).toContain('主工作区（会话账目 2）')
-    expect(host.bodyText()).toContain('副工作区（会话账目 0）')
+    expect(host.bodyText()).toContain('主工作区（id: ws-1；会话账目 2）')
+    expect(host.bodyText()).toContain('副工作区（id: ws-2；会话账目 0）')
     expect(host.bodyText()).toContain('工作区 2 个')
     expect(host.bodyText()).toContain('Person Agent')
     expect(host.bodyText()).toContain('读取中')
@@ -227,8 +227,28 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     const { ctx, fiber } = await install({ openTitles: [] })
     disposers.push(() => fiber.dispose())
     const { host } = mountPage(WorkspacesPage, WorkspacesMeta, ctx)
-    expect(host.bodyText()).toContain('主工作区（会话账目 2）')
+    expect(host.bodyText()).toContain('主工作区（id: ws-1；会话账目 2）')
     expect(host.bodyText()).toContain('共 2 个工作区')
+  })
+
+  it('工作区 id 进正文：工具按 id 解析，正文必须给出 id（标题只是展示名）', async () => {
+    const { ctx, fiber } = await install({ openTitles: [] })
+    disposers.push(() => fiber.dispose())
+    // 真机教训：正文只渲染标题（default-workspace）时，模型会把标题当 id 传进
+    // workspace_session_list，得到 WORKSPACE_NOT_FOUND——promise 必须带事实来源。
+    // / Live-host lesson: when the body rendered only titles (default-workspace),
+    // the model passed the title as the id and got WORKSPACE_NOT_FOUND — every
+    // promise must carry its source of fact.
+    const workspacesBody = mountPage(WorkspacesPage, WorkspacesMeta, ctx).host.bodyText()
+    expect(workspacesBody).toContain('id: ws-1')
+    expect(workspacesBody).toContain('id: ws-2')
+    // 概览页同样带来下钻/建会话工具，正文也必须给 id
+    // / the overview mounts the same drilldown/create tools, so its body must carry ids too
+    const overviewBody = mountPage(OverviewPage, OverviewMeta, ctx).host.bodyText()
+    expect(overviewBody).toContain('id: ws-1')
+    // 说明必须指向 id 而不是标题 / the instructions must point at the id, not the title
+    expect(WorkspacesMeta.instructions).toContain('id:')
+    expect(OverviewMeta.instructions).toContain('id:')
   })
 })
 
@@ -273,7 +293,7 @@ describe('真实数据与读取失败降级', () => {
     const { host } = mountPage(OverviewPage, OverviewMeta, ctx)
     // 同步区首帧照常真实；失败显式降级进正文（不抛异常、不编造）
     // / sync sections stay real on frame 1; the failure degrades explicitly into the body (no throw, no faking)
-    expect(host.bodyText()).toContain('主工作区（会话账目 2）')
+    expect(host.bodyText()).toContain('主工作区（id: ws-1；会话账目 2）')
     await vi.waitFor(() => expect(host.bodyText()).toContain('任务中心读取失败：storage backend down'))
   })
 
@@ -281,7 +301,7 @@ describe('真实数据与读取失败降级', () => {
     const withWorkspaces = await install()
     disposers.push(() => withWorkspaces.fiber.dispose())
     const { host } = mountPage(WorkspacesPage, WorkspacesMeta, withWorkspaces.ctx)
-    expect(host.bodyText()).toContain('主工作区（会话账目 2）')
+    expect(host.bodyText()).toContain('主工作区（id: ws-1；会话账目 2）')
     const empty = await install({ workspaces: [] })
     disposers.push(() => empty.fiber.dispose())
     const { host: emptyHost } = mountPage(WorkspacesPage, WorkspacesMeta, empty.ctx)

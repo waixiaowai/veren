@@ -184,3 +184,15 @@
   节点 3080 已重启（浏览器需刷新以加载新 client rev）。
 - 注：控制台另有 `/open-in-app/apps` 404，来自 harness 的 dsh-client-ui-open-in-app
   核心插件（本 profile 未挂该路由），与本次下拉无关。
+
+### 第五轮：WORKSPACE_NOT_FOUND——正文只渲染标题，工具按 id 解析（2026-10-22）
+- 现象：页面会话里模型调 workspace_session_list({workspaceId:"default-workspace"})
+  与 {workspaceId:"default"} 都报 workspace not found；概览页正文只有
+  「- default-workspace（会话账目 11）」——标题当 id。
+- 根因：注册表 id 是 UUID（3b8f996d-…），title 才是 default-workspace；页面正文
+  从未渲染 id，而 instructions 声称"workspaceId 取行内 id"——承诺没有事实来源。
+- 修复：两页正文行改为「标题（id: <uuid>；会话账目 N）」；instructions 与页内
+  blockquote 点名"取 id: 之后的完整值，不是标题、也不是标题的连字符形式"；新增
+  回归测试钉住两页正文都必须出现 id 且说明指向 id。
+- 发布 person-agent-app@0.1.6；profile 全新安装（0.1.6），节点 3080 已重启。
+- 附注：PAGE-DATA 空快照是已删旧管线的残影，不影响；模型可见的事实只有正文。

@@ -97,7 +97,7 @@ export const OverviewPage: PageFC = (_props, ctx) => {
       <h2>工作区</h2>
       <ul>
         {rows.map((workspace) => (
-          <li key={workspace.id}>{workspace.title}（会话账目 {workspace.sessionIds.length}）</li>
+          <li key={workspace.id}>{workspace.title}（id: {workspace.id}；会话账目 {workspace.sessionIds.length}）</li>
         ))}
       </ul>
       <h2>待办任务</h2>
@@ -105,7 +105,8 @@ export const OverviewPage: PageFC = (_props, ctx) => {
         ? <p>任务中心读取失败：{taskError}——如实告知用户，不要编造数字。</p>
         : <p>{openTasks === null ? '读取中…' : `open 任务 ${openTasks.length} 条（live 自任务中心）`}</p>}
       <blockquote>
-        要看某个工作区的会话明细，用本页挂载的 workspace_session_list 工具（workspaceId 取上面工作区条目）现查；
+        要看某个工作区的会话明细，用本页挂载的 workspace_session_list 工具：workspaceId 取上面行内
+        “id:” 之后的完整值（不是标题，也不是把标题改写成连字符形式）；标题只是展示名，注册表按 id 解析。
         apps 区与 tasks 区不提供下钻，只报快照；任务区读取失败时正文如实标注原因。
       </blockquote>
     </>
@@ -123,12 +124,14 @@ export const OverviewMeta: ComponentPageMeta = {
   // / this page registers action tools (session_create / session_rename); declare the write intent honestly
   writes: true,
   instructions: '这是 Person Agent 的首页（个人工作台概览）。正文即真实状态：'
-    + 'apps 区来自应用目录（正文直读），workspaces 区来自工作区注册表（正文直读），'
+    + 'apps 区来自应用目录（正文直读），workspaces 区来自工作区注册表（正文直读，每行带工作区 id），'
     + 'tasks 区来自任务中心的 open 任务计数（挂载后异步刷新）。'
     + '任务区读取失败时正文会如实标注失败原因——如实告知用户，不要编造数字。'
-    + '本页挂载三个工具：workspace_session_list（查某工作区的会话明细，workspaceId 取正文工作区条目的 id）、'
-    + 'session_create（新建会话，workspaceId 取正文工作区条目的 id，省略则继承当前会话的工作区）、'
+    + '本页挂载三个工具：workspace_session_list（查某工作区的会话明细）、'
+    + 'session_create（新建会话，省略 workspaceId 则继承当前会话的工作区）、'
     + 'session_rename（按 sessionId 改会话标题，sessionId 先用 workspace_session_list 查）。'
+    + '两个需要 workspaceId 的工具都取正文行内 “id:” 之后的完整值——不是标题，也不是标题的连字符形式；'
+    + '标题只是展示名，注册表按 id 解析。'
     + 'apps 区与 tasks 区本页不提供下钻，只报快照。',
   instanceTitle: () => '个人工作台',
 }
@@ -149,14 +152,15 @@ export const WorkspacesPage: PageFC = (_props, ctx) => {
   return (
     <>
       <h1>Person Agent · 工作区浏览</h1>
-      <p>共 {rows.length} 个工作区（标题/会话账目数），只读。</p>
+      <p>共 {rows.length} 个工作区（标题与 id/会话账目数）。</p>
       <ul>
         {rows.map((workspace) => (
-          <li key={workspace.id}>{workspace.title}（会话账目 {workspace.sessionIds.length}）</li>
+          <li key={workspace.id}>{workspace.title}（id: {workspace.id}；会话账目 {workspace.sessionIds.length}）</li>
         ))}
       </ul>
       <blockquote>
-        要看某个工作区的会话明细，用 workspace_session_list 传 workspaceId 查询；该数据源不可用时如实说明。
+        要看某个工作区的会话明细，用 workspace_session_list 传 workspaceId——取行内 “id:” 之后的完整值
+        （标题只是展示名，注册表按 id 解析）；建会话时 workspaceId 同理。该数据源不可用时如实说明。
       </blockquote>
     </>
   )
@@ -170,9 +174,10 @@ export const WorkspacesMeta: ComponentPageMeta = {
   // 本页注册了动作工具（session_create），如实声明写意图
   // / this page registers an action tool (session_create); declare the write intent honestly
   writes: true,
-  instructions: '这是工作区浏览页。正文每行是一个工作区（标题/会话账目数）。'
-    + '本页挂载两个工具：workspace_session_list（查某工作区的会话明细，workspaceId 取行内 id）、'
-    + 'session_create（在该工作区新建会话，workspaceId 取行内 id；标题可选）。'
-    + '该数据源不可用时如实说明。',
+  instructions: '这是工作区浏览页。正文每行是一个工作区：标题（展示名）、id: 后的完整工作区 id、会话账目数。'
+    + '本页挂载两个工具：workspace_session_list（查某工作区的会话明细）、'
+    + 'session_create（在该工作区新建会话，标题可选）。'
+    + '两个工具的 workspaceId 都取行内 “id:” 之后的完整值——不是标题，也不是标题的连字符形式；'
+    + '标题只是展示名，注册表按 id 解析。该数据源不可用时如实说明。',
   instanceTitle: () => '工作区浏览',
 }
