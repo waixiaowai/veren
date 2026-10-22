@@ -29,7 +29,7 @@ import { createAppCatalog } from './catalog.ts'
 import { en, NS, zh, type AppPickerKey } from './locales.ts'
 import { openAppPage } from './open.ts'
 import { AppPicker } from './picker.tsx'
-import { appHostRemote, type AppHostResult, type AppOpenView } from './remote.ts'
+import { appHostRemote, type AppEntryView, type AppHostResult, type AppOpenView } from './remote.ts'
 import { installPickerStyles } from './styles.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -122,6 +122,18 @@ const PickerPlugin = {
         hooks: { catalog: { getSnapshot: catalog.getSnapshot, subscribe: catalog.subscribe } },
         onOpen,
         onRetry: catalog.refresh,
+        // 当前会话所属应用（页面会话）：工具栏据此显示"已选应用"并锁定下拉。
+        // 读失败返回 null → 组件退回下拉，显示能力不阻塞输入栏。
+        // The app owning the current session (a page session): the toolbar shows
+        // and locks "selected app". A failed read returns null → the component
+        // keeps the dropdown; the display never blocks the input bar.
+        resolveApp: async (sessionId: string): Promise<AppEntryView | null> => {
+          const raw: unknown = await appHost.sessionApp(sessionId)
+          const result = (typeof raw === 'object' && raw !== null && 'ok' in raw)
+            ? raw as AppHostResult<AppEntryView | null>
+            : { ok: true as const, value: raw as AppEntryView | null }
+          return result.ok ? result.value : null
+        },
       }),
     }, AppPicker))
     // focus 端口的 GUI 半边：宿主发「切到某会话」，这里执行真正的界面切换。

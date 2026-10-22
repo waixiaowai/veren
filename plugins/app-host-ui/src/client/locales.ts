@@ -16,7 +16,7 @@ export const NS = 'app-host-ui'
 /** Every key the dropdown can render. */
 export type AppPickerKey =
   | 'picker' | 'pickerAria' | 'loading' | 'failed' | 'retry' | 'noApps'
-  | 'entryMissing' | 'appDisabled' | 'appBroken' | 'opening' | 'openFailed'
+  | 'entryMissing' | 'appDisabled' | 'appBroken' | 'opening' | 'openFailed' | 'selectedApp'
 
 /** Chinese dictionary. */
 export const zh: Record<AppPickerKey, string> = {
@@ -31,6 +31,7 @@ export const zh: Record<AppPickerKey, string> = {
   appBroken: '（异常）',
   opening: '正在打开…',
   openFailed: '入口页打开失败',
+  selectedApp: '本会话所属应用',
 }
 
 /** English dictionary. */
@@ -46,4 +47,5 @@ export const en: Record<AppPickerKey, string> = {
   appBroken: '(broken)',
   opening: 'Opening…',
   openFailed: 'Failed to open the entry page',
+  selectedApp: 'App of this session',
 }

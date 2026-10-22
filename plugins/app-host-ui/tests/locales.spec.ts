@@ -15,7 +15,7 @@ describe('app-host-ui locales', () => {
     expect(zhKeys).toEqual(enKeys)
     const expected: readonly AppPickerKey[] = [
       'picker', 'pickerAria', 'loading', 'failed', 'retry', 'noApps',
-      'entryMissing', 'appDisabled', 'appBroken', 'opening', 'openFailed',
+      'entryMissing', 'appDisabled', 'appBroken', 'opening', 'openFailed', 'selectedApp',
     ]
     expect(zhKeys).toEqual([...expected].sort())
   })

@@ -17,9 +17,14 @@
  * @module @veren/app-host-ui/client/picker
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button, IconChevronDownOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+// 类型-only import：拉取 ui-session 对 SessionStandardProps 的声明合并——会话作用域
+// 的 slot 在运行时拿到 `sessionId`（本组件据此判定"当前会话属于哪个应用"）。
+// type-only import: pulls ui-session's SessionStandardProps merge — session-scoped
+// slots receive `sessionId` at runtime (used to resolve the owning app).
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { AppCatalogSnapshot } from './catalog.ts'
 import type { AppEntryView } from './remote.ts'
 
@@ -30,6 +35,8 @@ export interface AppPickerInjected {
   readonly onOpen: (appId: string) => Promise<string | undefined>
   /** Re-read the catalog after a failed read. */
   readonly onRetry: () => void
+  /** The app owning one session (a page session), or null for an ordinary session. */
+  readonly resolveApp: (sessionId: string) => Promise<AppEntryView | null>
 }
 
 /** Props of {@link AppPicker}, derived from the framework shares. */
@@ -71,8 +78,38 @@ function StatusRows(props: { snapshot: AppCatalogSnapshot; t: T; onRetry: () => 
 export function AppPicker(props: AppPickerProps): React.ReactElement {
   const [open, setOpen] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
+  // 当前会话所属应用：页面会话显示"已选应用"并锁定（不再给下拉），普通会话保持
+  // 下拉。undefined = 解析中（渲染等宽占位，避免先闪一下下拉）。
+  // The app owning the current session: a page session shows and locks
+  // "selected app" (no dropdown); an ordinary session keeps the dropdown.
+  // undefined = resolving (render a same-size placeholder instead of flashing
+  // the dropdown).
+  const [owner, setOwner] = useState<AppEntryView | null | undefined>(undefined)
+  const sessionId = props.sessionId
+  useEffect(() => {
+    let alive = true
+    setOwner(undefined)
+    // 解析失败退回下拉：显示能力可以缺席，但绝不阻塞输入栏。
+    // / a failed resolve falls back to the dropdown: the display may be absent,
+    // but it must never block the input bar.
+    void props.resolveApp(sessionId).then(
+      (app) => { if (alive) setOwner(app) },
+      () => { if (alive) setOwner(null) },
+    )
+    return () => { alive = false }
+  }, [sessionId])
   const snapshot: AppCatalogSnapshot = props.useCatalog((current) => current)
   const t = props.t
+  if (owner !== undefined && owner !== null) {
+    // 已选应用：静态标识，不可再次更改（会话 ↔ 应用页一一绑定）
+    // / the selected app: a static mark, no longer changeable (session ↔ app page bind one-to-one)
+    return (
+      <span className="ah-picker-static" title={t('selectedApp')} aria-label={`${t('selectedApp')}: ${owner.name}`}>
+        <span className="ah-picker-value">{owner.name}</span>
+      </span>
+    )
+  }
+  if (owner === undefined) return <span className="ah-picker-ghost" aria-hidden="true" />
   const hasApps = snapshot.apps.length > 0
   return (
     <Menu portal dense compact autoFocus

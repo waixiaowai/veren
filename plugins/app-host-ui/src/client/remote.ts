@@ -47,6 +47,8 @@ export interface AppHostRemoteApi {
   readonly catalog: () => Promise<AppHostResult<readonly AppEntryView[]>>
   /** Open the app's entry page, or the given page url of the same app; always a fresh session. */
   readonly open: (appId: string, url?: string) => Promise<AppHostResult<AppOpenView>>
+  /** The app owning one session (a page session), or null for an ordinary session. */
+  readonly sessionApp: (sessionId: string) => Promise<AppHostResult<AppEntryView | null>>
 }
 
 /** Result and parameter schemas stay loose on purpose: the Host owns the fields. */
@@ -93,6 +95,15 @@ export const appHostRemote = createTypertRemoteInfo({
         parameter('url', 'app-host:open:url', () => z.string().optional()),
       ],
       result: codec('app-host:open:result', () => OPEN_SCHEMA),
+    },
+    'appHost/sessionApp': {
+      service: SERVICE,
+      description: 'Resolve the app owning one session (a page session); null for an ordinary session.',
+      invocation: { kind: 'direct' },
+      parameters: [
+        parameter('sessionId', 'app-host:session-app:sessionId', () => z.string()),
+      ],
+      result: codec('app-host:session-app:result', () => z.union([APP_SCHEMA, z.null()])),
     },
   },
 }, z)

@@ -224,3 +224,16 @@
 - 测试：app-host 新增断言（agents.create 的 cwd = 默认工作区路径、attachSession
   收到该会话）；真机探针后 workspace.json 的默认工作区账目 13 → 15（两个新页面会话）。
 - 发布 app-host@0.2.8（cwd）与 0.2.9（attach），profile 安装 0.2.9，节点 3080 重启。
+
+### 第八轮：应用选择后锁定并显示"已选应用"（2026-10-22）
+- 需求：选中应用进入页面会话后，工具栏应显示已选应用且不可再更改；普通会话保持下拉。
+- 实现：host 网关新增 `appHost/sessionApp(sessionId)`（遍历目录 + 页面实例索引，
+  返回所属应用或 null）；client 的 picker 经 ui-session 的 SessionStandardProps
+  拿到当前 `sessionId`，解析出所属应用后渲染静态标识（`.ah-picker-static`），
+  解析失败/普通会话退回下拉。Remote 端点声明 1 个参数，调用同参。
+- 依赖：app-host-ui 增加 devDependency `@deepseek-ai/dsh-client-ui-session`
+  （仅类型合并，`import type {}`）。
+- 测试：app-host 19/19（sessionApp 页面会话 → 应用、普通会话 → null）；
+  app-host-ui 6/6（remote 声明 + 本地化键集）；两侧 typecheck 干净。
+- 真机：verify-person-agent 探针输出 OWNER person-agent / ORDINARY null。
+- 发布 app-host@0.2.10、app-host-ui@0.1.9；profile 安装，节点 3080 重启。

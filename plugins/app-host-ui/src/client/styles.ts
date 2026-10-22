@@ -23,6 +23,10 @@ const CSS = `
 .ah-picker .ah-picker-note { opacity: 0.7; font-size: 0.85em; margin-left: 0.35em; }
 .ah-picker-status { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; max-width: 20em;
   color: var(--dsw-alias-label-secondary, inherit); font-size: 0.9em; }
+.ah-picker-static { display: inline-flex; align-items: center; min-width: 0; gap: 4px; padding: 0 2px;
+  color: var(--dsw-alias-label-secondary, inherit); font-size: 0.9em; }
+.ah-picker-static .ah-picker-value { font-weight: 500; }
+.ah-picker-ghost { display: inline-block; width: 3.5em; }
 `
 
 /** Install the dropdown styles for this plugin instance; returns the disposer. */

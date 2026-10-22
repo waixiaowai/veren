@@ -380,6 +380,18 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     })).rejects.toMatchObject({ code: 'task/send-forbidden' })
   })
 
+  it('网关 sessionApp：页面会话解析到所属应用（工具栏"已选应用"的事实源），普通会话 null', async () => {
+    const h = await boot()
+    registerMiniApp(h)
+    const opened = await h.pages.openUrl('/apps/mini/list' as PageInstanceKey)
+    const owner = await h.ctx.appHost.sessionApp(opened.sessionId)
+    expect(owner?.id).toBe('mini')
+    expect(owner?.name).toBe('mini')
+    // 普通会话（不在页面实例索引里）→ null，工具栏保持下拉
+    // / an ordinary session (absent from the page instance index) → null; the toolbar keeps the dropdown
+    expect(await h.ctx.appHost.sessionApp('session-ordinary')).toBeNull()
+  })
+
   it('装配 disposer 撤销全部注入：dispose 后镜像失效（注册只告警不镜像）', async () => {
     const ctx = new Context()
     ;(ctx.provide as unknown as (n: string, v: unknown) => void)('sessions', { get: () => undefined, create: () => ({}) })

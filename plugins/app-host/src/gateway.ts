@@ -76,6 +76,28 @@ export class AppHostGatewayService extends TypertRemoteService {
   }
 
   /**
+   * 会话所属应用：页面会话返回它打开的应用（工具栏据此显示"已选应用"并锁定），
+   * 普通会话返回 null。事实源是页面实例索引（会话 id 与页面实例一一绑定），
+   * 遍历目录里的应用各查一次——应用数量是个位数，UI 每次会话切换调一次。
+   * The app owning one session: a page session returns the app it opened (the
+   * toolbar shows and locks "selected app"), an ordinary session returns null.
+   * The fact source is the page instance index (a session id binds one page
+   * instance); it walks the catalog and asks each app — the catalog is a
+   * handful of apps and the UI calls this once per session switch.
+   * @param sessionId - 当前会话 id / the current session id
+   * @returns 该会话所属的应用，或 null / the owning app, or null
+   */
+  @Remote('sessionApp')
+  async sessionApp(sessionId: string): Promise<AppGatewayApp | null> {
+    for (const record of this.ctx.apps.catalog()) {
+      const rows = await this.ctx.pageRegistry.instances.listByApp(record.definition.id)
+      if (!rows.some((row) => row.sessionId === sessionId)) continue
+      return this.catalog().find((entry) => entry.id === record.definition.id) ?? null
+    }
+    return null
+  }
+
+  /**
    * 打开某应用的入口页（一律新建会话，同 URL 旧会话废弃——§9.1 反转）。
    * `url` 可选：显式给定时必须是该应用 `/apps/<appId>/…` 下的页面 URL
    * （如详情页/发布页），仍是"一律新建会话"的同一运行时路径。
