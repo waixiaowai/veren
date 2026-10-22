@@ -24,6 +24,7 @@
  *
  * @module @veren/page-registry/runtime
  */
+import type { Context } from '@deepseek-ai/cordis'
 import { PageError, PageErrorCode, assertParamsMatchPattern, canonicalizePageUrl, isMarkdownDocHost, snapshotSinkOf } from '@veren/prompt-page'
 import type { PageJsonValue, PageLoadEnv, PageSession } from '@veren/prompt-page'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -80,6 +81,16 @@ export interface PageSessionPort {
    * default wakes (§3.9 wake policy).
    */
   appendUserMessage(sessionId: string, text: string, source: string, options?: { readonly wake?: boolean }): Promise<void>
+  /**
+   * 该会话的 agent 作用域（`agent.ctx`）：页面组件的 effect/on 经它注册，
+   * 事件按 agent 过滤、清理随作用域销毁。缺省（agent 尚未创建，如暂存预览）
+   * 或端口未实现时，视图回退到创建者 ctx / 视图级清理。
+   * The session's agent scope (`agent.ctx`): the page's effect/on register
+   * through it, so events are agent-filtered and cleanup follows the scope.
+   * Absent (no agent yet, e.g. a staged preview) or unimplemented, the view
+   * falls back to the creator ctx / view-level cleanup.
+   */
+  scopeOf?(sessionId: string): Context | undefined
   /** 挂页面工具；重名冲突抛 PageError(page/tool-conflict) / mount; conflicts raise */
   mountTools(sessionId: string, tools: readonly MountedTool[]): Promise<void>
   releaseTools(sessionId: string): Promise<void>
@@ -585,7 +596,12 @@ export async function createPageSession(
     // render, ctx.effect/ctx.on runs and ctx.tools.register recording inside the
     // view — all before the PAGE block, so the body and the tools line have
     // their facts).
-    view = match.live?.mount(params)
+    // 页面组件的 effect/on 挂到该会话的 agent 作用域（事件按 agent 过滤）；
+    // agent 未创建（暂存预览）时为 undefined，视图回退到创建者 ctx。
+    // The page's effect/on register on that session's agent scope (agent-filtered
+    // events); undefined when no agent exists yet (staged preview) — the view
+    // then falls back to the creator ctx.
+    view = match.live?.mount(params, ports.sessions.scopeOf?.(sessionId))
     // load 结果下发进组件（含失败态）：组件渲染为正文，绝不静默空白
     // / push the load result into the component (failures included): rendered into the body, never a silent blank
     snapshotSinkOf(view)?.setSnapshot(data)
@@ -683,7 +699,7 @@ export async function mountPreviewTools(
   assertParamsMatchPattern(match.page.url, params)
   const env: PageLoadEnv = ports.presetOf === undefined ? {} : { preset: ports.presetOf(sessionId) }
   const data = await firstScreenData(match.page, params, env)
-  const view = match.live?.mount(params)
+  const view = match.live?.mount(params, ports.sessions.scopeOf?.(sessionId))
   let tools: MountedTool[]
   try {
     snapshotSinkOf(view)?.setSnapshot(data)

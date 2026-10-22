@@ -4,6 +4,7 @@
  * 页面运行时的形状：一页 = 一个会话；页面经应用作用域注册表以唯一 URL 注册。
  * 页面不再绑定预设；应用/实例/工具契约见 contract.ts 与两个插件的 types.ts。
  */
+import type { Context } from '@deepseek-ai/cordis'
 import type { PromptElement } from '@veren/prompt-core'
 
 /** URL 参数：路径参数 + query 合并（path 优先）/ path params + query (path wins) */
@@ -19,8 +20,17 @@ export type PageParams = Record<string, string>
  * the store type — the state type is consumed where S is still in scope.
  */
 export interface PageLiveBinding {
-  /** 为一个页面会话挂载实时视图（已订阅 store）/ mount one live view (store-subscribed) */
-  mount(params: PageParams): PageSession<never>
+  /**
+   * 为一个页面会话挂载实时视图（已订阅 store）。`scope` 是该会话的 agent 作用域
+   * （`agent.ctx`）：组件的 effect/on 经它注册——事件按 agent 过滤、清理随作用域
+   * 销毁；缺省（agent 尚未创建，如暂存预览）回退到创建者 ctx。
+   * Mount one live view for a page session (store-subscribed). `scope` is the
+   * session's agent scope (`agent.ctx`): the component's effect/on register
+   * through it, so events are agent-filtered and cleanup is scope-owned; absent
+   * (the agent does not exist yet, e.g. a staged preview) it falls back to the
+   * creator ctx.
+   */
+  mount(params: PageParams, scope?: Context): PageSession<never>
 }
 
 

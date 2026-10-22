@@ -240,6 +240,14 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
 
   return {
     exists: (sessionId) => ctx.sessions.get(sid(sessionId)) !== undefined,
+    // 页面组件的 effect/on 经该会话的 agent 作用域注册（DSH 官方模型）：
+    // 事件由 scopeTarget 按 agent 过滤，清理随 agent 销毁。agent 未激活时
+    // 返回 undefined，视图回退到创建者 ctx（暂存预览的短命订阅）。
+    // The page's effect/on register on that session's agent scope (the DSH
+    // model): scopeTarget filters events per agent and cleanup follows agent
+    // disposal. An inactive agent yields undefined — the view falls back to the
+    // creator ctx (a staged preview's short-lived subscription).
+    scopeOf: (sessionId) => agentOf(sessionId)?.ctx,
     mintId: () => crypto.randomUUID(),
     async create(sessionId, title) {
       // H 的根因修复：页面会话必须当场激活 agent（不再是"等用户进入"）。GUI

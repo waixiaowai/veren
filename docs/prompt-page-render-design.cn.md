@@ -149,14 +149,14 @@ export const apply = (ctx: Context, config: Config): void => {
 | `useMemo(dep, compute)` | 纯派生 | 视图内派生数据的标准答案 |
 | `useSnapshot()` | 读 render 输入（meta.load 结果 / store 最新状态） | 组件与首屏数据的类型化通道 |
 | `useContext(Context)` | 读最近 Provider | 宿主向组件注入事实（如 URL 参数） |
-| `ctx.effect(run, cleanup?)` | **代替 `useEffect`**：render 期只记账（槽位 + 调用序去重），commit 后执行一次，清理随会话逆序。**无 deps**（§5.3） | `load`/`onLoad` 双写退场；登记/清理零新机制 |
-| `ctx.on(name, handler)` | **代替 `useEvent`**：render 期记账、随会话清理 | 响应式复用事件总线，与生命周期观察方同一写法 |
+| `ctx.effect(run)` | **代替 `useEffect`**：首帧按槽位执行一次（重渲不重复）；返回的清理挂到会话的 `agent.ctx` 作用域（agent 销毁兜底），视图 teardown 可提前执行。**无 deps**（§5.3） | `load`/`onLoad` 双写退场；登记/清理零新机制 |
+| `ctx.on(name, handler)` | **代替 `useEvent`**：首帧订阅一次；有会话作用域时经 `agent.ctx` 订阅（`scopeTarget` 只放行该 agent 的事件），注销随视图 teardown | 响应式复用事件总线，与生命周期观察方同一写法 |
 
 ### 5.2 `useState` 的定位与自承载组件惯用法（2026-10-21 修正）
 
 初版"不提供 useState"反对对象找错了：页面持有的典型状态是 **ctx 服务的本地缓存镜像**——缓存不是第二事实源，权威事实仍在服务层（React Query/SWR 同款区分）。修正为：**提供**，定位取数缓存与视图状态；"自造事实"（页面出现系统里不存在的数字）走 lint 与评审。如实代价：手动取数不随外部变化自动重渲（`useSnapshot` 会）。分层：共享 store 数据走 `useSnapshot`；一次性取数/局部视图状态走 `useState` + `ctx.on` 失效。
 
-**自承载组件惯用法（页面数据的默认形态）**：页面 = 模块级组件，**没有工厂、没有闭包注入、没有快照契约**——组件 ctx 携带完整宿主服务面（声明合并的 `ctx.apps` / `ctx.taskCenter` / 各插件服务原样可读，仅 tools/effect/on 三个成员被会话 facade 重载），props 即 URL params。**同步服务面在正文里直接读**（每帧最新，零状态）；只有异步读取需要 `ctx.effect` + `useState`：
+**自承载组件惯用法（页面数据的默认形态）**：页面 = 模块级组件，**没有工厂、没有闭包注入、没有快照契约**——组件 ctx 的服务面来自创建者 ctx（声明合并的 `ctx.apps` / `ctx.taskCenter` / 各插件服务原样可读），仅 tools/effect/on 三个成员被会话 facade 重载：effect/on 注册在该会话的 `agent.ctx` 作用域上（DSH 官方隔离模型：事件经 `scopeTarget` 按 agent 过滤、清理随作用域），tools 由 page-registry 挂到同一作用域。props 即 URL params。**同步服务面在正文里直接读**（每帧最新，零状态）；只有异步读取需要 `ctx.effect` + `useState`：
 
 ```tsx
 export const ListPage: PageFC = (_props, ctx) => {
@@ -171,7 +171,7 @@ export const ListPage: PageFC = (_props, ctx) => {
 
 ### 5.3 effect 与事件：`ctx.effect` / `ctx.on` 直调，render 期记账
 
-不引入 `useEffect`/`useEvent`。**机制**：render 期对二者的调用只记账不执行（fiber 槽位、调用序 + 实参引用去重，重渲不重复登记）；commit 后统一执行；清理随会话销毁逆序（ctx.effect 通道）。会话死后挂起中的回调不得再写状态（unmounted 守卫）。
+不引入 `useEffect`/`useEvent`。**机制**：首帧渲染时按槽位执行一次（重渲不重复登记；条件/乱序调用 fail loud）。effect 的 run 在首帧渲染期内联执行——动态工具的 `ctx.tools.register` 就写在 effect 里，延后到 commit 会收集不到工具；返回的清理登记到该会话的 `agent.ctx`（`agent.ctx.effect`），agent 销毁时执行，视图提前退订（预览/废弃）时由视图 teardown 提前执行一次。`ctx.on` 同样在首帧订阅一次；有 `agent.ctx` 时经它订阅——`scopeTarget` 只把该 agent 的事件送进来——注销随视图 teardown，agent 先销毁时由作用域兜底。没有 agent 作用域（暂存预览）时回退到创建者 ctx / 视图清理。会话死后挂起中的回调不得再写状态（unmounted 守卫；当前 `useState` 尚未加 tornDown 检查，属已知缺口）。
 
 **定案：不重载 deps**——第二参保持 cordis 语义；"依赖变化重跑"用 **key 重挂**替代，响应式用 `ctx.on` 订阅（`useState` 镜像 + `ctx.on('tasks/changed', reload)` = 事件驱动失效）。
 

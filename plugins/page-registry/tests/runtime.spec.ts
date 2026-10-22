@@ -615,6 +615,28 @@ describe('预挂工具面（选中应用 ≠ 开始会话）：第一步就拿�
     expect(bound?.cursor).toBe(2)
     expect(bound?.patchAfter).toBe('')
   })
+
+  it('会话作用域端口：openUrl 与 mountPreview 都把该会话的 agent.ctx 交给 live.mount', async () => {
+    const { service, ports } = makeService()
+    // 会话作用域是 agent.ctx（DSH 官方模型）；这里只验证运行时的传递接缝
+    // / the session scope is agent.ctx (the DSH model); this pins the pass-through seam
+    const scope = new Context()
+    const seen: Array<Context | undefined> = []
+    const registration = defineComponentPage(
+      () => createElement('p', { children: '作用域页' }),
+      { url: '/apps/demo/scoped', description: '作用域页' },
+    )
+    service.registerAppPage('demo', registration.page, {
+      mount: (params, scopeArg) => {
+        seen.push(scopeArg)
+        return registration.live.mount(params, scopeArg)
+      },
+    })
+    service.bindPorts({ ...ports, sessions: { ...ports.sessions, scopeOf: () => scope } })
+    await service.openUrl('/apps/demo/scoped')
+    await service.mountPreview('session-preview', '/apps/demo/scoped')
+    expect(seen).toEqual([scope, scope])
+  })
 })
 
 describe('缺口 1/4 收尾：通知投递泵、reserved 清扫', () => {

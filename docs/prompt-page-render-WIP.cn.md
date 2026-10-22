@@ -292,3 +292,31 @@
 - 发布 page-registry@0.1.5、app-host@0.2.12（0.2.13 补 sessionApp 只认 live 行；
   0.2.14 补 agent 销毁时丢弃预挂面与暂存意图）、app-host-bundle@0.2.9；profile
   全新安装，节点 3080 重启。
+
+### 第十一轮：页面 effect/on 挂到会话作用域（官方 agent.ctx 模型）（2026-10-22）
+- 背景：第十轮分析发现 page facade 的 `on` 订阅的是应用插件 ctx（无 scope 标签），
+  `scopeTarget` 对无标签监听器一律放行——页面里的 `ctx.on('agent/…')` 会收到所有
+  会话的事件；effect 也只是视图手动清理，不是 agent 作用域所有。
+- 官方模型：每个 Agent 由 `createScope` 创建带独立 fiber + scope tag 的 `agent.ctx`
+  （`packages/core/agent-loop/src/agent.ts:130-131`；`packages/core/scope/src/index.ts:137-147`）；
+  注册即作用域（工具/effect/on 随 agent 销毁）；agent-subject 事件经 `scopeTarget`
+  只送该 agent 的监听器（无标签监听器全局）。
+- 实现：
+  - `PageLiveBinding.mount(params, scope?)` 增加可选会话作用域；
+    `createSessionView` / `createComponentCtx` 接收它。
+  - facade：effect 的清理经 `agent.ctx.effect` 登记（agent 销毁兜底；视图提前退订用
+    记录的 disposer 提前执行一次）；on 经 `agent.ctx.on` 订阅（事件按 agent 过滤，
+    注销随视图 teardown）。服务面仍转发创建者 ctx——agent.ctx 的服务链来自
+    agent-loop，不一定注入应用插件声明的服务。
+  - page-registry 端口新增可选 `scopeOf(sessionId)`；openUrl 与 mountPreview 渲染时
+    把 `agent.ctx` 传给 live.mount；app-host 真实端口返回 `ctx.agents.get(id)?.ctx`。
+    agent 未创建（暂存预览）时为 undefined，回退到创建者 ctx / 视图清理。
+- 测试：prompt-page 40/40（新增作用域注册/提前清理用例）；page-registry 56/56
+  （新增 scopeOf 传递用例）；app-host 23/23；依赖插件 person-agent-app 17/17、
+  task-workbench 29/29、notebook-app 10/10、sub2api-admin 25/25、app-host-ui 6/6。
+- 真机：新会话选 Person Agent 发送"你好，介绍一下这个页面。"；日志只有一条
+  request/header（initial），53 工具含三个 person_agent__*、不含 app_*、全程无
+  tool-registry developer/message；在 ctx.effect 里注册的动态工具（现在挂在 agent
+  作用域）正常进入请求头；缓存 step 1 2,474 未命中 + 11,776 命中，step 2 190 + 14,464 命中。
+- 发布 prompt-page@0.1.6、page-registry@0.1.6、app-host@0.2.15、
+  app-host-bundle@0.2.10；profile 安装，节点 3080 重启。

@@ -128,6 +128,55 @@ describe('defineComponentPage 组件页管线', () => {
     expect(subscriptions).toHaveLength(0) // teardown 退订 / unsubscribed at teardown
   })
 
+  it('会话作用域：effect/on 注册在 agent.ctx 上，视图退订提前清理（官方隔离模型）', () => {
+    const owner = fakeCtx()
+    // 假会话作用域：记录 effect/on 的注册与注销 / fake session scope: records effect/on registrations
+    const scopeSubscriptions: Array<{ name: string; handler: (payload: unknown) => void }> = []
+    const scopeEffects: Array<{ cleanup: () => void; label: string | undefined; disposed: boolean }> = []
+    const scope = {
+      on: (name: string, handler: (payload: unknown) => void) => {
+        const entry = { name, handler }
+        scopeSubscriptions.push(entry)
+        return () => {
+          const index = scopeSubscriptions.indexOf(entry)
+          if (index >= 0) scopeSubscriptions.splice(index, 1)
+        }
+      },
+      effect: (execute: () => (() => void) | void, label?: string) => {
+        const result = execute()
+        const entry = { cleanup: typeof result === 'function' ? result : () => undefined, label, disposed: false }
+        scopeEffects.push(entry)
+        return () => {
+          if (entry.disposed) return
+          entry.disposed = true
+          entry.cleanup()
+        }
+      },
+    }
+    let cleanups = 0
+    const Page: PageFC = (_props, ctx) => {
+      ctx.effect(() => () => { cleanups++ })
+      ctx.on('agent/status', () => undefined)
+      return createElement('p', { children: 'scoped' })
+    }
+    const registration = defineComponentPage(Page, { url: '/apps/scoped', description: '作用域页' }, owner.ctx)
+    const view = registration.live.mount({}, scope as never) as unknown as ViewFace
+    // 事件订阅与 effect 都落在会话作用域，而不是创建者 ctx
+    // / subscriptions and effects land on the session scope, not the creator ctx
+    expect(owner.subscriptions).toHaveLength(0)
+    expect(scopeSubscriptions.map((s) => s.name)).toEqual(['agent/status'])
+    expect(scopeEffects).toHaveLength(1)
+    // 视图早于 agent 退订：作用域订阅注销、清理提前执行一次
+    // / the view tears down before the agent: the scope subscription is removed
+    // and the cleanup runs once, early
+    view.unsubscribe()
+    expect(scopeSubscriptions).toHaveLength(0)
+    expect(scopeEffects[0]?.disposed).toBe(true)
+    expect(cleanups).toBe(1)
+    view.unsubscribe()
+    expect(cleanups).toBe(1)
+  })
+
   it('ctx.effect 只运行一次；ctx.tools.register 按名去重', () => {
     let effectRuns = 0
     let run: (() => void) | undefined

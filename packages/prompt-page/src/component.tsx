@@ -7,7 +7,9 @@
  * - **defineComponentPage**：把"组件即页面"包成既有注册面能收的形状
  *   （PageDefinition + PageLiveBinding）——注册面零新建（C8）；
  * - **组件 ctx facade**：render 期的 `ctx.effect` / `ctx.on` / `ctx.tools.register`
- *   走槽位记账（一次运行/订阅、随会话清理，RFC §5.3），其余属性转发真实 ctx；
+ *   走槽位记账（一次运行/订阅，RFC §5.3）；effect 清理与事件订阅挂在会话的
+ *   `agent.ctx` 作用域上（事件按 agent 过滤，agent 销毁兜底），其余属性转发
+ *   创建者 ctx；
  * - **每会话视图**：自有 prompt-core root + MarkdownDocHost——首帧 body 进 PAGE
  *   块，后续渲染 diff 出 PAGE-PATCH；teardown 随视图 unsubscribe 逆序清理；
  * - **useSnapshot**：读 meta.load 的首屏结果（组件与首屏数据的类型化通道）。
@@ -17,8 +19,9 @@
  *   zero new registration face (C8);
  * - **the component ctx facade**: render-time `ctx.effect` / `ctx.on` /
  *   `ctx.tools.register` are recorded through hook slots (run once / subscribed
- *   once, cleaned up with the session, RFC §5.3); every other property forwards
- *   to the real ctx;
+ *   once, RFC §5.3); effect cleanups and event subscriptions register on the
+ *   session's `agent.ctx` scope (agent-filtered events, agent-disposal
+ *   fallback), while every other property forwards to the creator ctx;
  * - **the per-session view**: its own prompt-core root + MarkdownDocHost — the
  *   first-frame body feeds the PAGE block, later renders diff into PAGE-PATCH;
  *   teardown rides the view's unsubscribe in reverse order;
@@ -60,11 +63,22 @@ export interface PageComponentContext extends Omit<Context, 'tools' | 'effect' |
   /** 注册本会话作用域的工具：render 期记录，commit 后经 mountTools 挂载，废弃随会话卸载
    * / register a session-scoped tool: recorded at render, mounted via mountTools after commit, removed with the session */
   tools: { register(definition: ToolDefinition): void }
-  /** render 期记账的副作用：commit 后运行一次，返回的清理函数随会话逆序执行
-   * / a render-recorded effect: runs once after commit; the returned cleanup runs in reverse at session teardown */
+  /**
+   * 首帧渲染时运行一次；返回的清理函数在该会话的 agent 作用域上登记（`agent.ctx.effect`），
+   * agent 销毁时执行；视图提前退订（预览/废弃）时由视图的 teardown 提前执行，单次。
+   * Runs once on the first frame; the returned cleanup is registered on the
+   * session's agent scope (`agent.ctx.effect`) and runs at agent disposal — or
+   * earlier at view teardown (preview/deprecation), exactly once.
+   */
   effect(run: () => (() => void) | void): void
-  /** render 期记账的事件订阅：commit 后经真实 ctx.on 订阅，随会话清理
-   * / a render-recorded event subscription: subscribed via the real ctx.on after commit, cleaned up with the session */
+  /**
+   * 首帧渲染时订阅一次：有会话作用域（`agent.ctx`）时经它订阅——`scopeTarget`
+   * 只把该 agent 的事件送进来；注销随视图 teardown（agent 先销毁则由作用域兜底）。
+   * Subscribes once on the first frame: with a session scope (`agent.ctx`) it
+   * subscribes through it — `scopeTarget` delivers only that agent's events; the
+   * subscription is removed at view teardown (the scope covers agent-first
+   * disposal).
+   */
   on(name: string, handler: (payload: unknown) => void): void
 }
 
@@ -169,7 +183,7 @@ export function defineComponentPage<P extends Record<string, unknown>>(
     load: meta.load === undefined ? undefined : (params, env) => meta.load!(params as P & PageParams, env),
   }
   const live: PageLiveBinding = {
-    mount: (params) => {
+    mount: (params, scope) => {
       // 快照源：有 store 读权威 store（单一事实源）；无 store 由运行时经
       // setSnapshot 下发 load 结果（含失败态）。
       // The snapshot source: with a store read it (the single source of fact);
@@ -178,7 +192,7 @@ export function defineComponentPage<P extends Record<string, unknown>>(
       const snapshotSource: () => PageJsonValue | undefined = meta.store === undefined
         ? () => pendingSnapshot
         : () => meta.store!.getState() as PageJsonValue
-      const view = createSessionView(component, meta, ctx, params, page, snapshotSource)
+      const view = createSessionView(component, meta, ctx, scope, params, page, snapshotSource)
       pendingSnapshot = undefined
       return view
     },
@@ -206,9 +220,21 @@ interface SessionRuntime<P> {
   tornDown: boolean
 }
 
-/** 组件 ctx facade：effect/on/tools 走槽位记账，其余转发真实 ctx
- * / the component ctx facade: effect/on/tools record through hook slots; everything else forwards to the real ctx */
-function createComponentCtx<P>(realCtx: Context | undefined, state: SessionRuntime<P>): PageCtx {
+/**
+ * 组件 ctx facade：effect/on/tools 走槽位记账，其余转发创建者 ctx。
+ * `scope` 是该会话的 agent 作用域（`agent.ctx`）：effect 的清理与事件订阅经它
+ * 注册——事件按 agent 过滤、agent 销毁时兜底；视图提前退订时仍由 state 里的
+ * 清理面提前执行（单次）。缺省（agent 未创建，如暂存预览）回退到创建者 ctx /
+ * 视图清理。
+ * The component ctx facade: effect/on/tools record through hook slots; every
+ * other member forwards to the creator ctx. `scope` is the session's agent
+ * scope (`agent.ctx`): effect cleanups and event subscriptions register
+ * through it — events are agent-filtered and agent disposal is the fallback;
+ * an earlier view teardown still runs the recorded cleanup first (once).
+ * Absent (no agent yet, e.g. a staged preview) it falls back to the creator
+ * ctx / plain view cleanup.
+ */
+function createComponentCtx<P>(realCtx: Context | undefined, scope: Context | undefined, state: SessionRuntime<P>): PageCtx {
   const own = {
     tools: {
       register: (definition: ToolDefinition): void => {
@@ -219,26 +245,45 @@ function createComponentCtx<P>(realCtx: Context | undefined, state: SessionRunti
     },
     effect: (run: () => (() => void) | void): void => {
       const cell = useSlot(() => ({ ran: false }))
-      if (!cell.current.ran) {
-        cell.current.ran = true
-        const cleanup = run()
-        if (typeof cleanup === 'function') state.cleanups.push(cleanup)
+      if (cell.current.ran) return
+      cell.current.ran = true
+      const cleanup = run()
+      if (typeof cleanup !== 'function') return
+      if (scope === undefined) {
+        // 无会话作用域（暂存预览/裸注册）：清理随视图 teardown。
+        // No session scope (staged preview/bare registration): cleanup rides the view teardown.
+        state.cleanups.push(cleanup)
+        return
       }
+      // 官方模型：清理归会话作用域（agent.ctx.effect），agent 销毁时自动执行；
+      // 视图提前退订（预览/废弃）时由 state.cleanups 里的 disposer 提前执行一次。
+      // The official model: the cleanup belongs to the session scope
+      // (agent.ctx.effect) and runs at agent disposal; an earlier view teardown
+      // (preview/deprecation) runs it once through the recorded disposer.
+      const dispose = scope.effect(() => cleanup, 'prompt-page: component effect')
+      state.cleanups.push(() => { void dispose() })
     },
     on: (name: string, handler: (payload: unknown) => void): void => {
       const cell = useSlot(() => ({ subscribed: false }))
-      if (!cell.current.subscribed) {
-        cell.current.subscribed = true
-        const dispose = (realCtx as unknown as { on: (n: string, h: never) => () => void }).on(name, handler as never)
-        state.subscriptions.push(() => dispose())
-      }
+      if (cell.current.subscribed) return
+      cell.current.subscribed = true
+      // 有会话作用域时经它订阅：scopeTarget 只放行该 agent 的事件。缺省回退到
+      // 创建者 ctx（暂存预览的订阅只活到预览视图退订）。
+      // With a session scope, subscribe through it: scopeTarget admits only that
+      // agent's events. The fallback is the creator ctx (a staged preview's
+      // subscription lives only until the preview view unsubscribes).
+      const target = scope ?? realCtx
+      if (target === undefined) return
+      const dispose = (target as unknown as { on: (n: string, h: never) => () => void }).on(name, handler as never)
+      state.subscriptions.push(() => { dispose() })
     },
   }
-  if (realCtx === undefined) {
+  const facadeTarget = realCtx ?? scope
+  if (facadeTarget === undefined) {
     // 无真实 ctx（测试/裸注册）：facade 只暴露记账面 / no real ctx (tests/bare registration): the facade is the recording face only
     return own as PageCtx
   }
-  return new Proxy(realCtx, {
+  return new Proxy(facadeTarget, {
     get(target, prop) {
       if (prop === 'tools' || prop === 'effect' || prop === 'on') {
         return own[prop as 'tools' | 'effect' | 'on']
@@ -254,6 +299,7 @@ function createSessionView<P extends Record<string, unknown>>(
   component: PageFC<P>,
   meta: ComponentPageMeta<P>,
   ctx: Context | undefined,
+  scope: Context | undefined,
   params: PageParams,
   page: PageDefinition<never>,
   snapshot: () => PageJsonValue | undefined,
@@ -270,7 +316,7 @@ function createSessionView<P extends Record<string, unknown>>(
     tornDown: false,
   }
   const { root, doc } = state
-  const facade = createComponentCtx(ctx, state)
+  const facade = createComponentCtx(ctx, scope, state)
 
   /** 渲染一帧：组件（hooks + facade）→ reconciler 展开 → fiber 树 → Markdown diff
    * / render one frame: the component (hooks + facade) → reconciler expansion → the fiber tree → a Markdown diff */
