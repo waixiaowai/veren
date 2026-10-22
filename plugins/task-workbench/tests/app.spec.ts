@@ -77,7 +77,7 @@ async function install(options: { parentMissing?: boolean } = {}): Promise<{
   ctx.provide('apps', apps)
   ctx.provide('pageRegistry', pageRegistry)
   apps.setPageMirror({
-    registerAppPage: (appId: never, page: never) => pageRegistry.registerAppPage(appId, page),
+    registerAppPage: (appId: never, page: never, live: never) => pageRegistry.registerAppPage(appId, page, live),
     releaseApp: (appId: never) => pageRegistry.releaseApp(appId),
   })
   // taskCenter 是插件的硬 inject：测试必须真实提供（G13 后没有缺席降级）。
@@ -168,9 +168,9 @@ describe('任务接缝', () => {
     ctx.provide('apps', apps)
     ctx.provide('pageRegistry', pageRegistry)
     apps.setPageMirror({
-      registerAppPage: (appId: never, page: never) => {
+      registerAppPage: (appId: never, page: never, live: never) => {
         if ((page as { name: string }).name === 'publish') throw new Error('mirror exploded on publish')
-        return pageRegistry.registerAppPage(appId, page)
+        return pageRegistry.registerAppPage(appId, page, live)
       },
       releaseApp: (appId: never) => pageRegistry.releaseApp(appId),
     })
@@ -189,7 +189,7 @@ describe('任务接缝', () => {
     // 换上正常镜像面后，同一上下文可以重新装配（HMR 安全 / 幂等回滚）。
     // With a healthy mirror the same context mounts again (HMR-safe rollback).
     apps.setPageMirror({
-      registerAppPage: (appId: never, page: never) => pageRegistry.registerAppPage(appId, page),
+      registerAppPage: (appId: never, page: never, live: never) => pageRegistry.registerAppPage(appId, page, live),
       releaseApp: (appId: never) => pageRegistry.releaseApp(appId),
     })
     const fiber = ctx.plugin({ name, inject, apply }, { listSize: 3 })
