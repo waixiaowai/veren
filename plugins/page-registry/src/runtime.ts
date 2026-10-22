@@ -154,6 +154,16 @@ export interface OpenPageOptions {
   readonly actor?: string
   /** 投递路径置 false：建会话但不发 GUI focus（投递不是导航，§3.9） */
   readonly focus?: boolean
+  /**
+   * 复用一条已存在的会话（"先选应用、发送才开会话"的提升路径）：跳过建会话，
+   * 直接在给定会话上落页面实例（PAGE 块以 wake=false 追加，不另起一轮）；失败时
+   * 绝不销毁调用方的会话。
+   * Reuse an existing session (the "pick the app, the session starts on send"
+   * promotion path): skips session creation and lands the page instance on the
+   * given session (the PAGE block is appended with wake=false, starting no extra
+   * round); a failure never destroys the caller's session.
+   */
+  readonly reuseSessionId?: string
 }
 
 /** openUrl 的结果：打开一律新建，结果就是新会话 / openUrl result: the fresh session */
@@ -161,6 +171,15 @@ export interface OpenPageResult {
   readonly sessionId: string
   readonly url: string
   readonly title: string
+  /**
+   * 复用路径的 PAGE 块正文：调用方（首回合的 pre-step）把它注入本轮决策——块不能
+   * 只落日志，否则当前这一轮看不到页面。新建路径为 undefined（块已落会话日志）。
+   * The PAGE block body on the reuse path: the caller (the first turn's pre-step)
+   * injects it into that step's decision — landing it in the log alone would keep
+   * the current round from seeing the page. Undefined on the create path (the
+   * block already landed in the session log).
+   */
+  readonly block?: string
 }
 
 /** 规范 URL 里的 appId 段 / the appId segment of a canonical url */
@@ -459,7 +478,7 @@ export async function createPageSession(
   // §3.10.5 规则 5（挂载期）：params 必须覆盖 URL 模式的每个 :param，写 PAGE 块前 fail loud。
   // §3.10.5 rule 5 (mount time): params must cover every :param of the pattern, failing loud before the PAGE block.
   assertParamsMatchPattern(match.page.url, params)
-  const sessionId = ports.sessions.mintId()
+  const sessionId = options.reuseSessionId ?? ports.sessions.mintId()
   try {
     await index.reserve(key, sessionId, {
       appId: app.definition.id,
@@ -476,15 +495,21 @@ export async function createPageSession(
     throw wrap(error, PageErrorCode.IndexUnavailable, `reserve(${key}) failed`)
   }
   const title = instanceTitleOf(match, params)
+  const reusing = options.reuseSessionId !== undefined
   let tools: MountedTool[] = []
   let view: PageSession<never> | undefined
-  try {
-    await ports.sessions.create(sessionId, title)
-  } catch (error: unknown) {
-    await ports.sessions.releaseTools(sessionId).catch(() => undefined)
-    await ports.sessions.destroy(sessionId).catch(() => undefined)
-    await index.fail(key, error instanceof Error ? error.message : String(error)).catch(() => undefined)
-    throw wrap(error, PageErrorCode.SessionCreateFailed, `session create failed for ${key}`)
+  // PAGE 块正文：复用路径要在返回值里交给首回合的 pre-step（见 OpenPageResult.block）
+  // / the PAGE block body: the reuse path hands it to the first turn's pre-step
+  let block = ''
+  if (!reusing) {
+    try {
+      await ports.sessions.create(sessionId, title)
+    } catch (error: unknown) {
+      await ports.sessions.releaseTools(sessionId).catch(() => undefined)
+      await ports.sessions.destroy(sessionId).catch(() => undefined)
+      await index.fail(key, error instanceof Error ? error.message : String(error)).catch(() => undefined)
+      throw wrap(error, PageErrorCode.SessionCreateFailed, `session create failed for ${key}`)
+    }
   }
   try {
     // 首屏数据（§3.10.3）在写 PAGE 块前取齐：两阶段 commit 允许先落 reserved，
@@ -522,8 +547,13 @@ export async function createPageSession(
     // The PAGE block: a component page = header (registry-derived map) + the
     // Markdown body; a legacy block page keeps its existing shape.
     const markdownView = isMarkdownDocHost(view?.host) ? view!.host : undefined
-    const block = componentPageBlock(app, match, key, tools, markdownView !== undefined ? markdownView.bodyText() : '')
-    await ports.sessions.appendUserMessage(sessionId, block, 'app/page')
+    block = componentPageBlock(app, match, key, tools, markdownView !== undefined ? markdownView.bodyText() : '')
+    // 复用路径（提升）：调用方正在首回合里，块由它注入本轮决策（wake 语义不适用，
+    // 也不落日志——见 OpenPageResult.block 的说明）。
+    // Reuse path (promotion): the caller is inside the first turn and injects the
+    // block into that step's decision (wake does not apply, and the block is not
+    // appended — see OpenPageResult.block).
+    if (!reusing) await ports.sessions.appendUserMessage(sessionId, block, 'app/page')
     // 实时视图在 commit 前绑定（§3.10.3）：挂载失败走下方既有回滚（fail loud），
     // 不产生"会话活着但视图死着"的半状态；commit 后该视图归端口所有。
     // The live view binds before commit (§3.10.3): a mount failure rides the
@@ -538,9 +568,14 @@ export async function createPageSession(
     await index.commit(key, sessionId)
   } catch (error: unknown) {
     // 兜底：半成品视图退订 → 摘工具 → 销毁半成品会话 → 删 reserved 行；原始错误码优先透出
+    // 复用路径不销毁会话：那是用户的会话，会话本身无辜。
+    // Rollback: unsubscribe the half-built view → strip tools → destroy the
+    // half-built session → delete the reserved row; the original code wins.
+    // The reuse path never destroys the session — it is the user's session and
+    // is not at fault.
     view?.unsubscribe()
     await ports.sessions.releaseTools(sessionId).catch(() => undefined)
-    await ports.sessions.destroy(sessionId).catch(() => undefined)
+    if (!reusing) await ports.sessions.destroy(sessionId).catch(() => undefined)
     await index.fail(key, error instanceof Error ? error.message : String(error)).catch(() => undefined)
     // 已绑定的实时视图随半成品一起摘除（幂等；bind 在 commit 前可能已发生）
     // / a bound live view dies with the half-built session (idempotent)
@@ -548,10 +583,14 @@ export async function createPageSession(
     throw error
   }
   if (options.taskId !== undefined) await takeTask(ports, options.taskId, sessionId, options.actor)
-  // 新会话启动即注入收件箱通知（§5.2 inbox）；失败只降级
-  await pumpDeliveries(ports, sessionId)
+  // 新会话启动即注入收件箱通知（§5.2 inbox）；失败只降级。复用路径跳过：用户的
+  // 首条消息不该被收件箱块挤到后面。
+  // A new session gets the inbox pumped at start (§5.2); failures degrade. The
+  // reuse path skips it: the user's first message must not be pushed behind
+  // inbox blocks.
+  if (!reusing) await pumpDeliveries(ports, sessionId)
   if (options.focus !== false) await ports.sessions.focus(sessionId)
-  return { sessionId, url: key, title }
+  return { sessionId, url: key, title, ...(reusing ? { block } : {}) }
 }
 
 /** 把非 PageError 的底层失败包成带稳定 code 的 PageError */

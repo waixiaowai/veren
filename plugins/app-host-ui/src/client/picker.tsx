@@ -6,14 +6,15 @@
  * every state the user can hit — loading, read failure, empty catalog, missing
  * entry page, disabled/broken app, open failure — is an explicit row or note,
  * never a silent blank. The component holds only local view state (menu open,
- * the last failure); the open action goes back through the injected callback,
- * which resolves to a human-readable failure line or undefined on success.
+ * the last failure, the resolved app); the staging action goes back through the
+ * injected callback, which resolves to a human-readable failure line or
+ * undefined on success.
  *
  * 输入工具栏的应用下拉。一个 outline 按钮触发器加共享 `ui-primitives` 的 Menu
  * （portal、dense）：列表纯派生自注入的目录快照，用户能遇到的每种状态——读取中、
  * 读取失败、目录为空、入口页缺失、应用停用/异常、打开失败——都是明确的一行或
- * 提示，绝不是静默空白。组件只持有本地视图状态（菜单开合、最近一次失败）；打开
- * 动作经注入的回调回去，回调以一行人类可读的失败文案或 undefined 兑现。
+ * 提示，绝不是静默空白。组件只持有本地视图状态（菜单开合、最近一次失败、已解析
+ * 的应用）；暂存动作经注入的回调回去，回调以一行人类可读的失败文案或 undefined 兑现。
  * @module @veren/app-host-ui/client/picker
  */
 
@@ -28,14 +29,14 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { AppCatalogSnapshot } from './catalog.ts'
 import type { AppEntryView } from './remote.ts'
 
-/** Catalog read + entry-page open, injected from the apply closure. */
+/** Catalog read + app staging, injected from the apply closure. */
 export interface AppPickerInjected {
   readonly hooks: { readonly catalog: HostObservable<AppCatalogSnapshot> }
-  /** Open one app's entry page; resolves to a failure line, or undefined on success. */
-  readonly onOpen: (appId: string) => Promise<string | undefined>
+  /** Stage one app on the current session; resolves to a failure line, or undefined on success. */
+  readonly onStage: (appId: string, sessionId: string) => Promise<string | undefined>
   /** Re-read the catalog after a failed read. */
   readonly onRetry: () => void
-  /** The app owning one session (a page session), or null for an ordinary session. */
+  /** The app owning one session (a page session or a staged pick), or null for an ordinary session. */
   readonly resolveApp: (sessionId: string) => Promise<AppEntryView | null>
 }
 
@@ -134,14 +135,20 @@ export function AppPicker(props: AppPickerProps): React.ReactElement {
       }
       onSelect={(id) => {
         setFailure(undefined)
-        void props.onOpen(id).then((failed) => {
+        void props.onStage(id, sessionId).then((failed) => {
           // 打开失败要说人话：菜单带着一行原因重新展开，而不是静默无反应。
           // Open failures speak: the menu reopens carrying one readable reason
           // line instead of silently doing nothing.
           if (failed !== undefined) {
             setFailure(failed)
             setOpen(true)
+            return
           }
+          // 暂存成功：立刻显示"已选应用"；会话要等用户发送首条消息才真正开始。
+          // / staged: show the selected app right away; the session really starts
+          // when the user sends the first message.
+          setOpen(false)
+          setOwner(snapshot.apps.find((app) => app.id === id) ?? null)
         })
       }}
       onClose={() => { setOpen(false) }} />

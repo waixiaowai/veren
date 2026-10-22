@@ -31,7 +31,7 @@ export const zh: Record<AppPickerKey, string> = {
   appBroken: '（异常）',
   opening: '正在打开…',
   openFailed: '入口页打开失败',
-  selectedApp: '本会话所属应用',
+  selectedApp: '已选应用（发送后开始会话）',
 }
 
 /** English dictionary. */
@@ -47,5 +47,5 @@ export const en: Record<AppPickerKey, string> = {
   appBroken: '(broken)',
   opening: 'Opening…',
   openFailed: 'Failed to open the entry page',
-  selectedApp: 'App of this session',
+  selectedApp: 'Selected app (the session starts on send)',
 }

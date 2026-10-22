@@ -237,3 +237,21 @@
   app-host-ui 6/6（remote 声明 + 本地化键集）；两侧 typecheck 干净。
 - 真机：verify-person-agent 探针输出 OWNER person-agent / ORDINARY null。
 - 发布 app-host@0.2.10、app-host-ui@0.1.9；profile 安装，节点 3080 重启。
+
+### 第九轮：选中应用改为"暂存"，首条消息才开会话（2026-10-22）
+- 需求：点选应用不该立刻建页面会话；用户输入需求并发送时才真正开始。
+- 实现（暂存 + 首回合提升）：
+  - page-registry `openUrl({ reuseSessionId })`：复用既有会话——不建会话、不 focus、
+    PAGE 块不落日志而是随 `OpenPageResult.block` 返回；失败绝不销毁用户会话；
+    跳过 inbox 泵（不把用户消息挤后）。
+  - app-host 新增 `staging.ts`：`stage` 只登记意图；该会话 agent 的
+    `agent/pre-step`（先 next()）里用复用路径提升为页面会话，并把 PAGE 块作为
+    本轮决策消息注入（只落日志当前轮看不到页面），同时落实例标题。
+  - 网关新增 `appHost/stage(appId, sessionId)`；`sessionApp` 优先返回暂存应用
+    （工具栏在发送前也显示已选应用）。
+  - 客户端 picker：选中 → `stage`，成功后立刻显示静态"已选应用"；不再调用 open。
+- 测试：page-registry 51/51（复用路径不建会话/块随返回值/失败不销毁）；
+  app-host 20/20（stage → sessionApp → pre-step 提升：实例 live、PAGE 块进决策、
+  标题更新）。
+- 发布 page-registry@0.1.4、app-host@0.2.11、app-host-ui@0.1.10；profile 安装，
+  节点 3080 重启。

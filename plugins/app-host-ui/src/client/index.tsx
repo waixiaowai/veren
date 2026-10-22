@@ -27,9 +27,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { createAppCatalog } from './catalog.ts'
 import { en, NS, zh, type AppPickerKey } from './locales.ts'
-import { openAppPage } from './open.ts'
 import { AppPicker } from './picker.tsx'
-import { appHostRemote, type AppEntryView, type AppHostResult, type AppOpenView } from './remote.ts'
+import { appHostRemote, type AppEntryView, type AppHostResult } from './remote.ts'
 import { installPickerStyles } from './styles.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -82,35 +81,22 @@ const PickerPlugin = {
     installPickerStyles(ctx)
     const catalog = createAppCatalog(appHost, (listener) => ctx.on('connection/reset', listener))
     ctx.effect(() => catalog.dispose(), 'app-host-ui: catalog invalidation listener')
-    const onOpen = async (appId: string): Promise<string | undefined> => {
+    // 选择应用 = 暂存意图：会话不立刻开始，用户发送首条消息时宿主把它提升为
+    // 页面会话（PAGE 块作为那一轮的决策消息进入上下文）。
+    // Picking an app stages the intent: the session does not start right away;
+    // the user's first message has the host promote it into a page session (the
+    // PAGE block enters that round's decision).
+    const onStage = async (appId: string, sessionId: string): Promise<string | undefined> => {
       // 运行期信封在 direct 调用上有两种历史形态（包裹/裸值）：在这里一次性
       // 收窄成 AppHostResult，后续代码只看一种形状（跨边界收窄，非类型逃逸）。
       // The runtime envelope of a direct call has two historical shapes
       // (wrapped / bare value): narrow once here to AppHostResult so the code
       // below sees one shape (a boundary narrowing, not a type escape).
-      //
-      // 调用必须占满声明参数（见 open.ts）：短调用会被客户端网关按 arity 拒绝，
-      // 表现就是"选中应用没反应"。
-      // The call must supply every declared parameter (see open.ts): a short
-      // call is rejected by the client gateway on arity, which surfaced as
-      // "picking an app does nothing".
-      const raw: unknown = await openAppPage(appHost, appId)
+      const raw: unknown = await appHost.stage(appId, sessionId)
       const result = (typeof raw === 'object' && raw !== null && 'ok' in raw)
-        ? raw as AppHostResult<AppOpenView>
-        : { ok: true as const, value: raw as AppOpenView }
-      // 失败说人话：Remote 信封把网关抛的稳定 code 翻成 {ok:false,error}。
-      // Failures speak: the Remote envelope turns the gateway's stable code
-      // into {ok:false,error}.
+        ? raw as AppHostResult<AppEntryView>
+        : { ok: true as const, value: raw as AppEntryView }
       if (!result.ok) return `${result.error.code}: ${result.error.message}`
-      // focus 的执行半边就在这里：宿主建好页面会话（agent 已激活、工具已挂、
-      // 标题已落盘），客户端直接切换过去——宿主侧的 app-host/focus 事件发给
-      // 之后经模型 app_open 打开时的跟随路径，同一处理在下方 $on 监听里。
-      // This is the executing half of focus: the host has built the page
-      // session (agent active, tools mounted, title committed) and the client
-      // switches straight to it. The host's app-host/focus event covers the
-      // follow path when the model opens a page via app_open — same handling
-      // in the $on listener below.
-      ctx.uiWorkspace.openSession(result.value.sessionId as SessionId)
       return undefined
     }
     ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
@@ -120,7 +106,7 @@ const PickerPlugin = {
       locale: NS,
       inject: () => ({
         hooks: { catalog: { getSnapshot: catalog.getSnapshot, subscribe: catalog.subscribe } },
-        onOpen,
+        onStage,
         onRetry: catalog.refresh,
         // 当前会话所属应用（页面会话）：工具栏据此显示"已选应用"并锁定下拉。
         // 读失败返回 null → 组件退回下拉，显示能力不阻塞输入栏。

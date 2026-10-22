@@ -49,6 +49,8 @@ export interface AppHostRemoteApi {
   readonly open: (appId: string, url?: string) => Promise<AppHostResult<AppOpenView>>
   /** The app owning one session (a page session), or null for an ordinary session. */
   readonly sessionApp: (sessionId: string) => Promise<AppHostResult<AppEntryView | null>>
+  /** Stage an app on a session: the session's first message promotes into that app's page. */
+  readonly stage: (appId: string, sessionId: string) => Promise<AppHostResult<AppEntryView>>
 }
 
 /** Result and parameter schemas stay loose on purpose: the Host owns the fields. */
@@ -104,6 +106,16 @@ export const appHostRemote = createTypertRemoteInfo({
         parameter('sessionId', 'app-host:session-app:sessionId', () => z.string()),
       ],
       result: codec('app-host:session-app:result', () => z.union([APP_SCHEMA, z.null()])),
+    },
+    'appHost/stage': {
+      service: SERVICE,
+      description: 'Stage an app on a session: the session keeps being an ordinary composer until its first message, which promotes it into that app page.',
+      invocation: { kind: 'direct' },
+      parameters: [
+        parameter('appId', 'app-host:stage:appId', () => z.string()),
+        parameter('sessionId', 'app-host:stage:sessionId', () => z.string()),
+      ],
+      result: codec('app-host:stage:result', () => APP_SCHEMA),
     },
   },
 }, z)

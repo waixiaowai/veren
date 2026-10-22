@@ -20,6 +20,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
+import { createAppStaging } from './staging.ts'
+import type { AppStaging } from './staging.ts'
 
 /** 服务名（ctx.appHost；wire namespace 同名）/ service key; wire namespace matches */
 export const APP_HOST_GATEWAY_NAME = 'appHost'
@@ -53,10 +55,19 @@ export interface AppGatewayOpened {
 
 /** 目录服务的静态依赖；经 Typert Remote 基类的属主面访问（ctx.apps / ctx.pageRegistry） */
 export class AppHostGatewayService extends TypertRemoteService {
-  static inject = ['apps', 'pageRegistry']
+  // sessions / agents 供暂存面使用：选择应用只登记，首条用户消息的 pre-step 才提升
+  // / sessions / agents back the staging face: a pick is only recorded; the
+  // first user message's pre-step performs the promotion
+  static inject = ['apps', 'pageRegistry', 'sessions', 'agents']
+
+  private readonly staging: AppStaging
 
   constructor(ctx: Context) {
     super(ctx, APP_HOST_GATEWAY_NAME, { namespace: APP_HOST_GATEWAY_NAME })
+    this.staging = createAppStaging(ctx)
+    // 暂存面的 pre-step 监听随网关 fiber 卸载（逆序清理）
+    // / the staging face's pre-step listeners die with the gateway fiber
+    ctx.effect(() => () => this.staging.dispose(), 'appHost: staging')
   }
 
   /** 应用目录：每条应用带上入口页 URL / the app catalog with entry urls */
@@ -76,19 +87,61 @@ export class AppHostGatewayService extends TypertRemoteService {
   }
 
   /**
+   * 暂存一个应用（选择 ≠ 开会话）：会话首条用户消息的 pre-step 才把它提升为
+   * 页面会话。入口页缺失/应用停用在这里就 fail loud（GUI 立刻看到原因）。
+   * Stage one app (a pick is not a session start): the session's first user
+   * message promotes it in pre-step. A missing entry page or a disabled app
+   * fails loud here so the GUI shows the reason immediately.
+   * @param appId - 应用 id / app id
+   * @param sessionId - 要绑定的会话（当前输入栏所在的会话）/ the session to bind (the composer's session)
+   * @returns 暂存的应用 / the staged app
+   */
+  @Remote('stage')
+  stage(appId: string, sessionId: string): AppGatewayApp {
+    const app = this.catalog().find((record) => record.id === appId)
+    if (app === undefined) {
+      throw gatewayError('app/not-found', `app "${appId}" is not registered`)
+    }
+    if (app.state !== 'active') {
+      throw gatewayError('app/disabled', `app "${appId}" is ${app.state}; it cannot open pages`)
+    }
+    if (app.entryUrl === undefined) {
+      throw gatewayError('app/entry-missing', `app "${appId}" has no registered entry page`)
+    }
+    this.staging.stage(sessionId, { appId: app.id, name: app.name, url: app.entryUrl })
+    return app
+  }
+
+  /**
+   * 取消暂存（用户改主意）：会话不再在首条消息时提升。
+   * Unstage: the session no longer promotes on its first message.
+   * @param sessionId - 会话 id / session id
+   */
+  @Remote('unstage')
+  unstage(sessionId: string): void {
+    this.staging.unstage(sessionId)
+  }
+
+  /**
    * 会话所属应用：页面会话返回它打开的应用（工具栏据此显示"已选应用"并锁定），
    * 普通会话返回 null。事实源是页面实例索引（会话 id 与页面实例一一绑定），
    * 遍历目录里的应用各查一次——应用数量是个位数，UI 每次会话切换调一次。
+   * 暂存中的应用优先返回：用户已选但还没发送时，工具栏同样显示已选应用。
    * The app owning one session: a page session returns the app it opened (the
    * toolbar shows and locks "selected app"), an ordinary session returns null.
    * The fact source is the page instance index (a session id binds one page
    * instance); it walks the catalog and asks each app — the catalog is a
-   * handful of apps and the UI calls this once per session switch.
+   * handful of apps and the UI calls this once per session switch. A staged
+   * app wins: picked but not yet sent still shows as the selected app.
    * @param sessionId - 当前会话 id / the current session id
    * @returns 该会话所属的应用，或 null / the owning app, or null
    */
   @Remote('sessionApp')
   async sessionApp(sessionId: string): Promise<AppGatewayApp | null> {
+    const staged = this.staging.appOf(sessionId)
+    if (staged !== undefined) {
+      return this.catalog().find((entry) => entry.id === staged.appId) ?? null
+    }
     for (const record of this.ctx.apps.catalog()) {
       const rows = await this.ctx.pageRegistry.instances.listByApp(record.definition.id)
       if (!rows.some((row) => row.sessionId === sessionId)) continue

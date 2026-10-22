@@ -392,6 +392,36 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     expect(await h.ctx.appHost.sessionApp('session-ordinary')).toBeNull()
   })
 
+  it('暂存应用：选中不建会话，首条消息的 pre-step 把该会话提升为页面会话', async () => {
+    const h = await boot()
+    registerMiniApp(h)
+    // GUI 的普通会话（"未命名"）：先存在，用户还没发送
+    // / the GUI's ordinary session ("untitled"): it exists before the user sends
+    const sessionId = 'session-gui-1'
+    await h.ctx.agents.create({
+      sessionId,
+      agentOptions: { provider: 'test', model: 'test-model' },
+      meta: { cwd: h.host.defaultWorkspacePath, agentPreset: 'standard' },
+    })
+    // 选中应用：只登记意图，不建页面实例 / picking an app records intent only
+    const staged = h.ctx.appHost.stage('mini', sessionId)
+    expect(staged.id).toBe('mini')
+    expect(await h.pages.instances.listByApp('mini')).toHaveLength(0)
+    // 工具栏显示已选应用（暂存态）/ the toolbar shows the selected app (staged)
+    expect(await h.ctx.appHost.sessionApp(sessionId)).toMatchObject({ id: 'mini' })
+    // 首条消息的 pre-step：提升为页面会话 / the first message's pre-step promotes it
+    const scope = h.host.scopes.get(sessionId)
+    if (scope === undefined) throw new Error('expected the agent scope')
+    const decision = await runPreStep(h.ctx, scope.ctx, sessionId)
+    expect(decision.kind).toBe('enter')
+    const rows = await h.pages.instances.listByApp('mini')
+    expect(rows.some((row) => row.sessionId === sessionId && row.state === 'live')).toBe(true)
+    // PAGE 块进入本轮决策（而不是事后补一条日志）/ the PAGE block enters this round's decision
+    expect(JSON.stringify(decision)).toContain('PAGE mini/')
+    // 侧栏标题换成实例标题 / the sidebar title becomes the instance title
+    expect(h.host.sessions.get(sessionId)?.titles).toContainEqual(expect.objectContaining({ title: '任务列表页' }))
+  })
+
   it('装配 disposer 撤销全部注入：dispose 后镜像失效（注册只告警不镜像）', async () => {
     const ctx = new Context()
     ;(ctx.provide as unknown as (n: string, v: unknown) => void)('sessions', { get: () => undefined, create: () => ({}) })

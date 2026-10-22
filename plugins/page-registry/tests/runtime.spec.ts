@@ -464,6 +464,38 @@ describe('工具前缀与应用作用域（§3.4.3、§3.1）', () => {  it('页
     expect(sessions.destroyed).toHaveLength(0)
   })
 
+  it('复用会话（提升路径）：不建会话、不落 PAGE 块，块随返回值交给首回合', async () => {
+    const { service, sessions, kv } = makeService()
+    // 复用目标：一条已存在的普通会话（GUI 里的"未命名"会话）
+    // / the reuse target: an existing ordinary session (the GUI's blank session)
+    const sessionId = 'session-existing'
+    const opened = await service.openUrl('/apps/demo/task/1', { reuseSessionId: sessionId, focus: false })
+    expect(opened.sessionId).toBe(sessionId)
+    // 没有调用会话端口的 create（不新建会话）/ the session port's create is never called
+    expect(sessions.created).not.toContain(sessionId)
+    // 页面工具照样挂到该会话 / page tools still mount on that session
+    expect(sessions.mounted.get(sessionId)?.map((tool) => tool.name)).toEqual(['demo__read'])
+    // PAGE 块不落日志（由首回合的 pre-step 注入本轮决策），随返回值交付
+    // / the PAGE block is not appended (the first turn's pre-step injects it into
+    // the decision) and travels in the result instead
+    expect(opened.block).toContain('PAGE demo/task /apps/demo/task/1')
+    expect(sessions.messages.get(sessionId) ?? []).toEqual([])
+    // 实例索引照样翻 live，URL 指向这条会话 / the index still flips live on this session
+    expect(kv.map.get('/apps/demo/task/1')?.state).toBe('live')
+    expect(kv.map.get('/apps/demo/task/1')?.sessionId).toBe(sessionId)
+  })
+
+  it('复用会话失败不销毁用户的会话（回滚只摘工具与索引行）', async () => {
+    const { service, sessions } = makeService()
+    // 让挂载阶段失败：mountTools 抛错 → 复用路径的回滚
+    // / fail at the mount stage so the reuse path's rollback runs
+    const sessionId = 'session-existing'
+    sessions.failMount(new Error('boom'))
+    await expect(service.openUrl('/apps/demo/task/1', { reuseSessionId: sessionId, focus: false }))
+      .rejects.toBeDefined()
+    expect(sessions.destroyed).not.toContain(sessionId)
+  })
+
   it('组件动态注册：ctx.tools.register 的产物与目录工具一次挂载（都改外名）', async () => {
     const { service, sessions } = makeService()
     // 组件体内动态注册一个动作工具（RFC §5.4 动态面）
