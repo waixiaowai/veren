@@ -123,3 +123,24 @@
   （market/release.mjs），干净安装即取到新版；profile .npmrc 已补 @veren:registry 行。
 - DEEPSEEK_API_KEY 已从 ~/.dsh 凭据 refs 注入节点启动环境；GUI 页面会话 agent
   持有凭据。
+
+### 第二轮：自承载组件定型（2026-10-22）
+- 评审结论：`createPersonAgentPages` 工厂 + `PersonAgentOverviewService` 是对页面
+  组件自由度的锁死；中间形态（faces 对象 / buildOverviewSnapshot 包装）仍是绕圈
+  ——组件 ctx 本身就是依赖注入，**就地读 ctx 才是终点**。
+- 定型形状：页面 = 模块级 PageFC + 模块级 meta，`pages.register(component, meta)`
+  直连注册；数据加载在组件体内 `ctx.effect` 里**直接从组件 ctx** 读服务面
+  （`ctx.workspaceRegistry` / `ctx.taskCenter`），结果落 `useState`，重渲 diff 出
+  PAGE-PATCH。views.ts 只剩快照类型 + 空快照初值。
+- 解锁点：`PageComponentContext extends Omit<Context, 'tools'|'effect'|'on'>`——
+  声明合并的服务面在组件体内原样可读（运行时 Proxy 本就转发，这次对齐类型面）。
+  纪律：effect 内 setState 必须落在渲染帧之外（异步/microtask），否则重入渲染帧
+  打乱 hook 调用序。RFC §5.2 已更新「自承载组件惯用法」。
+- 真机（稳定节点 3080）：verify-person-agent.ts 探针 openUrl 两页均创建会话、
+  app_pages.json 落盘 state=live；首帧如实渲染空快照（'not refreshed yet'）由
+  单测钉死，自加载数据经下一轮 agent 对话的 PAGE-PATCH 进历史（GUI 轮验证）。
+- 版本坍缩修复：registry 上 forum-app@0.1.2 / notebook-app@0.1.2 是减法前内容
+  （import 已删除的 Static/defineAppPage，boot 期 SyntaxError）——迁移轮漏 bump。
+  已 bump 0.1.3 发布；profile 删 node_modules 全新安装后 SyntaxError 清零。
+  本次发布：prompt-page@0.1.3、person-agent-app@0.1.3、forum-app@0.1.3、
+  notebook-app@0.1.3（56 清单全验证可解析）。

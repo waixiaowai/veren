@@ -19,8 +19,7 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
 import { APP_DEFINITION, APP_ID, collectAppTools } from './app.ts'
-import { createPersonAgentPages } from './pages.tsx'
-import { PersonAgentOverviewService } from './views.ts'
+import { OverviewMeta, OverviewPage, WorkspacesMeta, WorkspacesPage } from './pages.tsx'
 
 export const name = 'personAgentApp'
 
@@ -33,26 +32,18 @@ export const Config: z<Config> = z.object({
   maxListSessions: z.number().step(1).min(1).default(200).description('Maximum sessions returned by one collected workspace_session_list call.'),
 })
 
-// 四个服务依赖全部显式声明（G13）：本插件就是应用；workspaceRegistry /
-// taskCenter 同时也是概览服务（views.ts）经 static inject 声明的自身依赖——
-// 在此声明保证服务构造时它们必然在场，不做运行期探测。
-// All four service dependencies are declared explicitly (G13): this plugin IS
-// an app; workspaceRegistry / taskCenter are also declared by the overview
-// service (views.ts) as its own static injects — declaring them here
-// guarantees they are present when the service is constructed, no probing.
+// 服务依赖全部显式声明（G13）：本插件就是应用；workspaceRegistry /
+// taskCenter 由页面组件在渲染体内经组件 ctx 读取——在此声明保证组件渲染时
+// 它们必然在场，不做运行期探测。
+// All service dependencies are declared explicitly (G13): this plugin IS an
+// app; workspaceRegistry / taskCenter are read by the page components in their
+// bodies via the component ctx — declaring them here guarantees they are
+// present when the components render, no probing.
 export const inject = ['apps', 'pageRegistry', 'workspaceRegistry', 'taskCenter']
 export const provide = []
 
 export const apply = (ctx: Context, config: Config): void => {
   const apps = ctx.apps
-  // 概览数据面挂载为 ctx.personAgentOverview 服务：它经 static inject 声明读取
-  // apps / workspaceRegistry / taskCenter 三个服务面（G13），而这三者正是本插件
-  // 已声明的 inject，构造时必然在场；注册随本 fiber 卸载自动摘除，不泄漏。
-  // The overview data plane mounts as the ctx.personAgentOverview service: it
-  // declares the apps / workspaceRegistry / taskCenter faces via its own static
-  // inject (G13) — the very faces this plugin already declares, so they are
-  // guaranteed present at construction; registration is removed with this fiber.
-  const overview = new PersonAgentOverviewService(ctx)
 
   // 单一 effect 收线（G13 规则 3）：定义 → 工具 → 页面，体内任何一步失败都把
   // 已完成的步骤逆序回滚——绝不留下"应用在、工具缺页"的半接线状态。
@@ -71,16 +62,16 @@ export const apply = (ctx: Context, config: Config): void => {
       for (const tool of collectAppTools(ctx, config.maxListSessions)) {
         done.push(tools.define(tool))
       }
-      // 3) 页面注册（组件形态，RFC prompt-page-render §3.5）：单入口，内部自动
-      //    镜像进 page-registry（可被 openUrl 解析）。组件经 useSnapshot 读概览
-      //    服务，变化经 PAGE-PATCH 增量进上下文。
-      //    Page registration (component form, RFC prompt-page-render §3.5):
-      //    single entry, mirrored automatically. Components read the overview
-      //    service via useSnapshot; changes flow as PAGE-PATCH blocks.
+      // 3) 页面注册（自承载组件，RFC prompt-page-render §3.5）：模块级 PageFC +
+      //    meta 直接注册，单入口内部自动镜像进 page-registry（可被 openUrl 解析）。
+      //    组件在渲染体内经组件 ctx 取服务面自加载数据，变化经 PAGE-PATCH 进上下文。
+      //    Page registration (self-contained components, RFC §3.5): module-level
+      //    PageFCs and metas registered directly, single entry mirrored into the
+      //    page registry (openUrl-resolvable). Components load their own data via
+      //    the component ctx in their bodies; changes flow as PAGE-PATCH blocks.
       const pages = apps.pages(APP_ID, ctx)
-      const taskAppPages = createPersonAgentPages(overview)
-      done.push(pages.register(taskAppPages.OverviewPage, taskAppPages.OverviewMeta))
-      done.push(pages.register(taskAppPages.WorkspacesPage, taskAppPages.WorkspacesMeta))
+      done.push(pages.register(OverviewPage, OverviewMeta))
+      done.push(pages.register(WorkspacesPage, WorkspacesMeta))
     } catch (error: unknown) {
       for (const dispose of done.reverse()) dispose()
       throw error

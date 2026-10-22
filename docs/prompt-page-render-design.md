@@ -153,9 +153,21 @@ Gaps: **G-A text nodes** (Markdown's primary carrier; bare interpolation `{t.tit
 | `ctx.effect(run, cleanup?)` | **replaces `useEffect`**: recorded during render (slot + call-order dedup), executed once after commit, cleanup in reverse at teardown. **No deps** (§5.3) | retires the `load`/`onLoad` double-write; registration/teardown with zero new machinery |
 | `ctx.on(name, handler)` | **replaces `useEvent`**: recorded during render, cleaned up with the session | reactivity reuses the event bus, same spelling as lifecycle observers |
 
-### 5.2 The Positioning of `useState` (revised 2026-10-21)
+### 5.2 The Positioning of `useState` and the Self-Contained Component Idiom (revised 2026-10-21)
 
 The initial "no useState" stance aimed at the wrong target: the typical state a page holds is a **local cache mirror of a ctx service** — a cache is not a second source of fact; the authoritative fact stays in the service layer (the React Query/SWR distinction). Revised: **provide it**, scoped to fetch caches and view state; "inventing facts" (numbers on the page that exist nowhere in the system) is caught by lint and review. Honest cost: manual fetches do not re-render on external changes (`useSnapshot` does). Layering: shared-store data via `useSnapshot`; one-off fetches / local view state via `useState` + `ctx.on` invalidation.
+
+**The self-contained component idiom (the default shape for page data)**: a page is a module-level component with **no factory and no closure injection** — the component ctx carries the full host service face (declaration-merged `ctx.apps` / `ctx.taskCenter` / plugin services read as-is; only the tools/effect/on members are overridden by the session facade), and props are the URL params. Data loading lives in the component body:
+
+```tsx
+export const ListPage: PageFC = (_props, ctx) => {
+  const [rows, setRows] = useState<Row[]>([])
+  ctx.effect(() => { void loadRows(ctx.workspaceRegistry).then(setRows) })   // load on mount
+  return <ul>{rows.map((r) => <li key={r.id}>{r.title}</li>)}</ul>
+}
+```
+
+**Discipline: `setState` inside an effect must land outside the render frame** (async reads / microtask wrapping) — an effect's run executes inline within render, so a synchronous `setState` would re-enter the render frame and corrupt hook order. Pages backed by an external authoritative store (the change source lives outside the page) keep `meta.store` + `useSnapshot`; a page picks whichever fits.
 
 ### 5.3 Effects and Events: Direct `ctx.effect` / `ctx.on`, Recorded During Render
 

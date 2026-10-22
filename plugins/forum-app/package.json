@@ -1,7 +1,7 @@
 {
   "name": "@veren/forum-app",
   "displayName": "Forum-应用",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Use when a DSH deployment hosts the forum service and wants it visible as a first-class application: registers the forum app (a board/post catalog entry page plus a post detail page under /apps/forum) in the host app catalog with app-scoped forum__* page tools, acting through the @veren/forum service's tools port; skip it when only the headless forum service is wanted - the host package works alone and this package needs the application framework to activate.",
   "type": "module",
   "main": "./dist/index.js",

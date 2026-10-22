@@ -1,23 +1,23 @@
 /**
  * 组合测试：真实 cordis Context + 真实 AppRegistryService/PageRegistryService，
  * 锁定验收面：目录可发现、入口 URL 可解析、页面 URL 前缀、工具外部名前缀、
- * 单入口一致性、卸载清理、读取失败的显式降级（服务本身都是硬 inject）。
+ * 单入口一致性、卸载清理、自承载页面的真实数据渲染与读取失败显式降级
+ * （服务都是硬 inject）。
  * Composition tests: real cordis Context with real registries; locks catalog
  * discovery, entry-url resolution, url prefixes, tool external-name prefixes,
- * single-entry consistency, teardown, and explicit read-failure degrade (all
- * services are hard injects).
+ * single-entry consistency, teardown, and the self-contained pages' real-data
+ * rendering plus explicit read-failure degrade (all services are hard injects).
  */
-import { afterEach, describe, expect, it } from 'vitest'
-import { createElement } from '@veren/prompt-core'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
 import AppRegistryPlugin, { AppRegistryService } from '@veren/app-registry'
 import PageRegistryPlugin, { PageRegistryService } from '@veren/page-registry'
 import { apply, inject, name } from '../src/index.ts'
 import { APP_DEFINITION, APP_ID } from '../src/app.ts'
-import { defineComponentPage, isMarkdownDocHost, useSnapshot } from '@veren/prompt-page'
-import { buildOverviewSnapshot } from '../src/views.ts'
-import type { OverviewFaces, OverviewSnapshot } from '../src/views.ts'
+import { defineComponentPage, isMarkdownDocHost } from '@veren/prompt-page'
+import type { ComponentPageMeta, MarkdownDocHost, PageFC } from '@veren/prompt-page'
+import { OverviewMeta, OverviewPage, WorkspacesMeta, WorkspacesPage } from '../src/pages.tsx'
 
 /** 假任务中心：open 列表可编程 / a fake task center with a programmable open list */
 function fakeTaskCenter(options: { openTitles?: string[]; failList?: boolean } = {}) {
@@ -49,7 +49,6 @@ async function install(options: {
   workspaces?: Array<{ id: string; title: string; sessionIds: string[] }>
 } = {}): Promise<{
   ctx: Context
-  faces: OverviewFaces
   apps: AppRegistryService
   pageRegistry: PageRegistryService
   fiber: Fiber
@@ -70,12 +69,7 @@ async function install(options: {
   ctx.provide('taskCenter', fakeTaskCenter(options) as never)
   const fiber = ctx.plugin({ name, inject, apply }, { maxListSessions: 50 })
   await fiber
-  const faces: OverviewFaces = {
-    apps: ctx.apps,
-    workspaces: ctx.workspaceRegistry,
-    tasks: ctx.taskCenter,
-  }
-  return { ctx, faces, apps, pageRegistry, fiber }
+  return { ctx, apps, pageRegistry, fiber }
 }
 
 const disposers: (() => Promise<void>)[] = []
@@ -83,6 +77,21 @@ afterEach(async () => {
   for (const dispose of disposers.reverse()) await dispose()
   disposers.length = 0
 })
+
+/**
+ * 挂载真实页面组件并返回其文档宿主：组件体内的 ctx.workspaceRegistry /
+ * ctx.taskCenter 经 facade 转发到测试 ctx 的 fake 服务面——零工厂、零闭包注入。
+ * Mount a real page component and return its doc host: the body's
+ * ctx.workspaceRegistry / ctx.taskCenter forward through the facade to the
+ * test ctx's fake faces — zero factory, zero closure injection.
+ */
+function mountPage(component: PageFC, meta: ComponentPageMeta, ctx: Context): MarkdownDocHost {
+  const view = defineComponentPage(component, meta, ctx).live.mount({})
+  disposers.push(async () => { view.unsubscribe() })
+  const host = isMarkdownDocHost(view.host) ? view.host : undefined
+  if (host === undefined) throw new Error('expected the markdown doc host')
+  return host
+}
 
 describe('应用可被发现与解析', () => {
   it('ctx.apps.catalog() 能发现 person-agent：active、toolPrefix=person_agent', async () => {
@@ -143,17 +152,13 @@ describe('应用可被发现与解析', () => {
 })
 
 describe('生命周期', () => {
-  it('插件 fiber 销毁 → 整应用从 catalog 与 URL 索引同时摘除，概览服务同步卸载', async () => {
-    const { ctx, apps, pageRegistry, fiber } = await install()
-    expect(ctx.get('personAgentOverview', false)).toBeDefined()
+  it('插件 fiber 销毁 → 整应用从 catalog 与 URL 索引同时摘除', async () => {
+    const { apps, pageRegistry, fiber } = await install()
     await fiber.dispose()
     expect(apps.catalog()).toHaveLength(0)
     expect(pageRegistry.resolve('/apps/person-agent/overview')).toBeNull()
     expect(pageRegistry.resolve('/apps/person-agent/workspaces')).toBeNull()
     expect(() => apps.listTools(APP_ID)).toThrow()
-    // 概览服务随 fiber 卸载从共享 store 摘除（注册动作不泄漏）。
-    // The overview service is removed from the shared store with the fiber (no leak).
-    expect(ctx.get('personAgentOverview', false)).toBeUndefined()
   })
 })
 
@@ -195,90 +200,52 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     expect(home.instructions).toContain('workspace_session_list')
   })
 
-  it('概览页挂载即刷新：空快照首帧后，真实数据经 store 订阅进正文（WYSIWYG）', async () => {
+  it('概览页自承载加载：首帧如实渲染空快照，ctx.effect 就地读 ctx 后真实数据进正文（WYSIWYG）', async () => {
     const { ctx, fiber } = await install({ openTitles: ['唯一任务'] })
     disposers.push(() => fiber.dispose())
-    // 走真实 cordis：服务在 ctx 上（static inject），组件 facade 转发到它
-    // / go through the real cordis: the service lives on ctx (static inject)
-    const overview = ctx.personAgentOverview
-    const registration = defineComponentPage(
-      (_props: Record<string, never>, componentCtx: unknown) => {
-        const snap = useSnapshot<OverviewSnapshot>()
-        return createElement('pre', { children: JSON.stringify({
-          open: snap?.tasks.openCount ?? null,
-          ws: (snap?.workspaces.rows ?? []).map((row) => row.id),
-        }) })
-      },
-      { url: '/apps/person-agent/overview', description: '概览', store: overview },
-    )
-    const view = registration.live.mount({})
-    const host = isMarkdownDocHost(view.host) ? view.host : undefined
-    if (host === undefined) throw new Error('expected the markdown doc host')
-    // ctx.effect 首次运行触发 refresh（异步）；轮询等正文出现真实 open 计数
-    // / ctx.effect runs on first commit and triggers refresh (async); poll for the real open count in the body
-    await overview.refresh() // 订阅者自动重渲 / subscribers re-render automatically
-    expect(host.bodyText()).toContain('"open":1')
-    expect(host.bodyText()).toContain('ws-1')
-    expect(host.bodyText()).toContain('ws-2')
+    const host = mountPage(OverviewPage, OverviewMeta, ctx)
+    // 首帧：空快照如实标注未刷新（反编造）；数据在 effect 异步读取完成后经
+    // 重渲 diff 进正文。
+    // / Frame 1: the empty snapshot honestly marked not-refreshed
+    // (anti-fabrication); data enters the body via the re-render after the
+    // effect's async read completes.
+    expect(host.bodyText()).toContain('not refreshed yet')
+    await vi.waitFor(() => expect(host.bodyText()).toContain('主工作区'))
+    expect(host.bodyText()).toContain('副工作区（会话账目 0）')
+    expect(host.bodyText()).toContain('工作区 2 个')
+    expect(host.bodyText()).toContain('live from the task center')
   })
 
-  it('工作区浏览页：打开后正文出现工作区区快照（ws-1/会话账目 2）', async () => {
-    const { apps, fiber } = await install({ openTitles: [] })
+  it('工作区浏览页自承载加载：打开后正文出现工作区行（ws-1/会话账目 2）', async () => {
+    const { ctx, fiber } = await install({ openTitles: [] })
     disposers.push(() => fiber.dispose())
-    expect(apps.listPages(APP_ID).find((page) => page.name === 'workspaces')).toBeDefined()
-    // 正文断言由 openUrl 后的 PAGE 块 body 与 PAGE-PATCH 承载（组件挂载即刷新）
-    // / body assertions ride the PAGE block body and PAGE-PATCH after open (the component refreshes on mount)
+    const host = mountPage(WorkspacesPage, WorkspacesMeta, ctx)
+    await vi.waitFor(() => expect(host.bodyText()).toContain('主工作区（会话账目 2）'))
+    expect(host.bodyText()).toContain('共 2 个工作区')
   })
 })
 
 describe('真实数据与读取失败降级', () => {
-  it('taskCenter 读取失败：tasks 区显式不可用，不抛异常（服务本身是硬 inject，缺席不是可能的失败）', async () => {
-    const { faces, fiber } = await install({ failList: true, workspaces: undefined })
+  it('taskCenter 读取失败：tasks 区显式不可用并给原因，其余两区照常给真实数据', async () => {
+    const { ctx, fiber } = await install({ failList: true, workspaces: undefined })
     disposers.push(() => fiber.dispose())
-    const snapshot = await buildOverviewSnapshot(faces)
-    expect(snapshot.tasks.available).toBe(false)
-    expect(snapshot.tasks.openCount).toBeNull()
-    expect(snapshot.tasks.detail).toContain('task center read failed')
-    expect(snapshot.tasks.detail).toContain('storage backend down')
-    // 数据面服务都在场：目录与工作区两区照常给真实数据。
-    // The data faces are all present: catalog and workspaces give real rows.
-    expect(snapshot.catalog.available).toBe(true)
-    expect(snapshot.workspaces.available).toBe(true)
+    const host = mountPage(OverviewPage, OverviewMeta, ctx)
+    // 失败显式降级进正文（不抛异常、不编造）；apps / workspaces 两区照常真实。
+    // / the failure degrades explicitly into the body (no throw, no faking);
+    // the apps / workspaces sections stay real.
+    await vi.waitFor(() => expect(host.bodyText()).toContain('task center read failed: storage backend down'))
+    expect(host.bodyText()).toContain('主工作区（会话账目 2）')
+    expect(host.bodyText()).toContain('Person Agent')
   })
 
-  it('taskCenter 在场：open 计数来自真实 list 查询', async () => {
-    const { faces, fiber } = await install({ openTitles: ['评审 PR', '整理清单'] })
-    disposers.push(() => fiber.dispose())
-    const snapshot = await buildOverviewSnapshot(faces)
-    expect(snapshot.tasks.available).toBe(true)
-    expect(snapshot.tasks.openCount).toBe(2)
-  })
-
-  it('workspaceRegistry 在场：workspaces 区给出真实行；注册表为空时给出空行', async () => {
+  it('workspaceRegistry 在场：workspaces 页给出真实行；注册表为空时给出空列表', async () => {
     const withWorkspaces = await install()
     disposers.push(() => withWorkspaces.fiber.dispose())
-    const present = await buildOverviewSnapshot(withWorkspaces.faces)
-    expect(present.workspaces.available).toBe(true)
-    expect(present.workspaces.rows).toEqual([
-      { id: 'ws-1', title: '主工作区', sessions: 2 },
-      { id: 'ws-2', title: '副工作区', sessions: 0 },
-    ])
+    const host = mountPage(WorkspacesPage, WorkspacesMeta, withWorkspaces.ctx)
+    await vi.waitFor(() => expect(host.bodyText()).toContain('主工作区（会话账目 2）'))
     const empty = await install({ workspaces: [] })
     disposers.push(() => empty.fiber.dispose())
-    const none = await buildOverviewSnapshot(empty.faces)
-    expect(none.workspaces.available).toBe(true)
-    expect(none.workspaces.rows).toEqual([])
-  })
-
-  it('概览服务挂载在 ctx：current 未刷新时显式不可用，refresh 后换成真实快照', async () => {
-    const { ctx, fiber } = await install({ openTitles: ['唯一任务'] })
-    disposers.push(() => fiber.dispose())
-    // 走真实挂载路径：服务由插件 apply 构造并注册，ctx 上直接可读。
-    // The real mount path: the service is constructed by the plugin apply and readable on ctx.
-    const source = ctx.personAgentOverview
-    expect(source.current().tasks.detail).toContain('not refreshed')
-    await source.refresh()
-    expect(source.current().tasks.openCount).toBe(1)
-    expect(source.current().workspaces.rows).toHaveLength(2)
+    const emptyHost = mountPage(WorkspacesPage, WorkspacesMeta, empty.ctx)
+    await vi.waitFor(() => expect(emptyHost.bodyText()).toContain('共 0 个工作区'))
   })
 })

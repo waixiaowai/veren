@@ -5,8 +5,8 @@
 ## 注册了什么
 
 - **应用** `person-agent`（工具前缀 `person_agent`），入口页面 `overview`。
-- **页面**
-  - `overview` — `/apps/person-agent/overview`（入口）：一屏看清部署真实状态——应用目录（`ctx.apps.catalog()`）、工作区/会话账目（`ctx.workspaceRegistry`）、待办任务（`ctx.taskCenter`）。三区快照经首屏 `load` 进 data 行（快照本身不需要工具）；"某工作区有哪些会话"是现查事实，由本页挂载的只读工具 `workspace_session_list` 承接。apps/tasks 两区明确不承诺下钻。
+- **页面**（自承载组件：模块级 PageFC，数据加载写在组件体内——`ctx.effect` 里经组件 ctx 取服务面读取，结果落 `useState`，无工厂、无闭包注入）
+  - `overview` — `/apps/person-agent/overview`（入口）：一屏看清部署真实状态——应用目录（`ctx.apps.catalog()`）、工作区/会话账目（`ctx.workspaceRegistry`）、待办任务（`ctx.taskCenter`）。首帧渲染空快照（如实标注未刷新），读取完成后重渲、变化经 PAGE-PATCH 进历史；"某工作区有哪些会话"是现查事实，由本页挂载的只读工具 `workspace_session_list` 承接。apps/tasks 两区明确不承诺下钻。
   - `workspaces` — `/apps/person-agent/workspaces`：每个工作区一行，附会话账目数；会话明细走收编的 `workspace_session_list` 工具按需查询。
 - **收编工具**（复用而非重写——本包调用兄弟工具包导出的定义构建器，页面工具与宿主工具是同一份 `ToolDefinition`）：
   - `workspace_session_list`（来自 `@veren/person-agent-tool-workspace`）：`overview` 与 `workspaces` 两页都挂载；
@@ -20,11 +20,7 @@
 `taskCenter`，不做任何运行期探测（`ctx.get('…')` 的探测通道在真实宿主上根本
 不存在——属性守卫按属主归因，访问本身就抛）。
 
-概览数据面挂载为 **`ctx.personAgentOverview` 服务**（`views.ts` 的
-`PersonAgentOverviewService`）：它经自身 `static inject` 声明读取
-`apps` / `workspaceRegistry` / `taskCenter` 三个服务面，页面 `load`/`tree`
-读它的快照缓存。其他插件把 `personAgentOverview` 加进自己的 `inject`
-即可拿到同一实例。
+数据面是**纯类型契约**（`views.ts`）：只有快照类型与空快照初值，没有读取器、没有服务。页面组件在渲染体内**直接从组件 ctx** 就地读取 `apps` / `workspaceRegistry` / `taskCenter` 三个服务面并组装快照——组件 ctx 携带完整宿主服务面（声明合并），页面不需要任何中介层；其他插件同理直接读这三个服务面即可。
 
 - 目录与工作区是同步内存读，读取本身不会失败；
 - 任务中心是异步读：读取失败（存储后端故障等）时 tasks 区显式 `available=false`

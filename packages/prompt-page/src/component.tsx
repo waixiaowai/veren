@@ -39,9 +39,16 @@ import { formatPath } from './registry.ts'
 export type PageFC<P extends Record<string, unknown> = Record<string, unknown>> =
   (props: P, ctx: PageComponentContext) => ElementInput
 
-/** 组件可用的 ctx 面（在真实 ctx 之上重载这三个成员，其余转发）
- * / the component's ctx face (these three members are overridden over the real ctx; the rest forward) */
-export interface PageComponentContext {
+/**
+ * 组件可用的 ctx 面：完整宿主 ctx（声明合并的服务面原样可读——组件体内
+ * `ctx.apps` / `ctx.taskCenter` / 各插件服务直接取），仅 tools/effect/on 三个
+ * 成员被会话 facade 重载；页面组件因此可以零工厂、零闭包自由写。
+ * The component's ctx face: the full host ctx (declaration-merged service faces
+ * read as-is — `ctx.apps` / `ctx.taskCenter` / plugin services are available in
+ * the component body), with only tools/effect/on overridden by the session
+ * facade; pages can therefore be written freely with zero factories/closures.
+ */
+export interface PageComponentContext extends Omit<Context, 'tools' | 'effect' | 'on'> {
   /** 注册本会话作用域的工具：render 期记录，commit 后经 mountTools 挂载，废弃随会话卸载
    * / register a session-scoped tool: recorded at render, mounted via mountTools after commit, removed with the session */
   tools: { register(definition: ToolDefinition): void }
@@ -193,7 +200,7 @@ interface SessionRuntime<P> {
 
 /** 组件 ctx facade：effect/on/tools 走槽位记账，其余转发真实 ctx
  * / the component ctx facade: effect/on/tools record through hook slots; everything else forwards to the real ctx */
-function createComponentCtx<P>(realCtx: Context | undefined, state: SessionRuntime<P>): PageComponentContext & Context {
+function createComponentCtx<P>(realCtx: Context | undefined, state: SessionRuntime<P>): PageComponentContext {
   const own = {
     tools: {
       register: (definition: ToolDefinition): void => {
@@ -221,7 +228,7 @@ function createComponentCtx<P>(realCtx: Context | undefined, state: SessionRunti
   }
   if (realCtx === undefined) {
     // 无真实 ctx（测试/裸注册）：facade 只暴露记账面 / no real ctx (tests/bare registration): the facade is the recording face only
-    return own as PageComponentContext & Context
+    return own as PageComponentContext
   }
   return new Proxy(realCtx, {
     get(target, prop) {
@@ -231,7 +238,7 @@ function createComponentCtx<P>(realCtx: Context | undefined, state: SessionRunti
       const value = Reflect.get(target as object, prop, target)
       return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value
     },
-  }) as PageComponentContext & Context
+  }) as PageComponentContext
 }
 
 /** 每会话视图：渲染回路 + teardown + PageSession 结构面 / the per-session view: the render loop + teardown + the PageSession structural face */

@@ -1,7 +1,7 @@
 {
   "name": "@veren/notebook-app",
   "displayName": "Notebook-应用",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Use when a DSH deployment hosts the notebook service and wants it visible as a first-class application: registers the notebook app (a note list entry page plus a note detail page under /apps/notebook) in the host app catalog with app-scoped notebook__* page tools, acting through the @veren/notebook service's tools port; skip it when only the headless notebook service is wanted - the host package works alone and this package needs the application framework to activate.",
   "type": "module",
   "main": "./dist/index.js",

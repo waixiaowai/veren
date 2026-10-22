@@ -77,7 +77,7 @@ tools: <动态挂载集>（用途短语）  ← commit 后 pageCtx 上的实际�
 | 字段 | 处置 | 理由 |
 | --- | --- | --- |
 | `url` / `description` | 保留（注册、索引、能力发现） | 会话文档之外的元数据 |
-| `load` | 保留 | 首屏数据唯一合法来源；结果经 `useSnapshot()` 进组件渲染为 Markdown（失败态一并交付） |
+| `load` | 保留 | 首屏数据通道之一（外源权威数据）；结果经 `useSnapshot()` 进组件渲染为 Markdown（失败态一并交付）。页面自承载数据走组件体内 `ctx.effect` + `useState`（§5.2），`load`/`store` 都不填 |
 | `instructions` | 保留 | 框架拼进头行 |
 | `map` | **删除——由 router 从注册表推导** | 注册表已持有全部 url 模板 + description，手写是又一处双通道复述（§3.5） |
 | `tools`（静态清单） | 保留于 meta | 能力清单：市场/权限/发现需要静态面（§5.4 两张脸） |
@@ -152,9 +152,21 @@ export const apply = (ctx: Context, config: Config): void => {
 | `ctx.effect(run, cleanup?)` | **代替 `useEffect`**：render 期只记账（槽位 + 调用序去重），commit 后执行一次，清理随会话逆序。**无 deps**（§5.3） | `load`/`onLoad` 双写退场；登记/清理零新机制 |
 | `ctx.on(name, handler)` | **代替 `useEvent`**：render 期记账、随会话清理 | 响应式复用事件总线，与生命周期观察方同一写法 |
 
-### 5.2 `useState` 的定位（2026-10-21 修正）
+### 5.2 `useState` 的定位与自承载组件惯用法（2026-10-21 修正）
 
 初版"不提供 useState"反对对象找错了：页面持有的典型状态是 **ctx 服务的本地缓存镜像**——缓存不是第二事实源，权威事实仍在服务层（React Query/SWR 同款区分）。修正为：**提供**，定位取数缓存与视图状态；"自造事实"（页面出现系统里不存在的数字）走 lint 与评审。如实代价：手动取数不随外部变化自动重渲（`useSnapshot` 会）。分层：共享 store 数据走 `useSnapshot`；一次性取数/局部视图状态走 `useState` + `ctx.on` 失效。
+
+**自承载组件惯用法（页面数据的默认形态）**：页面 = 模块级组件，**没有工厂、没有闭包注入**——组件 ctx 携带完整宿主服务面（声明合并的 `ctx.apps` / `ctx.taskCenter` / 各插件服务原样可读，仅 tools/effect/on 三个成员被会话 facade 重载），props 即 URL params。数据加载写在组件体内：
+
+```tsx
+export const ListPage: PageFC = (_props, ctx) => {
+  const [rows, setRows] = useState<Row[]>([])
+  ctx.effect(() => { void loadRows(ctx.workspaceRegistry).then(setRows) })   // 挂载即加载
+  return <ul>{rows.map((r) => <li key={r.id}>{r.title}</li>)}</ul>
+}
+```
+
+**纪律：effect 内的 `setState` 必须落在渲染帧之外**（异步读取 / microtask 包装）——effect 的 run 在 render 期内联执行，同步 `setState` 会重入渲染帧、打乱 hook 调用序。外源权威 store（变化源在页面之外）仍走 `meta.store` + `useSnapshot`；两者可按页面各取所需。
 
 ### 5.3 effect 与事件：`ctx.effect` / `ctx.on` 直调，render 期记账
 
