@@ -25,7 +25,7 @@ import { AppRegistryService } from '@veren/app-registry'
 import { PageRegistryService } from '@veren/page-registry'
 import { defineComponentPage, isMarkdownDocHost } from '@veren/prompt-page'
 import type { ComponentPageMeta, MarkdownDocHost, PageFC, PageParams } from '@veren/prompt-page'
-import { CatalogMeta, CatalogPage, PostMeta, PostPage } from '../src/pages.tsx'
+import { CatalogMeta, CatalogPage, CatalogPageTools, PostMeta, PostPage, PostPageTools } from '../src/pages.tsx'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
@@ -188,8 +188,13 @@ describe('forum app discovery and resolution / 应用可发现与可解析', () 
   it('page tools carry the forum__ external-name prefix', async () => {
     const { apps, fiber } = await mount()
 
+    // 登记顺序 = 逐页绑定顺序、同名只入目录一次：入口页三件套，随后详情页新增的三件
+    // （inbox 由入口页带入目录，详情页清单只是再声明挂同一份）。
+    // / the registration order is the per-page binding order with one definition per name:
+    // the catalog page's three, then the post page's three new ones (inbox entered with its first binding;
+    // the post page's manifest merely re-declares the same mount).
     expect(apps.listTools(FORUM_APP_ID).map((tool) => tool.externalName)).toEqual([
-      'forum__list', 'forum__read', 'forum__post', 'forum__comment', 'forum__vote', 'forum__inbox',
+      'forum__list', 'forum__post', 'forum__inbox', 'forum__read', 'forum__comment', 'forum__vote',
     ])
 
     await fiber.dispose()
@@ -261,6 +266,16 @@ describe('目录 = 挂载 = 说明 三方可核对 / catalog = mount = instructi
   function mountedOf(page: { tools?: readonly string[] }): Set<string> {
     return new Set((page.tools ?? []).map((name) => `forum__${name}`))
   }
+
+  it('工具绑定长在页面上：meta.tools 与目录意图都从每页唯一声明推导（无第二份名单）', () => {
+    // meta.tools 由声明推导（构造上不可漂移）；断言钉住声明的具体内容与共有工具（inbox）语义。
+    // / meta.tools derives from the declaration (drift-proof by construction); the asserts pin the
+    // declaration's concrete content and the shared-tool (inbox) semantics.
+    expect(CatalogPageTools.map((binding) => binding.name)).toEqual(['list', 'post', 'inbox'])
+    expect(PostPageTools.map((binding) => binding.name)).toEqual(['read', 'comment', 'vote', 'inbox'])
+    expect(CatalogMeta.tools).toEqual(CatalogPageTools.map((binding) => binding.name))
+    expect(PostMeta.tools).toEqual(PostPageTools.map((binding) => binding.name))
+  })
 
   it('应用目录与页面挂载一一对应：无目录外挂载，也无挂载外目录项', async () => {
     const { apps, fiber } = await mount()

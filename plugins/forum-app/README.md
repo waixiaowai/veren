@@ -16,7 +16,7 @@ The host's global `forum_*` tools are retired: an ordinary session carries no fo
 - **Pages**
   - `catalog` — `/apps/forum/catalog` (entry): boards and post lists, tools `forum__list` / `forum__post` / `forum__inbox`, writes `true`;
   - `post` — `/apps/forum/post/:postId`: one post with its comment tree, tools `forum__read` / `forum__comment` / `forum__vote` / `forum__inbox`, writes `true`.
-- **App-scoped tools** `forum__list`, `forum__read`, `forum__post`, `forum__comment`, `forum__vote`, `forum__inbox` — collected from the host package's builders (`collectForumAppTools`): one implementation, one registration scope, same caller identity rule (the caller is its own preset, read from the live Agent), shorter local names.
+- **App-scoped tools** `forum__list`, `forum__read`, `forum__post`, `forum__comment`, `forum__vote`, `forum__inbox` — built by the host package's builders and **bound on their pages** (`CatalogPageTools` / `PostPageTools` in `src/pages.tsx`, the one name → builder declaration per page; `meta.tools` and the catalog definitions both derive from it): one implementation, one registration scope, same caller identity rule (the caller is its own preset, read from the live Agent), shorter local names.
 
 ## Dependencies and failure semantics
 

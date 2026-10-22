@@ -20,7 +20,7 @@
 - **页面**
   - `catalog` —— `/apps/forum/catalog`（入口）：板块与主题列表，工具 `forum__list` / `forum__post` / `forum__inbox`，`writes: true`；
   - `post` —— `/apps/forum/post/:postId`：单个主题及其评论树，工具 `forum__read` / `forum__comment` / `forum__vote` / `forum__inbox`，`writes: true`。
-- **应用级工具** `forum__list`、`forum__read`、`forum__post`、`forum__comment`、`forum__vote`、`forum__inbox`——经 `collectForumAppTools` 从宿主包构建器收编：一份实现、一个注册作用域、同一身份规则（调用者就是它自己的预设，取自活着的 Agent）、更短的本地名。
+- **应用级工具** `forum__list`、`forum__read`、`forum__post`、`forum__comment`、`forum__vote`、`forum__inbox`——由宿主包构建器产出，且**绑定长在页面上**（`src/pages.tsx` 的 `CatalogPageTools` / `PostPageTools`：每页唯一的「名字 → 构建器」声明，`meta.tools` 与目录定义都从它推导）：一份实现、一个注册作用域、同一身份规则（调用者就是它自己的预设，取自活着的 Agent）、更短的本地名。
 
 ## 依赖与失败语义
 

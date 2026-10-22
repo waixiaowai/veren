@@ -1,15 +1,20 @@
 /** @jsxRuntime automatic @jsxImportSource @veren/prompt-core */
 /**
  * 论坛的两个页面（自承载组件，RFC prompt-page-render §3.5）：模块级 PageFC +
- * 模块级 meta，经 `pages.register(component, meta)` 直接注册。页面 = 信息 + 工具，
- * 缺一不可：meta.tools 挂工具，正文 tsx 渲染信息——boards/posts/comments 每行都带
- * id（工具按 id 解析记录，标题只是展示名），读取中与读取失败都如实渲染，绝不编造。
- * 异步的目录/详情读取经 `ctx.page.effect` 拉取、`useState` 落地，重渲 diff 出
- * PAGE-PATCH——与 person-agent 页面同一套标准写法。
+ * 模块级 meta + 该页的工具绑定，经 `pages.register(component, meta)` 直接注册。
+ * 页面 = 信息 + 工具，缺一不可，且**绑定长在页面上、只有一份声明**：每页导出一个
+ * XxxPageTools（本地名 → 构建器的绑定对），meta.tools 与应用目录的定义都从它推导
+ * ——页面里没有任何第二份工具名单可漂移。正文 tsx 渲染信息——boards/posts/comments
+ * 每行都带 id（工具按 id 解析记录，标题只是展示名），读取中与读取失败都如实渲染，
+ * 绝不编造。异步的目录/详情读取经 `ctx.page.effect` 拉取、`useState` 落地，重渲
+ * diff 出 PAGE-PATCH——与 person-agent 页面同一套标准写法。
  *
  * The forum's two pages as self-contained components (RFC §3.5): module-level
- * PageFCs and metas registered directly. A page is information + tools, neither
- * optional: meta.tools mounts the tools while the tsx body renders the
+ * PageFCs, metas, and each page's tool binding, registered directly. A page is
+ * information + tools, neither optional, and **the binding lives on the page as
+ * ONE declaration**: each page exports an XxxPageTools (local name → builder
+ * pairs) from which both meta.tools and the app catalog's definitions derive —
+ * there is no second tool list anywhere to drift. The tsx body renders the
  * information — every boards/posts/comments row carries its id (tools resolve
  * records by id; titles are display names only), and reading/failure states
  * render honestly, never faked. The async catalog/detail reads are fetched in
@@ -21,17 +26,51 @@
 import { useState } from '@veren/prompt-core'
 import { defineComponentPage } from '@veren/prompt-page'
 import type { ComponentPageMeta, PageFC } from '@veren/prompt-page'
+import type { Context } from '@deepseek-ai/cordis'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 // 类型-only：拉取 `ctx.forum` 服务面（declaration merging）与论坛视图类型，
 // 正文里的 `ctx.forum.toolsPort()` 由此获得类型。
 // Type-only: pull the `ctx.forum` service face (declaration merging) and the
 // forum view types, so `ctx.forum.toolsPort()` is typed in the body.
 import type {} from '@veren/forum'
-import type { CatalogView, CommentNodeView, PostDetailView } from '@veren/forum'
+import type { CatalogView, CommentNodeView, ForumToolsPort, PostDetailView } from '@veren/forum'
+import {
+  buildForumCommentDefinition,
+  buildForumInboxDefinition,
+  buildForumListDefinition,
+  buildForumPostDefinition,
+  buildForumReadDefinition,
+  buildForumVoteDefinition,
+} from '@veren/forum'
 
 /** 应用内 URL 前缀 / the app-scoped url prefix */
 const URL_PREFIX = '/apps/forum'
 
+/**
+ * 一条页面工具绑定：本地名 + 产出该定义的构建器。名字进 meta.tools（挂载意图），
+ * 构建器在登记时产出目录定义（能力面）——两面同源于这一对，永不漂移。
+ * One page-tool binding: the local name plus the builder producing its
+ * definition. The name feeds meta.tools (the mount intent); the builder
+ * produces the catalog definition at registration (the capability face) — both
+ * faces derive from this one pair and can never drift.
+ */
+export interface PageToolBinding {
+  readonly name: string
+  readonly build: (ctx: Context, port: () => ForumToolsPort) => ToolDefinition
+}
+
 // ---- 入口页（home 档 / entry）---- Catalog page (the home archetype / entry) ----
+
+/**
+ * 入口页绑定的工具——唯一声明：目录页用 list 查、post 写、inbox 读通知。
+ * The catalog page's bound tools — the only declaration: list to browse,
+ * post to write, inbox to read notices.
+ */
+export const CatalogPageTools: readonly PageToolBinding[] = [
+  { name: 'list', build: buildForumListDefinition },
+  { name: 'post', build: buildForumPostDefinition },
+  { name: 'inbox', build: buildForumInboxDefinition },
+]
 
 /**
  * 论坛入口页：目录是异步读——`ctx.page.effect` 拉取后进正文；板块、主题与人物
@@ -101,7 +140,8 @@ export const CatalogMeta: ComponentPageMeta = {
   name: 'catalog',
   url: `${URL_PREFIX}/catalog`,
   description: '论坛入口页：浏览板块与主题列表，发新帖',
-  tools: ['list', 'post', 'inbox'],
+  // 从本页唯一声明推导，不手写第二份名单 / derived from the page's only declaration, never hand-written
+  tools: CatalogPageTools.map((tool) => tool.name),
   // forum__post 是写动作，如实声明写意图（§3.9/§3.10.1）
   // / forum__post writes; declare the write intent honestly (§3.9/§3.10.1)
   writes: true,
@@ -115,6 +155,20 @@ export const CatalogMeta: ComponentPageMeta = {
 }
 
 // ---- 主题详情页（detail 档）---- Post detail page (the detail archetype) ----
+
+/**
+ * 详情页绑定的工具——唯一声明：read 读、comment 回、vote 投；inbox 两页都挂——
+ * 处理某条主题的会话同样要读自己的通知（目录里同名只存一份定义）。
+ * The post page's bound tools — the only declaration: read, comment, vote;
+ * inbox rides both pages — a session working one post still reads its own
+ * notices (the catalog holds one definition per name).
+ */
+export const PostPageTools: readonly PageToolBinding[] = [
+  { name: 'read', build: buildForumReadDefinition },
+  { name: 'comment', build: buildForumCommentDefinition },
+  { name: 'vote', build: buildForumVoteDefinition },
+  { name: 'inbox', build: buildForumInboxDefinition },
+]
 
 /**
  * 主题详情页：只处理 props.postId 指定的这一条主题。详情是异步读——effect 拉取；
@@ -193,7 +247,8 @@ export const PostMeta: ComponentPageMeta = {
   name: 'post',
   url: `${URL_PREFIX}/post/:postId`,
   description: '论坛主题详情页：读一个主题及其评论树，回复与投票',
-  tools: ['read', 'comment', 'vote', 'inbox'],
+  // 从本页唯一声明推导，不手写第二份名单 / derived from the page's only declaration, never hand-written
+  tools: PostPageTools.map((tool) => tool.name),
   writes: true,
   instructions: '这是论坛主题详情页，只处理 params.postId 指定的这一条主题——这一页只干这一件事。'
     + '正文自带主题字段、正文全文与展平的评论树（每条评论行内 id 是 parentCommentId/subjectId 的取值；'
