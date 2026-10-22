@@ -34,10 +34,18 @@ import type { PageDefinition, PageHostFace, PageJsonValue, PageLiveBinding, Page
 import { MarkdownDocHost } from './markdown.ts'
 import { formatPath } from './registry.ts'
 
-/** 页面组件：props = URL params，ctx = 组件 facade（effect/on/tools 记账 + 转发真实 ctx）
- * / a page component: props = the URL params, ctx = the component facade (effect/on/tools recording + real-ctx forwarding) */
+/** 页面组件 ctx：组件 facade（tools/effect/on 记账）+ 真实宿主 ctx（服务面由声明合并提供）
+ *  ——工具构建器（如 `buildSessionCreateDefinition(ctx)`）收的就是它。
+ * The page component ctx: the component facade (tools/effect/on recording) plus
+ * the real host ctx (service faces come from declaration merging) — this is
+ * what tool builders such as `buildSessionCreateDefinition(ctx)` accept.
+ */
+export type PageCtx = PageComponentContext & Context
+
+/** 页面组件：props = URL params，ctx = 组件 ctx（facade 记账 + 真实服务面）
+ * / a page component: props = the URL params, ctx = the component ctx (facade recording + real service faces) */
 export type PageFC<P extends Record<string, unknown> = Record<string, unknown>> =
-  (props: P, ctx: PageComponentContext) => ElementInput
+  (props: P, ctx: PageCtx) => ElementInput
 
 /**
  * 组件可用的 ctx 面：完整宿主 ctx（声明合并的服务面原样可读——组件体内
@@ -200,7 +208,7 @@ interface SessionRuntime<P> {
 
 /** 组件 ctx facade：effect/on/tools 走槽位记账，其余转发真实 ctx
  * / the component ctx facade: effect/on/tools record through hook slots; everything else forwards to the real ctx */
-function createComponentCtx<P>(realCtx: Context | undefined, state: SessionRuntime<P>): PageComponentContext {
+function createComponentCtx<P>(realCtx: Context | undefined, state: SessionRuntime<P>): PageCtx {
   const own = {
     tools: {
       register: (definition: ToolDefinition): void => {
@@ -228,7 +236,7 @@ function createComponentCtx<P>(realCtx: Context | undefined, state: SessionRunti
   }
   if (realCtx === undefined) {
     // 无真实 ctx（测试/裸注册）：facade 只暴露记账面 / no real ctx (tests/bare registration): the facade is the recording face only
-    return own as PageComponentContext
+    return own as PageCtx
   }
   return new Proxy(realCtx, {
     get(target, prop) {
@@ -238,7 +246,7 @@ function createComponentCtx<P>(realCtx: Context | undefined, state: SessionRunti
       const value = Reflect.get(target as object, prop, target)
       return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value
     },
-  }) as PageComponentContext
+  }) as PageCtx
 }
 
 /** 每会话视图：渲染回路 + teardown + PageSession 结构面 / the per-session view: the render loop + teardown + the PageSession structural face */

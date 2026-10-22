@@ -5,14 +5,14 @@
 ## 注册了什么
 
 - **应用** `person-agent`（工具前缀 `person_agent`），入口页面 `overview`。
-- **页面**（自承载组件：模块级 PageFC，同步服务面在正文里直接读——每帧最新、零状态；异步面走 `ctx.effect` 拉取 + `useState`，无工厂、无快照契约）
-  - `overview` — `/apps/person-agent/overview`（入口）：一屏看清部署真实状态——应用目录与工作区正文直读（`ctx.apps.catalog()` / `ctx.workspaceRegistry.list()`，首帧即真实数据），待办任务异步刷新（`ctx.taskCenter.list`，读取失败如实标注原因）；"某工作区有哪些会话"是现查事实，由本页挂载的只读工具 `workspace_session_list` 承接。apps/tasks 两区明确不承诺下钻。
-  - `workspaces` — `/apps/person-agent/workspaces`：正文直读工作区行，零状态零 effect；会话明细走收编的 `workspace_session_list` 工具按需查询。
-- **收编工具**（复用而非重写——本包调用兄弟工具包导出的定义构建器，页面工具与宿主工具是同一份 `ToolDefinition`）：
-  - `workspace_session_list`（来自 `@veren/person-agent-tool-workspace`）：`overview` 与 `workspaces` 两页都挂载；
-  - `session_create`、`session_rename`（来自 `@veren/person-agent-tool-session`）：目录备用项，目前没有任何页面挂载——因此也没有任何页面承诺它们（"承诺了但没有"零容忍：挂载与承诺必须同进退）。
+- **页面**（自承载组件：模块级 PageFC，同步服务面在正文里直接读——每帧最新、零状态；异步面走 `ctx.effect` 拉取 + `useState`，动作工具在 `ctx.tools.register` 里动态注册，无工厂、无快照契约）
+  - `overview` — `/apps/person-agent/overview`（入口）：一屏看清部署真实状态——应用目录与工作区正文直读（`ctx.apps.catalog()` / `ctx.workspaceRegistry.list()`，首帧即真实数据），待办任务异步刷新（`ctx.taskCenter.list`，读取失败如实标注原因）；"某工作区有哪些会话"由 `workspace_session_list` 现查，另挂 `session_create` / `session_rename` 两个动作工具（新建会话、改会话标题）。apps/tasks 两区明确不承诺下钻。
+  - `workspaces` — `/apps/person-agent/workspaces`：正文直读工作区行；会话明细走 `workspace_session_list` 按需查询，在工作区内建会话走 `session_create`。
+- **工具两张脸**（复用而非重写——本包调用兄弟工具包导出的定义构建器，页面工具与宿主工具是同一份 `ToolDefinition`）：
+  - 静态面 `meta.tools`：`workspace_session_list`（来自 `@veren/person-agent-tool-workspace`），overview 与 workspaces 两页都声明并挂载——目录/市场/发现需要静态能力清单；
+  - 动态面 `ctx.tools.register`：`session_create`、`session_rename`（来自 `@veren/person-agent-tool-session`）由页面组件在会话作用域内注册——overview 两个都挂，workspaces 挂 `session_create`；注册即作用域，随会话销毁自动摘除，agent 在页面会话里因此真的能动作而不只是读。
 
-刻意排除项及理由：`session_dispatch`（派活语义属于带结算看守的 agent 会话，不属于页面会话）、`session_archive/unarchive/pin/unpin`（改变可见性的维护动词，无页面流程）、`workspace_create/rename`（工作区维护留在桥梁自己的工具面；页面只读）。
+刻意排除项及理由：`session_dispatch`（派活语义属于带结算看守的 agent 会话，不属于页面会话）、`session_archive/unarchive/pin/unpin`（改变可见性的维护动词，无页面流程）、`workspace_create/rename`（工作区维护留在桥梁自己的工具面；页面不写工作区）。
 
 ## 依赖与失败语义（G13）
 

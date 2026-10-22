@@ -80,18 +80,25 @@ afterEach(async () => {
 })
 
 /**
- * 挂载真实页面组件并返回其文档宿主：正文里的 ctx.apps / ctx.workspaceRegistry /
- * ctx.taskCenter 经 facade 转发到测试 ctx 的 fake 服务面——零工厂、零闭包注入。
- * Mount a real page component and return its doc host: the body's ctx.apps /
- * ctx.workspaceRegistry / ctx.taskCenter forward through the facade to the
- * test ctx's fake faces — zero factory, zero closure injection.
+ * 挂载真实页面组件并返回其文档宿主与动态注册的工具名：正文里的
+ * ctx.apps / ctx.workspaceRegistry / ctx.taskCenter 经 facade 转发到测试 ctx 的
+ * fake 服务面——零工厂、零闭包注入。
+ * Mount a real page component and return its doc host plus the dynamically
+ * registered tool names: the body's ctx.apps / ctx.workspaceRegistry /
+ * ctx.taskCenter forward through the facade to the test ctx's fake faces —
+ * zero factory, zero closure injection.
  */
-function mountPage(component: PageFC, meta: ComponentPageMeta, ctx: Context): MarkdownDocHost {
+function mountPage(component: PageFC, meta: ComponentPageMeta, ctx: Context): { host: MarkdownDocHost; recorded: () => string[] } {
   const view = defineComponentPage(component, meta, ctx).live.mount({})
   disposers.push(async () => { view.unsubscribe() })
   const host = isMarkdownDocHost(view.host) ? view.host : undefined
   if (host === undefined) throw new Error('expected the markdown doc host')
-  return host
+  // 组件页视图的记账面：ctx.tools.register 的记录（运行时由 page-registry 合并挂载）
+  // / the component-page view's recording face: ctx.tools.register records
+  // (merged and mounted by page-registry at runtime)
+  const take = (view as unknown as { takeRecordedTools?: () => { name: string }[] }).takeRecordedTools
+  const recorded = (): string[] => (typeof take === 'function' ? take.call(view).map((tool) => tool.name) : [])
+  return { host, recorded }
 }
 
 describe('应用可被发现与解析', () => {
@@ -204,7 +211,7 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
   it('概览页正文直读：同步面首帧即真实数据，异步任务区 effect 拉取后进正文（WYSIWYG）', async () => {
     const { ctx, fiber } = await install({ openTitles: ['唯一任务'] })
     disposers.push(() => fiber.dispose())
-    const host = mountPage(OverviewPage, OverviewMeta, ctx)
+    const { host } = mountPage(OverviewPage, OverviewMeta, ctx)
     // 同步面（apps/workspaces）正文直读：首帧即真实数据，无 loading 态
     // / sync faces (apps/workspaces) read straight in the body: real data on frame 1, no loading state
     expect(host.bodyText()).toContain('主工作区（会话账目 2）')
@@ -219,9 +226,43 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
   it('工作区浏览页正文直读：打开即真实工作区行（ws-1/会话账目 2），零 loading 态', async () => {
     const { ctx, fiber } = await install({ openTitles: [] })
     disposers.push(() => fiber.dispose())
-    const host = mountPage(WorkspacesPage, WorkspacesMeta, ctx)
+    const { host } = mountPage(WorkspacesPage, WorkspacesMeta, ctx)
     expect(host.bodyText()).toContain('主工作区（会话账目 2）')
     expect(host.bodyText()).toContain('共 2 个工作区')
+  })
+})
+
+describe('工具两张脸：目录声明 + 会话内动态注册（ctx.tools）', () => {
+  it('概览页挂载即注册 session_create / session_rename，instructions 逐一点名（承诺 = 挂载）', async () => {
+    const { ctx, fiber } = await install()
+    disposers.push(() => fiber.dispose())
+    const { recorded } = mountPage(OverviewPage, OverviewMeta, ctx)
+    expect(recorded()).toEqual(['session_create', 'session_rename'])
+    const instructions = OverviewMeta.instructions ?? ''
+    // 静态面（meta.tools）+ 动态面（ctx.tools.register）的每个工具都必须被说明点名
+    // / every tool from the static face (meta.tools) and the dynamic face (ctx.tools.register) is named
+    for (const name of [...(OverviewMeta.tools ?? []), ...recorded()]) {
+      expect(instructions).toContain(name)
+    }
+  })
+
+  it('工作区页挂载即注册 session_create，instructions 点名它', async () => {
+    const { ctx, fiber } = await install()
+    disposers.push(() => fiber.dispose())
+    const { recorded } = mountPage(WorkspacesPage, WorkspacesMeta, ctx)
+    expect(recorded()).toEqual(['session_create'])
+    const instructions = WorkspacesMeta.instructions ?? ''
+    for (const name of [...(WorkspacesMeta.tools ?? []), ...recorded()]) {
+      expect(instructions).toContain(name)
+    }
+  })
+
+  it('重渲不重复注册：异步面刷新后登记仍是同一批工具（按名去重）', async () => {
+    const { ctx, fiber } = await install({ openTitles: ['唯一任务'] })
+    disposers.push(() => fiber.dispose())
+    const { host, recorded } = mountPage(OverviewPage, OverviewMeta, ctx)
+    await vi.waitFor(() => expect(host.bodyText()).toContain('open 任务 1 条'))
+    expect(recorded()).toEqual(['session_create', 'session_rename'])
   })
 })
 
@@ -229,7 +270,7 @@ describe('真实数据与读取失败降级', () => {
   it('taskCenter 读取失败：任务区如实标注原因，同步两区照常给真实数据', async () => {
     const { ctx, fiber } = await install({ failList: true, workspaces: undefined })
     disposers.push(() => fiber.dispose())
-    const host = mountPage(OverviewPage, OverviewMeta, ctx)
+    const { host } = mountPage(OverviewPage, OverviewMeta, ctx)
     // 同步区首帧照常真实；失败显式降级进正文（不抛异常、不编造）
     // / sync sections stay real on frame 1; the failure degrades explicitly into the body (no throw, no faking)
     expect(host.bodyText()).toContain('主工作区（会话账目 2）')
@@ -239,11 +280,11 @@ describe('真实数据与读取失败降级', () => {
   it('workspaceRegistry 在场：workspaces 页给出真实行；注册表为空时给出空列表', async () => {
     const withWorkspaces = await install()
     disposers.push(() => withWorkspaces.fiber.dispose())
-    const host = mountPage(WorkspacesPage, WorkspacesMeta, withWorkspaces.ctx)
+    const { host } = mountPage(WorkspacesPage, WorkspacesMeta, withWorkspaces.ctx)
     expect(host.bodyText()).toContain('主工作区（会话账目 2）')
     const empty = await install({ workspaces: [] })
     disposers.push(() => empty.fiber.dispose())
-    const emptyHost = mountPage(WorkspacesPage, WorkspacesMeta, empty.ctx)
+    const { host: emptyHost } = mountPage(WorkspacesPage, WorkspacesMeta, empty.ctx)
     expect(emptyHost.bodyText()).toContain('共 0 个工作区')
   })
 })

@@ -156,3 +156,17 @@
 - 测试：12/12（同步面首帧真实数据无 waitFor 直接断言；异步任务区 waitFor
   「open 任务 N 条」；失败态「任务中心读取失败：<原因>」）。
 - 发布 person-agent-app@0.1.4；profile 全新安装、探针通过、节点 3080 已重启。
+
+### 第三轮：页面动态工具（ctx.tools）——agent 从"能读"到"能做"（2026-10-22）
+- 问题：person-agent 两页只有 meta.tools 的静态目录工具（workspace_session_list），
+  页面体内没有任何 ctx.tools.register——session_create / session_rename 收在目录里
+  却无人挂载，页面会话里的 agent 只能读不能做。
+- 修复：页面组件在 ctx.effect 里动态注册工具（RFC §5.4 动态面，复用兄弟工具包构建器）：
+  overview 挂 session_create + session_rename，workspaces 挂 session_create；
+  两页 writes: true 如实声明写意图，instructions 逐一点名已挂工具（承诺 = 挂载）。
+- 类型面：prompt-page 导出 PageCtx = PageComponentContext & Context——组件 ctx 可直接
+  传给收 Context 的工具构建器（运行时 facade 本就转发全部服务面）。
+- 测试：person-agent-app 15/15（新增动态注册与承诺对齐 3 例）；page-registry 新增
+  管线用例：组件 ctx.tools.register 的产物由 createPageSession 合并挂载并改外名。
+- 发布 prompt-page@0.1.4、person-agent-app@0.1.5；profile 全新安装（0.1.4/0.1.5），
+  真机探针 openUrl 两页通过，节点 3080 已重启。

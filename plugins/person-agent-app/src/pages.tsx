@@ -15,13 +15,20 @@
  * PAGE-PATCH. Pages backed by an external authoritative store use
  * `meta.store` + `useSnapshot` instead (task-workbench).
  *
- * §3.10.1 三档标注：本应用是**纯只读应用**（所有页面都不声明 writes，下钻靠工具）
- * ——合法形态：规则 1 构造上成立（map 由注册表推导，列全兄弟页）、规则 3 无从
- * 触发、§3.9 完备性警告天然沉默。
- * §3.10.1 archetype annotations: this app is a **pure read-only app** (no page
- * declares writes; drill-down happens through tools) — a legal shape: rule 1
- * holds by construction (the map is registry-derived, listing all sibling
- * pages), rule 3 cannot trigger, and the §3.9 coverage warning stays silent.
+ * §3.10.1 档位：两页都声明写意图（`writes: true`）——入口是 home、副页是
+ * action。工具两张脸都用上：`meta.tools` 声明目录能力（workspace_session_list，
+ * 静态面供市场/权限/发现），`ctx.tools.register` 注册会话实例（session_create /
+ * session_rename，动态面供本会话的 agent 真正动作）。构造上规则 1 成立（map 由
+ * 注册表推导，列全兄弟页）、规则 3 无从触发；§3.9 承诺对齐由"说明点名 = 真实
+ * 挂载"守住。
+ * §3.10.1 archetypes: both pages declare write intent (`writes: true`) — the
+ * entry is home, the sibling is action. Both tool faces are used: `meta.tools`
+ * declares catalog capability (workspace_session_list — the static face for the
+ * market / permissions / discovery), and `ctx.tools.register` registers session
+ * instances (session_create / session_rename — the dynamic face that lets this
+ * session's agent really act). Rule 1 holds by construction (the map is
+ * registry-derived, listing all sibling pages) and rule 3 cannot trigger; §3.9
+ * promise alignment is kept by "named in the instructions = really mounted".
  * @module @veren/person-agent-app
  */
 import { useState } from '@veren/prompt-core'
@@ -34,6 +41,13 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@veren/app-registry'
 import type {} from '@veren/task-center'
+// 动作工具：复用兄弟工具包的构建器（与目录、宿主注册的是同一份实现），
+// 在页面会话作用域内动态注册——注册即作用域，随会话销毁自动摘除。
+// Action tools: reuse the sibling tool packages' builders (the very same
+// implementations the catalog and the host register) and register them
+// dynamically in the page session's scope — registration is the scope, removed
+// with the session.
+import { buildSessionCreateDefinition, buildSessionRenameDefinition } from '@veren/person-agent-tool-session'
 
 /** 应用内 URL 前缀 / the app-scoped url prefix */
 const URL_PREFIX = '/apps/person-agent'
@@ -58,6 +72,15 @@ export const OverviewPage: PageFC = (_props, ctx) => {
     void ctx.taskCenter.list({ status: 'open' }).then(setOpenTasks, (error: unknown) => {
       setTaskError(error instanceof Error ? error.message : String(error))
     })
+  })
+  // 动作工具（RFC §5.4 动态面）：注册进本会话作用域——agent 在工作台里能真的建会话、
+  // 改标题，而不是只有只读查询。登记即承诺：instructions 同步点名这两个工具。
+  // Action tools (RFC §5.4's dynamic face): registered into this session's scope —
+  // the agent can really create sessions and rename them from the workbench, not
+  // just read. Registration is the promise: instructions name both tools.
+  ctx.effect(() => {
+    ctx.tools.register(buildSessionCreateDefinition(ctx))
+    ctx.tools.register(buildSessionRenameDefinition(ctx))
   })
   const catalog = apps.catalog()
   const rows = workspaces.list()
@@ -92,15 +115,20 @@ export const OverviewPage: PageFC = (_props, ctx) => {
 export const OverviewMeta: ComponentPageMeta = {
   name: 'overview',
   url: `${URL_PREFIX}/overview`,
-  description: '个人工作台概览：一屏看清当前部署、应用目录、工作区/会话与待办任务',
+  description: '个人工作台概览：看清部署、应用目录、工作区/会话与待办任务，并可新建/重命名会话',
   // 挂本页承诺的现查读工具：说明里点名"看会话明细用它"，它就必须真的在页面上
   // / mount the read tool the page promises: naming it in the instructions requires it to really be mounted
   tools: ['workspace_session_list'],
+  // 本页注册了动作工具（session_create / session_rename），如实声明写意图
+  // / this page registers action tools (session_create / session_rename); declare the write intent honestly
+  writes: true,
   instructions: '这是 Person Agent 的首页（个人工作台概览）。正文即真实状态：'
     + 'apps 区来自应用目录（正文直读），workspaces 区来自工作区注册表（正文直读），'
     + 'tasks 区来自任务中心的 open 任务计数（挂载后异步刷新）。'
     + '任务区读取失败时正文会如实标注失败原因——如实告知用户，不要编造数字。'
-    + '要看某个工作区的会话明细，用本页挂载的 workspace_session_list 工具（workspaceId 取工作区条目）现查；'
+    + '本页挂载三个工具：workspace_session_list（查某工作区的会话明细，workspaceId 取正文工作区条目的 id）、'
+    + 'session_create（新建会话，workspaceId 取正文工作区条目的 id，省略则继承当前会话的工作区）、'
+    + 'session_rename（按 sessionId 改会话标题，sessionId 先用 workspace_session_list 查）。'
     + 'apps 区与 tasks 区本页不提供下钻，只报快照。',
   instanceTitle: () => '个人工作台',
 }
@@ -113,6 +141,10 @@ export const OverviewMeta: ComponentPageMeta = {
  * body — zero state, zero effect, read-only.
  */
 export const WorkspacesPage: PageFC = (_props, ctx) => {
+  // 动作工具：本页列出工作区，建会话是这块正文最自然的动作（workspaceId 取行内 id）。
+  // Action tool: this page lists workspaces, so creating a session inside one is
+  // the body's natural action (workspaceId comes from a row).
+  ctx.effect(() => { ctx.tools.register(buildSessionCreateDefinition(ctx)) })
   const rows = ctx.workspaceRegistry.list()
   return (
     <>
@@ -133,9 +165,14 @@ export const WorkspacesPage: PageFC = (_props, ctx) => {
 export const WorkspacesMeta: ComponentPageMeta = {
   name: 'workspaces',
   url: `${URL_PREFIX}/workspaces`,
-  description: '工作区浏览：列出各工作区及其会话账目，只读',
+  description: '工作区浏览：列出各工作区及其会话账目，并可在工作区内新建会话',
   tools: ['workspace_session_list'],
+  // 本页注册了动作工具（session_create），如实声明写意图
+  // / this page registers an action tool (session_create); declare the write intent honestly
+  writes: true,
   instructions: '这是工作区浏览页。正文每行是一个工作区（标题/会话账目数）。'
-    + '要看某个工作区的会话明细，用 workspace_session_list 传 workspaceId 查询；该数据源不可用时如实说明。',
+    + '本页挂载两个工具：workspace_session_list（查某工作区的会话明细，workspaceId 取行内 id）、'
+    + 'session_create（在该工作区新建会话，workspaceId 取行内 id；标题可选）。'
+    + '该数据源不可用时如实说明。',
   instanceTitle: () => '工作区浏览',
 }

@@ -463,6 +463,29 @@ describe('工具前缀与应用作用域（§3.4.3、§3.1）', () => {  it('页
     expect(mounted[0]?.execute).toBeTypeOf('function')
     expect(sessions.destroyed).toHaveLength(0)
   })
+
+  it('组件动态注册：ctx.tools.register 的产物与目录工具一次挂载（都改外名）', async () => {
+    const { service, sessions } = makeService()
+    // 组件体内动态注册一个动作工具（RFC §5.4 动态面）
+    // / a component body registering an action tool dynamically (RFC §5.4's dynamic face)
+    const registration = defineComponentPage(
+      (_props, ctx) => {
+        ctx.tools.register(defineTool({
+          name: 'extra_action',
+          description: '动作工具',
+          parameters: {},
+          output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+          execute: async () => ({ ok: true }),
+        }))
+        return createElement('p', { children: '动态工具页' })
+      },
+      { url: '/apps/demo/dynamic', description: '动态工具页' },
+    )
+    service.registerAppPage('demo', registration.page, registration.live)
+    const opened = await service.openUrl('/apps/demo/dynamic')
+    const mounted = sessions.mounted.get(opened.sessionId) ?? []
+    expect(mounted.map((tool) => tool.name)).toEqual(['demo__extra_action'])
+  })
 })
 
 describe('缺口 1/4 收尾：通知投递泵、reserved 清扫', () => {

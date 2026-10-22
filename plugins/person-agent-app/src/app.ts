@@ -18,11 +18,12 @@ export const APP_ID = 'person-agent' as AppId
 export const APP_DEFINITION: ApplicationDefinition = {
   id: APP_ID,
   name: 'Person Agent',
-  description: '人机桥的个人工作台：一屏看清部署、应用目录、工作区/会话与待办任务',
+  description: '人机桥的个人工作台：看清部署、应用目录、工作区/会话与待办任务，并可新建/重命名会话',
   entry: 'overview' as PageKey,
   instructions: 'Person Agent 是人类与 DSH 之间的桥梁。概览页展示当前部署的真实状态'
-    + '（应用目录、工作区、待办任务）；工作区页浏览各工作区及其会话账目。'
-    + '页面承诺的信息要么在 data 快照里、要么有本页挂载的 person_agent__* 只读工具现查，'
+    + '（应用目录、工作区、待办任务），并可新建会话（session_create）与重命名会话'
+    + '（session_rename）；工作区页浏览各工作区及其会话账目，可在工作区内新建会话。'
+    + '页面承诺的信息要么在正文里（正文直读服务面）、要么有本页挂载的 person_agent__* 工具现查/动作，'
     + '数据拿不到时页面会明确标注不可用。',
   // toolPrefix 缺省由 id 推导为 person_agent；显式写出仅为可读性
   toolPrefix: 'person_agent',
@@ -33,22 +34,28 @@ export const APP_DEFINITION: ApplicationDefinition = {
 /**
  * 收编既有工具：调用兄弟工具包导出的构建器，拿到与宿主注册完全同一份
  * `ToolDefinition`——这里只登记进应用工具目录，不注册到 ctx.tools，也绝不
- * 复制第二份实现。页面工具按只读/低风险原则挑选：
- * - workspace_session_list：只读检索，overview 与 workspaces 两页都挂
+ * 复制第二份实现。目录是静态能力面（市场/权限/发现）；页面会话里的实际动作
+ * 由页面组件自己 `ctx.tools.register` 同一批构建器产物（动态面）：
+ * - workspace_session_list：只读检索，overview 与 workspaces 两页经 meta.tools 挂载
  *   （"工作区会话明细"的现查承诺由它承接）；
- * - session_create / session_rename：收进目录备用；目前没有任何页面挂载，
- *   因此也没有任何页面承诺它们——"承诺了但没有"零容忍，挂载与承诺必须同进退；
- * 排除项与理由见 README（派活/归档/置顶/工作区增改不适合页面会话触发）。
+ * - session_create：overview 与 workspaces 两页动态注册（建会话，工作台最核心的动作）；
+ * - session_rename：overview 动态注册（按 sessionId 改标题）；
+ * 挂载与承诺必须同进退：每个挂载的工具都在页面 instructions 里被点名。
  * Collect existing tools: call the sibling tool packages' exported builders to
  * obtain the very same `ToolDefinition` the host registers — this only enters
  * the app tool catalog, never ctx.tools, and never duplicates an
- * implementation. Page tools are picked read-only/low-risk first:
- * - workspace_session_list: a read-only lookup mounted by both the overview
- *   and the workspaces pages (it carries the "session detail on demand"
- *   promise);
- * - session_create / session_rename: collected for future use; no page mounts
- *   them today, so no page promises them either — "promised but absent" is
- *   zero-tolerance, mounting and promising must move together;
+ * implementation. The catalog is the static capability face (market /
+ * permissions / discovery); actual actions inside a page session are
+ * registered by the page components themselves via `ctx.tools.register` on the
+ * same builder products (the dynamic face):
+ * - workspace_session_list: a read-only lookup mounted by both the overview and
+ *   the workspaces pages through meta.tools (it carries the "session detail on
+ *   demand" promise);
+ * - session_create: dynamically registered by both pages (create a session —
+ *   the workbench's core action);
+ * - session_rename: dynamically registered by the overview (rename by sessionId);
+ * mounting and promising move together: every mounted tool is named in the
+ * page's instructions.
  * exclusions and reasons live in the README.
  * @param ctx - 携带注入能力的宿主上下文。The host context carrying injected capabilities.
  * @param maxListSessions - 会话列表单次上限。The per-call session-list cap.
