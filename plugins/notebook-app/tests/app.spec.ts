@@ -33,8 +33,8 @@ import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as NotebookApp from '../src/index.ts'
 import { APP_DEFINITION, APP_ID, Config as AppConfig } from '../src/index.ts'
-import { createListPage } from '../src/app.ts'
-import { isMarkdownDocHost } from '@veren/prompt-page'
+import { createNotebookPages } from '../src/pages.tsx'
+import { defineComponentPage, isMarkdownDocHost } from '@veren/prompt-page'
 import type { NoteSummary, NoteView } from '@veren/notebook'
 import NotebookService, { Config as HostConfig } from '@veren/notebook'
 
@@ -339,7 +339,8 @@ describe('页面 = 信息 + 工具，缺一不可 / a page is its information pl
     // 直挂 live 视图（无宿主运行时喂首屏）——这正是"快照缺席"的状态，正文必须自己说话。
     // / Mount the live view directly (no host runtime feeds the first screen) —
     // this IS the snapshot-absent state, and the body must speak for itself.
-    const view = createListPage(() => ctx.notebook.toolsPort()).live.mount({})
+    const { ListPage, ListMeta } = createNotebookPages(() => ctx.notebook.toolsPort())
+    const view = defineComponentPage(ListPage, ListMeta, ctx).live.mount({})
     try {
       const host = isMarkdownDocHost(view.host) ? view.host : undefined
       if (host === undefined) throw new Error('expected the markdown doc host')
