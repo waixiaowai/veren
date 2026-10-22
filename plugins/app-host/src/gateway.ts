@@ -18,6 +18,9 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+// 类型-only import：拉取 SessionId 的 brand 与会话服务的声明合并（stage 的会话校验）
+// type-only import: pulls the SessionId brand and the session service merge (stage's session check)
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
 import { createAppStaging } from './staging.ts'
@@ -87,17 +90,24 @@ export class AppHostGatewayService extends TypertRemoteService {
   }
 
   /**
-   * 暂存一个应用（选择 ≠ 开会话）：会话首条用户消息的 pre-step 才把它提升为
-   * 页面会话。入口页缺失/应用停用在这里就 fail loud（GUI 立刻看到原因）。
-   * Stage one app (a pick is not a session start): the session's first user
-   * message promotes it in pre-step. A missing entry page or a disabled app
-   * fails loud here so the GUI shows the reason immediately.
+   * 暂存一个应用（选择 ≠ 开会话）：选中时就把该页面的工具面预挂到会话上
+   * （`pageRegistry.mountPreview`：渲染一次收集工具，不建实例、不写索引），
+   * 会话首条用户消息的 pre-step 才把它提升为页面会话。预挂必须在发送前完成：
+   * 宿主在 pre-step 里挂工具已晚于该步的工具收集，只能从下一步生效。入口页
+   * 缺失/应用停用在这里就 fail loud（GUI 立刻看到原因）。
+   * Stage one app (a pick is not a session start): the pick pre-mounts that
+   * page's tool face on the session (`pageRegistry.mountPreview` — one render
+   * to collect the tools, no instance, no index row), and the session's first
+   * user message promotes it in pre-step. The pre-mount must finish before the
+   * send: tools mounted inside pre-step miss that step's tool collection and
+   * only take effect next step. A missing entry page or a disabled app fails
+   * loud here so the GUI shows the reason immediately.
    * @param appId - 应用 id / app id
    * @param sessionId - 要绑定的会话（当前输入栏所在的会话）/ the session to bind (the composer's session)
    * @returns 暂存的应用 / the staged app
    */
   @Remote('stage')
-  stage(appId: string, sessionId: string): AppGatewayApp {
+  async stage(appId: string, sessionId: string): Promise<AppGatewayApp> {
     const app = this.catalog().find((record) => record.id === appId)
     if (app === undefined) {
       throw gatewayError('app/not-found', `app "${appId}" is not registered`)
@@ -108,18 +118,34 @@ export class AppHostGatewayService extends TypertRemoteService {
     if (app.entryUrl === undefined) {
       throw gatewayError('app/entry-missing', `app "${appId}" has no registered entry page`)
     }
-    this.staging.stage(sessionId, { appId: app.id, name: app.name, url: app.entryUrl })
+    // 会话必须真实存在：预挂会往该会话的 agent 作用域挂工具，句柄错了就是泄漏。
+    // / the session must really exist: the pre-mount attaches tools to that
+    // session's agent scope, and a wrong handle would leak them.
+    if (this.ctx.sessions.get(sessionId as SessionId) === undefined) {
+      throw gatewayError('session/not-found', `session "${sessionId}" is not active; stage from a live composer`)
+    }
+    // 已是页面会话（索引里有实例）→ 拒绝：换页不在选择面里；已暂存的应用可替换
+    // （预挂面整组重挂）。sessionApp 同时读暂存面，所以先放行"已暂存"这一种。
+    // Already a page session (an index row exists) → refuse: changing pages is
+    // not part of the picker; an already-staged app may be replaced (the face
+    // is re-mounted wholesale). sessionApp reads the staged face too, so the
+    // "already staged" case is admitted first.
+    if (this.staging.appOf(sessionId) === undefined && await this.sessionApp(sessionId) !== null) {
+      throw gatewayError('session/has-app', `session "${sessionId}" is already bound to an app page; pick on an ordinary session`)
+    }
+    await this.staging.stage(sessionId, { appId: app.id, name: app.name, url: app.entryUrl })
     return app
   }
 
   /**
-   * 取消暂存（用户改主意）：会话不再在首条消息时提升。
-   * Unstage: the session no longer promotes on its first message.
+   * 取消暂存（用户改主意）：摘掉预挂的工具面，会话不再在首条消息时提升。
+   * Unstage: release the pre-mounted face; the session no longer promotes on
+   * its first message.
    * @param sessionId - 会话 id / session id
    */
   @Remote('unstage')
-  unstage(sessionId: string): void {
-    this.staging.unstage(sessionId)
+  async unstage(sessionId: string): Promise<void> {
+    await this.staging.unstage(sessionId)
   }
 
   /**
@@ -144,7 +170,12 @@ export class AppHostGatewayService extends TypertRemoteService {
     }
     for (const record of this.ctx.apps.catalog()) {
       const rows = await this.ctx.pageRegistry.instances.listByApp(record.definition.id)
-      if (!rows.some((row) => row.sessionId === sessionId)) continue
+      // 只认活行：废弃行是历史账目，不属于"该会话当前所属应用"（否则一条被重开
+      // 取代的旧会话会被当成页面会话，选择面也会因此错误地锁定）。
+      // Live rows only: deprecated rows are history and do not mean the session
+      // currently owns the app (otherwise a superseded session would look like a
+      // page session and the picker would wrongly lock).
+      if (!rows.some((row) => row.sessionId === sessionId && row.state === 'live')) continue
       return this.catalog().find((entry) => entry.id === record.definition.id) ?? null
     }
     return null

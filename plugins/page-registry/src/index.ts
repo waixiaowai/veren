@@ -14,11 +14,11 @@ import { PageRegistryService } from './service.ts'
 export { PAGE_REGISTRY_NAME, PageRegistryService } from './service.ts'
 export { APP_PAGES_DOMAIN_NAME, appPagesDomain, instanceTableView } from './storage.ts'
 export {
-  PAGE_LOAD_TIMEOUT_MS, appIdOf, externalToolName, firstScreenData, instanceTitleOf, openPageUrl,
+  PAGE_LOAD_TIMEOUT_MS, appIdOf, externalToolName, firstScreenData, instanceTitleOf, mountPreviewTools, openPageUrl,
 } from './runtime.ts'
 export type {
   DeliveryFace, MountedTool, OpenPageOptions, OpenPageResult, PageDataIdentity, PageDataPort,
-  PageRuntimePorts, PageSessionPort, ToolsFace,
+  PagePreview, PageRuntimePorts, PageSessionPort, ToolsFace,
 } from './runtime.ts'
 export { createAppOpenTool, createPageSendTool } from './tools.ts'
 export type { AppOpenPort, PageSendPort } from './tools.ts'

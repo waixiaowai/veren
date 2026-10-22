@@ -14,8 +14,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { KvPageInstanceIndex, PageError, PageErrorCode, PageRegistry, canonicalizePageUrl, formatPath } from '@veren/prompt-page'
 import type { InstanceKvPort, PageCatalogEntry, PageDefinition, PageInstanceIndex, PageInstanceKey, PageInstanceRecord, PageLiveBinding, PageMatch, PageParams } from '@veren/prompt-page'
 import { APP_PAGES_DOMAIN_NAME, appPagesDomain, instanceTableView } from './storage.ts'
-import { openPageUrl } from './runtime.ts'
-import type { OpenPageOptions, OpenPageResult, PageRuntimePorts } from './runtime.ts'
+import { mountPreviewTools, openPageUrl } from './runtime.ts'
+import type { OpenPageOptions, OpenPageResult, PagePreview, PageRuntimePorts } from './runtime.ts'
 import { deliverToPageUrl, HopLedger } from './delivery.ts'
 import type { DeliverPageOptions, DeliveryResult } from './delivery.ts'
 
@@ -187,6 +187,36 @@ export class PageRegistryService extends Service {
   openUrl(url: PageInstanceKey | string, options: OpenPageOptions = {}): Promise<OpenPageResult> {
     // async：端口未接线的 fail loud 以 rejected promise 透出，而非同步抛
     return Promise.resolve().then(() => openPageUrl(this.registry, this.instances, this.ports, url, options))
+  }
+
+  /**
+   * 预挂页面工具面（"选中应用 ≠ 开始会话"）：渲染页面（含首屏 load）收集
+   * catalog + 动态工具并挂到该会话的 agent 作用域，但不建实例、不写索引、不追加
+   * PAGE 块。首条消息正式提升走 openUrl 的复用路径，同一套定义重挂——模型第一步
+   * 的工具面即最终形态。
+   * Pre-mount a page's tool face (picking an app is not a session start): render
+   * the page (first-screen load included), collect catalog + dynamic tools and
+   * mount them on the session's agent scope — no instance, no index row, no PAGE
+   * block. The first message's promotion re-mounts the same definitions through
+   * openUrl's reuse path, so step 1 already sees the final tool face.
+   * @param sessionId - 用户的普通会话 / the user's ordinary session
+   * @param url - 页面 URL / the page url
+   * @returns 预挂的 URL、标题与工具面 / the pre-mounted url, title, and tool face
+   */
+  mountPreview(sessionId: string, url: string): Promise<PagePreview> {
+    return Promise.resolve().then(() => mountPreviewTools(this.registry, this.ports, sessionId, url))
+  }
+
+  /**
+   * 撤销预挂（用户改主意 / 提升失败）：摘掉该会话上的页面工具并复位引导工具
+   * 屏蔽。只作用于预挂面——真实页面会话的释放走 releaseApp/废弃路径。
+   * Release a pre-mounted face (the user changed their mind / promotion failed):
+   * strip the page tools and restore the bootstrap deny. Scoped to the preview
+   * face — a real page session releases through releaseApp/deprecation.
+   * @param sessionId - 预挂所在的会话 / the session holding the preview
+   */
+  releasePreview(sessionId: string): Promise<void> {
+    return Promise.resolve().then(async () => { await this.ports.sessions.releaseTools(sessionId) })
   }
 
   /**

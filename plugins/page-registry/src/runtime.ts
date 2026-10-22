@@ -107,8 +107,16 @@ export interface PageDataIdentity {
  * delivery all belong to the host.
  */
 export interface PageDataPort {
-  /** 会话提交后绑定一个实时视图（视图生命周期自此归端口）/ bind one live view after commit (lifecycle passes to the port) */
-  bind(sessionId: string, view: PageSession<never>, identity: PageDataIdentity): void
+  /**
+   * 会话提交后绑定一个实时视图（视图生命周期自此归端口）。`cursor` 是 PAGE 块
+   * 已经覆盖到的版本：块正文与视图同源，绑定从该版本之后开始投递，避免把块里
+   * 已有的内容再当 PAGE-PATCH 发一遍。
+   * Bind one live view after commit (lifecycle passes to the port). `cursor` is
+   * the version already covered by the PAGE block: the block body comes from the
+   * same view, so delivery starts after it and never re-sends that content as a
+   * PAGE-PATCH.
+   */
+  bind(sessionId: string, view: PageSession<never>, identity: PageDataIdentity, cursor?: number): void
   /** 废弃/回滚：解绑并退订 store / deprecation or rollback: unbind and unsubscribe the store */
   unbind(sessionId: string): void
 }
@@ -182,6 +190,27 @@ export interface OpenPageResult {
   readonly block?: string
 }
 
+/**
+ * 预挂的页面工具面（"选中应用 ≠ 开始会话"的暂存态）：只渲染、只挂工具——
+ * 不建页面实例、不写索引、不追加 PAGE 块。首条消息正式提升时 `openUrl` 走复用
+ * 路径，用同一套定义重挂（收集逻辑见 {@link collectMountedTools}），因此模型
+ * 第一步看到的工具面就是最终形态，不会在第二步才收到"工具已更新"。
+ * The pre-mounted page tool face (the "picking an app is not a session start"
+ * staged state): render + mount tools only — no page instance, no index row, no
+ * PAGE block. The first message's promotion re-mounts the very same definitions
+ * through openUrl's reuse path (both share {@link collectMountedTools}), so the
+ * model sees the final tool face on step 1 instead of a "tools updated" swap on
+ * step 2.
+ */
+export interface PagePreview {
+  /** 规范 URL / the canonical url */
+  readonly url: string
+  /** 实例标题（正式提升时落 session/title）/ the instance title (landed at promotion) */
+  readonly title: string
+  /** 已挂进会话的工具面 / the tool face mounted on the session */
+  readonly tools: readonly MountedTool[]
+}
+
 /** 规范 URL 里的 appId 段 / the appId segment of a canonical url */
 export function appIdOf(url: string): string | undefined {
   const segments = url.split('/').filter((segment) => segment.length > 0)
@@ -217,6 +246,34 @@ function resolveMountedTools(
     // The one permitted change: the name. Every DSH field is preserved verbatim.
     return { ...spec, name: externalToolName(app.toolPrefix, localName) }
   })
+}
+
+/**
+ * 一次收集页面工具面：目录解析（meta.tools 本地名）+ 组件会话内动态注册的
+ * defineTool 产物，两者都改外名后按固定顺序成表。**预览与正式挂载共用这一处**：
+ * 两条路径产出的定义逐字相同，模型侧的请求头因此不会在提升时变化。
+ * Collect the page tool face in one place: catalog resolution (meta.tools local
+ * names) + the defineTool products dynamically registered by the component, both
+ * renamed and kept in a fixed order. Preview and real mount share this single
+ * implementation, so both produce byte-identical definitions and the model's
+ * request header never changes at promotion.
+ * @param app - 页面所属应用 / the owning app
+ * @param match - 页面命中 / the page match
+ * @param toolsOf - 应用工具目录 / the app tool catalog
+ * @param view - 已渲染的组件视图（可为空）/ the rendered component view (may be absent)
+ * @returns 改外名后的挂载清单 / the renamed mount list
+ */
+function collectMountedTools(
+  app: AppRecord,
+  match: PageMatch<never>,
+  toolsOf: ToolsFace,
+  view: PageSession<never> | undefined,
+): MountedTool[] {
+  const dynamicTools = componentViewOf(view)?.takeRecordedTools() ?? []
+  return [
+    ...resolveMountedTools(app, match, toolsOf),
+    ...dynamicTools.map((definition) => ({ ...definition, name: externalToolName(app.toolPrefix, definition.name) })),
+  ]
 }
 
 /** 组件页视图的扩展面（prompt-page/component.tsx 的每会话视图）/ the component-page view's extension face (prompt-page/component.tsx) */
@@ -532,22 +589,24 @@ export async function createPageSession(
     // load 结果下发进组件（含失败态）：组件渲染为正文，绝不静默空白
     // / push the load result into the component (failures included): rendered into the body, never a silent blank
     snapshotSinkOf(view)?.setSnapshot(data)
-    // 工具：目录解析（meta.tools 本地名）+ 组件会话内动态注册的 defineTool 产物；
-    // 两者都改外名（`<toolPrefix>__<name>`）后一次挂载。
-    // Tools: catalog resolution (meta.tools local names) + the defineTool
-    // products dynamically registered in-session by the component; both renamed
-    // to the external form and mounted in one call.
-    const dynamicTools = componentViewOf(view)?.takeRecordedTools() ?? []
-    tools = [
-      ...resolveMountedTools(app, match, ports.toolsOf),
-      ...dynamicTools.map((definition) => ({ ...definition, name: externalToolName(app.toolPrefix, definition.name) })),
-    ]
+    // 工具：目录 + 组件动态注册，一次收集——与预览路径同一实现，定义逐字相同。
+    // / tools: catalog + dynamic registrations collected once — the same
+    // implementation as the preview path, byte-identical definitions.
+    tools = collectMountedTools(app, match, ports.toolsOf, view)
     await ports.sessions.mountTools(sessionId, tools)
     // PAGE 块：组件页 = 头行（map 注册表推导）+ Markdown 正文；旧块页 = 既有形状。
     // The PAGE block: a component page = header (registry-derived map) + the
     // Markdown body; a legacy block page keeps its existing shape.
     const markdownView = isMarkdownDocHost(view?.host) ? view!.host : undefined
     block = componentPageBlock(app, match, key, tools, markdownView !== undefined ? markdownView.bodyText() : '')
+    // PAGE 块覆盖到的版本：块正文取自这一版视图，绑定从它之后开始投递——块里已有
+    // 的快照/首帧内容不会被当成 PAGE-PATCH 再发一遍（提前挂载的预览监听器因此
+    // 也没有重复可发）。
+    // The version covered by the PAGE block: the block body is this view's body,
+    // so delivery starts after it — snapshot/first-frame content already in the
+    // block is never re-sent as a PAGE-PATCH (and a preview listener mounted
+    // earlier finds nothing to duplicate).
+    const blockVersion = markdownView?.currentVersion
     // 复用路径（提升）：调用方正在首回合里，块由它注入本轮决策（wake 语义不适用，
     // 也不落日志——见 OpenPageResult.block 的说明）。
     // Reuse path (promotion): the caller is inside the first turn and injects the
@@ -563,7 +622,7 @@ export async function createPageSession(
       ports.pageData.bind(sessionId, view, {
         pageKey: pageKeyOf(app, match.page.name),
         url: key,
-      })
+      }, blockVersion)
     }
     await index.commit(key, sessionId)
   } catch (error: unknown) {
@@ -591,6 +650,57 @@ export async function createPageSession(
   if (!reusing) await pumpDeliveries(ports, sessionId)
   if (options.focus !== false) await ports.sessions.focus(sessionId)
   return { sessionId, url: key, title, ...(reusing ? { block } : {}) }
+}
+
+/**
+ * 预挂一个页面的工具面（"选中应用 ≠ 开始会话"）：解析 URL → 首屏 load → 渲染
+ * 一次性视图收集工具 → **挂到给定会话** → 退订视图。不 reserve/commit 索引、
+ * 不建会话、不追加 PAGE 块、不 focus——用户还没发送时什么都不该"开始"。
+ * 正式提升走 createPageSession 的复用路径，collectMountedTools 产出同一套定义，
+ * 模型第一步的请求头因此与第二步一致（无"工具已更新"、无缓存断点）。
+ * Pre-mount a page's tool face (picking an app is not a session start): resolve
+ * the url → first-screen load → render a one-shot view to collect the tools →
+ * **mount them on the given session** → unsubscribe the view. No index
+ * reserve/commit, no session creation, no PAGE block, no focus — nothing may
+ * "start" before the user sends. The real promotion goes through
+ * createPageSession's reuse path, and collectMountedTools yields the very same
+ * definitions, so the model's step-1 header equals step 2 (no "tools updated",
+ * no cache break).
+ * @param registry - 页面注册表 / the page registry
+ * @param ports - 运行时端口 / the runtime ports
+ * @param sessionId - 预挂的会话（用户的普通会话）/ the session to pre-mount on
+ * @param url - 页面 URL / the page url
+ * @returns 预挂的 URL、标题与工具面 / the pre-mounted url, title, and tool face
+ */
+export async function mountPreviewTools(
+  registry: { resolve(url: string): PageMatch<never> | null },
+  ports: PageRuntimePorts,
+  sessionId: string,
+  url: string,
+): Promise<PagePreview> {
+  const { key, app, match } = resolvePageTarget(registry, ports, url)
+  const params = { ...match.params }
+  assertParamsMatchPattern(match.page.url, params)
+  const env: PageLoadEnv = ports.presetOf === undefined ? {} : { preset: ports.presetOf(sessionId) }
+  const data = await firstScreenData(match.page, params, env)
+  const view = match.live?.mount(params)
+  let tools: MountedTool[]
+  try {
+    snapshotSinkOf(view)?.setSnapshot(data)
+    tools = collectMountedTools(app, match, ports.toolsOf, view)
+  } finally {
+    // 预览视图只服务工具收集：首帧/快照渲染完即退订，订阅与 effect 全部释放。
+    // / the preview view only exists to collect tools: after the first frame and
+    // snapshot it unsubscribes, releasing subscriptions and effects.
+    view?.unsubscribe()
+  }
+  // 工具挂进该会话的 agent 作用域（agent 未激活时由端口排队到 agent/created）。
+  // 真实端口同时应用 app_* 屏蔽：预挂后第一步就不再暴露引导工具。
+  // Mount onto the session's agent scope (the port queues until agent/created if
+  // needed). The real port also applies the app_* deny: step 1 no longer offers
+  // the bootstrap tools.
+  await ports.sessions.mountTools(sessionId, tools)
+  return { url: key, title: instanceTitleOf(match, params), tools }
 }
 
 /** 把非 PageError 的底层失败包成带稳定 code 的 PageError */

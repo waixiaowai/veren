@@ -19,6 +19,7 @@ import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
@@ -345,7 +346,10 @@ function registerMiniApp(h: Boot): void {
   // / the home page (entry): the map is registry-derived (§3.5), never hand-written
   pages.register(
     (props: { id?: string }) => createElement('p', { children: `任务 ${props.id ?? ''}` }),
-    { url: '/apps/mini/list', description: '任务列表页', instructions: '这是 mini 应用的首页：看列表，去详情。' },
+    // 首页也挂一个只读工具：暂存测试要观察"预挂的面非空且提升后不重复"
+    // / the home page mounts one read tool too: the staging test observes a
+    // non-empty pre-mounted face that does not duplicate at promotion
+    { url: '/apps/mini/list', description: '任务列表页', tools: ['read'], instructions: '这是 mini 应用的首页：看列表，去详情。' },
   )
   // 二级页：带参数 + writes + 工具 + 说明 / the detail page: params + writes + tools + instructions
   pages.register(
@@ -390,6 +394,12 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     // 普通会话（不在页面实例索引里）→ null，工具栏保持下拉
     // / an ordinary session (absent from the page instance index) → null; the toolbar keeps the dropdown
     expect(await h.ctx.appHost.sessionApp('session-ordinary')).toBeNull()
+    // 被重开取代的旧会话是废弃行，不再属于该应用（查询只认 live 行）
+    // / a session superseded by a reopen is a deprecated row and no longer owns
+    // the app (the query counts live rows only)
+    const reopened = await h.pages.openUrl('/apps/mini/list' as PageInstanceKey)
+    expect(await h.ctx.appHost.sessionApp(opened.sessionId)).toBeNull()
+    expect((await h.ctx.appHost.sessionApp(reopened.sessionId))?.id).toBe('mini')
   })
 
   it('暂存应用：选中不建会话，首条消息的 pre-step 把该会话提升为页面会话', async () => {
@@ -397,29 +407,104 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     registerMiniApp(h)
     // GUI 的普通会话（"未命名"）：先存在，用户还没发送
     // / the GUI's ordinary session ("untitled"): it exists before the user sends
-    const sessionId = 'session-gui-1'
+    // 品牌收窄只发生在测试边界（与生产 spawn/会话端口的 sid() 同一纪律）
+    // / the brand narrows once at the test boundary (the same rule as the host's sid())
+    const sessionId = 'session-gui-1' as SessionId
     await h.ctx.agents.create({
       sessionId,
       agentOptions: { provider: 'test', model: 'test-model' },
       meta: { cwd: h.host.defaultWorkspacePath, agentPreset: 'standard' },
     })
-    // 选中应用：只登记意图，不建页面实例 / picking an app records intent only
-    const staged = h.ctx.appHost.stage('mini', sessionId)
+    // 选中应用：预挂工具面 + 登记意图，不建页面实例 / the pick pre-mounts the face and records intent; no instance
+    const staged = await h.ctx.appHost.stage('mini', sessionId)
     expect(staged.id).toBe('mini')
     expect(await h.pages.instances.listByApp('mini')).toHaveLength(0)
     // 工具栏显示已选应用（暂存态）/ the toolbar shows the selected app (staged)
     expect(await h.ctx.appHost.sessionApp(sessionId)).toMatchObject({ id: 'mini' })
-    // 首条消息的 pre-step：提升为页面会话 / the first message's pre-step promotes it
     const scope = h.host.scopes.get(sessionId)
     if (scope === undefined) throw new Error('expected the agent scope')
+    // 发送前工具面就已挂好：第一步请求头 = 最终形态；引导工具同时被屏蔽
+    // / the face is mounted before the send: step 1's header is final, and the
+    // bootstrap tools are denied at the same time
+    expect([...scope.registry.keys()]).toEqual(['mini__read'])
+    expect(scope.denials).toEqual(['app_open', 'app_list', 'app_pages'])
+    const previewFace = [...scope.registry.values()].map((tool) => JSON.stringify(tool))
+    // 首条消息的 pre-step：提升为页面会话 / the first message's pre-step promotes it
     const decision = await runPreStep(h.ctx, scope.ctx, sessionId)
     expect(decision.kind).toBe('enter')
     const rows = await h.pages.instances.listByApp('mini')
     expect(rows.some((row) => row.sessionId === sessionId && row.state === 'live')).toBe(true)
     // PAGE 块进入本轮决策（而不是事后补一条日志）/ the PAGE block enters this round's decision
     expect(JSON.stringify(decision)).toContain('PAGE mini/')
+    // 正式提升重挂同一套定义：没有重复登记，定义逐字相同（第二步不会"工具已更新"）
+    // / the promotion re-mounts the same definitions: no duplicates, byte-identical
+    // (step 2 must not report "tools updated")
+    expect([...scope.registry.keys()]).toEqual(['mini__read'])
+    expect([...scope.registry.values()].map((tool) => JSON.stringify(tool))).toEqual(previewFace)
     // 侧栏标题换成实例标题 / the sidebar title becomes the instance title
     expect(h.host.sessions.get(sessionId)?.titles).toContainEqual(expect.objectContaining({ title: '任务列表页' }))
+  })
+
+  it('取消暂存：预挂的工具面整组摘掉，首条消息按普通会话走（不提升）', async () => {
+    const h = await boot()
+    registerMiniApp(h)
+    const sessionId = 'session-gui-2' as SessionId
+    await h.ctx.agents.create({
+      sessionId,
+      agentOptions: { provider: 'test', model: 'test-model' },
+      meta: { cwd: h.host.defaultWorkspacePath, agentPreset: 'standard' },
+    })
+    await h.ctx.appHost.stage('mini', sessionId)
+    const scope = h.host.scopes.get(sessionId)
+    if (scope === undefined) throw new Error('expected the agent scope')
+    expect([...scope.registry.keys()]).toEqual(['mini__read'])
+    await h.ctx.appHost.unstage(sessionId)
+    // 工具与屏蔽一起撤销（restrict 的注销器随挂载整组释放）
+    // / tools and the deny are undone together (the restrict disposer goes with the mounted set)
+    expect(scope.registry.size).toBe(0)
+    expect(scope.denials).toEqual([])
+    const decision = await runPreStep(h.ctx, scope.ctx, sessionId)
+    expect(JSON.stringify(decision)).not.toContain('PAGE mini/')
+    expect(await h.pages.instances.listByApp('mini')).toHaveLength(0)
+    expect(await h.ctx.appHost.sessionApp(sessionId)).toBeNull()
+  })
+
+  it('agent 销毁带走预挂面与暂存意图：重建后的首条消息不会用旧工具面跑第一步', async () => {
+    const h = await boot()
+    registerMiniApp(h)
+    const sessionId = 'session-gui-3' as SessionId
+    await h.ctx.agents.create({
+      sessionId,
+      agentOptions: { provider: 'test', model: 'test-model' },
+      meta: { cwd: h.host.defaultWorkspacePath, agentPreset: 'standard' },
+    })
+    await h.ctx.appHost.stage('mini', sessionId)
+    h.host.stopAgent(sessionId)
+    // 暂存意图随 agent 一起消失：工具栏退回下拉，不会显示一个已经挂不上的面
+    // / the intent dies with the agent: the toolbar falls back to the dropdown
+    expect(await h.ctx.appHost.sessionApp(sessionId)).toBeNull()
+    // 重建 agent 后首条消息按普通会话走：没有 PAGE 块、没有页面实例
+    // / after recreation the first message runs as an ordinary session: no PAGE block, no instance
+    await h.ctx.agents.create({
+      sessionId,
+      agentOptions: { provider: 'test', model: 'test-model' },
+      meta: { cwd: h.host.defaultWorkspacePath, agentPreset: 'standard' },
+    })
+    const scope = h.host.scopes.get(sessionId)
+    if (scope === undefined) throw new Error('expected the recreated agent scope')
+    const decision = await runPreStep(h.ctx, scope.ctx, sessionId)
+    expect(JSON.stringify(decision)).not.toContain('PAGE mini/')
+    expect(await h.pages.instances.listByApp('mini')).toHaveLength(0)
+  })
+
+  it('已是页面会话 → 拒绝暂存；不存在的会话 → session/not-found（不泄漏工具）', async () => {
+    const h = await boot()
+    registerMiniApp(h)
+    const opened = await h.pages.openUrl('/apps/mini/list' as PageInstanceKey)
+    await expect(h.ctx.appHost.stage('mini', opened.sessionId))
+      .rejects.toMatchObject({ code: 'session/has-app' })
+    await expect(h.ctx.appHost.stage('mini', 'ghost-session'))
+      .rejects.toMatchObject({ code: 'session/not-found' })
   })
 
   it('装配 disposer 撤销全部注入：dispose 后镜像失效（注册只告警不镜像）', async () => {

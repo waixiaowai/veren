@@ -120,7 +120,12 @@ export function createPageDataSync(options: PageDataSyncOptions = {}): PageDataS
     drop,
     dispose: () => { for (const sessionId of [...entries.keys()]) drop(sessionId) },
     port: {
-      bind: (sessionId, view, identity) => { entries.set(sessionId, { view, identity, cursor: 0 }) },
+      // 游标默认 0；page-registry 在绑定 PAGE 块时传入块已覆盖的版本，块里已有的
+      // 首帧/快照内容不会被当成 PAGE-PATCH 再发一遍。
+      // The cursor defaults to 0; page-registry passes the version the PAGE block
+      // already covers, so first-frame/snapshot content in the block is never
+      // re-sent as a PAGE-PATCH.
+      bind: (sessionId, view, identity, cursor = 0) => { entries.set(sessionId, { view, identity, cursor }) },
       unbind: drop,
     },
     attach: (sessionId, agent) => agent.ctx.on('agent/pre-step', async (payload, next) => {

@@ -29,6 +29,7 @@ pnpm --filter @veren/page-registry test
 - `service.instances`：持久化 `PageInstanceIndex`（`app_pages` 存储域；reserve/commit 两阶段；重启后仍命中；会话被删自动失效重建）。
 - `service.openUrl(url, { taskId })`：规范化 URL → 校验应用 → 一律新建页面会话（同 URL 旧会话先废弃）→ 挂 `<toolPrefix>__<本地名>` 工具 → 写一次 PAGE 块 → commit → 聚焦；任务场景先 take 再追加 TASK 块。稳定错误码：app/not-found、app/disabled、page/not-found、task/expired、page/session-create-failed、page/tool-conflict、page/index-unavailable、page/host-unavailable。
 - `registerAppPage(appId, page)`：应用作用域注册（与 app-registry 的 `ctx.apps.pages(id)` 对接）；`page.<name>` 预设路径保持废弃。页面以 **pageKey（`<appId>/<本地名>`）** 为名登记——本地名跨应用必然重名，按裸名登记会让第二个应用在 duplicate-name 上失败。
+- `service.mountPreview(sessionId, url)` / `releasePreview(sessionId)`：暂存选中的应用面——渲染一次页面（含首屏 load），收集目录 + 动态工具并挂到该会话的 agent 作用域，**不**建实例、不写索引、不追加 PAGE 块。之后的 `openUrl(url, { reuseSessionId })` 用同一套定义重挂（两条路径共用一个收集器），模型第一步就是最终工具面；在 `agent/pre-step` 里挂工具会错过该步的工具收集。`releasePreview` 在撤销选择或提升失败时摘下这层面。
 - 宿主工具 `app_open` 的本体由 `createAppOpenTool(port)` 构造；注册由宿主装配层（app-host）在它唯一的"全成或全回滚"接线 effect 里 `ctx.tools.register` 完成（G13）——本模块不再自带 effect。
 
 ## 按 URL 幂等投递（`page_send`，§3.9）
@@ -51,5 +52,5 @@ pnpm --filter @veren/page-registry test
 ## 活的视图（`pageData` 端口，§3.10.3）
 
 - `registerAppPage(appId, page, live?)` 接受 `PageLiveBinding`（由 app-registry 从应用声明的 store 封出）：`live.mount(params)` 返回该会话订阅 store 的视图。
-- `openUrl` 在 `index.commit` **之前**经可选 `pageData` 端口绑定该视图——挂载失败走既有的两阶段回滚，不会留下"会话活着、视图死着"的半状态。同 URL 重开的旧会话废弃与回滚路径都调用 `pageData.unbind(sessionId)`。
+- `openUrl` 在 `index.commit` **之前**经可选 `pageData` 端口绑定该视图——挂载失败走既有的两阶段回滚，不会留下"会话活着、视图死着"的半状态。初始游标取 PAGE 块已覆盖的版本，首帧/快照内容不会被当成 PAGE-PATCH 再发一遍。同 URL 重开的旧会话废弃与回滚路径都调用 `pageData.unbind(sessionId)`。
 - 没有 `pageData` 端口或没有 `live` 绑定时页面保持静态，其余行为不变。渲染、截断与上下文投递归绑定方（`@veren/app-host` 的 `createPageDataSync`）。

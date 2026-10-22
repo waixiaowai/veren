@@ -520,6 +520,103 @@ describe('工具前缀与应用作用域（§3.4.3、§3.1）', () => {  it('页
   })
 })
 
+describe('预挂工具面（选中应用 ≠ 开始会话）：第一步就拿到最终工具面', () => {
+  /** 目录工具 + 动态工具各一：预挂与正式挂载必须产出同一套定义 / one catalog + one dynamic tool */
+  function registerPreviewPage(service: PageRegistryService): void {
+    const registration = defineComponentPage(
+      (_props, ctx) => {
+        ctx.tools.register(defineTool({
+          name: 'extra_action',
+          description: '动作工具',
+          parameters: {},
+          output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+          execute: async () => ({ ok: true }),
+        }))
+        return createElement('p', { children: '预挂页' })
+      },
+      { url: '/apps/demo/preview', description: '预挂页', tools: ['read'], instructions: '预挂页说明。' },
+    )
+    service.registerAppPage('demo', registration.page, registration.live)
+  }
+
+  it('只渲染、只挂工具：不建会话、不落 PAGE 块、不写实例索引', async () => {
+    const { service, sessions, kv } = makeService()
+    registerPreviewPage(service)
+    const sessionId = 'session-gui-preview'
+    const preview = await service.mountPreview(sessionId, '/apps/demo/preview')
+    expect(preview.url).toBe('/apps/demo/preview')
+    expect(preview.title).toBe('预挂页')
+    expect(preview.tools.map((tool) => tool.name)).toEqual(['demo__read', 'demo__extra_action'])
+    // 工具挂在该会话名下（目录 + 动态，同一个收集实现）
+    // / tools sit under that session (catalog + dynamic, one collector)
+    expect(sessions.mounted.get(sessionId)?.map((tool) => tool.name))
+      .toEqual(['demo__read', 'demo__extra_action'])
+    // 没有"开始"任何东西：不建会话、不追加块、不占 URL 索引
+    // / nothing started: no session, no block, no url index row
+    expect(sessions.created).not.toContain(sessionId)
+    expect(sessions.messages.get(sessionId) ?? []).toEqual([])
+    expect(kv.map.has('/apps/demo/preview')).toBe(false)
+  })
+
+  it('预挂与正式提升的定义逐字相同（请求头不会在提升时变化）', async () => {
+    const { service, sessions } = makeService()
+    registerPreviewPage(service)
+    const sessionId = 'session-gui-preview'
+    await service.mountPreview(sessionId, '/apps/demo/preview')
+    const previewFace = (sessions.mounted.get(sessionId) ?? []).map(({ name, description, parameters }) => ({ name, description, parameters }))
+    // 正式提升（复用路径）：同一会话、同一套定义重挂
+    // / the real promotion (reuse path): the same session, the same definitions re-mounted
+    const opened = await service.openUrl('/apps/demo/preview', { reuseSessionId: sessionId, focus: false })
+    expect(opened.sessionId).toBe(sessionId)
+    const promotedFace = (sessions.mounted.get(sessionId) ?? []).map(({ name, description, parameters }) => ({ name, description, parameters }))
+    expect(promotedFace).toEqual(previewFace)
+  })
+
+  it('撤销预挂：工具整组摘下（后续首条消息按普通会话走）', async () => {
+    const { service, sessions } = makeService()
+    registerPreviewPage(service)
+    const sessionId = 'session-gui-preview'
+    await service.mountPreview(sessionId, '/apps/demo/preview')
+    await service.releasePreview(sessionId)
+    expect(sessions.mounted.has(sessionId)).toBe(false)
+    expect(sessions.released).toContain(sessionId)
+  })
+
+  it('PAGE 块覆盖的版本作为绑定游标：块里已有的首帧/快照不会被再发一遍', async () => {
+    const { service, ports } = makeService()
+    // 带首屏 load 的页：setSnapshot 会把视图从 v1 推到 v2，块正文取自 v2
+    // / a page with a first-screen load: setSnapshot bumps the view v1 → v2 and
+    // the block body is taken from v2
+    const registration = defineComponentPage(
+      () => {
+        const snap = useSnapshot<{ id: string }>()
+        return createElement('p', { children: `简报 ${snap?.id ?? '?'}` })
+      },
+      {
+        url: '/apps/demo/brief/:briefId',
+        description: '简报页',
+        load: async (params) => ({ id: params.briefId }),
+      },
+    )
+    service.registerAppPage('demo', registration.page, registration.live)
+    let bound: { readonly cursor: number | undefined; readonly patchAfter: string | undefined } | undefined
+    service.bindPorts({
+      ...ports,
+      pageData: {
+        bind: (_sessionId, view, _identity, cursor) => {
+          // 绑定后立刻取一次补丁：游标覆盖到的内容必须为空
+          // / take a patch right after binding: content covered by the cursor must be empty
+          bound = { cursor, patchAfter: view.syncText(cursor ?? 0) }
+        },
+        unbind: () => undefined,
+      },
+    })
+    await service.openUrl('/apps/demo/brief/7')
+    expect(bound?.cursor).toBe(2)
+    expect(bound?.patchAfter).toBe('')
+  })
+})
+
 describe('缺口 1/4 收尾：通知投递泵、reserved 清扫', () => {
   /** 带投递面的装配 / assembly with a delivery face */
   function makeWithDelivery(notices: Array<{ deliveryId: string; text: string }>) {

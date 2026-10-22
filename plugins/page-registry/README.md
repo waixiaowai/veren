@@ -29,6 +29,7 @@ pnpm --filter @veren/page-registry test
 - `service.instances`: persistent `PageInstanceIndex` (`app_pages` storage domain, two-phase reserve/commit, survives restart, invalidates rows whose session is gone).
 - `service.openUrl(url, { taskId })`: canonicalize -> app check -> open a fresh page session (same-URL predecessor deprecated first) -> mount `<toolPrefix>__<local>` tools -> one PAGE block -> commit -> focus; task flow takes first, then appends a TASK block. Stable codes: app/not-found, app/disabled, page/not-found, task/expired, page/session-create-failed, page/tool-conflict, page/index-unavailable, page/host-unavailable.
 - `registerAppPage(appId, page)`: app-scoped registration (pairs with app-registry's `ctx.apps.pages(id)`); the `page.<name>` preset path stays deprecated. Pages register under their **pageKey** (`<appId>/<localName>`) — local names collide across apps, bare names would make the second app fail on duplicate-name.
+- `service.mountPreview(sessionId, url)` / `releasePreview(sessionId)`: the staged-pick face — render the page once (first-screen load included), collect the catalog + dynamic tools and mount them on that session's agent scope, with **no** instance, index row, or PAGE block. The later `openUrl(url, { reuseSessionId })` re-mounts the same definitions (both share one collector), so the model's first step already sees the final tool face; mounting inside `agent/pre-step` misses that step's tool collection. `releasePreview` strips the face when the pick is cancelled or promotion fails.
 - `app_open` tool body built by `createAppOpenTool(port)`; the host assembly (`app-host`) registers it into `ctx.tools` inside its single all-or-nothing wiring effect (G13) — this module no longer opens its own effect.
 
 ## URL-addressed delivery (`page_send`, §3.9)
@@ -51,6 +52,6 @@ Before the host assembly (`@veren/app-host`) runs `bindPorts`, `openUrl` / `rele
 ## Live views (`pageData` port, §3.10.3)
 
 - `registerAppPage(appId, page, live?)` accepts a `PageLiveBinding` (built by app-registry from the store the app declared): `live.mount(params)` returns the session's store-subscribed view.
-- `openUrl` binds that view through the optional `pageData` port **before** `index.commit` — a mount failure rides the existing two-phase rollback instead of leaving a live session with a dead view. Deprecating the predecessor (same-url reopen) and the rollback path both call `pageData.unbind(sessionId)`.
+- `openUrl` binds that view through the optional `pageData` port **before** `index.commit` — a mount failure rides the existing two-phase rollback instead of leaving a live session with a dead view. The initial cursor is the version the PAGE block already covers, so first-frame/snapshot content is never re-sent as a PAGE-PATCH. Deprecating the predecessor (same-url reopen) and the rollback path both call `pageData.unbind(sessionId)`.
 - Without a `pageData` port or a `live` binding the page stays static; nothing else changes. Rendering, caps, and context delivery belong to the binder (`@veren/app-host`'s `createPageDataSync`).
 

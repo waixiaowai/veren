@@ -255,3 +255,40 @@
   标题更新）。
 - 发布 page-registry@0.1.4、app-host@0.2.11、app-host-ui@0.1.10；profile 安装，
   节点 3080 重启。
+
+### 第十轮：工具面晚一步（step 2 才"工具已更新"）——选中时预挂（2026-10-22）
+- 真机现象：选中 Person Agent 发送后，step 1 的请求头仍是普通会话工具面
+  （`app_list`/`app_open`/`app_pages`，无 `person_agent__*`），step 2 才切到页面工具面
+  并出现「工具已更新 · 新增 3 个，移除 3 个」。同会话日志：step 1 缓存命中
+  11,648 / 14,083，step 2 4,480 / 14,543；界面底部 56% 正是两步加权。PAGE 块在
+  step 1 就写了 `tools: …`，请求头里却一个都没有——工具面与说明隔了一整步。
+- 根因：agent-loop 每个 step 先 `systemPrompt.assemble` 收齐工具
+  （`packages/core/agent-loop/src/agent.ts:272`），再跑 `agent/pre-step`（`:274`），
+  请求用冻结的 `assembly.tools`（`:442`）。提升（openUrl → mountTools）发生在
+  pre-step 里，只能影响下一次 assemble；pre-step 是回合内最早的可拦截缝，再往前
+  只能到"选中应用"那一刻。
+- 修复（选中时预挂工具面）：
+  - page-registry 新增 `mountPreview(sessionId, url)` / `releasePreview(sessionId)`：
+    渲染一次（含首屏 load）收集 catalog + 动态工具并挂到会话 agent 作用域，**不**建
+    实例、不写索引、不追加 PAGE 块；`collectMountedTools` 成为预览与正式挂载唯一的
+    收集实现，两条路径的定义逐字相同，提升时请求头不变。
+  - app-host staging 的 `stage` 改为 async：先 `mountPreview` 再登记；`unstage`、
+    提升失败、装配卸载都释放预挂面（含 `app_*` 屏蔽复位）。网关 `stage` 校验会话
+    存在，并拒绝已是页面会话的会话；`sessionApp` 只认 live 索引行（废弃行是历史，
+    不再被当成当前所属应用）。
+  - `pageData.bind` 的初始游标取 PAGE 块已覆盖的版本：块里已有的首帧/快照内容不再
+    作为 PAGE-PATCH 重发（预挂让 page-sync 监听器提前进入 step 1，游标是防重复的
+    结构性保证）。
+- 测试：page-registry 55/55（预挂不建实例/不写索引、与正式挂载定义逐字相同、撤销、
+  绑定游标 = 块版本）；app-host 23/23（stage 后工具已挂且 `app_*` 已屏蔽、pre-step
+  提升无重复、unstage 整组撤销、页面会话拒绝暂存、sessionApp 只认 live 行、agent
+  销毁时暂存意图随预挂面一起丢弃）。
+- 真机：新会话选 Person Agent → 发送"这个工作区里有哪些会话？用工具查一下"。
+  日志只有一条 `request/header`（reason `initial`）：53 个工具含三个
+  `person_agent__*`、不含 `app_*`，全程无 tool-registry developer/message；模型
+  step 1 直接调用 `person_agent__workspace_session_list` 成功。缓存曲线：step 1
+  9,520 未命中 + 4,736 命中（页面工具面付一次），step 2/3/4 连续
+  14,336 / 16,256 / 16,768 命中。页面实例 live、会话已进默认工作区。
+- 发布 page-registry@0.1.5、app-host@0.2.12（0.2.13 补 sessionApp 只认 live 行；
+  0.2.14 补 agent 销毁时丢弃预挂面与暂存意图）、app-host-bundle@0.2.9；profile
+  全新安装，节点 3080 重启。
