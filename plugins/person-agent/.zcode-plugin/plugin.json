@@ -1,0 +1,16 @@
+{
+  "name": "person-agent",
+  "version": "0.1.0",
+  "description": "A chief-of-staff butler for ZCode: the person-agent agent judges a request, dispatches labor to background subagents and reports outcomes in plain Chinese; the dispatch skill encodes when and how to hand off work; the renhua skill keeps human-facing writing readable. Port of the DSH person-agent stack.",
+  "description_i18n": {
+    "en": "A chief-of-staff butler for ZCode: the person-agent agent judges a request, dispatches labor to background subagents and reports outcomes in plain Chinese; the dispatch skill encodes when and how to hand off work; the renhua skill keeps human-facing writing readable. Port of the DSH person-agent stack.",
+    "zh-CN": "ZCode 的人机管家：person-agent 子代理负责判断请求、把劳动派给后台子代理、用平实中文汇报结果；dispatch 技能规定何时派活、怎么派活；renhua 技能保证给人看的文字好读。DSH person-agent 套件的 ZCode 移植版。"
+  },
+  "author": {
+    "name": "imeepos"
+  },
+  "license": "MIT",
+  "skills": "skills",
+  "agents": "agents",
+  "commands": "commands"
+}
