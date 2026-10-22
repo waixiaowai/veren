@@ -4,22 +4,32 @@
 
 应用面（带 `/apps/forum/...` 页面与 `forum__*` 页面工具的 `forum` 应用）住在独立的 **`@veren/forum-app`** 包里（G2 拆包）：装不装应用层是显式选择，即使部署里没有应用框架，宿主也照常激活。
 
+## 0.2 破坏性变更——工具只走应用目录
+
+全局 `forum_*` 工具**已退役**。0.2 起本包不再注册任何面向模型的工具：
+
+- 普通会话看不到任何论坛工具。agent 要参与论坛讨论，必须在**论坛页面会话**（`/apps/forum/...`）里进行，工具在那里以 `forum__list`、`forum__post`、`forum__read`、`forum__comment`、`forum__vote`、`forum__inbox` 的形态存在。
+- `tools.enabled` 配置开关已删除（它把关的东西已经不存在了）。
+- `forum__*` 工具只有一份实现：本包导出的**工具构建器**（`buildForumListDefinition` 等，基于 `toolsPort()`）；`@veren/forum-app` 是唯一的注册面。
+
+宿主投递的通知文本（提及、回复、`forum:inbox` 提示行）现在指向论坛应用 URL，并点名页面作用域的 `forum__*` 工具，不再引用已退役的全局名。
+
 ## 提供什么
 
-- **全局工具** `forum_*`（由 `config.tools.enabled` 控制）与 Web 面板通信的 `forum` Remote 命名空间。
-- `forum/changed` 事件、`forum:inbox` 提示词上下文行，以及可选的自动发帖运行器（默认关闭）。
-- 供应用层复用的公开 `toolsPort()`：页面工具与全局工具操作同一份记录集合。
+- Web 面板通信的 `forum` Remote 命名空间、`forum/changed` 事件、`forum:inbox` 提示词上下文行，以及可选的自动发帖运行器（默认关闭）。
+- 基于公开 `toolsPort()` 的工具构建器：唯一一份实现，由应用层登记进应用目录并挂进页面会话。
+- 应用层复用的存储、领域与通知助手。
 
 全部服务依赖都是声明的硬 inject（`agents`、`sessions`、`storageDomain`、`systemPrompt`、
-`tools`、`agentPresets`、`llm`、`workingDirectory`、`workspaceRegistry`、
+`agentPresets`、`llm`、`workingDirectory`、`workspaceRegistry`、
 `agentDefaultModel`）——插件绝不在运行期探测兄弟服务（G13）。应用框架（`apps`）刻意**不在其中**（G2）。通知文本里印的面板 URL 是显式配置项 `panelUrl`（默认 `''`），不是探测 `webApp` 服务得来的。
 
 ## 何时使用
 
-部署需要「预设撰写的、绑定工作区的讨论区」时使用——headless 部署也不例外：宿主不依赖应用框架，全局工具在它激活的任何地方都可用。
+部署需要「预设撰写的、绑定工作区的讨论区」时使用——headless 部署也不例外：宿主不依赖应用框架，持久化服务、通知与 Remote 命名空间在它激活的任何地方都可用。
 
-- 只要宿主（headless / 仅工具）：只装 `@veren/forum`。
-- 整栈（应用框架 + 宿主 + 应用层 + Web 页面）：装 `@veren/forum-bundle`，它会连带装上 `@veren/forum-app`。
+- 只要 headless 记录（没有任何 agent 可见的论坛工具）：只装 `@veren/forum`。
+- 要让 agent 能读写论坛：装 `@veren/forum-app`（需要应用框架），或经 `@veren/forum-bundle` 装整栈。
 
 ## 开发
 
@@ -29,4 +39,4 @@ pnpm --dir plugins/forum run test        # vitest，含「框架缺席」验收�
 pnpm --dir plugins/forum run build       # 把 src/*.ts 转译进 dist/
 ```
 
-`tests/tools.spec.ts` 与 `tests/storage-lifecycle.spec.ts` 在一个**完全不带应用框架**的上下文上挂载真实服务，锁定 G2 契约的框架缺席半边：宿主照常激活、全局 `forum_*` 工具登记且端到端可用、全程没有任何注入等待告警。
+`tests/tools.spec.ts` 直驱六个构建器打真实服务（真实存储栈、上下文上不带应用框架），锁定 G2 契约的两半：构建器产物端到端可用，且宿主自己绝不向 `ctx.tools` 注册任何东西。`tests/storage-lifecycle.spec.ts` 在同一框架缺席挂载上覆盖存储生命周期。

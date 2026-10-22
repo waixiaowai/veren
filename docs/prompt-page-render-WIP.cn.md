@@ -15,12 +15,17 @@
 - **插件**：task-workbench、person-agent-app、forum-app、notebook-app、sub2api-admin 全部迁移组件页。
 - **page-sync-bench** 已整目录删除。全部包 vitest + typecheck + `pnpm check`（含 `scripts/check-page-api.mjs` 静态门禁）绿。
 
-## 两处历史记录与代码不符（如实更正）
+## 两处历史记录的后续（2026-10-22 兼容层收口，均已完成）
 
-早期小节与附录里有两句与 HEAD 代码不符，特此更正，后文日志保留原样仅作时间线：
+早期小节与附录里有两句与 HEAD 代码不符，当时如实更正过；随兼容层收口
+（提交 03258b2、11cf0b6），两处遗留均已处理完毕：
 
-- **"删 PageDataPayload"不成立**：`plugins/app-host/src/page-sync.ts:158` 仍导出 `PageDataPayload` 接口（§3.10.2 旧全量快照形状），减法后已无任何引用——它是死代码，删除属运行时清理，**本次只做文档对齐、未动代码**；接手者可安全删除并同步该文件的导出面。
-- **"去 prompt-host-messages 依赖"只完成了一半**：运行时导入确已删除，但 `packages/prompt-page/package.json:28` 仍声明 `@veren/prompt-host-messages` 依赖——`src/markdown.ts` 与 `src/types.ts` 还有 `Sync` 类型的 type-only 导入。去依赖需先把该类型替换为本包自有形状，属代码改动，本次未执行；在此之前依赖必须保留，不能直接从 package.json 摘掉。
+- **"删 PageDataPayload"已成立**：`plugins/app-host/src/page-sync.ts` 的
+  `PageDataPayload` 死代码已删除，page-sync 只走 PAGE-PATCH 一条路（`pendingSnapshot`
+  保留，仍承担首帧快照职责）。
+- **"去 prompt-host-messages 依赖"已完成**：`src/markdown.ts` 与 `src/types.ts` 的
+  `Sync` 类型导入已替换为本包自有形状，`packages/prompt-page/package.json` 中的
+  `@veren/prompt-host-messages` 依赖声明已摘除。
 
 ## 剩余步骤
 
@@ -28,7 +33,7 @@
 
 1. **GUI 轮模型侧终验**：浏览器打开稳定节点（`http://127.0.0.1:3080/?token=<.dsh-web-3080.log 最新行>`），驱动 `/apps/task-workbench/task/t-1`（id 口径 t- 前缀），确认模型从 PAGE 块正文读出任务标题/状态。
 2. **registry 版本对齐**：把 offline tarball 发布到 npm.veren.top（`market/release.mjs`），保证干净安装取到新版；profile `.npmrc` 已补 `@veren:registry` 行。
-3. （建议，非必须）删除 `PageDataPayload` 死代码、收敛 prompt-host-messages 类型依赖——见上一节，均属运行时代码改动，另行执行。
+3. ~~（建议，非必须）删除 `PageDataPayload` 死代码、收敛 prompt-host-messages 类型依赖~~——已完成（兼容层收口，提交 03258b2、11cf0b6），见上一节。
 
 ## 已知偏差（有意为之）
 

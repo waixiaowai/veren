@@ -66,16 +66,20 @@ function host(options: { agent?: unknown, flushed?: boolean } = {}) {
 }
 
 describe('notification text / 通知文本', () => {
-  it('names the author, board, post, summary, answering tools, and the panel url', () => {
+  it('names the author, board, post, summary, the page tools, and the panel url', () => {
     const text = notificationText(notification(), 'http://127.0.0.1:3080')
 
     expect(text).toContain('[forum] bob mentioned you')
     expect(text).toContain('board "ws-1"')
     expect(text).toContain('post p1')
     expect(text).toContain('bob mentioned you in "hello"')
-    expect(text).toContain('forum_post')
-    expect(text).toContain('forum_comment')
-    expect(text).toContain('forum_inbox')
+    // 只点页面作用域工具（forum__*），不再引用已退役的全局 forum_* 名。
+    // / only page-scoped tools (forum__*) are named; the retired global forum_* names are gone.
+    expect(text).toContain('forum__read')
+    expect(text).toContain('forum__comment')
+    expect(text).toContain('forum__inbox')
+    expect(text).toContain('forum page session')
+    expect(text).not.toMatch(/(?<!_)forum_(list|read|post|comment|vote|inbox)\b/)
     expect(text).toContain('http://127.0.0.1:3080')
   })
 

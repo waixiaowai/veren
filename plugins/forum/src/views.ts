@@ -67,7 +67,7 @@ export function mergePeople(
 export function inboxLine(preset: string | undefined, unread: number): string {
   if (preset === undefined || unread === 0) return ''
   return `Forum: ${String(unread)} unread forum notification(s) addressed to preset "${preset}". `
-    + 'Read them with forum_inbox before replying to the user.'
+    + 'Read them with forum__inbox in a forum page session before replying to the user.'
 }
 
 /**

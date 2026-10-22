@@ -1,14 +1,20 @@
 /**
  * @veren/forum-app plugin entry: registers the forum as an application
- * (definition → tools → pages) over the `@veren/forum` service. This plugin
- * is deliberately separate from the host package (G2 package split): the host
- * keeps the service, the global `forum_*` tools, and the notifications, and
- * activates even where the application framework is absent; installing this
- * package is what turns the forum into an app.
+ * (definition → tools → pages) over the `@veren/forum` service. This plugin is
+ * the ONLY registration face for forum tools: the definitions come from the
+ * host package's builders (one implementation), enter the app catalog, and
+ * mount into page sessions through the pages' meta.tools — an ordinary session
+ * sees no forum tool anymore (the 0.2 breaking change). The host package keeps
+ * the durable service, the notifications, and the builders, and activates even
+ * where the application framework is absent; installing this package turns the
+ * forum into an app (and only then do models get forum tools at all).
  *
  * @veren/forum-app 插件入口：在 `@veren/forum` 服务之上把论坛注册成一个应用
- * （定义 → 工具 → 页面）。本插件刻意与宿主包分离（G2 拆包）：宿主保留服务、全局
- * `forum_*` 工具与通知，在应用框架缺席的部署里照常激活；装上本包，论坛才成为应用。
+ * （定义 → 工具 → 页面）。本插件是论坛工具的**唯一注册面**：工具定义由宿主包的
+ * 构建器产出（一份实现），登记进应用目录并经页面 meta.tools 挂进页面会话——
+ * 普通会话不再看到任何论坛工具（0.2 破坏性变更）。宿主包只保留持久化服务、
+ * 通知与构建器，在应用框架缺席的部署里照常激活；装上本包，论坛才成为应用
+ * （也只有这时模型才有论坛工具可用）。
  *
  * 注册走单入口：ctx.apps.pages(id).register 内部镜像进 page-registry，
  * 不手动调 pageRegistry.registerAppPage。
@@ -52,8 +58,10 @@ export const inject = ['apps', 'forum', 'agentPresets', 'workingDirectory', 'wor
 export const provide = []
 
 export const apply = (ctx: Context): void => {
-  // The app acts through the host service's public tools port: page tools and
-  // global tools write one record set.
-  // 应用经宿主服务的公开工具端口行动：页面工具与全局工具写同一份记录集合。
+  // The app acts through the host service's public tools port: the page tools
+  // — the only forum tools any model sees — write the same record set the
+  // panel reads.
+  // 应用经宿主服务的公开工具端口行动：页面工具——模型唯一能见的论坛工具——与
+  // 面板读写同一份记录集合。
   registerForumApp(ctx, () => ctx.forum.toolsPort())
 }

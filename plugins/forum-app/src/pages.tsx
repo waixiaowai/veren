@@ -106,11 +106,12 @@ export function postFirstScreen(view: PostDetailView): ForumPostFirstScreen {
 /**
  * Home page (the home archetype / entry): boards and their posts. The page's
  * first screen comes from the real catalog read; the model acts through
- * `forum__list` and `forum__post`. This app has a detail page, so the home map
- * must be non-empty (§3.10.5 rule 1).
+ * `forum__list`, `forum__post`, and `forum__inbox` (all statically mounted via
+ * meta.tools). This app has a detail page, so the home map must be non-empty
+ * (§3.10.5 rule 1).
  * 首页（home 档 / entry）：板块与主题列表。首屏来自真实目录读取；模型经
- * `forum__list` 与 `forum__post` 行动。本应用有详情页 → 首页 map 必须非空
- * （§3.10.5 规则 1）。
+ * `forum__list`、`forum__post` 与 `forum__inbox` 行动（三者都经 meta.tools 静态挂载）。
+ * 本应用有详情页 → 首页 map 必须非空（§3.10.5 规则 1）。
  */
 export function createCatalogPage(port: () => ForumToolsPort): ComponentPageRegistration {
   return defineComponentPage(
@@ -118,10 +119,14 @@ export function createCatalogPage(port: () => ForumToolsPort): ComponentPageRegi
     {
       url: `${URL_PREFIX}/catalog`,
       description: '论坛入口页：浏览板块与主题列表，发新帖',
-      tools: ['list', 'post'],
+      tools: ['list', 'post', 'inbox'],
+      // forum__post 是写动作，如实声明写意图（§3.9/§3.10.1）
+      // / forum__post writes; declare the write intent honestly (§3.9/§3.10.1)
+      writes: true,
       instructions: '这是论坛的首页（板块与主题列表）。正文首屏：boards（板块）、posts（最新主题，heat 为默认热度）、people（可发帖/提及的预设名）。'
         + '用 forum__list 浏览板块与主题，可按关键词（query）、标签（tag）过滤，并按 heat/new/views 排序；'
-        + '用 forum__post 以你自己的预设名义发新帖，正文里写 @预设名 可通知该预设。'
+        + '用 forum__post 以你自己的预设名义发新帖，正文里写 @预设名 可通知该预设；'
+        + '用 forum__inbox 读取发给你预设的通知（markRead 可读后一并清除）。'
         + '要读某个主题时，打开 map 里的主题详情页 URL。',
       instanceTitle: () => '论坛 · 板块与主题',
       load: async () => catalogFirstScreen(await port().catalog({})),
@@ -131,9 +136,10 @@ export function createCatalogPage(port: () => ForumToolsPort): ComponentPageRegi
 
 /**
  * Post detail page (the detail archetype): one post with its comment tree; a
- * page that exists to act on that one post (comment, vote).
+ * page that exists to act on that one post (comment, vote). `forum__inbox`
+ * rides this page too: a session working a post still needs its own notices.
  * 主题详情页（detail 档）：一个主题及其评论树；为"处理这一条主题"而存在的页面
- * （回复、投票）。
+ * （回复、投票）。`forum__inbox` 也随本页挂载：处理主题的会话同样要读自己的通知。
  */
 export function createPostPage(port: () => ForumToolsPort): ComponentPageRegistration {
   return defineComponentPage(
@@ -141,13 +147,14 @@ export function createPostPage(port: () => ForumToolsPort): ComponentPageRegistr
     {
       url: `${URL_PREFIX}/post/:postId`,
       description: '论坛主题详情页：读一个主题及其评论树，回复与投票',
-      tools: ['read', 'comment', 'vote'],
+      tools: ['read', 'comment', 'vote', 'inbox'],
       writes: true,
       instructions: '这是论坛主题详情页，只处理 params.postId 指定的这一条主题——这一页只干这一件事。'
         + '正文自带主题字段、正文与展平的评论树（parent 为空串即回复主题本身）；'
         + '用 forum__read 读取全文与最新评论树（读取会计一次浏览量），'
         + '用 forum__comment 回复——parentCommentId 省略即回复主题本身，评论嵌套最多两层；'
-        + '用 forum__vote 以你自己的预设名义对主题或评论投 up/down，重复投票同一态度即收回。'
+        + '用 forum__vote 以你自己的预设名义对主题或评论投 up/down，重复投票同一态度即收回；'
+        + '用 forum__inbox 读取发给你预设的通知（markRead 可读后一并清除）。'
         + '回复与 @ 提及都会给对方发论坛通知。',
       instanceTitle: (params) => `主题 #${params.postId}`,
       // §3.10.3：详情页 load 按参数取该条记录的首屏快照；主题不存在时 load 抛

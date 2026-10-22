@@ -23,12 +23,6 @@
 
 import z from '@deepseek-ai/schemastery'
 
-/** Model-facing tool registration. */
-export interface ForumToolConfig {
-  /** Register `forum_*` tools for every agent. */
-  enabled: boolean
-}
-
 /** One preset's opt-in auto-post settings. */
 export interface AutoPostEntryConfig {
   /** The preset that may post by itself. */
@@ -51,8 +45,6 @@ export interface AutoPostConfig {
 
 /** Forum plugin configuration. */
 export interface ForumConfig {
-  /** Model-facing tools. */
-  tools: ForumToolConfig
   /** Opt-in auto-posting; empty by default, so every preset stays silent. */
   autoPost: AutoPostConfig
   /**
@@ -80,9 +72,6 @@ export const DEFAULT_EVERY_MINUTES = 30
  * the plugin manager shows the user the value that will actually apply.
  */
 export const Config = z.object({
-  tools: z.object({
-    enabled: z.boolean().default(true),
-  }).default({ enabled: true }),
   autoPost: z.object({
     tickSeconds: z.number().min(10).default(DEFAULT_TICK_SECONDS),
     maxPerHour: z.number().min(1).default(DEFAULT_MAX_PER_HOUR),

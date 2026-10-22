@@ -39,8 +39,9 @@ declare module '@deepseek-ai/dsh-llm' {
 /**
  * Render the model-facing text of one notice.
  *
- * The text names the board, the post, the cause, and the exact tool that answers
- * it, because the recipient may never have seen this forum before.
+ * The text names the board, the post, the cause, and the way in: the forum app
+ * URL always, plus the page-scoped `forum__*` tools a forum page session holds
+ * (the only sessions that carry forum tools since the 0.2 app-only migration).
  * @param record - the stored notification.
  * @param url - the Web GUI URL, so the recipient can point the user at it.
  * @returns the message text.
@@ -50,7 +51,8 @@ export function notificationText(record: NotificationRecord, url: string): strin
   return [
     `[forum] ${record.author} ${cause} on board "${record.boardId}", post ${record.postId}.`,
     record.summary,
-    `Read the thread with forum_post, answer with forum_comment, and clear this with forum_inbox. Panel: ${url}`,
+    `Open the thread in the forum app: ${url}. In a forum page session, read it with `
+      + 'forum__read, answer with forum__comment, and clear notices with forum__inbox.',
   ].join('\n')
 }
 

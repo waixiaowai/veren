@@ -1,19 +1,22 @@
 /**
  * Forum: a board per workspace, one person per agent preset.
  *
- * The plugin owns durable posts, comments, votes, and notifications, exposes
- * them to the model as `forum_*` tools, and serves them to the Web panel over
- * the `forum` Remote namespace. Both surfaces write through the same service
- * methods, so the page and the tools always act on one record set.
+ * The plugin owns durable posts, comments, votes, and notifications, and serves
+ * them to the Web panel over the `forum` Remote namespace. The model reaches
+ * the same record set through the tool builders in `./tools.ts`, which only the
+ * application layer (`@veren/forum-app`) registers — this package registers no
+ * tool of its own, so an ordinary session sees no forum tool (the 0.2 breaking
+ * change; forum tools live in forum page sessions as `forum__*`).
  *
  * Storage failure degrades rather than throws: a forum that cannot open its
  * domain reports a stable error and leaves the rest of the Harness untouched.
  *
  * 论坛：一个工作区一个板块，一个 agent 预设一个人。
  *
- * 插件持有持久化的帖子、评论、投票与通知，把它们作为 `forum_*` 工具暴露给模型，并通过
- * `forum` 远端命名空间提供给 Web 面板。两个界面都写到同一批服务方法，因此页面与工具永远
- * 操作同一份记录集合。
+ * 插件持有持久化的帖子、评论、投票与通知，并通过 `forum` 远端命名空间提供给 Web 面板。
+ * 模型经 `./tools.ts` 里的工具构建器触达同一份记录集合，而构建器只有应用层
+ * （`@veren/forum-app`）会注册——本包自己不注册任何工具，普通会话因此看不到论坛工具
+ * （0.2 破坏性变更；论坛工具以 `forum__*` 形态活在论坛页面会话里）。
  *
  * 存储失败只降级不抛出：打不开域的论坛返回稳定错误，不牵动 Harness 的其余部分。
  *
@@ -48,7 +51,6 @@ import type { ForumRunnerPort, ForumToolsPort } from './ports.ts'
 import type { AutoPostSettings, AutoPostSnapshot } from './runner.ts'
 import { AutoPostRunner } from './runner.ts'
 import { generatePost } from './compose.ts'
-import { registerForumTools } from './tools.ts'
 import { Config } from './config.ts'
 import type { ForumConfig } from './config.ts'
 // Type-only: pulls the declared service faces (`ctx.agentPresets`,
@@ -98,18 +100,19 @@ const HOT_LIMIT = 200
 export class ForumService extends TypertRemoteService {
   // Every member is a declared hard inject (G13): the service never probes a
   // sibling at runtime. The application framework (`apps`) is deliberately NOT
-  // here (G2): the app face lives in the separate `@veren/forum-app` package,
-  // so this host activates — with its global tools, notifications, and Remote
-  // namespace — even where the framework is absent. `workingDirectory` /
+  // here (G2): the app face — including the only tool registration — lives in
+  // the separate `@veren/forum-app` package, so this host activates — with its
+  // notifications and Remote namespace — even where the framework is absent,
+  // and registers no model-facing tool. `workingDirectory` /
   // `workspaceRegistry` resolve the caller's board; `agentDefaultModel` feeds
   // the auto-post drafting call.
   // 每一项都是声明的硬 inject（G13）：服务绝不在运行期探测兄弟服务。应用框架
-  // （`apps`）刻意不在其中（G2）：应用面住在独立的 `@veren/forum-app` 包里，
-  // 因此即使框架缺席，本宿主也照常激活——全局工具、通知与远端命名空间都在。
-  // `workingDirectory` / `workspaceRegistry` 解析调用者的板块；`agentDefaultModel`
-  // 供自动发帖起草调用使用。
+  // （`apps`）刻意不在其中（G2）：应用面——包括唯一的工具注册动作——住在独立的
+  // `@veren/forum-app` 包里，因此即使框架缺席，本宿主也照常激活——通知与远端
+  // 命名空间都在，且不注册任何面向模型的工具。`workingDirectory` /
+  // `workspaceRegistry` 解析调用者的板块；`agentDefaultModel` 供自动发帖起草调用使用。
   static inject = [
-    'agents', 'sessions', 'storageDomain', 'systemPrompt', 'tools', 'agentPresets',
+    'agents', 'sessions', 'storageDomain', 'systemPrompt', 'agentPresets',
     'llm', 'workingDirectory', 'workspaceRegistry', 'agentDefaultModel',
   ]
   static Config = Config
@@ -147,7 +150,6 @@ export class ForumService extends TypertRemoteService {
       interpolate: false,
       text: (assembly) => this.promptLine(assembly.agent?.session.id),
     })
-    if (config.tools.enabled) registerForumTools(ctx, () => this.toolsPort())
     // Storage and drafting faces are constructor parameters (G13): the runner
     // never probes ctx for the domain or the model.
     // 存储与起草面是构造参数（G13）：运行器绝不探测 ctx 拿域或模型。
@@ -570,11 +572,13 @@ export class ForumService extends TypertRemoteService {
 
   /**
    * The narrow surface the model-facing tools read and write. Public by
-   * design: the application layer (`@veren/forum-app`) rides the same port, so
-   * the page tools and the global tools act on one record set (G2 package
-   * split — the app face is a separate plugin over this service).
-   * 面向模型的工具读写的窄接口。刻意公开：应用层（`@veren/forum-app`）走同一端口，
-   * 页面工具与全局工具因此操作同一份记录集合（G2 拆包——应用面是本服务之上的独立插件）。
+   * design: the application layer (`@veren/forum-app`) hands this port to the
+   * builders from `./tools.ts`, so the page tools registered in the app
+   * catalog act on one record set with everything else (G2 package split — the
+   * app face is a separate plugin over this service).
+   * 面向模型的工具读写的窄接口。刻意公开：应用层（`@veren/forum-app`）把这个端口交给
+   * `./tools.ts` 里的构建器，因此注册进应用目录的页面工具与其他界面操作同一份记录
+   * 集合（G2 拆包——应用面是本服务之上的独立插件）。
    */
   toolsPort(): ForumToolsPort {
     return {
@@ -631,14 +635,21 @@ export { ForumError } from './types.ts'
 export { FORUM_DOMAIN_NAME, forumDomain } from './storage.ts'
 export { listBoards, listPosts, listTags } from './posts.ts'
 export { notificationText, FORUM_MESSAGE_SOURCE } from './session-link.ts'
-// Shared tool plumbing re-exported for the application layer (`@veren/forum-app`):
-// the app tools are the page-scoped twin of the global tools and must reuse the
-// very same helpers, schemas, and error types — never a second copy (G2 split).
-// 供应用层（`@veren/forum-app`）复用的共享工具管线再导出：应用工具是全局工具的页面侧
-// 孪生，必须复用同一批助手、模式与错误类型——绝不做第二份副本（G2 拆包）。
+// Shared tool plumbing re-exported for the application layer (`@veren/forum-app`)
+// and the tool builders: one copy of the helpers, schemas, and error types —
+// never a second copy (G2 split).
+// 供应用层（`@veren/forum-app`）与工具构建器复用的共享工具管线再导出：助手、模式与
+// 错误类型只有一份——绝不做第二份副本（G2 拆包）。
 export {
   ForumToolError, INBOX_SCHEMA, LIST_VIEW_SCHEMA, POST_SCHEMA, VOTE_SCHEMA, WRITE_SCHEMA,
   callerOf, noCaller, operationError, present, renderValue,
+} from './tool-face.ts'
+// The tool builders: the one implementation the application layer registers
+// into the app catalog and mounts through the pages' meta.tools.
+// 工具构建器：应用层登记进应用目录、经页面 meta.tools 挂载的唯一实现。
+export {
+  buildForumCommentDefinition, buildForumInboxDefinition, buildForumListDefinition,
+  buildForumPostDefinition, buildForumReadDefinition, buildForumVoteDefinition,
 } from './tools.ts'
 export { jsonOf } from './views.ts'
 export { Config, DEFAULT_MAX_PER_HOUR, DEFAULT_TICK_SECONDS } from './config.ts'

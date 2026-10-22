@@ -1,352 +1,260 @@
 /**
- * Model-facing `forum_*` tools over the Host `ctx.forum` service.
+ * The forum tool builders: six `defineTool` products over the Host `ctx.forum`
+ * service, exported unregistered.
  *
- * Registering into the mounting scope is what decides which agents receive
- * them, exactly as the startup tools do. The person making a call is the
- * caller's own preset, read from the live Agent rather than from an argument —
- * a preset cannot post as another preset by passing a different name.
+ * Building a definition is not registering it. The only registration face is
+ * the application layer (`@veren/forum-app`), which defines these bodies in the
+ * app catalog — so their external names carry the `forum__` prefix — and mounts
+ * them into page sessions through the pages' `meta.tools`. Nothing here touches
+ * `ctx.tools`: an ordinary session never sees a forum tool again (the 0.2
+ * breaking change; open a forum page session instead).
  *
- * 面向模型的 `forum_*` 工具族，作用于宿主 `ctx.forum` 服务。
+ * The definitions carry the app-local names (`list`, `post`, …); the app id
+ * supplies the `forum__` prefix. Every helper, schema, and error type comes
+ * from `./tool-face.ts` — one implementation, one registration scope. The
+ * caller is its own preset, read from the live Agent, never an argument.
  *
- * 注册到哪个作用域就决定哪些 agent 拿到它们，与启动项工具一致。发起调用的人就是调用者自己
- * 的预设，取自活着的 Agent 而不是参数——预设无法通过传另一个名字来以别人身份发帖。
+ * 论坛工具构建器：宿主 `ctx.forum` 服务之上的六个 `defineTool` 产物，只导出、不注册。
+ *
+ * 造定义不等于注册。唯一的注册面是应用层（`@veren/forum-app`）：它把这些本体登记进
+ * 应用目录（对外名因此带 `forum__` 前缀），并经页面 `meta.tools` 挂进页面会话。
+ * 这里绝不触碰 `ctx.tools`：普通会话不再看到任何论坛工具（0.2 破坏性变更；请打开
+ * 论坛页面会话）。
+ *
+ * 定义携带应用本地名（`list`、`post`……）；`forum__` 前缀由应用 id 供给。全部助手、
+ * 模式与错误类型都来自 `./tool-face.ts`——一份实现，一个注册作用域。调用者就是它自己
+ * 的预设，取自活着的 Agent 而非参数。
  *
  * @module @veren/forum/tools
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView } from '@deepseek-ai/dsh-tools'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-// Type-only: pull the declared service faces into this file. All three are hard
-// injects of the owning service (G13) and are read directly, never probed.
-// 仅类型导入：把声明的服务面拉进本文件。三者都是所属服务的硬 inject（G13），
-// 直接读取，绝不探测。
-import type {} from '@deepseek-ai/dsh-agent-preset-registry'
-import type {} from '@deepseek-ai/dsh-working-directory'
-import type {} from '@deepseek-ai/dsh-workspace'
-import { ForumError } from './types.ts'
-import type { ForumToolsPort } from './index.ts'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import {
+  ForumToolError, INBOX_SCHEMA, LIST_VIEW_SCHEMA, POST_SCHEMA, VOTE_SCHEMA, WRITE_SCHEMA,
+  callerOf, noCaller, operationError, present, renderValue,
+} from './tool-face.ts'
 import { POST_SORTS } from './types.ts'
 import { jsonOf } from './views.ts'
+import type { ForumToolsPort } from './ports.ts'
 
 /**
- * One refused call: a stable forum code plus a model-facing account.
- *
- * The tool executor reports a thrown Error as a failed call, so refusing by
- * throwing keeps every outcome inside the registry's own error path instead of
- * inventing a second result convention.
- * 一次被拒绝的调用：稳定的论坛错误码加上面向模型的说明。工具执行器把抛出的 Error 报告为失败
- * 调用，因此用抛出来拒绝，让所有结果都留在注册表自身的错误路径里，而不是另立一套结果约定。
+ * Build the `list` tool definition (unregistered): the boards and one board's
+ * posts, with the counters and the known presets.
+ * 构建 `list` 工具定义（不注册）：板块列表、一个板块的主题与计数，以及可提及的预设。
+ * @param _ctx - the host context (unused today; kept for one builder shape).
+ * @param port - resolves the service surface the tool acts through.
  */
-class ForumToolError extends Error {
-  /**
-   * @param code - stable machine-readable reason.
-   * @param message - model-facing account of the refusal.
-   */
-  constructor(readonly code: string, message: string) {
-    super(message)
-    this.name = 'ForumToolError'
-  }
-}
-
-export { ForumToolError }
-
-/** Anonymous-or-not identity of one call, resolved from the live Agent. */
-export interface Caller {
-  readonly preset: string | undefined
-  readonly boardId: string | undefined
-}
-
-/** Canonical list value: boards, one board's posts, and the known presets. */
-export const LIST_VIEW_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    boards: {
-      type: 'array',
-      required: true,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          id: { type: 'string', required: true },
-          title: { type: 'string', required: true },
-          path: { type: 'string', required: true },
-          postCount: { type: 'number', required: true },
-        },
-      },
+export function buildForumListDefinition(_ctx: Context, port: () => ForumToolsPort): ToolDefinition {
+  return defineTool({
+    name: 'list',
+    description: 'List the forum boards and one board\'s posts with vote/view/comment counters. '
+      + 'Filter by keyword or tag; sort by heat (default), new, or views. '
+      + '浏览论坛板块与主题列表。Parameters: boardId?, query?, tag?, sort?.',
+    parameters: {
+      boardId: { type: 'string', description: 'Board id from an earlier call; omit for the first board.' },
+      query: { type: 'string', description: 'Keyword matched against title, body, tags, and author.' },
+      tag: { type: 'string', description: 'Exact tag to filter by.' },
+      sort: { type: 'string', enum: [...POST_SORTS], description: 'Ordering.' },
     },
-    boardId: { type: 'string' },
-    posts: { type: 'array', required: true, items: { type: 'json' } },
-    people: { type: 'array', required: true, items: { type: 'string' } },
-  },
-} as const
-
-/** Canonical detail value: one post, its body, and its comment tree. */
-export const POST_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    post: { type: 'json', required: true },
-    body: { type: 'string', required: true },
-    comments: { type: 'array', required: true, items: { type: 'json' } },
-  },
-} as const
-
-/** Canonical inbox value. */
-export const INBOX_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    notifications: { type: 'array', required: true, items: { type: 'json' } },
-  },
-} as const
-
-/** Canonical write value: the stored id plus one outcome per notice sent. */
-export const WRITE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    value: { type: 'json', required: true },
-    deliveries: { type: 'array', required: true, items: { type: 'json' } },
-  },
-} as const
-
-/** Canonical vote value. */
-export const VOTE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    up: { type: 'number', required: true },
-    down: { type: 'number', required: true },
-    cleared: { type: 'boolean', required: true },
-  },
-} as const
-
-/** Deterministic model content for every canonical tool value. */
-export function renderValue(_args: unknown, value: unknown): ContentBlock[] {
-  return [{ type: 'text', text: JSON.stringify(value) }]
-}
-
-/** Pure generic pending card. */
-export function present(title: string, kind: 'read' | 'other', rawInput?: unknown): GenericCallView {
-  return { card: 'generic', title, kind, ...rawInput === undefined ? {} : { rawInput } }
-}
-
-/** Stable refusal for failures not safe to expose. */
-export function internalError(): ForumToolError {
-  return new ForumToolError('internal_error', 'The forum operation failed.')
-}
-
-/** Translate a structured refusal while withholding internal storage failures. */
-export function operationError(error: unknown): ForumToolError {
-  return error instanceof ForumError ? new ForumToolError(error.code, error.message) : internalError()
-}
-
-/** Refuse a call that cannot name its author. */
-export function noCaller(): ForumToolError {
-  return new ForumToolError('no_caller', 'this call has no agent, so it cannot post as any preset.')
+    output: { schema: LIST_VIEW_SCHEMA, render: renderValue },
+    async execute(args) {
+      try {
+        const catalog = await port().catalog({
+          ...args.boardId === undefined ? {} : { boardId: args.boardId },
+          ...args.query === undefined ? {} : { query: args.query },
+          ...args.tag === undefined ? {} : { tag: args.tag },
+          ...args.sort === undefined ? {} : { sort: args.sort },
+        })
+        return jsonOf({
+          boards: catalog.boards,
+          posts: catalog.posts,
+          people: catalog.people.map(person => person.name),
+          ...catalog.boardId === undefined ? {} : { boardId: catalog.boardId },
+        })
+      } catch (error: unknown) {
+        throw operationError(error)
+      }
+    },
+    presentCall: args => present('List forum posts', 'read', args.boardId),
+  })
 }
 
 /**
- * Resolve who is calling and which board its working directory belongs to.
- * `agentPresets` / `workingDirectory` / `workspaceRegistry` are declared hard
- * injects of the owning service (G13): the merged faces are read directly —
- * the old `?.` "absent → degrade" branches never worked on a live host.
- * 解析调用者及其工作目录所属的板块。三个服务面都是所属服务声明的硬 inject（G13）：
- * 直接读合并后的真实服务面——过去"缺席即降级"的 `?.` 分支在真实宿主上从未生效。
- * @param ctx - Host context carrying the Session and workspace services.
- * @param agent - the calling Agent, when the execution has one.
- * @returns the caller's preset and board, each absent when it cannot be resolved.
+ * Build the `read` tool definition (unregistered): one post with its whole
+ * comment tree; reading counts one view.
+ * 构建 `read` 工具定义（不注册）：一个主题及其全部评论树；读取计一次浏览量。
  */
-export function callerOf(ctx: Context, agent: Agent | undefined): Caller {
-  if (agent === undefined) return { preset: undefined, boardId: undefined }
-  const preset = ctx.agentPresets.composedPreset(agent.ctx) ?? agent.session.header.agentPreset
-  const cwd = ctx.workingDirectory.get(agent.session)
-  if (cwd === undefined) return { preset, boardId: undefined }
-  const workspace = ctx.workspaceRegistry.list()
-    .find(candidate => candidate.path === cwd)
-  return { preset, boardId: workspace?.id }
+export function buildForumReadDefinition(ctx: Context, port: () => ForumToolsPort): ToolDefinition {
+  return defineTool({
+    name: 'read',
+    description: 'Read one forum post with its whole comment tree; reading counts one view. '
+      + '读取一个论坛主题及其全部评论，读取计一次浏览量。Parameters: postId.',
+    parameters: { postId: { type: 'string', required: true, description: 'Post id from forum__list.' } },
+    output: { schema: POST_SCHEMA, render: renderValue },
+    async execute(args, exec) {
+      const reader = callerOf(ctx, exec.agent).preset
+      try {
+        return jsonOf(await port().detail({
+          postId: args.postId,
+          ...reader === undefined ? {} : { reader },
+        }))
+      } catch (error: unknown) {
+        throw operationError(error)
+      }
+    },
+    presentCall: args => present('Read forum post', 'read', args.postId),
+  })
 }
 
 /**
- * Register every forum tool in the mounting scope.
- * @param ctx - Context owning the `tools` registry.
- * @param port - resolves the service surface the tools act through.
+ * Build the `post` tool definition (unregistered): publish one post in the
+ * caller's own preset name, mentions notified.
+ * 构建 `post` 工具定义（不注册）：以调用者自己的预设名义发帖，@ 提及会通知对方。
  */
-export function registerForumTools(ctx: Context, port: () => ForumToolsPort): void {
-  ctx.effect(() => {
-    const disposers = [
-      ctx.tools.register(defineTool({
-        name: 'forum_list',
-        description: 'List the forum boards (one per workspace) and the posts of one board, with its vote, view, and '
-          + 'comment counters. A board appears as soon as its workspace is open; a new workspace needs no setup. '
-          + 'Sort by heat (default), newest, or most viewed, and filter by keyword or tag.',
-        parameters: {
-          boardId: { type: 'string', description: 'Board id from an earlier call; omit for the first board.' },
-          query: { type: 'string', description: 'Keyword matched against title, body, tags, and author.' },
-          tag: { type: 'string', description: 'Exact tag to filter by.' },
-          sort: { type: 'string', enum: [...POST_SORTS], description: 'Ordering: heat, new, or views.' },
-        },
-        output: { schema: LIST_VIEW_SCHEMA, render: renderValue },
-        async execute(args) {
-          try {
-            const catalog = await port().catalog({
-              ...args.boardId === undefined ? {} : { boardId: args.boardId },
-              ...args.query === undefined ? {} : { query: args.query },
-              ...args.tag === undefined ? {} : { tag: args.tag },
-              ...args.sort === undefined ? {} : { sort: args.sort },
-            })
-            return jsonOf({
-              boards: catalog.boards,
-              posts: catalog.posts,
-              people: catalog.people.map(person => person.name),
-              ...catalog.boardId === undefined ? {} : { boardId: catalog.boardId },
-            })
-          } catch (error: unknown) {
-            throw operationError(error)
-          }
-        },
-        presentCall: args => present('List forum posts', 'read', args.boardId),
-      })),
-      ctx.tools.register(defineTool({
-        name: 'forum_read',
-        description: 'Read one forum post with its whole comment tree and its view counter. Reading counts one view.',
-        parameters: {
-          postId: { type: 'string', required: true, description: 'Post id from forum_list.' },
-        },
-        output: { schema: POST_SCHEMA, render: renderValue },
-        async execute(args, exec) {
-          try {
-            const reader = callerOf(ctx, exec.agent).preset
-            return jsonOf(await port().detail({
-              postId: args.postId,
-              ...reader === undefined ? {} : { reader },
-            }))
-          } catch (error: unknown) {
-            throw operationError(error)
-          }
-        },
-        presentCall: args => present('Read forum post', 'read', args.postId),
-      })),
-      ctx.tools.register(defineTool({
-        name: 'forum_post',
-        description: 'Publish one forum post in your own preset name. `@name` in the body notifies that preset. '
-          + 'The board defaults to the workspace this session works in.',
-        parameters: {
-          title: { type: 'string', required: true, description: 'Post title.' },
-          body: { type: 'string', required: true, description: 'Post body; `@preset` mentions notify that preset.' },
-          tags: { type: 'array', items: { type: 'string' }, description: 'Topic tags.' },
-          boardId: { type: 'string', description: 'Board to post in; omit for this session\u2019s workspace.' },
-          notify: { type: 'string', enum: ['inbox', 'wake'], description: 'Whether to wake a live session or leave the notice in its inbox.' },
-        },
-        output: { schema: WRITE_SCHEMA, render: renderValue },
-        async execute(args, exec) {
-          const caller = callerOf(ctx, exec.agent)
-          if (caller.preset === undefined) throw noCaller()
-          const boardId = args.boardId ?? caller.boardId
-          if (boardId === undefined) {
-            throw new ForumToolError('board_not_found', 'this session has no workspace; pass boardId from forum_list.')
-          }
-          try {
-            return jsonOf(await port().publish({
-              boardId,
-              author: caller.preset,
-              title: args.title,
-              body: args.body,
-              ...args.tags === undefined ? {} : { tags: args.tags },
-              ...args.notify === undefined ? {} : { notifyMode: args.notify },
-            }))
-          } catch (error: unknown) {
-            throw operationError(error)
-          }
-        },
-        presentCall: args => present('Publish forum post', 'other', args.title),
-      })),
-      ctx.tools.register(defineTool({
-        name: 'forum_comment',
-        description: 'Comment on a forum post, or reply to a comment. `@name` in the body notifies that preset, and '
-          + 'the author of what you answer is notified. Comments nest two levels deep.',
-        parameters: {
-          postId: { type: 'string', required: true, description: 'Post id from forum_list.' },
-          body: { type: 'string', required: true, description: 'Comment body; `@preset` mentions notify that preset.' },
-          parentCommentId: { type: 'string', description: 'Comment to answer; omit to answer the post itself.' },
-          notify: { type: 'string', enum: ['inbox', 'wake'], description: 'Whether to wake a live session or leave the notice in its inbox.' },
-        },
-        output: { schema: WRITE_SCHEMA, render: renderValue },
-        async execute(args, exec) {
-          const caller = callerOf(ctx, exec.agent)
-          if (caller.preset === undefined) throw noCaller()
-          try {
-            const written = await port().comment({
-              postId: args.postId,
-              author: caller.preset,
-              body: args.body,
-              ...args.parentCommentId === undefined ? {} : { parentCommentId: args.parentCommentId },
-              ...args.notify === undefined ? {} : { notifyMode: args.notify },
-            })
-            return jsonOf({ value: { id: written.value.id }, deliveries: written.deliveries })
-          } catch (error: unknown) {
-            throw operationError(error)
-          }
-        },
-        presentCall: args => present('Comment on forum post', 'other', args.postId),
-      })),
-      ctx.tools.register(defineTool({
-        name: 'forum_vote',
-        description: 'Upvote or downvote a forum post or comment as your own preset. Voting the attitude you already '
-          + 'hold takes it back; a preset holds at most one attitude per item.',
-        parameters: {
-          subjectKind: { type: 'string', required: true, enum: ['post', 'comment'], description: 'What is being voted on.' },
-          subjectId: { type: 'string', required: true, description: 'Post or comment id.' },
-          value: { type: 'string', required: true, enum: ['up', 'down'], description: 'The attitude to record.' },
-        },
-        output: { schema: VOTE_SCHEMA, render: renderValue },
-        async execute(args, exec) {
-          const caller = callerOf(ctx, exec.agent)
-          if (caller.preset === undefined) throw noCaller()
-          try {
-            return jsonOf(await port().vote({
-              subjectKind: args.subjectKind,
-              subjectId: args.subjectId,
-              actor: caller.preset,
-              value: args.value,
-            }))
-          } catch (error: unknown) {
-            throw operationError(error)
-          }
-        },
-        presentCall: args => present('Vote on forum item', 'other', args.subjectId),
-      })),
-      ctx.tools.register(defineTool({
-        name: 'forum_inbox',
-        description: 'Read the forum notifications addressed to your preset — every mention of you and every answer to '
-          + 'something you wrote. Call this before answering the user when the prompt says you have unread notices; '
-          + 'pass markRead to clear them.',
-        parameters: {
-          markRead: { type: 'boolean', description: 'Clear every notice after reading it.' },
-          state: { type: 'string', enum: ['pending', 'delivered', 'read'], description: 'Only notices in this state.' },
-        },
-        output: { schema: INBOX_SCHEMA, render: renderValue },
-        async execute(args, exec) {
-          const caller = callerOf(ctx, exec.agent)
-          if (caller.preset === undefined) throw noCaller()
-          try {
-            const notifications = await port().inbox({
-              recipient: caller.preset,
-              ...args.state === undefined ? {} : { state: args.state },
-            })
-            if (args.markRead === true) await port().markRead({ recipient: caller.preset, all: true })
-            return jsonOf({ notifications })
-          } catch (error: unknown) {
-            throw operationError(error)
-          }
-        },
-        presentCall: () => present('Read forum inbox', 'read'),
-      })),
-    ]
-    return () => { for (const dispose of disposers.reverse()) dispose() }
-  }, 'forum:tools()')
+export function buildForumPostDefinition(ctx: Context, port: () => ForumToolsPort): ToolDefinition {
+  return defineTool({
+    name: 'post',
+    description: 'Publish one forum post in your own preset name; `@name` in the body notifies that preset. '
+      + 'The board defaults to the workspace this session works in. '
+      + '以你自己的预设名义发表一个论坛主题；正文 @预设名 会通知它。Parameters: title, body, tags?, boardId?, notify?.',
+    parameters: {
+      title: { type: 'string', required: true, description: 'Post title.' },
+      body: { type: 'string', required: true, description: 'Post body; `@preset` mentions notify that preset.' },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Topic tags.' },
+      boardId: { type: 'string', description: 'Board to post in; omit for this session\u2019s workspace.' },
+      notify: { type: 'string', enum: ['inbox', 'wake'], description: 'Whether to wake a live session or leave the notice in its inbox.' },
+    },
+    output: { schema: WRITE_SCHEMA, render: renderValue },
+    async execute(args, exec) {
+      const caller = callerOf(ctx, exec.agent)
+      if (caller.preset === undefined) throw noCaller()
+      const boardId = args.boardId ?? caller.boardId
+      if (boardId === undefined) {
+        throw new ForumToolError('board_not_found', 'this session has no workspace; pass boardId from forum__list.')
+      }
+      try {
+        return jsonOf(await port().publish({
+          boardId,
+          author: caller.preset,
+          title: args.title,
+          body: args.body,
+          ...args.tags === undefined ? {} : { tags: args.tags },
+          ...args.notify === undefined ? {} : { notifyMode: args.notify },
+        }))
+      } catch (error: unknown) {
+        throw operationError(error)
+      }
+    },
+    presentCall: args => present('Publish forum post', 'other', args.title),
+  })
+}
+
+/**
+ * Build the `comment` tool definition (unregistered): comment on a post or
+ * reply to a comment, two levels deep; the answered author and mentions are
+ * notified.
+ * 构建 `comment` 工具定义（不注册）：评论主题或回复评论（最多两层）；被回复者与
+ * @ 提及者都会收到通知。
+ */
+export function buildForumCommentDefinition(ctx: Context, port: () => ForumToolsPort): ToolDefinition {
+  return defineTool({
+    name: 'comment',
+    description: 'Comment on a forum post, or reply to a comment (two levels deep). The author of what you '
+      + 'answer and every `@name` mention are notified. 评论论坛主题或回复评论；被回复者与 @ 提及者都会收到通知。'
+      + 'Parameters: postId, body, parentCommentId?, notify?.',
+    parameters: {
+      postId: { type: 'string', required: true, description: 'Post id from forum__list.' },
+      body: { type: 'string', required: true, description: 'Comment body; `@preset` mentions notify that preset.' },
+      parentCommentId: { type: 'string', description: 'Comment to answer; omit to answer the post itself.' },
+      notify: { type: 'string', enum: ['inbox', 'wake'], description: 'Whether to wake a live session or leave the notice in its inbox.' },
+    },
+    output: { schema: WRITE_SCHEMA, render: renderValue },
+    async execute(args, exec) {
+      const caller = callerOf(ctx, exec.agent)
+      if (caller.preset === undefined) throw noCaller()
+      try {
+        return jsonOf(await port().comment({
+          postId: args.postId,
+          author: caller.preset,
+          body: args.body,
+          ...args.parentCommentId === undefined ? {} : { parentCommentId: args.parentCommentId },
+          ...args.notify === undefined ? {} : { notifyMode: args.notify },
+        }))
+      } catch (error: unknown) {
+        throw operationError(error)
+      }
+    },
+    presentCall: args => present('Comment on forum post', 'other', args.postId),
+  })
+}
+
+/**
+ * Build the `vote` tool definition (unregistered): one attitude per preset per
+ * item; repeating it takes the vote back.
+ * 构建 `vote` 工具定义（不注册）：每个预设对每条记录一种态度；重复同一态度即收回。
+ */
+export function buildForumVoteDefinition(ctx: Context, port: () => ForumToolsPort): ToolDefinition {
+  return defineTool({
+    name: 'vote',
+    description: 'Upvote or downvote a forum post or comment as your own preset; voting the attitude you '
+      + 'already hold takes it back. 以你自己的预设名义对主题或评论投 up/down；重复同一态度即收回。'
+      + 'Parameters: subjectKind, subjectId, value.',
+    parameters: {
+      subjectKind: { type: 'string', required: true, enum: ['post', 'comment'], description: 'What is being voted on.' },
+      subjectId: { type: 'string', required: true, description: 'Post or comment id.' },
+      value: { type: 'string', required: true, enum: ['up', 'down'], description: 'The attitude to record.' },
+    },
+    output: { schema: VOTE_SCHEMA, render: renderValue },
+    async execute(args, exec) {
+      const caller = callerOf(ctx, exec.agent)
+      if (caller.preset === undefined) throw noCaller()
+      try {
+        return jsonOf(await port().vote({
+          subjectKind: args.subjectKind,
+          subjectId: args.subjectId,
+          actor: caller.preset,
+          value: args.value,
+        }))
+      } catch (error: unknown) {
+        throw operationError(error)
+      }
+    },
+    presentCall: args => present('Vote on forum item', 'other', args.subjectId),
+  })
+}
+
+/**
+ * Build the `inbox` tool definition (unregistered): the notifications
+ * addressed to the caller's preset, optionally cleared after reading.
+ * 构建 `inbox` 工具定义（不注册）：发给你这个预设的通知，读后可一并清除。
+ */
+export function buildForumInboxDefinition(ctx: Context, port: () => ForumToolsPort): ToolDefinition {
+  return defineTool({
+    name: 'inbox',
+    description: 'Read the forum notifications addressed to your preset (mentions of you, answers to what '
+      + 'you wrote); pass markRead to clear them. 读取发给你这个预设的论坛通知；markRead 可一并清除。'
+      + 'Parameters: markRead?, state?.',
+    parameters: {
+      markRead: { type: 'boolean', description: 'Clear every notice after reading it.' },
+      state: { type: 'string', enum: ['pending', 'delivered', 'read'], description: 'Only notices in this state.' },
+    },
+    output: { schema: INBOX_SCHEMA, render: renderValue },
+    async execute(args, exec) {
+      const caller = callerOf(ctx, exec.agent)
+      if (caller.preset === undefined) throw noCaller()
+      try {
+        const notifications = await port().inbox({
+          recipient: caller.preset,
+          ...args.state === undefined ? {} : { state: args.state },
+        })
+        if (args.markRead === true) await port().markRead({ recipient: caller.preset, all: true })
+        return jsonOf({ notifications })
+      } catch (error: unknown) {
+        throw operationError(error)
+      }
+    },
+    presentCall: () => present('Read forum inbox', 'read'),
+  })
 }

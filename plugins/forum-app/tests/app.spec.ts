@@ -97,9 +97,7 @@ async function mount(): Promise<{
 
   // The host service, resolved the way the plugin manager resolves config.
   // 宿主服务，配置按插件管理器的方式解析。
-  const hostFiber = ctx.plugin(ForumService, HostConfig({
-    tools: { enabled: true },
-  }) as Parameters<typeof HostConfig>[0])
+  const hostFiber = ctx.plugin(ForumService, HostConfig({}) as Parameters<typeof HostConfig>[0])
   await hostFiber
 
   // The real registries plus the mirror seam, wired exactly as the real host
@@ -223,6 +221,65 @@ describe('forum app lifecycle / 生命周期', () => {
     // HMR safety: the same context can mount the app again after disposal.
     // HMR 安全：卸载后同一上下文可以再次挂载应用。
     expect(apps.get(FORUM_APP_ID)).toBeUndefined()
+  })
+})
+
+describe('目录 = 挂载 = 说明 三方可核对 / catalog = mount = instructions', () => {
+  /** Pull the `forum__*` names an instruction text promises. 从说明文本里提取它承诺的 forum__* 工具名。 */
+  function namedTools(text: string | undefined): Set<string> {
+    return new Set(text?.match(/forum__[a-z_]+/g) ?? [])
+  }
+
+  /** The external names of one page's mounted tools. 一个页面所挂工具的外部名。 */
+  function mountedOf(page: { tools?: readonly string[] }): Set<string> {
+    return new Set((page.tools ?? []).map((name) => `forum__${name}`))
+  }
+
+  it('应用目录与页面挂载一一对应：无目录外挂载，也无挂载外目录项', async () => {
+    const { apps, fiber } = await mount()
+
+    const catalog = new Set(apps.listTools(FORUM_APP_ID).map((tool) => tool.externalName))
+    const mounted = new Set(apps.listPages(FORUM_APP_ID).flatMap((page) => [...mountedOf(page)]))
+    expect(mounted).toEqual(catalog)
+
+    await fiber.dispose()
+  })
+
+  it('每页说明点名的工具恰好等于该页挂载的工具（承诺 = 挂载）', async () => {
+    const { apps, fiber } = await mount()
+
+    for (const page of apps.listPages(FORUM_APP_ID)) {
+      expect(namedTools(page.instructions), `page "${page.name}" instructions`).toEqual(mountedOf(page))
+    }
+
+    await fiber.dispose()
+  })
+
+  it('应用说明点名的工具都被某一页挂载', async () => {
+    const { apps, fiber } = await mount()
+
+    const mounted = new Set(apps.listPages(FORUM_APP_ID).flatMap((page) => [...mountedOf(page)]))
+    const named = namedTools(FORUM_APP_DEFINITION.instructions)
+    expect(named.size).toBeGreaterThan(0)
+    for (const name of named) {
+      expect(mounted.has(name), `${name} named by the app note must be mounted on some page`).toBe(true)
+    }
+
+    await fiber.dispose()
+  })
+
+  it('收件箱工具两个页面都挂，首页如实声明写意图', async () => {
+    const { apps, fiber } = await mount()
+
+    const pages = apps.listPages(FORUM_APP_ID)
+    const catalog = pages.find((page) => page.name === 'catalog')
+    const post = pages.find((page) => page.name === 'post')
+    expect(catalog?.tools).toEqual(['list', 'post', 'inbox'])
+    expect(catalog?.writes).toBe(true)
+    expect(post?.tools).toEqual(['read', 'comment', 'vote', 'inbox'])
+    expect(post?.writes).toBe(true)
+
+    await fiber.dispose()
   })
 })
 

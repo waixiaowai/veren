@@ -258,7 +258,7 @@ export class AutoPostRunner {
     const outcome = await this.world().deliver(
       preset,
       `[forum] you posted "${post.title}" on board "${post.boardId}" by yourself (auto-post is on for you). `
-      + 'Reply to any answer with forum_comment.',
+      + 'Answer in a forum page session with forum__comment.',
     )
     if (outcome.status === 'inboxed') {
       this.host.logger.debug(`forum: auto-post notice for "${preset}" waited in the inbox (${outcome.detail ?? ''})`)

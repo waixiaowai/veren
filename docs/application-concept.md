@@ -70,7 +70,7 @@ Nothing answers "which application owns this page":
 - Every model session sees every page: the `page_catalog` tool lists them all, with no "this app only" view.
 - One page becomes one preset, so three pages add three entries to the preset picker; ten pages add ten. The person sees a page list, not an app entry.
 - Page state is a module-level singleton (`pageRuntime.store`), and `activeSession` is a single variable in the composition closure. Two DSH Sessions that "open a page" overwrite each other; there is no per-session current page.
-- `onLoad` and `onComplete` are declared on `PageDefinition` but nothing in the repository calls them. The lifecycle hooks are decoration.
+- `onLoad` and `onComplete` were declared on `PageDefinition` but nothing ever called them (the lifecycle hooks were decoration); these hooks have been removed outright in the component-page subtraction pass — page lifecycle keeps only `meta.load`.
 
 ### 1.4 Where it hurts
 
@@ -78,7 +78,7 @@ Nothing answers "which application owns this page":
 | --- | --- | --- |
 | The second app cannot install; URL duplication | Flat, global registry namespace | Every app must negotiate paths privately; more apps, more collisions |
 | The preset picker is flooded | Page = preset, entry = some page | Users cannot tell where to start; an app has no home |
-| "Navigate" does nothing | `PageIO.navigate` only calls `session.host.note('NAVIGATE …')`; `open_page` only swaps the tree | Pages do not really navigate; the system prompt and tools still belong to the old page |
+| "Navigate" does nothing | `PageIO.navigate` (only `session.host.note('NAVIGATE …')`) has been removed in the subtraction pass; navigation is now a cross-session resolve → mount | In-session page switching is no longer a path; changing pages always opens a new session |
 | Two sessions fight over one page | `activeSession` is host-wide | Concurrent sessions cross-contaminate |
 | Tasks vanish on restart | In-memory store, no persistence | A demo, not a workbench |
 | Tasks have no lifecycle | Only `open/taken/done`; no failure, expiry, cancel, lease | Crashes leave tasks stuck "in progress" |
@@ -1399,7 +1399,7 @@ interface PageDefinition<S> {
   readonly instructions: string
   readonly instanceTitle?: (params: PageParams) => string
   readonly tree: (params: PageParams, state: S) => ElementInput
-  readonly events?: PageEventMap
+  // events?: PageEventMap — the events decoration hook was removed in the subtraction pass; it no longer appears on page definitions
 }
 
 /** Page instance index: canonical URL → Session. */

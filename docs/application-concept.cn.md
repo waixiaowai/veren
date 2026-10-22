@@ -70,7 +70,7 @@
 - 页面 URL 直接暴露给所有模型会话：`page_catalog` 工具会把全部页面列出来，没有“只看本应用”的视角。
 - 一个页面一个 Preset，三个页面就在预设选择器里多三条；十个页面就是十条。用户看到的是“页面列表”，不是“应用入口”。
 - 页面状态（store）在 `page-sync-bench` 里是模块级单例 `pageRuntime.store`；`activeSession` 是 composition 闭包里唯一的一个。这意味着两个 DSH 会话同时“打开页面”会互相覆盖，宿主里根本没有“每个会话各自的当前页面”这个概念。
-- `PageDefinition.onLoad` 和 `onComplete` 声明了，但仓库里没有任何地方调用它们。生命周期钩子目前是摆设。
+- `PageDefinition.onLoad` 和 `onComplete` 曾声明但仓库里没有任何地方调用（生命周期钩子是摆设）；这些钩子已随组件页减法整体移除，页面生命周期只保留 `meta.load`。
 
 ### 1.4 具体疼在哪里
 
@@ -78,7 +78,7 @@
 | --- | --- | --- |
 | 第二个应用装不上，报 URL 重名 | 注册表是全局扁平命名空间 | 应用之间必须先私下约定路径，装得越多越容易撞 |
 | 预设选择器被页面淹没 | 页面 = Preset，入口 = 某个页面 | 用户不知道从哪进，应用没有“首页” |
-| 点“跳转”没反应 | `PageIO.navigate` 只是 `session.host.note('NAVIGATE …')`，`open_page` 只换页面树 | 页面之间不能真正导航，换页后系统提示词和工具还是旧页面的 |
+| 点"跳转"没反应 | `PageIO.navigate`（只是 `session.host.note('NAVIGATE …')`）已随减法移除；导航改为 resolve → mount 的跨会话切换 | 会话内换页不再是可用路径，换页必开新会话 |
 | 两个会话抢同一个页面 | `activeSession` 是宿主级单例 | 多会话并行时状态串台，页面上下文互相污染 |
 | 重启后任务全丢 | 任务在内存 store 里，无持久化 | 不能当工作台用，只能当演示 |
 | 任务没有生命周期 | 只有 `open/taken/done`，没有失败、过期、取消、租约 | 失败没人管，崩溃后任务永远卡在“进行中” |
@@ -2033,7 +2033,7 @@ interface PageDefinition<S> {
   readonly instructions: string
   readonly instanceTitle?: (params: PageParams) => string
   readonly tree: (params: PageParams, state: S) => ElementInput
-  readonly events?: PageEventMap
+  // events?: PageEventMap —— 事件摆设钩子已随减法移除，不再出现在页面定义上
 }
 
 /** 页面实例索引：规范 URL → 会话。 */
