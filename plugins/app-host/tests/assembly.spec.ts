@@ -20,6 +20,9 @@ import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+// 与生产同型：每个 agent 一个 createScope（独立 fiber + scope tag），事件过滤才真实
+// / same shape as production: one createScope per agent (own fiber + scope tag), so event filtering is real
+import { createScope } from '@deepseek-ai/dsh-scope'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
@@ -50,13 +53,30 @@ interface AgentScope {
   disposeAll(): void
 }
 
-function makeAgentScope(parent: Context): AgentScope {
+/**
+ * 建一个与生产同型的 agent 作用域：`createScope(parent, agent)` 给出独立 fiber +
+ * scope tag，工具服务由该作用域自己提供。tag 必须是**同一个 agent 对象**——
+ * `agentEvents(ctx, agent)` 用 agent 作 scopeTarget 的 key，事件过滤才成立。
+ * Build a production-shaped agent scope: `createScope(parent, agent)` provides
+ * the private fiber + scope tag, and the tools service is provided on that
+ * scope. The tag must be the **same agent object** — `agentEvents(ctx, agent)`
+ * uses the agent as the scopeTarget key, which is what makes event filtering
+ * real.
+ * @param parent - 根测试 ctx / the root test ctx
+ * @param agent - 该作用域的 agent 对象（同时是 tag）/ the agent object (also the tag)
+ * @returns 作用域替身 / the scope stub
+ */
+function makeAgentScope(parent: Context, agent: Agent): AgentScope {
   const registry = new Map<string, unknown>()
   const followups: string[] = []
   const denials: string[] = []
-  // isolate('tools')：该子树上 'tools' 服务解析进独立作用域（cordis 服务隔离，
-  // 与 AgentRegistry 给每个 agent 独立 ctx 的机制同向）。
-  const ctx = parent.isolate('tools')
+  const scope = createScope(parent, agent)
+  // 与真实 AgentRegistry 同型：在带 tag 的作用域下再 isolate('tools') 出独立工具表，
+  // 否则与根 ctx 的 tools 服务同名冲突。isolate 继承父的 scope tag，事件过滤仍成立。
+  // Same shape as the real AgentRegistry: isolate('tools') under the tagged
+  // scope for a private tool table; otherwise the root's tools service collides.
+  // The isolated child inherits the parent's scope tag, so event filtering holds.
+  const ctx = scope.ctx.isolate('tools')
   ;(ctx.provide as unknown as (n: string, v: unknown) => void)('tools', {
     register: (tool: { name: string }) => {
       registry.set(tool.name, tool)
@@ -74,6 +94,8 @@ function makeAgentScope(parent: Context): AgentScope {
     denials,
     disposeAll() {
       // agent fiber 销毁的注销器语义：作用域内全部登记逆序摘除
+      // / the agent-fiber teardown semantics: every scope registration goes away
+      void scope.dispose()
       registry.clear()
       followups.length = 0
       denials.length = 0
@@ -125,14 +147,12 @@ function makeHostSessions(ctx: Context, failTool?: string) {
     },
     flush: () => true,
   })
-  const agentView = (id: string) => {
-    const scope = scopes.get(id)
-    if (scope === undefined || sessions.get(id)?.alive !== true) return undefined
-    return {
-      ctx: scope.ctx,
-      session: sessions.get(id),
-      followup: (m: { content: Array<{ text?: string }> }) => { scope.followups.push(m.content.map((b) => b.text ?? '').join('')) },
-    }
+  // 稳定 agent 对象：同一会话每次 get 返回同一个对象（它同时是 createScope 的 tag）
+  // / stable agent objects: one identity per session (it is also the createScope tag)
+  const agentObjects = new Map<string, Agent>()
+  const agentView = (id: string): Agent | undefined => {
+    if (sessions.get(id)?.alive !== true) return undefined
+    return agentObjects.get(id)
   }
   const emit = ctx.emit as unknown as (event: string, payload: unknown) => void
   ;(ctx.provide as unknown as (n: string, v: unknown) => void)('agentDefaultModel', {
@@ -165,17 +185,32 @@ function makeHostSessions(ctx: Context, failTool?: string) {
     create: async (options: { sessionId: string; meta?: { cwd?: string } }) => {
       const id = options.sessionId
       agentCreations.push({ sessionId: id, ...(options.meta?.cwd === undefined ? {} : { cwd: options.meta.cwd }) })
-      const scope = makeAgentScope(ctx)
+      const session = newSession(id)
+      sessions.set(id, session)
+      // 同一个对象既是 agent 又是 createScope 的 tag：agentEvents 的 carrier key
+      // 与作用域标签一致，事件过滤才是真的。
+      // One object is both the agent and the createScope tag: the agentEvents
+      // carrier key equals the scope tag, so filtering is real.
+      const agent = {
+        id,
+        session,
+        followup: (m: { content: Array<{ text?: string }> }) => {
+          scopes.get(id)?.followups.push(m.content.map((block) => block.text ?? '').join(''))
+        },
+      } as unknown as Agent
+      const scope = makeAgentScope(ctx, agent)
+      ;(agent as { ctx: Context }).ctx = scope.ctx
       scopes.set(id, scope)
-      sessions.set(id, newSession(id))
-      emit('agent/created', { agent: agentView(id) })
+      agentObjects.set(id, agent)
+      emit('agent/created', { agent })
       return {
-        agent: agentView(id),
+        agent,
         dispose: async () => {
           scopes.get(id)?.disposeAll()
           scopes.delete(id)
-          const session = sessions.get(id)
-          if (session !== undefined) session.alive = false
+          agentObjects.delete(id)
+          const current = sessions.get(id)
+          if (current !== undefined) current.alive = false
           emit('agent/disposed', { agent: { session: { id } } })
         },
       }
@@ -188,10 +223,19 @@ function makeHostSessions(ctx: Context, failTool?: string) {
     agentCreations,
     attached,
     defaultWorkspacePath,
+    /** 该会话的稳定 agent 对象（也是作用域 tag）；agent 未创建 → undefined */
+    agentOf(id: string): Agent | undefined { return agentObjects.get(id) },
+    /** 先发布会话记录、不建 agent：暂存预览 / 队列挂载测试的懒创建场景 */
+    publishSession(id: string): StubSession {
+      const record = newSession(id)
+      sessions.set(id, record)
+      return record
+    },
     /** agent 销毁：作用域注销器全部执行（真实 cordis 语义）+ 广播 agent/disposed */
     stopAgent(id: string): void {
       scopes.get(id)?.disposeAll()
       scopes.delete(id)
+      agentObjects.delete(id)
       emit('agent/disposed', { agent: { session: { id } } })
     },
   }
@@ -243,10 +287,11 @@ function boardPage(store: { getState(): BoardCard[]; subscribe(listener: () => v
 
 /** 在该会话的 agent 作用域上跑一轮 pre-step（最内层 next 返回已认领消息）
  * / run one pre-step in that session's agent scope (innermost next returns the claimed messages) */
-async function runPreStep(ctx: Context, agentCtx: Context, sessionId: string): Promise<PreStepDecision> {
-  // 唯一的类型断言：假 Agent 只实现派发所需的身份与作用域（同结算测试的先例）
-  // The single type assertion: the fake carries only the identity and scope dispatch needs
-  const agent = { id: sessionId, ctx: agentCtx, session: { id: sessionId } } as unknown as Agent
+async function runPreStep(ctx: Context, agent: Agent): Promise<PreStepDecision> {
+  // 用稳定的 agent 对象派发：它与 createScope 的 tag 同一身份，agent.ctx 上的
+  // pre-step 监听器（staging / PAGE-DATA）才会被作用域过滤放行。
+  // Dispatch with the stable agent object: it is the same identity as the
+  // createScope tag, so pre-step listeners on agent.ctx pass the scope filter.
   const claimed: UserMessage[] = [createUserMessage({ content: [{ type: 'text', text: '继续' }], source: { kind: 'user' } })]
   return await agentEvents(ctx, agent).waterfall('agent/pre-step', {
     messages: claimed,
@@ -321,7 +366,7 @@ async function boot(options: { enabled?: boolean; failTool?: string } = {}): Pro
 /** 迷你应用：两级页面（一级首页 + 参数化详情）+ 一读一写两个工具（§3.10 合规夹具）
  * / a mini app: two levels (a home page + a parameterized detail) and one read +
  * one write tool (a §3.10-compliant fixture) */
-function registerMiniApp(h: Boot): void {
+function registerMiniApp(h: Boot, eventDeliveries: string[] = []): void {
   const { ctx } = h
   const apps = ctx.apps
   apps.register({ id: 'mini' as AppId, name: 'mini', description: '装配层验证应用', entry: 'list' as PageKey }, ctx)
@@ -342,6 +387,18 @@ function registerMiniApp(h: Boot): void {
     execute: async () => ({ ok: true }),
   }))
   const pages = apps.pages('mini' as AppId, ctx)
+  // 事件页：`ctx.page.on` 注册在该会话的 agent 作用域（跨会话隔离断言）
+  // / an event page: `ctx.page.on` registers on that session's agent scope (cross-session isolation)
+  pages.register(
+    (_props: Record<string, string>, pageCtx) => {
+      pageCtx.page.on('agent/status', (payload: unknown) => {
+        const status = (payload as { status?: string }).status
+        if (status !== undefined) eventDeliveries.push(status)
+      })
+      return createElement('p', { children: '事件页' })
+    },
+    { url: '/apps/mini/events/:id', description: '事件页', instructions: '事件页：只报事件。' },
+  )
   // 一级页（entry）：map 由注册表推导（§3.5 定案），不再手写
   // / the home page (entry): the map is registry-derived (§3.5), never hand-written
   pages.register(
@@ -430,7 +487,9 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     expect(scope.denials).toEqual(['app_open', 'app_list', 'app_pages'])
     const previewFace = [...scope.registry.values()].map((tool) => JSON.stringify(tool))
     // 首条消息的 pre-step：提升为页面会话 / the first message's pre-step promotes it
-    const decision = await runPreStep(h.ctx, scope.ctx, sessionId)
+    const agent = h.host.agentOf(sessionId)
+    if (agent === undefined) throw new Error('expected the stable agent object')
+    const decision = await runPreStep(h.ctx, agent)
     expect(decision.kind).toBe('enter')
     const rows = await h.pages.instances.listByApp('mini')
     expect(rows.some((row) => row.sessionId === sessionId && row.state === 'live')).toBe(true)
@@ -443,6 +502,40 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     expect([...scope.registry.values()].map((tool) => JSON.stringify(tool))).toEqual(previewFace)
     // 侧栏标题换成实例标题 / the sidebar title becomes the instance title
     expect(h.host.sessions.get(sessionId)?.titles).toContainEqual(expect.objectContaining({ title: '任务列表页' }))
+  })
+
+  it('暂存时 agent 尚未创建：预挂工具排队到 agent/created，首条消息第一步可见', async () => {
+    const h = await boot()
+    registerMiniApp(h)
+    const sessionId = 'session-gui-lazy' as SessionId
+    // GUI 的会话记录先存在，agent 懒创建（发送首条消息时）——暂存预览必须能等
+    // / the GUI session record exists first; the agent is lazy (created on send) — staging must wait
+    h.host.publishSession(sessionId)
+    await h.ctx.appHost.stage('mini', sessionId)
+    // 还没有 agent：工具在端口的等待队列里，没有作用域可挂
+    // / no agent yet: the tools wait in the port queue, with no scope to mount on
+    expect(h.host.scopes.get(sessionId)).toBeUndefined()
+    expect(await h.pages.instances.listByApp('mini')).toHaveLength(0)
+    // 首条消息前创建 agent：agent/created 把队列里的工具面挂上
+    // / the agent is created before the first message: agent/created mounts the queued face
+    await h.ctx.agents.create({
+      sessionId,
+      agentOptions: { provider: 'test', model: 'test-model' },
+      meta: { cwd: h.host.defaultWorkspacePath, agentPreset: 'standard' },
+    })
+    const scope = h.host.scopes.get(sessionId)
+    if (scope === undefined) throw new Error('expected the agent scope after creation')
+    expect([...scope.registry.keys()]).toEqual(['mini__read'])
+    expect(scope.denials).toEqual(['app_open', 'app_list', 'app_pages'])
+    const agent = h.host.agentOf(sessionId)
+    if (agent === undefined) throw new Error('expected the stable agent object')
+    const decision = await runPreStep(h.ctx, agent)
+    expect(JSON.stringify(decision)).toContain('PAGE mini/')
+    // 正式提升重挂同一套定义，仍只有一份 / the promotion re-mounts the same definitions, no duplicates
+    expect([...scope.registry.keys()]).toEqual(['mini__read'])
+    expect(h.host.sessions.get(sessionId)?.titles).toContainEqual(expect.objectContaining({ title: '任务列表页' }))
+    const rows = await h.pages.instances.listByApp('mini')
+    expect(rows.some((row) => row.sessionId === sessionId && row.state === 'live')).toBe(true)
   })
 
   it('取消暂存：预挂的工具面整组摘掉，首条消息按普通会话走（不提升）', async () => {
@@ -463,7 +556,9 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     // / tools and the deny are undone together (the restrict disposer goes with the mounted set)
     expect(scope.registry.size).toBe(0)
     expect(scope.denials).toEqual([])
-    const decision = await runPreStep(h.ctx, scope.ctx, sessionId)
+    const agent = h.host.agentOf(sessionId)
+    if (agent === undefined) throw new Error('expected the stable agent object')
+    const decision = await runPreStep(h.ctx, agent)
     expect(JSON.stringify(decision)).not.toContain('PAGE mini/')
     expect(await h.pages.instances.listByApp('mini')).toHaveLength(0)
     expect(await h.ctx.appHost.sessionApp(sessionId)).toBeNull()
@@ -492,7 +587,9 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     })
     const scope = h.host.scopes.get(sessionId)
     if (scope === undefined) throw new Error('expected the recreated agent scope')
-    const decision = await runPreStep(h.ctx, scope.ctx, sessionId)
+    const agent = h.host.agentOf(sessionId)
+    if (agent === undefined) throw new Error('expected the recreated agent object')
+    const decision = await runPreStep(h.ctx, agent)
     expect(JSON.stringify(decision)).not.toContain('PAGE mini/')
     expect(await h.pages.instances.listByApp('mini')).toHaveLength(0)
   })
@@ -734,6 +831,23 @@ describe('隔离是真的：同一宿主两个会话的 agent 作用域互不可
     // focus 端口真实实现：openUrl 结束时发了切界面事件
     expect(focusEvents).toEqual([{ sessionId: opened.sessionId }])
   })
+
+  it('ctx.page.on 挂在各自 agent 作用域：两个页面会话互不串事件（scopeTarget 过滤）', async () => {
+    const h = await boot()
+    const deliveries: string[] = []
+    registerMiniApp(h, deliveries)
+    const a = await h.pages.openUrl('/apps/mini/events/1' as PageInstanceKey)
+    const b = await h.pages.openUrl('/apps/mini/events/2' as PageInstanceKey)
+    const agentA = h.host.agentOf(a.sessionId)
+    const agentB = h.host.agentOf(b.sessionId)
+    if (agentA === undefined || agentB === undefined) throw new Error('expected both stable agents')
+    agentEvents(h.ctx, agentA).emit('agent/status', { status: 'idle' })
+    // 只有 A 会话的监听器收到；订阅若落在无标签 ctx，这里会是 2
+    // / only A's listener fires; an untagged ctx subscription would make this 2
+    expect(deliveries).toHaveLength(1)
+    agentEvents(h.ctx, agentB).emit('agent/status', { status: 'idle' })
+    expect(deliveries).toHaveLength(2)
+  })
 })
 
 describe('真机探针的可自动化收编（原 @veren/app-host-verify 六项中的 5/6 项）', () => {
@@ -812,7 +926,9 @@ describe('PAGE-DATA 同步（§3.10.2）走真实装配链：回填镜像携带 
     // store 变化 → 下一轮 pre-step 的决策消息里真的出现新数据
     // Store change → the next pre-step decision really carries the new data
     store.mutate([{ id: 'i-1', title: '基线卡' }, { id: 'i-2', title: '装配链新卡' }])
-    const decision = await runPreStep(h.ctx, scope.ctx, opened.sessionId)
+    const agent = h.host.agentOf(opened.sessionId)
+    if (agent === undefined) throw new Error('expected the page agent object')
+    const decision = await runPreStep(h.ctx, agent)
     // PreStepDecision 是可判别联合：reject 在测试里就是失败
     // PreStepDecision is a discriminated union; a reject decision is a test failure here
     if (decision.kind !== 'enter') throw new Error('expected the pre-step to admit messages')

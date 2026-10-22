@@ -11,7 +11,7 @@
 3. **Full language, always open**: `.map()`, ternaries, `&&`, optional chaining and template literals go directly into JSX.
 4. **A minimal view-hook face**: `useState / useMemo / useSnapshot / useContext` (things needing slot/stack bookkeeping are called hooks); effects and subscriptions get **no hooks** — direct `ctx.page.effect` / `ctx.page.on` calls in the component body (recorded by the scheduler during render, §5.3).
 5. **Dynamically generated tools**: components call `ctx.page.tool(defineTool(…))` to record them (the runtime mounts them with `ctx.tools.register` inside the page session's scope — the native dsh-tools semantics scoped tools shadow globals); dispatch/approval/result projection ride the host's existing `tools/*` pipeline (§5.4).
-6. **The lifecycle is events**: two notify events, `page:ready` / `page:dispose`, on pageCtx (§5.5); listeners are cleaned up automatically with the session.
+6. **The lifecycle is host events**: the component page runtime uses the host's `agent/pre-step` / `agent/disposed` / `session/event`; the planned `page:ready` / `page:dispose` events are **not implemented yet** (§5.5).
 7. **The integration face reuses existing services throughout** (§3.5): registration via `apps.register` / `apps.pages(id).register` / `apps.tools(id).define` (this proposal only extends pages.register to accept PageFC components); cross-session notification via `pageRegistry.deliverUrl` (delivery creates-or-wakes the session); tools via `ToolDefinition` (§5.4). The invented router/messages/tools facades are all withdrawn.
 8. **Two domain-specific decisions**: change means patch — changed element subtrees render as Markdown appended to history in a `PAGE-PATCH` block (the key does position matching, §A.6); the first screen's only legal data source is `load` (an empty-then-filled document misleads a model reader).
 9. **Reuse first**: effects, events, teardown and injection all reuse existing cordis facilities; the only new machinery is fiber slot bookkeeping, falsy normalization, the Markdown serializer and the context stack — four items.
@@ -211,16 +211,16 @@ Three decisions:
 
 **The static inventory and the dynamic instance are two faces**: meta declares the capability inventory (collectAppTools — market/permissions/discovery need a static face); what a page registers within its session scope is this session's instance. §3.9 alignment = comparing, after commit, the promise declared in JSX against the fact actually registered in that scope (`tools/change` is the source of fact).
 
-### 5.5 Page Lifecycle Events
+### 5.5 Page Lifecycle Events (planned, **not implemented**)
 
-Declared on pageCtx via declaration merging as two notify events (`@mode: emit`):
+The original plan declared two notify events on pageCtx via declaration merging (`@mode: emit`); the current component-page runtime does **not** implement them, and nothing consumes them. Inside a component, "run once when ready" is `ctx.page.effect(run)`; the session layer observes lifecycle through the host's `agent/pre-step` / `agent/disposed` / `session/event`. If a consumer appears later, implement the semantics below (the proposal is kept):
 
 | Event | Fired when | Legitimate observers |
 | --- | --- | --- |
 | `page:ready` | after meta.load completes and the first frame commits | session/app-level orchestration (delivery pumps, telemetry, notification injection) |
 | `page:dispose` | when teardown begins, before cleanups run | same; the framework then runs all cleanups in reverse |
 
-Only two: the patch cadence is internal to the rendering pipeline (no event); a failed load is data, not an event. **Two-layer division**: inside a component, "run once when ready" is written `ctx.page.effect(run)` (the component spelling of page:ready); the session layer orchestrates via the lifecycle events. Timing: at ready the first frame already has data — it is the live-refresh/orchestration starting point, not a first-screen fetch channel.
+Only two: the patch cadence is internal to the rendering pipeline (no event); a failed load is data, not an event. **Two-layer division**: inside a component, "run once when ready" is written `ctx.page.effect(run)` (the component spelling of page:ready); the session layer orchestrates via the host lifecycle events. Timing: at ready the first frame already has data — it is the live-refresh/orchestration starting point, not a first-screen fetch channel.
 
 ## 6. Domain-Specific Decisions (Where This Departs from React DOM)
 

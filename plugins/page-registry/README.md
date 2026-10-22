@@ -45,7 +45,7 @@ pnpm --filter @veren/page-registry test
 This service never probes sibling services at runtime (no `ctx.get(...)` on `apps` / `taskCenter` / `sessions` / `agents` — the real-machine property guard attributes accesses to the accessed context's owner, so probing cannot work). Its declared inject is `['storageDomain']` only. Every runtime capability arrives through `bindPorts(ports, index?)` as **pure parameters** (whole-set replacement, no partial merge):
 
 - required: `sessions` (page session port), `apps` (app-registry `get`), `toolsOf` (app tool catalog);
-- optional capabilities: `tasks` (task take), `deliveries` (inbox pump), `releaseLeases` (deprecation lease release), and `scopeOf` (the session's `agent.ctx`, passed to `live.mount` so a page component's `effect`/`on` register on the agent scope — agent-filtered events and scope-owned cleanup; absent for an agentless preview, which falls back to the creator context).
+- optional capabilities: `tasks` (task take), `deliveries` (inbox pump), `releaseLeases` (deprecation lease release), and `scopeOf` (the session's `agent.ctx`, passed to `live.mount` so a page component's `ctx.page.effect`/`ctx.page.on` register on the agent scope — agent-filtered events and scope-owned cleanup; absent for an agentless preview, which falls back to the creator context).
 
 Before the host assembly (`@veren/app-host`) runs `bindPorts`, `openUrl` / `releaseApp` fail loud with `page/host-unavailable` — never a fake success.
 

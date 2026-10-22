@@ -1,7 +1,7 @@
 {
   "name": "@veren/app-host-ui",
   "displayName": "App Host UI",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "icon": "./icon.svg",
   "description": "Use when the @veren/app-host assembly is installed and people need to reach application pages from the chat UI - it adds the application dropdown to the input toolbar (lists every installed app from the appHost gateway, opens an app's entry page, and follows the host's app-host/focus events to switch sessions); skip it for a headless, ACP, or SDK profile, where the app_list/app_open model tools already cover the operations.",
   "type": "module",

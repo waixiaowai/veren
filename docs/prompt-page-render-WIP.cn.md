@@ -342,3 +342,26 @@
   13,440 命中，step 2 1,251 + 14,336。
 - 发布 prompt-page@0.1.7、person-agent-app@0.1.8、person-agent-bundle@0.3.3；
   profile 安装，节点 3080 重启。
+
+### 第十三轮：后续收口（2026-10-22）
+- 卸载守卫：`renderNow` 在 `tornDown` 后早返回——退订后的异步 `setState` 不再渲染
+  孤儿视图；新增测试（退订后 setState 不再多一帧）。
+- 测试基建：app-host 的 agent 作用域改用 `createScope`（独立 fiber + scope tag；
+  工具表 `isolate('tools')` 继承 tag）+ 稳定 agent 对象；`runPreStep` 用同一身份派发。
+- 新增两条集成测试：① stage 时 agent 未创建 → 工具排队到 `agent/created` → 首条消息
+  第一步可见且无重复；② `ctx.page.on` 跨会话隔离（两个 agent 的事件互不串，
+  `scopeTarget` 过滤）。
+- 静态门禁：`scripts/check-page-api.mjs`（页面声明文件禁止 `ctx.effect`/`ctx.on`/
+  `ctx.tools.register`，必须走 `ctx.page.*`）+ 自测，接入 `pnpm check`。
+- 文档同步：app-host / person-agent-app / page-registry README、app-registry 与
+  person-agent-app 注释、application-concept 页面侧、prompt-page README 增加组件页/
+  `ctx.page` 章节；设计文档 §5.5 的 `page:ready`/`page:dispose` 标记为计划中未实现。
+- chip 文案：`selectedApp` 去掉"发送后开始会话"，提升后 title 不再过期。
+- 测试：prompt-page 41/41、app-host 25/25、page-registry 56/56、person-agent-app 18/18
+  （含并行工作区的 0.1.10 workspace/preset/model 区块）、task-workbench 29/29、
+  notebook 10/10、sub2api 25/25、app-host-ui 6/6；`pnpm check`（含新门禁）全绿。
+- 发布 prompt-page@0.1.8、page-registry@0.1.7、app-host@0.2.16、app-registry@0.1.4、
+  app-host-ui@0.1.11、person-agent-app@0.1.10（后者来自并行工作区改动，测试通过后
+  一并发布）；profile 安装，节点 3080 重启。
+- 真机：新会话选 Person Agent 发送；页面正文出现 Workspace List / Agent Preset List /
+  Model Catalog / 待办任务；chip 显示"已选应用"；缓存命中 93%。

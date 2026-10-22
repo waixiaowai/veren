@@ -45,7 +45,7 @@ pnpm --filter @veren/page-registry test
 本服务从不在运行期探测兄弟服务（没有对 `apps` / `taskCenter` / `sessions` / `agents` 的 `ctx.get(...)`——真机属性守卫按被访问 ctx 的属主归因，探测通道不存在）。声明的 inject 只有 `['storageDomain']`。全部运行期能力经 `bindPorts(ports, index?)` 以**纯参数**传入（整体替换，无部分合并）：
 
 - 必填：`sessions`（页面会话端口）、`apps`（应用注册表 `get`）、`toolsOf`（应用工具目录）；
-- 可选能力：`tasks`（任务接取）、`deliveries`（收件箱投递）、`releaseLeases`（废弃时租约释放）、`scopeOf`（该会话的 `agent.ctx`，交给 `live.mount`，让页面组件的 `effect`/`on` 注册在 agent 作用域上——事件按 agent 过滤、清理随作用域；agent 未创建的暂存预览缺席，回退到创建者 ctx）。
+- 可选能力：`tasks`（任务接取）、`deliveries`（收件箱投递）、`releaseLeases`（废弃时租约释放）、`scopeOf`（该会话的 `agent.ctx`，交给 `live.mount`，让页面组件的 `ctx.page.effect`/`ctx.page.on` 注册在 agent 作用域上——事件按 agent 过滤、清理随作用域；agent 未创建的暂存预览缺席，回退到创建者 ctx）。
 
 宿主装配层（`@veren/app-host`）执行 `bindPorts` 之前，`openUrl` / `releaseApp` 以 `page/host-unavailable` fail loud——绝不假成功。
 

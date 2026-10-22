@@ -196,6 +196,24 @@ describe('defineComponentPage 组件页管线', () => {
     expect(view.takeRecordedTools().map((t) => t.name)).toEqual(['task_take'])
   })
 
+  it('视图退订后 setState 不再渲染孤儿视图（unmounted 守卫）', () => {
+    let renders = 0
+    let setDone: ((value: boolean) => void) | undefined
+    const Page: PageFC = () => {
+      renders += 1
+      const [done, set] = useState(false)
+      setDone = set
+      return createElement('p', { children: done ? 'done' : 'idle' })
+    }
+    const { view } = viewOf(Page, { url: '/apps/guard', description: '卸载守卫页' }, {})
+    expect(renders).toBe(1)
+    view.unsubscribe()
+    // 退订后的异步回调：只更新胞值，不触发第二帧
+    // / an async callback after unsubscribe updates the cell but renders no second frame
+    setDone!(true)
+    expect(renders).toBe(1)
+  })
+
   it('useSnapshot 读 meta.load 的首屏结果；每会话视图互不串台', async () => {
     let loadCount = 0
     const meta = {

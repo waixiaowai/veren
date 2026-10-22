@@ -310,6 +310,12 @@ function createSessionView<P extends Record<string, unknown>>(
   /** 渲染一帧：组件（hooks + ctx.page）→ reconciler 展开 → fiber 树 → Markdown diff
    * / render one frame: the component (hooks + ctx.page) → reconciler expansion → the fiber tree → a Markdown diff */
   const renderNow = (): void => {
+    // 卸载守卫：视图退订后挂起中的异步回调（如 `.then(setState)`）不得再渲染
+    // 孤儿视图。设计文档 §5.3 的 unmounted guard 在此落实（幂等早返回）。
+    // Unmounted guard: a pending async callback (e.g. `.then(setState)`) must not
+    // render an orphan view after teardown. This implements §5.3's unmounted
+    // guard as an idempotent early return.
+    if (state.tornDown) return
     const first: Fiber | null = root.current?.child ?? null
     runWithPageRender({ snapshot: state.snapshot }, () =>
       runWithHookScope(root, state.cells, () => {

@@ -209,9 +209,9 @@ ctx.page.effect(() => ctx.page.tool(defineTool({
 
 **静态清单与动态实例是两张脸**：meta 声明能力清单（collectAppTools——市场/权限/发现需要静态面）；页面在会话作用域内 register 的是本会话实例。§3.9 承诺对齐 = commit 后比对 JSX 声明的 promise 与该作用域内实际注册的 fact（`tools/change` 即事实源）。
 
-### 5.5 页面生命周期事件
+### 5.5 页面生命周期事件（计划中，**未实现**）
 
-pageCtx 上以 declaration merging 声明两个通知事件（`@mode: emit`）：
+原计划在 pageCtx 上以 declaration merging 声明两个通知事件（`@mode: emit`）；当前组件页运行时没有实现它们，也没有消费方。组件内"就绪后跑一次"用 `ctx.page.effect(run)`；会话层观察生命周期用宿主既有的 `agent/pre-step` / `agent/disposed` / `session/event`。若后续出现消费方，按下表语义实现（保留提案）：
 
 | 事件 | 触发时机 | 正当观察方 |
 | --- | --- | --- |

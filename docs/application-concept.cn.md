@@ -781,7 +781,7 @@ defineAppPage({
 
 - **加载态**：`load` 未返回时 PAGE 块 `data` 行写 `{"state":"loading"}`（两阶段 commit 允许先落 reserved，load 完成再翻 live 并写入真实数据；超时兜底按失败态处理）。
 - **失败态**：`load` 抛错沿用既有崩溃路径记 `page/load-failed`，但 PAGE 块必须写 `data: {"error":{"code":…,"message":…}}` 并附重试指引（调哪个工具/重开哪个 URL）——错误也是信息，空白不是。
-- **刷新策略（选定）**：**进页时一次 + 事件驱动显式 refresh**。页面运行时（或应用用 `ctx.effect`）订阅数据源变更后调 `pageRuntime.refresh(sessionId)`，重跑 `load`、按引用/浅比较 diff，有变化才追加 `PAGE-DATA`。**不做 TTL、不做自动轮询**——要不要"新鲜度"是应用自己的决定。
+- **刷新策略（选定）**：**进页时一次 + 事件驱动显式 refresh**。页面组件用 `ctx.page.effect`（应用层用 `ctx.effect`）订阅数据源变更后调 `pageRuntime.refresh(sessionId)`，重跑 `load`、按引用/浅比较 diff，有变化才追加 `PAGE-DATA`。**不做 TTL、不做自动轮询**——要不要"新鲜度"是应用自己的决定。
 - **代价**：refresh 本身不触发额外模型回合（它只是往上下文追加，模型下一回合自然看见），但每个 `PAGE-DATA` 块是真实 token 成本；diff 无变化不追加，上限截断控制单块体积。对首页这种"列表页"，推荐只在"任务被接取/完成/新建"等结构性事件时 refresh，而不是每次状态心跳。
 
 #### 3.10.4 可衡量：省掉几轮工具调用
@@ -1902,7 +1902,7 @@ defineAppPage({
 // 增量以既有 SNAPSHOT/PATCH 通道进同步消息；load 进行中旧 state 保持可见
 ```
 
-错误处理沿用既有页面崩溃路径：load 抛错记 `page/crashed`，新码 `page/load-failed`，页面面板显示重试；不做自动轮询（要不要轮询是应用自己的事，走 ctx.effect 订阅源变化后调 refresh）。
+错误处理沿用既有页面崩溃路径：load 抛错记 `page/crashed`，新码 `page/load-failed`，页面面板显示重试；不做自动轮询（要不要轮询是应用自己的事，页面组件走 `ctx.page.effect` 订阅源变化后调 refresh）。
 
 **取舍**：被否方案是"把 tree 改成 async"。否掉的理由：页面渲染是同步 SNAPSHOT/PATCH 增量管线，async tree 意味着每次渲染都要挂起-恢复，缓存失效、消息顺序、竞态全部翻新，成本与收益完全不成比例。次选"让应用继续自建"也被否：refresh+cache 的竞态（装载中打开、刷新中刷新）每家自己踩一遍，正是要收编的样板。
 
