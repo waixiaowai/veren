@@ -196,3 +196,17 @@
   回归测试钉住两页正文都必须出现 id 且说明指向 id。
 - 发布 person-agent-app@0.1.6；profile 全新安装（0.1.6），节点 3080 已重启。
 - 附注：PAGE-DATA 空快照是已删旧管线的残影，不影响；模型可见的事实只有正文。
+
+### 第六轮：工具缺注入 + 正文重复拼接（2026-10-22）
+- `workspace_session_list` 对正确 UUID 报 `cannot get property "sessions" without
+  inject`：目录工具由 person-agent-app 用自己的 plugin ctx 构建，而它的 inject 只有
+  apps/pageRegistry/workspaceRegistry/taskCenter；工具执行时直接读
+  `ctx.sessions` / `ctx.sessionProjections`（session-facts.ts）与
+  `ctx.sessionController`（session_create/rename）——属性守卫按属主归因，缺声明即抛。
+  修复：inject 补上这三个服务（与工具包自身声明一致）；测试用真实 plugin ctx
+  执行目录工具，钉住两条属性访问路径。
+- 正文出现 `（notebook · active）（notebook · active）notebook · active）` 这类重叠：
+  markdown.ts 的 li 逐子循环用了"从该子起走整条兄弟链"的 `inlineOf(part)`，每个
+  子节点都把后面的兄弟又串了一遍。修复：拆出 `serializeInlineOne`/`inlineOfOne`
+  （只序列化单节点），li 逐子改用它；新增严格断言测试（toContain 曾放过该 bug）。
+- 发布 prompt-page@0.1.5、person-agent-app@0.1.7；profile 全新安装，节点 3080 重启。

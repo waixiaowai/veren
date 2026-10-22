@@ -61,60 +61,80 @@ function eachSibling(first: Fiber | null, visit: (fiber: Fiber) => void): void {
   for (let fiber = first; fiber !== null; fiber = fiber.sibling) visit(fiber)
 }
 
+/**
+ * 单个 fiber 的行内序列化（**不**遍历其后的兄弟）。
+ * 与 `serializeInlineFiber` 的分工：后者从某个 fiber 起走完整兄弟链（用于"取一棵
+ * 子树的内容"）；本函数只序列化一个节点及其子内容——逐个子节点拼接时必须用它，
+ * 否则每个子节点都会把后面的兄弟重复一遍。
+ * Serialize one fiber inline (**without** walking its following siblings).
+ * Division of labor: `serializeInlineFiber` walks a whole sibling chain from the
+ * given fiber (used for "the content of a subtree"); this function serializes
+ * only one node and its children — per-child accumulation must use it, or every
+ * child repeats the siblings that follow it.
+ */
+function serializeInlineOne(fiber: Fiber, inline: Inline): void {
+  if (fiber.tag === 'component') {
+    serializeInlineFiber(fiber.child, inline)
+    return
+  }
+  const kind = fiber.instance!.kind
+  const inlineChild = (): void => serializeInlineFiber(fiber.child, inline)
+  switch (kind) {
+    case 'text':
+      inline.text += escapeInline(String(fiber.instance!.props.content ?? ''))
+      return
+    case 'strong':
+    case 'b':
+      inline.text += '**'
+      inlineChild()
+      inline.text += '**'
+      return
+    case 'em':
+    case 'i':
+      inline.text += '*'
+      inlineChild()
+      inline.text += '*'
+      return
+    case 'del':
+      inline.text += '~~'
+      inlineChild()
+      inline.text += '~~'
+      return
+    case 'code':
+      inline.text += '`'
+      inlineChild()
+      inline.text += '`'
+      return
+    case 'a':
+      inline.text += `[`
+      inlineChild()
+      inline.text += `](${String(fiber.instance!.props.href ?? '')})`
+      return
+    case 'br':
+      inline.text += '  \n'
+      return
+    default:
+      inlineChild() // 未知/块级标签行内降级：只渲染子内容（全函数）/ unknown or block tags degrade inline: children only
+  }
+}
+
 /** 行内序列化：text/strong/em/code/del/a/br 与未知标签（降级为子内容）
  * / inline serialization: text/strong/em/code/del/a/br and unknown tags (degrading to children) */
 function serializeInlineFiber(first: Fiber | null, inline: Inline): void {
-  eachSibling(first, (fiber) => {
-    if (fiber.tag === 'component') {
-      serializeInlineFiber(fiber.child, inline)
-      return
-    }
-    const kind = fiber.instance!.kind
-    const inlineChild = (): void => serializeInlineFiber(fiber.child, inline)
-    switch (kind) {
-      case 'text':
-        inline.text += escapeInline(String(fiber.instance!.props.content ?? ''))
-        return
-      case 'strong':
-      case 'b':
-        inline.text += '**'
-        inlineChild()
-        inline.text += '**'
-        return
-      case 'em':
-      case 'i':
-        inline.text += '*'
-        inlineChild()
-        inline.text += '*'
-        return
-      case 'del':
-        inline.text += '~~'
-        inlineChild()
-        inline.text += '~~'
-        return
-      case 'code':
-        inline.text += '`'
-        inlineChild()
-        inline.text += '`'
-        return
-      case 'a':
-        inline.text += `[`
-        inlineChild()
-        inline.text += `](${String(fiber.instance!.props.href ?? '')})`
-        return
-      case 'br':
-        inline.text += '  \n'
-        return
-      default:
-        inlineChild() // 未知/块级标签行内降级：只渲染子内容（全函数）/ unknown or block tags degrade inline: children only
-    }
-  })
+  eachSibling(first, (fiber) => serializeInlineOne(fiber, inline))
 }
 
-/** fiber 子树 → 行内文本 / a fiber subtree → inline text */
+/** fiber 子树 → 行内文本（整条兄弟链）/ a fiber subtree → inline text (the whole sibling chain) */
 function inlineOf(fiber: Fiber | null): string {
   const inline: Inline = { text: '' }
   serializeInlineFiber(fiber, inline)
+  return inline.text
+}
+
+/** 单个 fiber → 行内文本（不动其后兄弟）/ one fiber → inline text (its siblings untouched) */
+function inlineOfOne(fiber: Fiber): string {
+  const inline: Inline = { text: '' }
+  serializeInlineOne(fiber, inline)
   return inline.text
 }
 
@@ -165,7 +185,7 @@ function walkBlocks(first: Fiber | null, units: MarkdownUnit[], depth: number): 
               deeperTail = part
               return
             }
-            own += inlineOf(part)
+            own += inlineOfOne(part)
           })
           units.push({ key: li.key, text: `${indent}${marker} ${own.trimEnd()}` })
           walkBlocks(deeperFirst, units, depth + 1)

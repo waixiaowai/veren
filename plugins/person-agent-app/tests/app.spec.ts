@@ -38,6 +38,8 @@ function fakeWorkspaceRegistry(rows: Array<{ id: string; title: string; sessionI
   return {
     archivedSessionIds: ['s-archived'],
     list: () => rows,
+    // 工具按 id 解析工作区（workspace_session_list 的执行面）/ tools resolve workspaces by id
+    get: (id: string) => rows.find((row) => row.id === id),
   }
 }
 
@@ -68,6 +70,23 @@ async function install(options: {
   })
   ctx.provide('workspaceRegistry', fakeWorkspaceRegistry(options.workspaces) as never)
   ctx.provide('taskCenter', fakeTaskCenter(options) as never)
+  // 会话事实面：目录工具执行时直接读 ctx.sessions / ctx.sessionProjections，
+  // 建会话工具读 ctx.sessionController——三者都必须真提供（插件的 inject 声明）。
+  // The session-fact faces: the catalog tool reads ctx.sessions /
+  // ctx.sessionProjections at execution time and the create tool reads
+  // ctx.sessionController — all three must really be provided (the plugin's inject).
+  ctx.provide('sessions', {
+    get: (id: string) => (id === 's-1'
+      ? { header: { id, createdAt: 1_700_000_000_000, agentPreset: 'default' } }
+      : undefined),
+  } as never)
+  ctx.provide('sessionProjections', {
+    stateOf: () => ({ lastUsed: { provider: 'deepseek', model: 'deepseek-chat' } }),
+  } as never)
+  ctx.provide('sessionController', {
+    create: async () => ({ id: 's-created' }),
+    rename: async ({ title }: { title: string }) => ({ title, seq: 1 }),
+  } as never)
   const fiber = ctx.plugin({ name, inject, apply }, { maxListSessions: 50 })
   await fiber
   return { ctx, apps, pageRegistry, fiber }
@@ -275,6 +294,31 @@ describe('工具两张脸：目录声明 + 会话内动态注册（ctx.tools）'
     for (const name of [...(WorkspacesMeta.tools ?? []), ...recorded()]) {
       expect(instructions).toContain(name)
     }
+  })
+
+  it('目录工具执行不撞属性守卫：会话事实依赖在 inject 里声明且真能读到', async () => {
+    const { apps, fiber } = await install()
+    disposers.push(() => fiber.dispose())
+    const tool = apps.listTools(APP_ID).find((entry) => entry.name === 'workspace_session_list')
+    if (tool === undefined) throw new Error('workspace_session_list must be in the catalog')
+    // 真机教训：目录工具闭包捕获应用 plugin ctx，缺 inject 时执行报
+    // "cannot get property \"sessions\" without inject"——这里用真实 plugin ctx
+    // 执行一次，钉住 sessions / sessionProjections 两条属性访问路径。
+    // / Live-host lesson: catalog tools close over the app plugin ctx; without
+    // the inject they fail with 'cannot get property "sessions" without
+    // inject'. Execute once through the real plugin ctx to pin both property
+    // paths (sessions / sessionProjections).
+    const result = await tool.execute({ workspaceId: 'ws-1' }, {} as never) as {
+      total: number
+      sessions: Array<Record<string, unknown>>
+    }
+    expect(result.total).toBe(1)
+    expect(result.sessions[0]).toMatchObject({
+      sessionId: 's-1',
+      agentPreset: 'default',
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+    })
   })
 
   it('重渲不重复注册：异步面刷新后登记仍是同一批工具（按名去重）', async () => {

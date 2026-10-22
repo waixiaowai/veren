@@ -77,6 +77,21 @@ describe('defineComponentPage 组件页管线', () => {
     expect(body).toContain('- **T-2** 首页骨架')
   })
 
+  it('li 的多个行内子节点不重复拼接（逐子只序列化该节点自身）', () => {
+    // 回归：逐子累加曾用"从该子起走整条兄弟链"的序列化，每个子都把后面的兄弟
+    // 又串了一遍，正文出现 （notebook · active）（notebook · active）notebook ·
+    // active）… 这样的重叠后缀。
+    // Regression: per-child accumulation used the walk-the-whole-chain serializer,
+    // so every child repeated the siblings that follow it and the body showed
+    // overlapping suffixes.
+    const Page: PageFC = () => createElement('ul', { children: [
+      createElement('li', { key: 'notebook', children: ['notebook', '（', 'notebook', ' · ', 'active', '）'] }),
+    ] })
+    const { view } = viewOf(Page, { url: '/apps/demo', description: '演示' }, {})
+    const body = isMarkdownDocHost(view.host) ? view.host.bodyText() : ''
+    expect(body).toBe('- notebook（notebook · active）')
+  })
+
   it('useState dispatch → PAGE-PATCH 只含变化单元（变化即补丁）', () => {
     let setDone: ((v: boolean) => void) | undefined
     const Page: PageFC = () => {
