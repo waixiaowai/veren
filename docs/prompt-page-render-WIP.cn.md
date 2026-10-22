@@ -170,3 +170,17 @@
   管线用例：组件 ctx.tools.register 的产物由 createPageSession 合并挂载并改外名。
 - 发布 prompt-page@0.1.4、person-agent-app@0.1.5；profile 全新安装（0.1.4/0.1.5），
   真机探针 openUrl 两页通过，节点 3080 已重启。
+
+### 第四轮：应用下拉点击无反应——Remote 参数个数契约（2026-10-22）
+- 现象：输入工具栏「应用」下拉选中任一应用无反应；浏览器控制台
+  `client api: appHost/open expected 2 argument(s), got 1`。
+- 根因：`appHostRemote` 为 `appHost/open` 声明两个参数（appId 必填、url 可选），
+  客户端网关按声明个数严格校验实参（gateway src/client:508-517），短调用在到达
+  宿主前被拒；`onOpen` 只传了 appId。
+- 修复：新增 `client/open.ts` 的 `openAppPage(appHost, appId)`，显式传 `undefined`
+  占满第二个参数（网关对 undefined 参数不上线）；index.tsx 改走它；新增
+  `tests/open.spec.ts` 把 helper 钉到端点声明（两端各两参数 + 两个实参）。
+- 发布 app-host-ui@0.1.8；profile 全新安装，lib/client.js 里已是 `open(appId, void 0)`；
+  节点 3080 已重启（浏览器需刷新以加载新 client rev）。
+- 注：控制台另有 `/open-in-app/apps` 404，来自 harness 的 dsh-client-ui-open-in-app
+  核心插件（本 profile 未挂该路由），与本次下拉无关。

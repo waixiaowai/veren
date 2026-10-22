@@ -27,6 +27,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { createAppCatalog } from './catalog.ts'
 import { en, NS, zh, type AppPickerKey } from './locales.ts'
+import { openAppPage } from './open.ts'
 import { AppPicker } from './picker.tsx'
 import { appHostRemote, type AppHostResult, type AppOpenView } from './remote.ts'
 import { installPickerStyles } from './styles.ts'
@@ -87,7 +88,13 @@ const PickerPlugin = {
       // The runtime envelope of a direct call has two historical shapes
       // (wrapped / bare value): narrow once here to AppHostResult so the code
       // below sees one shape (a boundary narrowing, not a type escape).
-      const raw: unknown = await appHost.open(appId)
+      //
+      // 调用必须占满声明参数（见 open.ts）：短调用会被客户端网关按 arity 拒绝，
+      // 表现就是"选中应用没反应"。
+      // The call must supply every declared parameter (see open.ts): a short
+      // call is rejected by the client gateway on arity, which surfaced as
+      // "picking an app does nothing".
+      const raw: unknown = await openAppPage(appHost, appId)
       const result = (typeof raw === 'object' && raw !== null && 'ok' in raw)
         ? raw as AppHostResult<AppOpenView>
         : { ok: true as const, value: raw as AppOpenView }
