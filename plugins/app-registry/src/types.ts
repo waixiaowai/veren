@@ -84,13 +84,15 @@ export interface AppToolEntry {
 }
 
 /**
- * 一条页面登记：定义 + 可选实时数据绑定（§3.10.3 的权威 store）。
- * One page registration: the definition plus an optional live data binding
- * (the §3.10.3 authoritative store).
+ * 一条页面登记：定义 + 实时数据绑定（必填——页面 = 组件页，§3.10.3 的权威 store
+ * 由 defineComponentPage 在适配时一并产出）。
+ * One page registration: the definition plus the required live data binding
+ * (a page IS a component page; defineComponentPage produces the §3.10.3
+ * authoritative-store binding during adaptation).
  */
 export interface PageRegistration {
   readonly page: PageDefinition<never>
-  readonly live?: PageLiveBinding
+  readonly live: PageLiveBinding
   /** 组件页标记（RFC prompt-page-render §3.5）：map 由注册表推导，正文渲染为 Markdown
    * / the component-page marker (RFC prompt-page-render §3.5): the map is registry-derived and the body renders as Markdown */
   readonly component?: boolean
@@ -140,8 +142,9 @@ export interface AppPageRegistrar {
  * mirrors automatically so app authors register once.
  */
 export interface PageMirrorFace {
-  /** 镜像一条页面注册（含可选实时绑定）；失败抛错（内部登记会回滚）/ mirror one page (live binding included); throw to roll back */
-  registerAppPage(appId: AppId, page: PageDefinition<never>, live?: PageLiveBinding): () => void
+  /** 镜像一条页面注册（live 绑定必填：页面 = 组件页）；失败抛错（内部登记会回滚）
+   * / mirror one page (the live binding is required: a page IS a component page); throw to roll back */
+  registerAppPage(appId: AppId, page: PageDefinition<never>, live: PageLiveBinding): () => void
   /** 应用卸载/禁用：摘掉该应用所有活会话的页面工具（§7.2/§7.4）/ strip page tools on teardown */
   releaseApp?(appId: AppId): Promise<void> | void
 }

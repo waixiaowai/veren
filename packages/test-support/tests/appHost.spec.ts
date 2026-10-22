@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { defineAppPage } from '@veren/prompt-page'
+import { createElement } from '@veren/prompt-core'
 import type { AppId, AppRegistryService, PageKey } from '@veren/app-registry'
 import type { PageRegistryService } from '@veren/page-registry'
 import type { AppHost } from '../src/index.ts'
@@ -41,21 +41,24 @@ function registerMiniApp(host: AppHost, scope: Context): void {
     output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
     execute: async () => ({ ok: true }),
   }))
-  // 一级页（entry）：无参 + 非空能力地图（§3.10.5 规则 1）
-  // / the home page (entry): parameter-free with a non-empty map (§3.10.5 rule 1)
-  pages.register(defineAppPage<never>({
-    name: 'main', url: '/apps/mini/main', description: '主页',
-    instructions: 'mini 首页。',
-    map: [{ url: '/apps/mini/doc/:docId', use: '查看某一篇文档时打开' }],
-    tree: () => [],
-  }))
+  // 组件页是唯一形态：PageFC + meta 经 register 现场适配（§3.5 定案，map 由
+  // 注册表推导，不再手写）。
+  // Component pages are the only shape: a PageFC + meta, adapted on the spot by
+  // register (§3.5; the map is registry-derived, never hand-written).
+  // 一级页（entry）：无参（§3.10.5 规则 1）/ the home page (entry): parameter-free (§3.10.5 rule 1)
+  pages.register(
+    () => createElement('h1', { children: 'mini 主页' }),
+    { url: '/apps/mini/main', description: '主页', instructions: 'mini 首页。' },
+  )
   // 二级页：带 :param + writes + 工具 + 说明（§3.10.5 规则 3）
   // / the detail page: a :param plus writes, a tool and instructions (§3.10.5 rule 3)
-  pages.register(defineAppPage<never>({
-    name: 'doc', url: '/apps/mini/doc/:docId', description: '文档页',
-    tools: ['read'], writes: true, instructions: '只处理 params.docId 指定的这一篇文档。',
-    tree: () => [],
-  }))
+  pages.register(
+    (props) => createElement('h1', { children: `mini 文档 ${props.docId ?? ''}` }),
+    {
+      url: '/apps/mini/doc/:docId', description: '文档页',
+      tools: ['read'], writes: true, instructions: '只处理 params.docId 指定的这一篇文档。',
+    },
+  )
 }
 
 describe('mountAppHost 装配与清理', () => {

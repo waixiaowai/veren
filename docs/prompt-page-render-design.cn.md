@@ -1,6 +1,6 @@
 # PAGE 块渲染面重构设计：WYSIWYG JSX（HTML 词汇 → Markdown 渲染）+ cordis 直调
 
-- 状态：RFC v2（2026-10-21 收敛；草案，未实施）
+- 状态：RFC v2（2026-10-21 收敛）——**已实施**（2026-10-22 全链落地：prompt-core hooks 内核、prompt-page 组件管线、page-registry/app-host 的 PAGE 块与 PAGE-PATCH 同步、五个插件全部迁移组件页；实施记录见 `docs/prompt-page-render-WIP.cn.md`。已知未实现项：§5.5 的 `page:ready` / `page:dispose` 仍是计划中）
 - 范围：`@veren/prompt-core`、`@veren/prompt-page`、`plugins/page-registry`、示范插件（本文附录 A 的任务中心三页）
 - 关联：`docs/application-concept.cn.md`（§3.9/§3.10 页面规范沿用该文档的编号与语义）
 

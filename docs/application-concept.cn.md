@@ -728,71 +728,79 @@ flowchart LR
 
 #### 3.10.2 PAGE 块的正式结构
 
-**落地状态（读 `plugins/page-registry/src/runtime.ts` 的 `pageBlock`）**：PAGE 块由 page-registry 在会话创建时拼好、以 followup 用户消息追加一次，之后不再重写。已按下面的规范形态拼装——规范 URL、params、data（来自 §3.10.3 的 `load`）、map（非空时）、工具全名 + 用途短语、应用与页面说明，一次成形：
+**落地状态（读 `plugins/page-registry/src/runtime.ts` 的 `componentPageBlock`）**：PAGE 块由 page-registry 在会话创建时拼好、以 followup 用户消息追加一次，之后不再重写。减法之后所有页面都是组件页，块的形状是：定位行 + map（注册表推导）+ tools 行 + 说明 + **组件渲染出的 Markdown 正文**——**没有 `params:` / `data:` JSON 行**（URL 本身表达 params；首屏数据经 `meta.load` → `useSnapshot` 由组件渲染进正文）：
 
 ```text
 PAGE task-workbench/list /apps/task-workbench/list
-params: {}
-data: {"open":12,"mine":2,"tasks":[{"id":"t-6","title":"修复登录超时","state":"open"}, …]}
 map:（能力地图——本应用可去的页面；把模板里的 :参数 替换为实际值即为可打开 URL）
-- /apps/task-workbench/task/:taskId → 处理某条任务时打开（查看字段/子任务树，完成、放弃或拆分它）；参数: taskId=任务 id，来自列表 data 的 roots[].id
+- /apps/task-workbench/task/:taskId → 任务详情页：接取本页任务，处理该任务的字段与子任务树
 - /apps/task-workbench/publish → 要发布新任务时打开发布页（或直接调 publish_task）
 tools: task_workbench__take_task（接取列表中的任务）、task_workbench__publish_task（发布新任务）
-说明：<应用说明 + 页面说明>
+应用说明：<应用 instructions>
+说明：<页面 instructions>
+# 任务工作台 · 任务列表
+open 12 · taken 2 · done 30。接取用 take_task；完成用 complete_task……
 ```
 
 | 字段 | 内容 | 规则 |
 | --- | --- | --- |
-| 第 1 行 | `PAGE <pageKey> <规范URL>` | 规范 URL（§3.5.1）必须显式出现，模型引用地址不用自己拼 |
-| `params` | 实例参数，键 = URL 模式声明的 `:param` 名 | 详情页必须非空且与模式一致；首页/工具页/只读副页为 `{}` |
-| `data` | 首屏数据快照（§3.10.3 的 `load` 结果） | 首页 = 列表/统计等全局视图；详情页 = 该条记录的详情；工具页 = 办这件事所需的最小上下文。加载/失败也必须在这里表达，**不许静默空白** |
-| `map` | 能力地图：**一等数据，逐条成行**——首行讲用法，每行 `- URL 模板 → 什么时候用（；参数: 名=说明）`，模型照抄模板、替换 `:参数` 即得可打开 URL | 首页**仅当本应用还有记录页（详情/只读详情）时**必须非空（规则 1；单页/纯仪表盘应用可空）；详情页/只读详情页/工具页/只读副页可省（或列同级的相邻页） |
-| `tools` | 本页工具全名 + 一句什么时候用 | 沿 §3.4.3 前缀名 + 用途短语（已落地） |
-| `说明` | 应用 `instructions` + 页面 `instructions` | 沿现状；不得充当系统提示词 |
+| 第 1 行 | `PAGE <pageKey> <规范URL>` | 规范 URL（§3.5.1）必须显式出现，模型引用地址不用自己拼；实例参数已代入 URL（路径参数与模式逐字一致，挂载期按 §3.10.5 规则 5 校验，违反即 `page/params-mismatch` fail loud） |
+| `map` | 能力地图：**注册表自动推导**——本应用的兄弟页（排除自身、按注册序），每行 `- URL 模板 → description`，模型照抄模板、替换 `:参数` 即得可打开 URL | 有兄弟页就必出；单页应用没有兄弟行，整段省略。**应用作者不写 map**——页面注册时注册表已经掌握全部页面，手写 map 只会漂移 |
+| `tools` | 本页工具全名 + 一句什么时候用（description 首句，截 60 字） | 目录工具（`meta.tools` 解析）+ 会话内动态注册（`ctx.page.tool`）合并挂载后改外名列出 |
+| `应用说明` / `说明` | 应用 `instructions` + 页面 `instructions` | 应用级在前、页面级在后；不得充当系统提示词 |
+| 正文 | 页面组件渲染出的 Markdown（WYSIWYG） | 模型读到什么 = 组件写了什么；首屏数据与失败态都在正文里如实表达，**不许静默空白** |
 
 **谁来拼、什么时候写、什么时候追加**：
 
-- 拼：page-registry 运行时（和现状同一个拼装点），应用作者只声明 `load` 和地图元数据；
+- 拼：page-registry 运行时（`componentPageBlock`，和现状同一个拼装点），应用作者只写组件与 meta；
 - 写：会话创建时一次（沿用两阶段 commit：`load` 完成才翻 `live`，PAGE 块随 commit 写入）；
-- 追加：`data` 变了**不重写旧块**（会话日志 append-only），追加一个 `PAGE-DATA` 块携带**最新全量快照**（不是无限增量流）。语义是"同页 data 以最新一次为准"；旧快照自然过时但保留在日志里可回溯。膨胀控制：data 块设条数/字节上限（如列表 ≤50 条、单块 ≤4KB），超限截断并在块内标注 `truncated: true` + 总数——截断也要让模型知道，同样不许静默。**map 不占这份预算**：map 随 PAGE 块在建会话时写一次、永不追加，PAGE-DATA 的截断上限只约束 data 快照块；map 的体积天然有界（一行一个可去页面、用途短语截 60 字），且规则 1 要求列全全部记录页——**有意不做截断**，截断会静默吞掉地图条目，比超预算更糟。真机教训（2026-10-21）：map 曾经只活在页面定义里、PAGE 块里压成一团 JSON 甚至缺行，模型便绕开它自行从任务记录推断地址（假 PASS 比真 FAIL 更危险）——所以 map 必须以"可照抄的行"进块，验收也以**块文本包含模板与用途**为准（`plugins/page-registry` 测试 + AGENTS.md 真机清单第 7 条）。
+- 追加：数据变了**不重写旧块**（会话日志 append-only）。页面声明了 `meta.store` 时，store 每次变化先重渲、diff 出只含变化单元行的 **`PAGE-PATCH`** 块（`PAGE-PATCH <pageKey> <url> v<版本>` + 补丁文本），追加在 `agent/pre-step` 里进入下一轮模型请求；语义仍是"同页以最新一次为准"，旧正文自然过时但保留在日志里可回溯。注入受版本门控（无变化零注入），且 PAGE 块已覆盖的版本由绑定游标声明——块里已有的首屏正文不会被当成补丁重发。PATCH 本身是增量（只发变化行），**没有独立的条数/字节截断上限**（早期 `pageDataMax*` 配置已随减法删除）。**map 不参与追加**：map 随 PAGE 块在建会话时写一次、永不追加，体积天然有界（一行一个可去页面、用途短语截 60 字）。真机教训（2026-10-21）仍然成立：map 必须以"可照抄的行"进块，验收以**块文本包含模板与用途**为准（`plugins/page-registry` 测试 + AGENTS.md 真机清单第 7 条）。
 
 #### 3.10.3 参数与首屏数据一次性进上下文
 
 **参数怎么进上下文**：
 
-- 现状：`pageRegistry.resolve(url)` 把路径参数和查询参数合并解析，`pageBlock` 把整包 `JSON.stringify` 成 PAGE 行尾的匿名对象。参数其实已经进上下文了——但没有键名语义约束（与 `:param` 声明的一致性无人校验）、没有独立字段、混在第一行。
-- 规范：参数解析沿用同一解析器，但 PAGE 块里独立成 `params` 行，键名必须与页面 URL 模式声明的 `:param` 名逐字一致，注册期与挂载期各校验一次（§3.10.5）。这是"参数直接反映到上下文中"的落地：agent 读 PAGE 块即知道 `taskId=t-6`，不需要调任何工具来定位自己。
+- PAGE 块**没有独立的 `params` 行**：实例参数已代入定位行的规范 URL（`PAGE task-workbench/detail /apps/task-workbench/task/t-6`），agent 读第 1 行就知道 `taskId=t-6`，不需要调任何工具来定位自己。
+- 一致性照旧强校验：实例参数必须覆盖 URL 模式声明的每个 `:param` 且逐字一致，挂载期写 PAGE 块前 fail loud（`page/params-mismatch`，§3.10.5 规则 5；解析器 `matchPath` 在构造上保证，断言是廉价防线）。
 
-**首屏数据从哪来——G7 从"补个样板"升格为核心能力。** §10.9 原本把 `load` 定位成"官方样板，消灭四家自建 refresh+cache"。本轮升格的理由：**"首页带任务列表"没有它根本做不到**——`tree(params, state)` 是同步的，数据在异步源里，没有官方 `load` 面，首页的 `data` 字段就是空中楼阁。因此 G7 的落地目标从"给想用的人一个样板"改为"PAGE 块 `data` 字段的唯一合法来源"，优先级与验收随 §3.10.2/§3.10.5 走（§10.9 已同步补记）。
+**首屏数据从哪来——`meta.load` 经 `useSnapshot` 进组件。** `load` 仍是"首屏数据的唯一合法来源"：宿主在建会话时执行 `load(params, env)`（`PageLoadEnv` 见 §3.10.8），结果经视图的 `setSnapshot` 下发面交给组件，组件在首帧用 `useSnapshot()` 读到它并渲染进正文。首屏数据不再是 PAGE 块里的一个 JSON 字段——**它就是正文本身**，模型读到什么由组件写什么。
 
-官方模式（示意）：
+官方模式（示意，摘自 `plugins/task-workbench/src/pages.tsx`）：
 
-```ts
-defineAppPage({
+```tsx
+const ListPage: PageFC = () => {
+  const items = useSnapshot<TaskItem[]>() ?? []      // meta.load/store 的首屏结果
+  return (
+    <>
+      <h1>任务工作台 · 任务列表</h1>
+      <p>open {…} · taken {…} · done {…}。接取用 take_task；完成用 complete_task。</p>
+      <ul>{items.map((t) => <li key={t.id}>{t.id} {t.title}（{t.state}）</li>)}</ul>
+    </>
+  )
+}
+const ListMeta: ComponentPageMeta = {
   name: 'list', url: '/apps/task-workbench/list',
-  // 声明"我要哪份数据"：一个纯取数函数，参数来自 URL 解析
-  load: async (params) => ({
-    open: await store.countOpen(),
-    tasks: await store.listOpen(50),          // 上限与 PAGE-DATA 上限对齐
-  }),
-  map: [{ url: '/apps/task-workbench/task/:taskId', use: '处理某条任务时打开' }],
-})
+  description: '任务工作台列表页：浏览全部任务，接取/完成任务',
+  tools: ['take_task', 'complete_task'], store,       // store 变化 → 重渲 → PAGE-PATCH
+  instructions: '…',
+}
+// 注册：ctx.apps.pages(id, ctx).register(ListPage, ListMeta)
 ```
 
-- **加载态**：`load` 未返回时 PAGE 块 `data` 行写 `{"state":"loading"}`（两阶段 commit 允许先落 reserved，load 完成再翻 live 并写入真实数据；超时兜底按失败态处理）。
-- **失败态**：`load` 抛错沿用既有崩溃路径记 `page/load-failed`，但 PAGE 块必须写 `data: {"error":{"code":…,"message":…}}` 并附重试指引（调哪个工具/重开哪个 URL）——错误也是信息，空白不是。
-- **刷新策略（选定）**：**进页时一次 + 事件驱动显式 refresh**。页面组件用 `ctx.page.effect`（应用层用 `ctx.effect`）订阅数据源变更后调 `pageRuntime.refresh(sessionId)`，重跑 `load`、按引用/浅比较 diff，有变化才追加 `PAGE-DATA`。**不做 TTL、不做自动轮询**——要不要"新鲜度"是应用自己的决定。
-- **代价**：refresh 本身不触发额外模型回合（它只是往上下文追加，模型下一回合自然看见），但每个 `PAGE-DATA` 块是真实 token 成本；diff 无变化不追加，上限截断控制单块体积。对首页这种"列表页"，推荐只在"任务被接取/完成/新建"等结构性事件时 refresh，而不是每次状态心跳。
+- **加载态**：两阶段 commit 允许先落 `reserved`，`load` 完成才翻 `live` 并写 PAGE 块——模型看不到半截首屏。
+- **失败态**：`load` 抛错/超时（10s）记 `page/load-failed`，失败态（附"重开本页 URL 即可重取"的重试指引）同样经 `setSnapshot` 交给组件——错误也是信息，组件把它渲染进正文，空白不是。
+- **刷新策略（选定）**：**声明权威 store，订阅驱动**。页面 meta 带 `store` 时，宿主为每个页面会话挂载订阅 store 的视图：store 每次变化 → 重渲 → diff 出增量 `PAGE-PATCH` 块追加进下一轮请求——没有 `pageRuntime.refresh` 这类手动刷新面，也没有 TTL / 自动轮询，要不要"新鲜度"由应用决定（store 只在被业务动作迁移时变化，心跳天然不触发）。
+- **代价**：追加不触发额外模型回合（模型下一回合自然看见），每个 `PAGE-PATCH` 是真实 token 成本；PATCH 只发变化行，无变化零注入。对列表页，推荐 store 迁移只发生在"任务被接取/完成/新建"等结构性动作里，而不是每次状态心跳。
 
 #### 3.10.4 可衡量：省掉几轮工具调用
 
 估算方式（粗但可复算）：**一个"轮" = 模型为拿到一份事实所需的一次工具调用往返**（并行多调算一轮）。对照"任务中心首页 + 处理一条任务"这个最小场景：
 
-| 动作 | 旧形态（首页只有地图、无 data） | 新形态（data 一次进上下文） |
+| 动作 | 旧形态（首页只有地图、无数据） | 新形态（数据一次进正文） |
 | --- | --- | --- |
-| 知道有哪些任务 | 调 `task_workbench__list_tasks`：**1 轮** | 读首页 PAGE 块 `data`：**0 轮** |
-| 知道某条任务的详情 | 打开详情页后再调 `task_workbench__get_task`：**1 轮** | 读详情页 PAGE 块 `params`+`data`：**0 轮** |
-| 定位自己在哪（taskId） | 从上一轮工具返回里回忆/再查：**0–1 轮** | 读 `params`：**0 轮** |
+| 知道有哪些任务 | 调 `task_workbench__list_tasks`：**1 轮** | 读首页 PAGE 块正文：**0 轮** |
+| 知道某条任务的详情 | 打开详情页后再调 `task_workbench__get_task`：**1 轮** | 读详情页第 1 行 URL + 正文：**0 轮** |
+| 定位自己在哪（taskId） | 从上一轮工具返回里回忆/再查：**0–1 轮** | 读第 1 行 URL：**0 轮** |
 | **合计（每处理 1 条任务）** | **2–3 轮** | **0 轮** |
 
 量级估算：省掉的轮数 ≈ 每页原本需要的数据获取调用数（2–3）× 被打开的页面实例数。按每天处理 20 条任务计，约省 **40–60 次模型回合/天**；每次往返除延迟外还携带工具 schema 与返回值 token，实际成本节省高于轮数比例。这不改变"打开一律新建会话"（§9.1.1）——每条新会话的 PAGE 块都自带 data，代价是建会话时多一次 `load`（宿主侧异步取数，不占模型回合）。
@@ -801,15 +809,15 @@ defineAppPage({
 
 | # | 规则 | 校验时机 | 失败行为 |
 | --- | --- | --- | --- |
-| 1 | 首页：URL 模式不含任何 `:param`；**仅当本应用存在记录页（详情/只读详情 viewer）时** `map` 非空（列出全部记录页模板）。单页应用/纯仪表盘应用的 `map` 允许为空（或只含"本页可用工具"的说明），**不许因此报错** | 注册 | 拒绝注册，`page/home-invalid` |
+| 1 | 首页：URL 模式不含任何 `:param`。map 由注册表自动推导（兄弟页、排除自身、按注册序），**无手写 map 可查**——"单页应用无 map 行、多页应用列全可去页面"在构造上成立 | 注册 | 拒绝注册，`page/home-invalid` |
 | 2 | **首页、viewer 与只读副页不因缺写工具报警**（首页是地图、viewer 与只读副页是只读下钻/仪表盘，只读都合法） | —— | 不校验 |
 | 3 | **详情页**（写意图轴的进入声明）：带 `:param` **且声明了 `writes: true`** 的页，`tools` 至少 1 个、`instructions` 非空。带 `:param` 而**未声明** `writes` = viewer，**豁免本条**（如实注册是它的合法形态，不再被逼谎称要写） | 注册 | 拒绝注册，`page/detail-invalid` |
 | 3b | 工具页：无参、非 entry、声明 `writes: true`；必须有写工具（= `writes: true` + 至少挂 1 个工具）与非空 `instructions` | 装配 | §3.9 完备性警告（只提醒不门禁——与 `writes` 警告同一条通道，口径一致，不新增门禁） |
 | 4 | 应用 `entry` 必须指向首页 | 应用激活 | `app/entry-missing` 同路新增原因 `entry-not-home` |
 | 5 | PAGE 块 `params` 键集合 = URL 模式 `:param` 键集合（+查询参数），逐字一致 | 挂载（写 PAGE 块前） | fail loud，`page/params-mismatch` |
-| 6 | `data` 必须存在（含 loading/error 表达），禁止静默空白 | 挂载 | 同 5 |
+| 6 | 首屏数据不许静默空白：未声明 `load` → 空快照（`null`）交组件如实渲染；`load` 抛错/超时 → `page/load-failed` 失败态（附重试指引）交组件 | 挂载（取首屏时） | 失败态进正文，错误也是信息 |
 
-全部是字符串/集合判断，不引入新依赖，一次注册期遍历可完成。规则 1 的 map 检查在**两个注册序上**都成立（先注册首页后注册记录页 → 记录页注册时查；先注册记录页后注册首页 → 首页注册时查），任意一序违规都被拒，报错信息直接说"给首页的 map 补上记录页模板"。与 §3.9 的 `writes?: boolean` 完备性警告的分工：规则 3（详情页）在注册期一次拦死——**只约束声明了写意图的带参页**，viewer 因不声明而天然豁免，`writes` 警告对声明者只剩兜底价值；规则 3b（工具页）**有意走警告通道**——工具页数量多、形态轻，误标 `writes` 的代价是"多一条五秒钟看懂的警告"，不是"应用起不来"，不值得动用门禁。
+全部是字符串/集合判断，不引入新依赖，一次注册期遍历可完成。规则 1 只剩 URL 形态一项——map 行由注册表推导，应用作者写不出也不必写第二份。与 §3.9 的 `writes?: boolean` 完备性警告的分工：规则 3（详情页）在注册期一次拦死——**只约束声明了写意图的带参页**，viewer 因不声明而天然豁免，`writes` 警告对声明者只剩兜底价值；规则 3b（工具页）**有意走警告通道**——工具页数量多、形态轻，误标 `writes` 的代价是"多一条五秒钟看懂的警告"，不是"应用起不来"，不值得动用门禁。
 
 #### 3.10.6 与会话废弃语义的关系（§9.1.1 自洽）
 
@@ -823,7 +831,7 @@ defineAppPage({
 #### 3.10.7 与（当时）现状代码的冲突清单（上一轮读码发现，条目后附落地状态）
 
 1. **`pageBlock` 形状不符**：现状 PAGE 首行是 `PAGE <pageKey> <params JSON>`，无规范 URL、无 `data`/`map` 字段、工具行无用途短语（`plugins/page-registry/src/runtime.ts`）。落规范需改该拼装函数——**该插件正被另一会话修改（§3.9 的 `page_send` 即其产物），本轮只记不改**。（状态：已落地——`pageBlock` 现按 §3.10.2 的规范形态拼装，见该节"落地状态"。）
-2. **"写一次不再重写"与追加语义冲突**：现状 PAGE 块写后永不追加，`PAGE-DATA` 更新块没有承载通道，需要 page-registry 提供追加面（同上，待协调）。（状态：已落地——追加面与截断上限由 page-registry/app-host 承载。）
+2. **"写一次不再重写"与追加语义冲突**：现状 PAGE 块写后永不追加，`PAGE-DATA` 更新块没有承载通道，需要 page-registry 提供追加面（同上，待协调）。（状态：已落地，形状按减法收敛——追加通道是 PAGE-PATCH 增量补丁，由 page-registry 的 PAGE-DATA 端口与 app-host 的 `createPageDataSync` 承载；设计期设想的条数/字节截断上限已随减法删除。）
 3. **注册不区分两级**：现状允许字面量无参 URL 的"详情形态"页（测试里有 `url: '/apps/twin/task/1'`），也允许 entry 指向带参页——按 §3.10.5 两条都会被拒，属有意的 fail loud。（状态 2026-10-21：规则 1/3 已在注册面落地；本轮补上第三档工具页后，"无参写页"不再落入分类空隙，规则 1 已收窄为"仅对有记录页的应用强制"。补充同日：三档留下的最后一个空隙——只读详情页被规则 3 逼着谎称 `writes: true`——由 **viewer 档**补上，带 `:param` 未声明 `writes` 即 viewer，规则 3 收窄为只约束声明了写意图的带参页。）
 4. **G7 未落地**：`load` 字段尚不存在（§10.9 待修），`data` 字段暂无来源；升格为核心能力后应先于"首页带列表"的任何应用落地。（状态：已落地——`load`/`PageLoadEnv` 见 §3.10.3/§3.10.8，四个应用的首屏全部走它。）
 

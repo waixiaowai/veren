@@ -14,7 +14,9 @@ import { ImError, ImRegistry } from '../src/contract.ts'
 import { ImPeople } from '../src/people.ts'
 import { ImRouter } from '../src/router.ts'
 import { STRANGER_INTAKE_ASK } from '../src/intake.ts'
+import type { ImStrangerIntakeConfig } from '../src/intake.ts'
 import { Config } from '../src/index.ts'
+import type { Config as ImConfig } from '../src/index.ts'
 import type { ImCredentialStore, ImLogger, ImSessionGateway } from '../src/router.ts'
 import { MemoryStore } from './memory-store.ts'
 
@@ -30,6 +32,21 @@ const FEATURES: ImFeatures = {
 }
 
 const silent: ImLogger = { warn() {}, error() {} }
+
+/**
+ * Parse a partial config through the real schema. The `z<Config>` call face
+ * demands a fully populated Config, but every field carries a `.default`, so
+ * the runtime fills missing fields — this helper only widens the spec's input
+ * type so defaults can actually be tested.
+ * 经真实 schema 解析部分配置。`z<Config>` 的调用面要求全量 Config，但每个字段
+ * 都带 `.default`，运行时会补齐缺省——本助手只放宽测试入参的类型，让缺省值
+ * 可被真实地测到。
+ */
+function parseConfig(
+  input: Partial<Omit<ImConfig, 'strangerIntake'>> & { strangerIntake?: Partial<ImStrangerIntakeConfig> },
+): ImConfig {
+  return Config(input as ImConfig)
+}
 
 class RecordingService implements ImService {
   readonly features = FEATURES
@@ -125,7 +142,7 @@ async function seedAccount(store: MemoryStore): Promise<void> {
 
 describe('intake plugin config', () => {
   it('defaults the switch on with the documented bounds', () => {
-    expect(Config({}).strangerIntake).toEqual({
+    expect(parseConfig({}).strangerIntake).toEqual({
       enabled: true,
       replyWindowMs: 120_000,
       maxAsksPerHour: 10,
@@ -134,7 +151,7 @@ describe('intake plugin config', () => {
   })
 
   it('lets the operator switch it off', () => {
-    expect(Config({ strangerIntake: { enabled: false } }).strangerIntake.enabled).toBe(false)
+    expect(parseConfig({ strangerIntake: { enabled: false } }).strangerIntake.enabled).toBe(false)
   })
 })
 

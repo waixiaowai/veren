@@ -158,7 +158,7 @@ describe('im_person_save tool', () => {
 
 describe('im_person_report tool', () => {
   it('writes a claim through the unverified path and leaves realName untouched', async () => {
-    const { tools, people } = await setup()
+    const { tools } = await setup()
     const created = recordOf(await tools.call('im_person_save', {
       accountId: 'acc-1',
       conversationId: 'p2p:wxid-yang',

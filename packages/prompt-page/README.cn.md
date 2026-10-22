@@ -4,17 +4,17 @@
 
 ## 是什么 / 何时用
 
-`@veren/prompt-core` + `@veren/prompt-host-messages` 之上的 LLM 页面会话运行时——`react-dom/client` 的对应物。用它声明带唯一 URL 的页面、注册进 `PageRegistry`、把解析出的页面挂载为独立页面会话。静态面（系统提示词/工具/skills）归 DSH preset；本包只管 URL、动态上下文与生命周期钩子。
+`@veren/prompt-core` 之上的 LLM 页面会话运行时——`react-dom/client` 的对应物（`@veren/prompt-host-messages` 现在只剩类型级依赖，供文档同步形状使用）。用它把页面写成组件、注册进 `PageRegistry`、把解析出的页面挂载为独立页面会话。静态面（系统提示词/工具/skills）归 DSH preset；本包只管 URL、组件渲染管线与页面生命周期钩子。
 
 ## 模型
 
-- **一页 = 一会话**：独立 `MessageHost`（独立版本链/快照基线）；状态在共享的权威 store 里——关闭会话永不丢状态。
+- **一页 = 一会话**：独立 `MessageHost`（独立版本链/文档基线）；状态在共享的权威 store 里——关闭会话永不丢状态。
 - **页面注册表**：页面注册 `{ name, url, description }`；url 模式仅路径段（`/task-detail/:taskId`）；`resolve(url)` 合并路径参数 + query（path 优先），返回规范化后的具体 URL。
-- **导航 = resolve → mount**：关旧会话、`mountPage` 新会话；指针经 `session.pointerMessage`（`OPEN /task-detail/t-12 {...}`）作为新会话第一条 user 消息注入。
-- **definePage fail loud**：空名称/空描述、非路径或重复 `:param` 的 url、非函数 tree。
-- **生命周期钩子（预留）**：`onLoad(params)` 挂载后；`onComplete(params)` 供消费方决定是否归档会话（插件经 `workspaceRegistry.archiveSession` 关闭）。
-- **可选策略装配**：给 `mountPage` 传 `assembly: { systemPrompt, provider?, policy?, budget? }`，会话即获得 `assemble()`——预算触顶 remount + 按 provider 规划缓存断点（来自 `@veren/prompt-host-messages`；未知 provider 显式默认 deepseek 语义，见该包 README）。不给 `assembly` 行为与历史完全一致。
-- **实时绑定（`PageLiveBinding`）**：页面注册时可一并声明权威 store，封成 `{ mount(params, scope?): PageSession<never> }`——状态类型 `S` 在 store 所在处被消费，注册表与挂载点都从不接触它。`scope` 是该会话的 `agent.ctx`：组件页的 `ctx.page.effect` / `ctx.page.on` 经它注册（DSH 作用域模型），agent-subject 事件按该 agent 过滤、清理随会话作用域；没有作用域（agent 尚未创建的暂存预览）时回退到创建者 ctx / 视图 teardown。`ctx.page.tool(def)` 记录会话作用域工具，由页面运行时挂载；ctx 的固有成员（`ctx.effect` / `ctx.on` / `ctx.tools`）不被改写。两条路径都用 `mountPage` 挂载；store 变化全同步进 `MessageHost` 的版本链，正因如此宿主能在下一轮模型请求注入最新快照（§3.10.2/§3.10.3）。
+- **导航 = resolve → mount**：关旧会话、挂新会话；指针经 `session.pointerMessage`（`OPEN /task-detail/t-12 {...}`）作为新会话第一条 user 消息注入。挂载原语是 `PageLiveBinding.mount(params, scope?)`，由页面运行时调用——不再有 `mountPage` 这类作者侧入口。
+- **组件页是唯一路径**：旧块词汇（`Static`/`Data`/`Keyed`）、块宿主挂载与动态 preset 构建已整体删除。`definePage` / `defineAppPage` 保留为契约校验入口（URL 形态、§3.10.5 规则 3），与 `defineComponentPage` 共用。
+- **生命周期钩子**：`meta.load(params, env)` 提供首屏数据，组件经 `useSnapshot()` 读取（失败态也是数据，正文里如实渲染）；`onComplete(params)` 供消费方决定是否归档会话（插件经 `workspaceRegistry.archiveSession` 关闭）。
+- **页面 hooks（`ctx.page`）**：组件页拿到真实宿主 Context 加一个 `ctx.page` 面——`ctx.page.effect(run)` / `ctx.page.on(name, handler)` 登记到该会话的 `agent.ctx` 作用域（事件按 agent 过滤、清理随 agent 销毁；没有作用域——暂存预览——时回退到创建者 ctx / 视图 teardown），`ctx.page.tool(def)` 记录会话作用域工具由页面运行时挂载。ctx 固有成员（`ctx.effect` / `ctx.on` / `ctx.tools`）不被改写。
+- **实时绑定（`PageLiveBinding`）**：页面注册时可一并声明权威 store（`meta.store`），封成 `{ mount(params, scope?): PageSession<never> }`——状态类型 `S` 在 store 所在处被消费，注册表与挂载点都从不接触它。`defineComponentPage(component, meta, ctx?)` 返回 `{ page, live }`；store 变化全同步进 `MessageHost` 的版本链，并 diff 成增量 `PAGE-PATCH` 块进入下一轮模型请求（§3.10.2/§3.10.3）。
 
 ## 组件页（`defineComponentPage`）
 

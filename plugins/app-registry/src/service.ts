@@ -167,13 +167,13 @@ export class AppRegistryService extends Service {
     return { register }
   }
 
-  /** 校验并以应用内唯一键登记一个页面；live 是组件页的每会话视图绑定
-   * / validate and register one page under its unique key; `live` is the component page's per-session view binding */
+  /** 校验并以应用内唯一键登记一个页面；live 是组件页的每会话视图绑定（必填）
+   * / validate and register one page under its unique key; `live` is the component page's per-session view binding (required) */
   private registerPage(
     entry: AppEntry,
     id: AppId,
     raw: PageDefinition<never>,
-    live?: PageLiveBinding,
+    live: PageLiveBinding,
     component = false,
   ): () => void {
     // 走 prompt-page 的 defineAppPage：强制 /apps/<appId>/... 形态与契约缺省。
@@ -225,17 +225,13 @@ export class AppRegistryService extends Service {
     const recordAfter = archetype === 'detail' || archetype === 'viewer'
       || [...entry.pages.values()].some((registered) => patternParamsOf(registered.page.url).length > 0)
     const homeAfter = archetype === 'home' ? page : entry.pages.get(entry.definition.entry)?.page
-    const liveBinding: PageLiveBinding | undefined = live
-    entry.pages.set(page.name, {
-      page,
-      ...(liveBinding === undefined ? {} : { live: liveBinding }),
-      ...(component ? { component: true } : {}),
-    })
+    const registration: PageRegistration = { page, live, ...(component ? { component: true } : {}) }
+    entry.pages.set(page.name, registration)
     this.refreshEntryState(entry, id)
     // 缺口 3：单入口——内部镜像进 page-registry；镜像失败回滚内部登记并抛原错。
     // Gap 3: single entry — mirror into page-registry; a mirror failure rolls
     // the internal registration back and rethrows the original error.
-    const mirrorDispose = this.mirrorPage(id, page, entry.pages.get(page.name)?.live)
+    const mirrorDispose = this.mirrorPage(id, page, registration.live)
     return () => {
       mirrorDispose?.()
       // 注销幂等：只在自己仍是当前登记时摘除 / idempotent: remove only if still current
@@ -246,8 +242,8 @@ export class AppRegistryService extends Service {
     }
   }
 
-  /** 镜像一次页面注册（含实时绑定）；失败回滚内部登记 / mirror one page (live binding included); roll back on failure */
-  private mirrorPage(id: AppId, page: PageDefinition<never>, live: PageLiveBinding | undefined): (() => void) | undefined {
+  /** 镜像一次页面注册（live 必填）；失败回滚内部登记 / mirror one page (live required); roll back on failure */
+  private mirrorPage(id: AppId, page: PageDefinition<never>, live: PageLiveBinding): (() => void) | undefined {
     const face = this.mirror
     if (face === undefined) {
       this.host.logger.warn(

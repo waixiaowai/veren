@@ -1,6 +1,6 @@
 # @veren/sub2api-admin
 
-应用型 DSH 插件：注册「Sub2API 运营」应用——三个 GUI 页面（大盘 / 账号 / 用量）+ 六个面向模型的管理工具，页面与工具共用同一个 `Sub2AdminClient` 与同一份凭据配置。结构与 `@veren/task-workbench` 参考实现一致（`ctx.apps.register` → `apps.tools` → `apps.pages`，`defineAppPage` JSX 树 + 共享 store）。
+应用型 DSH 插件：注册「Sub2API 运营」应用——三个 GUI 页面（大盘 / 账号 / 用量）+ 六个面向模型的管理工具，页面与工具共用同一个 `Sub2AdminClient` 与同一份凭据配置。结构与 `@veren/task-workbench` 参考实现一致（`ctx.apps.register` → `apps.tools` → `apps.pages`，组件页（`PageFC` + `useSnapshot`）+ 共享 store）。
 
 ## 页面
 

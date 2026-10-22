@@ -1,6 +1,6 @@
 # @veren/sub2api-admin
 
-Application-form DSH plugin: registers the "Sub2API 运营" app — three GUI pages (dashboard / accounts / usage) plus six model-facing admin tools, sharing one `Sub2AdminClient` and one credential config. The structure mirrors the `@veren/task-workbench` reference (`ctx.apps.register` → `apps.tools` → `apps.pages`, `defineAppPage` JSX trees over a shared store).
+Application-form DSH plugin: registers the "Sub2API 运营" app — three GUI pages (dashboard / accounts / usage) plus six model-facing admin tools, sharing one `Sub2AdminClient` and one credential config. The structure mirrors the `@veren/task-workbench` reference (`ctx.apps.register` → `apps.tools` → `apps.pages`, component pages (`PageFC` + `useSnapshot`) over a shared store).
 
 ## Pages
 

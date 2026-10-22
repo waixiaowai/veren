@@ -129,7 +129,11 @@ async function mountRegistries(ctx: Context, disposers: Array<() => Promise<void
     throw new Error('registry plugins did not provide apps/pageRegistry')
   }
   apps.setPageMirror({
-    registerAppPage: (appId, page) => pageRegistry.registerAppPage(appId, page),
+    // live 必须透传（与真实宿主 wire.ts 同缝）：组件页的每会话视图绑定丢了，
+    // 页面会话就挂不出视图。
+    // `live` must pass through (the same seam as the real host's wire.ts):
+    // dropping the per-session view binding breaks every page session.
+    registerAppPage: (appId, page, live) => pageRegistry.registerAppPage(appId, page, live),
     releaseApp: (appId) => pageRegistry.releaseApp(appId),
   })
 }
