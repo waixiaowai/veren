@@ -1,11 +1,11 @@
-// 会话管理工具：session_create / session_rename，走宿主的
+// 会话管理工具构建器：session_create / session_rename，走宿主的
 // Session 业务 API（ctx.sessionController），不重复造创建逻辑。
 // 分叉已由 session-fork-enhanced 插件的 session_fork_with_options 接管，
-// 本插件不再注册任何 fork 工具，避免两份重复实现。
-// Session management tools: session_create / session_rename over the host
-// Session business API (ctx.sessionController). Forking is owned by the
-// session-fork-enhanced plugin (session_fork_with_options), so this plugin
-// registers no fork tool and keeps a single implementation.
+// 本包不提供任何 fork 工具，避免两份重复实现。
+// Session management tool builders: session_create / session_rename over the
+// host Session business API (ctx.sessionController). Forking is owned by the
+// session-fork-enhanced plugin (session_fork_with_options), so this package
+// provides no fork tool and keeps a single implementation.
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
@@ -21,8 +21,9 @@ import {
 } from './types.js'
 import type { SessionCreateArgs, SessionCreateResult, SessionRenameArgs } from './types.js'
 
-/** 工具描述共用提示：id 可在工作记忆快照里查到。Shared description hint. */
-const HINT = 'Session ids appear in the working-memory snapshot.'
+/** 工具描述共用提示：session id 从 workspace_session_list 查；workspace id 从页面正文的 Workspace List 取。
+ * / shared description hint: session ids come from workspace_session_list; workspace ids from the page's Workspace List. */
+const HINT = 'Session ids come from the workspace_session_list tool; workspace ids come from the page\'s Workspace List.'
 
 /**
  * 解析新会话的工作区：显式 id 优先；缺省继承调用方会话所在的工作区。
@@ -126,7 +127,7 @@ export function buildSessionCreateDefinition(ctx: Context): ToolDefinition {
       model: { type: 'string', description: 'Model id; required together with provider.' },
       workspaceId: {
         type: 'string',
-        description: 'Workspace the new session joins, by id from the working-memory snapshot. Omit it to inherit the calling session\'s workspace; creation fails with SESSION_CREATE_WORKSPACE_UNKNOWN when the caller has none. cwd is not accepted: pass workspaceId instead.',
+        description: 'Workspace the new session joins, by id from the page\'s Workspace List. Omit it to inherit the calling session\'s workspace; creation fails with SESSION_CREATE_WORKSPACE_UNKNOWN when the caller has none. cwd is not accepted: pass workspaceId instead.',
       },
     },
     output: {
@@ -151,15 +152,6 @@ export function buildSessionCreateDefinition(ctx: Context): ToolDefinition {
       rawInput: args,
     }),
   })
-}
-
-/**
- * 注册 `session_create`：把构建器产物注册进宿主工具注册表。
- * Register `session_create`: register the builder's product into the host tool registry.
- * @param ctx - 携带 sessionController 的宿主上下文。The context carrying sessionController.
- */
-export function registerSessionCreate(ctx: Context): () => void {
-  return ctx.tools.register(guardRemovedCwd(buildSessionCreateDefinition(ctx), 'session_create'))
 }
 
 /**
@@ -253,12 +245,4 @@ export function buildSessionRenameDefinition(ctx: Context): ToolDefinition {
     })
 }
 
-/**
- * 注册 `session_rename`：把构建器产物注册进宿主工具注册表。
- * Register `session_rename`: register the builder's product into the host tool registry.
- * @param ctx - 携带 sessionController 的宿主上下文。The context carrying sessionController.
- */
-export function registerSessionRename(ctx: Context): () => void {
-  return ctx.tools.register(buildSessionRenameDefinition(ctx))
-}
 

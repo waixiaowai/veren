@@ -3,7 +3,7 @@
   "displayName": "管家-会话",
   "version": "0.2.6",
   "icon": "./icon.svg",
-  "description": "Use when a Person Agent session must maintain sibling sessions: model-facing session_create/session_rename tools over ctx.sessionController and session_archive/session_unarchive/session_pin/session_unpin over ctx.workspaceRegistry; session forking lives in the session-fork-enhanced plugin, so skip this when sessions must never create or reorganize other sessions.",
+  "description": "Use when the Person Agent app must build its session maintenance tool face: pure builders (no plugin row) for session_create/session_rename over ctx.sessionController, session_archive/session_unarchive/session_pin/session_unpin over ctx.workspaceRegistry, and session_dispatch with its settlement watch; the Person Agent app reuses these exact definitions as page-scoped tools, so skip this package when you only need a host-global session tool plugin.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -42,9 +42,6 @@
     "@deepseek-ai/dsh-llm": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-session": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0"
-  },
-  "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.4"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",

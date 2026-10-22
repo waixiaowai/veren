@@ -4,6 +4,7 @@
 // guard in watch.ts reports the closing output once the target is quiescent. It
 // replaces the blocking session_prompt.
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import { emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -18,6 +19,10 @@ import { guardRemovedCwd, resolveWorkspaceId } from './tools-management.js'
 import { SessionToolError } from './types.js'
 import type { NewSessionArgs, SessionDispatchArgs, SessionDispatchResult } from './types.js'
 import type { SettlementWatch } from './watch.js'
+
+/** 工具描述共用提示：session id 从 workspace_session_list 查；workspace id 从页面正文的 Workspace List 取。
+ * / shared description hint: session ids come from workspace_session_list; workspace ids from the page's Workspace List. */
+const HINT = 'Session ids come from the workspace_session_list tool; workspace ids come from the page\'s Workspace List.'
 
 /**
  * 返回指导：只有目标确实能回话时才追加。
@@ -133,14 +138,16 @@ async function createTarget(
 }
 
 /**
- * 注册 `session_dispatch`：派发立即返回 + 事件驱动结算通知。
- * Register `session_dispatch`: the dispatch returns immediately and settlement
- * reporting is event-driven.
+ * 构建 `session_dispatch` 工具定义（不注册）：派发立即返回 + 事件驱动结算通知。
+ * 看守由调用方持有（页面会话作用域随视图创建/销毁），本构建器只把它接进定义。
+ * Build the `session_dispatch` tool definition (unregistered): the dispatch
+ * returns immediately and settlement reporting is event-driven. The caller owns
+ * the watch (a page-session scope creates and disposes it with its view); this
+ * builder only wires it into the definition.
  * @param ctx - 宿主上下文。The host context.
  * @param watch - 结算看守注册表。The settlement-watch registry.
- * @returns 精确卸载函数。The exact disposer.
  */
-export function registerSessionDispatch(ctx: Context, watch: SettlementWatch): () => void {
+export function buildSessionDispatchDefinition(ctx: Context, watch: SettlementWatch): ToolDefinition {
   const definition = defineTool({
     name: 'session_dispatch',
     description:
@@ -154,7 +161,7 @@ export function registerSessionDispatch(ctx: Context, watch: SettlementWatch): (
       + 'last output and would lose the earlier result. Such a dispatch is refused with SESSION_DISPATCH_WATCH_BUSY; '
       + 'wait for the notice that names the pending dispatch and then dispatch again. '
       + 'Set report to false for fire-and-forget delivery to a session with no outstanding report. '
-      + 'This is how the bridge persona hands a created session its task. Session ids appear in the working-memory snapshot.',
+      + 'This is how the bridge persona hands a created session its task. ' + HINT,
     parameters: {
       sessionId: {
         type: 'string',
@@ -167,7 +174,7 @@ export function registerSessionDispatch(ctx: Context, watch: SettlementWatch): (
         properties: {
           workspaceId: {
             type: 'string',
-            description: 'Workspace the new session joins, by id from the working-memory snapshot. Omit it to inherit this session\'s workspace; creation fails with SESSION_CREATE_WORKSPACE_UNKNOWN when this session has none. cwd is not accepted: pass workspaceId instead.',
+            description: 'Workspace the new session joins, by id from the page\'s Workspace List. Omit it to inherit this session\'s workspace; creation fails with SESSION_CREATE_WORKSPACE_UNKNOWN when this session has none. cwd is not accepted: pass workspaceId instead.',
           },
           agentPreset: { type: 'string', description: 'Agent preset the new session runs. Defaults to the configured default.' },
         },
@@ -279,7 +286,7 @@ export function registerSessionDispatch(ctx: Context, watch: SettlementWatch): (
       rawInput: args,
     }),
   })
-  return ctx.tools.register(guardRemovedCwd(definition, 'session_dispatch'))
+  return guardRemovedCwd(definition, 'session_dispatch')
 }
 
 /**

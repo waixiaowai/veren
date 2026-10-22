@@ -49,6 +49,8 @@ function fakeWorkspaceRegistry(rows: Array<{ id: string; title: string; sessionI
 async function install(options: {
   openTitles?: string[]
   failList?: boolean
+  failPresetList?: boolean
+  failModelList?: boolean
   workspaces?: Array<{ id: string; title: string; sessionIds: string[] }>
 } = {}): Promise<{
   ctx: Context
@@ -70,6 +72,34 @@ async function install(options: {
   })
   ctx.provide('workspaceRegistry', fakeWorkspaceRegistry(options.workspaces) as never)
   ctx.provide('taskCenter', fakeTaskCenter(options) as never)
+  // 页面正文的另外两块部署事实：预设名单与模型目录。默认给真实形状的数据，
+  // 失败测试用开关让读取抛错，钉住“失败如实渲染、不编造”。
+  // The other two deployment facts in the page body: preset roster and model
+  // catalog. The defaults carry realistic shapes; failure tests flip a switch so
+  // the read throws, pinning "failures render honestly, never faked".
+  ctx.provide('agentPresets', {
+    list: async () => {
+      if (options.failPresetList === true) throw new Error('preset registry down')
+      return [
+        { id: 'standard' },
+        { id: 'person-agent', name: 'Person Agent', description: 'Bridge', order: 5 },
+        { id: 'broken-one', name: 'Broken preset', broken: 'activation failed' },
+      ]
+    },
+  } as never)
+  ctx.provide('llm', {
+    listProviders: () => {
+      if (options.failModelList === true) throw new Error('llm registry down')
+      return [{ id: 'deepseek', name: 'DeepSeek' }]
+    },
+    listModels: async () => [{
+      provider: 'deepseek',
+      id: 'deepseek-flash',
+      name: 'DeepSeek Flash',
+      inputModalities: ['text'],
+    }],
+    resolveModelInfo: async () => ({ context: { contextWindow: 128000 } }),
+  } as never)
   // 会话事实面：目录工具执行时直接读 ctx.sessions / ctx.sessionProjections，
   // 建会话工具读 ctx.sessionController——三者都必须真提供（插件的 inject 声明）。
   // The session-fact faces: the catalog tool reads ctx.sessions /
@@ -233,13 +263,32 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     const { host } = mountPage(OverviewPage, OverviewMeta, ctx)
     // 同步面（apps/workspaces）正文直读：首帧即真实数据，无 loading 态
     // / sync faces (apps/workspaces) read straight in the body: real data on frame 1, no loading state
+    expect(host.bodyText()).toContain('Workspace List')
     expect(host.bodyText()).toContain('主工作区（id: ws-1；会话账目 2）')
     expect(host.bodyText()).toContain('副工作区（id: ws-2；会话账目 0）')
     expect(host.bodyText()).toContain('工作区 2 个')
     expect(host.bodyText()).toContain('Person Agent')
     expect(host.bodyText()).toContain('读取中')
-    // 异步面（tasks）effect 拉取后重渲进正文 / the async face (tasks) re-renders into the body after the effect fetch
+    // 异步面（tasks/presets/models）effect 拉取后重渲进正文
+    // / async faces (tasks/presets/models) re-render into the body after the effect fetches
     await vi.waitFor(() => expect(host.bodyText()).toContain('open 任务 1 条'))
+    await vi.waitFor(() => expect(host.bodyText()).toContain('Agent Preset List'))
+    await vi.waitFor(() => expect(host.bodyText()).toContain('Standard mode(standard)'))
+    await vi.waitFor(() => expect(host.bodyText()).toContain('Person Agent(person-agent):Bridge'))
+    await vi.waitFor(() => expect(host.bodyText()).toContain('（不可用：activation failed）'))
+    await vi.waitFor(() => expect(host.bodyText()).toContain('Model Catalog'))
+    await vi.waitFor(() => expect(host.bodyText()).toContain('DeepSeek(deepseek)'))
+    await vi.waitFor(() => expect(host.bodyText()).toContain('DeepSeek Flash(deepseek-flash)'))
+    await vi.waitFor(() => expect(host.bodyText()).toContain('context 128000 tokens'))
+  })
+
+  it('预设/模型读取失败：正文如实标注原因，工作区与任务区不受影响', async () => {
+    const { ctx, fiber } = await install({ failPresetList: true, failModelList: true })
+    disposers.push(() => fiber.dispose())
+    const { host } = mountPage(OverviewPage, OverviewMeta, ctx)
+    expect(host.bodyText()).toContain('主工作区（id: ws-1；会话账目 2）')
+    await vi.waitFor(() => expect(host.bodyText()).toContain('预设名单读取失败：preset registry down'))
+    await vi.waitFor(() => expect(host.bodyText()).toContain('模型目录读取失败：llm registry down'))
   })
 
   it('工作区浏览页正文直读：打开即真实工作区行（ws-1/会话账目 2），零 loading 态', async () => {

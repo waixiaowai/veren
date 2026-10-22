@@ -1,5 +1,5 @@
-// 工具实现：workspace_create / workspace_rename，注册到 ctx.tools。
-// Tool implementations: workspace_create / workspace_rename on ctx.tools.
+// 工具构建器：workspace_create / workspace_rename（只造定义，注册归应用层）。
+// Tool builders: workspace_create / workspace_rename (definitions only; registration belongs to the app layer).
 import { mkdir, stat } from 'node:fs/promises'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -16,7 +16,7 @@ import {
 /** 工具描述里对使用边界的提示，两个工具共用。 */
 /** The usage-boundary hint shared by both tool descriptions. */
 const HINT =
-  'Workspace ids and paths appear in the working-memory snapshot; prefer reusing an existing workspace over creating a new one.'
+  'Workspace ids appear in the page\'s Workspace List (or the session\'s working-memory snapshot); prefer reusing an existing workspace over creating a new one.'
 
 /** `registerWorkspaceCreate` 的部署开关。Deployment knobs of `registerWorkspaceCreate`. */
 export interface WorkspaceCreateOptions {
@@ -109,16 +109,6 @@ export function buildWorkspaceCreateDefinition(ctx: Context, options: WorkspaceC
 }
 
 /**
- * 注册 `workspace_create`：把构建器产物注册进宿主工具注册表。
- * Register `workspace_create`: register the builder's product into the host tool registry.
- * @param ctx - 携带 workspaceRegistry 的宿主上下文。The host context carrying workspaceRegistry.
- * @param options - 部署开关。The deployment knobs.
- */
-export function registerWorkspaceCreate(ctx: Context, options: WorkspaceCreateOptions): () => void {
-  return ctx.tools.register(buildWorkspaceCreateDefinition(ctx, options))
-}
-
-/**
  * 构建 `workspace_rename` 工具定义（不注册）：应用目录复用同一份实现。
  * Build the `workspace_rename` tool definition (unregistered): the app catalog
  * reuses this very implementation.
@@ -166,11 +156,3 @@ export function buildWorkspaceRenameDefinition(ctx: Context): ToolDefinition {
     })
 }
 
-/**
- * 注册 `workspace_rename`：把构建器产物注册进宿主工具注册表。
- * Register `workspace_rename`: register the builder's product into the host tool registry.
- * @param ctx - 携带 workspaceRegistry 的宿主上下文。The host context carrying workspaceRegistry.
- */
-export function registerWorkspaceRename(ctx: Context): () => void {
-  return ctx.tools.register(buildWorkspaceRenameDefinition(ctx))
-}

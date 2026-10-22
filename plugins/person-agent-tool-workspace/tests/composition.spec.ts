@@ -1,23 +1,23 @@
-// 组合测试：走真实 cordis Context——真实 inject 解析与真实 effect 逆序清理；
-// 工具注册表与工作区注册表用假实现替换，直接驱动被注册的工具定义。
-// Composition test: real cordis Context - real inject resolution and real
-// effect reverse-order disposal; the tool registry and workspace registry are
-// fakes, and the registered tool definitions are driven directly.
+// 构建器组合测试：真实 cordis Context 承载闭包里的宿主 ctx；工作区注册表用
+// 假实现替换，直接驱动构建器产出的工具定义。
+// Builder composition test: a real cordis Context carries the host ctx captured
+// in the closures; the workspace registry is a fake, and the builder products
+// are driven directly.
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { Fiber } from '@deepseek-ai/cordis'
-import { apply, inject, name } from '../src/index.js'
-import type { ConfigShape } from '../src/index.js'
-import { resolveConfig } from './support.js'
+import {
+  buildWorkspaceCreateDefinition,
+  buildWorkspaceRenameDefinition,
+  buildWorkspaceSessionListDefinition,
+} from '../src/index.js'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 
-/** 被注册工具定义的最小执行面（测试只走 execute）。 */
-/** The minimal execution face of a registered tool (tests drive execute only). */
-interface RegisteredTool {
-  execute: (args: unknown, exec: unknown) => Promise<unknown>
-}
+/** 工具定义的最小执行面（测试只走 execute）。 */
+/** The minimal execution face of a tool definition (tests drive execute only). */
+type RegisteredTool = Pick<ToolDefinition, 'execute'>
 
 /** 记录 registry 调用的假工作区注册表。A fake workspace registry recording calls. */
 function fakeRegistry() {
@@ -63,47 +63,36 @@ function fakeRegistry() {
   }
 }
 
-/** 安装真实 apply 与可变假服务，返回被捕获的工具定义。 */
-/** Install the real apply with mutable fakes; return the captured tool definitions. */
-async function install(config: Partial<ConfigShape> = {}) {
+/** 构建全部工具定义并返回可驱动的映射。Build every tool definition and return a drivable map. */
+function install() {
   const ctx = new Context()
   const registry = fakeRegistry()
-  const definitions = new Map<string, RegisteredTool>()
-  ctx.provide('tools', {
-    // 与宿主一致：register 返回精确卸载函数，供 cordis effect 逆序清理。
-    // Host contract: register returns the exact disposer for cordis effect
-    // reverse-order cleanup.
-    register: (definition: { name: string } & RegisteredTool) => {
-      definitions.set(definition.name, definition)
-      return () => definitions.delete(definition.name)
-    },
-  })
   ctx.provide('workspaceRegistry', registry)
-  // 会话事实数据源的最小假实现：组合测试不解析会话，只需 inject 可解析。
+  // 会话事实数据源的最小假实现：组合测试不解析会话。
   // Minimal fakes for the session-facts data sources: the composition test
-  // resolves no sessions, the injectables only need to resolve.
+  // resolves no sessions.
   ctx.provide('sessions', { get: () => undefined })
   ctx.provide('sessionProjections', { stateOf: () => undefined })
-  const fiber: Fiber = ctx.plugin({ name, inject, apply }, resolveConfig(config))
-  await fiber
+  const definitions = new Map<string, RegisteredTool>([
+    ['workspace_create', buildWorkspaceCreateDefinition(ctx, { allowCreateDirectory: false })],
+    ['workspace_rename', buildWorkspaceRenameDefinition(ctx)],
+    ['workspace_session_list', buildWorkspaceSessionListDefinition(ctx, { maxListSessions: 200 })],
+  ])
   return {
     registry,
     run: async (tool: string, args: unknown): Promise<unknown> => {
       const definition = definitions.get(tool)
-      if (definition === undefined) throw new Error(`tool not registered: ${tool}`)
+      if (definition === undefined) throw new Error(`tool not built: ${tool}`)
       return await definition.execute(args, {})
     },
-    registered: (): string[] => [...definitions.keys()].sort(),
-    unload: async (): Promise<void> => {
-      await fiber.dispose()
-    },
+    built: (): string[] => [...definitions.keys()].sort(),
   }
 }
 
-describe('personAgentToolWorkspace composition（真实装配路径 / real assembly path）', () => {
-  it('registers both tools and routes calls to the registry', async () => {
-    const env = await install()
-    expect(env.registered()).toEqual(['workspace_create', 'workspace_rename', 'workspace_session_list'])
+describe('person-agent-tool-workspace builders（真实装配路径 / real assembly path）', () => {
+  it('builds all three tools and routes calls to the registry', async () => {
+    const env = install()
+    expect(env.built()).toEqual(['workspace_create', 'workspace_rename', 'workspace_session_list'])
     // 真实工具体会对路径做存在性检查，所以这里用一个真实存在的临时目录。
     // The real tool body checks path existence, so a real temp directory is used.
     const dir = await mkdtemp(join(tmpdir(), 'patw-'))
@@ -115,27 +104,10 @@ describe('personAgentToolWorkspace composition（真实装配路径 / real assem
     expect(env.registry.titles.get(`ws-${dir}`)).toBe('Beta')
   })
 
-  it('omits workspace_create when allowCreate is false', async () => {
-    const env = await install({ allowCreate: false })
-    expect(env.registered()).toEqual(['workspace_rename', 'workspace_session_list'])
-  })
-
-  it('omits workspace_session_list when allowListSessions is false', async () => {
-    const env = await install({ allowListSessions: false })
-    expect(env.registered()).toEqual(['workspace_create', 'workspace_rename'])
-  })
-
   it('rejects createDirectory when the deployment disables it', async () => {
-    const env = await install({ allowCreateDirectory: false })
+    const env = install()
     await expect(env.run('workspace_create', { path: 'C:/tmp/missing', createDirectory: true }))
       .rejects.toMatchObject({ code: 'WORKSPACE_CREATE_DIRECTORY_DISABLED' })
     expect(env.registry.created).toHaveLength(0)
-  })
-
-  it('unregisters every tool on dispose (HMR safety)', async () => {
-    const env = await install()
-    expect(env.registered()).toHaveLength(3)
-    await env.unload()
-    expect(env.registered()).toHaveLength(0)
   })
 })

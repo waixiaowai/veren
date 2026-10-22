@@ -1,24 +1,30 @@
-// 组合测试：走真实 cordis Context——真实 inject 解析与真实 effect 逆序清理；
-// sessionController 与 workspaceRegistry 用假实现替换，直接驱动被注册的
-// 工具定义，锁定创建/改名/归档/置顶/派活的调用路径。
+// 构建器组合测试：真实 cordis Context 承载闭包里的宿主 ctx；sessionController
+// 与 workspaceRegistry 用假实现替换，直接驱动构建器产出的工具定义，锁定
+// 创建/改名/归档/置顶/派活的调用路径。
 // （分叉工具 session_fork 已移交 session-fork-enhanced，此处不再覆盖。）
-// Composition test: real cordis Context - real inject resolution and real
-// effect reverse-order disposal; sessionController and workspaceRegistry are
-// fakes, and the registered tool definitions are driven directly to lock the
-// create/rename/archive/pin/prompt call paths. (The fork tool moved to the
+// Builder composition test: a real cordis Context carries the host ctx captured
+// in the closures; sessionController and workspaceRegistry are fakes, and the
+// builder products are driven directly to lock the
+// create/rename/archive/pin/dispatch call paths. (The fork tool moved to the
 // session-fork-enhanced plugin and is not covered here.)
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { Fiber } from '@deepseek-ai/cordis'
-import { apply, inject, name } from '../src/index.js'
-import type { ConfigShape } from '../src/index.js'
-import { resolveConfig } from './support.js'
+import {
+  buildSessionArchiveDefinition,
+  buildSessionCreateDefinition,
+  buildSessionDispatchDefinition,
+  buildSessionPinDefinition,
+  buildSessionRenameDefinition,
+  buildSessionUnarchiveDefinition,
+  buildSessionUnpinDefinition,
+  createSettlementWatch,
+  guardRemovedCwd,
+} from '../src/index.js'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 
-/** 被注册工具定义的最小执行面（测试只走 execute）。 */
-/** The minimal execution face of a registered tool (tests drive execute only). */
-interface RegisteredTool {
-  execute: (args: unknown, exec: unknown) => Promise<unknown>
-}
+/** 工具定义的最小执行面（测试只走 execute）。 */
+/** The minimal execution face of a tool definition (tests drive execute only). */
+type RegisteredTool = Pick<ToolDefinition, 'execute'>
 
 /** 记录调用序列的假 sessionController。A fake sessionController recording calls. */
 function fakeSessionController() {
@@ -83,60 +89,55 @@ function fakeWorkspaceRegistry() {
   }
 }
 
-/** 安装真实 apply 与可变假服务，返回被捕获的工具定义。 */
-/** Install the real apply with mutable fakes; return the captured tool definitions. */
-async function install(config: Partial<ConfigShape> = {}) {
+/** 构建全部工具定义（cwd 守卫与宿主注册路径同款），返回可驱动的映射。 */
+/** Build every tool definition (the cwd guard exactly as the host path does) and return a drivable map. */
+function install() {
   const ctx = new Context()
   const sessionController = fakeSessionController()
   const workspaceRegistry = fakeWorkspaceRegistry()
-  const definitions = new Map<string, RegisteredTool>()
-  ctx.provide('tools', {
-    // 与宿主一致：register 返回精确卸载函数，供 cordis effect 逆序清理。
-    // Host contract: register returns the exact disposer for cordis effect
-    // reverse-order cleanup.
-    register: (definition: { name: string } & RegisteredTool) => {
-      definitions.set(definition.name, definition)
-      return () => definitions.delete(definition.name)
-    },
-  })
   ctx.provide('sessionController', sessionController)
   ctx.provide('workspaceRegistry', workspaceRegistry)
-  // 派活看守需要存活 Agent 与会话存储；本文件只锁非派活工具，所以给最小可用的空实现。
+  // 派活看守需要存活 Agent 与会话存储；本文件只锁非看守路径，给最小可用的空实现。
   // The dispatch guard needs the live-Agent registry and the session store; this
-  // file locks the non-dispatch tools only, so they get minimal empty providers.
+  // file locks non-watch paths only, so they get minimal empty providers.
   ctx.provide('agents', { get: () => undefined })
   ctx.provide('sessions', { get: () => undefined, flush: async () => true })
-  const fiber: Fiber = ctx.plugin({ name, inject, apply }, resolveConfig(config))
-  await fiber
+  const watch = createSettlementWatch(ctx, { maxReportChars: 4000, maxConcurrentWatches: 64 })
+  const definitions = new Map<string, RegisteredTool>([
+    ['session_create', guardRemovedCwd(buildSessionCreateDefinition(ctx), 'session_create')],
+    ['session_rename', buildSessionRenameDefinition(ctx)],
+    ['session_dispatch', buildSessionDispatchDefinition(ctx, watch)],
+    ['session_archive', buildSessionArchiveDefinition(ctx)],
+    ['session_unarchive', buildSessionUnarchiveDefinition(ctx)],
+    ['session_pin', buildSessionPinDefinition(ctx)],
+    ['session_unpin', buildSessionUnpinDefinition(ctx)],
+  ])
   return {
     sessionController,
     workspaceRegistry,
     run: async (tool: string, args: unknown, exec: unknown = {}): Promise<unknown> => {
       const definition = definitions.get(tool)
-      if (definition === undefined) throw new Error(`tool not registered: ${tool}`)
+      if (definition === undefined) throw new Error(`tool not built: ${tool}`)
       return await definition.execute(args, exec)
     },
-    registered: (): string[] => [...definitions.keys()].sort(),
-    unload: async (): Promise<void> => {
-      await fiber.dispose()
-    },
+    built: (): string[] => [...definitions.keys()].sort(),
   }
 }
 
-describe('personAgentToolSession composition（真实装配路径 / real assembly path）', () => {
-  it('registers all seven tools by default', async () => {
-    const env = await install()
-    expect(env.registered()).toEqual([
+describe('person-agent-tool-session builders（真实装配路径 / real assembly path）', () => {
+  it('builds all seven tool definitions', () => {
+    const env = install()
+    expect(env.built()).toEqual([
       'session_archive', 'session_create', 'session_dispatch', 'session_pin', 'session_rename', 'session_unarchive', 'session_unpin',
     ])
-    // 分叉工具不再由本插件注册，避免与 session-fork-enhanced 重复。
-    // No fork tool is registered here, avoiding duplication with
+    // 分叉工具不由本包提供，避免与 session-fork-enhanced 重复。
+    // No fork tool is provided here, avoiding duplication with
     // session-fork-enhanced.
-    expect(env.registered().some((tool) => tool.includes('fork'))).toBe(false)
+    expect(env.built().some((tool) => tool.includes('fork'))).toBe(false)
   })
 
   it('fails loud on an empty prompt and an unresolvable session', async () => {
-    const env = await install()
+    const env = install()
     await expect(env.run('session_dispatch', { sessionId: 'sess-9', prompt: '   ' }, { agent: {} }))
       .rejects.toMatchObject({ code: 'SESSION_DISPATCH_PROMPT_EMPTY' })
     await expect(env.run('session_dispatch', { sessionId: 'sess-missing', prompt: 'task' }, { agent: {} }))
@@ -150,7 +151,7 @@ describe('personAgentToolSession composition（真实装配路径 / real assembl
   })
 
   it('creates a session with preset, model selection, and title in order', async () => {
-    const env = await install()
+    const env = install()
     const result = await env.run('session_create', {
       title: ' Helper ', presetId: 'person-agent', provider: 'deepseek', model: 'deepseek-chat', workspaceId: 'ws-1',
     })
@@ -165,14 +166,14 @@ describe('personAgentToolSession composition（真实装配路径 / real assembl
   })
 
   it('inherits the calling session workspace when workspaceId is omitted', async () => {
-    const env = await install()
+    const env = install()
     env.workspaceRegistry.workspaces = [{ id: 'ws-1', path: 'C:/work/app', sessionIds: ['caller'] }]
     await env.run('session_create', { title: 'Inherited' }, { agent: { id: 'caller' } })
     expect(env.sessionController.calls[0]).toBe('create:{"workspaceId":"ws-1"}')
   })
 
   it('rejects session_create when neither workspaceId nor a caller workspace exists', async () => {
-    const env = await install()
+    const env = install()
     await expect(env.run('session_create', { title: 'Orphan' }, { agent: { id: 'caller' } }))
       .rejects.toMatchObject({
         code: 'SESSION_CREATE_WORKSPACE_UNKNOWN',
@@ -184,7 +185,7 @@ describe('personAgentToolSession composition（真实装配路径 / real assembl
   })
 
   it('rejects the removed cwd argument and points at workspaceId', async () => {
-    const env = await install()
+    const env = install()
     await expect(env.run('session_create', { workspaceId: 'ws-1', cwd: 'C:/work/app' }))
       .rejects.toMatchObject({
         code: 'SESSION_CREATE_CWD_REMOVED',
@@ -201,7 +202,7 @@ describe('personAgentToolSession composition（真实装配路径 / real assembl
     // The fake controller records the create request first; the minted id is
     // then unresolvable, so the stable error lets the assertion stop at how the
     // dispatch asked the host to create the session.
-    const env = await install()
+    const env = install()
     await expect(env.run('session_dispatch', {
       newSession: { workspaceId: 'ws-1', agentPreset: 'person-agent' },
       prompt: 'task',
@@ -210,7 +211,7 @@ describe('personAgentToolSession composition（真实装配路径 / real assembl
   })
 
   it('inherits the calling session workspace for a dispatched new session', async () => {
-    const env = await install()
+    const env = install()
     env.workspaceRegistry.workspaces = [{ id: 'ws-1', path: 'C:/work/app', sessionIds: ['caller'] }]
     await expect(env.run('session_dispatch', {
       newSession: { agentPreset: 'person-agent' },
@@ -220,7 +221,7 @@ describe('personAgentToolSession composition（真实装配路径 / real assembl
   })
 
   it('rejects a dispatched new session when the caller has no workspace', async () => {
-    const env = await install()
+    const env = install()
     await expect(env.run('session_dispatch', {
       newSession: {},
       prompt: 'task',
@@ -235,7 +236,7 @@ describe('personAgentToolSession composition（真实装配路径 / real assembl
     // 两条创建路径共用同一个 cwd 守卫，错误必须指向 workspaceId 且在创建前失败。
     // Both creation paths share the same cwd guard: the error must point at
     // workspaceId and fail before any host create.
-    const env = await install()
+    const env = install()
     await expect(env.run('session_dispatch', {
       newSession: { workspaceId: 'ws-1', cwd: 'C:/work/app' },
       prompt: 'task',
@@ -247,20 +248,20 @@ describe('personAgentToolSession composition（真实装配路径 / real assembl
   })
 
   it('rejects an incomplete model selection', async () => {
-    const env = await install()
+    const env = install()
     await expect(env.run('session_create', { provider: 'deepseek' }))
       .rejects.toMatchObject({ code: 'SESSION_MODEL_SELECTION_INCOMPLETE' })
     expect(env.sessionController.calls).toHaveLength(0)
   })
 
   it('renames through the session controller', async () => {
-    const env = await install()
+    const env = install()
     expect(await env.run('session_rename', { sessionId: 'sess-9', title: 'New' }))
       .toMatchObject({ title: 'New', seq: 7 })
   })
 
   it('routes archive/pin verbs to the workspace registry', async () => {
-    const env = await install()
+    const env = install()
     await env.run('session_archive', { sessionId: 'sess-1', stopActivity: true })
     await env.run('session_unarchive', { sessionId: 'sess-1' })
     await env.run('session_pin', { sessionId: 'sess-2' })
@@ -271,17 +272,5 @@ describe('personAgentToolSession composition（真实装配路径 / real assembl
       'pinSession:sess-2',
       'unpinSession:sess-2',
     ])
-  })
-
-  it('honors config toggles', async () => {
-    const env = await install({ allowCreate: false, allowDispatch: false, allowArchive: false, allowPin: false })
-    expect(env.registered()).toEqual(['session_rename'])
-  })
-
-  it('unregisters every tool on dispose (HMR safety)', async () => {
-    const env = await install()
-    expect(env.registered()).toHaveLength(7)
-    await env.unload()
-    expect(env.registered()).toHaveLength(0)
   })
 })

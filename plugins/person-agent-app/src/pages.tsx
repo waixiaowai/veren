@@ -48,6 +48,13 @@ import type {} from '@veren/task-center'
 // dynamically in the page session's scope — registration is the scope, removed
 // with the session.
 import { buildSessionCreateDefinition, buildSessionRenameDefinition } from '@veren/person-agent-tool-session'
+// 部署事实读取：预设名单与模型目录。facts.ts 只读数、出结构化事实；标点与
+// 行排版由下方正文 tsx 渲染。工作区仍由正文直读注册表。
+// Deployment-fact reads: the preset roster and model catalog. facts.ts only
+// reads and returns structured facts; punctuation and line layout are rendered
+// by the tsx body below. Workspaces stay a direct registry read in the body.
+import { errorMessage, readAgentPresets, readModelCatalogGroups } from './facts.ts'
+import type { AgentPresetView, ModelCatalogGroupView } from './facts.ts'
 
 /** 应用内 URL 前缀 / the app-scoped url prefix */
 const URL_PREFIX = '/apps/person-agent'
@@ -56,11 +63,15 @@ const URL_PREFIX = '/apps/person-agent'
 
 /**
  * 个人工作台概览：应用目录与工作区是同步内存读——正文直接调，首帧即真实数据；
- * 任务中心是异步读——`ctx.page.effect` 拉取，读取失败如实渲染原因，绝不编造数字。
+ * 预设名单、模型目录与任务中心是异步读——`ctx.page.effect` 拉取，读取失败如实
+ * 渲染原因，绝不编造数字。三块名单（Workspace List / Agent Preset List /
+ * Model Catalog）都在正文里，模型从正文取 id，不依赖任何隐藏的 pre-step 注入。
  * The personal workbench overview: catalog and workspaces are sync in-memory
  * reads called straight in the body — the first frame already carries real
- * data; the task center is an async read fetched in `ctx.page.effect`, with a
- * failed read rendered honestly — never faked.
+ * data; the preset roster, model catalog and task center are async reads fetched
+ * in `ctx.page.effect`, with a failed read rendered honestly — never faked. All
+ * three lists (Workspace List / Agent Preset List / Model Catalog) live in the
+ * body, so the model takes ids from the page, never from a hidden pre-step.
  */
 export const OverviewPage: PageFC = (_props, ctx) => {
   const apps = ctx.apps
@@ -72,6 +83,32 @@ export const OverviewPage: PageFC = (_props, ctx) => {
     void ctx.taskCenter.list({ status: 'open' }).then(setOpenTasks, (error: unknown) => {
       setTaskError(error instanceof Error ? error.message : String(error))
     })
+  })
+  // 预设名单与模型目录：异步读部署注册表；读取失败如实渲染原因，绝不编造。
+  // 页面正文只在组件重渲时更新，变化由 app-host 的 PAGE-PATCH 通道带走。
+  // The preset roster and model catalog: async reads of the deployment
+  // registries; failures render their reason honestly, never invented data.
+  // The body updates when the component re-renders; app-host's PAGE-PATCH
+  // carries the change.
+  const [presets, setPresets] = useState<AgentPresetView[] | null>(null)
+  const [presetError, setPresetError] = useState<string | null>(null)
+  const [modelGroups, setModelGroups] = useState<ModelCatalogGroupView[] | null>(null)
+  const [modelError, setModelError] = useState<string | null>(null)
+  ctx.page.effect(() => {
+    let cancelled = false
+    void readAgentPresets(ctx).then(
+      (views) => { if (!cancelled) setPresets(views) },
+      (error: unknown) => { if (!cancelled) setPresetError(errorMessage(error)) },
+    )
+    return () => { cancelled = true }
+  })
+  ctx.page.effect(() => {
+    let cancelled = false
+    void readModelCatalogGroups(ctx).then(
+      (groups) => { if (!cancelled) setModelGroups(groups) },
+      (error: unknown) => { if (!cancelled) setModelError(errorMessage(error)) },
+    )
+    return () => { cancelled = true }
   })
   // 动作工具（RFC §5.4 动态面）：注册进本会话作用域——agent 在工作台里能真的建会话、
   // 改标题，而不是只有只读查询。登记即承诺：instructions 同步点名这两个工具。
@@ -94,12 +131,54 @@ export const OverviewPage: PageFC = (_props, ctx) => {
           <li key={record.definition.id}>{record.definition.name}（{record.definition.id} · {record.state}）</li>
         ))}
       </ul>
-      <h2>工作区</h2>
+      <h2>Workspace List（工作区）</h2>
       <ul>
         {rows.map((workspace) => (
           <li key={workspace.id}>{workspace.title}（id: {workspace.id}；会话账目 {workspace.sessionIds.length}）</li>
         ))}
       </ul>
+      <h2>Agent Preset List（预设名单）</h2>
+      {presetError !== null
+        ? <p>预设名单读取失败：{presetError}——如实告知用户，不要编造。</p>
+        : presets === null
+          ? <p>读取中…</p>
+          : presets.length === 0
+            ? <p>（无可用预设）</p>
+            : <ul>
+                {presets.map((preset) => (
+                  <li key={preset.id}>
+                    {preset.name}({preset.id})
+                    {preset.description ? `:${preset.description}` : null}
+                    {preset.broken ? `（不可用：${preset.broken}）` : null}
+                  </li>
+                ))}
+              </ul>}
+      <h2>Model Catalog（模型目录）</h2>
+      {modelError !== null
+        ? <p>模型目录读取失败：{modelError}——如实告知用户，不要编造。</p>
+        : modelGroups === null
+          ? <p>读取中…</p>
+          : modelGroups.length === 0
+            ? <p>（无可用模型）</p>
+            : <ul>
+                {modelGroups.map((group) => (
+                  <li key={group.id}>
+                    {group.name}({group.id}){group.error === undefined ? null : `: 读取失败：${group.error}`}
+                    {group.models.length > 0
+                      ? <ul>
+                          {group.models.map((model) => (
+                            <li key={model.id}>
+                              {model.name}({model.id}): input {model.inputModalities.includes('image') ? 'text+image' : 'text'}
+                              {' · '}
+                              {model.contextWindow === undefined ? 'context unknown' : `context ${model.contextWindow} tokens`}
+                              {model.hint === '' ? null : ` · use when: ${model.hint}`}
+                            </li>
+                          ))}
+                        </ul>
+                      : null}
+                  </li>
+                ))}
+              </ul>}
       <h2>待办任务</h2>
       {taskError !== null
         ? <p>任务中心读取失败：{taskError}——如实告知用户，不要编造数字。</p>
@@ -107,7 +186,9 @@ export const OverviewPage: PageFC = (_props, ctx) => {
       <blockquote>
         要看某个工作区的会话明细，用本页挂载的 workspace_session_list 工具：workspaceId 取上面行内
         “id:” 之后的完整值（不是标题，也不是把标题改写成连字符形式）；标题只是展示名，注册表按 id 解析。
-        apps 区与 tasks 区不提供下钻，只报快照；任务区读取失败时正文如实标注原因。
+        Workspace List / Agent Preset List / Model Catalog 都来自部署注册表：选预设或模型时取行内 id，
+        省略 presetId/provider/model 即用部署默认。apps 区与 tasks 区不提供下钻，只报快照；
+        预设/模型/任务读取失败时正文如实标注原因。
       </blockquote>
     </>
   )
@@ -116,7 +197,7 @@ export const OverviewPage: PageFC = (_props, ctx) => {
 export const OverviewMeta: ComponentPageMeta = {
   name: 'overview',
   url: `${URL_PREFIX}/overview`,
-  description: '个人工作台概览：看清部署、应用目录、工作区/会话与待办任务，并可新建/重命名会话',
+  description: '个人工作台概览：看清部署的应用、工作区、预设与模型，处理待办任务，并可新建/重命名会话',
   // 挂本页承诺的现查读工具：说明里点名"看会话明细用它"，它就必须真的在页面上
   // / mount the read tool the page promises: naming it in the instructions requires it to really be mounted
   tools: ['workspace_session_list'],
@@ -124,14 +205,16 @@ export const OverviewMeta: ComponentPageMeta = {
   // / this page registers action tools (session_create / session_rename); declare the write intent honestly
   writes: true,
   instructions: '这是 Person Agent 的首页（个人工作台概览）。正文即真实状态：'
-    + 'apps 区来自应用目录（正文直读），workspaces 区来自工作区注册表（正文直读，每行带工作区 id），'
+    + 'apps 区来自应用目录（正文直读），Workspace List 来自工作区注册表（正文直读，每行带工作区 id 与会话账目），'
+    + 'Agent Preset List 与 Model Catalog 来自部署的预设/模型注册表（挂载后异步刷新，每行带 id），'
     + 'tasks 区来自任务中心的 open 任务计数（挂载后异步刷新）。'
-    + '任务区读取失败时正文会如实标注失败原因——如实告知用户，不要编造数字。'
+    + '预设/模型/任务读取失败时正文会如实标注失败原因——如实告知用户，不要编造数字。'
     + '本页挂载三个工具：workspace_session_list（查某工作区的会话明细）、'
     + 'session_create（新建会话，省略 workspaceId 则继承当前会话的工作区）、'
     + 'session_rename（按 sessionId 改会话标题，sessionId 先用 workspace_session_list 查）。'
     + '两个需要 workspaceId 的工具都取正文行内 “id:” 之后的完整值——不是标题，也不是标题的连字符形式；'
     + '标题只是展示名，注册表按 id 解析。'
+    + '选预设或模型时用 Agent Preset List / Model Catalog 行内的 id；省略 presetId/provider/model 即用部署默认。'
     + 'apps 区与 tasks 区本页不提供下钻，只报快照。',
   instanceTitle: () => '个人工作台',
 }

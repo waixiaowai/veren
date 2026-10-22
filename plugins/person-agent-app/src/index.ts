@@ -33,28 +33,31 @@ export const Config: z<Config> = z.object({
 })
 
 // 服务依赖全部显式声明（G13）：本插件就是应用；workspaceRegistry /
-// taskCenter 由页面组件在渲染体内经组件 ctx 读取——在此声明保证组件渲染时
-// 它们必然在场，不做运行期探测。
+// taskCenter / agentPresets / llm 由页面组件在渲染体内经组件 ctx 读取——在此
+// 声明保证组件渲染时它们必然在场，不做运行期探测。
 // 目录工具与页面动态注册的会话工具都闭包捕获**本插件的 ctx**，并在执行时直接读取
 // `ctx.sessions` / `ctx.sessionProjections` / `ctx.sessionController`（见
 // @veren/person-agent-tool-workspace 与 -tool-session 的实现）——属性守卫按属主
 // 归因，缺少声明会在工具执行时报 "cannot get property ... without inject"，因此
 // 这三个服务必须在这里声明（与工具包自身的 inject 清单保持一致）。
 // All service dependencies are declared explicitly (G13): this plugin IS an
-// app; workspaceRegistry / taskCenter are read by the page components in their
-// bodies via the component ctx — declaring them here guarantees they are
-// present when the components render, no probing. The catalog tools and the
-// page-registered session tools both close over **this plugin's ctx** and read
-// ctx.sessions / ctx.sessionProjections / ctx.sessionController at execution
-// time (see the tool packages' implementations) — the property guard attributes
-// accesses to the accessed context's owner, so a missing declaration fails the
-// tool call with "cannot get property ... without inject"; those three must be
-// declared here, matching the tool packages' own inject lists.
+// app; workspaceRegistry / taskCenter / agentPresets / llm are read by the page
+// components in their bodies via the component ctx — declaring them here
+// guarantees they are present when the components render, no probing. The
+// catalog tools and the page-registered session tools both close over **this
+// plugin's ctx** and read ctx.sessions / ctx.sessionProjections /
+// ctx.sessionController at execution time (see the tool packages'
+// implementations) — the property guard attributes accesses to the accessed
+// context's owner, so a missing declaration fails the tool call with "cannot
+// get property ... without inject"; those three must be declared here,
+// matching the tool packages' own inject lists.
 export const inject = [
   'apps',
   'pageRegistry',
   'workspaceRegistry',
   'taskCenter',
+  'agentPresets',
+  'llm',
   'sessions',
   'sessionProjections',
   'sessionController',

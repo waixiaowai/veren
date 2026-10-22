@@ -1,21 +1,18 @@
 // 结算测试辅助：真实 cordis Context + 真实 dsh-scope 作用域，只有外部服务是假实现。
-// 关键点是 agent.ctx 必须是真实作用域上下文：本插件的看守挂在它上面，事件路由因此由
-// dsh-scope 承担，插件自己不做任何 sessionId 比对。
+// 关键点是 agent.ctx 必须是真实作用域上下文：看守挂在它上面，事件路由因此由
+// dsh-scope 承担，构建器自己不做任何 sessionId 比对。
 // Settlement test support: a real cordis Context and a real dsh-scope scope; only
 // external services are faked. The load-bearing detail is that `agent.ctx` must be
-// a real scoped context: the plugin's guard registers there, so dsh-scope owns
-// event routing and the plugin performs no sessionId comparison.
+// a real scoped context: the guard registers there, so dsh-scope owns
+// event routing and the builder performs no sessionId comparison.
 import { Context } from '@deepseek-ai/cordis'
-import type { Fiber } from '@deepseek-ai/cordis'
 import { emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionId as SessionIdType } from '@deepseek-ai/dsh-session'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
-import { apply, inject, name } from '../src/index.js'
-import { resolveConfig } from './support.js'
-import type { Config } from '../src/index.js'
+import { buildSessionDispatchDefinition, createSettlementWatch } from '../src/index.js'
 
 /** 被注册工具定义的最小执行面。The minimal execution face of a registered tool. */
 export interface RegisteredTool {
@@ -270,12 +267,13 @@ export interface Env {
 }
 
 /**
- * 用真实 Context / 真实 effect 清理安装本插件。Install the plugin with a real
- * Context and real effect cleanup.
- * @param config - 配置覆盖。Config overrides.
+ * 用真实 Context 安装构建器与结算看守（unload 结清全部看守，与页面视图销毁同语义）。
+ * Install the builder and the settlement watch with a real Context (unload
+ * settles every watch — the same semantics as a page view's teardown).
+ * @param config - 看守配置（字符/并发上限）。Watch bounds (character / concurrency caps).
  * @returns 测试环境。The test environment.
  */
-export async function install(config: Partial<Config> = {}): Promise<Env> {
+export async function install(config: { maxReportChars?: number, maxConcurrentWatches?: number } = {}): Promise<Env> {
   const ctx = new Context()
   const definitions = new Map<string, RegisteredTool>()
   const warnings: string[] = []
@@ -340,8 +338,11 @@ export async function install(config: Partial<Config> = {}): Promise<Env> {
   ctx.on('session-dispatch/start', payload => { runEvents.push({ name: 'start', payload }) })
   ctx.on('session-dispatch/end', payload => { runEvents.push({ name: 'end', payload }) })
 
-  const fiber: Fiber = ctx.plugin({ name, inject, apply }, resolveConfig(config))
-  await fiber
+  const watch = createSettlementWatch(ctx, {
+    maxReportChars: config.maxReportChars ?? 4000,
+    maxConcurrentWatches: config.maxConcurrentWatches ?? 64,
+  })
+  definitions.set('session_dispatch', buildSessionDispatchDefinition(ctx, watch) as unknown as RegisteredTool)
   return {
     definitions,
     warnings,
@@ -358,7 +359,7 @@ export async function install(config: Partial<Config> = {}): Promise<Env> {
       if (definition === undefined) throw new Error(`tool not registered: ${tool}`)
       return await definition.execute(args, exec)
     },
-    unload: async () => { await fiber.dispose() },
+    unload: async () => { watch.dispose() },
   }
 }
 

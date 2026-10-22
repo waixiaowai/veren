@@ -1,6 +1,0 @@
-{
-  "meta": {
-    "title": "Person Agent Re-anchor",
-    "description": "Append a short factual reminder when the bridge has spent too many consecutive steps working on its own."
-  }
-}

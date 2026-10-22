@@ -16,7 +16,7 @@ import { resolveSessionFacts } from './session-facts.js'
 /** 归档过滤的默认值：默认只看未归档会话。Default of the archive filter: unarchived only. */
 const DEFAULT_ARCHIVED: 'exclude' = 'exclude'
 
-/** `registerWorkspaceSessionList` 的部署开关。Deployment knobs of `registerWorkspaceSessionList`. */
+/** `buildWorkspaceSessionListDefinition` 的部署开关。Deployment knobs of `buildWorkspaceSessionListDefinition`. */
 export interface SessionListOptions {
   /** 单次调用返回的会话数上限。Maximum sessions returned by one call. */
   maxListSessions: number
@@ -177,12 +177,3 @@ export function buildWorkspaceSessionListDefinition(ctx: Context, options: Sessi
     })
 }
 
-/**
- * 注册 `workspace_session_list`：把构建器产物注册进宿主工具注册表。
- * Register `workspace_session_list`: register the builder's product into the host tool registry.
- * @param ctx - 携带注入能力的宿主上下文。The host context carrying injected capabilities.
- * @param options - 部署开关。The deployment knobs.
- */
-export function registerWorkspaceSessionList(ctx: Context, options: SessionListOptions): () => void {
-  return ctx.tools.register(buildWorkspaceSessionListDefinition(ctx, options))
-}

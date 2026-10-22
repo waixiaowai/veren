@@ -1,8 +1,8 @@
 {
   "name": "@veren/person-agent-app",
   "displayName": "管家-应用",
-  "version": "0.1.8",
-  "description": "Use when a DSH deployment hosts the Person Agent bridge and needs it visible as a first-class Veren application: registers the person-agent app (a personal workbench overview page plus a workspace browser page under /apps/person-agent) in the host app catalog, reusing the existing session and workspace maintenance tool implementations as app-scoped page tools, with every data face (app catalog, workspace registry, task center) declared as a hard inject; skip it when the Person Agent must stay a pure preset with no app pages.",
+  "version": "0.1.11",
+  "description": "Use when a DSH deployment hosts the Person Agent bridge and needs it visible as a first-class Veren application: registers the person-agent app (a personal workbench overview page plus a workspace browser page under /apps/person-agent) in the host app catalog, renders the live workspace list, agent preset roster and model catalog in the overview body, and reuses the existing session and workspace maintenance tool implementations as app-scoped page tools, with every data face (app catalog, workspace registry, task center, preset registry, LLM registry) declared as a hard inject; skip it when the Person Agent should not appear as an app.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -34,6 +34,8 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.0",
+    "@deepseek-ai/dsh-agent-preset-registry": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-llm": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-workspace": ">=0.2.1-rc.2 <0.3.0",
     "@veren/app-registry": "workspace:^",
@@ -49,6 +51,8 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-agent-preset-registry": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
     "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
     "@deepseek-ai/dsh-workspace": "0.2.1-rc.2",
     "@veren/app-registry": "workspace:^",
