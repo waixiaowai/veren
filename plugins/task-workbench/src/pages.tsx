@@ -80,7 +80,7 @@ export interface TaskPages {
 export function createTaskPages(store: TaskStore): TaskPages {
   // ---- 列表页（首页 home / entry）---- List page (the home page / entry) ----
 
-  const ListPage: PageFC = () => {
+  const ListPage: PageFC = (_props, _ctx) => {
     const items = useSnapshot<TaskItem[]>() ?? []
     const byStatus = (status: TaskItem['status']): number => items.filter((item) => item.status === status).length
     const roots = rootsOf(items).map((item) => ({
@@ -116,7 +116,7 @@ export function createTaskPages(store: TaskStore): TaskPages {
 
   // ---- 详情页（详情页 detail）---- Detail page (the detail archetype) ----
 
-  const DetailPage: PageFC<{ taskId: string }> = (props) => {
+  const DetailPage: PageFC<{ taskId: string }> = (props, _ctx) => {
     const items = useSnapshot<TaskItem[]>() ?? []
     const taskId = String(props.taskId ?? '')
     const task = items.find((item) => item.id === taskId)
@@ -177,7 +177,7 @@ export function createTaskPages(store: TaskStore): TaskPages {
   // ---- 发布页（工具页 action：无参 + 写工具 publish_task，不需要 map）----
   // ---- Publish page (the action archetype: parameterless + the publish_task write tool, no map) ----
 
-  const PublishPage: PageFC<{ draftTitle?: string }> = (props) => (
+  const PublishPage: PageFC<{ draftTitle?: string }> = (props, _ctx) => (
     <>
       <h1>任务工作台 · 发布任务</h1>
       <p>草稿标题：{props.draftTitle ?? ''}。用 publish_task 确认发布；标题为空时不要调用。</p>

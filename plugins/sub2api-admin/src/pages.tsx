@@ -60,7 +60,7 @@ function listPage(config: {
   tools: readonly string[]
   pick: (state: Sub2ApiState) => readonly Record<string, unknown>[]
 }): { Page: PageFC; Meta: ComponentPageMeta } {
-  const Page: PageFC = () => {
+  const Page: PageFC = (_props, _ctx) => {
     const state = useSnapshot<Sub2ApiState>() ?? {}
     const rows = rowsOf([...config.pick(state)])
     return (
@@ -95,7 +95,7 @@ export function createSub2ApiPages(store: {
 
   // ---- 首页 · 运营指挥台 / Home · the ops console ----
 
-  const HomePage: PageFC = () => {
+  const HomePage: PageFC = (_props, _ctx) => {
     const state = useSnapshot<Sub2ApiState>() ?? {}
     const stats = state.home?.stats ?? {}
     const payment = state.home?.payment ?? {}
@@ -198,7 +198,7 @@ export function createSub2ApiPages(store: {
 
   // ---- 资金（订单 + 套餐）----
 
-  const FinancePage: PageFC = () => {
+  const FinancePage: PageFC = (_props, _ctx) => {
     const state = useSnapshot<Sub2ApiState>() ?? {}
     const orders = rowsOf(state.finance?.orders ?? []).slice(0, 20)
     const plans = rowsOf(state.finance?.plans ?? [])
@@ -230,7 +230,7 @@ export function createSub2ApiPages(store: {
 
   // ---- 卡密（兑换码 + 优惠码）----
 
-  const CodesPage: PageFC = () => {
+  const CodesPage: PageFC = (_props, _ctx) => {
     const state = useSnapshot<Sub2ApiState>() ?? {}
     const redeem = rowsOf(state.codes?.redeem ?? []).slice(0, 20)
     const promo = rowsOf(state.codes?.promo ?? []).slice(0, 20)
@@ -275,7 +275,7 @@ export function createSub2ApiPages(store: {
 
   // ---- 用量分析 ----
 
-  const UsagePage: PageFC = () => {
+  const UsagePage: PageFC = (_props, _ctx) => {
     const state = useSnapshot<Sub2ApiState>() ?? {}
     const trend = rowsOf(state.usage?.trend ?? [])
     const models = rowsOf(state.usage?.models ?? [])
