@@ -17,10 +17,10 @@ dist
 plugins/**/lib
 packages/**/lib
 *.tsbuildinfo
+deepseek/.dsh
+deepseek/upgrade-43.240.223.138
 # sourcemap 一律是构建伴生产物，与 dist/lib 同待遇，不入库 / sourcemaps are build companions, treated like dist/lib, never committed
 *.map
-/deepseek
-deepseek/
 .workbuddy
 # 临时产物不应落在仓库里：会被备份与版本控制误带入
 # Temp artifacts must never live inside the repo: backups and VCS pick them up accidentally

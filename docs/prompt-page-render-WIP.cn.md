@@ -144,3 +144,15 @@
   已 bump 0.1.3 发布；profile 删 node_modules 全新安装后 SyntaxError 清零。
   本次发布：prompt-page@0.1.3、person-agent-app@0.1.3、forum-app@0.1.3、
   notebook-app@0.1.3（56 清单全验证可解析）。
+
+### 终版：正文直读（2026-10-22，第二轮评审定案）
+- 评审结论：`readOverview(ctx)` 组装 OverviewSnapshot 仍是绕圈——Section/available/
+  detail 全是已删服务的残影。定案形状：**同步服务面正文直接读**（`ctx.apps.catalog()`
+  / `ctx.workspaceRegistry.list()`，每帧最新、零状态零 effect、首帧即真实数据）；
+  只有异步面（`ctx.taskCenter.list`）走 `ctx.effect` + `useState`，失败如实渲染原因。
+  views.ts 整个删除，插件只剩 app.ts / index.ts / pages.tsx 三个源文件。
+- RFC §5.2 惯用法更新为三纪律：① 同步面禁止落 state（第二事实源）；② effect 内
+  setState 落在渲染帧之外（.then 天然满足）；③ 失败如实渲染。
+- 测试：12/12（同步面首帧真实数据无 waitFor 直接断言；异步任务区 waitFor
+  「open 任务 N 条」；失败态「任务中心读取失败：<原因>」）。
+- 发布 person-agent-app@0.1.4；profile 全新安装、探针通过、节点 3080 已重启。

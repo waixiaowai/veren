@@ -1,12 +1,13 @@
 /**
  * 组合测试：真实 cordis Context + 真实 AppRegistryService/PageRegistryService，
  * 锁定验收面：目录可发现、入口 URL 可解析、页面 URL 前缀、工具外部名前缀、
- * 单入口一致性、卸载清理、自承载页面的真实数据渲染与读取失败显式降级
- * （服务都是硬 inject）。
+ * 单入口一致性、卸载清理、正文直读同步面的首帧真实数据、异步面的读取失败
+ * 显式降级（服务都是硬 inject）。
  * Composition tests: real cordis Context with real registries; locks catalog
  * discovery, entry-url resolution, url prefixes, tool external-name prefixes,
- * single-entry consistency, teardown, and the self-contained pages' real-data
- * rendering plus explicit read-failure degrade (all services are hard injects).
+ * single-entry consistency, teardown, the first-frame real data of
+ * body-read sync faces, and the async face's explicit read-failure degrade
+ * (all services are hard injects).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -79,9 +80,9 @@ afterEach(async () => {
 })
 
 /**
- * 挂载真实页面组件并返回其文档宿主：组件体内的 ctx.workspaceRegistry /
+ * 挂载真实页面组件并返回其文档宿主：正文里的 ctx.apps / ctx.workspaceRegistry /
  * ctx.taskCenter 经 facade 转发到测试 ctx 的 fake 服务面——零工厂、零闭包注入。
- * Mount a real page component and return its doc host: the body's
+ * Mount a real page component and return its doc host: the body's ctx.apps /
  * ctx.workspaceRegistry / ctx.taskCenter forward through the facade to the
  * test ctx's fake faces — zero factory, zero closure injection.
  */
@@ -163,7 +164,7 @@ describe('生命周期', () => {
 })
 
 describe('§3.10 页面信息组织：首页必须把该给的信息给全', () => {
-  it('首页（entry）零结构问题：map 覆盖全部详情页、每条带"什么时候用"，且自带 load', async () => {
+  it('首页（entry）零结构问题：map 覆盖全部详情页、每条带"什么时候用"', async () => {
     const { apps, fiber } = await install()
     disposers.push(() => fiber.dispose())
     const pages = apps.listPages(APP_ID)
@@ -200,52 +201,49 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     expect(home.instructions).toContain('workspace_session_list')
   })
 
-  it('概览页自承载加载：首帧如实渲染空快照，ctx.effect 就地读 ctx 后真实数据进正文（WYSIWYG）', async () => {
+  it('概览页正文直读：同步面首帧即真实数据，异步任务区 effect 拉取后进正文（WYSIWYG）', async () => {
     const { ctx, fiber } = await install({ openTitles: ['唯一任务'] })
     disposers.push(() => fiber.dispose())
     const host = mountPage(OverviewPage, OverviewMeta, ctx)
-    // 首帧：空快照如实标注未刷新（反编造）；数据在 effect 异步读取完成后经
-    // 重渲 diff 进正文。
-    // / Frame 1: the empty snapshot honestly marked not-refreshed
-    // (anti-fabrication); data enters the body via the re-render after the
-    // effect's async read completes.
-    expect(host.bodyText()).toContain('not refreshed yet')
-    await vi.waitFor(() => expect(host.bodyText()).toContain('主工作区'))
+    // 同步面（apps/workspaces）正文直读：首帧即真实数据，无 loading 态
+    // / sync faces (apps/workspaces) read straight in the body: real data on frame 1, no loading state
+    expect(host.bodyText()).toContain('主工作区（会话账目 2）')
     expect(host.bodyText()).toContain('副工作区（会话账目 0）')
     expect(host.bodyText()).toContain('工作区 2 个')
-    expect(host.bodyText()).toContain('live from the task center')
+    expect(host.bodyText()).toContain('Person Agent')
+    expect(host.bodyText()).toContain('读取中')
+    // 异步面（tasks）effect 拉取后重渲进正文 / the async face (tasks) re-renders into the body after the effect fetch
+    await vi.waitFor(() => expect(host.bodyText()).toContain('open 任务 1 条'))
   })
 
-  it('工作区浏览页自承载加载：打开后正文出现工作区行（ws-1/会话账目 2）', async () => {
+  it('工作区浏览页正文直读：打开即真实工作区行（ws-1/会话账目 2），零 loading 态', async () => {
     const { ctx, fiber } = await install({ openTitles: [] })
     disposers.push(() => fiber.dispose())
     const host = mountPage(WorkspacesPage, WorkspacesMeta, ctx)
-    await vi.waitFor(() => expect(host.bodyText()).toContain('主工作区（会话账目 2）'))
+    expect(host.bodyText()).toContain('主工作区（会话账目 2）')
     expect(host.bodyText()).toContain('共 2 个工作区')
   })
 })
 
 describe('真实数据与读取失败降级', () => {
-  it('taskCenter 读取失败：tasks 区显式不可用并给原因，其余两区照常给真实数据', async () => {
+  it('taskCenter 读取失败：任务区如实标注原因，同步两区照常给真实数据', async () => {
     const { ctx, fiber } = await install({ failList: true, workspaces: undefined })
     disposers.push(() => fiber.dispose())
     const host = mountPage(OverviewPage, OverviewMeta, ctx)
-    // 失败显式降级进正文（不抛异常、不编造）；apps / workspaces 两区照常真实。
-    // / the failure degrades explicitly into the body (no throw, no faking);
-    // the apps / workspaces sections stay real.
-    await vi.waitFor(() => expect(host.bodyText()).toContain('task center read failed: storage backend down'))
+    // 同步区首帧照常真实；失败显式降级进正文（不抛异常、不编造）
+    // / sync sections stay real on frame 1; the failure degrades explicitly into the body (no throw, no faking)
     expect(host.bodyText()).toContain('主工作区（会话账目 2）')
-    expect(host.bodyText()).toContain('Person Agent')
+    await vi.waitFor(() => expect(host.bodyText()).toContain('任务中心读取失败：storage backend down'))
   })
 
   it('workspaceRegistry 在场：workspaces 页给出真实行；注册表为空时给出空列表', async () => {
     const withWorkspaces = await install()
     disposers.push(() => withWorkspaces.fiber.dispose())
     const host = mountPage(WorkspacesPage, WorkspacesMeta, withWorkspaces.ctx)
-    await vi.waitFor(() => expect(host.bodyText()).toContain('主工作区（会话账目 2）'))
+    expect(host.bodyText()).toContain('主工作区（会话账目 2）')
     const empty = await install({ workspaces: [] })
     disposers.push(() => empty.fiber.dispose())
     const emptyHost = mountPage(WorkspacesPage, WorkspacesMeta, empty.ctx)
-    await vi.waitFor(() => expect(emptyHost.bodyText()).toContain('共 0 个工作区'))
+    expect(emptyHost.bodyText()).toContain('共 0 个工作区')
   })
 })

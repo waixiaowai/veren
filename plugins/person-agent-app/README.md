@@ -5,9 +5,9 @@ Exposes the **Person Agent** (the human–DSH bridge) as a first-class Veren app
 ## What it registers
 
 - **App** `person-agent` (tool prefix `person_agent`), entry page `overview`.
-- **Pages** (self-contained components: module-level PageFCs with data loading in the component body — `ctx.effect` reads the service faces off the component ctx and the result lands in `useState`; no factory, no closure injection)
-  - `overview` — `/apps/person-agent/overview` (entry): one screen with the deployment's real state — the app catalog (`ctx.apps.catalog()`), the workspace/session ledger (`ctx.workspaceRegistry`), and open tasks (`ctx.taskCenter`). The first frame renders the empty snapshot (honestly marked not-refreshed); once reads complete the page re-renders and changes flow into history as PAGE-PATCHes. A workspace's per-session detail is an on-demand query carried by the page's mounted read-only `workspace_session_list` tool. The apps/tasks sections promise no drilldown.
-  - `workspaces` — `/apps/person-agent/workspaces`: one row per workspace with its session count; per-session detail goes through the collected `workspace_session_list` tool.
+- **Pages** (self-contained components: module-level PageFCs whose bodies read synchronous service faces directly — fresh every frame, zero state; the async face is fetched in `ctx.effect` + `useState`; no factory, no snapshot contract)
+  - `overview` — `/apps/person-agent/overview` (entry): one screen with the deployment's real state — the app catalog and the workspace ledger are read straight in the body (`ctx.apps.catalog()` / `ctx.workspaceRegistry.list()`, real data on frame 1), open tasks refresh asynchronously (`ctx.taskCenter.list`, a failed read is rendered honestly with its cause); a workspace's per-session detail is an on-demand query carried by the page's mounted read-only `workspace_session_list` tool. The apps/tasks sections promise no drilldown.
+  - `workspaces` — `/apps/person-agent/workspaces`: workspace rows read straight in the body, zero state, zero effect; per-session detail goes through the collected `workspace_session_list` tool.
 - **Collected tools** (reused, never reimplemented — the plugin calls the sibling tool packages' exported definition builders, so page tools and host tools are the very same `ToolDefinition`):
   - `workspace_session_list` (from `@veren/person-agent-tool-workspace`): mounted by both the `overview` and the `workspaces` pages;
   - `session_create`, `session_rename` (from `@veren/person-agent-tool-session`): catalog entries for future pages; no page mounts them today, so no page promises them either ("promised but absent" is zero-tolerance: mounting and promising move together).
@@ -22,12 +22,13 @@ at all (`ctx.get('…')` probing does not exist on a live host — the property
 guard attributes accesses to the accessed context's owner, so the access
 itself throws).
 
-The data plane is a **pure type contract** (`views.ts`): snapshot types and the
-empty-snapshot initial value only — no reader, no service. Page components read
-the `apps` / `workspaceRegistry` / `taskCenter` faces **straight off the
-component ctx** in their bodies and assemble the snapshot in place — the
-component ctx carries the full host service face (declaration-merged), so pages
-need no broker layer; other plugins read those same faces directly.
+There is no separate data-plane module: page components **read the host
+service faces directly in their bodies** — synchronous faces (`ctx.apps` /
+`ctx.workspaceRegistry`) are called in the body, fresh every frame; the
+asynchronous face (`ctx.taskCenter`) is fetched in `ctx.effect` and lands in
+`useState`, with a failed read rendered honestly. The component ctx carries the
+full host service face (declaration-merged), so pages need no broker layer;
+other plugins read those same faces directly.
 
 - The catalog and workspaces are synchronous in-memory reads that cannot fail;
 - the task center is an async read: when a read fails (a storage backend down,

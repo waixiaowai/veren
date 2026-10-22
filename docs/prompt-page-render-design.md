@@ -157,17 +157,18 @@ Gaps: **G-A text nodes** (Markdown's primary carrier; bare interpolation `{t.tit
 
 The initial "no useState" stance aimed at the wrong target: the typical state a page holds is a **local cache mirror of a ctx service** — a cache is not a second source of fact; the authoritative fact stays in the service layer (the React Query/SWR distinction). Revised: **provide it**, scoped to fetch caches and view state; "inventing facts" (numbers on the page that exist nowhere in the system) is caught by lint and review. Honest cost: manual fetches do not re-render on external changes (`useSnapshot` does). Layering: shared-store data via `useSnapshot`; one-off fetches / local view state via `useState` + `ctx.on` invalidation.
 
-**The self-contained component idiom (the default shape for page data)**: a page is a module-level component with **no factory and no closure injection** — the component ctx carries the full host service face (declaration-merged `ctx.apps` / `ctx.taskCenter` / plugin services read as-is; only the tools/effect/on members are overridden by the session facade), and props are the URL params. Data loading lives in the component body:
+**The self-contained component idiom (the default shape for page data)**: a page is a module-level component with **no factory, no closure injection, no snapshot contract** — the component ctx carries the full host service face (declaration-merged `ctx.apps` / `ctx.taskCenter` / plugin services read as-is; only the tools/effect/on members are overridden by the session facade), and props are the URL params. **Synchronous service faces are read straight in the body** (fresh every frame, zero state); only asynchronous reads need `ctx.effect` + `useState`:
 
 ```tsx
 export const ListPage: PageFC = (_props, ctx) => {
-  const [rows, setRows] = useState<Row[]>([])
-  ctx.effect(() => { void loadRows(ctx.workspaceRegistry).then(setRows) })   // load on mount
+  const rows = ctx.workspaceRegistry.list()                     // sync face: read straight in the body
+  const [open, setOpen] = useState<Open[] | null>(null)         // async face: null = still reading
+  ctx.effect(() => { void ctx.taskCenter.list({ status: 'open' }).then(setOpen) })
   return <ul>{rows.map((r) => <li key={r.id}>{r.title}</li>)}</ul>
 }
 ```
 
-**Discipline: `setState` inside an effect must land outside the render frame** (async reads / microtask wrapping) — an effect's run executes inline within render, so a synchronous `setState` would re-enter the render frame and corrupt hook order. Pages backed by an external authoritative store (the change source lives outside the page) keep `meta.store` + `useSnapshot`; a page picks whichever fits.
+**Discipline**: ① never put a sync face into state (that would make a second source of fact); ② `setState` inside an effect must land outside the render frame (`.then` satisfies this naturally — an effect's run executes inline within render, so a synchronous `setState` would re-enter the render frame and corrupt hook order); ③ failed reads render their cause honestly. Pages backed by an external authoritative store (the change source lives outside the page) keep `meta.store` + `useSnapshot`; a page picks whichever fits.
 
 ### 5.3 Effects and Events: Direct `ctx.effect` / `ctx.on`, Recorded During Render
 

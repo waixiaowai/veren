@@ -156,17 +156,18 @@ export const apply = (ctx: Context, config: Config): void => {
 
 初版"不提供 useState"反对对象找错了：页面持有的典型状态是 **ctx 服务的本地缓存镜像**——缓存不是第二事实源，权威事实仍在服务层（React Query/SWR 同款区分）。修正为：**提供**，定位取数缓存与视图状态；"自造事实"（页面出现系统里不存在的数字）走 lint 与评审。如实代价：手动取数不随外部变化自动重渲（`useSnapshot` 会）。分层：共享 store 数据走 `useSnapshot`；一次性取数/局部视图状态走 `useState` + `ctx.on` 失效。
 
-**自承载组件惯用法（页面数据的默认形态）**：页面 = 模块级组件，**没有工厂、没有闭包注入**——组件 ctx 携带完整宿主服务面（声明合并的 `ctx.apps` / `ctx.taskCenter` / 各插件服务原样可读，仅 tools/effect/on 三个成员被会话 facade 重载），props 即 URL params。数据加载写在组件体内：
+**自承载组件惯用法（页面数据的默认形态）**：页面 = 模块级组件，**没有工厂、没有闭包注入、没有快照契约**——组件 ctx 携带完整宿主服务面（声明合并的 `ctx.apps` / `ctx.taskCenter` / 各插件服务原样可读，仅 tools/effect/on 三个成员被会话 facade 重载），props 即 URL params。**同步服务面在正文里直接读**（每帧最新，零状态）；只有异步读取需要 `ctx.effect` + `useState`：
 
 ```tsx
 export const ListPage: PageFC = (_props, ctx) => {
-  const [rows, setRows] = useState<Row[]>([])
-  ctx.effect(() => { void loadRows(ctx.workspaceRegistry).then(setRows) })   // 挂载即加载
+  const rows = ctx.workspaceRegistry.list()                     // 同步面：正文直接读
+  const [open, setOpen] = useState<Open[] | null>(null)         // 异步面：null = 读取中
+  ctx.effect(() => { void ctx.taskCenter.list({ status: 'open' }).then(setOpen) })
   return <ul>{rows.map((r) => <li key={r.id}>{r.title}</li>)}</ul>
 }
 ```
 
-**纪律：effect 内的 `setState` 必须落在渲染帧之外**（异步读取 / microtask 包装）——effect 的 run 在 render 期内联执行，同步 `setState` 会重入渲染帧、打乱 hook 调用序。外源权威 store（变化源在页面之外）仍走 `meta.store` + `useSnapshot`；两者可按页面各取所需。
+**纪律**：① 同步面禁止落 state（落了就是第二事实源）；② effect 内的 `setState` 必须落在渲染帧之外（`.then` 天然满足；effect 的 run 在 render 期内联执行，同步 `setState` 会重入渲染帧、打乱 hook 调用序）；③ 读取失败如实渲染原因。外源权威 store（变化源在页面之外）仍走 `meta.store` + `useSnapshot`；两者可按页面各取所需。
 
 ### 5.3 effect 与事件：`ctx.effect` / `ctx.on` 直调，render 期记账
 
