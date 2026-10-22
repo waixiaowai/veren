@@ -117,12 +117,17 @@ export function defineAppPage<S>(definition: Parameters<typeof definePage<S>>[0]
 
 /**
  * 页面工具完备性警告（§3.9，开发期轻量核对）：页面声明了"本页职责需要写能力"
- * 却一个工具都没挂 → 返回一句话警告；否则 undefined。
+ * 却一个工具都没挂 → 返回一句话警告；否则 undefined。判据是**真实挂载面**
+ * （静态声明 + 组件体 ctx.page.tool 登记的并集，由挂载方传入数量）——注册期
+ * 只看得到静态声明，在那里判必然误报。
  * The page tool-coverage warning (§3.9, a dev-time lightweight self-check): a
  * page that declares `writes: true` yet mounts no tools returns a one-line
- * warning; otherwise undefined.
+ * warning; otherwise undefined. The verdict reads the **really-mounted face**
+ * (the union of static declarations and the body's ctx.page.tool records; the
+ * mounter passes the count) — registration time only sees static declarations,
+ * so judging there is a guaranteed false positive.
  */
-export function pageToolWarning<S>(page: PageDefinition<S>): string | undefined {
-  if (page.writes !== true || (page.tools ?? []).length > 0) return undefined
+export function pageToolWarning<S>(page: PageDefinition<S>, mountedTools: number): string | undefined {
+  if (page.writes !== true || mountedTools > 0) return undefined
   return `page "${page.name}" declares writes: true but mounts no tools; it is open yet cannot do its declared job`
 }

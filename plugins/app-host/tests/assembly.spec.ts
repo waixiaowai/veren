@@ -694,12 +694,14 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     }
   })
 
-  it('§3.9 完备性警告不被本轮 viewer 放宽削弱：writes:true + 零工具仍由装配打出警告，viewer 保持沉默', async () => {
-    // viewer 档落地的回归钉：只读详情页如实注册（不声明 writes）后，
-    // "声明要写却没挂工具"的警告通道必须原样工作——防的是另一种错。
-    // / regression pin for the viewer tier: with read-only drilldowns registering
-    // honestly (no writes declaration), the declares-writes-but-no-tools warning
-    // channel must keep working unchanged — it guards a different mistake.
+  it('§3.9 完备性警告在挂载期判（判据=真实登记面）：writes:true + 零登记仍告警，viewer 与组件体登记者沉默', async () => {
+    // 回归钉（动态登记时代）：告警移到挂载期、判据是真实收集面——注册期看不到
+    // ctx.page.tool，在那里判必然误报；viewer（只读）与组件体登记了工具的页面
+    // 必须沉默。
+    // / regression pin (the dynamic-registration era): the warning is judged at
+    // mount over the really-collected face — registration never sees
+    // ctx.page.tool, so judging there would misfire; viewers and pages whose
+    // body registers tools must stay silent.
     const h = await boot({ enabled: false })
     const apps = h.ctx.apps
     apps.register({ id: 'lazy' as AppId, name: 'lazy', description: 'd', entry: 'main' as PageKey }, h.ctx)
@@ -709,25 +711,42 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
       { url: '/apps/lazy/main', description: 'd' },
     )
     pages.register(
-      // viewer：带参、只读、零工具——本轮放宽的受益者，警告对它必须沉默
-      // / the viewer: parameterized, read-only, no tools — this round's beneficiary, the warning must stay silent for it
+      // viewer：带参、只读、零登记——警告对它必须沉默
+      // / the viewer: parameterized, read-only, no registrations — the warning must stay silent
       () => createElement('p', { children: 'ws' }),
       { url: '/apps/lazy/ws/:id', description: 'd' },
     )
     pages.register(
-      // action：writes: true + 零工具——警告必须照常打出 / the action page: writes: true + no tools — the warning must still fire
+      // action：writes: true + 零登记——挂载时警告必须照常打出
+      // / the action page: writes: true + no registrations — the warning must still fire at mount
       () => createElement('p', { children: 'publish' }),
       { url: '/apps/lazy/publish', description: 'd', writes: true, instructions: '确认后发布' },
     )
+    pages.register(
+      // 动态登记者：writes: true、零静态声明，但组件体登记了工具——必须沉默
+      // / a dynamic declarer: writes: true, empty static list, but the body records tools — must stay silent
+      (_props, pageCtx) => {
+        pageCtx.page.tool(defineTool({
+          name: 'publish_now', description: '发布', parameters: {},
+          output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+          execute: async () => ({ ok: true }),
+        }))
+        return createElement('p', { children: 'wire' })
+      },
+      { url: '/apps/lazy/wire', description: 'd', writes: true, instructions: '确认后发布' },
+    )
+    wireAppHost(h.ctx)
     const warnings: string[] = []
     const original = h.ctx.logger.warn
     ;(h.ctx.logger as { warn: (m: string) => void }).warn = (m: string) => { warnings.push(m) }
     try {
-      wireAppHost(h.ctx)
+      await h.pages.openUrl('/apps/lazy/publish')
+      await h.pages.openUrl('/apps/lazy/wire')
       const coverage = warnings.filter((m) => m.includes('declares writes: true but mounts no tools'))
       expect(coverage).toHaveLength(1)
       expect(coverage[0]).toContain('lazy/publish') // 警告点名的是 pageKey / the warning names the pageKey
       expect(coverage[0]).not.toContain('lazy/ws')
+      expect(coverage[0]).not.toContain('lazy/wire')
     } finally {
       ;(h.ctx.logger as { warn: (m: string) => void }).warn = original
     }

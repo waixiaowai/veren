@@ -161,13 +161,21 @@ describe('规则 3b：工具页必须有写工具——警告通道，不是门�
     instructions: '用 publish_task 确认发布；标题为空时不要调用。',
   }
 
-  it('工具页（无参非入口 writes: true）合法注册，但缺工具会被 pageToolWarning 警告', () => {
-    // 与详情页的规则 3 不同：工具页缺写工具不拒绝注册（§3.9 同一条警告通道，口径一致）
-    // / unlike rule 3 for detail pages: a tool-less action page is not refused;
-    // it rides the same §3.9 warning channel (same criteria)
+  it('工具页（无参非入口 writes: true）合法注册，但真实挂载面为空会被 pageToolWarning 警告', () => {
+    // 判据在挂载期：mountedTools 是"静态声明 + 组件体动态登记"的并集数量，
+    // 注册期只看静态声明，看不到 ctx.page.tool，在那里判必然误报。
+    // / the verdict lives at mount: mountedTools counts the union of static
+    // declarations and the body's dynamic records — registration time never
+    // sees ctx.page.tool, so judging there is a guaranteed false positive.
     const silent = defineAppPage({ ...action, writes: true, tools: [] })
-    expect(pageToolWarning(silent)).toContain('declares writes: true but mounts no tools')
+    expect(pageToolWarning(silent, 0)).toContain('declares writes: true but mounts no tools')
     const armed = defineAppPage({ ...action, writes: true, tools: ['publish_task'] })
-    expect(pageToolWarning(armed)).toBeUndefined()
+    // 声明清单不再参与判断：真实挂载面为零，声明了也照样警告；非零才沉默。
+    // / the declaration list no longer counts: an empty real face warns even
+    // with declarations; only a non-zero face stays silent.
+    expect(pageToolWarning(armed, 0)).toContain('declares writes: true but mounts no tools')
+    expect(pageToolWarning(armed, 1)).toBeUndefined()
+    // 组件体登记补上了挂载面：声明为空也不再警告 / the body's records fill the mounted face: no warning despite empty declaration
+    expect(pageToolWarning(silent, 2)).toBeUndefined()
   })
 })

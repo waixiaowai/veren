@@ -33,5 +33,3 @@
     # 工作台概览与工作区浏览）。
     - id: person-agent-app
       name: '@veren/person-agent-app'
-      config:
-        maxListSessions: 200

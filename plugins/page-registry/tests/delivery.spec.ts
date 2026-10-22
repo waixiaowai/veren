@@ -222,14 +222,21 @@ describe('废弃竞态（§3.9 风险 3：投递途中指针易主）', () => {
   })
 })
 
-describe('页面工具完备性警告（§3.9，只提醒不做门禁）', () => {
-  it('writes: true 且零工具 → 一句话警告；有工具或未声明 → undefined', () => {
+describe('页面工具完备性警告（§3.9，挂载期判据 / mount-time verdict）', () => {
+  it('writes: true 且真实挂载面为零 → 一句话警告；挂载面非零或未声明 → undefined', () => {
+    // 判据是真实挂载面数量（静态声明 + 组件体登记的并集，挂载方传入）：
+    // 声明清单不再参与判断——注册期看不到 ctx.page.tool，只有挂载期能下结论。
+    // / the verdict reads the really-mounted count (declared + body-recorded
+    // union, passed by the mounter): the declaration list no longer counts —
+    // registration never sees ctx.page.tool, only the mount may conclude.
     const silent = defineAppPage({ name: 'read-only', url: '/apps/demo/ro', description: '只读页' })
-    expect(pageToolWarning(silent)).toBeUndefined()
-    const fine = defineAppPage({ name: 'writer', url: '/apps/demo/w', description: 'd', writes: true, tools: ['read'] })
-    expect(pageToolWarning(fine)).toBeUndefined()
+    expect(pageToolWarning(silent, 0)).toBeUndefined()
+    const declared = defineAppPage({ name: 'writer', url: '/apps/demo/w', description: 'd', writes: true, tools: ['read'] })
+    // 声明了清单但真实面为零（比如组件体没登记）→ 照样警告 / declared but the real face is empty → still warns
+    expect(pageToolWarning(declared, 0)).toContain('declares writes: true but mounts no tools')
+    expect(pageToolWarning(declared, 2)).toBeUndefined()
     const broken = defineAppPage({ name: 'broken', url: '/apps/demo/b', description: 'd', writes: true })
-    expect(pageToolWarning(broken)).toContain('declares writes: true but mounts no tools')
+    expect(pageToolWarning(broken, 0)).toContain('declares writes: true but mounts no tools')
   })
 })
 

@@ -120,7 +120,7 @@ async function install(options: {
     create: async () => ({ id: 's-created' }),
     rename: async ({ title }: { title: string }) => ({ title, seq: 1 }),
   } as never)
-  const fiber = ctx.plugin({ name, inject, apply }, { maxListSessions: 50, allowCreateDirectory: false })
+  const fiber = ctx.plugin({ name, inject, apply })
   await fiber
   return { ctx, apps, pageRegistry, fiber }
 }
@@ -132,25 +132,34 @@ afterEach(async () => {
 })
 
 /**
- * 挂载真实页面组件并返回其文档宿主与动态注册的工具名：正文里的
+ * 挂载真实页面组件并返回其文档宿主与登记的工具（名 + 定义本体）：正文里的
  * ctx.apps / ctx.workspaceRegistry / ctx.taskCenter 经 facade 转发到测试 ctx 的
- * fake 服务面——零工厂、零闭包注入。
- * Mount a real page component and return its doc host plus the dynamically
- * registered tool names: the body's ctx.apps / ctx.workspaceRegistry /
+ * fake 服务面——零工厂、零闭包注入。设计律（工具只在页面存在）下，这次挂载的
+ * 记录就是页面的全部工具面。
+ * Mount a real page component and return its doc host plus the recorded tools
+ * (names + definition bodies): the body's ctx.apps / ctx.workspaceRegistry /
  * ctx.taskCenter forward through the facade to the test ctx's fake faces —
- * zero factory, zero closure injection.
+ * zero factory, zero closure injection. Under the design law (a tool exists
+ * only inside a page), this mount's records ARE the page's whole tool face.
  */
-function mountPage(component: PageFC, meta: ComponentPageMeta, ctx: Context): { host: MarkdownDocHost; recorded: () => string[] } {
+function mountPage(component: PageFC, meta: ComponentPageMeta, ctx: Context): {
+  host: MarkdownDocHost
+  recorded: () => string[]
+  definitions: () => { name: string; execute: (args: unknown, exec: unknown) => Promise<unknown> }[]
+} {
   const view = defineComponentPage(component, meta, ctx).live.mount({})
   disposers.push(async () => { view.unsubscribe() })
   const host = isMarkdownDocHost(view.host) ? view.host : undefined
   if (host === undefined) throw new Error('expected the markdown doc host')
-  // 组件页视图的记账面：ctx.page.tool 的记录（运行时由 page-registry 合并挂载）
-  // / the component-page view's recording face: ctx.page.tool records
-  // (merged and mounted by page-registry at runtime)
-  const take = (view as unknown as { takeRecordedTools?: () => { name: string }[] }).takeRecordedTools
+  // 组件页视图的记账面：ctx.page.tool 的记录（运行时改名后挂载）——最小执行面
+  // 收窄一次，宿主 exec 由假对象顶替。
+  // The component-page view's recording face: ctx.page.tool records (renamed
+  // and mounted by the runtime) — narrowed once to the minimal execution face,
+  // an empty object stands in for the host exec.
+  const take = (view as unknown as { takeRecordedTools?: () => { name: string; execute: (args: unknown, exec: unknown) => Promise<unknown> }[] }).takeRecordedTools
   const recorded = (): string[] => (typeof take === 'function' ? take.call(view).map((tool) => tool.name) : [])
-  return { host, recorded }
+  const definitions = () => (typeof take === 'function' ? take.call(view) : [])
+  return { host, recorded, definitions }
 }
 
 describe('应用可被发现与解析', () => {
@@ -187,21 +196,15 @@ describe('应用可被发现与解析', () => {
     }
   })
 
-  it('页面工具对外名带 person_agent__ 前缀（收编既有实现）', async () => {
+  it('应用目录没有工具：工具只在页面存在（设计律），页面登记面即全部工具面', async () => {
     const { apps, fiber } = await install()
     disposers.push(() => fiber.dispose())
-    expect(apps.listTools(APP_ID).map((tool) => tool.externalName)).toEqual([
-      'person_agent__session_create',
-      'person_agent__session_rename',
-      'person_agent__session_dispatch',
-      'person_agent__session_archive',
-      'person_agent__session_unarchive',
-      'person_agent__session_pin',
-      'person_agent__session_unpin',
-      'person_agent__workspace_create',
-      'person_agent__workspace_rename',
-      'person_agent__workspace_session_list',
-    ])
+    // 应用级目录零条目——collectAppTools 清单模式已退役；工具面唯一的去处是
+    // 页面组件体（mountPage 的记录断言见下）。
+    // The app-level catalog holds nothing — the collectAppTools manifest pattern
+    // is retired; a tool face has exactly one home, the page component body
+    // (asserted via mountPage's records below).
+    expect(apps.listTools(APP_ID)).toEqual([])
   })
 
   it('单入口一致性：应用目录页面与 page-registry 可解析页面一一对应', async () => {
@@ -249,22 +252,24 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     expect(record?.pages?.get(entryKey)?.component).toBe(true)
   })
 
-  it('概览页"会话明细现查"的承诺有工具承接：说明点名 workspace_session_list，页面就真挂着它', async () => {
-    const { apps, fiber } = await install()
+  it('概览页"会话明细现查"的承诺有工具承接：说明点名 workspace_session_list，组件体就真登记它', async () => {
+    const { apps, ctx, fiber } = await install()
     disposers.push(() => fiber.dispose())
     const home = apps.listPages(APP_ID).find((page) => page.name === APP_DEFINITION.entry)
     if (home === undefined) throw new Error('the overview page must be registered')
     // 真机教训：overview 曾一个 person_agent__* 工具都不挂，说明里的承诺成了空头
-    // 支票。钉死"承诺与挂载一致"：说明里点名现查工具 → tools 必须真挂它；反之
-    // 页面挂的工具也必须被说明提到（不许出现模型看不见来源的能力）。
+    // 支票。钉死"承诺与登记一致"：说明里点名现查工具 → 组件体必须真登记它；反之
+    // 登记的工具也必须被说明提到（不许出现模型看不见来源的能力）。
     // / Live-host lesson: the overview once mounted no person_agent__* tool at
-    // all, leaving the instructions' promise empty. Pin promise-vs-mount: naming
-    // an on-demand tool in the instructions requires really mounting it; and
-    // every mounted tool must be named in the instructions (no capability whose
-    // source the model cannot see).
-    expect(home.tools).toContain('workspace_session_list')
+    // all, leaving the instructions' promise empty. Pin promise-vs-record:
+    // naming an on-demand tool in the instructions requires really recording it
+    // in the body; and every recorded tool must be named in the instructions
+    // (no capability whose source the model cannot see).
     if (home.instructions === undefined) throw new Error('the overview page must carry instructions')
     expect(home.instructions).toContain('workspace_session_list')
+    // 登记面核对：组件体的记录里必须有它（承诺 = 登记 / promise = record）
+    const { recorded } = mountPage(OverviewPage, OverviewMeta, ctx)
+    expect(recorded()).toContain('workspace_session_list')
   })
 
   it('概览页正文直读：同步面首帧即真实数据，异步任务区 effect 拉取后进正文（WYSIWYG）', async () => {
@@ -330,32 +335,43 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
   })
 })
 
-describe('工具两张脸：目录声明 + 会话内动态注册（ctx.tools）', () => {
-  it('概览页动态注册只剩 session_dispatch（唯一带会话状态的工具），instructions 逐一点名全部工具（承诺 = 挂载）', async () => {
+describe('工具只在页面存在：组件体登记即页面全部工具面', () => {
+  it('概览页组件体登记十件工具，instructions 逐一点名（承诺 = 登记）', async () => {
     const { ctx, fiber } = await install()
     disposers.push(() => fiber.dispose())
     const { recorded } = mountPage(OverviewPage, OverviewMeta, ctx)
-    // 无状态工具全走 meta.tools 静态脸；session_dispatch 携带随页面视图创建/
-    // 销毁的结算看守，是唯一的动态脸。
-    // / Stateless tools all ride the static meta.tools face; session_dispatch
-    // carries the settlement watch created and disposed with the page view —
-    // the one dynamic face.
-    expect(recorded()).toEqual(['session_dispatch'])
+    // 设计律下的完整清单：无状态九件就地登记，session_dispatch 携带随页面视图
+    // 创建/销毁的结算看守（effect 登记项）。顺序 = 组件体书写顺序 + effect 项。
+    // / the full list under the design law: nine stateless tools register in
+    // place, session_dispatch carries the settlement watch created and disposed
+    // with the page view (the effect-registered one). Order = body order, with
+    // the effect entry last.
+    expect(recorded()).toEqual([
+      'session_create',
+      'session_rename',
+      'session_archive',
+      'session_unarchive',
+      'session_pin',
+      'session_unpin',
+      'workspace_create',
+      'workspace_rename',
+      'workspace_session_list',
+      'session_dispatch',
+    ])
     const instructions = OverviewMeta.instructions ?? ''
-    // 静态面（meta.tools）+ 动态面（ctx.page.tool）的每个工具都必须被说明点名
-    // / every tool from the static face (meta.tools) and the dynamic face (ctx.page.tool) is named
-    for (const name of [...(OverviewMeta.tools ?? []), ...recorded()]) {
+    // 组件体登记的每个工具都必须被说明点名 / every body-recorded tool is named in the instructions
+    for (const name of recorded()) {
       expect(instructions).toContain(name)
     }
   })
 
-  it('工作区页全部工具走静态脸（无动态注册），instructions 逐一点名', async () => {
+  it('工作区页组件体登记四件工具，instructions 逐一点名', async () => {
     const { ctx, fiber } = await install()
     disposers.push(() => fiber.dispose())
     const { recorded } = mountPage(WorkspacesPage, WorkspacesMeta, ctx)
-    expect(recorded()).toEqual([])
+    expect(recorded()).toEqual(['workspace_session_list', 'session_create', 'workspace_create', 'workspace_rename'])
     const instructions = WorkspacesMeta.instructions ?? ''
-    for (const name of WorkspacesMeta.tools ?? []) {
+    for (const name of recorded()) {
       expect(instructions).toContain(name)
     }
   })
@@ -375,16 +391,17 @@ describe('工具两张脸：目录声明 + 会话内动态注册（ctx.tools）'
     }
   })
 
-  it('目录工具执行不撞属性守卫：会话事实依赖在 inject 里声明且真能读到', async () => {
-    const { apps, fiber } = await install()
+  it('页面登记的工具执行不撞属性守卫：会话事实依赖在 inject 里声明且真能读到', async () => {
+    const { ctx, fiber } = await install()
     disposers.push(() => fiber.dispose())
-    const tool = apps.listTools(APP_ID).find((entry) => entry.name === 'workspace_session_list')
-    if (tool === undefined) throw new Error('workspace_session_list must be in the catalog')
-    // 真机教训：目录工具闭包捕获应用 plugin ctx，缺 inject 时执行报
+    const { definitions } = mountPage(OverviewPage, OverviewMeta, ctx)
+    const tool = definitions().find((entry) => entry.name === 'workspace_session_list')
+    if (tool === undefined) throw new Error('workspace_session_list must be recorded by the overview body')
+    // 真机教训：页面登记的工具闭包捕获应用 plugin ctx，缺 inject 时执行报
     // "cannot get property \"sessions\" without inject"——这里用真实 plugin ctx
     // 执行一次，钉住 sessions / sessionProjections 两条属性访问路径。
-    // / Live-host lesson: catalog tools close over the app plugin ctx; without
-    // the inject they fail with 'cannot get property "sessions" without
+    // / Live-host lesson: page-registered tools close over the app plugin ctx;
+    // without the inject they fail with 'cannot get property "sessions" without
     // inject'. Execute once through the real plugin ctx to pin both property
     // paths (sessions / sessionProjections).
     const result = await tool.execute({ workspaceId: 'ws-1' }, {} as never) as {
@@ -405,7 +422,7 @@ describe('工具两张脸：目录声明 + 会话内动态注册（ctx.tools）'
     disposers.push(() => fiber.dispose())
     const { host, recorded } = mountPage(OverviewPage, OverviewMeta, ctx)
     await vi.waitFor(() => expect(host.bodyText()).toContain('open 任务 1 条'))
-    expect(recorded()).toEqual(['session_dispatch'])
+    expect(recorded()).toHaveLength(10)
   })
 })
 

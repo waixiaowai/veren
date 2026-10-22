@@ -25,7 +25,7 @@
  * @module @veren/page-registry/runtime
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { PageError, PageErrorCode, assertParamsMatchPattern, canonicalizePageUrl, isMarkdownDocHost, snapshotSinkOf } from '@veren/prompt-page'
+import { PageError, PageErrorCode, assertParamsMatchPattern, canonicalizePageUrl, isMarkdownDocHost, pageToolWarning, snapshotSinkOf } from '@veren/prompt-page'
 import type { PageJsonValue, PageLoadEnv, PageSession, PageSkill } from '@veren/prompt-page'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { PageInstanceIndex, PageInstanceKey, PageMatch } from '@veren/prompt-page'
@@ -146,6 +146,15 @@ export interface PageRuntimePorts {
   readonly apps: Pick<AppRegistryService, 'get'>
   /** 应用工具目录（listTools 投影）：页面声明了工具就必须有目录 / the app tool catalog */
   readonly toolsOf: ToolsFace
+  /**
+   * 挂载期完备性告警（§3.9）：真实工具面收集后判"声明要写却挂不出工具"——
+   * 注册期看不到组件体的动态登记，只有这里才有资格下结论。缺席 → 静默跳过。
+   * The mount-time completeness warning (§3.9): judges "declares writes but
+   * mounts none" after the real tool face is collected — registration time
+   * cannot see the body's dynamic records, so only here may the verdict be
+   * drawn. Absent → skipped silently.
+   */
+  readonly warn?: (message: string) => void
   /** 任务中心真实契约的 take：缺席则任务场景给 page/host-unavailable / the real task contract */
   readonly tasks?: Pick<TaskCenterContract, 'take'>
   /** 任务通知投递面（§5.2 inbox 注入）；缺席则跳过投递 / delivery face; absent → skip pumping */
@@ -642,6 +651,15 @@ export async function createPageSession(
     // / tools: catalog + dynamic registrations collected once — the same
     // implementation as the preview path, byte-identical definitions.
     tools = collectMountedTools(app, match, ports.toolsOf, view)
+    // §3.9 完备性告警在挂载期判（判据 = 真实收集面，含组件体的动态登记）：
+    // 注册期看不到 ctx.page.tool 的记录，"声明要写却没挂工具"只有这里才有
+    // 资格下结论。
+    // The §3.9 coverage warning is judged at mount (the verdict input is the
+    // really-collected face, dynamic records included): registration time never
+    // sees the ctx.page.tool records, so only here may "declares writes but
+    // mounts none" be concluded.
+    const warning = pageToolWarning(match.page, tools.length)
+    if (warning !== undefined) ports.warn?.(`${warning} (app "${app.definition.id}", url "${key}")`)
     // 页面级 skills 与工具同路：同一端口、同一组注销器（agent 作用域）。
     // Page-scope skills ride the same path as the tools: one port, one disposer
     // group (the agent scope).

@@ -33,7 +33,7 @@ import type {} from '@deepseek-ai/dsh-tools'
 import type { AppId } from '@veren/app-registry'
 import { createBootstrapTools } from '@veren/app-registry'
 import { createAppOpenTool, createPageSendTool } from '@veren/page-registry'
-import { pageToolWarning } from '@veren/prompt-page'
+
 import { createPresetOf, createRealSessionPort } from './session-port.ts'
 import { createPageDataSync } from './page-sync.ts'
 
@@ -145,29 +145,14 @@ export function wireAppHost(ctx: Context): () => void {
       }
     }
 
-    // 2c) 页面工具完备性警告（§3.9，开发期轻量核对，只提醒不做门禁）：页面声明
-    //     了 writes: true（本页职责需要写能力）却一个工具都没挂 → 打一条警告，
-    //     五秒钟看懂——"页面开着、活干不了"。两轴四档口径（§3.10.1/§3.10.5）：
-    //     带 :param 的 writes 声明者缺工具已在注册期被规则 3 拦死，到达这里的
-    //     writes 声明者只剩无参的工具页（规则 3b 的通道）；viewer（带参只读）、
-    //     首页与只读副页不声明 writes: true，天然不在此列（规则 2）。
-    // 2c) Page tool-coverage warning (§3.9, dev-time lightweight self-check,
-    //     never a gate): a page declaring `writes: true` (its duty needs write
-    //     capability) yet mounting no tools logs one warning — readable in five
-    //     seconds: the page is open but cannot do its job. Two-axis, four-tier
-    //     reading (§3.10.1/§3.10.5): a parameterized `writes` declarer with no
-    //     tools is already refused at registration by rule 3, so the `writes`
-    //     declarers arriving here are parameterless action pages (rule 3b's
-    //     channel); viewer (a parameterized read-only page), home and read-only
-    //     secondary pages never declare writes: true and are naturally exempt
-    //     (rule 2).
-    for (const record of apps.catalog()) {
-      for (const page of apps.listPages(record.definition.id)) {
-        const definition = pageRegistry.get(`${record.definition.id}/${page.name}`)
-        const warning = definition === undefined ? undefined : pageToolWarning(definition)
-        if (warning !== undefined) ctx.logger.warn(`app-host: ${warning} (app "${record.definition.id}")`)
-      }
-    }
+    // §3.9 的完备性告警已移到挂载期（page-registry 在真实登记面收集后经 ports.warn
+    // 发出，上面 bindPorts 接了 ctx.logger.warn）：注册期只看得到静态声明，看不到
+    // 组件体的动态登记，"声明要写却没挂工具"在那里判必然误报。
+    // The §3.9 coverage warning moved to mount time (page-registry emits it via
+    // ports.warn after the real tool face is collected; bindPorts above wires
+    // ctx.logger.warn): registration time only sees static declarations, never
+    // the component body's dynamic registrations, so judging "declares writes
+    // but mounts none" there is a guaranteed false positive.
 
     // 3) 宿主工具注册：app_list / app_pages / app_open / page_send 挂进真实工具表。
     //    page_send（§3.9）不在页面会话的屏蔽名单里（session-port 只屏 app_open /
@@ -194,6 +179,12 @@ export function wireAppHost(ctx: Context): () => void {
       apps,
       // 页面会话归属（§3.10.3 PageLoadEnv.preset 的来源）/ page-session ownership
       presetOf: createPresetOf(ctx),
+      // 挂载期完备性告警（§3.9，见 page-registry 的挂载期检查）：真实登记面收集
+      // 之后才有资格判"声明要写却挂不出工具"，注册期看不到组件体的动态登记。
+      // / the mount-time completeness warning (§3.9): only the really-collected
+      // tool face may judge "declares writes but mounts none" — registration
+      // time cannot see the component body's dynamic registrations.
+      warn: (message) => { ctx.logger.warn(message) },
       // 目录值就是 DSH ToolDefinition 本体；单应用目录异常不炸整面（回空目录）
       toolsOf: (appId) => {
         try {

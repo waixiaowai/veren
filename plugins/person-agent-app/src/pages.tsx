@@ -10,17 +10,23 @@
  * asynchronous face is fetched in `ctx.page.effect` and lands in `useState`,
  * re-rendering into a PAGE-PATCH.
  *
- * 工具两张脸的分工：无状态工具全部走 `meta.tools`（静态声明，暂存预挂即终态）；
- * session_dispatch 是唯一的动态脸（`ctx.page.tool`）——它携带随页面视图创建/
- * 销毁的结算看守。页面级 skill（renhua）随 meta.skills 声明，由 app-host 挂进
- * 会话 agent 作用域。§3.9 承诺对齐由"说明点名 = 真实挂载"守住（测试锁定）。
- * The two tool faces divide by state: every stateless tool rides `meta.tools`
- * (declared statically, final from the staged pre-mount on); session_dispatch
- * is the one dynamic face (`ctx.page.tool`) — it carries the settlement watch
- * created and disposed with the page view. The page-scope skill (renhua) is
- * declared in meta.skills and mounted by app-host into the session's agent
- * scope. §3.9 promise alignment is kept by "named in the instructions = really
- * mounted" (locked by tests).
+ * 设计律：**工具只在页面存在**。本页"有哪些工具"由组件体一目了然地列出——
+ * `ctx.page.tool(构建器(ctx))` 直呼登记，按名去重、每帧重渲幂等；无状态工具
+ * 就地登记，session_dispatch 是唯一的例外（它携带随页面视图创建/销毁的结算
+ * 看守，所以住在 effect 里、清理函数结清看守）。没有应用级目录清单、没有
+ * meta.tools 字符串间接层。页面级 skill（renhua）随 meta.skills 声明，由
+ * app-host 挂进会话 agent 作用域。§3.9 承诺对齐 = "说明点名 = 这一段登记"
+ * （测试锁定）。
+ * Design law: **a tool exists only inside a page**. What this page offers is
+ * listed in plain sight in the component body — `ctx.page.tool(builder(ctx))`
+ * records directly, deduped by name and idempotent across re-renders;
+ * stateless tools register in place, and session_dispatch is the one
+ * exception (it carries the settlement watch created and disposed with the
+ * page view, so it lives in an effect whose cleanup settles the watch). No
+ * app-level catalog manifest, no meta.tools string indirection. The
+ * page-scope skill (renhua) is declared in meta.skills and mounted by
+ * app-host into the session's agent scope. §3.9 promise alignment = "named in
+ * the instructions = recorded in this block" (locked by tests).
  * @module @veren/person-agent-app
  */
 import { useState } from '@veren/prompt-core'
@@ -33,13 +39,24 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@veren/app-registry'
 import type {} from '@veren/task-center'
-// 动作工具：复用兄弟工具包的构建器（与目录、宿主注册的是同一份实现）。
-// session_dispatch 是唯一的动态脸——它携带随页面视图创建/销毁的结算看守。
+// 动作工具：复用兄弟工具包的构建器（同一份实现，页面是唯一注册面）。
 // Action tools: reuse the sibling tool packages' builders (the very same
-// implementations the catalog and the host register). session_dispatch is the
-// one dynamic face — it carries the settlement watch created and disposed with
-// the page view.
-import { buildSessionDispatchDefinition, createSettlementWatch } from '@veren/person-agent-tool-session'
+// implementations; the page is the only registration face).
+import {
+  buildSessionArchiveDefinition,
+  buildSessionCreateDefinition,
+  buildSessionDispatchDefinition,
+  buildSessionPinDefinition,
+  buildSessionRenameDefinition,
+  buildSessionUnarchiveDefinition,
+  buildSessionUnpinDefinition,
+  createSettlementWatch,
+} from '@veren/person-agent-tool-session'
+import {
+  buildWorkspaceCreateDefinition,
+  buildWorkspaceRenameDefinition,
+  buildWorkspaceSessionListDefinition,
+} from '@veren/person-agent-tool-workspace'
 // 部署事实读取：预设名单与模型目录。facts.ts 只读数、出结构化事实；标点与
 // 行排版由下方正文 tsx 渲染。工作区仍由正文直读注册表。
 // Deployment-fact reads: the preset roster and model catalog. facts.ts only
@@ -48,11 +65,10 @@ import { buildSessionDispatchDefinition, createSettlementWatch } from '@veren/pe
 import { errorMessage, readAgentPresets, readModelCatalogGroups } from './facts.ts'
 import type { AgentPresetView, ModelCatalogGroupView } from './facts.ts'
 // 页面级 skill：renhua（写给人看的文字前先加载）随两页声明，app-host 挂进
-// 会话 agent 作用域。结算看守的默认上限与应用目录同源（app.ts）。
+// 会话 agent 作用域。结算看守的默认上限单一来源（app.ts）。
 // The page-scope skill: renhua (load before writing anything a human reads),
 // declared on both pages, mounted by app-host into the session's agent scope.
-// The settlement watch's default bounds come from the same source as the
-// catalog's (app.ts).
+// The settlement watch's default bounds have one source (app.ts).
 import { WATCH_DEFAULTS } from './app.ts'
 import { loadRenhuaSkill } from './skills.ts'
 
@@ -110,13 +126,30 @@ export const OverviewPage: PageFC = (_props, ctx) => {
     )
     return () => { cancelled = true }
   })
-  // 唯一的动态工具（RFC §5.4 动态面）：session_dispatch 连同本页自己的结算看守
-  // ——看守随 effect 清理结清（agent 销毁或视图退订），派给已废弃会话的回报
-  // 不会悬空。登记即承诺：instructions 点名 session_dispatch。
-  // The one dynamic tool (RFC §5.4's dynamic face): session_dispatch together
-  // with this page's own settlement watch — the watch settles when the effect
-  // cleanup runs (agent disposal or view unsubscribe), so a report addressed to
-  // a deprecated session never dangles. Registration is the promise:
+  // 本页的工具清单（设计律：工具只在页面存在）：无状态九件就地登记——按名
+  // 去重、每帧重渲幂等，构建器只造定义不落任何全局注册表。参数（列表上限、
+  // 目录创建开关）就近写死：它们不是部署开关，是本页工具面的常量。
+  // This page's tool list (design law: a tool exists only inside a page): the
+  // nine stateless tools register in place — deduped by name, idempotent
+  // across re-renders; builders produce definitions and touch no global
+  // registry. The knobs (list cap, directory creation) are written right here:
+  // they are not deployment toggles, they are constants of this page's face.
+  ctx.page.tool(buildSessionCreateDefinition(ctx))
+  ctx.page.tool(buildSessionRenameDefinition(ctx))
+  ctx.page.tool(buildSessionArchiveDefinition(ctx))
+  ctx.page.tool(buildSessionUnarchiveDefinition(ctx))
+  ctx.page.tool(buildSessionPinDefinition(ctx))
+  ctx.page.tool(buildSessionUnpinDefinition(ctx))
+  ctx.page.tool(buildWorkspaceCreateDefinition(ctx, { allowCreateDirectory: false }))
+  ctx.page.tool(buildWorkspaceRenameDefinition(ctx))
+  ctx.page.tool(buildWorkspaceSessionListDefinition(ctx, { maxListSessions: 200 }))
+  // 唯一的 effect 登记项：session_dispatch 连同本页自己的结算看守——看守随
+  // effect 清理结清（agent 销毁或视图退订），派给已废弃会话的回报不会悬空。
+  // 登记即承诺：instructions 点名 session_dispatch。
+  // The one effect-registered tool: session_dispatch together with this page's
+  // own settlement watch — the watch settles when the effect cleanup runs
+  // (agent disposal or view unsubscribe), so a report addressed to a
+  // deprecated session never dangles. Registration is the promise:
   // instructions name session_dispatch.
   ctx.page.effect(() => {
     const watch = createSettlementWatch(ctx, WATCH_DEFAULTS)
@@ -198,31 +231,19 @@ export const OverviewPage: PageFC = (_props, ctx) => {
   )
 }
 
-/** 本页挂载的无状态工具（meta.tools 静态脸）/ the stateless tools mounted by this page (the static meta.tools face) */
-const OVERVIEW_TOOLS = [
-  'workspace_session_list',
-  'session_create',
-  'session_rename',
-  'session_archive',
-  'session_unarchive',
-  'session_pin',
-  'session_unpin',
-  'workspace_create',
-  'workspace_rename',
-] as const
-
 export const OverviewMeta: ComponentPageMeta = {
   name: 'overview',
   url: `${URL_PREFIX}/overview`,
   description: '个人工作台概览：看清部署的应用、工作区、预设与模型，处理待办任务，并可新建/派发/归档会话',
-  // 静态脸：九个无状态工具；动态脸（session_dispatch）由组件注册
-  // / the static face: the nine stateless tools; the dynamic face (session_dispatch) is registered by the component
-  tools: OVERVIEW_TOOLS,
-  // renhua 随页挂载：写给人看的文字之前先加载（应用说明的分内线）
-  // / renhua rides the page: load it before writing anything a human reads (the app note's carve-out line)
+  // 工具清单在组件体里（设计律：工具只在页面存在），meta.tools 已随应用级
+  // 目录一并退役；renhua 随页挂载：写给人看的文字之前先加载（应用说明的分内线）。
+  // The tool list lives in the component body (design law: a tool exists only
+  // inside a page); meta.tools retired together with the app-level catalog.
+  // renhua rides the page: load it before writing anything a human reads (the
+  // app note's carve-out line).
   skills: [loadRenhuaSkill()],
-  // 静态九工具 + 动态派活都是写动作，如实声明写意图
-  // / the nine static tools plus dynamic dispatch are all writes; declare the intent honestly
+  // 十件工具都是写动作，如实声明写意图
+  // / all ten tools are writes; declare the intent honestly
   writes: true,
   instructions: '这是 Person Agent 的首页（个人工作台概览）。正文即真实状态：'
     + 'apps 区来自应用目录（正文直读），Workspace List 来自工作区注册表（正文直读，每行带工作区 id 与会话账目），'
@@ -250,13 +271,17 @@ export const OverviewMeta: ComponentPageMeta = {
 // ---- 工作区浏览页（只读副页）---- Workspace browser page (a read-only secondary page) ----
 
 /**
- * 工作区浏览：注册表是同步内存读——正文直接读，零状态零 effect。四个工具全部
- * 走静态脸（meta.tools），本组件没有动态注册。
+ * 工作区浏览：注册表是同步内存读——正文直接读，零状态零 effect。四个工具
+ * 在组件体就地登记（设计律：工具只在页面存在）。
  * The workspace browser: the registry is a sync in-memory read straight in the
- * body — zero state, zero effect. All four tools ride the static face
- * (meta.tools); this component registers nothing dynamically.
+ * body — zero state, zero effect. The four tools register in place in the
+ * component body (design law: a tool exists only inside a page).
  */
 export const WorkspacesPage: PageFC = (_props, ctx) => {
+  ctx.page.tool(buildWorkspaceSessionListDefinition(ctx, { maxListSessions: 200 }))
+  ctx.page.tool(buildSessionCreateDefinition(ctx))
+  ctx.page.tool(buildWorkspaceCreateDefinition(ctx, { allowCreateDirectory: false }))
+  ctx.page.tool(buildWorkspaceRenameDefinition(ctx))
   const rows = ctx.workspaceRegistry.list()
   return (
     <>
@@ -280,10 +305,11 @@ export const WorkspacesMeta: ComponentPageMeta = {
   name: 'workspaces',
   url: `${URL_PREFIX}/workspaces`,
   description: '工作区浏览：列出各工作区及其会话账目，并可在工作区内新建会话',
-  tools: ['workspace_session_list', 'session_create', 'workspace_create', 'workspace_rename'],
+  // 工具清单在组件体里；renhua 随页挂载
+  // / the tool list lives in the component body; renhua rides the page
   skills: [loadRenhuaSkill()],
-  // 本页静态挂了写工具（session_create / workspace_create / workspace_rename），如实声明写意图
-  // / this page statically mounts write tools; declare the write intent honestly
+  // 本页登记的四个工具都是写动作，如实声明写意图
+  // / all four registered tools are writes; declare the write intent honestly
   writes: true,
   instructions: '这是工作区浏览页。正文每行是一个工作区：标题（展示名）、id: 后的完整工作区 id、会话账目数。'
     + '本页挂载四个工具：workspace_session_list（查某工作区的会话明细，session id 从它的结果里查）、'

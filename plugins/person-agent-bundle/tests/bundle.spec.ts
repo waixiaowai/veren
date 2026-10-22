@@ -65,14 +65,17 @@ describe('person-agent-bundle patch', () => {
   const rows = loadRows()
 
   it('inserts exactly one app row - the app is the whole stack', () => {
-    // 应用行只有一条：人设、工具与技能都在应用的页面会话里，不存在第二行、
-    // 也不存在开关之分。预设行已随纯应用栈退役。
-    // One app row: persona, tools and the skill all live in the app's page
-    // sessions - no second row, no toggle split. The preset row is retired
-    // with the app-only stack.
+    // 应用行只有一条且零配置：工具面常量就近写在组件体里，行上没有可配的东西。
+    // 人设、工具与技能都活在应用的页面会话里，不存在第二行、也不存在开关之分。
+    // 预设行已随纯应用栈退役。
+    // One app row with zero config: the tool-face constants live right in the
+    // component bodies, so the row itself carries nothing configurable. The
+    // persona, tools and the skill all live in the app's page sessions - no
+    // second row, no toggle split. The preset row is retired with the
+    // app-only stack.
     expect(rows).toHaveLength(1)
     expect(rows[0]?.name).toBe('@veren/person-agent-app')
-    expect(rows[0]?.config?.maxListSessions).toBe(200)
+    expect(rows[0]?.config).toBeUndefined()
   })
 
   it('carries no preset row and no toggles anymore', () => {
