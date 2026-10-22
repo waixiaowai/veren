@@ -94,24 +94,6 @@ export interface PageLoadEnv {
 }
 
 /**
- * 事件处理器的 IO 面：改上下文（append）/ 导航（navigate）。
- * 事件系统本身用宿主自带的 cordis 事件（ctx.emit / ctx.on，declaration merging），
- * 本包不另造总线；这里只定义页面声明处理器时拿到的 IO 形状。
- */
-export interface PageIO {
-  /** 改上下文：追加一条消息（host 结构化 append）/ append one note to the context */
-  append(text: string): void
-  /** 打开另一个页面（新会话 + 指针）/ open another page session */
-  navigate(url: string): void
-}
-
-/** 事件处理器形状 / event handler shape */
-export type PageEventHandler = (payload: unknown, io: PageIO) => void
-
-/** 页面的事件监听声明形状 / event-listener map shape（键名 = cordis 事件名）*/
-export type PageEventMap = Readonly<Record<string, PageEventHandler>>
-
-/**
  * 页面定义（应用作用域）：
  * - **preset 字段已删除**：页面不再绑定预设，静态面归用户自选的会话配置（§2.2）
  * - 新增 tools/instructions/instanceTitle（§3.1）；
@@ -176,24 +158,20 @@ export interface PageDefinition<S> {
   readonly load?: (params: PageParams, env: PageLoadEnv) => Promise<PageJsonValue>
   /** 实例标题函数；缺省用 description 兜底（§3.6.1）/ instance title, falls back to description */
   readonly instanceTitle?: (params: PageParams) => string
-  /** 事件监听：键名 = cordis 事件名（ctx.emit 触发）/ listeners keyed by cordis event name */
-  readonly events?: PageEventMap
-  /** 生命周期：由消费方征询以决定是否归档会话 / consulted to decide session archive */
-  readonly onComplete?: (params: PageParams) => boolean
 }
 
 /**
- * 会话宿主的结构面（C5）：MessageHost 结构性满足；Markdown 文档宿主
- * （component.tsx 的 MarkdownDocHost）亦满足——组件页与旧块页共用 PageSession。
- * The session host's structural face (C5): MessageHost satisfies it
- * structurally; the Markdown doc host (MarkdownDocHost in component.tsx) does
- * too — component pages and legacy block pages share PageSession.
+ * 会话宿主的结构面（C5）：Markdown 文档宿主（component.tsx 的 MarkdownDocHost）
+ * 结构性满足——页面只有组件页一种形态。增量/全量同步走 takeMarkdownPatch
+ * （消费方自持游标）；本面不承诺 renderSince 之类的通用同步形状。
+ * The session host's structural face (C5): the Markdown doc host
+ * (MarkdownDocHost in component.tsx) satisfies it structurally — the component
+ * page is the only page shape. Deltas ride takeMarkdownPatch (consumers own the
+ * cursor); this face promises no generic renderSince-like sync shape.
  */
 export interface PageHostFace {
   /** 当前版本号（交付门控来源）/ the current version (the delivery gating source) */
   readonly currentVersion: number
-  /** cursor 之后的增量（patch）或全量快照 / the delta after the cursor (patch) or the full snapshot */
-  renderSince(cursor?: number): import('@veren/prompt-host-messages').Sync
 }
 
 /** 一个已挂载的页面会话 / one mounted page-session */

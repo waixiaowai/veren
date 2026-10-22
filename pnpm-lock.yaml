@@ -765,9 +765,6 @@ importers:
       '@veren/prompt-core':
         specifier: workspace:^
         version: link:../prompt-core
-      '@veren/prompt-host-messages':
-        specifier: workspace:^
-        version: link:../prompt-host-messages
     devDependencies:
       '@deepseek-ai/dsh-agent-preset-registry':
         specifier: 0.2.1-rc.2
@@ -1193,6 +1190,9 @@ importers:
       '@deepseek-ai/dsh-session-title':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-agent@0.2.1-rc.2(77aa00311ccd1db3f3706cf88c30da0a))(@deepseek-ai/dsh-brand@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/dsh-llm@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/dsh-session-projection@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-session@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-scope@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))))(@deepseek-ai/dsh-session@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-scope@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)))
+      '@deepseek-ai/dsh-skill':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-llm@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/dsh-scope@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))
       '@deepseek-ai/dsh-storage':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
@@ -2044,6 +2044,12 @@ importers:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
         version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.10)(@deepseek-ai/cordis-plugin-loader@1.0.6)
+      '@deepseek-ai/dsh-agent-preset-registry':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(e8b02ee78c2e9fe7e6e57964b6f176f0)
+      '@deepseek-ai/dsh-llm':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
       '@deepseek-ai/dsh-tools':
         specifier: '>=0.2.1-rc.2 <0.3.0'
         version: 0.2.1-rc.2(39679b028ccad1643d383935c6a869a6)
@@ -2080,24 +2086,12 @@ importers:
 
   plugins/person-agent-bundle:
     dependencies:
+      '@veren/app-host-bundle':
+        specifier: workspace:^
+        version: link:../app-host-bundle
       '@veren/person-agent-app':
         specifier: workspace:^
         version: link:../person-agent-app
-      '@veren/person-agent-dynamic-context':
-        specifier: workspace:^
-        version: link:../person-agent-dynamic-context
-      '@veren/person-agent-preset':
-        specifier: workspace:^
-        version: link:../person-agent-preset
-      '@veren/person-agent-reanchor':
-        specifier: workspace:^
-        version: link:../person-agent-reanchor
-      '@veren/person-agent-tool-session':
-        specifier: workspace:^
-        version: link:../person-agent-tool-session
-      '@veren/person-agent-tool-workspace':
-        specifier: workspace:^
-        version: link:../person-agent-tool-workspace
     devDependencies:
       js-yaml:
         specifier: ^4.1.0
@@ -2106,110 +2100,7 @@ importers:
         specifier: ^5.0.4
         version: 5.0.4(@types/node@26.6.5)(vite@7.3.7(@types/node@26.6.5)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.1))
 
-  plugins/person-agent-dynamic-context:
-    dependencies:
-      '@deepseek-ai/schemastery':
-        specifier: ^3.18.4
-        version: 3.18.4
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: ^4.0.5
-        version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.10)(@deepseek-ai/cordis-plugin-loader@1.0.6)
-      '@deepseek-ai/dsh-agent':
-        specifier: 0.2.1-rc.2
-        version: 0.2.1-rc.2(77aa00311ccd1db3f3706cf88c30da0a)
-      '@deepseek-ai/dsh-agent-preset-registry':
-        specifier: 0.2.1-rc.2
-        version: 0.2.1-rc.2(e8b02ee78c2e9fe7e6e57964b6f176f0)
-      '@deepseek-ai/dsh-llm':
-        specifier: 0.2.1-rc.2
-        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
-      '@deepseek-ai/dsh-session':
-        specifier: 0.2.1-rc.2
-        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-scope@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))
-      '@deepseek-ai/dsh-workspace':
-        specifier: 0.2.1-rc.2
-        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-session@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-scope@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)))(@deepseek-ai/dsh-storage-domain@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-storage@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)))(@deepseek-ai/dsh-storage@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/dsh-typert-protocol@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))
-      '@types/node':
-        specifier: ^26.6.0
-        version: 26.6.5
-      '@vitest/utils':
-        specifier: 3.2.7
-        version: 3.2.7
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: ^5.0.4
-        version: 5.0.4(@types/node@26.6.5)(vite@7.3.7(@types/node@26.6.5)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.1))
-
-  plugins/person-agent-preset:
-    dependencies:
-      '@deepseek-ai/schemastery':
-        specifier: ^3.18.4
-        version: 3.18.4
-      '@veren/person-agent-dynamic-context':
-        specifier: workspace:^
-        version: link:../person-agent-dynamic-context
-      '@veren/person-agent-reanchor':
-        specifier: workspace:^
-        version: link:../person-agent-reanchor
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: ^4.0.5
-        version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.10)(@deepseek-ai/cordis-plugin-loader@1.0.6)
-      '@deepseek-ai/dsh-agent-preset-registry':
-        specifier: 0.2.1-rc.2
-        version: 0.2.1-rc.2(e8b02ee78c2e9fe7e6e57964b6f176f0)
-      '@deepseek-ai/dsh-scope':
-        specifier: 0.2.1-rc.2
-        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
-      '@deepseek-ai/dsh-workspace':
-        specifier: 0.2.1-rc.2
-        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-session@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-scope@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)))(@deepseek-ai/dsh-storage-domain@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-storage@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)))(@deepseek-ai/dsh-storage@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/dsh-typert-protocol@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))
-      '@types/node':
-        specifier: ^26.6.0
-        version: 26.6.5
-      '@vitest/utils':
-        specifier: 3.2.7
-        version: 3.2.7
-      vitest:
-        specifier: ^5.0.4
-        version: 5.0.4(@types/node@26.6.5)(vite@7.3.7(@types/node@26.6.5)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.1))
-
-  plugins/person-agent-reanchor:
-    dependencies:
-      '@deepseek-ai/schemastery':
-        specifier: ^3.18.4
-        version: 3.18.4
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: ^4.0.5
-        version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.10)(@deepseek-ai/cordis-plugin-loader@1.0.6)
-      '@deepseek-ai/dsh-agent':
-        specifier: 0.2.1-rc.2
-        version: 0.2.1-rc.2(77aa00311ccd1db3f3706cf88c30da0a)
-      '@deepseek-ai/dsh-llm':
-        specifier: 0.2.1-rc.2
-        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
-      '@deepseek-ai/dsh-session':
-        specifier: 0.2.1-rc.2
-        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-scope@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))
-      '@types/node':
-        specifier: ^26.6.0
-        version: 26.6.5
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: ^5.0.4
-        version: 5.0.4(@types/node@26.6.5)(vite@7.3.7(@types/node@26.6.5)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.1))
-
   plugins/person-agent-tool-session:
-    dependencies:
-      '@deepseek-ai/schemastery':
-        specifier: ^3.18.4
-        version: 3.18.4
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
@@ -2249,10 +2140,6 @@ importers:
         version: 5.0.4(@types/node@26.6.5)(vite@7.3.7(@types/node@26.6.5)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.1))
 
   plugins/person-agent-tool-workspace:
-    dependencies:
-      '@deepseek-ai/schemastery':
-        specifier: ^3.18.4
-        version: 3.18.4
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5

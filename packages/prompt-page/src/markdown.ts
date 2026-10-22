@@ -25,7 +25,6 @@
  * @module @veren/prompt-page/markdown
  */
 import type { Fiber } from '@veren/prompt-core'
-import type { Sync } from '@veren/prompt-host-messages'
 
 /** 一个补丁对账单元：可选 key（keyed 元素）+ 渲染出的 Markdown 文本
  * / one patch reconciliation unit: optional key (a keyed element) + rendered Markdown text */
@@ -359,12 +358,5 @@ export class MarkdownDocHost {
     const pending = this.commits.filter((commit) => commit.version > cursor)
     if (pending.length === 0) return undefined
     return { text: pending.map((commit) => commit.text).join('\n'), version: this.current }
-  }
-
-  /** 结构面兼容（renderSince：Markdown 会话只产 patch 形状；ops 留空——消费方走 takeMarkdownPatch）
-   * / structural-face compatibility (renderSince: markdown sessions only produce the patch shape; ops empty — consumers use takeMarkdownPatch) */
-  renderSince(cursor?: number): Sync {
-    const from = cursor ?? 0
-    return { kind: 'patch', fromVersion: from, toVersion: this.current, ops: [] }
   }
 }

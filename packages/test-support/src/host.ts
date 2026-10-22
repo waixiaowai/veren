@@ -129,11 +129,18 @@ async function mountRegistries(ctx: Context, disposers: Array<() => Promise<void
     throw new Error('registry plugins did not provide apps/pageRegistry')
   }
   apps.setPageMirror({
-    // live 必须透传（与真实宿主 wire.ts 同缝）：组件页的每会话视图绑定丢了，
-    // 页面会话就挂不出视图。
-    // `live` must pass through (the same seam as the real host's wire.ts):
-    // dropping the per-session view binding breaks every page session.
-    registerAppPage: (appId, page, live) => pageRegistry.registerAppPage(appId, page, live),
+    // live 必须透传（与真实宿主 wire.ts 同缝）：组件页是唯一生产形态，缺 live
+    // 的注册是装配错误，fail loud 而不是挂出"头行有、正文空"的坏页面。
+    // `live` must pass through (the same seam as the real host's wire.ts). A
+    // component page is the only production shape; a registration without one
+    // is an assembly error — fail loud instead of mounting a page with a
+    // header but an empty body.
+    registerAppPage: (appId, page, live) => {
+      if (live === undefined) {
+        throw new Error(`mountAppHost: page "${page.name}" of app "${appId}" registered without a live binding (component pages only)`)
+      }
+      return pageRegistry.registerAppPage(appId, page, live)
+    },
     releaseApp: (appId) => pageRegistry.releaseApp(appId),
   })
 }

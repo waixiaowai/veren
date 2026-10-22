@@ -67,7 +67,10 @@ async function install(options: {
   ctx.provide('apps', apps)
   ctx.provide('pageRegistry', pageRegistry)
   apps.setPageMirror({
-    registerAppPage: (appId: never, page: never) => pageRegistry.registerAppPage(appId, page),
+    // live 必须透传（与真实宿主 wire.ts 同缝）：live 改必填后，丢绑定会在登记处抛错。
+    // `live` must pass through (the same seam as the real host's wire.ts): with live
+    // required, dropping the binding now throws at registration.
+    registerAppPage: (appId: never, page: never, live: never) => pageRegistry.registerAppPage(appId, page, live),
     releaseApp: (appId: never) => pageRegistry.releaseApp(appId),
   })
   ctx.provide('workspaceRegistry', fakeWorkspaceRegistry(options.workspaces) as never)

@@ -440,8 +440,11 @@ describe('app_open 错误路径（稳定码）', () => {
     const fresh = makeService()
     const old = await fresh.service.openUrl('/apps/demo/task/1')
     // 应用升级：旧页面定义摘除，新定义注册——没有升级分叉，直接新建
+    // / an app upgrade: the old definition is disposed and the same (re-built)
+    // definition registers again — no upgrade fork, a fresh session opens
     fresh.dispose()
-    fresh.service.register(task.page, task.live)
+    const rebuilt = taskPage()
+    fresh.service.register(rebuilt.page, rebuilt.live)
     const opened = await fresh.service.openUrl('/apps/demo/task/1')
     expect(opened.sessionId).not.toBe(old.sessionId)
     expect(fresh.sessions.created).toHaveLength(2) // 旧会话废弃、新会话建成

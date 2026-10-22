@@ -17,6 +17,10 @@ function detailPage() {
   })
 }
 
+/** live 绑定假件：本文件只测注册/解析/端口 fail loud，从不挂视图
+ * / a live-binding fake: this spec covers registration/resolution/port fail-loud, never view mounting */
+const stubLive = { mount: () => { throw new Error('not mounted in this spec') } }
+
 describe('PageRegistryService（Service 插件）', () => {
   it('是 Service 子类；默认导出即插件入口', () => {
     expect(PageRegistryService.prototype instanceof Service).toBe(true)
@@ -26,7 +30,7 @@ describe('PageRegistryService（Service 插件）', () => {
   it('register → resolve/get/catalog/format 全链路（宿主作用域内可用）', () => {
     const ctx = makeCtx()
     const service = new PageRegistryService(ctx)
-    const dispose = service.register(detailPage() as PageDefinition<never>)
+    const dispose = service.register(detailPage() as PageDefinition<never>, stubLive)
 
     expect(service.catalog()).toHaveLength(1)
     const match = service.resolve<{ id: string }[]>('/task-detail/t-9?focus=chat')
@@ -40,13 +44,13 @@ describe('PageRegistryService（Service 插件）', () => {
 
   it('重名/URL 冲突 fail loud', () => {
     const service = new PageRegistryService(makeCtx())
-    service.register(detailPage() as PageDefinition<never>)
-    expect(() => service.register(detailPage() as PageDefinition<never>)).toThrow(/duplicate page name/)
+    service.register(detailPage() as PageDefinition<never>, stubLive)
+    expect(() => service.register(detailPage() as PageDefinition<never>, stubLive)).toThrow(/duplicate page name/)
   })
 
   it('端口未接线：openUrl fail loud（page/host-unavailable），不假成功（G13）', async () => {
     const service = new PageRegistryService(makeCtx())
-    service.register(detailPage() as PageDefinition<never>)
+    service.register(detailPage() as PageDefinition<never>, stubLive)
     await expect(service.openUrl('/task-detail/t-1'))
       .rejects.toMatchObject({ code: 'page/host-unavailable' })
   })

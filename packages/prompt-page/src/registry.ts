@@ -57,8 +57,9 @@ export interface PageMatch<S> {
   readonly params: PageParams
   /** 规范化后的具体 URL / normalized concrete url */
   readonly url: string
-  /** 注册时声明的实时数据绑定；缺省 = 静态页（无 PAGE-DATA 同步）/ the live binding declared at registration; absent = static page */
-  readonly live?: PageLiveBinding
+  /** 注册时声明的实时数据绑定（每页必有；页面 = 组件页，无静态页形态）
+   * / the live binding declared at registration (required on every page: a page IS a component page; no static-page shape) */
+  readonly live: PageLiveBinding
 }
 
 /** 目录条目（入口渲染用）/ catalog entry for entry-point rendering */
@@ -69,18 +70,27 @@ export interface PageCatalogEntry {
 }
 
 export class PageRegistry<S = never> {
-  /** 登记条目：页面定义 + 可选实时绑定 / one entry: page definition + optional live binding */
-  private readonly entries: Array<{ page: PageDefinition<S>; live?: PageLiveBinding }> = []
+  /** 登记条目：页面定义 + 实时绑定（必填；页面 = 组件页）/ one entry: page definition + required live binding */
+  private readonly entries: Array<{ page: PageDefinition<S>; live: PageLiveBinding }> = []
 
-  /** 注册页面：重名/URL 模式冲突 fail loud；返回 disposer / register with a disposer */
-  register(page: PageDefinition<S>, live?: PageLiveBinding): () => void {
+  /**
+   * 注册页面：live 绑定必填（生产路径只有组件页，缺 live 的注册会产出"头行有、
+   * 正文空"的坏页面，在此收口）；重名/URL 模式冲突 fail loud；返回 disposer。
+   * Register a page: the live binding is required (the only production shape is
+   * a component page; a registration without one would yield a "header present,
+   * body empty" page — closed here); duplicate name/url patterns fail loud.
+   */
+  register(page: PageDefinition<S>, live: PageLiveBinding): () => void {
+    if (live === undefined) {
+      throw new Error(`[PageRegistry] page "${page.name}" must register with a live binding (component pages only)`)
+    }
     if (this.entries.some((existing) => existing.page.name === page.name)) {
       throw new Error(`[PageRegistry] duplicate page name: ${page.name}`)
     }
     if (this.entries.some((existing) => normalizePath(existing.page.url) === normalizePath(page.url))) {
       throw new Error(`[PageRegistry] duplicate page url pattern: ${page.url}`)
     }
-    this.entries.push(live === undefined ? { page } : { page, live })
+    this.entries.push({ page, live })
     return () => {
       const index = this.entries.findIndex((entry) => entry.page === page)
       if (index >= 0) this.entries.splice(index, 1)
@@ -107,7 +117,7 @@ export class PageRegistry<S = never> {
         page: entry.page,
         params,
         url: formatPath(entry.page.url, pathParams) + (queryString.length > 0 ? `?${queryString}` : ''),
-        ...(entry.live === undefined ? {} : { live: entry.live }),
+        live: entry.live,
       }
     }
     return null

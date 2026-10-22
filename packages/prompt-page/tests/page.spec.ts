@@ -9,7 +9,16 @@
  */
 import { describe, expect, it } from 'vitest'
 import { definePage, formatPath, matchPath, normalizePath, PageRegistry, splitUrl } from '../src/index.ts'
-import type { PageDefinition } from '../src/types.ts'
+import type { PageDefinition, PageLiveBinding } from '../src/types.ts'
+
+/**
+ * 注册面要求 live 必填（组件页是唯一生产形态）；本文件的用例只测目录/匹配契约，
+ * 不挂会话，用占位 live 即可。
+ * The registrar demands a live binding (component pages are the only production
+ * shape); these cases only exercise catalog/matching contracts and never mount
+ * a session, so a placeholder live is enough.
+ */
+const stubLive: PageLiveBinding = { mount: () => { throw new Error('not mounted in this spec') } }
 
 const ListPage: PageDefinition<never> = definePage({
   name: 'list',
@@ -49,8 +58,8 @@ describe('url matching', () => {
 describe('PageRegistry', () => {
   it('resolve：路径参数 + query 合并（path 优先），返回规范化 URL', () => {
     const registry = new PageRegistry()
-    registry.register(ListPage)
-    registry.register(DetailPage)
+    registry.register(ListPage, stubLive)
+    registry.register(DetailPage, stubLive)
 
     const miss = registry.resolve('/task-list')
     expect(miss?.page.name).toBe('list')
@@ -66,7 +75,7 @@ describe('PageRegistry', () => {
 
   it('catalog 与 disposer（HMR/卸载安全）', () => {
     const registry = new PageRegistry()
-    const dispose = registry.register(ListPage)
+    const dispose = registry.register(ListPage, stubLive)
     expect(registry.catalog()).toEqual([{ name: 'list', url: '/task-list', description: '任务列表页' }])
     dispose()
     expect(registry.catalog()).toEqual([])
@@ -75,12 +84,17 @@ describe('PageRegistry', () => {
 
   it('重名/URL 模式冲突 fail loud', () => {
     const registry = new PageRegistry()
-    registry.register(ListPage)
-    expect(() => registry.register(ListPage)).toThrow(/duplicate page name/)
-    expect(() => registry.register(DetailPage)).not.toThrow()
+    registry.register(ListPage, stubLive)
+    expect(() => registry.register(ListPage, stubLive)).toThrow(/duplicate page name/)
+    expect(() => registry.register(DetailPage, stubLive)).not.toThrow()
     expect(() => registry.register({
       ...ListPage, name: 'list2', url: '/task-list/',
-    })).toThrow(/duplicate page url/)
+    }, stubLive)).toThrow(/duplicate page url/)
+  })
+
+  it('缺 live 的注册 fail loud（页面 = 组件页，无静态页形态）', () => {
+    const registry = new PageRegistry()
+    expect(() => registry.register(ListPage, undefined as never)).toThrow(/live binding/)
   })
 })
 

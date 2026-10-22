@@ -100,14 +100,12 @@ function memKv(): InstanceKvPort & { readonly map: Map<string, PageInstanceRecor
 }
 
 /** 组装服务 + 带实时绑定的页面 + 全部假件端口 / assemble the service, a live page, and fake ports */
-function makeService(options: { pageData?: ReturnType<typeof fakePageData>; withLive?: boolean } = {}) {
+function makeService(options: { pageData?: ReturnType<typeof fakePageData> } = {}) {
   const ctx = new Context()
   const service = new PageRegistryService(ctx)
   const store = fakeStore([{ id: 't-1', title: '初始任务' }])
   const registration = taskPage(store)
-  const dispose = options.withLive === false
-    ? service.registerAppPage('demo', registration.page)
-    : service.registerAppPage('demo', registration.page, registration.live)
+  const dispose = service.registerAppPage('demo', registration.page, registration.live)
   void dispose
   const sessions = fakeSessions()
   const app: AppRecord = {
@@ -154,11 +152,15 @@ describe('实时视图端口（§3.10.3）：bind 随提交、unbind 随废弃/�
     expect(pageData.bound.get(second.sessionId)?.view).not.toBe(pageData.bound.get(first.sessionId)?.view)
   })
 
-  it('③未带 live 的页面打开 → 端口零调用（静态页面路径不受影响）', async () => {
-    const { service, pageData } = makeService({ withLive: false })
-    await service.openUrl('/apps/demo/task/1')
-    expect(pageData.bound.size).toBe(0)
-    expect(pageData.unbound).toHaveLength(0)
+  it('③未带 live 的注册 → fail loud（页面 = 组件页，"头行有、正文空"的静态页形态已收口）', () => {
+    // 注册期拒绝，坏页面进不了注册表：打开路径自然无"端口零调用"的静态页可测
+    // / refused at registration, so no "header present, body empty" page can
+    // enter the registry (the open path has no static-page case left to test)
+    const ctx = new Context()
+    const service = new PageRegistryService(ctx)
+    const registration = taskPage(fakeStore([{ id: 't-1', title: '初始任务' }]))
+    expect(() => service.registerAppPage('demo', registration.page, undefined as never))
+      .toThrow(/live binding/)
   })
 
   it('④bind 失败 → 走既有回滚：会话销毁、工具摘除、openUrl 原样抛错', async () => {

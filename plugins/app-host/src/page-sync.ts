@@ -152,16 +152,3 @@ export function createPageDataSync(options: PageDataSyncOptions = {}): PageDataS
     }, { prepend: true }),
   }
 }
-
-/** PAGE-DATA 块的 data 载荷形状（§3.10.2：页面标识在块头，data 是视图快照）
- * / the block's data payload (§3.10.2: identity rides the header, data is the view snapshot) */
-export interface PageDataPayload {
-  /** 静态头（页面标题等）/ static headers */
-  readonly static: readonly string[]
-  /** 字段：path → value / fields: path → value */
-  readonly fields: Record<string, unknown>
-  /** 集合：path → { total, items }（total 是截断前的真实条数）/ collections with the pre-truncation total */
-  readonly collections: Record<string, { readonly total: number; readonly items: readonly unknown[] }>
-  /** 任一截断发生时为 true / true when anything was truncated */
-  readonly truncated?: true
-}

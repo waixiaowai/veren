@@ -110,7 +110,7 @@ async function mount(): Promise<{
   ctx.provide('apps', apps)
   ctx.provide('pageRegistry', pageRegistry)
   apps.setPageMirror({
-    registerAppPage: (appId, page) => pageRegistry.registerAppPage(appId, page),
+    registerAppPage: (appId, page, live) => pageRegistry.registerAppPage(appId, page, live),
     releaseApp: appId => pageRegistry.releaseApp(appId),
   })
 

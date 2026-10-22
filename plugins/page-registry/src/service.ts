@@ -134,9 +134,15 @@ export class PageRegistryService extends Service {
     if (index !== undefined) this.indexFace = index
   }
 
-  /** 注册页面；重名/URL 模式冲突 fail loud；返回 disposer / register with a disposer */
-  register(page: PageDefinition<never>): () => void {
-    return this.registry.register(page)
+  /**
+   * 注册页面：live 绑定必填（页面 = 组件页，缺 live 会产出"头行有、正文空"的
+   * 坏页面，在此收口）；重名/URL 模式冲突 fail loud；返回 disposer。
+   * Register a page: the live binding is required (a page IS a component page;
+   * registering without one would yield a "header present, body empty" page —
+   * closed here); duplicate name/url patterns fail loud; returns a disposer.
+   */
+  register(page: PageDefinition<never>, live: PageLiveBinding): () => void {
+    return this.registry.register(page, live)
   }
 
   /**
@@ -152,7 +158,7 @@ export class PageRegistryService extends Service {
    * bare makes the second app explode on duplicate-name or get silently
    * skipped by idempotency checks — the round-4 live task-workbench failure.
    */
-  registerAppPage(appId: string, page: PageDefinition<never>, live?: PageLiveBinding): () => void {
+  registerAppPage(appId: string, page: PageDefinition<never>, live: PageLiveBinding): () => void {
     if (!page.url.startsWith(`/apps/${appId}/`)) {
       throw new PageError(PageErrorCode.UrlInvalid, `page "${page.name}" of app "${appId}" must register under /apps/${appId}/, got ${page.url}`)
     }

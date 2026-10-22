@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { Context } from '@deepseek-ai/cordis'
-import { KvPageInstanceIndex, defineAppPage, pageToolWarning } from '@veren/prompt-page'
+import { KvPageInstanceIndex, defineAppPage, defineComponentPage, pageToolWarning } from '@veren/prompt-page'
+import { createElement } from '@veren/prompt-core'
 import type { InstanceKvPort, PageInstanceIndex, PageInstanceRecord } from '@veren/prompt-page'
 import { createPageSendTool } from '../src/tools.ts'
 import { HopLedger, MAX_DELIVERY_HOPS } from '../src/delivery.ts'
@@ -43,24 +44,29 @@ function fakeSessions() {
   return { port, created, messages, wakeOptions, focused }
 }
 
-function taskPage() {
-  return defineAppPage({
-    name: 'task',
-    url: '/apps/demo/task/:id',
-    description: '任务详情页',
-    tools: ['read'],
-    // §3.10.5 规则 3：二级页必须 declares 写能力 + 说明非空（夹具随规范落地更新）
-    // / §3.10.5 rule 3: a detail page declares writes and carries instructions (fixture updated with the spec)
-    writes: true,
-    instructions: '只处理 params.id 指定的这一条任务。',
-  })
+/** 投递夹具页：组件页形态（live 必填），正文一行即可——投递测试只关心块与消息
+ * / the delivery fixture page: the component-page shape (live required), a one-line body — delivery tests care about blocks and messages */
+function taskPageRegistration() {
+  return defineComponentPage(
+    () => createElement('p', { children: '任务详情' }),
+    {
+      url: '/apps/demo/task/:id',
+      description: '任务详情页',
+      tools: ['read'],
+      writes: true,
+      instructions: '只处理 params.id 指定的这一条任务。',
+    },
+  )
 }
+
+/** live 绑定随组件页注册一并产出（必填）/ the live binding comes with the component-page registration (required) */
 
 /** 组装一个带页面/端口假件的投递服务 / assemble a delivery-ready service */
 function makeService() {
   const ctx = new Context()
   const service = new PageRegistryService(ctx)
-  const dispose = service.register(taskPage())
+  const task = taskPageRegistration()
+  const dispose = service.register(task.page, task.live)
   const kv = memKv()
   const sessions = fakeSessions()
   const app: AppRecord = {
