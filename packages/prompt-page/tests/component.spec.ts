@@ -1,11 +1,11 @@
 /**
  * 组件页管线（C5/§3.5）单元测试：defineComponentPage 的视图隔离、Markdown
- * 首帧与 PAGE-PATCH diff、ctx.effect/ctx.on 记账与 teardown、ctx.tools.register
- * 记录、useSnapshot 与 load 桥。
+ * 首帧与 PAGE-PATCH diff、ctx.page.effect/ctx.page.on 记账与 teardown、
+ * ctx.page.tool 记录、useSnapshot 与 load 桥。
  * Component-page pipeline unit tests (C5/§3.5): defineComponentPage view
- * isolation, the Markdown first frame and PAGE-PATCH diff, ctx.effect/ctx.on
- * recording and teardown, ctx.tools.register recording, useSnapshot and the
- * load bridge.
+ * isolation, the Markdown first frame and PAGE-PATCH diff, ctx.page.effect /
+ * ctx.page.on recording and teardown, ctx.page.tool recording, useSnapshot and
+ * the load bridge.
  *
  * 本 spec 用 createElement（.ts 不走 JSX 转换）；JSX 形态由插件迁移的 .tsx
  * 页面与既有 jsx-runtime-pragma.spec 覆盖。
@@ -114,10 +114,10 @@ describe('defineComponentPage 组件页管线', () => {
     let notify: (() => void) | undefined
     const Page: PageFC = (_props, ctx) => {
       const [rows, setRows] = useState([{ id: 'A' }, { id: 'B' }])
-      ctx.effect(() => {
+      ctx.page.effect(() => {
         notify = () => setRows((prev) => prev.slice(0, 1))
       })
-      ctx.on('tasks/changed', () => undefined)
+      ctx.page.on('tasks/changed', () => undefined)
       return createElement('ul', { children: rows.map((r) => createElement('li', { key: r.id, children: r.id })) })
     }
     const { view, subscriptions } = viewOf(Page, { url: '/apps/tasks', description: '任务' }, {})
@@ -155,8 +155,8 @@ describe('defineComponentPage 组件页管线', () => {
     }
     let cleanups = 0
     const Page: PageFC = (_props, ctx) => {
-      ctx.effect(() => () => { cleanups++ })
-      ctx.on('agent/status', () => undefined)
+      ctx.page.effect(() => () => { cleanups++ })
+      ctx.page.on('agent/status', () => undefined)
       return createElement('p', { children: 'scoped' })
     }
     const registration = defineComponentPage(Page, { url: '/apps/scoped', description: '作用域页' }, owner.ctx)
@@ -177,15 +177,15 @@ describe('defineComponentPage 组件页管线', () => {
     expect(cleanups).toBe(1)
   })
 
-  it('ctx.effect 只运行一次；ctx.tools.register 按名去重', () => {
+  it('ctx.page.effect 只运行一次；ctx.page.tool 按名去重', () => {
     let effectRuns = 0
     let run: (() => void) | undefined
     const Page: PageFC = (_props, ctx) => {
-      ctx.effect(() => {
+      ctx.page.effect(() => {
         effectRuns++
         run = () => {
-          ctx.tools.register({ name: 'task_take', description: 'd', parameters: {}, output: { schema: {}, render: () => [] } } as never)
-          ctx.tools.register({ name: 'task_take', description: 'd', parameters: {}, output: { schema: {}, render: () => [] } } as never)
+          ctx.page.tool({ name: 'task_take', description: 'd', parameters: {}, output: { schema: {}, render: () => [] } } as never)
+          ctx.page.tool({ name: 'task_take', description: 'd', parameters: {}, output: { schema: {}, render: () => [] } } as never)
         }
       })
       return createElement('p', { children: 'ok' })

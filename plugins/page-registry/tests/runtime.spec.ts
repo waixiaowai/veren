@@ -496,13 +496,13 @@ describe('工具前缀与应用作用域（§3.4.3、§3.1）', () => {  it('页
     expect(sessions.destroyed).not.toContain(sessionId)
   })
 
-  it('组件动态注册：ctx.tools.register 的产物与目录工具一次挂载（都改外名）', async () => {
+  it('组件动态注册：ctx.page.tool 的产物与目录工具一次挂载（都改外名）', async () => {
     const { service, sessions } = makeService()
     // 组件体内动态注册一个动作工具（RFC §5.4 动态面）
     // / a component body registering an action tool dynamically (RFC §5.4's dynamic face)
     const registration = defineComponentPage(
       (_props, ctx) => {
-        ctx.tools.register(defineTool({
+        ctx.page.tool(defineTool({
           name: 'extra_action',
           description: '动作工具',
           parameters: {},
@@ -525,7 +525,7 @@ describe('预挂工具面（选中应用 ≠ 开始会话）：第一步就拿�
   function registerPreviewPage(service: PageRegistryService): void {
     const registration = defineComponentPage(
       (_props, ctx) => {
-        ctx.tools.register(defineTool({
+        ctx.page.tool(defineTool({
           name: 'extra_action',
           description: '动作工具',
           parameters: {},

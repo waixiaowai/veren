@@ -320,3 +320,25 @@
   作用域）正常进入请求头；缓存 step 1 2,474 未命中 + 11,776 命中，step 2 190 + 14,464 命中。
 - 发布 prompt-page@0.1.6、page-registry@0.1.6、app-host@0.2.15、
   app-host-bundle@0.2.10；profile 安装，节点 3080 重启。
+
+### 第十二轮：不改写 ctx 固有成员——页面 API 收进 ctx.page（2026-10-22）
+- 反馈：`PageCtx = PageComponentContext & Context` 把 ctx 固有的 effect/tools/on 覆盖后
+  又用交叉类型放回来，类型/运行期不一致；改写固有成员本身也不自然。
+- 实现：
+  - 删除 `PageComponentContext` 与交叉类型；`PageCtx = Context & { page: PageHooks }`，
+    ctx 是 `ctx.extend({ page })` 出来的真实子上下文，固有成员（tools/effect/on）原样。
+  - `PageHooks = { effect, on, tool }`：首帧按槽位记账（只执行/订阅一次）；effect 清理与
+    on 经会话的 `agent.ctx` 注册（事件按 agent 过滤、agent 销毁兜底）；tool 记录后由
+    page-registry 挂到同一作用域。无 agent 作用域（暂存预览）时 effect 清理随视图
+    teardown、on 回退创建者 ctx。裸注册（无 ctx）只带 page 面。
+  - 页面代码迁移：`ctx.effect` → `ctx.page.effect`、`ctx.on` → `ctx.page.on`、
+    `ctx.tools.register` → `ctx.page.tool`（person-agent-app 两个页面）。
+- 测试：prompt-page 40/40（作用域用例改为 ctx.page.effect/on）、page-registry 56/56、
+  app-host 23/23、person-agent-app 17/17、task-workbench 29/29、notebook 10/10、
+  sub2api 25/25；`pnpm check` 全绿。
+- 真机：新会话选 Person Agent 发送"你好，介绍一下这个页面。"；日志只有一条
+  request/header（initial），53 工具含三个 person_agent__*、不含 app_*；在
+  ctx.page.effect 里经 ctx.page.tool 记录的动态工具正常挂载；缓存 step 1 810 未命中 +
+  13,440 命中，step 2 1,251 + 14,336。
+- 发布 prompt-page@0.1.7、person-agent-app@0.1.8、person-agent-bundle@0.3.3；
+  profile 安装，节点 3080 重启。

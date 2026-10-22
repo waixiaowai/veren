@@ -14,7 +14,7 @@
 - **definePage fail loud**：空名称/空描述、非路径或重复 `:param` 的 url、非函数 tree。
 - **生命周期钩子（预留）**：`onLoad(params)` 挂载后；`onComplete(params)` 供消费方决定是否归档会话（插件经 `workspaceRegistry.archiveSession` 关闭）。
 - **可选策略装配**：给 `mountPage` 传 `assembly: { systemPrompt, provider?, policy?, budget? }`，会话即获得 `assemble()`——预算触顶 remount + 按 provider 规划缓存断点（来自 `@veren/prompt-host-messages`；未知 provider 显式默认 deepseek 语义，见该包 README）。不给 `assembly` 行为与历史完全一致。
-- **实时绑定（`PageLiveBinding`）**：页面注册时可一并声明权威 store，封成 `{ mount(params, scope?): PageSession<never> }`——状态类型 `S` 在 store 所在处被消费，注册表与挂载点都从不接触它。`scope` 是该会话的 `agent.ctx`：组件页的 `ctx.effect`/`ctx.on` 经它注册（DSH 作用域模型），agent-subject 事件按该 agent 过滤、清理随会话作用域；没有作用域（agent 尚未创建的暂存预览）时回退到创建者 ctx / 视图 teardown。两条路径都用 `mountPage` 挂载；store 变化全同步进 `MessageHost` 的版本链，正因如此宿主能在下一轮模型请求注入最新快照（§3.10.2/§3.10.3）。
+- **实时绑定（`PageLiveBinding`）**：页面注册时可一并声明权威 store，封成 `{ mount(params, scope?): PageSession<never> }`——状态类型 `S` 在 store 所在处被消费，注册表与挂载点都从不接触它。`scope` 是该会话的 `agent.ctx`：组件页的 `ctx.page.effect` / `ctx.page.on` 经它注册（DSH 作用域模型），agent-subject 事件按该 agent 过滤、清理随会话作用域；没有作用域（agent 尚未创建的暂存预览）时回退到创建者 ctx / 视图 teardown。`ctx.page.tool(def)` 记录会话作用域工具，由页面运行时挂载；ctx 的固有成员（`ctx.effect` / `ctx.on` / `ctx.tools`）不被改写。两条路径都用 `mountPage` 挂载；store 变化全同步进 `MessageHost` 的版本链，正因如此宿主能在下一轮模型请求注入最新快照（§3.10.2/§3.10.3）。
 
 ## 运行
 

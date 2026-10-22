@@ -112,8 +112,8 @@ function mountPage(component: PageFC, meta: ComponentPageMeta, ctx: Context): { 
   disposers.push(async () => { view.unsubscribe() })
   const host = isMarkdownDocHost(view.host) ? view.host : undefined
   if (host === undefined) throw new Error('expected the markdown doc host')
-  // 组件页视图的记账面：ctx.tools.register 的记录（运行时由 page-registry 合并挂载）
-  // / the component-page view's recording face: ctx.tools.register records
+  // 组件页视图的记账面：ctx.page.tool 的记录（运行时由 page-registry 合并挂载）
+  // / the component-page view's recording face: ctx.page.tool records
   // (merged and mounted by page-registry at runtime)
   const take = (view as unknown as { takeRecordedTools?: () => { name: string }[] }).takeRecordedTools
   const recorded = (): string[] => (typeof take === 'function' ? take.call(view).map((tool) => tool.name) : [])
@@ -278,8 +278,8 @@ describe('工具两张脸：目录声明 + 会话内动态注册（ctx.tools）'
     const { recorded } = mountPage(OverviewPage, OverviewMeta, ctx)
     expect(recorded()).toEqual(['session_create', 'session_rename'])
     const instructions = OverviewMeta.instructions ?? ''
-    // 静态面（meta.tools）+ 动态面（ctx.tools.register）的每个工具都必须被说明点名
-    // / every tool from the static face (meta.tools) and the dynamic face (ctx.tools.register) is named
+    // 静态面（meta.tools）+ 动态面（ctx.page.tool）的每个工具都必须被说明点名
+    // / every tool from the static face (meta.tools) and the dynamic face (ctx.page.tool) is named
     for (const name of [...(OverviewMeta.tools ?? []), ...recorded()]) {
       expect(instructions).toContain(name)
     }

@@ -9,8 +9,8 @@
 1. **WYSIWYG**: the page component IS the PAGE block's single render face. What you write top to bottom is what the model reads top to bottom; React's readability never came from writing less — it comes from "what you write is what renders".
 2. **The vocabulary is the full HTML tag set; the render target is Markdown.** React's primitives were always HTML tags; here the output domain is Markdown, so: primitives = HTML tags (the full set, unknown tags degrade transparently), the renderer = one fixed HTML→Markdown mapping table (§3.2). **Built-in special components = 0**.
 3. **Full language, always open**: `.map()`, ternaries, `&&`, optional chaining and template literals go directly into JSX.
-4. **A minimal view-hook face**: `useState / useMemo / useSnapshot / useContext` (things needing slot/stack bookkeeping are called hooks); effects and subscriptions get **no hooks** — direct `ctx.effect` / `ctx.on` calls in the component body (recorded by the scheduler during render, §5.3).
-5. **Dynamically generated tools**: components call `ctx.tools.register(defineTool(…))` within the page session's scope (a native dsh-tools API — scoped tools shadow globals); dispatch/approval/result projection ride the host's existing `tools/*` pipeline (§5.4).
+4. **A minimal view-hook face**: `useState / useMemo / useSnapshot / useContext` (things needing slot/stack bookkeeping are called hooks); effects and subscriptions get **no hooks** — direct `ctx.page.effect` / `ctx.page.on` calls in the component body (recorded by the scheduler during render, §5.3).
+5. **Dynamically generated tools**: components call `ctx.page.tool(defineTool(…))` to record them (the runtime mounts them with `ctx.tools.register` inside the page session's scope — the native dsh-tools semantics scoped tools shadow globals); dispatch/approval/result projection ride the host's existing `tools/*` pipeline (§5.4).
 6. **The lifecycle is events**: two notify events, `page:ready` / `page:dispose`, on pageCtx (§5.5); listeners are cleaned up automatically with the session.
 7. **The integration face reuses existing services throughout** (§3.5): registration via `apps.register` / `apps.pages(id).register` / `apps.tools(id).define` (this proposal only extends pages.register to accept PageFC components); cross-session notification via `pageRegistry.deliverUrl` (delivery creates-or-wakes the session); tools via `ToolDefinition` (§5.4). The invented router/messages/tools facades are all withdrawn.
 8. **Two domain-specific decisions**: change means patch — changed element subtrees render as Markdown appended to history in a `PAGE-PATCH` block (the key does position matching, §A.6); the first screen's only legal data source is `load` (an empty-then-filled document misleads a model reader).
@@ -81,11 +81,11 @@ The component owns the body; the framework assembles the header (`pageBlock()` n
 | `instructions` | keep | assembled into the header by the framework |
 | `map` | **removed — derived by the router from the registry** | the registry already holds every url template + description; hand-writing it is yet another dual-channel restatement (§3.5) |
 | `tools` (static inventory) | keep in meta | the capability inventory: the market/permissions/discovery need a static face (§5.4 two faces) |
-| `tree` / `instanceTitle` / per-page `tools` declaration | removed | replaced by components, `<h1>`, and `ctx.tools.register` |
+| `tree` / `instanceTitle` / per-page `tools` declaration | removed | replaced by components, `<h1>`, and `ctx.page.tool` |
 
 ### 3.5 Integration Face (North-Star Shape — Everything Reuses Existing DSH Service Faces)
 
-Registration, tools, delivery and events are **all existing APIs** (`ctx.apps` registrars, `deliverUrl`, cordis `ctx.effect`/`ctx.on`); this proposal only adds "a page can be a component" as a registration signature plus the render-bookkeeping kernel (§7):
+Registration, tools, delivery and events are **all existing APIs** (`ctx.apps` registrars, `deliverUrl`, cordis `ctx.effect`/`ctx.on` with the page face `ctx.page.*`); this proposal only adds "a page can be a component" as a registration signature plus the render-bookkeeping kernel (§7):
 
 ```tsx
 export const inject = ['apps', 'pageRegistry'] as const
@@ -94,7 +94,7 @@ export const apply = (ctx: Context, config: Config): void => {
   const apps = ctx.apps
 
   // One effect owns the wiring (G13 rule 3): definition → tools → pages, rolled back in reverse on failure
-  ctx.effect(() => {
+  ctx.page.effect(() => {
     const done: Array<() => void> = []
     try {
       // 1) the app definition (existing face): id / name / description / entry / instructions
@@ -120,7 +120,7 @@ export const apply = (ctx: Context, config: Config): void => {
   // a live session at that URL gets the message appended and woken; none → a new page session
   // (first-frame rendering, tool mounting and PAGE-PATCH are all the session's own fixed behavior).
   // Notifications for non-page conversations ride the existing taskCenter.send inbox path.
-  ctx.on('tasks/changed', async (p: { taskId: string }) => {
+  ctx.page.on('tasks/changed', async (p: { taskId: string }) => {
     await ctx.pageRegistry.deliverUrl(`/apps/tasks/${p.taskId}`, {
       message: `[tasks] 任务 ${p.taskId} 有更新，请查看最新状态`,
     })
@@ -130,7 +130,7 @@ export const apply = (ctx: Context, config: Config): void => {
 
 Decided semantics:
 
-- **Delivery creates-or-wakes; no manual render**: `deliverUrl` appends to and wakes a live session, or creates a session for an absent URL — the new session's first-frame render, `ctx.tools.register` and diff patches are all the page session's fixed behavior. v1's "`{messages, tools}` hand-paired delivery" is withdrawn: injecting into non-page conversations rides the existing `taskCenter.send` inbox path;
+- **Delivery creates-or-wakes; no manual render**: `deliverUrl` appends to and wakes a live session, or creates a session for an absent URL — the new session's first-frame render, `ctx.page.tool` and diff patches are all the page session's fixed behavior. v1's "`{messages, tools}` hand-paired delivery" is withdrawn: injecting into non-page conversations rides the existing `taskCenter.send` inbox path;
 - **Snapshot injection ≠ a live page session**: what `deliverUrl` delivers is a write-once message that does not follow updates; for follow-along, keep a live session at that URL;
 - **The map is derived by the router; meta no longer has a map field**: the registry already contains every sibling page's url template and description — the framework generates the `map:` header lines at render time (all sibling pages of the app, excluding self, in registration order, `- template → description`), with the output format verbatim unchanged (the real-machine lesson was about the output format — the model needs copy-usable lines — not about hand maintenance). The mutual restatement of a hand-written map.use and descriptions dies with it; §3.10.1 rule 1 (the home page lists all record pages) turns from "a promise checked by lint" into "true by construction". Cross-app navigation goes through body `<a>` links and the host's app catalog, never the map.
 
@@ -150,46 +150,47 @@ Gaps: **G-A text nodes** (Markdown's primary carrier; bare interpolation `{t.tit
 | `useMemo(dep, compute)` | pure derivation | the standard answer for view-side derived data |
 | `useSnapshot()` | read the render input (meta.load result / latest store state) | the typed channel between component and first screen |
 | `useContext(Context)` | read the nearest Provider | host-to-component facts (e.g. URL params) |
-| `ctx.effect(run)` | **replaces `useEffect`**: runs once on the first frame (slotted, so re-renders do not repeat); its cleanup registers on the session's `agent.ctx` scope (agent-disposal fallback) and the view teardown may run it early. **No deps** (§5.3) | retires the `load`/`onLoad` double-write; registration/teardown with zero new machinery |
-| `ctx.on(name, handler)` | **replaces `useEvent`**: subscribed once on the first frame; with a session scope it subscribes through `agent.ctx` (`scopeTarget` admits only that agent's events), unsubscribed at view teardown | reactivity reuses the event bus, same spelling as lifecycle observers |
+| `ctx.page.effect(run)` | **replaces `useEffect`**: runs once on the first frame (slotted, so re-renders do not repeat); its cleanup registers on the session's `agent.ctx` scope (agent-disposal fallback) and the view teardown may run it early. **No deps** (§5.3) | retires the `load`/`onLoad` double-write; registration/teardown with zero new machinery |
+| `ctx.page.on(name, handler)` | **replaces `useEvent`**: subscribed once on the first frame; with a session scope it subscribes through `agent.ctx` (`scopeTarget` admits only that agent's events), unsubscribed at view teardown | reactivity reuses the event bus, same spelling as lifecycle observers |
+| `ctx.page.tool(definition)` | **replaces `ctx.tools.register` in pages**: records a session tool the runtime mounts on `agent.ctx` (the registrar's native scoping underneath) | zero new tool API; scope/teardown owned by the runtime |
 
 ### 5.2 The Positioning of `useState` and the Self-Contained Component Idiom (revised 2026-10-21)
 
-The initial "no useState" stance aimed at the wrong target: the typical state a page holds is a **local cache mirror of a ctx service** — a cache is not a second source of fact; the authoritative fact stays in the service layer (the React Query/SWR distinction). Revised: **provide it**, scoped to fetch caches and view state; "inventing facts" (numbers on the page that exist nowhere in the system) is caught by lint and review. Honest cost: manual fetches do not re-render on external changes (`useSnapshot` does). Layering: shared-store data via `useSnapshot`; one-off fetches / local view state via `useState` + `ctx.on` invalidation.
+The initial "no useState" stance aimed at the wrong target: the typical state a page holds is a **local cache mirror of a ctx service** — a cache is not a second source of fact; the authoritative fact stays in the service layer (the React Query/SWR distinction). Revised: **provide it**, scoped to fetch caches and view state; "inventing facts" (numbers on the page that exist nowhere in the system) is caught by lint and review. Honest cost: manual fetches do not re-render on external changes (`useSnapshot` does). Layering: shared-store data via `useSnapshot`; one-off fetches / local view state via `useState` + `ctx.page.on` invalidation.
 
-**The self-contained component idiom (the default shape for page data)**: a page is a module-level component with **no factory, no closure injection, no snapshot contract** — the component ctx's services come from the creator ctx (declaration-merged `ctx.apps` / `ctx.taskCenter` / plugin services read as-is; only the tools/effect/on members are overridden by the session facade): effect/on register on that session's `agent.ctx` scope (the DSH isolation model — `scopeTarget` filters events per agent, cleanup follows the scope), and tools are mounted on the same scope by the page registry. Props are the URL params. **Synchronous service faces are read straight in the body** (fresh every frame, zero state); only asynchronous reads need `ctx.effect` + `useState`:
+**The self-contained component idiom (the default shape for page data)**: a page is a module-level component with **no factory, no closure injection, no snapshot contract** — the component ctx is the real host ctx (declaration-merged services read as-is), and its inherent members (`ctx.effect` / `ctx.on` / `ctx.tools`) are **never rewritten**; the page's own lifecycle and tool registration live on `ctx.page`: `ctx.page.effect` / `ctx.page.on` register on that session's `agent.ctx` scope (the DSH isolation model — `scopeTarget` filters events per agent, cleanup follows the scope), and `ctx.page.tool` is mounted on the same scope by the page registry. Props are the URL params. **Synchronous service faces are read straight in the body** (fresh every frame, zero state); only asynchronous reads need `ctx.page.effect` + `useState`:
 
 ```tsx
 export const ListPage: PageFC = (_props, ctx) => {
   const rows = ctx.workspaceRegistry.list()                     // sync face: read straight in the body
   const [open, setOpen] = useState<Open[] | null>(null)         // async face: null = still reading
-  ctx.effect(() => { void ctx.taskCenter.list({ status: 'open' }).then(setOpen) })
+  ctx.page.effect(() => { void ctx.taskCenter.list({ status: 'open' }).then(setOpen) })
   return <ul>{rows.map((r) => <li key={r.id}>{r.title}</li>)}</ul>
 }
 ```
 
 **Discipline**: ① never put a sync face into state (that would make a second source of fact); ② `setState` inside an effect must land outside the render frame (`.then` satisfies this naturally — an effect's run executes inline within render, so a synchronous `setState` would re-enter the render frame and corrupt hook order); ③ failed reads render their cause honestly. Pages backed by an external authoritative store (the change source lives outside the page) keep `meta.store` + `useSnapshot`; a page picks whichever fits.
 
-### 5.3 Effects and Events: Direct `ctx.effect` / `ctx.on`, Recorded During Render
+### 5.3 Effects and Events: `ctx.page.effect` / `ctx.page.on`, Recorded During Render
 
-No `useEffect`/`useEvent` are introduced. **Mechanism**: on the first frame both execute once (slotted by call order; re-renders do not repeat; conditional/out-of-order calls fail loud). An effect's run executes inline within the first render — dynamic tools are registered inside `ctx.effect`, so deferring to commit would miss them; the returned cleanup is registered on that session's `agent.ctx` (`agent.ctx.effect`), runs at agent disposal, and the view teardown runs it early (once) when the view dies first (preview/deprecation). `ctx.on` subscribes once on the first frame; with an `agent.ctx` it subscribes through it — `scopeTarget` delivers only that agent's events — and the view teardown unsubscribes, with the scope as the agent-first fallback. Without an agent scope (a staged preview) both fall back to the creator ctx / view cleanup. A callback still in flight must not write state after the session died (unmounted guard; `useState` has no tornDown check yet — a known gap).
+No `useEffect`/`useEvent` are introduced. **Mechanism**: on the first frame both execute once (slotted by call order; re-renders do not repeat; conditional/out-of-order calls fail loud). An effect's run executes inline within the first render — dynamic tools are recorded via `ctx.page.tool`, so deferring to commit would miss them; the returned cleanup is registered on that session's `agent.ctx` (`agent.ctx.effect`), runs at agent disposal, and the view teardown runs it early (once) when the view dies first (preview/deprecation). `ctx.page.on` subscribes once on the first frame; with an `agent.ctx` it subscribes through it — `scopeTarget` delivers only that agent's events — and the view teardown unsubscribes, with the scope as the agent-first fallback. Without an agent scope (a staged preview) both fall back to the creator ctx / view cleanup. A callback still in flight must not write state after the session died (unmounted guard; `useState` has no tornDown check yet — a known gap).
 
-**Decision: no deps overload** — the second parameter keeps its cordis meaning; "re-run on dependency change" is replaced by **re-mounting by key**, and reactive needs are expressed by `ctx.on` subscriptions (`useState` mirror + `ctx.on('tasks/changed', reload)` = event-driven invalidation).
+**Decision: no deps overload** — the second parameter keeps its cordis meaning; "re-run on dependency change" is replaced by **re-mounting by key**, and reactive needs are expressed by `ctx.page.on` subscriptions (`useState` mirror + `ctx.page.on('tasks/changed', reload)` = event-driven invalidation).
 
 **Two honest costs**: ① the call-order discipline returns under a new skin (we dropped the name, not the contract); ② lint must tell render-phase (recording) from apply-phase (immediate registration) scopes apart, leaning harder on component naming conventions than a plain hooks list.
 
 **Domain guard**: pages are observe-only — subscribe only to emit/parallel-style notify events; never attach listeners on intercepting events (serial/bail/waterfall): a view must not influence host control flow.
 
-### 5.4 Tools: `ctx.tools.register(defineTool(…))` — Zero New API (revised 2026-10-21)
+### 5.4 Tools: `ctx.page.tool(defineTool(…))` — Zero New API (revised 2026-10-21)
 
-Tools are generated dynamically by components — by registration time props/ctx are in the closure. **Both the builder and the registration reuse `@deepseek-ai/dsh-tools`**: `defineTool(options)` produces a registry-ready `ToolDefinition` (`InferArgs` derives `execute`'s args type from the parameter spec), and registration goes through `ctx.tools.register`:
+Tools are generated dynamically by components — by registration time props/ctx are in the closure. **The builder reuses `@deepseek-ai/dsh-tools`**: `defineTool(options)` produces a registry-ready `ToolDefinition` (`InferArgs` derives `execute`'s args type from the parameter spec); the page records it with `ctx.page.tool`, and the runtime mounts it on the session's agent scope (the native `ctx.tools.register` scoping underneath):
 
 ```tsx
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 // Registered within the page session's agent scope — "Scoped tools shadow globals" is the
 // registrar's documented native semantics
-ctx.effect(() => ctx.tools.register(defineTool({
+ctx.page.effect(() => ctx.page.tool(defineTool({
   name: 'task_take',
   description: '接取任务；taskId 取列表行首的编号',
   parameters: { taskId: { type: 'string' } },          // ParameterSchemaSpec → JSON Schema
@@ -199,12 +200,12 @@ ctx.effect(() => ctx.tools.register(defineTool({
     reload()
     return `已接取 ${args.taskId}，责任人变更为当前用户`
   },
-})))  // register returns the exact disposer → cleaned up in reverse via the ctx.effect channel
+})))  // recorded, then mounted on the agent scope by the runtime → removed with the session
 ```
 
 Three decisions:
 
-1. **Registration is scoping**: `ctx.tools.register` registers in the calling agent's scope, and "Scoped tools shadow globals" is written in the registrar's docs — tool-scope exclusivity and tool removal on URL reopen (live-host checklist items 4/5) fall out for free; the returned exact disposer is cleaned up in reverse with the session via the ctx.effect channel; `ctx.tools.restrict` / `guard` come along as needed;
+1. **Registration is scoping**: `ctx.page.tool` records; the page runtime registers on the calling agent's scope with `ctx.tools.register` ("Scoped tools shadow globals" is written in the registrar's docs) — tool-scope exclusivity and tool removal on URL reopen (live-host checklist items 4/5) fall out for free; the disposer is released with the session scope; `ctx.tools.restrict` / `guard` are used by the host inside the page scope as needed;
 2. **Dispatch rides the host's existing `tools/*` pipeline**: `tools/pre-execute` (approvals/gates) → `tools/execute` (timeout/retry/metrics wrappers) → `tools/post-execute` (result policies) → `tools/result` (frozen-result notification) and `tools/change` (tool-set change notification, which the page's tools line exactly subscribes to) all exist;
 3. **result → messages is the host pipeline's job**: the canonical value is projected to ContentBlocks via `output.render`, normalized by the registry, and logged by the agent loop — one tool_call maps to exactly one tool result, zero page-layer code.
 
@@ -219,7 +220,7 @@ Declared on pageCtx via declaration merging as two notify events (`@mode: emit`)
 | `page:ready` | after meta.load completes and the first frame commits | session/app-level orchestration (delivery pumps, telemetry, notification injection) |
 | `page:dispose` | when teardown begins, before cleanups run | same; the framework then runs all cleanups in reverse |
 
-Only two: the patch cadence is internal to the rendering pipeline (no event); a failed load is data, not an event. **Two-layer division**: inside a component, "run once when ready" is written `ctx.effect(run)` (the component spelling of page:ready); the session layer orchestrates via the lifecycle events. Timing: at ready the first frame already has data — it is the live-refresh/orchestration starting point, not a first-screen fetch channel.
+Only two: the patch cadence is internal to the rendering pipeline (no event); a failed load is data, not an event. **Two-layer division**: inside a component, "run once when ready" is written `ctx.page.effect(run)` (the component spelling of page:ready); the session layer orchestrates via the lifecycle events. Timing: at ready the first frame already has data — it is the live-refresh/orchestration starting point, not a first-screen fetch channel.
 
 ## 6. Domain-Specific Decisions (Where This Departs from React DOM)
 
@@ -232,7 +233,7 @@ Only two: the patch cadence is internal to the rendering pipeline (no event); a 
 ### prompt-core
 
 - **C1** falsy normalization at the reconcileChildren entrance (G-B);
-- **C2** hook slots: call-order-indexed on the fiber, persistent across renders + `ctx.effect`/`ctx.on` recording + a flush queue after commit (cleanup via the pageCtx.effect channel); the component's second `ctx` argument; naming that avoids the existing `Effect` (a document op);
+- **C2** hook slots: call-order-indexed on the fiber, persistent across renders + `ctx.page.effect`/`ctx.page.on` recording + a flush queue after commit (cleanup via the ctx.page.effect channel); the component's second `ctx` argument; naming that avoids the existing `Effect` (a document op);
 - **C3** memo bailout × slots interaction (bail skips execution but keeps slots);
 - **C4** the render-time context stack.
 
@@ -245,7 +246,7 @@ Only two: the patch cadence is internal to the rendering pipeline (no event); a 
 
 - **C7** `pageBlock()` narrows to header assembly (no params/data JSON lines) + Markdown serialization (the §3.3 skeleton); `firstScreenData`'s failure states are delivered to the component instead (`useSnapshot()` receives them and renders Markdown), no longer assembled into a JSON line; the delivery layer serializes re-render diffs into `PAGE-PATCH` blocks appended to the session history (§A.6);
 - **C8** zero new registration face: `apps.register` / `apps.pages(id).register` / `apps.tools(id).define` used as-is; only two additions — the adapter letting pages.register accept PageFC components (wrapped into a PageDefinition internally), and an optional "render snapshot to Markdown text" entry (for non-page-conversation injection; can be deferred, §3.5);
-- **C9** dynamic tool registration, zero new API: `ctx.tools.register(defineTool(…))` used as-is (called in the session scope + reverse-order cleanup via the ctx.effect channel); dispatch/approval/result projection all ride the host's existing `tools/*` pipeline (§5.4).
+- **C9** dynamic tool registration, zero new API: `ctx.page.tool(defineTool(…))` records (the runtime registers in the session scope and cleanup follows the scope); dispatch/approval/result projection all ride the host's existing `tools/*` pipeline (§5.4).
 
 ### Test Bar
 
@@ -270,10 +271,10 @@ Compatibility promises: legacy `defineAppPage` keeps working during migration; m
 ## 10. Acceptance Criteria
 
 1. **WYSIWYG**: a new reader who has not read this RFC, given only the three components in Appendix A, can accurately restate every line the model sees;
-2. **Built-in special components = 0**: the three demo pages use only HTML tags + the four view hooks + `ctx.effect`/`ctx.on`/`ctx.tools.register`;
+2. **Built-in special components = 0**: the three demo pages use only HTML tags + the four view hooks + `ctx.page.effect`/`ctx.page.on`/`ctx.page.tool`;
 3. Diff regression: unkeyed static skeletons never patched; keyed elements splice; token output does not degrade;
 4. §3.9/§3.10 checks keep working; live-host checklist items 4/5/7 (tool-scope exclusivity, removal on reopen, capability-map citation) pass;
-5. The event-driven injection scenario works: `ctx.on` → `await render` → `append(messages/tools)` arriving as a pair; pageCtx cleaned up with the session, no leaks.
+5. The event-driven injection scenario works: `ctx.page.on` → `await render` → `append(messages/tools)` arriving as a pair; pageCtx cleaned up with the session, no leaks.
 
 ## Appendix A: Page Implementation Demos (the three task-center pages)
 
@@ -286,11 +287,11 @@ export const TaskListPage: PageFC<{ status?: string }> = (props, ctx) => {
   const [tasks, setTasks] = useState<Task[]>([])
   const reload = () => { ctx.tasks.list(props.status).then(setTasks) }
 
-  ctx.effect(reload)                        // run once when ready (the component spelling of page:ready)
-  ctx.on('tasks/changed', reload)           // event-driven invalidation
+  ctx.page.effect(reload)                        // run once when ready (the component spelling of page:ready)
+  ctx.page.on('tasks/changed', reload)           // event-driven invalidation
 
   // Dynamic tool: registered within the page session's scope — only this page can take (scoped tools shadow globals)
-  ctx.effect(() => ctx.tools.register(defineTool({
+  ctx.page.effect(() => ctx.page.tool(defineTool({
     name: 'task_take',
     description: '接取任务；taskId 取列表行首的编号',
     parameters: { taskId: { type: 'string' } },        // ParameterSchemaSpec → JSON Schema
@@ -325,7 +326,7 @@ export const TaskListPage: PageFC<{ status?: string }> = (props, ctx) => {
 ```tsx
 export const TaskNewPage: PageFC = (_props, ctx) => {
   // An LLM has no "form": publishing is a tool call; this page only teaches the model the parameters
-  ctx.effect(() => ctx.tools.register(defineTool({
+  ctx.page.effect(() => ctx.page.tool(defineTool({
     name: 'task_publish',
     description: '发布新任务；title 必填、desc 为验收标准（可选），返回任务编号',
     parameters: { title: { type: 'string' }, desc: { type: 'string', required: false } },
@@ -358,7 +359,7 @@ export const TaskDetailPage: PageFC<{ taskId: string }> = (props, ctx) => {
   const task = useSnapshot<Task>()          // the meta.load(params) first screen
 
   // Action tools registered only in this page's scope (scope exclusivity: the list page never sees complete/abandon)
-  ctx.effect(() => ctx.tools.register(defineTool({
+  ctx.page.effect(() => ctx.page.tool(defineTool({
     name: 'task_complete',
     description: '完成任务并回报；report 为结果说明',
     parameters: { report: { type: 'string' } },
@@ -368,7 +369,7 @@ export const TaskDetailPage: PageFC<{ taskId: string }> = (props, ctx) => {
       return `已完成 ${props.taskId}`
     },
   })))
-  ctx.effect(() => ctx.tools.register(defineTool({
+  ctx.page.effect(() => ctx.page.tool(defineTool({
     name: 'task_abandon',
     description: '放弃任务；reason 为原因',
     parameters: { reason: { type: 'string' } },
@@ -416,7 +417,7 @@ const DetailMeta = {
 
 export const apply = (ctx: Context): void => {
   const apps = ctx.apps
-  ctx.effect(() => {
+  ctx.page.effect(() => {
     const done: Array<() => void> = []
     try {
       done.push(apps.register({ id: APP_ID, name: '任务中心', description: '任务的浏览、发布与跟进', entry: 'list' }, ctx))
@@ -479,7 +480,7 @@ tools: task_complete（完成任务并回报）、task_abandon（放弃任务）
 
 ### A.6 Data Change → Message Append (Two Paths)
 
-**Path 1: automatic in-session patches (framework behavior; zero author code).** In a live page session, any action that changes the snapshot (a tool call, an external event refreshed via `ctx.on`) → the component re-renders → the reconciler diffs → the delivery layer serializes the **changed element subtrees** into a `PAGE-PATCH` block appended to this session's history. The key does position matching: the model updates its understanding of a row by its leading id.
+**Path 1: automatic in-session patches (framework behavior; zero author code).** In a live page session, any action that changes the snapshot (a tool call, an external event refreshed via `ctx.page.on`) → the component re-renders → the reconciler diffs → the delivery layer serializes the **changed element subtrees** into a `PAGE-PATCH` block appended to this session's history. The key does position matching: the model updates its understanding of a row by its leading id.
 
 Take the model calling `task_take { taskId: "T-1024" }` in the list page session; the history gains, in order:
 
@@ -499,7 +500,7 @@ Unchanged rows and paragraphs are not re-sent — the op count is the token budg
 **Path 2: cross-session notification (the existing `deliverUrl` delivery path).** When a change matters to other sessions, deliver idempotently by URL — a live session gets the message appended and woken; an absent one gets a new session (which renders, mounts tools and produces its first frame by itself):
 
 ```tsx
-ctx.on('tasks/changed', async (p: { taskId: string; by: string }) => {
+ctx.page.on('tasks/changed', async (p: { taskId: string; by: string }) => {
   // pass callerSessionId when dispatched from within a session (chain depth governed by HopLedger);
   // apply-level listeners omit it = human/host
   await ctx.pageRegistry.deliverUrl(`/apps/tasks/${p.taskId}`, {
@@ -525,7 +526,7 @@ Every API in this proposal was checked against the real package faces (app-regis
 | `ctx.tools.restrict` / `guard` | `@deepseek-ai/dsh-tools` | scope restrictions and guards, taken as needed |
 | `pageRegistry.deliverUrl(url, { message, wake?, callerSessionId? })` | `@veren/page-registry/delivery` | idempotent URL-addressed delivery: append + wake live sessions, create absent ones; HopLedger guards cascades |
 | `taskCenter.send` inbox path | existing | notifications for non-page conversations (live-host checklist item 6) |
-| `ctx.effect(fn, label)` / `ctx.on` / `ctx.extend` / `ctx.emit` | cordis | wiring, events, sub-scopes |
+| `ctx.page.effect(fn)` / `ctx.page.on` / `ctx.extend` / `ctx.emit` | cordis | wiring, events, sub-scopes |
 | `pages.register(page, live?: { store })` | `@veren/app-registry` | the live store binding already exists — `useSnapshot()`'s data channel has a ready hook |
 | `PageDefinition` / `ApplicationDefinition` | `@veren/prompt-page` / `@veren/app-registry` | the adapter's target types |
 
@@ -542,7 +543,7 @@ Every API in this proposal was checked against the real package faces (app-regis
 
 | New | Home | Why it cannot be reused |
 | --- | --- | --- |
-| hook slots + render-time `ctx.effect`/`ctx.on` recording (C1–C4) | prompt-core | prompt-core has no hooks today; render-time recording completes the "React rules port" |
+| hook slots + render-time `ctx.page.effect`/`ctx.page.on` recording (C1–C4) | prompt-core | prompt-core has no hooks today; render-time recording completes the "React rules port" |
 | the HTML → Markdown serializer (C5) | prompt-page | the platform has no server-side HTML→MD facility; the mapping table + escaping is the new correctness-critical surface |
 | the render-time context stack (C4) | prompt-core | components need the nearest Provider; cordis's extend is a scope, not a render stack |
 | the call-order lint (C6) | tooling | render-phase vs apply-phase call detection, the same heuristics React uses |

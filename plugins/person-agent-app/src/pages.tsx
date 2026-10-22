@@ -3,7 +3,7 @@
  * 应用的两个页面（自承载组件，RFC prompt-page-render §3.5）：模块级 PageFC +
  * 模块级 meta，经 `pages.register(component, meta)` 直接注册——没有工厂、没有
  * 闭包注入、没有快照契约。同步服务面在正文里直接读（每帧最新，零状态零
- * effect）；异步服务面走 `ctx.effect` 拉取、`useState` 落地，重渲 diff 出
+ * effect）；异步服务面走 `ctx.page.effect` 拉取、`useState` 落地，重渲 diff 出
  * PAGE-PATCH。外部权威 store 的页面才走 `meta.store` + `useSnapshot`
  * （如 task-workbench）。
  * The app's two pages as self-contained components (RFC prompt-page-render
@@ -11,20 +11,20 @@
  * `pages.register(component, meta)` — no factory, no closure injection, no
  * snapshot contract. Synchronous service faces are read straight in the body
  * (fresh every frame, zero state, zero effect); the asynchronous face is
- * fetched in `ctx.effect` and lands in `useState`, re-rendering into a
+ * fetched in `ctx.page.effect` and lands in `useState`, re-rendering into a
  * PAGE-PATCH. Pages backed by an external authoritative store use
  * `meta.store` + `useSnapshot` instead (task-workbench).
  *
  * §3.10.1 档位：两页都声明写意图（`writes: true`）——入口是 home、副页是
  * action。工具两张脸都用上：`meta.tools` 声明目录能力（workspace_session_list，
- * 静态面供市场/权限/发现），`ctx.tools.register` 注册会话实例（session_create /
+ * 静态面供市场/权限/发现），`ctx.page.tool` 注册会话实例（session_create /
  * session_rename，动态面供本会话的 agent 真正动作）。构造上规则 1 成立（map 由
  * 注册表推导，列全兄弟页）、规则 3 无从触发；§3.9 承诺对齐由"说明点名 = 真实
  * 挂载"守住。
  * §3.10.1 archetypes: both pages declare write intent (`writes: true`) — the
  * entry is home, the sibling is action. Both tool faces are used: `meta.tools`
  * declares catalog capability (workspace_session_list — the static face for the
- * market / permissions / discovery), and `ctx.tools.register` registers session
+ * market / permissions / discovery), and `ctx.page.tool` registers session
  * instances (session_create / session_rename — the dynamic face that lets this
  * session's agent really act). Rule 1 holds by construction (the map is
  * registry-derived, listing all sibling pages) and rule 3 cannot trigger; §3.9
@@ -56,10 +56,10 @@ const URL_PREFIX = '/apps/person-agent'
 
 /**
  * 个人工作台概览：应用目录与工作区是同步内存读——正文直接调，首帧即真实数据；
- * 任务中心是异步读——`ctx.effect` 拉取，读取失败如实渲染原因，绝不编造数字。
+ * 任务中心是异步读——`ctx.page.effect` 拉取，读取失败如实渲染原因，绝不编造数字。
  * The personal workbench overview: catalog and workspaces are sync in-memory
  * reads called straight in the body — the first frame already carries real
- * data; the task center is an async read fetched in `ctx.effect`, with a
+ * data; the task center is an async read fetched in `ctx.page.effect`, with a
  * failed read rendered honestly — never faked.
  */
 export const OverviewPage: PageFC = (_props, ctx) => {
@@ -68,7 +68,7 @@ export const OverviewPage: PageFC = (_props, ctx) => {
   // 异步面：null = 读取中 / the async face: null = still reading
   const [openTasks, setOpenTasks] = useState<Awaited<ReturnType<Context['taskCenter']['list']>> | null>(null)
   const [taskError, setTaskError] = useState<string | null>(null)
-  ctx.effect(() => {
+  ctx.page.effect(() => {
     void ctx.taskCenter.list({ status: 'open' }).then(setOpenTasks, (error: unknown) => {
       setTaskError(error instanceof Error ? error.message : String(error))
     })
@@ -78,9 +78,9 @@ export const OverviewPage: PageFC = (_props, ctx) => {
   // Action tools (RFC §5.4's dynamic face): registered into this session's scope —
   // the agent can really create sessions and rename them from the workbench, not
   // just read. Registration is the promise: instructions name both tools.
-  ctx.effect(() => {
-    ctx.tools.register(buildSessionCreateDefinition(ctx))
-    ctx.tools.register(buildSessionRenameDefinition(ctx))
+  ctx.page.effect(() => {
+    ctx.page.tool(buildSessionCreateDefinition(ctx))
+    ctx.page.tool(buildSessionRenameDefinition(ctx))
   })
   const catalog = apps.catalog()
   const rows = workspaces.list()
@@ -147,7 +147,7 @@ export const WorkspacesPage: PageFC = (_props, ctx) => {
   // 动作工具：本页列出工作区，建会话是这块正文最自然的动作（workspaceId 取行内 id）。
   // Action tool: this page lists workspaces, so creating a session inside one is
   // the body's natural action (workspaceId comes from a row).
-  ctx.effect(() => { ctx.tools.register(buildSessionCreateDefinition(ctx)) })
+  ctx.page.effect(() => { ctx.page.tool(buildSessionCreateDefinition(ctx)) })
   const rows = ctx.workspaceRegistry.list()
   return (
     <>

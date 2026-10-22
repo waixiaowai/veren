@@ -6,10 +6,10 @@
  * 四件事：
  * - **defineComponentPage**：把"组件即页面"包成既有注册面能收的形状
  *   （PageDefinition + PageLiveBinding）——注册面零新建（C8）；
- * - **组件 ctx facade**：render 期的 `ctx.effect` / `ctx.on` / `ctx.tools.register`
- *   走槽位记账（一次运行/订阅，RFC §5.3）；effect 清理与事件订阅挂在会话的
- *   `agent.ctx` 作用域上（事件按 agent 过滤，agent 销毁兜底），其余属性转发
- *   创建者 ctx；
+ * - **页面 hooks（`ctx.page`）**：render 期的 `ctx.page.effect` / `ctx.page.on` /
+ *   `ctx.page.tool` 走槽位记账（一次运行/订阅，RFC §5.3）；effect 清理与事件订阅
+ *   挂在会话的 `agent.ctx` 作用域上（事件按 agent 过滤，agent 销毁兜底）；ctx 的
+ *   固有成员（tools/effect/on）原样保留，不被改写；
  * - **每会话视图**：自有 prompt-core root + MarkdownDocHost——首帧 body 进 PAGE
  *   块，后续渲染 diff 出 PAGE-PATCH；teardown 随视图 unsubscribe 逆序清理；
  * - **useSnapshot**：读 meta.load 的首屏结果（组件与首屏数据的类型化通道）。
@@ -17,11 +17,11 @@
  * - **defineComponentPage**: wraps "the component IS the page" into the shape
  *   the existing registration face accepts (PageDefinition + PageLiveBinding) —
  *   zero new registration face (C8);
- * - **the component ctx facade**: render-time `ctx.effect` / `ctx.on` /
- *   `ctx.tools.register` are recorded through hook slots (run once / subscribed
- *   once, RFC §5.3); effect cleanups and event subscriptions register on the
- *   session's `agent.ctx` scope (agent-filtered events, agent-disposal
- *   fallback), while every other property forwards to the creator ctx;
+ * - **the page hooks (`ctx.page`)**: render-time `ctx.page.effect` /
+ *   `ctx.page.on` / `ctx.page.tool` are recorded through hook slots (run once /
+ *   subscribed once, RFC §5.3); effect cleanups and event subscriptions register
+ *   on the session's `agent.ctx` scope (agent-filtered events, agent-disposal
+ *   fallback); the ctx's inherent members (tools/effect/on) stay untouched;
  * - **the per-session view**: its own prompt-core root + MarkdownDocHost — the
  *   first-frame body feeds the PAGE block, later renders diff into PAGE-PATCH;
  *   teardown rides the view's unsubscribe in reverse order;
@@ -37,50 +37,38 @@ import type { PageDefinition, PageHostFace, PageJsonValue, PageLiveBinding, Page
 import { MarkdownDocHost } from './markdown.ts'
 import { formatPath } from './registry.ts'
 
-/** 页面组件 ctx：组件 facade（tools/effect/on 记账）+ 真实宿主 ctx（服务面由声明合并提供）
- *  ——工具构建器（如 `buildSessionCreateDefinition(ctx)`）收的就是它。
- * The page component ctx: the component facade (tools/effect/on recording) plus
- * the real host ctx (service faces come from declaration merging) — this is
- * what tool builders such as `buildSessionCreateDefinition(ctx)` accept.
+/**
+ * 页面自己的生命周期与工具登记面：**不改写 ctx 的固有成员**。`ctx` 仍是真实的
+ * Cordis Context（`ctx.effect` / `ctx.on` / `ctx.tools` 语义原样），页面专用的
+ * 记账面只出现在这个独立对象上：
+ * - `effect` / `on`：首帧执行/订阅一次；有会话作用域（`agent.ctx`）时经它注册——
+ *   事件按 agent 过滤、清理随作用域；否则随视图 teardown。视图提前退订时先执行。
+ * - `tool`：记录工具定义，页面运行时在会话的 agent 作用域上挂载，随会话卸载。
+ * The page's own lifecycle and tool-registration face: it **never rewrites the
+ * inherent ctx members**. `ctx` stays a real Cordis Context (`ctx.effect` /
+ * `ctx.on` / `ctx.tools` keep their semantics); page-only recording lives on
+ * this separate object:
+ * - `effect` / `on`: run/subscribe once on the first frame; with a session scope
+ *   (`agent.ctx`) they register through it — agent-filtered events and
+ *   scope-owned cleanup; otherwise they ride the view teardown, which also runs
+ *   first when the view is unpublished early.
+ * - `tool`: records a definition the page runtime mounts on the session's agent
+ *   scope, removed with the session.
  */
-export type PageCtx = PageComponentContext & Context
+export interface PageHooks {
+  effect(run: () => (() => void) | void): void
+  on(name: string, handler: (payload: unknown) => void): void
+  tool(definition: ToolDefinition): void
+}
 
-/** 页面组件：props = URL params，ctx = 组件 ctx（facade 记账 + 真实服务面）
- * / a page component: props = the URL params, ctx = the component ctx (facade recording + real service faces) */
+/** 页面组件 ctx：真实宿主 ctx（服务面与固有成员原样）+ 页面 hooks 面
+ * / the component ctx: the real host ctx (services and inherent members intact) plus the page hooks face */
+export type PageCtx = Context & { readonly page: PageHooks }
+
+/** 页面组件：props = URL params，ctx = 真实宿主 ctx + `ctx.page`
+ * / a page component: props = the URL params, ctx = the real host ctx plus `ctx.page` */
 export type PageFC<P extends Record<string, unknown> = Record<string, unknown>> =
   (props: P, ctx: PageCtx) => ElementInput
-
-/**
- * 组件可用的 ctx 面：完整宿主 ctx（声明合并的服务面原样可读——组件体内
- * `ctx.apps` / `ctx.taskCenter` / 各插件服务直接取），仅 tools/effect/on 三个
- * 成员被会话 facade 重载；页面组件因此可以零工厂、零闭包自由写。
- * The component's ctx face: the full host ctx (declaration-merged service faces
- * read as-is — `ctx.apps` / `ctx.taskCenter` / plugin services are available in
- * the component body), with only tools/effect/on overridden by the session
- * facade; pages can therefore be written freely with zero factories/closures.
- */
-export interface PageComponentContext extends Omit<Context, 'tools' | 'effect' | 'on'> {
-  /** 注册本会话作用域的工具：render 期记录，commit 后经 mountTools 挂载，废弃随会话卸载
-   * / register a session-scoped tool: recorded at render, mounted via mountTools after commit, removed with the session */
-  tools: { register(definition: ToolDefinition): void }
-  /**
-   * 首帧渲染时运行一次；返回的清理函数在该会话的 agent 作用域上登记（`agent.ctx.effect`），
-   * agent 销毁时执行；视图提前退订（预览/废弃）时由视图的 teardown 提前执行，单次。
-   * Runs once on the first frame; the returned cleanup is registered on the
-   * session's agent scope (`agent.ctx.effect`) and runs at agent disposal — or
-   * earlier at view teardown (preview/deprecation), exactly once.
-   */
-  effect(run: () => (() => void) | void): void
-  /**
-   * 首帧渲染时订阅一次：有会话作用域（`agent.ctx`）时经它订阅——`scopeTarget`
-   * 只把该 agent 的事件送进来；注销随视图 teardown（agent 先销毁则由作用域兜底）。
-   * Subscribes once on the first frame: with a session scope (`agent.ctx`) it
-   * subscribes through it — `scopeTarget` delivers only that agent's events; the
-   * subscription is removed at view teardown (the scope covers agent-first
-   * disposal).
-   */
-  on(name: string, handler: (payload: unknown) => void): void
-}
 
 /** 组件页契约面（适配器并成 PageDefinition 时并入）/ the component page's contract face (merged into the PageDefinition by the adapter) */
 export interface ComponentPageMeta<P extends Record<string, unknown> = Record<string, unknown>> {
@@ -221,27 +209,25 @@ interface SessionRuntime<P> {
 }
 
 /**
- * 组件 ctx facade：effect/on/tools 走槽位记账，其余转发创建者 ctx。
+ * 页面 hooks 的记账实现：effect/on 按槽位只执行/订阅一次，tool 按名去重记录。
  * `scope` 是该会话的 agent 作用域（`agent.ctx`）：effect 的清理与事件订阅经它
  * 注册——事件按 agent 过滤、agent 销毁时兜底；视图提前退订时仍由 state 里的
- * 清理面提前执行（单次）。缺省（agent 未创建，如暂存预览）回退到创建者 ctx /
- * 视图清理。
- * The component ctx facade: effect/on/tools record through hook slots; every
- * other member forwards to the creator ctx. `scope` is the session's agent
- * scope (`agent.ctx`): effect cleanups and event subscriptions register
- * through it — events are agent-filtered and agent disposal is the fallback;
- * an earlier view teardown still runs the recorded cleanup first (once).
- * Absent (no agent yet, e.g. a staged preview) it falls back to the creator
- * ctx / plain view cleanup.
+ * 清理面提前执行（单次）。缺省（agent 未创建，如暂存预览）时清理随视图 teardown，
+ * 订阅回退到 `fallbackCtx`（创建者 ctx）。
+ * The page hooks' recording implementation: effect/on run/subscribe once per
+ * slot and tool records by name. `scope` is the session's agent scope
+ * (`agent.ctx`): effect cleanups and event subscriptions register through it —
+ * agent-filtered events and agent-disposal fallback; an earlier view teardown
+ * still runs the recorded cleanup first (once). Absent (no agent yet, e.g. a
+ * staged preview), cleanup rides the view teardown and subscriptions fall back
+ * to `fallbackCtx` (the creator ctx).
  */
-function createComponentCtx<P>(realCtx: Context | undefined, scope: Context | undefined, state: SessionRuntime<P>): PageCtx {
-  const own = {
-    tools: {
-      register: (definition: ToolDefinition): void => {
-        if (!state.recordedTools.some((existing) => existing.name === definition.name)) {
-          state.recordedTools.push(definition)
-        }
-      },
+function createPageHooks<P>(state: SessionRuntime<P>, scope: Context | undefined, fallbackCtx: Context | undefined): PageHooks {
+  return {
+    tool: (definition: ToolDefinition): void => {
+      if (!state.recordedTools.some((existing) => existing.name === definition.name)) {
+        state.recordedTools.push(definition)
+      }
     },
     effect: (run: () => (() => void) | void): void => {
       const cell = useSlot(() => ({ ran: false }))
@@ -260,7 +246,7 @@ function createComponentCtx<P>(realCtx: Context | undefined, scope: Context | un
       // The official model: the cleanup belongs to the session scope
       // (agent.ctx.effect) and runs at agent disposal; an earlier view teardown
       // (preview/deprecation) runs it once through the recorded disposer.
-      const dispose = scope.effect(() => cleanup, 'prompt-page: component effect')
+      const dispose = scope.effect(() => cleanup, 'prompt-page: page effect')
       state.cleanups.push(() => { void dispose() })
     },
     on: (name: string, handler: (payload: unknown) => void): void => {
@@ -272,26 +258,29 @@ function createComponentCtx<P>(realCtx: Context | undefined, scope: Context | un
       // With a session scope, subscribe through it: scopeTarget admits only that
       // agent's events. The fallback is the creator ctx (a staged preview's
       // subscription lives only until the preview view unsubscribes).
-      const target = scope ?? realCtx
+      const target = scope ?? fallbackCtx
       if (target === undefined) return
       const dispose = (target as unknown as { on: (n: string, h: never) => () => void }).on(name, handler as never)
       state.subscriptions.push(() => { dispose() })
     },
   }
-  const facadeTarget = realCtx ?? scope
-  if (facadeTarget === undefined) {
-    // 无真实 ctx（测试/裸注册）：facade 只暴露记账面 / no real ctx (tests/bare registration): the facade is the recording face only
-    return own as PageCtx
-  }
-  return new Proxy(facadeTarget, {
-    get(target, prop) {
-      if (prop === 'tools' || prop === 'effect' || prop === 'on') {
-        return own[prop as 'tools' | 'effect' | 'on']
-      }
-      const value = Reflect.get(target as object, prop, target)
-      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value
-    },
-  }) as PageCtx
+}
+
+/**
+ * 把页面 hooks 挂到真实 ctx 上：`ctx.extend({ page })` 是 Cordis 的正式子上下文，
+ * 固有成员（tools/effect/on）一个都不改。无 ctx 的裸注册（测试）只带 page 面；
+ * 非 Cordis 的假 ctx 用原型继承兜底。
+ * Hang the page hooks on the real ctx: `ctx.extend({ page })` is Cordis's child
+ * context primitive and leaves every inherent member (tools/effect/on) intact.
+ * A bare registration (tests) carries only the page face; a non-Cordis fake
+ * falls back to prototype inheritance.
+ */
+function pageCtxOf(ctx: Context | undefined, page: PageHooks): PageCtx {
+  if (ctx === undefined) return { page } as PageCtx
+  const extend = (ctx as { extend?: (meta: Record<PropertyKey, unknown>) => Context }).extend
+  return (typeof extend === 'function'
+    ? extend.call(ctx, { page })
+    : Object.assign(Object.create(ctx as object), { page })) as PageCtx
 }
 
 /** 每会话视图：渲染回路 + teardown + PageSession 结构面 / the per-session view: the render loop + teardown + the PageSession structural face */
@@ -316,15 +305,15 @@ function createSessionView<P extends Record<string, unknown>>(
     tornDown: false,
   }
   const { root, doc } = state
-  const facade = createComponentCtx(ctx, scope, state)
+  const componentCtx = pageCtxOf(ctx, createPageHooks(state, scope, ctx))
 
-  /** 渲染一帧：组件（hooks + facade）→ reconciler 展开 → fiber 树 → Markdown diff
-   * / render one frame: the component (hooks + facade) → reconciler expansion → the fiber tree → a Markdown diff */
+  /** 渲染一帧：组件（hooks + ctx.page）→ reconciler 展开 → fiber 树 → Markdown diff
+   * / render one frame: the component (hooks + ctx.page) → reconciler expansion → the fiber tree → a Markdown diff */
   const renderNow = (): void => {
     const first: Fiber | null = root.current?.child ?? null
     runWithPageRender({ snapshot: state.snapshot }, () =>
       runWithHookScope(root, state.cells, () => {
-        const elements = component({ ...state.params } as P, facade)
+        const elements = component({ ...state.params } as P, componentCtx)
         scheduleRender(root, elements)
       }),
     )
