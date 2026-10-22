@@ -169,8 +169,9 @@ export function createTaskPages(store: TaskStore): TaskPages {
       + '正文即该任务的字段与子任务树首屏（"不存在"表示任务不在列表，不要凭空处理）；'
       + '字段变化经 PAGE-PATCH 以最新一次为准。'
       + '用 split_task 把已接取任务拆成子任务（仅当前接取者可用，深度 8 / 单节点 32 子 / 单树 200 节点，'
-      + '超限返回 task/subtree-limit）；用 complete_task 完成 taken 任务——子树还有非终态后代时'
-      + '会返回 task/children-active，先处理子任务；abandon_task 放弃 taken 任务（回到 open）。',
+      + '超限返回 task/subtree-limit）；用 complete_task 完成 taken 任务、abandon_task 放弃（回到 open）'
+      + '——两者只作用于本地列表；投递来的任务不在本地列表（正文如实显示"不存在"），'
+      + '完成/失败走宿主全局的 task_complete/task_fail（任务中心侧子树还有非终态后代时由它拒绝）。',
   }
 
   // ---- 发布页（工具页 action：无参 + 写工具 publish_task，不需要 map）----
@@ -180,7 +181,7 @@ export function createTaskPages(store: TaskStore): TaskPages {
     <>
       <h1>任务工作台 · 发布任务</h1>
       <p>草稿标题：{props.draftTitle ?? ''}。用 publish_task 确认发布；标题为空时不要调用。</p>
-      <blockquote>发布不支持带子任务的模板——子任务由接取者用 split_task 现拆。</blockquote>
+      <blockquote>发布不支持带子任务的模板——子任务由接取者在其任务详情页现场拆分。</blockquote>
     </>
   )
 
@@ -191,7 +192,7 @@ export function createTaskPages(store: TaskStore): TaskPages {
     tools: ['publish_task'],
     writes: true,
     instructions: '这是任务发布页：草稿标题见正文。用 publish_task 确认发布；标题为空时不要调用。'
-      + '发布不支持带子任务的模板（§4.7.6），子任务由接取者用 split_task 现拆。',
+      + '发布不支持带子任务的模板（§4.7.6），子任务由接取者在其任务详情页现场拆分。',
   }
 
   return { ListPage, ListMeta, DetailPage, DetailMeta, PublishPage, PublishMeta }

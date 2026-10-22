@@ -746,12 +746,19 @@ export class TaskCenterService extends Service implements TaskCenterContract {
 }
 
 /** Render the model-facing inbox text for one task (§5.1 template). */
-export function noticeText(task: TaskRecord): string {  const lines = [
+export function noticeText(task: TaskRecord): string {
+  const lines = [
     `[task-center] ${task.title}`,
     `来源：${task.appId} · kind ${task.kind}`,
     `页面：${task.target.url}`,
     `参数：${JSON.stringify(task.target.params)}`,
-    '要求：调用 app_open 打开该 URL；完成后调用 task_complete，失败调用 task_fail。',
+    // 投递泵只把通知注进新建的页面会话（§5.2），而页面会话屏蔽 app_open——
+    // 指引必须落在真实可用的工具上：本页即目标页就直接开工，否则 page_send 转投。
+    // / The pump only injects notices into fresh page sessions (§5.2), which
+    // mask app_open — the guidance must name tools that actually exist there:
+    // work in place when this page is the target, else forward via page_send.
+    '要求：接取用 task_take。目标 URL 就是本页时直接开工；不是本页时用 page_send 把该 URL 与任务要求投给对应页面会话'
+      + '（页面会话里 app_open 不可用）。完成后调用 task_complete，失败调用 task_fail。',
   ]
   if (task.dueAt !== undefined) lines.push(`期限：${task.dueAt}`)
   if (task.body !== undefined) lines.push(`说明：${task.body.slice(0, MAX_BODY_CHARS)}`)

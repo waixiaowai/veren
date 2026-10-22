@@ -1,7 +1,7 @@
 {
   "name": "@veren/task-center",
   "description": "Use when applications need a host-level persistent work queue and personal inbox: tasks carry a canonical page URL as their target, move through open/taken/done/failed/expired/cancelled/orphaned with lease-based claiming and idempotent completion, and notifications are tracked separately from task status; skip it for ephemeral in-session todo lists or process-level background jobs.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

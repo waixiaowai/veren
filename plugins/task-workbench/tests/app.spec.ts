@@ -13,8 +13,9 @@ import AppRegistryPlugin, { AppRegistryService } from '@veren/app-registry'
 import type { AppId } from '@veren/app-registry'
 import PageRegistryPlugin, { PageRegistryService } from '@veren/page-registry'
 import { apply, inject, name } from '../src/index.ts'
-import { APP_ID, APP_DEFINITION } from '../src/app.ts'
+import { APP_ID, APP_DEFINITION, createAppTools } from '../src/app.ts'
 import { defineComponentPage, isMarkdownDocHost } from '@veren/prompt-page'
+import type { ComponentPageMeta, PageFC, PageParams } from '@veren/prompt-page'
 import { createTaskPages } from '../src/pages.tsx'
 import { TaskStore, makeList } from '../src/store.ts'
 
@@ -250,6 +251,65 @@ describe('拆分子任务（§4.7.6/§4.7.8）', () => {
     await toolOf(apps, 'take_task').execute({ task_id: 't-1' }, {} as never)
     await expect(toolOf(apps, 'split_task').execute({ task_id: 't-1', title: '子步骤' }, {} as never))
       .rejects.toThrow('parent task t-1 not found')
+  })
+})
+
+describe('工具面口径（承诺=挂载，事实源如实）', () => {
+  /** 三页的 meta 面与正文取词面（正文经组件挂载渲染，验证 WYSIWYG 一致性）
+   * / the three pages' meta faces and body text (bodies render via mounted
+   * components, proving the WYSIWYG consistency) */
+  const metas = [
+    { key: 'list', meta: taskPages.ListMeta, component: taskPages.ListPage, params: {} },
+    { key: 'detail', meta: taskPages.DetailMeta, component: taskPages.DetailPage, params: { taskId: 't-1' } },
+    { key: 'publish', meta: taskPages.PublishMeta, component: taskPages.PublishPage, params: {} },
+  ] as const
+
+  /** 组件正文取词面：用页面自己的 meta 挂载（与真实注册同一条路）
+   * / the body-text face: mounts with the page's own meta (the same path as a
+   * real registration) */
+  function bodyTextOf(component: PageFC, meta: ComponentPageMeta, params: PageParams): string {
+    const view = defineComponentPage(component, meta).live.mount(params)
+    return isMarkdownDocHost(view.host) ? view.host.bodyText() : ''
+  }
+
+  it('页面=信息+工具，缺一不可：每页说明非空且至少挂载一个工具', () => {
+    for (const { key, meta } of metas) {
+      expect((meta.instructions ?? '').trim().length, `${key} 页缺页面说明`).toBeGreaterThan(0)
+      expect(meta.tools?.length ?? 0, `${key} 页缺挂载工具`).toBeGreaterThan(0)
+    }
+  })
+
+  it('每页挂载的工具都在说明里点名（挂了就要说）', () => {
+    for (const { key, meta } of metas) {
+      for (const tool of meta.tools ?? []) {
+        expect(meta.instructions, `${key} 页挂载的 ${tool} 未在说明中点名`).toContain(tool)
+      }
+    }
+  })
+
+  it('目录里每个工具都至少挂在一个页面上（无死工具）', () => {
+    const mounted = new Set(metas.flatMap(({ meta }) => meta.tools ?? []))
+    for (const tool of createAppTools(new TaskStore([]), fakeTaskCenter().contract as never, { liveDetailTaskOf: async () => undefined })) {
+      expect(mounted.has(tool.name), `目录工具 ${tool.name} 没有挂载在任何页面`).toBe(true)
+    }
+  })
+
+  it('发布页不点名 split_task（它挂载在详情页——越页点名就是假承诺）', () => {
+    expect(taskPages.PublishMeta.instructions).not.toContain('split_task')
+    expect(bodyTextOf(taskPages.PublishPage, taskPages.PublishMeta, {})).not.toContain('split_task')
+    // 路由表述仍在：接取者在其详情页现场拆分 / the routing stays: the claimant
+    // splits on its own detail page
+    expect(taskPages.PublishMeta.instructions).toContain('详情页现场拆分')
+  })
+
+  it('详情页不再让 complete_task 承诺 children-active（那是任务中心 task_complete 的规则）', () => {
+    // 本地 complete_task 只翻本地 store（bad-task-state/task-not-found），从不返回
+    // task/children-active——旧说明是假承诺；投递任务的收口指引指向全局 task_complete。
+    // / The local complete_task only flips the local store (bad-task-state /
+    // task-not-found) and never returns task/children-active — the old note was
+    // a false promise; the delivered-lane closer now names the global task_complete.
+    expect(taskPages.DetailMeta.instructions).not.toContain('children-active，先处理子任务')
+    expect(taskPages.DetailMeta.instructions).toContain('task_complete')
   })
 })
 

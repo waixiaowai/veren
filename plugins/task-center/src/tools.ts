@@ -1,17 +1,18 @@
 /**
  * Model-facing `task_*` tools over the Host `ctx.taskCenter` service.
  *
- * Six tools only (§8.1): list/get/take/complete/fail/cancel. Apps send tasks
- * through the service, not through a model tool, so there is deliberately no
- * `task_send`. The caller's session id is resolved from the live Agent on
- * every call — it is the claimant identity for leases and the completion
- * check — and is never a parameter a model could forge for another session.
+ * Seven tools (§8.1 base + split): list/get/take/complete/fail/cancel/split.
+ * Apps send tasks through the service, not through a model tool, so there is
+ * deliberately no `task_send`. The caller's session id is resolved from the
+ * live Agent on every call — it is the claimant identity for leases and the
+ * completion check — and is never a parameter a model could forge for another
+ * session.
  *
  * 面向模型的 `task_*` 工具族，作用于宿主 `ctx.taskCenter` 服务。
  *
- * 只有六个工具（§8.1）。应用通过服务发任务而不是模型工具，因此刻意没有 `task_send`。调用方
- * 的会话 id 每次都从活着的 Agent 解析——它既是租约的接取者身份，也是完成校验的依据——永远是
- * 参数，模型无法替别的会话伪造。
+ * 七个工具（§8.1 六件 + split）。应用通过服务发任务而不是模型工具，因此刻意没有
+ * `task_send`。调用方的会话 id 每次都从活着的 Agent 解析——它既是租约的接取者身份，
+ * 也是完成校验的依据——永远不是参数，模型无法替别的会话伪造。
  *
  * @module @veren/task-center/tools
  */
@@ -141,8 +142,10 @@ export function registerTaskTools(ctx: Context, port: () => TaskCenterService): 
       ctx.tools.register(defineTool({
         name: 'task_take',
         description: 'Claim an open task so only this session may work on it, with a 30-minute lease that this '
-          + 'tool renews on every call; an expired lease silently returns the task to open. After taking, open '
-          + 'the task\u2019s target page URL with app_open, do the work, then report with task_complete or task_fail. '
+          + 'tool renews on every call; an expired lease silently returns the task to open. After taking, work '
+          + 'where the task lives: if its target page is this session\u2019s page, start there; otherwise hand the '
+          + 'task to that page with page_send (app_open is denied inside page sessions; page_send is not), then '
+          + 'report with task_complete or task_fail. '
           + 'Already-taken tasks return task/already-taken; tasks past their deadline return task/expired.',
         parameters: { id: { type: 'string', required: true, description: 'Task id from task_list or a notice.' } },
         output: { schema: TASK_SCHEMA, render: renderValue },
@@ -208,7 +211,8 @@ export function registerTaskTools(ctx: Context, port: () => TaskCenterService): 
       ctx.tools.register(defineTool({
         name: 'task_cancel',
         description: 'Withdraw an open (not yet taken) task, e.g. on behalf of the sending app after the user '
-          + 'changed their mind. Taken tasks must be released first; terminal tasks refuse with task/invalid-state. '
+          + 'changed their mind. A taken task refuses until its claimant finishes it (task_complete/task_fail) '
+          + 'or its lease expires — there is no release tool; terminal tasks refuse with task/invalid-state. '
           + 'Deleting records is not possible through tools.',
         parameters: {
           id: { type: 'string', required: true, description: 'Task id to withdraw.' },

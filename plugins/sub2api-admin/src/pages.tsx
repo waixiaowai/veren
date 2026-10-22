@@ -66,7 +66,7 @@ function listPage(config: {
     return (
       <>
         <h1>{config.title}</h1>
-        <p>页面入口：{config.url}；配套工具：sub2api_admin__{config.tools[0]}</p>
+        <p>页面入口：{config.url}；配套工具：{config.tools.map((tool) => `sub2api_admin__${tool}`).join('、')}</p>
         {state.error === undefined ? null : <blockquote>store.error：{String(state.error)}</blockquote>}
         <ul>
           {rows.map((row) => (
@@ -154,8 +154,8 @@ export function createSub2ApiPages(store: {
     description: '渠道管理页：上游渠道列表，支持开通（create）/编辑（update）/下架（delete）',
     title: 'Sub2API 运营 · 渠道管理',
     instructions: '渠道经 channels 列表同步。用 channels 工具：create/update 传 payload（字段先 GET 一条对照）；delete 下架。'
-      + '渠道测活/监控用 request 工具走 /admin/channel-monitors 端点。写前先向用户确认。',
-    tools: ['channels'],
+      + '渠道测活/监控用 request 工具走 /admin/channel-monitors 端点（本页已挂载该透传工具）。写前先向用户确认。',
+    tools: ['channels', 'request'],
     pick: state => state.channels ?? [],
   })
 
@@ -223,7 +223,8 @@ export function createSub2ApiPages(store: {
     store: face,
     instructions: '订单经 orders 列表、套餐经 plans 列表同步，收入汇总经 payment.summary 同步。'
       + '用 payment 工具：dashboard 看收入；orders 查单；order_cancel/order_retry/order_refund 处理异常单；'
-      + 'plan_create/plan_update/plan_delete 维护套餐。写前先向用户确认。',
+      + 'plan_create/plan_update/plan_delete 维护套餐。本页也挂了 overview 工具：'
+      + '正文顶部的收入汇总来自首页支付切片，过期时用 overview 刷新。写前先向用户确认。',
     instanceTitle: () => 'Sub2API 运营 · 资金管理',
   }
 

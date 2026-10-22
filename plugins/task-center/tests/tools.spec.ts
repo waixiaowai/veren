@@ -1,25 +1,29 @@
 /**
- * The six `task_*` tools, executed directly against a real service.
+ * The seven `task_*` tools, executed directly against a real service.
  *
- * The tools registry is a capturing stub: we assert that exactly the six
- * contract tools register and that their `execute` paths enforce claimant
- * identity and surface stable error codes to the model.
+ * The tools registry is a capturing stub: we assert that exactly the seven
+ * contract tools register, that their `execute` paths enforce claimant
+ * identity and surface stable error codes to the model, and that the
+ * model-facing guidance names tools that actually exist at the delivery
+ * surface (page sessions mask app_open; page_send and the task_* face remain).
  *
- * 六个 `task_*` 工具，直接打在真实服务上。
+ * 七个 `task_*` 工具，直接打在真实服务上。
  *
- * 工具注册表用捕获桩：断言恰好注册了六个契约工具，且 `execute` 路径会校验接取者身份、
- * 把稳定错误码暴露给模型。
+ * 工具注册表用捕获桩：断言恰好注册了七个契约工具，`execute` 路径会校验接取者身份、
+ * 把稳定错误码暴露给模型，且面向模型的指引只点名投递面上真实存在的工具
+ * （页面会话屏蔽 app_open；page_send 与 task_* 面仍在）。
  */
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
-import TaskCenterService from '../src/index.ts'
+import TaskCenterService, { noticeText } from '../src/index.ts'
 import { MemoryStorageBackend, mountMemoryBackend } from './fake-storage.ts'
 
 interface RegisteredTool {
   readonly name: string
+  readonly description: string
   execute(args: Record<string, unknown>, exec: { agent?: unknown }): Promise<unknown>
 }
 
@@ -79,5 +83,27 @@ describe('task_* tools', () => {
       .rejects.toMatchObject({ code: 'task/not-found' })
     await expect(byName.get('task_fail')!.execute({ id: task.id, code: 'x', message: 'y' }, {}))
       .rejects.toMatchObject({ code: 'task/invalid-state' })
+  })
+
+  it('model-facing guidance names only tools that exist at the delivery surface', async () => {
+    // 投递面事实：收件泵只把通知注进新建的页面会话（page-registry §5.2），而页面
+    // 会话 deny app_open（app-host/session-port）——指引 app_open 就是假承诺；
+    // page_send 与 task_* 面在页面会话里真实存在。
+    // / The delivery-surface facts: the inbox pump only feeds fresh page
+    // sessions (page-registry §5.2), which deny app_open (app-host's
+    // session-port) — instructing app_open is a false promise; page_send and
+    // the task_* face do exist there.
+    const { service, byName } = await boot()
+    expect(byName.get('task_take')!.description).toContain('page_send')
+    expect(byName.get('task_take')!.description).not.toContain('with app_open')
+    // task_cancel 的"释放"指引指向真实路径：接取者收口或租约到点，没有 release 工具
+    // / task_cancel's release guidance names the real paths: the claimant's own
+    // completion or lease expiry — no release tool exists
+    expect(byName.get('task_cancel')!.description).toContain('lease expires')
+    const task = await service.send(draftTask())
+    const text = noticeText(task)
+    expect(text).toContain('task_take')
+    expect(text).toContain('page_send')
+    expect(text).not.toContain('app_open 打开')
   })
 })

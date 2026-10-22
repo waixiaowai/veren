@@ -1,20 +1,26 @@
 # @veren/sub2api-admin
 
-Application-form DSH plugin: registers the "Sub2API 运营" app — three GUI pages (dashboard / accounts / usage) plus six model-facing admin tools, sharing one `Sub2AdminClient` and one credential config. The structure mirrors the `@veren/task-workbench` reference (`ctx.apps.register` → `apps.tools` → `apps.pages`, component pages (`PageFC` + `useSnapshot`) over a shared store).
+Application-form DSH plugin: registers the "Sub2API 运营" app — nine GUI pages (home / channels / groups / users / subscriptions / finance / codes / accounts / usage) plus eleven model-facing admin tools, sharing one `Sub2AdminClient` and one credential config. The structure mirrors the `@veren/task-workbench` reference (`ctx.apps.register` → `apps.tools` → `apps.pages`, component pages (`PageFC` + `useSnapshot`) over a shared store).
 
 ## Pages
 
-| Page | URL | Content | Data |
+| Page | URL | Content | Mounted tools |
 | --- | --- | --- | --- |
-| dashboard (entry) | `/apps/sub2api-admin/dashboard` | Today requests/tokens/cost/new users, RPM/TPM, user/account/error counts, groups | `GET /admin/dashboard/stats`, `/admin/groups/all` |
-| accounts | `/apps/sub2api-admin/accounts` | Upstream account list (first 50): id/name/platform/type/status/schedulable | `GET /admin/accounts` |
-| usage | `/apps/sub2api-admin/usage` | 7-day trend, per-model stats, range aggregates | `/admin/usage/stats`, `/admin/dashboard/{trend,models}` |
+| home (entry) | `/apps/sub2api-admin/home` | Ops console: revenue/cost/margin/active/new/today requests + tokens, pending orders, error/ratelimit/overload accounts, to-do routing + AI playbook | `overview` |
+| channels | `/apps/sub2api-admin/channels` | Upstream channel list; open / edit / take down | `channels`, `request` (channel monitors) |
+| groups | `/apps/sub2api-admin/groups` | Group list (rate multiplier / platform / subscription type / limits); create / edit / delete, bulk model rate multipliers | `groups` |
+| users | `/apps/sub2api-admin/users` | User list (balance / groups / status); onboard, top-up / deduct, ban, move group | `users` |
+| subscriptions | `/apps/sub2api-admin/subscriptions` | Subscription list; assign / extend / reset quota / revoke / restore | `subscriptions` |
+| finance | `/apps/sub2api-admin/finance` | Payment orders (first 20) + subscription plans + revenue summary | `payment`, `overview` |
+| codes | `/apps/sub2api-admin/codes` | Redeem codes (generate / redeem / expire / delete) + promo codes (create / edit / delete / usages) + redeem stats | `redeem_codes`, `promo_codes` |
+| accounts | `/apps/sub2api-admin/accounts` | Upstream account list (platform / type / status / schedulable); status / scheduling / clear-error / quota / bulk ops | `accounts` |
+| usage | `/apps/sub2api-admin/usage` | 7-day trend, per-model stats, range aggregates | `usage` |
 
-Live data is pulled once on activation; successful tool writes refresh the matching store slice and the trees sync into page sessions via SNAPSHOT/PATCH.
+Live data is pulled once on activation; successful tool writes refresh the matching store slice and the trees sync into page sessions via SNAPSHOT/PATCH. Every page's `instructions` name exactly the tools mounted on it (promise = mount), and a listPage body's 配套工具 line lists their external names.
 
 ## Tools (local catalog names; external `sub2api_admin__<name>`)
 
-`overview`, `accounts` (15 actions), `usage`, `users`, `redeem_codes`, `request` (raw `/api/v1/admin/**` passthrough). Action→endpoint mapping is table-driven; see `src/tools.ts`.
+`overview`, `channels`, `groups`, `users`, `subscriptions`, `payment`, `promo_codes`, `redeem_codes`, `accounts` (15 actions), `usage`, `request` (raw `/api/v1/admin/**` passthrough). Action→endpoint mapping is table-driven; see `src/tools.ts`.
 
 ## Credentials
 
