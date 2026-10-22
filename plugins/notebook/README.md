@@ -1,20 +1,32 @@
 # @veren/notebook
 
-One private, durable notebook per agent preset, exposed to the preset as
-`notebook_*` tools and to a person through the `notebook` Web page.
+One private, durable notebook per agent preset: a pure domain service served to
+people through the `notebook` Remote namespace and to models through exported
+tool builders that a mounter registers.
 
 ## When to use it
 
 Use this package when presets should be able to keep private notes that follow
 the preset rather than the workspace, and a person should be able to open the
 same notes in the Web GUI. Do not use it for shared notes, team notes, or notes
-attached to a project.
+attached to a project. This package registers no tools itself; if models should
+reach the notebook at all, install **`@veren/notebook-app`** (or mount the
+exported builders from your own host code).
+
+## Breaking change in 0.2.0
+
+The global `notebook_*` tools are **retired**. Ordinary sessions no longer see
+any notebook tool; the five tools now live only inside notebook page sessions
+as `notebook__*`, mounted by `@veren/notebook-app` — so a preset uses its
+notebook by opening `/apps/notebook/list` (the list page) and works from
+there. This is a 0.x breaking change by design: one capability, one
+registration face, one place to look.
 
 ## Ownership and isolation
 
 The owner of a note is always the preset id of the Agent that wrote it. The
-model-facing tools have no owner parameter: `src/tools.ts` resolves the
-owner from the live Agent on every call. The storage key is composed as
+tool builders have no owner parameter: `src/tools.ts` resolves the owner from
+the live Agent on every call. The storage key is composed as
 `encodeURIComponent(owner) + "/" + noteId`, so a preset that passes another
 preset's note id composes a key under its own owner and reaches no row. The Web
 page does let a person choose whose notebook to read; that is the point of the
@@ -23,31 +35,39 @@ page, not a tool capability.
 A note is not attached to a workspace. The same preset keeps one notebook in
 every workspace and in every session.
 
-## Model-facing tools
+## Tool builders
 
-| Tool | Purpose |
-| --- | --- |
-| `notebook_list` | List the calling preset's notes, newest update first. |
-| `notebook_read` | Read one note's whole body. |
-| `notebook_create` | Write a note (title required, body may be empty). |
-| `notebook_update` | Replace the title, the body, or both. |
-| `notebook_delete` | Delete one note permanently. |
+The package exports one builder per notebook operation
+(`buildNotebookListDefinition`, `buildNotebookReadDefinition`,
+`buildNotebookWriteDefinition`, `buildNotebookRewriteDefinition`,
+`buildNotebookDeleteDefinition`). Each returns a `defineTool` product scoped to
+its caller at execution time; nothing registers here. A mounter defines the
+products into an app catalog and mounts them into page sessions, where the
+registry composes the external `notebook__<local>` names.
 
-`notebook_update` accepts an optional `expectedUpdatedAt`. When supplied and the
-note has moved on, the Host refuses with `notebook/conflict` instead of
+| Builder | Tool (local) | Purpose |
+| --- | --- | --- |
+| `buildNotebookListDefinition` | `list_notes` | List the calling preset's notes, newest update first. |
+| `buildNotebookReadDefinition` | `read_note` | Read one note's whole body. |
+| `buildNotebookWriteDefinition` | `write_note` | Write a note (title required, body may be empty). |
+| `buildNotebookRewriteDefinition` | `rewrite_note` | Replace the title, the body, or both. |
+| `buildNotebookDeleteDefinition` | `delete_note` | Delete one note permanently. |
+
+`rewrite_note` accepts an optional `expectedUpdatedAt`. When supplied and the
+note has moved on, the tool refuses with `notebook/conflict` instead of
 overwriting a newer edit.
 
-## The notebook application
+## The notebook application: the only registration face
 
 The application face (the `notebook` app with `/apps/notebook/...` pages and
-`notebook__*` page tools) lives in the separate **`@veren/notebook-app`**
-package (G2 package split). This Host declares **no** application-framework
-inject at all (G2): it activates — with the global `notebook_*` tools — even in
-headless deployments where the framework is absent, and `tests/app.spec.ts`
-locks that contract (activation with no `apps` service present, tools working
-end to end, and no inject/wait warning). Installing `@veren/notebook-app` is
-what turns the notebook into an app; that package hard-injects the framework
-and the `notebook` service.
+the `notebook__*` page tools) lives in the separate **`@veren/notebook-app`**
+package (G2 package split), and it is the only face that registers anything.
+This host declares no application-framework inject at all (G2): it activates
+even in headless deployments where the framework is absent, and
+`tests/app.spec.ts` locks that contract (activation with no `apps` service
+present, nothing registered into any tools registry, and no inject/wait
+warning). Installing `@veren/notebook-app` is what turns the notebook into an
+app; that package hard-injects the framework and the `notebook` service.
 
 | Page | URL | Page tools |
 | --- | --- | --- |

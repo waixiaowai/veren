@@ -1,14 +1,16 @@
 /**
  * @veren/notebook-app plugin entry: registers the notebook as an application
- * (definition → tools → pages) over the `@veren/notebook` service. This plugin
- * is deliberately separate from the host package (G2 package split): the host
- * keeps the service and the global `notebook_*` tools, and activates even
- * where the application framework is absent; installing this package is what
- * turns the notebook into an app.
+ * (definition → tools → pages) over the `@veren/notebook` domain service. This
+ * plugin is deliberately separate from the host package (G2 package split):
+ * the host is the pure domain service and exports the tool builders, activating
+ * even where the application framework is absent; this package is the notebook's
+ * single registration face — installing it is what turns the notebook into an
+ * app whose page sessions carry the `notebook__*` page tools.
  *
- * @veren/notebook-app 插件入口：在 `@veren/notebook` 服务之上把记事本注册成一个应用
- * （定义 → 工具 → 页面）。本插件刻意与宿主包分离（G2 拆包）：宿主保留服务与全局
- * `notebook_*` 工具，在应用框架缺席的部署里照常激活；装上本包，记事本才成为应用。
+ * @veren/notebook-app 插件入口：在 `@veren/notebook` 领域服务之上把记事本注册成一个应用
+ * （定义 → 工具 → 页面）。本插件刻意与宿主包分离（G2 拆包）：宿主是纯领域服务并导出工具
+ * 构建器，在应用框架缺席的部署里照常激活；本包是记事本唯一的注册面——装上它，记事本才
+ * 成为应用，页面会话才挂上 `notebook__*` 页面工具。
  *
  * 注册走单入口：ctx.apps.pages(id).register 内部镜像进 page-registry，
  * 不手动调 pageRegistry.registerAppPage。
@@ -51,8 +53,8 @@ export const inject = ['apps', 'notebook', 'agentPresets']
 export const provide = []
 
 export const apply = (ctx: Context): void => {
-  // The app acts through the host service's public tools port: page tools and
-  // global tools write one table.
-  // 应用经宿主服务的公开工具端口行动：页面工具与全局工具写同一张表。
+  // The app acts through the host service's public tools port: every mounted
+  // page tool writes the one table the panel reads.
+  // 应用经宿主服务的公开工具端口行动：挂载的每个页面工具都写在面板所读的同一张表上。
   registerNotebookApp(ctx, () => ctx.notebook.toolsPort())
 }

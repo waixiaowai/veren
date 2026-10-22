@@ -5,16 +5,19 @@
  * the real AppRegistryService/PageRegistryService with the mirror seam wired
  * exactly as the host assembly does. They lock the acceptance face: the app is
  * discoverable and active, the entry URL resolves, every page URL lives under
- * /apps/notebook/, page tools carry the notebook__ prefix and act on the real
- * service, registration is single-entry, and teardown strips both sides. The
- * "framework absent" half lives in the host package's own suite
- * (`plugins/notebook/tests/app.spec.ts`).
+ * /apps/notebook/, the five collected builders carry the notebook__ prefix and
+ * act on the real service, registration is single-entry and is the ONLY
+ * registration face (nothing lands in any global tools registry), §3.9's
+ * promise alignment holds (catalog = per-page mount = instructions naming),
+ * and teardown strips both sides. The "framework absent" half lives in the
+ * host package's own suite (`plugins/notebook/tests/app.spec.ts`).
  *
  * 记事本应用层的组合测试（G2 验收面的「框架在场」半边）：真实 cordis Context、真实存储栈
  * （临时目录）上的 `@veren/notebook` 服务，以及与真实宿主装配同缝接线的
  * AppRegistryService/PageRegistryService。用例锁定验收面：应用可发现且 active、入口 URL
- * 可解析、页面 URL 全在 /apps/notebook/ 下、页面工具带 notebook__ 前缀且作用于真实服务、
- * 单入口注册、卸载两侧摘干净。「框架缺席」半边在宿主包自己的套件里
+ * 可解析、页面 URL 全在 /apps/notebook/ 下、收编的五个构建器带 notebook__ 前缀且作用于
+ * 真实服务、单入口注册且是唯一注册面（任何全局工具注册表都不落东西）、§3.9 承诺对齐成立
+ * （目录 = 逐页挂载 = 说明点名）、卸载两侧摘干净。「框架缺席」半边在宿主包自己的套件里
  * （`plugins/notebook/tests/app.spec.ts`）。
  */
 
@@ -30,6 +33,8 @@ import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as NotebookApp from '../src/index.ts'
 import { APP_DEFINITION, APP_ID, Config as AppConfig } from '../src/index.ts'
+import { createListPage } from '../src/app.ts'
+import { isMarkdownDocHost } from '@veren/prompt-page'
 import type { NoteSummary, NoteView } from '@veren/notebook'
 import NotebookService, { Config as HostConfig } from '@veren/notebook'
 
@@ -64,12 +69,8 @@ async function mount(): Promise<{
   pageRegistry: PageRegistryService
 }> {
   const ctx = new Context()
-  // The global `notebook_*` tools land here; the page tools live in the app
-  // registry's own catalog.
-  // 全局 `notebook_*` 工具落在这里；页面工具住在应用注册表自己的目录里。
-  ctx.provide('tools', { register: () => () => undefined } as unknown as Context['tools'])
-  // The page tools resolve their caller's preset through this face.
   // 页面工具经这一服务面解析调用者的预设。
+  // The page tools resolve their caller's preset through this face.
   ctx.provide('agentPresets', {
     list: async () => [],
     composedPreset: (agentContext: { preset?: string }) => agentContext.preset,
@@ -77,9 +78,9 @@ async function mount(): Promise<{
   await ctx.plugin(Storage.default)
   await ctx.plugin(StorageJson, { root: tempRoot() })
   await ctx.plugin(StorageDomain, { backend: 'json' })
-  // 宿主服务，配置按插件管理器的方式解析。The host service, config resolved the
-  // way the plugin manager resolves it.
-  fibers.push(await ctx.plugin(NotebookService, HostConfig({ tools: { enabled: true } })))
+  // 宿主服务，配置按插件管理器的方式解析（0.2.0 起无配置项）。
+  // The host service, config resolved the way the plugin manager resolves it (no options since 0.2.0).
+  fibers.push(await ctx.plugin(NotebookService, HostConfig({})))
 
   // The real registries plus the mirror seam, wired exactly as the real host
   // assembly (app-host) does.
@@ -106,6 +107,12 @@ function execution(preset: string): { agent: unknown } {
 /** The canonical value one tool call returns. 一次工具调用返回的规范值。 */
 function toolValue<T>(result: unknown): T {
   return result as T
+}
+
+/** 说明里是否点名了该工具（词边界匹配，避免 rewrite_note 被误当 write_note）。 */
+/** Whether the instructions name the tool (word-bounded, so rewrite_note does not count as write_note). */
+function names(instructions: string, tool: string): boolean {
+  return new RegExp(`(?<![\\w])${tool}(?![\\w])`).test(instructions)
 }
 
 /** One app tool as the specs drive it: only the face the calls need. 用例驱动的应用工具：只取调用所需的面。 */
@@ -218,6 +225,57 @@ describe('生命周期 / lifecycle', () => {
   })
 })
 
+describe('§3.9 承诺对齐：目录 = 挂载 = 说明点名 / catalog = mount = instructions naming', () => {
+  it('目录=挂载：应用目录的五个工具恰好被两页 meta.tools 声明，且每工具恰好归属一页', async () => {
+    const { apps, fiber } = await mount()
+
+    const catalog = apps.listTools(APP_ID).map((tool) => tool.name)
+    const mounted = apps.listPages(APP_ID).flatMap((page) => page.tools ?? [])
+    // 挂载面 = 目录面：不多收编、不少挂载
+    // / the mounted face equals the catalog face: nothing extra, nothing missing
+    expect([...mounted].sort()).toEqual([...catalog].sort())
+    // 且工具不跨页重叠（每个工具恰好归属一页）
+    // / and no tool is mounted on two pages (each belongs to exactly one)
+    expect(new Set(mounted).size).toBe(mounted.length)
+
+    await fiber.dispose()
+  })
+
+  it('挂载=说明点名：每页 meta.tools 的每个工具都被该页 instructions 点名', async () => {
+    const { apps, fiber } = await mount()
+
+    // 真机教训（person-agent 概览页曾一个工具都不挂）：挂了却不说，模型看不见能力的来源。
+    // / Live-host lesson (person-agent's overview once mounted nothing): mounted
+    // but unnamed, a capability's source is invisible to the model.
+    for (const page of apps.listPages(APP_ID)) {
+      if (page.instructions === undefined) throw new Error(`page ${page.name} must carry instructions`)
+      for (const tool of page.tools ?? []) {
+        expect(names(page.instructions, tool), `${page.name} must name ${tool}`).toBe(true)
+      }
+    }
+
+    await fiber.dispose()
+  })
+
+  it('说明点名不超挂：页面说明提到的工具名都在该页 meta.tools 里', async () => {
+    const { apps, fiber } = await mount()
+
+    // 反向也是承诺：点名了就必须真挂，说明不答应页面没有的能力。
+    // / The reverse is a promise too: naming a tool requires mounting it — the
+    // instructions never promise a capability the page does not carry.
+    for (const page of apps.listPages(APP_ID)) {
+      if (page.instructions === undefined) throw new Error(`page ${page.name} must carry instructions`)
+      for (const tool of TOOL_NAMES) {
+        if (names(page.instructions, tool)) {
+          expect(page.tools ?? [], `${page.name} mentions ${tool}`).toContain(tool)
+        }
+      }
+    }
+
+    await fiber.dispose()
+  })
+})
+
 describe('§3.10 页面信息组织：首页必须把该给的信息给全 / the home page hands over complete information', () => {
   it('首页（entry）零结构问题：map 覆盖详情页模板、每条带"什么时候用"，且自带 load', async () => {
     const { apps, fiber } = await mount()
@@ -271,6 +329,29 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全 / the
     expect(screen).toMatchObject({ owner: 'ada', note: { id: created.note.id, title: 'Plan' } })
     // 归属不匹配 = 笔记不存在（存储按预设隔离）/ a mismatched owner = the note does not exist (preset-scoped storage)
     await expect(note.load({ noteId: created.note.id }, { preset: 'bob' })).rejects.toMatchObject({ code: 'notebook/note-not-found' })
+    await fiber.dispose()
+  })
+})
+
+describe('页面 = 信息 + 工具，缺一不可 / a page is its information plus its tools, neither optional', () => {
+  it('列表页无首屏快照时正文如实宣告归属未知，绝不留白页', async () => {
+    const { ctx, fiber } = await mount()
+    // 直挂 live 视图（无宿主运行时喂首屏）——这正是"快照缺席"的状态，正文必须自己说话。
+    // / Mount the live view directly (no host runtime feeds the first screen) —
+    // this IS the snapshot-absent state, and the body must speak for itself.
+    const view = createListPage(() => ctx.notebook.toolsPort()).live.mount({})
+    try {
+      const host = isMarkdownDocHost(view.host) ? view.host : undefined
+      if (host === undefined) throw new Error('expected the markdown doc host')
+      const body = host.bodyText()
+      // 正文经 markdown 渲染（下划线转义成 \_），断言用不含下划线的短语。
+      // / the body renders through markdown (underscores escaped), so assert on
+      // underscore-free phrases.
+      expect(body).toContain('归属未知')
+      expect(body).toContain('不要编造笔记')
+    } finally {
+      view.unsubscribe()
+    }
     await fiber.dispose()
   })
 })

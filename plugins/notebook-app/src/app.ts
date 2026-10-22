@@ -1,29 +1,27 @@
 /**
- * The notebook application layer: the `notebook` app, its two pages, and its
- * app-scoped page tools, registered through the host application registry
- * (`ctx.apps`) exactly the way task-workbench does it.
+ * The notebook application layer: the `notebook` app and its two pages,
+ * registered through the host application registry (`ctx.apps`) exactly the
+ * way task-workbench does it. This is the notebook's ONLY registration face:
+ * the page tools are the `@veren/notebook` builders — the one model-facing
+ * implementation — defined into the app catalog here and mounted into page
+ * sessions via `meta.tools`; nothing registers into `ctx.tools`.
  *
  * Single-entry registration: `ctx.apps.pages(id).register(page)` mirrors every
  * page into the page registry internally, so this file never calls
  * `ctx.pageRegistry.registerAppPage` itself.
  *
- * 记事本应用层：`notebook` 应用、它的两个页面与应用级页面工具，经宿主应用注册表
- * （`ctx.apps`）注册，写法与 task-workbench 一致。
+ * 记事本应用层：`notebook` 应用与它的两个页面，经宿主应用注册表（`ctx.apps`）注册，
+ * 写法与 task-workbench 一致。这是记事本唯一的注册面：页面工具就是 `@veren/notebook`
+ * 的构建器——唯一的面向模型实现——在本文件 define 进应用目录，并经 `meta.tools` 挂进
+ * 页面会话；绝不注册进 `ctx.tools`。
  *
  * 单入口注册：`ctx.apps.pages(id).register(page)` 会在内部把页面镜像进页面注册表，
  * 因此本文件绝不直接调用 `ctx.pageRegistry.registerAppPage`。
- *
- * 本文件整体从 `@veren/notebook` 的应用面迁入（G2 拆包）：应用层独立成包，宿主包在
- * 框架缺席的部署里照常激活。
- * This file moved verbatim from the `@veren/notebook` app face (G2 split): the
- * application layer is its own package, so the host package activates even in
- * framework-absent deployments.
  *
  * @module @veren/notebook-app/app
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { ApplicationDefinition, AppId, PageKey } from '@veren/app-registry'
 import { createElement } from '@veren/prompt-core'
@@ -33,7 +31,10 @@ import type { ComponentPageRegistration, PageJsonValue } from '@veren/prompt-pag
 // 仅类型导入：把 `ctx.apps` / `ctx.pageRegistry` 的声明拉进本文件。
 import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
-import { DELETE_SCHEMA, LIST_SCHEMA, NOTE_SCHEMA, notebookToolValue, renderValue } from '@veren/notebook'
+import {
+  buildNotebookDeleteDefinition, buildNotebookListDefinition, buildNotebookReadDefinition,
+  buildNotebookRewriteDefinition, buildNotebookWriteDefinition,
+} from '@veren/notebook'
 import type { NoteSummary, NoteView, NotebookToolsPort } from '@veren/notebook'
 
 // ---- 应用定义 / the application definition ----
@@ -97,8 +98,30 @@ export function createListPage(port: () => NotebookToolsPort): ComponentPageRegi
   return defineComponentPage(
     () => {
       const snap = useSnapshot<NotebookListFirstScreen>()
-      const notes = snap?.notes ?? []
-      return createElement('ul', { children: notes.map((note) => createElement('li', { key: note.id, children: [createElement('strong', { children: note.id }), ' ', note.title] })) })
+      // 信息面（页面 = 信息 + 工具，缺一不可）：正文如实渲染首屏的每一种状态——
+      // 归属未知、空列表、有笔记都不留白，模型与用户拿正文即可当事实源。
+      // The information face (a page = its information + its tools, neither
+      // optional): the body renders every first-screen state honestly — unknown
+      // owner, empty list, and rows alike; the body is the source of fact.
+      if (snap === undefined || snap.available === false) {
+        return createElement('blockquote', {
+          children: '归属未知：本页拿不到当前会话的预设。如实告知用户；可用 list_notes 自行取列表，但不要编造笔记。',
+        })
+      }
+      if (snap.notes.length === 0) {
+        return createElement('p', { children: `预设 ${snap.owner ?? '未知'} 的记事本还是空的——用 write_note 新建第一条笔记。` })
+      }
+      return createElement('ul', {
+        children: snap.notes.map((note) => createElement('li', {
+          key: note.id,
+          children: [
+            createElement('strong', { children: note.id }),
+            ` ${note.title}（更新于 ${note.updatedAt}）`,
+            createElement('br'),
+            note.excerpt,
+          ],
+        })),
+      })
     },
     {
       url: `${URL_PREFIX}/list`,
@@ -139,7 +162,9 @@ export function createNotePage(port: () => NotebookToolsPort): ComponentPageRegi
       }
       return createElement('div', { children: [
         createElement('h1', { children: [note.id, ' ', note.title] }),
-        createElement('p', { children: ['更新于 ', note.updatedAt] }),
+        // 时间两行都给：createdAt 是事实，updatedAt 是 rewrite_note 守卫要用的值。
+        // / both timestamps: createdAt is a fact, updatedAt feeds the rewrite_note guard.
+        createElement('p', { children: [`创建于 ${note.createdAt} · 更新于 ${note.updatedAt}`] }),
         createElement('pre', { children: note.body }),
       ] })
     },
@@ -171,110 +196,26 @@ export function createNotePage(port: () => NotebookToolsPort): ComponentPageRegi
   )
 }
 
-// ---- 应用级工具 / app-scoped tools ----
-
-/** 通用 pending 卡片 / the generic pending card */
-function present(title: string, rawInput?: unknown): { card: 'generic'; title: string; kind: 'other'; rawInput?: unknown } {
-  return { card: 'generic', title, kind: 'other', ...(rawInput === undefined ? {} : { rawInput }) }
-}
-
-/** 笔记 id 参数 / the shared note id parameter */
-const NOTE_ID_PARAM = { id: { type: 'string', description: '笔记 id，来自 list_notes', required: true } } as const
+// ---- 应用工具（构建器收编）/ app tools (collected from the builders) ----
 
 /**
- * 定义应用全部页面工具：`defineTool` 产物（DSH `ToolDefinition` 本体），本地名
- * 应用内唯一；对外名由注册表拼 `notebook__<本地名>`。归属永远取自调用者，
- * 不接受归属参数。
- * Define every page tool: `defineTool` bodies with app-unique local names; the
- * registry composes the external `notebook__<local>` names. The owner always
- * comes from the caller and is never a parameter.
+ * 收编应用全部页面工具：调用 `@veren/notebook` 导出的构建器，拿到唯一的
+ * `ToolDefinition` 实现——本地名应用内唯一；对外名由注册表拼 `notebook__<本地名>`。
+ * 归属永远取自调用者，不接受归属参数。这里只登记进应用目录，不注册到 ctx.tools。
+ * Collect every page tool: call the builders `@veren/notebook` exports to obtain
+ * the one `ToolDefinition` implementation — app-unique local names; the registry
+ * composes the external `notebook__<local>` names. The owner always comes from
+ * the caller and is never a parameter. This only enters the app catalog, never
+ * `ctx.tools`.
  */
 export function createAppTools(ctx: Context, port: () => NotebookToolsPort): ToolDefinition[] {
   return [
-    listNotesTool(ctx, port), readNoteTool(ctx, port), writeNoteTool(ctx, port),
-    rewriteNoteTool(ctx, port), deleteNoteTool(ctx, port),
+    buildNotebookListDefinition(ctx, port),
+    buildNotebookReadDefinition(ctx, port),
+    buildNotebookWriteDefinition(ctx, port),
+    buildNotebookRewriteDefinition(ctx, port),
+    buildNotebookDeleteDefinition(ctx, port),
   ]
-}
-
-/** 列表工具 / the list tool */
-function listNotesTool(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
-  return defineTool({
-    name: 'list_notes',
-    description: 'List the notes in the caller preset\u2019s private notebook, newest first; '
-      + 'rows carry ids, titles, excerpts, and timestamps. Parameters: none.',
-    parameters: {},
-    output: { schema: LIST_SCHEMA, render: renderValue },
-    execute: (_args, exec) => notebookToolValue(ctx, exec.agent, async owner => ({ notes: await port().list(owner) })),
-    presentCall: () => present('列出笔记'),
-  })
-}
-
-/** 读取工具 / the read tool */
-function readNoteTool(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
-  return defineTool({
-    name: 'read_note',
-    description: 'Read one note of the caller preset\u2019s notebook, including its whole body. Parameters: id.',
-    parameters: NOTE_ID_PARAM,
-    output: { schema: NOTE_SCHEMA, render: renderValue },
-    execute: (args, exec) => notebookToolValue(ctx, exec.agent, async owner => ({ note: await port().read(owner, args.id) })),
-    presentCall: args => present('读取笔记', args.id),
-  })
-}
-
-/** 新建工具 / the create tool */
-function writeNoteTool(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
-  return defineTool({
-    name: 'write_note',
-    description: 'Write a new note into the caller preset\u2019s notebook; the title must not be blank. '
-      + 'Parameters: title, body.',
-    parameters: {
-      title: { type: 'string', description: '简短标题', required: true },
-      body: { type: 'string', description: '正文，可为空', required: true },
-    },
-    output: { schema: NOTE_SCHEMA, render: renderValue },
-    execute: (args, exec) => notebookToolValue(ctx, exec.agent,
-      async owner => ({ note: await port().create(owner, args.title, args.body) })),
-    presentCall: args => present('新建笔记', args.title),
-  })
-}
-
-/** 改写工具 / the update tool */
-function rewriteNoteTool(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
-  return defineTool({
-    name: 'rewrite_note',
-    description: 'Replace the title, the body, or both of one note of the caller preset\u2019s notebook; '
-      + 'pass the updatedAt you read as expectedUpdatedAt to be refused instead of overwriting a newer edit. '
-      + 'Parameters: id, title?, body?, expectedUpdatedAt?.',
-    parameters: {
-      ...NOTE_ID_PARAM,
-      title: { type: 'string', description: '新标题；省略则保留' },
-      body: { type: 'string', description: '新正文；省略则保留' },
-      expectedUpdatedAt: { type: 'string', description: '上次读到的 updatedAt；笔记已被改动时本次写入被拒绝' },
-    },
-    output: { schema: NOTE_SCHEMA, render: renderValue },
-    execute: (args, exec) => notebookToolValue(ctx, exec.agent, async owner => ({
-      note: await port().update(owner, args.id, {
-        ...(args.title === undefined ? {} : { title: args.title }),
-        ...(args.body === undefined ? {} : { body: args.body }),
-        ...(args.expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt: args.expectedUpdatedAt }),
-      }),
-    })),
-    presentCall: args => present('改写笔记', args.id),
-  })
-}
-
-/** 删除工具 / the delete tool */
-function deleteNoteTool(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
-  return defineTool({
-    name: 'delete_note',
-    description: 'Permanently delete one note of the caller preset\u2019s notebook; confirm with the user '
-      + 'before calling. Parameters: id.',
-    parameters: NOTE_ID_PARAM,
-    output: { schema: DELETE_SCHEMA, render: renderValue },
-    execute: (args, exec) => notebookToolValue(ctx, exec.agent,
-      async owner => ({ deleted: await port().remove(owner, args.id) })),
-    presentCall: args => present('删除笔记', args.id),
-  })
 }
 
 // ---- 单入口注册 / the single-entry registration ----

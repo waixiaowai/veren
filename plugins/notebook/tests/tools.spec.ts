@@ -1,17 +1,17 @@
 /**
- * The model-facing `notebook_*` tools through the real tool registry.
+ * The notebook tool builders driven directly (the composition face).
  *
- * A notebook's owner is resolved from the live Agent on every call and is never
- * a parameter, so the specs drive the registry itself: registration order and
- * reverse disposal, the exact argument surface (no `owner` field exists),
- * per-preset isolation, the optimistic-concurrency guard, and the stable
- * refusal codes the model reads.
+ * Builders only produce `defineTool` products, so the specs mount the real
+ * storage stack and the real service, build the five definitions against the
+ * service's own tools port, and drive `execute` through the minimal face. The
+ * owner is resolved from the live Agent on every call and is never a
+ * parameter, so the specs prove isolation by calling as two different Agents.
  *
- * 通过真实工具注册表测试面向模型的 `notebook_*` 工具族。
+ * 直驱记事本工具构建器（组合面）。
  *
- * 记事本的归属在每次调用时取自活着的 Agent，永远不是参数，因此这些用例驱动注册表本身：
- * 注册顺序与逆序释放、确切的参数面（不存在 `owner` 字段）、按预设隔离、乐观并发守卫，以及
- * 模型读到的稳定拒绝码。
+ * 构建器只产出 `defineTool` 产物，因此用例挂载真实存储栈与真实服务，对着服务自己的
+ * 工具端口构建五个定义，并经最小执行面驱动 `execute`。归属在每次调用时取自活着的
+ * Agent，永远不是参数，因此用例用两个不同的 Agent 调用即可证明隔离。
  */
 
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -20,25 +20,20 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
-import NotebookService, { Config } from '../src/index.ts'
+import NotebookService, {
+  buildNotebookDeleteDefinition, buildNotebookListDefinition, buildNotebookReadDefinition,
+  buildNotebookRewriteDefinition, buildNotebookWriteDefinition, Config,
+} from '../src/index.ts'
 import type { NoteSummary, NoteView } from '../src/types.ts'
 
-/** The registry member the tools register through. 工具注册所经过的注册表成员。 */
-interface RegisteredTool {
-  readonly name: string
-  readonly parameters: {
-    readonly properties?: Readonly<Record<string, { readonly enum?: readonly string[] }>>
-    readonly required?: readonly string[]
-  }
-  execute(args: Record<string, unknown>, exec: { agent: unknown }): Promise<unknown>
-}
+/** The builder products in build order, keyed by local name. 按本地名为键、按构建顺序排列的构建产物。 */
+const TOOL_NAMES = ['list_notes', 'read_note', 'write_note', 'rewrite_note', 'delete_note']
 
-/** The tool names in registration order. 按注册顺序的工具名。 */
-const TOOL_NAMES = ['notebook_list', 'notebook_read', 'notebook_create', 'notebook_update', 'notebook_delete']
-
+/** The roots one spec's temp storage lives under, removed after the spec. 每条用例的临时存储根，测后删除。 */
 const roots: string[] = []
 
 afterEach(() => {
@@ -52,48 +47,60 @@ function tempRoot(): string {
   return root
 }
 
+/** 工具定义的最小执行面（测试只走 execute；方法签名保持双变，宿主 exec 由假实现顶替）。 */
+/** The minimal execution face of a tool definition (tests drive execute only; the method signature stays bivariant, a fake stands in for the host exec). */
+interface RegisteredTool {
+  execute: (args: Record<string, unknown>, exec: { agent?: unknown }) => Promise<unknown>
+}
+
+/** 测试只走 execute：收窄到最小执行面（唯一的断言点，宿主 exec 由假对象顶替）。 */
+/** Tests drive execute only: narrow to the minimal face (the single assertion point; an empty object stands in for the host exec). */
+function drivable(definition: ToolDefinition): RegisteredTool {
+  return definition as unknown as RegisteredTool
+}
+
 /**
- * Mount the real storage stack and notebook service with a captured registry.
+ * Mount the real storage stack and notebook service, then build all five tool
+ * definitions against the service's own tools port.
  *
  * `composedPreset` reads the caller's preset off the Agent's own context, which
- * is exactly how the service resolves ownership; the specs therefore prove
- * isolation by calling as two different Agents.
+ * is exactly how the builders resolve ownership.
  *
- * 挂载真实存储栈、记事本服务与供断言的注册表。
+ * 挂载真实存储栈与记事本服务，再对着服务自己的工具端口构建全部五个工具定义。
  *
- * `composedPreset` 从 Agent 自己的 context 读取预设，这正是服务解析归属的方式；因此这些用例
- * 用两个不同的 Agent 调用即可证明隔离。
- *
- * @returns the root context, the fiber, and the captured registry.
+ * `composedPreset` 从 Agent 自己的 context 读取预设，这正是构建器解析归属的方式。
  */
-async function mount() {
+async function mount(): Promise<{
+  fiber: Fiber
+  definitions: Map<string, ToolDefinition>
+  run: (tool: string, args: unknown, exec: { agent?: unknown }) => Promise<unknown>
+}> {
   const ctx = new Context()
-  const tools = new Map<string, RegisteredTool>()
-
-  ctx.provide('tools', {
-    register(tool: RegisteredTool) {
-      tools.set(tool.name, tool)
-      return () => { tools.delete(tool.name) }
-    },
-  } as unknown as Context['tools'])
   ctx.provide('agentPresets', {
     list: async () => [],
     composedPreset: (agentContext: { preset?: string }) => agentContext.preset,
   })
-  // The application framework is deliberately NOT provided (G2): the host no
-  // longer declares `apps`, so this mount is itself a framework-absent
-  // deployment — the global `notebook_*` tools must register and work anyway.
-  // 刻意不提供应用框架（G2）：宿主不再声明 `apps`，因此这个挂载本身就是框架缺席的
-  // 部署——全局 `notebook_*` 工具必须照常登记并可用。
   await ctx.plugin(Storage.default)
   await ctx.plugin(StorageJson, { root: tempRoot() })
   await ctx.plugin(StorageDomain, { backend: 'json' })
-
-  const fiber: Fiber = ctx.plugin(NotebookService, Config({
-    tools: { enabled: true },
-  }))
-  await fiber
-  return { ctx, fiber, tools }
+  const fiber = await ctx.plugin(NotebookService, Config({}))
+  const port = ctx.notebook.toolsPort()
+  const definitions = new Map<string, ToolDefinition>([
+    ['list_notes', buildNotebookListDefinition(ctx, () => port)],
+    ['read_note', buildNotebookReadDefinition(ctx, () => port)],
+    ['write_note', buildNotebookWriteDefinition(ctx, () => port)],
+    ['rewrite_note', buildNotebookRewriteDefinition(ctx, () => port)],
+    ['delete_note', buildNotebookDeleteDefinition(ctx, () => port)],
+  ])
+  return {
+    fiber,
+    definitions,
+    run: async (tool, args, exec) => {
+      const definition = definitions.get(tool)
+      if (definition === undefined) throw new Error(`tool not built: ${tool}`)
+      return await drivable(definition).execute(args as Record<string, unknown>, exec)
+    },
+  }
 }
 
 /**
@@ -116,88 +123,92 @@ function toolValue<T>(result: unknown): T {
   return result as T
 }
 
-describe('notebook tool registry / 记事本工具注册表', () => {
-  it('registers the five tools and removes each one in reverse on unload', async () => {
-    const { fiber, tools } = await mount()
+describe('notebook tool builders / 记事本工具构建器', () => {
+  it('builds exactly the five page tools under their local names', async () => {
+    const { definitions, fiber } = await mount()
 
-    expect([...tools.keys()]).toEqual(TOOL_NAMES)
+    expect([...definitions.keys()]).toEqual(TOOL_NAMES)
+    // 全局 notebook_* 名已退役：构建产物的本地名不带旧全局前缀。
+    // The global notebook_* names are retired: no local name carries the old global prefix.
+    for (const name of TOOL_NAMES) expect(name.startsWith('notebook_')).toBe(false)
+
     await fiber.dispose()
-    expect(tools.size).toBe(0)
   })
 
   it('never exposes an owner argument', async () => {
-    const { fiber, tools } = await mount()
+    const { definitions, fiber } = await mount()
 
     for (const name of TOOL_NAMES) {
-      expect(tools.get(name)?.parameters.properties ?? {}, name).not.toHaveProperty('owner')
+      const parameters = definitions.get(name)?.parameters as {
+        properties?: Record<string, unknown>
+        required?: readonly string[]
+      }
+      expect(parameters.properties ?? {}, name).not.toHaveProperty('owner')
     }
-    expect(tools.get('notebook_create')?.parameters.required).toEqual(expect.arrayContaining(['title', 'body']))
-    for (const name of ['notebook_read', 'notebook_update', 'notebook_delete']) {
-      expect(tools.get(name)?.parameters.required, name).toContain('id')
+    const create = definitions.get('write_note')?.parameters as { required?: readonly string[] }
+    expect(create.required).toEqual(expect.arrayContaining(['title', 'body']))
+    for (const name of ['read_note', 'rewrite_note', 'delete_note']) {
+      const parameters = definitions.get(name)?.parameters as { required?: readonly string[] }
+      expect(parameters.required, name).toContain('id')
     }
 
     await fiber.dispose()
   })
 
   it('writes, reads, lists, updates, and deletes inside the caller notebook', async () => {
-    const { fiber, tools } = await mount()
+    const { run, fiber } = await mount()
     const exec = execution('ada')
 
-    expect(toolValue<{ notes: NoteSummary[] }>(await tools.get('notebook_list')?.execute({}, exec)).notes).toEqual([])
+    expect(toolValue<{ notes: NoteSummary[] }>(await run('list_notes', {}, exec)).notes).toEqual([])
 
     const created = toolValue<{ note: NoteView }>(
-      await tools.get('notebook_create')?.execute({ title: 'Plan', body: 'first draft' }, exec),
+      await run('write_note', { title: 'Plan', body: 'first draft' }, exec),
     )
     expect(created.note).toMatchObject({ title: 'Plan', body: 'first draft' })
 
-    const read = toolValue<{ note: NoteView }>(
-      await tools.get('notebook_read')?.execute({ id: created.note.id }, exec),
-    )
+    const read = toolValue<{ note: NoteView }>(await run('read_note', { id: created.note.id }, exec))
     expect(read.note.body).toBe('first draft')
 
-    const listed = toolValue<{ notes: NoteSummary[] }>(await tools.get('notebook_list')?.execute({}, exec))
+    const listed = toolValue<{ notes: NoteSummary[] }>(await run('list_notes', {}, exec))
     expect(listed.notes.map(note => note.id)).toEqual([created.note.id])
     expect(listed.notes[0]).not.toHaveProperty('body')
 
     const updated = toolValue<{ note: NoteView }>(
-      await tools.get('notebook_update')?.execute({ id: created.note.id, title: 'Plan v2' }, exec),
+      await run('rewrite_note', { id: created.note.id, title: 'Plan v2' }, exec),
     )
     expect(updated.note).toMatchObject({ title: 'Plan v2', body: 'first draft' })
 
-    expect(toolValue<{ deleted: boolean }>(
-      await tools.get('notebook_delete')?.execute({ id: created.note.id }, exec),
-    ).deleted).toBe(true)
-    await expect(tools.get('notebook_read')?.execute({ id: created.note.id }, exec))
+    expect(toolValue<{ deleted: boolean }>(await run('delete_note', { id: created.note.id }, exec)).deleted)
+      .toBe(true)
+    await expect(run('read_note', { id: created.note.id }, exec))
       .rejects.toMatchObject({ name: 'NotebookToolError', code: 'notebook/note-not-found' })
 
     await fiber.dispose()
   })
 
   it('keeps two presets notebooks apart even with the other id in hand', async () => {
-    const { fiber, tools } = await mount()
+    const { run, fiber } = await mount()
     const ada = execution('ada')
     const bob = execution('bob')
 
     const created = toolValue<{ note: NoteView }>(
-      await tools.get('notebook_create')?.execute({ title: 'Private', body: 'only ada' }, ada),
+      await run('write_note', { title: 'Private', body: 'only ada' }, ada),
     )
 
-    expect(toolValue<{ notes: NoteSummary[] }>(await tools.get('notebook_list')?.execute({}, bob)).notes).toEqual([])
-    await expect(tools.get('notebook_read')?.execute({ id: created.note.id }, bob))
+    expect(toolValue<{ notes: NoteSummary[] }>(await run('list_notes', {}, bob)).notes).toEqual([])
+    await expect(run('read_note', { id: created.note.id }, bob))
       .rejects.toMatchObject({ code: 'notebook/note-not-found' })
 
     await fiber.dispose()
   })
 
   it('refuses a stale update instead of overwriting a newer edit', async () => {
-    const { fiber, tools } = await mount()
+    const { run, fiber } = await mount()
     const exec = execution('ada')
-    const created = toolValue<{ note: NoteView }>(
-      await tools.get('notebook_create')?.execute({ title: 'T', body: 'B' }, exec),
-    )
+    const created = toolValue<{ note: NoteView }>(await run('write_note', { title: 'T', body: 'B' }, exec))
 
-    await tools.get('notebook_update')?.execute({ id: created.note.id, body: 'newer' }, exec)
-    await expect(tools.get('notebook_update')?.execute({
+    await run('rewrite_note', { id: created.note.id, body: 'newer' }, exec)
+    await expect(run('rewrite_note', {
       id: created.note.id,
       body: 'stale',
       expectedUpdatedAt: created.note.updatedAt,
@@ -207,11 +218,11 @@ describe('notebook tool registry / 记事本工具注册表', () => {
   })
 
   it('refuses every tool when the call has no agent', async () => {
-    const { fiber, tools } = await mount()
+    const { run, fiber } = await mount()
     const args = { id: 'n1', title: 'T', body: 'B' }
 
     for (const name of TOOL_NAMES) {
-      await expect(tools.get(name)?.execute(args, execution(undefined)), name)
+      await expect(run(name, args, execution(undefined)), name)
         .rejects.toMatchObject({ name: 'NotebookToolError', code: 'no_caller' })
     }
 
@@ -219,9 +230,9 @@ describe('notebook tool registry / 记事本工具注册表', () => {
   })
 
   it('refuses an empty title with the stable validation code', async () => {
-    const { fiber, tools } = await mount()
+    const { run, fiber } = await mount()
 
-    await expect(tools.get('notebook_create')?.execute({ title: '   ', body: 'B' }, execution('ada')))
+    await expect(run('write_note', { title: '   ', body: 'B' }, execution('ada')))
       .rejects.toMatchObject({ name: 'NotebookToolError', code: 'notebook/title-required' })
 
     await fiber.dispose()

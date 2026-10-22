@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "笔记本服务",
-    "description": "每个助手预设一本私人持久笔记：模型用 notebook_* 工具读写，人在 Web 页面查看。"
+    "description": "每个助手预设一本私人持久笔记：领域服务经 notebook 远端命名空间供人读写，并导出笔记工具构建器；工具注册由 @veren/notebook-app 承担。"
   }
 }

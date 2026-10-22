@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Notebook App",
-    "description": "Registers the notebook as a first-class application: a note list entry page reachable from the app catalog."
+    "description": "Registers the notebook as a first-class application: a note list entry page and a note detail page under /apps/notebook, with notebook__* page tools mounted into page sessions."
   }
 }

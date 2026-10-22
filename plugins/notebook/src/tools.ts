@@ -1,17 +1,24 @@
 /**
- * Model-facing `notebook_*` tools over the Host `ctx.notebook` service.
+ * Notebook tool builders: one `defineTool` product per notebook operation,
+ * scoped to its caller at execution time.
  *
- * The owner is read from the live Agent on every call and is never a parameter.
- * A preset therefore has no way to name another preset's notebook: the tool
- * schema cannot express it, and the service composes every key from the owner
- * it was handed by this file. Registering into the mounting scope decides which
- * agents receive the tools, exactly as the forum tools do.
+ * Nothing registers here. A mounter — today the notebook application
+ * (`@veren/notebook-app`), the only registration face — defines the built
+ * tools into the app catalog and mounts them into page sessions via
+ * `meta.tools`, so the registry composes the external `notebook__<local>`
+ * names and a tool only ever reaches a session that opened a notebook page.
+ * The owner is read from the live Agent on every call and is never a
+ * parameter: a preset has no way to name another preset's notebook, because
+ * the tool schema cannot express it and `notebookToolValue` composes every
+ * key from the owner it resolved.
  *
- * 面向模型的 `notebook_*` 工具族，作用于宿主 `ctx.notebook` 服务。
+ * 记事本工具构建器：一次记事本操作对应一个 `defineTool` 产物，执行时按调用者限定。
  *
- * 归属在每次调用时取自活着的 Agent，永远不是参数。因此预设没有任何办法指定别人的记事本：工具
- * schema 表达不了，服务又只用本文件交给它的归属去拼每一个键。注册到哪个作用域决定哪些 agent
- * 拿到这些工具，与论坛工具一致。
+ * 本文件不做任何注册。挂载方——今天是记事本应用（`@veren/notebook-app`，唯一的
+ * 注册面）——把构建产物 define 进应用目录，并经 `meta.tools` 挂进页面会话；注册表
+ * 因此拼出对外名 `notebook__<本地名>`，工具也只会到达打开过记事本页面的会话。归属
+ * 在每次调用时取自活着的 Agent，永远不是参数：预设没有任何办法指定别人的记事本，
+ * 工具 schema 表达不了，`notebookToolValue` 又只用它解析出的归属去拼每一个键。
  *
  * @module @veren/notebook/tools
  */
@@ -20,7 +27,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { NotebookError } from './notes.ts'
 import type { NotebookToolsPort } from './types.ts'
 // Type-only: pulls the `ctx.agentPresets` service declaration into this face
@@ -28,11 +35,9 @@ import type { NotebookToolsPort } from './types.ts'
 // 仅类型导入：把 `ctx.agentPresets` 的服务声明拉进本文件（所属服务的硬 inject，
 // 直接读取，绝不探测）。
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
-// 无损 JSON 投影只有一份实现（@veren/core）；此处按原名转出，公共面不变。
-// The lossless-JSON projection lives in exactly one place (@veren/core); it is
-// re-exported here under the original names, so the surface stays unchanged.
+// 无损 JSON 投影只有一份实现（@veren/core）。
+// The lossless-JSON projection lives in exactly one place (@veren/core).
 import { jsonOf } from '@veren/core'
-export type { Json, JsonShape } from '@veren/core'
 import type { JsonShape } from '@veren/core'
 
 /** One refused call: a stable notebook code plus a model-facing account. */
@@ -48,7 +53,7 @@ class NotebookToolError extends Error {
 }
 
 /** Canonical list value: list rows without full bodies. */
-export const LIST_SCHEMA = {
+const LIST_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -57,7 +62,7 @@ export const LIST_SCHEMA = {
 } as const
 
 /** Canonical single-note value. */
-export const NOTE_SCHEMA = {
+const NOTE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -66,7 +71,7 @@ export const NOTE_SCHEMA = {
 } as const
 
 /** Canonical delete value. */
-export const DELETE_SCHEMA = {
+const DELETE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -75,11 +80,11 @@ export const DELETE_SCHEMA = {
 } as const
 
 /** Deterministic model content for every canonical tool value. */
-export function renderValue(_args: unknown, value: unknown): ContentBlock[] {
+function renderValue(_args: unknown, value: unknown): ContentBlock[] {
   return [{ type: 'text', text: JSON.stringify(value) }]
 }
 
-/** Pure generic pending card. */
+/** Generic pending card: reads render as reads, writes as other work. */
 function present(title: string, kind: 'read' | 'other', rawInput?: unknown): GenericCallView {
   return { card: 'generic', title, kind, ...rawInput === undefined ? {} : { rawInput } }
 }
@@ -102,6 +107,9 @@ function noCaller(): NotebookToolError {
   )
 }
 
+/** The shared note id parameter. 共享的笔记 id 参数。 */
+const NOTE_ID_PARAM = { id: { type: 'string', description: '笔记 id，来自 list_notes', required: true } } as const
+
 /**
  * Resolve the calling preset from the live Agent. `agentPresets` is a declared
  * hard inject of the owning service, so the merged face is read directly —
@@ -118,142 +126,13 @@ function callerOf(ctx: Context, agent: Agent | undefined): string | undefined {
 }
 
 /**
- * Register every notebook tool in the mounting scope.
- * @param ctx - Context owning the `tools` registry.
- * @param port - resolves the service surface the tools act through.
- */
-export function registerNotebookTools(ctx: Context, port: () => NotebookToolsPort): void {
-  ctx.effect(() => {
-    const disposers = [
-      ctx.tools.register(defineTool({
-        name: 'notebook_list',
-        description: 'List the notes in your own preset\u2019s private notebook, newest update first. '
-          + 'Every preset has its own notebook, it follows the preset across workspaces, and no other preset '
-          + 'can read it. Results carry ids, titles, excerpts, and timestamps; use notebook_read for a full body.',
-        parameters: {},
-        output: { schema: LIST_SCHEMA, render: renderValue },
-        async execute(_args, exec) {
-          const owner = callerOf(ctx, exec.agent)
-          if (owner === undefined) throw noCaller()
-          try {
-            return jsonOf({ notes: await port().list(owner) })
-          } catch (error: unknown) {
-            throw operationError(error)
-          }
-        },
-        presentCall: () => present('List notebook notes', 'read'),
-      })),
-      ctx.tools.register(defineTool({
-        name: 'notebook_read',
-        description: 'Read one note from your own preset\u2019s private notebook, including its whole body.',
-        parameters: {
-          id: { type: 'string', required: true, description: 'Note id from notebook_list.' },
-        },
-        output: { schema: NOTE_SCHEMA, render: renderValue },
-        async execute(args, exec) {
-          const owner = callerOf(ctx, exec.agent)
-          if (owner === undefined) throw noCaller()
-          try {
-            return jsonOf({ note: await port().read(owner, args.id) })
-          } catch (error: unknown) {
-            throw operationError(error)
-          }
-        },
-        presentCall: args => present('Read notebook note', 'read', args.id),
-      })),
-      ctx.tools.register(defineTool({
-        name: 'notebook_create',
-        description: 'Write a note into your own preset\u2019s private notebook. Use it for facts worth keeping '
-          + 'and finding again later; the note is global to the preset, not attached to this workspace.',
-        parameters: {
-          title: { type: 'string', required: true, description: 'Short note title.' },
-          body: { type: 'string', required: true, description: 'Note body; may be empty.' },
-        },
-        output: { schema: NOTE_SCHEMA, render: renderValue },
-        async execute(args, exec) {
-          const owner = callerOf(ctx, exec.agent)
-          if (owner === undefined) throw noCaller()
-          try {
-            return jsonOf({ note: await port().create(owner, args.title, args.body) })
-          } catch (error: unknown) {
-            throw operationError(error)
-          }
-        },
-        presentCall: args => present('Write notebook note', 'other', args.title),
-      })),
-      ctx.tools.register(defineTool({
-        name: 'notebook_update',
-        description: 'Change one note in your own preset\u2019s private notebook. Supply a new title, a new body, '
-          + 'or both. Pass expectedUpdatedAt from the note you read to be refused instead of overwriting a newer edit.',
-        parameters: {
-          id: { type: 'string', required: true, description: 'Note id from notebook_list.' },
-          title: { type: 'string', description: 'Replacement title; omit to keep the current one.' },
-          body: { type: 'string', description: 'Replacement body; omit to keep the current one.' },
-          expectedUpdatedAt: {
-            type: 'string',
-            description: 'The updatedAt you last read; the write is refused if the note changed since.',
-          },
-        },
-        output: { schema: NOTE_SCHEMA, render: renderValue },
-        async execute(args, exec) {
-          const owner = callerOf(ctx, exec.agent)
-          if (owner === undefined) throw noCaller()
-          try {
-            return jsonOf({
-              note: await port().update(owner, args.id, {
-                ...args.title === undefined ? {} : { title: args.title },
-                ...args.body === undefined ? {} : { body: args.body },
-                ...args.expectedUpdatedAt === undefined
-                  ? {}
-                  : { expectedUpdatedAt: args.expectedUpdatedAt },
-              }),
-            })
-          } catch (error: unknown) {
-            throw operationError(error)
-          }
-        },
-        presentCall: args => present('Update notebook note', 'other', args.id),
-      })),
-      ctx.tools.register(defineTool({
-        name: 'notebook_delete',
-        description: 'Delete one note from your own preset\u2019s private notebook. Deleting is permanent; '
-          + 'the note must belong to the calling preset.',
-        parameters: {
-          id: { type: 'string', required: true, description: 'Note id from notebook_list.' },
-        },
-        output: { schema: DELETE_SCHEMA, render: renderValue },
-        async execute(args, exec) {
-          const owner = callerOf(ctx, exec.agent)
-          if (owner === undefined) throw noCaller()
-          try {
-            return jsonOf({ deleted: await port().remove(owner, args.id) })
-          } catch (error: unknown) {
-            throw operationError(error)
-          }
-        },
-        presentCall: args => present('Delete notebook note', 'other', args.id),
-      })),
-    ]
-    return () => { for (const dispose of disposers.reverse()) dispose() }
-  }, 'notebook:tools()')
-}
-
-/**
  * Run one owner-scoped notebook operation for a tool call: resolve the caller's
  * preset from the live Agent, project the result onto lossless JSON, and
- * translate refusals into stable model-facing errors. Shared by the global
- * `notebook_*` tools and the `notebook` application's page tools.
- *
+ * translate refusals into stable model-facing errors.
  * 为一次工具调用运行一个按归属限定的记事本操作：从活 Agent 解析调用者的预设，
- * 把结果投影成无损 JSON，并把拒绝翻译成稳定的模型可见错误。全局 `notebook_*`
- * 工具与 `notebook` 应用的页面工具共用这一条路径。
- *
- * @param ctx - Host context carrying the preset registry.
- * @param agent - the calling Agent, when the execution has one.
- * @param run - the operation, receiving the resolved owner.
- * @returns the operation result as canonical JSON.
+ * 把结果投影成无损 JSON，并把拒绝翻译成稳定的模型可见错误。
  */
-export async function notebookToolValue<T>(
+async function notebookToolValue<T>(
   ctx: Context,
   agent: Agent | undefined,
   run: (owner: string) => Promise<T>,
@@ -265,4 +144,85 @@ export async function notebookToolValue<T>(
   } catch (error: unknown) {
     throw operationError(error)
   }
+}
+
+/** 列表工具构建器：列出调用者预设的笔记，最新更新在前 / the list tool builder: the caller preset's notes, newest update first */
+export function buildNotebookListDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
+  return defineTool({
+    name: 'list_notes',
+    description: 'List the notes in the caller preset\u2019s private notebook, newest first; '
+      + 'rows carry ids, titles, excerpts, and timestamps. Parameters: none.',
+    parameters: {},
+    output: { schema: LIST_SCHEMA, render: renderValue },
+    execute: (_args, exec) => notebookToolValue(ctx, exec.agent, async owner => ({ notes: await port().list(owner) })),
+    presentCall: () => present('列出笔记', 'read'),
+  })
+}
+
+/** 读取工具构建器：读一条笔记的全文 / the read tool builder: one note's whole body */
+export function buildNotebookReadDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
+  return defineTool({
+    name: 'read_note',
+    description: 'Read one note of the caller preset\u2019s notebook, including its whole body. Parameters: id.',
+    parameters: NOTE_ID_PARAM,
+    output: { schema: NOTE_SCHEMA, render: renderValue },
+    execute: (args, exec) => notebookToolValue(ctx, exec.agent, async owner => ({ note: await port().read(owner, args.id) })),
+    presentCall: args => present('读取笔记', 'read', args.id),
+  })
+}
+
+/** 新建工具构建器：写入一条新笔记 / the write tool builder: one new note */
+export function buildNotebookWriteDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
+  return defineTool({
+    name: 'write_note',
+    description: 'Write a new note into the caller preset\u2019s notebook; the title must not be blank. '
+      + 'Parameters: title, body.',
+    parameters: {
+      title: { type: 'string', description: '简短标题', required: true },
+      body: { type: 'string', description: '正文，可为空', required: true },
+    },
+    output: { schema: NOTE_SCHEMA, render: renderValue },
+    execute: (args, exec) => notebookToolValue(ctx, exec.agent,
+      async owner => ({ note: await port().create(owner, args.title, args.body) })),
+    presentCall: args => present('新建笔记', 'other', args.title),
+  })
+}
+
+/** 改写工具构建器：替换标题/正文，带乐观并发守卫 / the rewrite tool builder: title/body replacement with the optimistic-concurrency guard */
+export function buildNotebookRewriteDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
+  return defineTool({
+    name: 'rewrite_note',
+    description: 'Replace the title, the body, or both of one note of the caller preset\u2019s notebook; '
+      + 'pass the updatedAt you read as expectedUpdatedAt to be refused instead of overwriting a newer edit. '
+      + 'Parameters: id, title?, body?, expectedUpdatedAt?.',
+    parameters: {
+      ...NOTE_ID_PARAM,
+      title: { type: 'string', description: '新标题；省略则保留' },
+      body: { type: 'string', description: '新正文；省略则保留' },
+      expectedUpdatedAt: { type: 'string', description: '上次读到的 updatedAt；笔记已被改动时本次写入被拒绝' },
+    },
+    output: { schema: NOTE_SCHEMA, render: renderValue },
+    execute: (args, exec) => notebookToolValue(ctx, exec.agent, async owner => ({
+      note: await port().update(owner, args.id, {
+        ...(args.title === undefined ? {} : { title: args.title }),
+        ...(args.body === undefined ? {} : { body: args.body }),
+        ...(args.expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt: args.expectedUpdatedAt }),
+      }),
+    })),
+    presentCall: args => present('改写笔记', 'other', args.id),
+  })
+}
+
+/** 删除工具构建器：永久删除一条笔记 / the delete tool builder: one note, permanently */
+export function buildNotebookDeleteDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
+  return defineTool({
+    name: 'delete_note',
+    description: 'Permanently delete one note of the caller preset\u2019s notebook; confirm with the user '
+      + 'before calling. Parameters: id.',
+    parameters: NOTE_ID_PARAM,
+    output: { schema: DELETE_SCHEMA, render: renderValue },
+    execute: (args, exec) => notebookToolValue(ctx, exec.agent,
+      async owner => ({ deleted: await port().remove(owner, args.id) })),
+    presentCall: args => present('删除笔记', 'other', args.id),
+  })
 }

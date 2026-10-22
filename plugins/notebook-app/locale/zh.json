@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "笔记本应用",
-    "description": "把笔记本注册为一等应用：笔记列表入口页，可从应用目录直达。"
+    "description": "把笔记本注册为一等应用：/apps/notebook 下的笔记列表入口页与笔记详情页，页面会话挂载 notebook__* 页面工具。"
   }
 }

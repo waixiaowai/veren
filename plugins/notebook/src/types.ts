@@ -89,17 +89,12 @@ export interface NotePatch {
   readonly body?: string
 }
 
-/** Model-facing tool registration. */
-export interface NotebookToolConfig {
-  /** Register `notebook_*` tools for every agent. */
-  enabled: boolean
-}
-
-/** Notebook plugin configuration. The application layer lives in `@veren/notebook-app` (G2 split). 记事本插件配置。应用层住在 `@veren/notebook-app`（G2 拆包）。 */
-export interface NotebookConfig {
-  /** Model-facing tools. */
-  tools: NotebookToolConfig
-}
+/**
+ * Notebook plugin configuration. Empty today — the global-tools switch retired
+ * with the global registration; the field set stays reserved.
+ * 记事本插件配置。当前为空——全局注册退役时其开关一并删除；字段集保留备用。
+ */
+export interface NotebookConfig {}
 
 /** The narrow surface the model-facing tools read and write. */
 export interface NotebookToolsPort {
