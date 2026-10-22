@@ -19,10 +19,13 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { AppRegistryService } from '@veren/app-registry'
 import { PageRegistryService } from '@veren/page-registry'
+import { defineComponentPage, isMarkdownDocHost } from '@veren/prompt-page'
+import type { ComponentPageMeta, MarkdownDocHost, PageFC, PageParams } from '@veren/prompt-page'
+import { CatalogMeta, CatalogPage, PostMeta, PostPage } from '../src/pages.tsx'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
@@ -34,6 +37,7 @@ import ForumService, { Config as HostConfig } from '@veren/forum'
 const roots: string[] = []
 
 afterEach(() => {
+  for (const unsubscribe of pageViews.splice(0).reverse()) unsubscribe()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
@@ -56,6 +60,29 @@ interface AppTool {
 /** The canonical value one tool call returns. 一次工具调用返回的规范值。 */
 function toolValue<T>(result: unknown): T {
   return result as T
+}
+
+/** 本轮用例挂起的 live 页面视图，afterEach 逆序退订。Live page views to unsubscribe after each spec. */
+const pageViews: Array<() => void> = []
+
+/**
+ * 挂载真实页面组件并返回其文档宿主：正文里的 `ctx.forum` 经测试 ctx 的真实服务面
+ * 解析——与生产装配同一组件、同一上下文语义，零工厂、零闭包注入。
+ * Mount a real page component and return its doc host: the body's `ctx.forum`
+ * resolves through the test ctx's real service face — the same component and
+ * context semantics as the production assembly, zero factory, zero closures.
+ */
+function mountPage(
+  component: PageFC,
+  meta: ComponentPageMeta,
+  ctx: Context,
+  params: PageParams = {},
+): { host: MarkdownDocHost } {
+  const view = defineComponentPage(component, meta, ctx).live.mount(params)
+  pageViews.push(() => { view.unsubscribe() })
+  const host = isMarkdownDocHost(view.host) ? view.host : undefined
+  if (host === undefined) throw new Error('expected the markdown doc host')
+  return { host }
 }
 
 /**
@@ -283,57 +310,53 @@ describe('目录 = 挂载 = 说明 三方可核对 / catalog = mount = instructi
   })
 })
 
-describe('§3.10 页面信息组织：首页必须把该给的信息给全 / the home page hands over complete information', () => {
-  it('首页（entry）零结构问题：map 覆盖详情页模板、每条带"什么时候用"，且自带 load', async () => {
-    const { apps, fiber } = await mount()
-    const pages = apps.listPages(FORUM_APP_ID)
-    const entryKey = FORUM_APP_DEFINITION.entry
-    if (entryKey === undefined) throw new Error('the forum app must declare an entry page')
-    const home = pages.find((page) => page.name === entryKey)
-    if (home === undefined) throw new Error(`entry page ${entryKey} is not registered`)
-    // 判据：map 由注册表推导（RFC prompt-page-render §3.5）——AppRecord.pages
-    // 投影列全兄弟页（主题详情页），构造上覆盖；首页自带 load。
-    // / the criterion: the map is registry-derived (§3.5) — the AppRecord.pages
-    // projection lists the sibling (the post detail page), coverage by
-    // construction; the home carries a load.
-    const record = apps.get(FORUM_APP_ID)
-    expect(record?.pages?.get('post')?.url).toBe('/apps/forum/post/:postId')
-    expect(typeof home.load).toBe('function')
-    await fiber.dispose()
+describe('§3.10 页面 = 信息 + 工具：正文渲染真实记录，每行带 id / the body renders the real records, ids on every row', () => {
+  it('入口页正文渲染真实目录：板块/主题/人物行内带 id，读取中先如实在场', async () => {
+    const { ctx, fiber } = await mount()
+    const board = await ctx.forum.ensureBoardRemote({ workspaceId: 'ws-1', path: 'C:/work/demo' })
+    await ctx.forum.toolsPort().publish({
+      boardId: board.id, author: 'standard', title: '开版帖', body: '第一篇',
+    })
+    const { host } = mountPage(CatalogPage, CatalogMeta, ctx)
+    await vi.waitFor(() => expect(host.bodyText()).toContain('论坛 · 板块与主题列表'))
+    // 板块行：id 是工具要用的 boardId / the board row: its id is the tool's boardId
+    await vi.waitFor(() => expect(host.bodyText()).toContain('id: ws-1'))
+    await vi.waitFor(() => expect(host.bodyText()).toContain('开版帖（id:'))
+    await vi.waitFor(() => expect(host.bodyText()).toContain('作者 standard'))
+    await vi.waitFor(() => expect(host.bodyText()).toContain('standard'))
   })
 
-  it('首页 load 读真实服务目录：板块、主题与可提及的人进首屏', async () => {
-    const { ctx, apps, fiber } = await mount()
-    const pages = apps.listPages(FORUM_APP_ID)
-    const home = pages.find((page) => page.name === FORUM_APP_DEFINITION.entry)
-    if (home === undefined || home.load === undefined) throw new Error('the catalog page must carry a load')
-    const screen = await home.load({}, {})
-    if (typeof screen !== 'object' || screen === null || Array.isArray(screen)) {
-      throw new Error('the catalog load must return a first-screen object')
-    }
-    expect('boards' in screen).toBe(true)
-    expect('posts' in screen).toBe(true)
-    expect('people' in screen).toBe(true)
-    await fiber.dispose()
-  })
-
-  it('详情页 load 按参数取该条主题与评论树（§3.10.3）', async () => {
-    const { ctx, apps, fiber } = await mount()
-    const pages = apps.listPages(FORUM_APP_ID)
-    const post = pages.find((page) => page.name === 'post')
-    if (post === undefined || post.load === undefined) throw new Error('the post page must carry a load')
-    // 发一篇真帖：真实服务面 → 详情页 load 取回同一条记录
-    // / publish a real post: the real service face → the detail load reads back that very record
+  it('详情页正文渲染该主题与评论树：评论行内 id 可作 parentCommentId/subjectId', async () => {
+    const { ctx, fiber } = await mount()
     const board = await ctx.forum.ensureBoardRemote({ workspaceId: 'ws-1', path: 'C:/work/demo' })
     const created = await ctx.forum.toolsPort().publish({
-      boardId: board.id, author: 'standard', title: '首屏帖', body: '正文',
+      boardId: board.id, author: 'standard', title: '被读的帖', body: '全文在这里',
     })
-    const screen = await post.load({ postId: created.value.id }, {})
-    if (typeof screen !== 'object' || screen === null || Array.isArray(screen)) {
-      throw new Error('the post load must return a first-screen object')
-    }
-    expect('post' in screen).toBe(true)
-    expect('comments' in screen).toBe(true)
-    await fiber.dispose()
+    await ctx.forum.toolsPort().comment({
+      postId: created.value.id, author: 'ptc', body: '前排回复',
+    })
+    const { host } = mountPage(PostPage, PostMeta, ctx, { postId: created.value.id })
+    await vi.waitFor(() => expect(host.bodyText()).toContain('被读的帖'))
+    await vi.waitFor(() => expect(host.bodyText()).toContain(`id: ${created.value.id}`))
+    await vi.waitFor(() => expect(host.bodyText()).toContain('全文在这里'))
+    await vi.waitFor(() => expect(host.bodyText()).toContain('前排回复'))
+    // 评论行格式：作者（id: ...）：内容 / the comment row format: author (id: ...): body
+    await vi.waitFor(() => expect(host.bodyText()).toContain('ptc（id:'))
+  })
+
+  it('主题不存在：失败态如实渲染（失败态也是数据，不编造内容）', async () => {
+    const { ctx, fiber } = await mount()
+    const { host } = mountPage(PostPage, PostMeta, ctx, { postId: 'p-missing' })
+    await vi.waitFor(() => expect(host.bodyText()).toContain('主题读取失败'))
+    // 服务面的稳定拒绝消息原样进正文（code 面 由 forum 包自己的工具测试锁定）
+    // / the service's stable refusal message lands verbatim (the code face is locked in the forum package's own tool tests)
+    await vi.waitFor(() => expect(host.bodyText()).toContain('no post with id "p-missing"'))
+  })
+
+  it('说明指向正文行内 id：两页 instructions 都写明 id 取法', async () => {
+    expect(CatalogMeta.instructions).toContain('行内')
+    expect(CatalogMeta.instructions).toContain('id')
+    expect(PostMeta.instructions).toContain('行内')
+    expect(PostMeta.instructions).toContain('id')
   })
 })

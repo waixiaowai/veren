@@ -39,7 +39,7 @@ import {
   buildForumVoteDefinition,
 } from '@veren/forum'
 import type { ForumToolsPort } from '@veren/forum'
-import { createCatalogPage, createPostPage } from './pages.tsx'
+import { CatalogMeta, CatalogPage, PostMeta, PostPage } from './pages.tsx'
 
 /** The app id; the URL prefix `/apps/forum` and the `forum__` tool prefix follow it. */
 export const FORUM_APP_ID = 'forum' as AppId
@@ -130,14 +130,15 @@ export function registerForumApp(ctx: Context, port: () => ForumToolsPort): void
         disposers.push(tools.define(tool))
       }
       // 3) Pages: the single entry — app-registry mirrors into the page registry.
-      //    Pages are factories closing over this assembly's port, so each
-      //    page's `load` reads the same record set its page tools act on.
-      //    页面：单入口——app-registry 内部镜像进页面注册表。页面是工厂，闭包
-      //    引用本次装配的端口，各页 load 与页面工具读的是同一份记录集合。
+      //    Module-level PageFCs read `ctx.forum` in their bodies (the plugin
+      //    injects the service), so each page's body renders the very record
+      //    set its page tools act on — no factory, no closure injection.
+      //    页面：单入口——app-registry 内部镜像进页面注册表。模块级 PageFC 在
+      //    正文直读 `ctx.forum`（本插件声明注入该服务），正文渲染的正是页面工具
+      //    操作的那份记录集合——零工厂、零闭包注入。
       const pages = apps.pages(FORUM_APP_ID, ctx)
-      for (const page of [createCatalogPage(port), createPostPage(port)]) {
-        disposers.push(pages.register(page))
-      }
+      disposers.push(pages.register(CatalogPage, CatalogMeta))
+      disposers.push(pages.register(PostPage, PostMeta))
     } catch (error: unknown) {
       for (const dispose of disposers.reverse()) dispose()
       throw error
