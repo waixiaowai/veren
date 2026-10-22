@@ -26,7 +26,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { PageError, PageErrorCode, assertParamsMatchPattern, canonicalizePageUrl, isMarkdownDocHost, snapshotSinkOf } from '@veren/prompt-page'
-import type { PageJsonValue, PageLoadEnv, PageSession } from '@veren/prompt-page'
+import type { PageJsonValue, PageLoadEnv, PageSession, PageSkill } from '@veren/prompt-page'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { PageInstanceIndex, PageInstanceKey, PageMatch } from '@veren/prompt-page'
 // 服务面类型只引真正的那一份：应用记录/任务契约来自各自的 declaration merging 出口，
@@ -91,8 +91,14 @@ export interface PageSessionPort {
    * falls back to the creator ctx / view-level cleanup.
    */
   scopeOf?(sessionId: string): Context | undefined
-  /** 挂页面工具；重名冲突抛 PageError(page/tool-conflict) / mount; conflicts raise */
-  mountTools(sessionId: string, tools: readonly MountedTool[]): Promise<void>
+  /**
+   * 挂页面工具与页面级 skills；工具重名冲突抛 PageError(page/tool-conflict)。
+   * skills 随同一组注销器挂进会话 agent 作用域，释放与工具同序。
+   * Mount the page tools and the page-scope skills; tool conflicts raise
+   * PageError(page/tool-conflict). Skills join the same disposer group in the
+   * session's agent scope and are released together with the tools.
+   */
+  mountTools(sessionId: string, tools: readonly MountedTool[], skills?: readonly PageSkill[]): Promise<void>
   releaseTools(sessionId: string): Promise<void>
   focus(sessionId: string): Promise<void>
   /** 创建失败兜底：销毁半成品会话 / destroy a half-built session */
@@ -303,16 +309,17 @@ function componentViewOf(view: PageSession<never> | undefined): ComponentPageVie
 /**
  * 组件页 PAGE 块（RFC prompt-page-render §3.3/C7 的骨架）：PAGE 定位行 + map
  * （注册表推导：本应用兄弟页、排除自身、按注册序，`- 模板 → description`）+
- * tools 行（目录解析 + 会话内动态注册，改外名）+ 可选说明行 + Markdown 正文。
+ * tools 行（目录解析 + 会话内动态注册，改外名）+ 应用说明行 + 可选页面说明行 +
+ * Markdown 正文。
  * 无 params/data JSON 行——URL 本身表达 params，meta.load 经 useSnapshot 进组件、
  * 由组件渲染为正文（失败态也是正文）。
  * The component-page PAGE block (the §3.3/C7 skeleton of RFC prompt-page-render):
  * the PAGE locator line + map (registry-derived: sibling pages of this app,
  * excluding self, in registration order, `- template → description`) + the tools
- * line (catalog resolution + in-session dynamic registration, renamed) + an
- * optional notes line + the Markdown body. No params/data JSON lines — params
- * ride the URL itself, and meta.load reaches the component via useSnapshot to be
- * rendered into the body (failure states included).
+ * line (catalog resolution + in-session dynamic registration, renamed) + the
+ * app-level note + an optional page note + the Markdown body. No params/data
+ * JSON lines — params ride the URL itself, and meta.load reaches the component
+ * via useSnapshot to be rendered into the body (failure states included).
  */
 export function componentPageBlock(
   app: AppRecord,
@@ -334,6 +341,13 @@ export function componentPageBlock(
   lines.push(tools.length === 0
     ? 'tools: （无）'
     : `tools: ${tools.map((tool) => `${tool.name}（${toolUsagePhrase(tool.description)}）`).join('、')}`)
+  // 应用级说明：整个应用共享的定位与行为约定，放在页面说明之前——先读
+  // "这个应用是谁"，再读"这一页怎么用"。在此渲染它，是应用指令进 PAGE 块的落地。
+  // The app-level note: the whole application's positioning and behavior
+  // contract, placed before the page note — read "what this app is" first, then
+  // "how to use this page". Rendering it here is where app instructions first
+  // reach the PAGE block.
+  if (app.definition.instructions !== undefined) lines.push(`应用说明：${app.definition.instructions}`)
   if (match.page.instructions !== undefined) lines.push(`说明：${match.page.instructions}`)
   lines.push(body)
   return lines.join('\n')
@@ -609,7 +623,10 @@ export async function createPageSession(
     // / tools: catalog + dynamic registrations collected once — the same
     // implementation as the preview path, byte-identical definitions.
     tools = collectMountedTools(app, match, ports.toolsOf, view)
-    await ports.sessions.mountTools(sessionId, tools)
+    // 页面级 skills 与工具同路：同一端口、同一组注销器（agent 作用域）。
+    // Page-scope skills ride the same path as the tools: one port, one disposer
+    // group (the agent scope).
+    await ports.sessions.mountTools(sessionId, tools, match.page.skills)
     // PAGE 块：组件页 = 头行（map 注册表推导）+ Markdown 正文；旧块页 = 既有形状。
     // The PAGE block: a component page = header (registry-derived map) + the
     // Markdown body; a legacy block page keeps its existing shape.
@@ -710,12 +727,12 @@ export async function mountPreviewTools(
     // snapshot it unsubscribes, releasing subscriptions and effects.
     view?.unsubscribe()
   }
-  // 工具挂进该会话的 agent 作用域（agent 未激活时由端口排队到 agent/created）。
-  // 真实端口同时应用 app_* 屏蔽：预挂后第一步就不再暴露引导工具。
-  // Mount onto the session's agent scope (the port queues until agent/created if
-  // needed). The real port also applies the app_* deny: step 1 no longer offers
-  // the bootstrap tools.
-  await ports.sessions.mountTools(sessionId, tools)
+  // 工具与页面级 skills 挂进该会话的 agent 作用域（agent 未激活时由端口排队到
+  // agent/created）。真实端口同时应用 app_* 屏蔽：预挂后第一步就不再暴露引导工具。
+  // Mount the tools and page-scope skills onto the session's agent scope (the
+  // port queues until agent/created if needed). The real port also applies the
+  // app_* deny: step 1 no longer offers the bootstrap tools.
+  await ports.sessions.mountTools(sessionId, tools, match.page.skills)
   return { url: key, title: instanceTitleOf(match, params), tools }
 }
 

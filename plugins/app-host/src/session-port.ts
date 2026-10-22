@@ -46,6 +46,13 @@ import type {} from '@deepseek-ai/dsh-tools'
 // membership is resolved from the header cwd, see pageSessionWorkspace).
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
+// 类型-only import：拉取 ctx.skills 的 declaration merging（页面级 skills 挂到
+// 会话 agent 作用域的真实服务面）。不能靠间接 merge 带上。
+// type-only import: declares ctx.skills — the real service face mounting
+// page-scope skills onto the session's agent scope. Never rely on a transitive
+// merge.
+import type {} from '@deepseek-ai/dsh-skill'
+import type { PageSkill } from '@veren/prompt-page'
 import type { MountedTool, PageSessionPort } from '@veren/page-registry'
 import type { PageDataSyncFace } from './page-sync.ts'
 
@@ -164,9 +171,9 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
   // 会话 → 本端口经 agents.create 拿到的句柄：只有持有者能整体拆除该 agent
   // / session → the handle from agents.create; only the holder can tear the agent down
   const handles = new Map<string, AgentHandle>()
-  // 会话 → 等待 agent 激活的开场内容（PAGE/TASK/通知块）与工具；
+  // 会话 → 等待 agent 激活的开场内容（PAGE/TASK/通知块）与工具/skills；
   // agent/created 到达即按序落地——页面会话的内容随它的第一个 agent 开始存在
-  const queued = new Map<string, { tools: readonly MountedTool[]; blocks: Array<{ source: string; text: string }> }>()
+  const queued = new Map<string, { tools: readonly MountedTool[]; skills: readonly PageSkill[]; blocks: Array<{ source: string; text: string }> }>()
 
   const releaseMounted = (sessionId: string): void => {
     const disposers = mounted.get(sessionId)
@@ -188,11 +195,20 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
     }))
   }
 
-  /** 把一组工具与排队块挂进某个 agent 作用域（每次挂载即一次整组登记） */
-  const mountOnAgent = (sessionId: string, agent: Agent, pending: { tools: readonly MountedTool[]; blocks: Array<{ source: string; text: string }> }): void => {
+  /** 把一组工具/skills 与排队块挂进某个 agent 作用域（每次挂载即一次整组登记） */
+  /** Mount one group of tools/skills and queued blocks onto an agent scope (each mount is one whole-group registration). */
+  const mountOnAgent = (sessionId: string, agent: Agent, pending: { tools: readonly MountedTool[]; skills: readonly PageSkill[]; blocks: Array<{ source: string; text: string }> }): void => {
     releaseMounted(sessionId)
     const disposers: Array<() => void> = []
     for (const tool of pending.tools) disposers.push(agent.ctx.tools.register(tool))
+    // 页面级 skills 与工具同一组注销器：source 固定 'runtime'（registry 的
+    // 运行时技能层），作用域取自 agent.ctx——只有本会话可见，释放随组逆序。
+    // Page-scope skills join the tool disposer group: source is fixed to
+    // 'runtime' (the registry's runtime layer) and the scope is agent.ctx —
+    // visible to this session alone, released in reverse order with the group.
+    for (const skill of pending.skills) {
+      disposers.push(agent.ctx.skills.register({ ...skill, source: 'runtime' }))
+    }
     // 页面引导工具在页面会话作用域内屏蔽：页面会话已在页面之内，模型照 PAGE 块
     // 再调 app_open 打开同一 URL 会自激成"开页 → 新 agent → 再开页"的递归
     // （真机实测的会话雪崩）；这也是「页面工具只对该 agent 可见」作用域互斥的
@@ -326,24 +342,24 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
       }
       // agent 未激活：入队，随 agent/created 与工具一起落地（页面会话的内容
       // 随它的第一个 agent 开始存在）
-      const pending = queued.get(sessionId) ?? { tools: [], blocks: [] }
+      const pending = queued.get(sessionId) ?? { tools: [], skills: [], blocks: [] }
       pending.blocks.push({ source, text })
       queued.set(sessionId, pending)
     },
-    async mountTools(sessionId, tools) {
+    async mountTools(sessionId, tools, skills) {
       const agent = agentOf(sessionId)
       if (agent !== undefined) {
         // 活 agent：直接挂 agent 作用域——只有该 agent 可见，销毁随 fiber 释放
-        mountOnAgent(sessionId, agent, { tools, blocks: [] })
+        mountOnAgent(sessionId, agent, { tools, skills: skills ?? [], blocks: [] })
         return
       }
       // agent 未激活（打开时用户尚未进入会话）：入队，agent/created 到达即挂上
-      const pending = queued.get(sessionId) ?? { tools: [], blocks: [] }
-      queued.set(sessionId, { tools, blocks: pending.blocks })
+      const pending = queued.get(sessionId) ?? { tools: [], skills: [], blocks: [] }
+      queued.set(sessionId, { tools, skills: skills ?? [], blocks: pending.blocks })
     },
     async releaseTools(sessionId) {
       const pending = queued.get(sessionId)
-      queued.set(sessionId, { tools: [], blocks: pending?.blocks ?? [] })
+      queued.set(sessionId, { tools: [], skills: [], blocks: pending?.blocks ?? [] })
       releaseMounted(sessionId)
     },
     focus: (sessionId) => focus.focus(sessionId),

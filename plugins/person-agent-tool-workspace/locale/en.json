@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "管家-工作区 (Butler Workspace Tools)",
-    "description": "Provide model-facing tools for creating, renaming, and inspecting workspaces."
+    "description": "Builders for the workspace tool face: create, rename, and inspect workspaces and their sessions."
   }
 }

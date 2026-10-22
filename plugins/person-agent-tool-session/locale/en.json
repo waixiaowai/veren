@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "管家-会话 (Butler Session Tools)",
-    "description": "Provide model-facing tools for creating, renaming, forking, and organizing sessions."
+    "description": "Builders for the session maintenance tool face: create, rename, dispatch, archive, and pin sessions."
   }
 }

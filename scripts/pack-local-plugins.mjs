@@ -97,13 +97,12 @@ const PACKAGES = [
   ['plugins/sub2api-admin', '@veren/sub2api-admin'],
   ['plugins/sub2api-admin-bundle', '@veren/sub2api-admin-bundle'],
   // Person Agent stack: packed so @veren/person-agent-bundle installs from the
-  // same local tarball set as the other bundles.
-  // 管家栈：打包进同一套本地 tarball，让 @veren/person-agent-bundle 与其他组合包一致安装。
+  // same local tarball set as the other bundles. The tool builder packages ride
+  // through the app as peer/dev dependencies but still need their own tarballs.
+  // 管家栈：打包进同一套本地 tarball，让 @veren/person-agent-bundle 与其他组合包
+  // 一致安装。工具构建器包经应用的 peer/dev 依赖随行，但 tarball 仍需各自产出。
   ['plugins/person-agent-app', '@veren/person-agent-app'],
   ['plugins/person-agent-bundle', '@veren/person-agent-bundle'],
-  ['plugins/person-agent-dynamic-context', '@veren/person-agent-dynamic-context'],
-  ['plugins/person-agent-preset', '@veren/person-agent-preset'],
-  ['plugins/person-agent-reanchor', '@veren/person-agent-reanchor'],
   ['plugins/person-agent-tool-session', '@veren/person-agent-tool-session'],
   ['plugins/person-agent-tool-workspace', '@veren/person-agent-tool-workspace'],
 ]

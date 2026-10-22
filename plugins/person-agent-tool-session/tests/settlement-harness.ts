@@ -13,11 +13,19 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionId as SessionIdType } from '@deepseek-ai/dsh-session'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { buildSessionDispatchDefinition, createSettlementWatch } from '../src/index.js'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 
-/** 被注册工具定义的最小执行面。The minimal execution face of a registered tool. */
+/** 工具定义的最小执行面（测试只走 execute）。 */
+/** The minimal execution face of a registered tool (tests drive execute only). */
 export interface RegisteredTool {
   readonly name: string
   execute: (args: unknown, exec: unknown) => Promise<unknown>
+}
+
+/** 测试只走 execute：收窄到最小执行面（唯一的断言点，宿主 exec 由假对象顶替）。 */
+/** Tests drive execute only: narrow to the minimal face (the single assertion point; an empty object stands in for the host exec). */
+function drivable(definition: ToolDefinition): RegisteredTool {
+  return definition as unknown as RegisteredTool
 }
 
 /** 可以从外部结清的 promise。A promise an outside caller can settle. */
@@ -342,7 +350,7 @@ export async function install(config: { maxReportChars?: number, maxConcurrentWa
     maxReportChars: config.maxReportChars ?? 4000,
     maxConcurrentWatches: config.maxConcurrentWatches ?? 64,
   })
-  definitions.set('session_dispatch', buildSessionDispatchDefinition(ctx, watch) as unknown as RegisteredTool)
+  definitions.set('session_dispatch', drivable(buildSessionDispatchDefinition(ctx, watch)))
   return {
     definitions,
     warnings,

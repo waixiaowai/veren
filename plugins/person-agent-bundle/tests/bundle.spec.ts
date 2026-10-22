@@ -1,21 +1,21 @@
 // Bundle invariant tests. Two invariants, both pure file parsing:
-// 1. Composition shape: exactly one preset row, the bridge shape - the
-//    delegating persona and both maintenance tool families always on, no
-//    toggles left. The other four members are composed by the preset
-//    definition itself as per-session child rows, so one row is the whole
-//    integration.
+// 1. Composition shape: exactly one app row - the app IS the whole stack (the
+//    bridge persona, the page-scoped tools and the renhua skill live inside the
+//    app's page sessions). No preset row, no toggles.
 // 2. Bundle ownership: the bundle is the stack's ONLY profile layer - its
-//    manifest declares exactly one patch file and all five members, while no
-//    member declares `dsh.bundle.patch`. This is what keeps `dsh plugin`
-//    reconciliation from activating a second, duplicate layer on install.
+//    manifest declares exactly one patch file, depends on the application
+//    framework bundle (@veren/app-host-bundle brings the framework rows) and
+//    the app, while no member declares `dsh.bundle.patch`. This is what keeps
+//    `dsh plugin` reconciliation from activating a second, duplicate layer on
+//    install.
 // Concurrency safe: read-only, no shared state.
 // 组合包不变量测试。两个不变量，均为纯文件解析：
-// 1. 组合形态：单条预设行、桥梁形态——派活人设与两类维护工具常开，不再有
-//    任何开关。其余四个成员由预设定义本身作为按会话子行组合，插入这一行即
-//    完成全部集成。
+// 1. 组合形态：单条应用行——应用即整栈（桥梁人设、页面级工具与 renhua 技能
+//    都活在应用的页面会话里）。没有预设行，也没有任何开关。
 // 2. bundle 归属：组合包是技术栈唯一的 profile 层——自身 manifest 只声明一个
-//    patch 文件并列全五个成员，而任何成员都不得声明 `dsh.bundle.patch`。
-//    这保证 `dsh plugin` 的 reconciliation 在安装时不会激活第二个重复层。
+//    patch 文件，依赖应用框架组合包（@veren/app-host-bundle 带入框架行）与
+//    应用本身，而任何成员都不得声明 `dsh.bundle.patch`。这保证 `dsh plugin`
+//    的 reconciliation 在安装时不会激活第二个重复层。
 // 并发安全：只读文件，无共享状态。
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -36,6 +36,7 @@ interface PackageManifest {
   name: string
   version: string
   dependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
   dsh?: { bundle?: { patch?: string | string[] } }
   files?: string[]
 }
@@ -63,28 +64,23 @@ function loadRows(): PatchRow[] {
 describe('person-agent-bundle patch', () => {
   const rows = loadRows()
 
-  it('inserts exactly one preset row - the bridge has one shape', () => {
-    // 预设行只有一条：人设与工具常开，不存在第二行、也不存在开关之分。
-    // One preset row: persona and tools always on - no second row, no toggle
-    // split. The app row (person-agent-app) is additive and asserted below.
-    const presetRows = rows.filter((row) => row.name === '@veren/person-agent-preset')
-    expect(presetRows).toHaveLength(1)
-    expect(presetRows[0]?.config?.presetId).toBe('person-agent')
+  it('inserts exactly one app row - the app is the whole stack', () => {
+    // 应用行只有一条：人设、工具与技能都在应用的页面会话里，不存在第二行、
+    // 也不存在开关之分。预设行已随纯应用栈退役。
+    // One app row: persona, tools and the skill all live in the app's page
+    // sessions - no second row, no toggle split. The preset row is retired
+    // with the app-only stack.
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.name).toBe('@veren/person-agent-app')
+    expect(rows[0]?.config?.maxListSessions).toBe(200)
   })
 
-  it('inserts exactly one additive app row for the application layer', () => {
-    // 应用层是纯追加的一行：不改预设行的任何字段。
-    // The application layer is one additive row: no preset field is touched.
-    const appRows = rows.filter((row) => row.name === '@veren/person-agent-app')
-    expect(appRows).toHaveLength(1)
-    expect(appRows[0]?.config?.maxListSessions).toBe(200)
-  })
-
-  it('carries no tool or persona toggles anymore', () => {
-    // 三个历史开关必须消失：它们曾把桥梁劈成两种形态。
-    // The three historical toggles must be gone: they used to split the
-    // bridge into two shapes.
+  it('carries no preset row and no toggles anymore', () => {
+    // 历史形态必须消失：preset 行与三个历史开关都不再出现。
+    // The historical shape must be gone: no preset row, none of the three
+    // historical toggles.
     const config = rows[0]?.config ?? {}
+    expect(config).not.toHaveProperty('presetId')
     expect(config).not.toHaveProperty('withWorkspaceTools')
     expect(config).not.toHaveProperty('withSessionTools')
     expect(config).not.toHaveProperty('dispatcher')
@@ -92,29 +88,37 @@ describe('person-agent-bundle patch', () => {
 })
 
 describe('person-agent-bundle owns the stack\'s only bundle layer', () => {
-  // 五个成员目录：与组合包在同一个 plugins/ 工作区里。
-  // The five member directories: siblings of the bundle in the plugins/
-  // workspace.
+  // 成员目录：与组合包在同一个 plugins/ 工作区里。框架由
+  // @veren/app-host-bundle 依赖带入，不在成员清单里重复。
+  // The member directories: siblings of the bundle in the plugins/ workspace.
+  // The framework rides in through the @veren/app-host-bundle dependency and
+  // is deliberately absent here.
   const members = [
-    'person-agent-preset',
-    'person-agent-dynamic-context',
-    'person-agent-reanchor',
+    'person-agent-app',
     'person-agent-tool-session',
     'person-agent-tool-workspace',
-    'person-agent-app',
   ]
   const bundle = JSON.parse(
     readFileSync(bundleManifestPath, 'utf8'),
   ) as PackageManifest
 
-  it('declares exactly one patch file and depends on every member', () => {
-    // 唯一 patch 文件 + 全员依赖：安装组合包即安装整栈。
-    // One patch file plus every member as a dependency: installing the
-    // bundle installs the whole stack.
+  it('declares exactly one patch file and depends on the framework bundle and the app', () => {
+    // 唯一 patch 文件 + 框架组合包与应用两个直接依赖：安装组合包即安装整栈。
+    // 工具构建器包不经组合包直接依赖——它们随应用传递；这里顺带锁住这条链。
+    // One patch file plus the two direct dependencies (framework bundle + app):
+    // installing the bundle installs the whole stack. The tool builder packages
+    // are NOT direct bundle dependencies — they ride through the app; the chain
+    // is locked here too.
     expect(bundle.dsh?.bundle?.patch).toBe('./cordis.patch.yml')
-    for (const member of members) {
-      const manifest = readMemberManifest(member)
-      expect(bundle.dependencies?.[manifest.name]).toBeDefined()
+    expect(bundle.dependencies?.['@veren/app-host-bundle']).toBeDefined()
+    const app = readMemberManifest('person-agent-app')
+    expect(bundle.dependencies?.[app.name]).toBeDefined()
+    for (const tool of ['person-agent-tool-session', 'person-agent-tool-workspace']) {
+      const manifest = readMemberManifest(tool)
+      // 工具包走 DSH 依赖政策（peer+dev），不在 dependencies 里。
+      // Tool packages follow the DSH dependency policy (peer+dev), never
+      // dependencies.
+      expect(app.peerDependencies?.[manifest.name]).toBeDefined()
     }
   })
 

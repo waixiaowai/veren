@@ -22,9 +22,17 @@ import {
 } from '../src/index.js'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 
-/** 工具定义的最小执行面（测试只走 execute）。 */
-/** The minimal execution face of a tool definition (tests drive execute only). */
-type RegisteredTool = Pick<ToolDefinition, 'execute'>
+/** 工具定义的最小执行面（测试只走 execute；方法签名保持双变，宿主 exec 由假实现顶替）。 */
+/** The minimal execution face of a tool definition (tests drive execute only; the method signature stays bivariant, a fake stands in for the host exec). */
+interface RegisteredTool {
+  execute: (args: unknown, exec: unknown) => Promise<unknown>
+}
+
+/** 测试只走 execute：收窄到最小执行面（唯一的断言点，宿主 exec 由假对象顶替）。 */
+/** Tests drive execute only: narrow to the minimal face (the single assertion point; an empty object stands in for the host exec). */
+function drivable(definition: ToolDefinition): RegisteredTool {
+  return definition as unknown as RegisteredTool
+}
 
 /** 记录调用序列的假 sessionController。A fake sessionController recording calls. */
 function fakeSessionController() {
@@ -104,13 +112,13 @@ function install() {
   ctx.provide('sessions', { get: () => undefined, flush: async () => true })
   const watch = createSettlementWatch(ctx, { maxReportChars: 4000, maxConcurrentWatches: 64 })
   const definitions = new Map<string, RegisteredTool>([
-    ['session_create', guardRemovedCwd(buildSessionCreateDefinition(ctx), 'session_create')],
-    ['session_rename', buildSessionRenameDefinition(ctx)],
-    ['session_dispatch', buildSessionDispatchDefinition(ctx, watch)],
-    ['session_archive', buildSessionArchiveDefinition(ctx)],
-    ['session_unarchive', buildSessionUnarchiveDefinition(ctx)],
-    ['session_pin', buildSessionPinDefinition(ctx)],
-    ['session_unpin', buildSessionUnpinDefinition(ctx)],
+    ['session_create', drivable(guardRemovedCwd(buildSessionCreateDefinition(ctx), 'session_create'))],
+    ['session_rename', drivable(buildSessionRenameDefinition(ctx))],
+    ['session_dispatch', drivable(buildSessionDispatchDefinition(ctx, watch))],
+    ['session_archive', drivable(buildSessionArchiveDefinition(ctx))],
+    ['session_unarchive', drivable(buildSessionUnarchiveDefinition(ctx))],
+    ['session_pin', drivable(buildSessionPinDefinition(ctx))],
+    ['session_unpin', drivable(buildSessionUnpinDefinition(ctx))],
   ])
   return {
     sessionController,

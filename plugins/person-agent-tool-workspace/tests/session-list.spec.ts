@@ -8,6 +8,19 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { buildWorkspaceSessionListDefinition } from '../src/index.js'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+
+/** 工具定义的最小执行面（测试只走 execute；方法签名保持双变，宿主 exec 由假实现顶替）。 */
+/** The minimal execution face of a tool definition (tests drive execute only; the method signature stays bivariant, a fake stands in for the host exec). */
+interface ListTool {
+  execute: (args: unknown, exec: unknown) => Promise<unknown>
+}
+
+/** 测试只走 execute：收窄到最小执行面（唯一的断言点，宿主 exec 由假对象顶替）。 */
+/** Tests drive execute only: narrow to the minimal face (the single assertion point; an empty object stands in for the host exec). */
+function drivable(definition: ToolDefinition): ListTool {
+  return definition as unknown as ListTool
+}
 
 /** 列表结果的形状。The list-result shape used by assertions. */
 interface ListResult {
@@ -57,7 +70,7 @@ function install(overrides: { maxListSessions?: number } = {}) {
         },
     readTitle: async (id: string) => ({ title: id === 's-cold' ? 'Cold work' : 'Archived work' }),
   })
-  const definition = buildWorkspaceSessionListDefinition(ctx, { maxListSessions: overrides.maxListSessions ?? 200 })
+  const definition = drivable(buildWorkspaceSessionListDefinition(ctx, { maxListSessions: overrides.maxListSessions ?? 200 }))
   return {
     run: async (tool: string, args: unknown): Promise<ListResult> => {
       if (tool !== 'workspace_session_list') throw new Error(`unknown tool: ${tool}`)

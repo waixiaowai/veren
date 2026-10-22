@@ -2,9 +2,8 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const packages = [
+  'person-agent-app',
   'person-agent-bundle',
-  'person-agent-dynamic-context',
-  'person-agent-preset',
   'person-agent-tool-session',
   'person-agent-tool-workspace',
 ]

@@ -46,7 +46,7 @@ The bundle name is `@imeep/dsh-session-fork-enhanced`. Enable/disable:
 ## Relation to the shipped `session_fork`
 
 - Different tool name (`session_fork_with_options` vs `session_fork`) and arguments; they coexist without conflict.
-- The shipped tool is mounted per preset by `@veren/person-agent-preset`; this plugin registers on the Host root context, so every preset can see it.
+- This plugin registers on the Host root context, so every session — a plain session, any preset, or a Person Agent page session — can see it.
 - Both create a normal session, copy context, and attach the same workspace; the only difference is that this plugin allows overriding the preset and model at creation time.
 
 ## Config

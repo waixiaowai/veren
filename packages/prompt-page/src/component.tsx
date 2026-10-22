@@ -33,7 +33,7 @@ import { createRoot, runWithHookScope, scheduleRender, useSlot } from '@veren/pr
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { ElementInput, ExternalStore, Fiber, HookCell, PromptRoot } from '@veren/prompt-core'
-import type { PageDefinition, PageHostFace, PageJsonValue, PageLiveBinding, PageLoadEnv, PageParams, PageSession } from './types.ts'
+import type { PageDefinition, PageHostFace, PageJsonValue, PageLiveBinding, PageLoadEnv, PageParams, PageSession, PageSkill } from './types.ts'
 import { MarkdownDocHost } from './markdown.ts'
 import { formatPath } from './registry.ts'
 
@@ -85,6 +85,9 @@ export interface ComponentPageMeta<P extends Record<string, unknown> = Record<st
   /** 首屏数据（无 store 的页面用）：结果经 useSnapshot() 进组件；抛错 → 失败态进组件如实渲染 */
   readonly load?: (params: P & PageParams, env: PageLoadEnv) => Promise<PageJsonValue>
   readonly instructions?: string
+  /** 页面级 skills：随本页挂进会话 agent 作用域，随页面工具同一组清理
+   * / page-scope skills: mounted into the session's agent scope with the page, cleaned up with the tool group */
+  readonly skills?: readonly PageSkill[]
   readonly writes?: boolean
   /** 会话列表标题（§3.6.1）：宿主会话列表的显示名，不进文档正文；缺省用 description
    * / the session-list title (§3.6.1): the host session list's display name, never document body content; defaults to description */
@@ -166,6 +169,7 @@ export function defineComponentPage<P extends Record<string, unknown>>(
     description: meta.description,
     tools: meta.tools,
     instructions: meta.instructions,
+    skills: meta.skills,
     writes: meta.writes,
     instanceTitle: meta.instanceTitle === undefined ? undefined : (params) => meta.instanceTitle!(params as P & PageParams),
     load: meta.load === undefined ? undefined : (params, env) => meta.load!(params as P & PageParams, env),

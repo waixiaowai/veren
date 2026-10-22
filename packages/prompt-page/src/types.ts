@@ -11,6 +11,27 @@ import type { PromptElement } from '@veren/prompt-core'
 export type PageParams = Record<string, string>
 
 /**
+ * 页面级 skill 的声明面（随页面挂进该会话 agent 作用域的运行时技能）：字段与
+ * 宿主 `ctx.skills.register` 的运行时技能对齐（name/description/content 必填，
+ * whenToUse 可选）——宿主侧注册时补 source/provider，本面不重复声明。
+ * The page-scope skill declaration face (a runtime skill mounted into the
+ * session's agent scope with the page): fields align with the host
+ * `ctx.skills.register` runtime-skill face (name/description/content required,
+ * whenToUse optional) — the host side adds source/provider at registration;
+ * this face does not redeclare them.
+ */
+export interface PageSkill {
+  /** Kebab-case 技能名 / kebab-case skill name */
+  readonly name: string
+  /** 路由描述 / the routing description */
+  readonly description: string
+  /** 何时使用的补充指引 / extra when-to-use guidance */
+  readonly whenToUse?: string
+  /** Markdown 指令正文 / the Markdown instruction body */
+  readonly content: string
+}
+
+/**
  * 页面的实时数据绑定（§3.10.3 的最小闭环面）：注册页面时由应用一并声明权威
  * store，这里把它封成"按参数挂载一个视图会话"的闭包——挂载点（页面运行时）
  * 不接触 store 类型，状态类型在注册处（S 在场的地方）就被消费掉。
@@ -134,6 +155,14 @@ export interface PageDefinition<S> {
   readonly writes?: boolean
   /** 本页给模型的说明；随 PAGE 块附上，不是系统提示词 / page note, not a system prompt */
   readonly instructions?: string
+  /**
+   * 页面级 skills（§页面作用域）：随本页挂进会话 agent 作用域的运行时技能，
+   * 与页面工具同一组逆序清理；普通会话与其他页面不可见。
+   * Page-scope skills: runtime skills mounted into this session's agent scope
+   * with the page, torn down with the same disposer group as the page tools;
+   * invisible to ordinary sessions and to other pages.
+   */
+  readonly skills?: readonly PageSkill[]
   /**
    * 首屏数据（§3.10.3，组件页语义）：建会话时跑一次，结果经 useSnapshot() 进
    * 组件——组件把它渲染为正文（失败态也是数据，如实渲染，不允许静默空白）。

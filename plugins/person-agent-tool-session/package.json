@@ -1,7 +1,7 @@
 {
   "name": "@veren/person-agent-tool-session",
   "displayName": "管家-会话",
-  "version": "0.2.6",
+  "version": "0.3.0",
   "icon": "./icon.svg",
   "description": "Use when the Person Agent app must build its session maintenance tool face: pure builders (no plugin row) for session_create/session_rename over ctx.sessionController, session_archive/session_unarchive/session_pin/session_unpin over ctx.workspaceRegistry, and session_dispatch with its settlement watch; the Person Agent app reuses these exact definitions as page-scoped tools, so skip this package when you only need a host-global session tool plugin.",
   "type": "module",

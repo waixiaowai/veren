@@ -46,7 +46,7 @@ install_bundle target=C:\Users\imeep\Documents\cursour\plugins\session-fork-enha
 ## 与官方 `session_fork` 的关系
 
 - 工具名不同（`session_fork_with_options` vs `session_fork`），参数不同，可并存，不冲突。
-- 官方工具仍由 `@veren/person-agent-preset` 按预设挂载；本插件注册在 Host 根上下文，因此所有预设都能看到它。
+- 本插件注册在 Host 根上下文，因此普通会话、任何预设以及 Person Agent 页面会话都能看到它。
 - 两者都会创建普通会话、复制上下文、附着同一 workspace；区别只是本插件允许在创建时覆盖预设和模型。
 
 ## 配置

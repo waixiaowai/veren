@@ -15,9 +15,17 @@ import {
 } from '../src/index.js'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 
-/** 工具定义的最小执行面（测试只走 execute）。 */
-/** The minimal execution face of a tool definition (tests drive execute only). */
-type RegisteredTool = Pick<ToolDefinition, 'execute'>
+/** 工具定义的最小执行面（测试只走 execute；方法签名保持双变，宿主 exec 由假实现顶替）。 */
+/** The minimal execution face of a tool definition (tests drive execute only; the method signature stays bivariant, a fake stands in for the host exec). */
+interface RegisteredTool {
+  execute: (args: unknown, exec: unknown) => Promise<unknown>
+}
+
+/** 测试只走 execute：收窄到最小执行面（唯一的断言点，宿主 exec 由假对象顶替）。 */
+/** Tests drive execute only: narrow to the minimal face (the single assertion point; an empty object stands in for the host exec). */
+function drivable(definition: ToolDefinition): RegisteredTool {
+  return definition as unknown as RegisteredTool
+}
 
 /** 记录 registry 调用的假工作区注册表。A fake workspace registry recording calls. */
 function fakeRegistry() {
@@ -74,9 +82,9 @@ function install() {
   ctx.provide('sessions', { get: () => undefined })
   ctx.provide('sessionProjections', { stateOf: () => undefined })
   const definitions = new Map<string, RegisteredTool>([
-    ['workspace_create', buildWorkspaceCreateDefinition(ctx, { allowCreateDirectory: false })],
-    ['workspace_rename', buildWorkspaceRenameDefinition(ctx)],
-    ['workspace_session_list', buildWorkspaceSessionListDefinition(ctx, { maxListSessions: 200 })],
+    ['workspace_create', drivable(buildWorkspaceCreateDefinition(ctx, { allowCreateDirectory: false }))],
+    ['workspace_rename', drivable(buildWorkspaceRenameDefinition(ctx))],
+    ['workspace_session_list', drivable(buildWorkspaceSessionListDefinition(ctx, { maxListSessions: 200 }))],
   ])
   return {
     registry,

@@ -1,51 +1,36 @@
-# Person Agent bundle: composes the whole stack in one profile layer.
-# Person Agent 组合包：用一个 profile 层装好整栈。
+# Person Agent bundle: composes the app-only stack in one profile layer.
+# Person Agent 组合包：用一个 profile 层装好纯应用栈。
 #
 # This bundle is the ONLY profile layer of the Person Agent stack: none of the
-# member plugins declares `dsh.bundle.patch`, so the dsh plugin
-# reconciliation activates exactly this layer - installing the bundle can
-# never double-insert a row. Each member rides along as a plain dependency.
-# 本组合包是 Person Agent 技术栈唯一的 profile 层：各成员插件都不声明
+# members declares `dsh.bundle.patch`, so the dsh plugin reconciliation
+# activates exactly this layer - installing the bundle can never double-insert
+# a row. Each member rides along as a plain dependency.
+# 本组合包是 Person Agent 技术栈唯一的 profile 层：各成员都不声明
 # `dsh.bundle.patch`，dsh plugin 的 reconciliation 因此只会激活这一层——
 # 安装组合包绝不会重复插行。各成员只作为普通依赖随行。
 #
 # The bundle carries zero runtime code. Each `insert` row resolves by package
 # name from the bundle's own dependencies (pnpm installs them into the profile
-# alongside this bundle), so the @veren plugins travel together as one
-# installable unit and can be toggled as one from the plugin manager.
+# alongside this bundle).
 # 组合包零运行时代码。每条 `insert` 行按包名从组合包自身的 dependencies 解析
-# （pnpm 会把它们和组合包一起装进 profile），各 @veren 插件因此作为一个可
-# 安装单元随行，并在插件管理页作为一个开关整体启停。
+# （pnpm 会把它们和组合包一起装进 profile）。
 #
-# One preset, one shape: Person Agent IS the bridge between the human and DSH.
-# The delegating persona and both maintenance tool families are always on -
-# there are no toggles and no second "manager" row anymore. The bridge
-# understands the need, picks workspace/preset/provider/model and hands the
-# work to a session it creates. The preset definition itself composes the
-# other four members (dynamic-context, reanchor, tool-session, tool-workspace)
-# as per-session child rows, so one inserted row is the whole integration.
-# 一个预设、一种形态：Person Agent 就是人类与 DSH 之间的桥梁。派活人设与两类
-# 维护工具常开——没有开关，也不再有两行的「管理员」划分。桥梁理解需求、
-# 选工作区/预设/提供商与模型，把活派给自己创建的会话。其余四个成员
-# （dynamic-context、reanchor、tool-session、tool-workspace）由预设定义本身
-# 作为按会话挂载的子行组合——插入这一行即完成全部集成。
+# One app, one shape: Person Agent IS the bridge between the human and DSH.
+# The bridge persona, the page-scoped session/workspace tools and the renhua
+# skill all live inside the app's page sessions - there are no toggles and no
+# preset row anymore. The application framework (app registry, page registry,
+# task center, app-host) is NOT listed here: it rides in through the
+# @veren/app-host-bundle dependency and inserts its own framework rows.
+# 一个应用、一种形态：Person Agent 就是人类与 DSH 之间的桥梁。桥梁人设、
+# 页面级会话/工作区工具与 renhua 技能全部活在应用的页面会话里——没有开关，
+# 也没有预设行了。应用框架（应用注册表、页面注册表、任务中心、app-host）不在
+# 这里罗列：它经 @veren/app-host-bundle 依赖带入，由后者插入自己的框架行。
 
 - insert:
-    # The bridge persona: read the need, route the work, report back.
-    # 桥梁人设：读懂需求、路由工作、汇报结果。
-    - id: person-agent-preset
-      name: '@veren/person-agent-preset'
-      config:
-        presetId: person-agent
-        order: 5
-        withWeb: true
-    # The app layer: Person Agent as an application (workbench overview +
-    # workspace browser under /apps/person-agent). Strictly additive: the
-    # preset row above is untouched, and a failure here never changes the
-    # preset's runtime behavior.
-    # 应用层：把 Person Agent 暴露为应用（/apps/person-agent 下的工作台概览与
-    # 工作区浏览）。纯追加：上面的预设行原样保留，本行出错也不会改变预设的
-    # 运行行为。
+    # The app layer IS the whole stack: Person Agent as an application
+    # (workbench overview + workspace browser under /apps/person-agent).
+    # 应用层即整栈：把 Person Agent 暴露为应用（/apps/person-agent 下的
+    # 工作台概览与工作区浏览）。
     - id: person-agent-app
       name: '@veren/person-agent-app'
       config:
