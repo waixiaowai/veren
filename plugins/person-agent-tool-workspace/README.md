@@ -1,6 +1,6 @@
 # @veren/person-agent-tool-workspace
 
-Model-facing workspace maintenance and inspection tools for the Person Agent preset: `workspace_create`, `workspace_rename`, and `workspace_session_list` over `ctx.workspaceRegistry`.
+Workspace maintenance and inspection tool **builders** for the Person Agent app: `workspace_create`, `workspace_rename`, and `workspace_session_list` over `ctx.workspaceRegistry`. A pure library — no plugin row and no `ctx.tools.register`; the app mounts the built definitions into each page session's agent scope.
 
 ## Use this package
 
@@ -38,9 +38,9 @@ Errors are structured with stable codes (`WORKSPACE_PATH_NOT_A_DIRECTORY`, `WORK
 
 ## Understand the implementation
 
-- `src/index.ts` — plugin identity, config, and effect-managed registration (reverse-order cleanup, HMR safe).
-- `src/tools.ts` — the `workspace_create` / `workspace_rename` registrations.
-- `src/session-list.ts` — the `workspace_session_list` registration, filters, and limit handling.
+- `src/index.ts` — the library barrel: builders and shared types.
+- `src/tools.ts` — the `workspace_create` / `workspace_rename` builders.
+- `src/session-list.ts` — the `workspace_session_list` builder, filters, and limit handling.
 - `src/session-facts.ts` — per-session facts resolution (attached projections vs. cold-log folds), reading the same host sources as the working-memory list.
 - `src/types.ts` — argument/result contracts and the structured error type.
 

@@ -50,6 +50,8 @@ interface AgentScope {
   readonly followups: string[]
   /** restrict({deny}) 收到的工具名（屏蔽断言用）/ tool names received by restrict({deny}) */
   readonly denials: string[]
+  /** 该作用域上注册的页面级 skills（按名入表）/ page-scope skills registered on this scope, by name */
+  readonly skills: Map<string, unknown>
   disposeAll(): void
 }
 
@@ -70,13 +72,19 @@ function makeAgentScope(parent: Context, agent: Agent): AgentScope {
   const registry = new Map<string, unknown>()
   const followups: string[] = []
   const denials: string[] = []
+  const skills = new Map<string, unknown>()
   const scope = createScope(parent, agent)
   // 与真实 AgentRegistry 同型：在带 tag 的作用域下再 isolate('tools') 出独立工具表，
   // 否则与根 ctx 的 tools 服务同名冲突。isolate 继承父的 scope tag，事件过滤仍成立。
+  // skills 同款：再 isolate('skills') 出本作用域的技能表（根上有 inject 替身，不
+  // isolate 会在 provide 时撞名）。
   // Same shape as the real AgentRegistry: isolate('tools') under the tagged
   // scope for a private tool table; otherwise the root's tools service collides.
   // The isolated child inherits the parent's scope tag, so event filtering holds.
-  const ctx = scope.ctx.isolate('tools')
+  // skills gets the same treatment: isolate('skills') for this scope's own skill
+  // table (the root carries the inject stub; providing without the isolate would
+  // collide).
+  const ctx = scope.ctx.isolate('tools').isolate('skills')
   ;(ctx.provide as unknown as (n: string, v: unknown) => void)('tools', {
     register: (tool: { name: string }) => {
       registry.set(tool.name, tool)
@@ -87,11 +95,23 @@ function makeAgentScope(parent: Context, agent: Agent): AgentScope {
       return () => { denials.length = 0 }
     },
   })
+  // 页面级 skills 的替身注册表：挂在 agent 作用域上（真实路径里 ctx.skills 是
+  // 宿主共享实例、layer 按 agent 作用域分桶——替身直接按作用域各备一张表）。
+  // The fake registry for page-scope skills: provided on the agent scope (in the
+  // real path ctx.skills is the host-shared instance with per-agent layers — the
+  // stub keeps one table per scope instead).
+  ;(ctx.provide as unknown as (n: string, v: unknown) => void)('skills', {
+    register: (skill: { name: string }) => {
+      skills.set(skill.name, skill)
+      return () => { skills.delete(skill.name) }
+    },
+  })
   return {
     ctx,
     registry,
     followups,
     denials,
+    skills,
     disposeAll() {
       // agent fiber 销毁的注销器语义：作用域内全部登记逆序摘除
       // / the agent-fiber teardown semantics: every scope registration goes away
@@ -99,6 +119,7 @@ function makeAgentScope(parent: Context, agent: Agent): AgentScope {
       registry.clear()
       followups.length = 0
       denials.length = 0
+      skills.clear()
     },
   }
 }
@@ -126,6 +147,13 @@ function makeHostSessions(ctx: Context, failTool?: string) {
       hostTools.set(tool.name, tool)
       return () => { hostTools.delete(tool.name) }
     },
+  })
+  // 装配的 inject 新增 'skills'（页面级 skills 的服务面）：根上给替身，
+  // agent 作用域另有按作用域分桶的替身（见 makeAgentScope）。
+  // The assembly's inject gained 'skills' (the page-scope skill service face):
+  // a root stub, with per-scope stubs in makeAgentScope.
+  ;(ctx.provide as unknown as (n: string, v: unknown) => void)('skills', {
+    register: () => () => undefined,
   })
   const sessions = new Map<string, StubSession>()
   const scopes = new Map<string, AgentScope>()
@@ -408,10 +436,19 @@ function registerMiniApp(h: Boot, eventDeliveries: string[] = []): void {
     // non-empty pre-mounted face that does not duplicate at promotion
     { url: '/apps/mini/list', description: '任务列表页', tools: ['read'], instructions: '这是 mini 应用的首页：看列表，去详情。' },
   )
-  // 二级页：带参数 + writes + 工具 + 说明 / the detail page: params + writes + tools + instructions
+  // 二级页：带参数 + writes + 工具 + 说明 + 页面级 skill（skills 挂载断言面）
+  // / the detail page: params + writes + tools + instructions + a page-scope
+  // skill (the skills-mounting assertion face)
   pages.register(
     (props: { id?: string }) => createElement('p', { children: `任务 ${props.id ?? ''}` }),
-    { url: '/apps/mini/task/:id', description: '任务页', tools: ['read', 'write'], writes: true, instructions: '只处理 params.id 指定的这一条任务。' },
+    {
+      url: '/apps/mini/task/:id',
+      description: '任务页',
+      tools: ['read', 'write'],
+      writes: true,
+      instructions: '只处理 params.id 指定的这一条任务。',
+      skills: [{ name: 'mini-skill', description: '任务页专属技能', content: '# mini skill\n只在任务页可见。' }],
+    },
   )
 }
 
@@ -439,6 +476,27 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
       kind: 'mini/kind' as never, title: 't',
       target: { url: '/apps/mini/task/1' as PageInstanceKey, appId: 'ghost', page: 'task', params: {} },
     })).rejects.toMatchObject({ code: 'task/send-forbidden' })
+  })
+
+  it('页面级 skills 随工具进 agent 作用域：本页可见，重开（废弃）时与工具同组释放', async () => {
+    const h = await boot()
+    registerMiniApp(h)
+    // 详情页声明了 mini-skill：agent/created 即挂进该会话的作用域
+    // / the detail page declares mini-skill: it lands in the scope at agent/created
+    const opened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
+    const firstScope = h.host.scopes.get(opened.sessionId)
+    if (firstScope === undefined) throw new Error('expected the first page session scope')
+    expect(firstScope.skills.has('mini-skill')).toBe(true)
+    expect(firstScope.registry.has('mini__read')).toBe(true)
+    // 重开同 URL：旧会话废弃 → releaseTools 摘工具，skills 注销器同组逆序执行
+    // / reopen the same url: the old session is deprecated → releaseTools strips
+    // the tools and the skill disposers run in the same reverse-order group
+    const reopened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
+    expect(firstScope.skills.has('mini-skill')).toBe(false)
+    expect(firstScope.registry.has('mini__read')).toBe(false)
+    const secondScope = h.host.scopes.get(reopened.sessionId)
+    if (secondScope === undefined) throw new Error('expected the second page session scope')
+    expect(secondScope.skills.has('mini-skill')).toBe(true)
   })
 
   it('网关 sessionApp：页面会话解析到所属应用（工具栏"已选应用"的事实源），普通会话 null', async () => {
@@ -608,6 +666,7 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     const ctx = new Context()
     ;(ctx.provide as unknown as (n: string, v: unknown) => void)('sessions', { get: () => undefined, create: () => ({}) })
     ;(ctx.provide as unknown as (n: string, v: unknown) => void)('agents', { get: () => undefined })
+    ;(ctx.provide as unknown as (n: string, v: unknown) => void)('skills', { register: () => () => undefined })
     await ctx.plugin(Storage.default)
     const jsonFiber = await ctx.plugin(StorageJson, { root: tempRoot() })
     await ctx.plugin(StorageDomain, { backend: 'json' })

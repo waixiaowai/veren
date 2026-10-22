@@ -5,7 +5,7 @@
 **目标读者：** DSH 插件开发者、Agent 产品设计者。
 **前置知识：** Cordis 插件、Agent Preset、系统提示词、工具注册。
 
-状态：概念设计，待评审。本文回答四个问题：场景由什么组成、角色与场景如何分层、状态与角色如何决定按钮、如何落到 DSH Preset。文中 `scene-kit` / `scene-view` / `scene-context` / `scene-switch` 是拟定包名，尚不存在。
+状态：概念设计，待评审。**落点更新（2026-10-22）：**文中作为先例引用的 Person Agent preset 栈已退役——桥梁现在是 `person-agent` *应用*（见 `person-agent-app-mode.cn.md`）。下文凡以 Person Agent 为例的「preset」落点，请读作「应用页面会话」；指向 `person-agent-dynamic-context` / `person-agent-reanchor` 的模式示例描述的是已删除的包，仅作为先例保留。本文回答四个问题：场景由什么组成、角色与场景如何分层、状态与角色如何决定按钮、如何落到 DSH Preset。文中 `scene-kit` / `scene-view` / `scene-context` / `scene-switch` 是拟定包名，尚不存在。
 
 ## 0. 结论先行
 

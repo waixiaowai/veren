@@ -546,6 +546,22 @@ export async function pumpDeliveries(ports: PageRuntimePorts, sessionId: string)
   }
 }
 
+/**
+ * 把 load 结果下发进组件（含失败态）：组件渲染为正文，绝不静默空白。
+ * 只有声明了 load 的页面才有"下发"语义——store 页的快照源是权威 store，
+ * 无 load 时 firstScreenData 产出 null，原样下发会把组件首帧正确的快照
+ * 清空并重渲，首屏正文随之丢失（模型读不到数据）。
+ * Push the load result into the component (failures included): rendered into
+ * the body, never a silent blank. Only pages that declare load carry the push
+ * semantics — a store page's snapshot source is its authoritative store; with
+ * no load, firstScreenData yields null, and pushing it would wipe the
+ * component's correct first frame and lose the first-screen body.
+ */
+function pushFirstScreen(match: PageMatch<never>, view: PageSession<never> | undefined, data: PageJsonValue): void {
+  if (match.page.load === undefined) return
+  snapshotSinkOf(view)?.setSnapshot(data)
+}
+
 /** 两阶段创建；每一步失败都清理半成品 + 删 reserved 行。`focus: false` 用于
  *  投递路径（§3.9）：建会话但不把 GUI 切过去——投递不是导航。 */
 export async function createPageSession(
@@ -615,10 +631,13 @@ export async function createPageSession(
     // The page's effect/on register on that session's agent scope (agent-filtered
     // events); undefined when no agent exists yet (staged preview) — the view
     // then falls back to the creator ctx.
-    view = match.live?.mount(params, ports.sessions.scopeOf?.(sessionId))
-    // load 结果下发进组件（含失败态）：组件渲染为正文，绝不静默空白
-    // / push the load result into the component (failures included): rendered into the body, never a silent blank
-    snapshotSinkOf(view)?.setSnapshot(data)
+    // live 绑定必填（页面 = 组件页）：视图一定挂得出，"无视图的静态页"形态不存在。
+    // The live binding is required (a page IS a component page): the view always
+    // mounts; a "viewless static page" shape does not exist.
+    view = match.live.mount(params, ports.sessions.scopeOf?.(sessionId))
+    // load 结果下发进组件（仅 load 页；store 页保持首帧的 store 快照）：
+    // / push the load result into the component (load pages only; a store page keeps its first-frame store snapshot):
+    pushFirstScreen(match, view, data)
     // 工具：目录 + 组件动态注册，一次收集——与预览路径同一实现，定义逐字相同。
     // / tools: catalog + dynamic registrations collected once — the same
     // implementation as the preview path, byte-identical definitions.
@@ -627,10 +646,13 @@ export async function createPageSession(
     // Page-scope skills ride the same path as the tools: one port, one disposer
     // group (the agent scope).
     await ports.sessions.mountTools(sessionId, tools, match.page.skills)
-    // PAGE 块：组件页 = 头行（map 注册表推导）+ Markdown 正文；旧块页 = 既有形状。
-    // The PAGE block: a component page = header (registry-derived map) + the
-    // Markdown body; a legacy block page keeps its existing shape.
-    const markdownView = isMarkdownDocHost(view?.host) ? view!.host : undefined
+    // PAGE 块：头行（map 注册表推导）+ Markdown 正文——所有页面都是组件页，
+    // 正文来自视图的 Markdown 文档宿主（结构性校验，非组件宿主即空正文兜底）。
+    // The PAGE block: the header (registry-derived map) + the Markdown body —
+    // every page is a component page, and the body comes from the view's
+    // Markdown doc host (structural guard; a non-component host degrades to an
+    // empty body).
+    const markdownView = isMarkdownDocHost(view!.host) ? view!.host : undefined
     block = componentPageBlock(app, match, key, tools, markdownView !== undefined ? markdownView.bodyText() : '')
     // PAGE 块覆盖到的版本：块正文取自这一版视图，绑定从它之后开始投递——块里已有
     // 的快照/首帧内容不会被当成 PAGE-PATCH 再发一遍（提前挂载的预览监听器因此
@@ -716,10 +738,14 @@ export async function mountPreviewTools(
   assertParamsMatchPattern(match.page.url, params)
   const env: PageLoadEnv = ports.presetOf === undefined ? {} : { preset: ports.presetOf(sessionId) }
   const data = await firstScreenData(match.page, params, env)
-  const view = match.live?.mount(params, ports.sessions.scopeOf?.(sessionId))
+  // live 绑定必填（页面 = 组件页）：预挂视图一定挂得出。
+  // The live binding is required (a page IS a component page): the preview view always mounts.
+  const view = match.live.mount(params, ports.sessions.scopeOf?.(sessionId))
   let tools: MountedTool[]
   try {
-    snapshotSinkOf(view)?.setSnapshot(data)
+    // 与 createPageSession 同口径：仅 load 页下发；store 页保持首帧快照。
+    // / same rule as createPageSession: push for load pages only; a store page keeps its first-frame snapshot.
+    pushFirstScreen(match, view, data)
     tools = collectMountedTools(app, match, ports.toolsOf, view)
   } finally {
     // 预览视图只服务工具收集：首帧/快照渲染完即退订，订阅与 effect 全部释放。

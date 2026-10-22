@@ -1,10 +1,23 @@
 # @veren/person-agent-tool-session
 
-Model-facing session maintenance tools for the Person Agent preset: `session_create`, `session_rename`, `session_dispatch` over `ctx.sessionController`, plus `session_archive`, `session_unarchive`, `session_pin`, `session_unpin` over `ctx.workspaceRegistry`. Session forking is owned by the `session-fork-enhanced` plugin (`session_fork_with_options`, a strict superset of the former `session_fork`); this plugin no longer registers any fork tool.
+Session maintenance tool **builders** for the Person Agent app: `session_create`, `session_rename`, `session_dispatch` over `ctx.sessionController`, plus `session_archive`, `session_unarchive`, `session_pin`, `session_unpin` over `ctx.workspaceRegistry`. This package is a pure library — no plugin row and no `ctx.tools.register`; the app mounts the built definitions into each page session's agent scope. Session forking is owned by the `session-fork-enhanced` plugin; this package provides no fork tool.
 
 ## Use this package
 
-Use it when a Person Agent session must create, dispatch work to, or reorganize sibling sessions — start one with a preset/model/title, hand it its task (including the first message) without blocking, archive or pin sessions. Skip it when sessions must never mutate the session roster.
+Use it when the Person Agent app (or a test) must build the session maintenance tool face: call a builder with the host ctx, get the very same `ToolDefinition` the catalog and the host register, and mount it where you need it (the page session's scope, in the app's case). Skip it when you need a host-global session tool plugin — this package no longer is one.
+
+## Building a tool
+
+```ts
+import { buildSessionCreateDefinition, buildSessionDispatchDefinition, createSettlementWatch } from '@veren/person-agent-tool-session'
+
+const watch = createSettlementWatch(ctx, { maxReportChars: 4000, maxConcurrentWatches: 64 })
+const create = buildSessionCreateDefinition(ctx)
+const dispatch = buildSessionDispatchDefinition(ctx, watch)
+// mount them (the app mounts renamed copies into the page session's agent scope)
+```
+
+The settlement watch (the reporting guard of `session_dispatch`) is owned by the caller: the app creates one per page view and disposes it with the view.
 
 ## Minimal configuration
 
@@ -120,27 +133,15 @@ A notice is delivered with the official `sendWaking` rule: `followup` when the c
 
 ## Understand the implementation
 
-- `src/index.ts` — plugin identity, toggles, and effect-managed registration (reverse-order cleanup, HMR safe).
-- `src/tools-management.ts` — create/rename over `ctx.sessionController`; the shared workspace resolver owns "explicit workspaceId or inherit the caller's workspace" and the explicit rejection of the removed `cwd`.
-- `src/tools-dispatch.ts` — `session_dispatch` over `resolveAgent` + the settlement guard; a new-session `workspaceId` uses the same resolver and `cwd` guard.
-- `src/watch.ts` — the settlement guard: inbox wake sources, the observation token, and the closing-output selection.
-- `src/notice.ts` — the two message kinds, the settlement notice, and `sendWaking` delivery.
-- `src/tools-state.ts` — archive/pin verbs over `ctx.workspaceRegistry`.
-- `src/types.ts` — argument/result contracts and the structured error type.
-
-## Known limitations
-
-- A watch does not survive plugin unload: the guard is owned by the registration effect, so unloading cancels pending watches without reporting.
-- There is no wait deadline. A target that never becomes quiescent and is never disposed stays watched until unload; `maxConcurrentWatches` bounds how many such watches accumulate.
-- The guard buffers the target's session events for the watch's lifetime. Events are shared frozen values, so this is an array of references rather than a copy, but a very long-running target still grows it until it settles.
-- The guard is an outside observer: it re-checks the session seq before finalizing, but it cannot close the target's input admission the way the official manager closes a child's (`runMaintenance`). This plugin's own second dispatch onto the target is refused while a watch is pending, but input arriving through any other route — a human typing in the GUI, a scheduled follow-up, another plugin — still lands, and no later watch picks it up, so the closing output may then describe work this dispatch never asked for.
-- A target with an unsettled watch cannot receive another `session_dispatch`. Combined with the bullet above about targets that never become quiescent, such a target stays undispatchable through this tool until its watch settles or the plugin unloads; the other session tools and every route outside this plugin keep working.
-- The guard does not park a notice on a closing caller the way the official manager uses `parent.inject` when the parent subtree is shutting down; an undeliverable notice is logged and dropped.
-- Unnameable outcomes and unnameable `turn/end` reasons are reported as `error`, never as success; that arm is reachable only through a merge-extensible extension.
+- `src/index.ts` — the library barrel: builders, the settlement watch factory, and the shared types.
+- `src/tools-management.ts` — `session_create` / `session_rename` builders plus the shared workspace resolver and the removed-`cwd` guard.
+- `src/tools-dispatch.ts` — the `session_dispatch` builder (dispatch-and-return, the receipt render).
+- `src/tools-state.ts` — archive / unarchive / pin / unpin builders over the registry-global sets.
+- `src/watch.ts` — the settlement-watch registry (`createSettlementWatch`): wake sources, quiescence, attribution.
+- `src/notice.ts` — the two dispatch message kinds and delivery (`deliverNotice`).
+- `src/types.ts` — argument/result contracts, lifecycle events, structured errors.
 
 ## Further exploration
 
-- Host Session business API: `@deepseek-ai/dsh-api-session-controller` (`ctx.sessionController`).
-- Archive/pin semantics: `@deepseek-ai/dsh-workspace` (`ctx.workspaceRegistry`).
+- Settlement deep-dive: keep reading below — the guard's semantics are unchanged by the library conversion.
 - Tool contract: `@deepseek-ai/dsh-tools` (`defineTool`, `ctx.tools.register`).
-- Settlement observer this guard mirrors: `@deepseek-ai/dsh-subagent` (`src/manager.ts`, `src/continuation-messages.ts`).

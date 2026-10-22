@@ -1,12 +1,11 @@
 /**
  * @veren/person-agent-app 插件入口：把 Person Agent 注册成一个应用
- * （定义 → 工具 → 页面）。本插件独立于预设插件：即使本行激活失败，
- * person-agent-preset 的人机桥预设也不受影响——这是「只追加、不动运行行为」
- * 硬约束的结构保证。
+ * （定义 → 工具 → 页面）。应用即整栈：桥梁人设在应用说明里，工具与 renhua
+ * 技能挂进页面会话的 agent 作用域——没有预设行，也没有全局注册的工具。
  * Plugin entry: registers Person Agent as an application (definition → tools →
- * pages). This plugin is deliberately separate from the preset plugin: even if
- * this row fails to activate, the person-agent-preset bridge is untouched —
- * the structural guarantee behind the "append-only, no behavior change" rule.
+ * pages). The app IS the whole stack: the bridge persona lives in the app
+ * instructions, and the tools plus the renhua skill mount into each page
+ * session's agent scope — no preset row, no globally registered tools.
  *
  * 注册走单入口：ctx.apps.pages(id).register 内部镜像进 page-registry，
  * 不手动调 pageRegistry.registerAppPage。
@@ -18,18 +17,22 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
-import { APP_DEFINITION, APP_ID, collectAppTools } from './app.ts'
+import { APP_DEFINITION, APP_ID, WATCH_DEFAULTS, collectAppTools } from './app.ts'
 import { OverviewMeta, OverviewPage, WorkspacesMeta, WorkspacesPage } from './pages.tsx'
+import { createSettlementWatch } from '@veren/person-agent-tool-session'
 
 export const name = 'personAgentApp'
 
 export interface Config {
   /** 单次会话列表返回上限（收编工具沿用原语义）。Per-call session-list cap (collected tool keeps its semantics). */
   maxListSessions: number
+  /** 是否允许 workspace_create 递归创建缺失目录。Whether workspace_create may create missing directories recursively. */
+  allowCreateDirectory: boolean
 }
 
 export const Config: z<Config> = z.object({
   maxListSessions: z.number().step(1).min(1).default(200).description('Maximum sessions returned by one collected workspace_session_list call.'),
+  allowCreateDirectory: z.boolean().default(false).description('Allow the workspace_create tool to create missing directories.'),
 })
 
 // 服务依赖全部显式声明（G13）：本插件就是应用；workspaceRegistry /
@@ -78,10 +81,24 @@ export const apply = (ctx: Context, config: Config): void => {
       // 1) 应用定义：绑定本 fiber，fiber 销毁 → 整应用（页面+工具）摘除。
       //    Bind the definition to this fiber: disposing it removes the whole app.
       done.push(apps.register(APP_DEFINITION, ctx))
-      // 2) 工具目录先于页面：收编既有工具（同一份实现），页面 tools 引用本地名。
+      // 2) 工具目录先于页面：收编既有工具（同一份实现）。目录 dispatch 项引用
+      //    的结算看守由本入口持有：取消器先注册（卸载时最后执行），工具后注册
+      //    （卸载时先摘）——与旧插件装配同一顺序，观察者醒来即返回，不会去碰
+      //    已失效的 Context。
       //    Tools before pages: collect existing tools (same implementations).
+      //    The watch behind the catalog's dispatch entry is owned by this entry:
+      //    the canceller registers first (runs last on unload) and the tools
+      //    register after (removed first on unload) — the old plugin assembly's
+      //    order, so an observer parked on whenIdle() wakes into `settled` and
+      //    never touches the inactive Context.
+      const watch = createSettlementWatch(ctx, WATCH_DEFAULTS)
+      done.push(() => { watch.dispose() })
       const tools = apps.tools(APP_ID, ctx)
-      for (const tool of collectAppTools(ctx, config.maxListSessions)) {
+      for (const tool of collectAppTools(ctx, {
+        watch,
+        allowCreateDirectory: config.allowCreateDirectory,
+        maxListSessions: config.maxListSessions,
+      })) {
         done.push(tools.define(tool))
       }
       // 3) 页面注册（自承载组件，RFC prompt-page-render §3.5）：模块级 PageFC +

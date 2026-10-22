@@ -30,6 +30,7 @@ function fakeSessions() {
   const titles = new Map<string, string>()
   const messages = new Map<string, string[]>()
   const mounted = new Map<string, MountedTool[]>()
+  const mountedSkills = new Map<string, string[]>()
   const released: string[] = []
   const focused: string[] = []
   const destroyed: string[] = []
@@ -45,19 +46,21 @@ function fakeSessions() {
       messages.set(id, [])
     },
     async appendUserMessage(id, text, source) { messages.get(id)?.push(`${source}::${text}`) },
-    async mountTools(id, tools) {
+    async mountTools(id, tools, skills) {
       if (failMount) throw failMount
       mounted.set(id, [...tools])
+      mountedSkills.set(id, (skills ?? []).map((skill) => skill.name))
     },
     async releaseTools(id) {
       mounted.delete(id)
+      mountedSkills.delete(id)
       released.push(id)
     },
     async focus(id) { focused.push(id) },
     async destroy(id) { destroyed.push(id) },
   }
   return {
-    port, created, titles, messages, mounted, released, focused, destroyed,
+    port, created, titles, messages, mounted, mountedSkills, released, focused, destroyed,
     fail: (e?: Error) => { failCreate = e }, failMount: (e?: Error) => { failMount = e },
   }
 }
@@ -72,6 +75,9 @@ function taskPage() {
       description: '任务详情页',
       tools: ['read'],
       instructions: '先读材料，再作答。',
+      // 页面级 skill 假件：skills 与工具同路挂载的断言面
+      // / a page-scope skill fake: the assertion face for skills riding the tool path
+      skills: [{ name: 'demo-skill', description: '任务页技能', content: '# demo\n只在任务页。' }],
       instanceTitle: (params) => `任务 #${params.id ?? '?'}`,
       store,
     },
@@ -83,6 +89,8 @@ function taskPage() {
 function makeService(options: {
   appState?: 'active' | 'disabled' | 'broken'
   withApps?: boolean
+  /** 应用级说明假件（PAGE 块"应用说明"行的断言面）/ the app-instructions fake (the assertion face of the PAGE block's app note) */
+  appInstructions?: string
   tasks?: { take: (id: string, claim: unknown) => Promise<unknown> }
   presetOf?: (sessionId: string) => string | undefined
   /** app 假件的兄弟页投影（map 推导的事实源）/ the app fake's sibling projection (the fact source for map derivation) */
@@ -96,7 +104,10 @@ function makeService(options: {
   const sessions = fakeSessions()
   // 端口全部是纯参数（G13）：app 假件是完整 AppRecord / the app fake is a full AppRecord
   const app: AppRecord = {
-    definition: { id: 'demo' as never, name: 'Demo', description: 'demo app', entry: 'task' as never },
+    definition: {
+      id: 'demo' as never, name: 'Demo', description: 'demo app', entry: 'task' as never,
+      ...(options.appInstructions === undefined ? {} : { instructions: options.appInstructions }),
+    },
     owner: 'test',
     version: '1.0.0',
     toolPrefix: 'demo',
@@ -187,6 +198,28 @@ describe('页面运行时：打开 URL 一律新建，旧会话废弃（§3.5.3�
     expect(block).toContain('tools: demo__read（读材料）')
     expect(block).toContain('先读材料，再作答。')
     expect(block).toContain('任务 #1')
+    // 应用未声明说明 → 不画"应用说明"行（不制造空行承诺）
+    // / no app instructions declared → no app-note line (no empty promise)
+    expect(block).not.toContain('应用说明：')
+  })
+
+  it('应用说明进 PAGE 块且排在页面说明之前：先读"应用是谁"，再读"这页怎么用"', async () => {
+    const { service, sessions } = makeService({ appInstructions: 'demo 应用负责示范：只做展示，不做真实写入。' })
+    const opened = await service.openUrl('/apps/demo/task/1')
+    const block = (sessions.messages.get(opened.sessionId) ?? [])[0] ?? ''
+    expect(block).toContain('应用说明：demo 应用负责示范：只做展示，不做真实写入。')
+    expect(block).toContain('说明：先读材料，再作答。')
+    // 顺序锁定：应用说明行在页面说明行之前 / the order is locked: the app note precedes the page note
+    expect(block.indexOf('应用说明：')).toBeLessThan(block.indexOf('说明：'))
+  })
+
+  it('页面级 skills 与工具同路挂载：端口收到页面声明的 skills，重开时随工具同组释放', async () => {
+    const { service, sessions } = makeService()
+    const first = await service.openUrl('/apps/demo/task/1')
+    expect(sessions.mountedSkills.get(first.sessionId)).toEqual(['demo-skill'])
+    const second = await service.openUrl('/apps/demo/task/1')
+    expect(sessions.mountedSkills.has(first.sessionId)).toBe(false)
+    expect(sessions.mountedSkills.get(second.sessionId)).toEqual(['demo-skill'])
   })
 
   it('能力地图由注册表推导进 PAGE 块：兄弟页"模板 → description"逐条成行，模型可照抄（§3.5 定案）', async () => {
@@ -250,6 +283,40 @@ describe('页面运行时：打开 URL 一律新建，旧会话废弃（§3.5.3�
       const block = (sessions.messages.get(opened.sessionId) ?? [])[0] ?? ''
       expect(block).toContain('preset=preset-of-s-1')
     } finally { dispose() }
+  })
+
+  it('带 store 无 load 的页面：首屏 PAGE 块正文含 store 首条数据，不被 setSnapshot(null) 清空；load 页不回退（§3.10.3）', async () => {
+    const { service, sessions } = makeService()
+    // store 页（回归面）：快照源是权威 store，运行时不再用 null 覆盖首帧
+    // / the store page (the regression face): the snapshot source is the authoritative store, never overwritten with null
+    const items = [{ id: 't-1', title: '首条记录' }]
+    const store = { getState: () => items, subscribe: () => () => undefined }
+    const storePage = defineComponentPage(
+      () => {
+        const snap = useSnapshot<typeof items>() ?? []
+        return createElement('p', { children: snap.map((item) => `${item.id} ${item.title}`).join(' ') })
+      },
+      { url: '/apps/demo/store-list', description: 'store 列表页', store },
+    )
+    service.registerAppPage('demo', storePage.page, storePage.live)
+    // load 页（不回退面）：首屏结果照常下发并渲染为正文
+    // / the load page (the no-regression face): the first-screen result is still pushed and rendered
+    const loadPage = defineComponentPage(
+      () => {
+        const snap = useSnapshot<{ id: string; title: string }>()
+        return createElement('p', { children: `${snap?.id} ${snap?.title}` })
+      },
+      { url: '/apps/demo/load-list', description: 'load 列表页', load: async () => ({ id: 't-9', title: 'load 首条' }) },
+    )
+    service.registerAppPage('demo', loadPage.page, loadPage.live)
+    const storeOpened = await service.openUrl('/apps/demo/store-list')
+    const storeBlock = (sessions.messages.get(storeOpened.sessionId) ?? [])[0] ?? ''
+    expect(storeBlock.startsWith('app/page::PAGE demo/store-list')).toBe(true)
+    expect(storeBlock).toContain('t-1 首条记录')
+    const loadOpened = await service.openUrl('/apps/demo/load-list')
+    const loadBlock = (sessions.messages.get(loadOpened.sessionId) ?? [])[0] ?? ''
+    expect(loadBlock.startsWith('app/page::PAGE demo/load-list')).toBe(true)
+    expect(loadBlock).toContain('t-9 load 首条')
   })
 
   it('首屏 load 抛错 → 失败态进组件、由组件渲染为正文（page/load-failed + 重试指引），不静默空白', async () => {
@@ -374,7 +441,7 @@ describe('app_open 错误路径（稳定码）', () => {
     const old = await fresh.service.openUrl('/apps/demo/task/1')
     // 应用升级：旧页面定义摘除，新定义注册——没有升级分叉，直接新建
     fresh.dispose()
-    fresh.service.register((taskPage() as unknown as { page: never }).page)
+    fresh.service.register(task.page, task.live)
     const opened = await fresh.service.openUrl('/apps/demo/task/1')
     expect(opened.sessionId).not.toBe(old.sessionId)
     expect(fresh.sessions.created).toHaveLength(2) // 旧会话废弃、新会话建成
@@ -431,7 +498,9 @@ describe('任务闭环（§5.3：先 take 再追加 TASK 块）', () => {
   it('索引不可用：openUrl 给 page/index-unavailable，不假成功', async () => {
     const ctx = new Context()
     const service = new PageRegistryService(ctx)
-    service.register((taskPage() as unknown as { page: never }).page)
+    const task = taskPage()
+    // live 必填：注册必须带实时绑定（页面 = 组件页）/ live is required: registration carries the binding (a page IS a component page)
+    service.register(task.page, task.live)
     // 端口齐备但 bindPorts 不传索引 → UnavailableIndex（fail loud，不假成功）
     service.bindPorts({ sessions: fakeSessions().port, apps: { get: () => ({ definition: { id: 'demo' as never, name: 'Demo', description: 'd', entry: 'task' as never }, owner: 'test', version: '1.0.0', toolPrefix: 'demo', state: 'active' }) }, toolsOf: () => new Map() })
     await expect(service.openUrl('/apps/demo/task/1'))
@@ -443,11 +512,11 @@ describe('应用作用域注册（§3.1：对接 ctx.apps.pages(id)）', () => {
   it('registerAppPage：URL 必须在 /apps/<appId>/ 下；错前缀 fail loud', () => {
     const { service } = makeService()
     const wrong = taskPage()
-    expect(() => service.registerAppPage('demo', { ...wrong, url: '/task/:id' } as never))
+    expect(() => service.registerAppPage('demo', { ...wrong, url: '/task/:id' } as never, wrong.live))
       .toThrow(/must register under/)
-    expect(() => service.registerAppPage('demo', { ...wrong, url: '/apps/other/task/:id' } as never))
+    expect(() => service.registerAppPage('demo', { ...wrong, url: '/apps/other/task/:id' } as never, wrong.live))
       .toThrow(/must register under/)
-    expect(() => service.registerAppPage('demo', { ...wrong, name: 'entry', url: '/apps/demo/entry' } as never)).not.toThrow()
+    expect(() => service.registerAppPage('demo', { ...wrong, name: 'entry', url: '/apps/demo/entry' } as never, wrong.live)).not.toThrow()
   })
 })
 

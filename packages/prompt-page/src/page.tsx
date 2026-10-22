@@ -16,9 +16,7 @@
  * @module @veren/prompt-page
  */
 import { PageError, PageErrorCode, assertAppUrlPattern, patternParamsOf } from './contract.ts'
-import type { PageDefinition, PageEventMap, PageLoadEnv, PageJsonValue, PageParams } from './types.ts'
-
-export type { PageEventMap } from './types.ts'
+import type { PageDefinition, PageLoadEnv, PageJsonValue, PageParams, PageSkill } from './types.ts'
 
 /** URL 模式校验（应用内形态；/apps/<appId> 前缀由 assertAppUrlPattern 在 defineAppPage 强制）
  * / url pattern validation (the app-internal shape; the /apps/<appId> prefix is enforced by assertAppUrlPattern in defineAppPage) */
@@ -54,15 +52,14 @@ export function definePage<S>(definition: {
   name: string
   url: string
   description: string
-  events?: PageEventMap
   tools?: readonly string[]
   writes?: boolean
   instructions?: string
+  skills?: readonly PageSkill[]
   load?: (params: PageParams, env: PageLoadEnv) => Promise<PageJsonValue>
   instanceTitle?: (params: PageParams) => string
-  onComplete?: (params: PageParams) => boolean
 }): PageDefinition<S> {
-  const { name, url, description, events, tools, writes, instructions, load, instanceTitle, onComplete } = definition
+  const { name, url, description, tools, writes, instructions, skills, load, instanceTitle } = definition
   if (name.length === 0 || name.trim() !== name) {
     throw new Error(`[definePage] invalid page name: ${JSON.stringify(name)}`)
   }
@@ -75,10 +72,9 @@ export function definePage<S>(definition: {
     ...(tools === undefined ? {} : { tools }),
     ...(writes === undefined ? {} : { writes }),
     ...(instructions === undefined ? {} : { instructions }),
+    ...(skills === undefined ? {} : { skills }),
     ...(load === undefined ? {} : { load }),
     ...(instanceTitle === undefined ? {} : { instanceTitle }),
-    ...(events === undefined ? {} : { events }),
-    ...(onComplete === undefined ? {} : { onComplete }),
   }
 }
 

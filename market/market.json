@@ -77,12 +77,12 @@
     "@veren/person-agent-bundle": {
       "title": { "en": "Person Agent", "zh": "管家" },
       "description": {
-        "en": "An assistant that works as your personal agent: a delegating persona preset, per-session working memory, periodic re-anchoring, and session and workspace maintenance tools.",
-        "zh": "以管家身份工作的助手组合：可分派的助手人格、按会话注入的工作记忆、定时重锚，以及会话与工作区管理工具。"
+        "en": "An assistant that works as your personal agent: a delegating bridge persona exposed as an application, with a workbench overview (workspaces, presets, models), page-scoped session and workspace maintenance tools, and a writing skill — all inside the app's page sessions.",
+        "zh": "以管家身份工作的助手：把派活桥梁人格暴露为一个应用，带工作台概览（工作区/预设/模型）、页面级会话与工作区维护工具和写作技能——全部活在应用的页面会话里。"
       },
       "category": "assistant",
       "labels": ["official"],
-      "keywords": ["person-agent", "preset", "subagent", "管家"]
+      "keywords": ["person-agent", "app", "subagent", "管家"]
     },
     "@veren/forum-bundle": {
       "title": { "en": "Forum", "zh": "论坛" },

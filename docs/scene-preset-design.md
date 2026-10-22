@@ -5,7 +5,7 @@ English | [中文](scene-preset-design.cn.md)
 **Audience:** DSH plugin developers and Agent product designers.
 **Prerequisites:** Cordis plugins, Agent presets, system prompts, tool registration.
 
-Status: concept design, awaiting review. This document answers four questions: what a scene is made of, how roles and scenes layer, how state and role decide the buttons, and how the model maps onto DSH presets. `scene-kit` / `scene-view` / `scene-context` / `scene-switch` are proposed package names; they do not exist yet.
+Status: concept design, awaiting review. **Landing-point update (2026-10-22):** the Person Agent preset stack this document cites as the precedent has retired — the bridge is now the `person-agent` *application* (see `person-agent-app-mode.md`). Wherever the text below says "preset", read "app page session" for the Person Agent references; the pattern examples that pointed at `person-agent-dynamic-context` / `person-agent-reanchor` describe deleted packages and survive only as prior art. This document answers four questions: what a scene is made of, how roles and scenes layer, how state and role decide the buttons, and how the model maps onto DSH presets. `scene-kit` / `scene-view` / `scene-context` / `scene-switch` are proposed package names; they do not exist yet.
 
 ## 0. In short
 

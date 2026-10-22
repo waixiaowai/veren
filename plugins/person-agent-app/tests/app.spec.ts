@@ -117,7 +117,7 @@ async function install(options: {
     create: async () => ({ id: 's-created' }),
     rename: async ({ title }: { title: string }) => ({ title, seq: 1 }),
   } as never)
-  const fiber = ctx.plugin({ name, inject, apply }, { maxListSessions: 50 })
+  const fiber = ctx.plugin({ name, inject, apply }, { maxListSessions: 50, allowCreateDirectory: false })
   await fiber
   return { ctx, apps, pageRegistry, fiber }
 }
@@ -190,6 +190,13 @@ describe('应用可被发现与解析', () => {
     expect(apps.listTools(APP_ID).map((tool) => tool.externalName)).toEqual([
       'person_agent__session_create',
       'person_agent__session_rename',
+      'person_agent__session_dispatch',
+      'person_agent__session_archive',
+      'person_agent__session_unarchive',
+      'person_agent__session_pin',
+      'person_agent__session_unpin',
+      'person_agent__workspace_create',
+      'person_agent__workspace_rename',
       'person_agent__workspace_session_list',
     ])
   })
@@ -321,11 +328,16 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
 })
 
 describe('工具两张脸：目录声明 + 会话内动态注册（ctx.tools）', () => {
-  it('概览页挂载即注册 session_create / session_rename，instructions 逐一点名（承诺 = 挂载）', async () => {
+  it('概览页动态注册只剩 session_dispatch（唯一带会话状态的工具），instructions 逐一点名全部工具（承诺 = 挂载）', async () => {
     const { ctx, fiber } = await install()
     disposers.push(() => fiber.dispose())
     const { recorded } = mountPage(OverviewPage, OverviewMeta, ctx)
-    expect(recorded()).toEqual(['session_create', 'session_rename'])
+    // 无状态工具全走 meta.tools 静态脸；session_dispatch 携带随页面视图创建/
+    // 销毁的结算看守，是唯一的动态脸。
+    // / Stateless tools all ride the static meta.tools face; session_dispatch
+    // carries the settlement watch created and disposed with the page view —
+    // the one dynamic face.
+    expect(recorded()).toEqual(['session_dispatch'])
     const instructions = OverviewMeta.instructions ?? ''
     // 静态面（meta.tools）+ 动态面（ctx.page.tool）的每个工具都必须被说明点名
     // / every tool from the static face (meta.tools) and the dynamic face (ctx.page.tool) is named
@@ -334,14 +346,29 @@ describe('工具两张脸：目录声明 + 会话内动态注册（ctx.tools）'
     }
   })
 
-  it('工作区页挂载即注册 session_create，instructions 点名它', async () => {
+  it('工作区页全部工具走静态脸（无动态注册），instructions 逐一点名', async () => {
     const { ctx, fiber } = await install()
     disposers.push(() => fiber.dispose())
     const { recorded } = mountPage(WorkspacesPage, WorkspacesMeta, ctx)
-    expect(recorded()).toEqual(['session_create'])
+    expect(recorded()).toEqual([])
     const instructions = WorkspacesMeta.instructions ?? ''
-    for (const name of [...(WorkspacesMeta.tools ?? []), ...recorded()]) {
+    for (const name of WorkspacesMeta.tools ?? []) {
       expect(instructions).toContain(name)
+    }
+  })
+
+  it('renhua 随两页声明为页面级 skill：name/description/content 齐全（挂载归 app-host）', () => {
+    // 页面级 skills 是"页面承诺里有真实来源"的一部分：声明了就得可读、可挂。
+    // 挂载路径（app-host → ctx.skills.register）已由 app-host 的装配测试锁定。
+    // / Page-scope skills are part of "every promise has a real source":
+    // declared means readable and mountable. The mounting path (app-host →
+    // ctx.skills.register) is locked by app-host's assembly tests.
+    for (const meta of [OverviewMeta, WorkspacesMeta]) {
+      expect(meta.skills).toHaveLength(1)
+      const skill = meta.skills?.[0]
+      expect(skill?.name).toBe('renhua')
+      expect(skill?.description.length).toBeGreaterThan(0)
+      expect(skill?.content).toContain('人话')
     }
   })
 
@@ -375,7 +402,7 @@ describe('工具两张脸：目录声明 + 会话内动态注册（ctx.tools）'
     disposers.push(() => fiber.dispose())
     const { host, recorded } = mountPage(OverviewPage, OverviewMeta, ctx)
     await vi.waitFor(() => expect(host.bodyText()).toContain('open 任务 1 条'))
-    expect(recorded()).toEqual(['session_create', 'session_rename'])
+    expect(recorded()).toEqual(['session_dispatch'])
   })
 })
 
