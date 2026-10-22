@@ -137,12 +137,33 @@ function makeHostSessions(ctx: Context, failTool?: string) {
   ;(ctx.provide as unknown as (n: string, v: unknown) => void)('agentDefaultModel', {
     currentSelection: () => ({ provider: 'test', model: 'test-model' }),
   })
+  // 工作区注册表（页面会话的归属落点）：默认工作区 + 一个更新的工作区——
+  // list() 按注册序（新的在前），默认工作区是最早创建的那条。
+  // The workspace registry (the page session's membership home): a default
+  // workspace plus a newer one — list() is registry order (newest first), so the
+  // default is the oldest entry.
+  const defaultWorkspacePath = 'C:\\fake-default-workspace'
+  /** 记录加入工作区的会话（attachSession 的断言面）/ records workspace attachments */
+  const attached: Array<{ workspaceId: string; sessionId: string }> = []
+  const makeWorkspace = (id: string, path: string) => ({
+    id,
+    path,
+    sessionIds: [] as string[],
+    attachSession: async (sessionId: string) => { attached.push({ workspaceId: id, sessionId }) },
+  })
+  ;(ctx.provide as unknown as (n: string, v: unknown) => void)('workspaceRegistry', {
+    list: () => [makeWorkspace('ws-newer', 'C:\\fake-newer-workspace'), makeWorkspace('ws-default', defaultWorkspacePath)],
+    initializeDefault: async () => makeWorkspace('ws-default', defaultWorkspacePath),
+  })
+  /** 记录 agents.create 的入参（页面会话 cwd 归属的断言面）/ records agents.create options */
+  const agentCreations: Array<{ sessionId: string; cwd?: string }> = []
   ;(ctx.provide as unknown as (n: string, v: unknown) => void)('agents', {
     // 活 agent 面：作用域 ctx + 会话 + followup（会话活着才有）
     get: (id: string) => agentView(id),
     // H 后的创建面：agents.create 连同创建会话并发布 agent/created（打开即激活）
-    create: async (options: { sessionId: string }) => {
+    create: async (options: { sessionId: string; meta?: { cwd?: string } }) => {
       const id = options.sessionId
+      agentCreations.push({ sessionId: id, ...(options.meta?.cwd === undefined ? {} : { cwd: options.meta.cwd }) })
       const scope = makeAgentScope(ctx)
       scopes.set(id, scope)
       sessions.set(id, newSession(id))
@@ -163,6 +184,9 @@ function makeHostSessions(ctx: Context, failTool?: string) {
     sessions,
     scopes,
     hostTools,
+    agentCreations,
+    attached,
+    defaultWorkspacePath,
     /** agent 销毁：作用域注销器全部执行（真实 cordis 语义）+ 广播 agent/disposed */
     stopAgent(id: string): void {
       scopes.get(id)?.disposeAll()
@@ -337,6 +361,18 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     // 镜像面：apps.pages 单入口注册 → openUrl 直接可解析（装配接的线在起作用）
     const opened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
     expect(opened.sessionId).toBeTypeOf('string')
+    // 页面会话加入部署默认工作区：会话头 cwd 决定工作区归属（真机缺陷：曾落进
+    // 「未分组」——进程 cwd 不属于任何工作区）。
+    // / the page session joins the deployment default workspace: the header cwd
+    // decides membership (live defect: it used to land in "ungrouped" because
+    // the process cwd belongs to no workspace).
+    expect(h.host.agentCreations.at(-1)).toEqual({
+      sessionId: opened.sessionId,
+      cwd: h.host.defaultWorkspacePath,
+    })
+    // 候选表登记同样必需：sessionIds 是候选列表的过滤视图，不 attach 就只剩 cwd
+    // / the candidate account is required too: sessionIds filters the candidate list
+    expect(h.host.attached.at(-1)).toEqual({ workspaceId: 'ws-default', sessionId: opened.sessionId })
     // resolver：未注册应用 send 被拒（装配接的线在起作用）
     await expect(h.tasks.send({
       kind: 'mini/kind' as never, title: 't',

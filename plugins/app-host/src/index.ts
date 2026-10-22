@@ -34,8 +34,9 @@ export const Config: z<AppConfig> = z.object({
   enabled: z.boolean().default(true).description('是否执行装配 / whether to run the assembly'),
 })
 
-/** 三个服务 + 真实宿主会话面 + 工具注册表 + 默认模型就绪后才装配 / assemble after the three services, the host session face, the tool registry, and the default-model service */
-export const inject = ['apps', 'pageRegistry', 'taskCenter', 'sessions', 'agents', 'tools', 'agentDefaultModel']
+/** 三个服务 + 真实宿主会话面 + 工具注册表 + 默认模型 + 工作区注册表（页面会话的归属落点）就绪后才装配
+ * / assemble after the three services, the host session face, the tool registry, the default-model service, and the workspace registry (the page session's membership home) are ready */
+export const inject = ['apps', 'pageRegistry', 'taskCenter', 'sessions', 'agents', 'tools', 'agentDefaultModel', 'workspaceRegistry']
 export const provide = []
 
 export const apply = (ctx: Context, config: AppConfig): void => {

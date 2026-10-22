@@ -210,3 +210,17 @@
   子节点都把后面的兄弟又串了一遍。修复：拆出 `serializeInlineOne`/`inlineOfOne`
   （只序列化单节点），li 逐子改用它；新增严格断言测试（toContain 曾放过该 bug）。
 - 发布 prompt-page@0.1.5、person-agent-app@0.1.7；profile 全新安装，节点 3080 重启。
+
+### 第七轮：页面会话落「未分组」——没有工作区归属（2026-10-22）
+- 现象：从应用下拉打开 Person Agent，会话出现在侧栏「未分组」，未绑定任何工作区。
+- 根因：app-host 的 session-port 用 `agents.create({ meta: { cwd: process.cwd() } })`
+  建页面会话。工作区归属由**会话头 cwd**（注册表候选索引精确匹配）+ 工作区记录
+  的 `sessionIds`（候选表的过滤视图）共同决定；进程 cwd 不属于任何工作区，两者
+  都不满足 → 未分组。
+- 修复：session-port 先解析部署默认工作区（`initializeDefault` 幂等读取；记录缺失
+  时退回最早创建的工作区），用其 path 作为会话 cwd 建会话，再 `attachSession`
+  把会话 id 记进候选表（与会话控制器创建 GUI 会话的路径一致）；注册表为空时退回
+  进程 cwd。归属失败记 warn，不阻断开页。app-host 的 inject 补 workspaceRegistry。
+- 测试：app-host 新增断言（agents.create 的 cwd = 默认工作区路径、attachSession
+  收到该会话）；真机探针后 workspace.json 的默认工作区账目 13 → 15（两个新页面会话）。
+- 发布 app-host@0.2.8（cwd）与 0.2.9（attach），profile 安装 0.2.9，节点 3080 重启。
