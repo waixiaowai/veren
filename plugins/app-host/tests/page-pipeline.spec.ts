@@ -298,11 +298,8 @@ function registerPipelineApp(h: Boot): { url: PageInstanceKey } {
   const store = makeStore([{ id: 'i-1', title: '首屏基线' }])
   const apps = ctx.apps
   apps.register({ id: 'pipeline' as AppId, name: 'pipeline', description: '页面管线验证应用', entry: 'list' as PageKey }, ctx)
-  apps.tools('pipeline' as AppId, ctx).define(defineTool({
-    name: 'pin', description: '置顶一张卡片。', parameters: {},
-    output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
-    execute: async () => ({ ok: true }),
-  }))
+  // 工具只在页面存在（设计律）：目录登记面已退役，pin 由组件体登记
+  // / a tool exists only inside a page (design law): the catalog face is retired, pin is recorded by the body
   const pages = apps.pages('pipeline' as AppId, ctx)
   // store 页：组件经 useSnapshot() 读权威 store（有 load 声明的页面才会被运行时
   // 下发快照——本页没有 load，setSnapshot 必须不下发，首帧才守得住）。
@@ -310,11 +307,16 @@ function registerPipelineApp(h: Boot): { url: PageInstanceKey } {
   // pages declaring load get a runtime snapshot push — this page declares none,
   // so the guard is what keeps the first frame alive.
   pages.register(defineComponentPage(
-    () => {
+    (_props, pageCtx) => {
+      pageCtx.page.tool(defineTool({
+        name: 'pin', description: '置顶一张卡片。', parameters: {},
+        output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+        execute: async () => ({ ok: true }),
+      }))
       const cards = useSnapshot<Card[]>()
       return createElement('ul', { children: (cards ?? []).map((c) => createElement('li', { key: c.id, children: `${c.id} ${c.title}` })) })
     },
-    { name: 'list', url: '/apps/pipeline/list', description: '看板列表页', tools: ['pin'], store },
+    { name: 'list', url: '/apps/pipeline/list', description: '看板列表页', store },
   ))
   // load 页：load 产出经运行时 setSnapshot 下发 → useSnapshot → 正文。
   // / the load page: the load result is pushed by the runtime → useSnapshot → the body.

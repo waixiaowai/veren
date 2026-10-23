@@ -45,8 +45,8 @@ describe('defineAppPage（应用作用域契约）', () => {
     name: 'review',
     url: '/apps/review-workbench/review/:pr',
     description: '审阅一个 PR 的改动',
-    tools: ['read_diff'],
-    // 详情页规则 3：writes + 工具 + 说明缺一不可 / rule 3: writes + tools + instructions
+    // 详情页规则 3（说明半边）：writes + 说明缺一不可；工具半边在挂载期判
+    // / detail rule 3 (instructions half): writes + instructions; the tool half is judged at mount
     writes: true,
     instructions: '先读 diff，再给结论。',
     instanceTitle: title as never,
@@ -55,18 +55,18 @@ describe('defineAppPage（应用作用域契约）', () => {
   it('合法：契约字段原样保留', () => {
     const page = defineAppPage(good)
     expect(page.url).toBe('/apps/review-workbench/review/:pr')
-    expect(page.tools).toEqual(['read_diff'])
     expect(page.instructions).toBe('先读 diff，再给结论。')
     expect(page.instanceTitle?.({ pr: '42' })).toBe('审阅 PR #42')
   })
 
-  it('缺省补齐：tools=[]（首页/工具页之外的只读页允许无工具；详情页由规则 3 拒绝空工具）', () => {
-    // 首页（无 :param、无 writes）：工具缺省 [] 合法 / a home page: the tools default [] is legal
+  it('缺省补齐：页面定义不再携带工具清单（工具只在页面存在，组件体登记）', () => {
+    // 设计律：工具清单随目录机制一并退役，页面定义里没有 tools 字段
+    // / design law: the tool list retired with the catalog mechanism; the page definition carries no tools field
     const page = defineAppPage({
       ...good, url: '/apps/review-workbench/list',
-      writes: false, instructions: undefined, tools: undefined,
+      writes: false, instructions: undefined,
     })
-    expect(page.tools).toEqual([])
+    expect('tools' in page).toBe(false)
   })
 
   it('URL 非 /apps 形态 → fail loud（definePage 不做此校验，保证迁移期兼容）', () => {
@@ -80,11 +80,10 @@ describe('两轴四档页面校验（§3.10.5）', () => {
     name: 'list',
     url: '/apps/review-workbench/list',
     description: '审阅列表',
-    tools: ['pick'],
     instructions: '浏览全部审阅。',
   }
 
-  it('viewer 档（只读详情）：带 :param、不声明 writes、不挂写工具 → 如实注册，不再被迫谎称要写', () => {
+  it('viewer 档（只读详情）：带 :param、不声明 writes → 如实注册，不再被迫谎称要写', () => {
     // 上一轮留下的空隙：只读详情页（有记录身份、纯浏览不做事）被规则 3 逼着
     // 声明 writes: true 才能注册——那是在教人写假声明。现在它是合法的 viewer。
     // / the gap the previous round left: a read-only drilldown (record identity,
@@ -94,27 +93,25 @@ describe('两轴四档页面校验（§3.10.5）', () => {
       name: 'workspace', url: '/apps/review-workbench/workspace/:wsId', description: '工作区只读下钻',
     })
     expect(viewer.writes).toBeUndefined()
-    expect(viewer.tools).toEqual([])
-    // 挂只读工具也不改变档位：viewer 允许为了下钻挂读工具 / a viewer may mount read tools to do its job
-    expect(() => defineAppPage({
-      ...viewer, tools: ['read_diff'],
-    })).not.toThrow()
+    // 设计律：页面定义没有工具清单——viewer 想要读工具就在组件体登记
+    // / design law: no tool list on the page definition — a viewer registers read tools in its body if it wants them
+    expect('tools' in viewer).toBe(false)
     // 显式 writes: false 与缺省同义 / an explicit writes: false reads as read-only
     expect(() => defineAppPage({ ...viewer, writes: false })).not.toThrow()
   })
 
-  it('规则 3（收窄后）：声明 writes: true 的带参页缺工具 / 缺说明 → page/detail-invalid', () => {
-    // 规则 3 只约束"声明了写意图"的详情页；没声明的走上一条 viewer 用例
-    // / rule 3 binds only detail pages that declared write intent; undeclared
-    // ones are the viewer case above
-    expect(() => defineAppPage({ ...home, name: 'd2', url: '/apps/review-workbench/review/:pr', writes: true, tools: [] }))
-      .toThrowError(expect.objectContaining({ code: 'page/detail-invalid' }))
+  it('规则 3（说明半边）：声明 writes: true 的带参页缺说明 → page/detail-invalid；工具半边移挂载期', () => {
+    // 规则 3 的说明半边留在注册期；工具半边（至少登记一个工具）由 page-registry
+    // 在挂载期以真实登记面判——注册期看不到 ctx.page.tool。
+    // / rule 3's instructions half stays at registration; the tool half (at
+    // least one recorded tool) is judged at mount by page-registry over the
+    // really-collected face — registration never sees ctx.page.tool.
     expect(() => defineAppPage({ ...home, name: 'd3', url: '/apps/review-workbench/review/:pr', writes: true, instructions: ' ' }))
       .toThrowError(expect.objectContaining({ code: 'page/detail-invalid' }))
     // 合规详情页照常通过 / a compliant detail page passes
     expect(() => defineAppPage({
       ...home, name: 'd0', url: '/apps/review-workbench/review/:pr',
-      writes: true, tools: ['read_diff'], instructions: '只处理这一条审阅。',
+      writes: true, instructions: '只处理这一条审阅。',
     })).not.toThrow()
   })
 
@@ -167,15 +164,9 @@ describe('规则 3b：工具页必须有写工具——警告通道，不是门�
     // / the verdict lives at mount: mountedTools counts the union of static
     // declarations and the body's dynamic records — registration time never
     // sees ctx.page.tool, so judging there is a guaranteed false positive.
-    const silent = defineAppPage({ ...action, writes: true, tools: [] })
+    const silent = defineAppPage({ ...action, writes: true })
     expect(pageToolWarning(silent, 0)).toContain('declares writes: true but mounts no tools')
-    const armed = defineAppPage({ ...action, writes: true, tools: ['publish_task'] })
-    // 声明清单不再参与判断：真实挂载面为零，声明了也照样警告；非零才沉默。
-    // / the declaration list no longer counts: an empty real face warns even
-    // with declarations; only a non-zero face stays silent.
-    expect(pageToolWarning(armed, 0)).toContain('declares writes: true but mounts no tools')
-    expect(pageToolWarning(armed, 1)).toBeUndefined()
-    // 组件体登记补上了挂载面：声明为空也不再警告 / the body's records fill the mounted face: no warning despite empty declaration
-    expect(pageToolWarning(silent, 2)).toBeUndefined()
+    // 声明清单已不存在：唯一判据是真实挂载面数量 / the declaration list is gone: the only verdict input is the really-mounted count
+    expect(pageToolWarning(silent, 1)).toBeUndefined()
   })
 })

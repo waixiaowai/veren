@@ -52,14 +52,13 @@ export function definePage<S>(definition: {
   name: string
   url: string
   description: string
-  tools?: readonly string[]
   writes?: boolean
   instructions?: string
   skills?: readonly PageSkill[]
   load?: (params: PageParams, env: PageLoadEnv) => Promise<PageJsonValue>
   instanceTitle?: (params: PageParams) => string
 }): PageDefinition<S> {
-  const { name, url, description, tools, writes, instructions, skills, load, instanceTitle } = definition
+  const { name, url, description, writes, instructions, skills, load, instanceTitle } = definition
   if (name.length === 0 || name.trim() !== name) {
     throw new Error(`[definePage] invalid page name: ${JSON.stringify(name)}`)
   }
@@ -69,7 +68,6 @@ export function definePage<S>(definition: {
   }
   return {
     name, url, description,
-    ...(tools === undefined ? {} : { tools }),
     ...(writes === undefined ? {} : { writes }),
     ...(instructions === undefined ? {} : { instructions }),
     ...(skills === undefined ? {} : { skills }),
@@ -80,11 +78,13 @@ export function definePage<S>(definition: {
 
 /**
  * 应用作用域的页面定义：在 definePage 之上强制 `/apps/<appId>/...` URL 形态，
- * 并补齐契约缺省：tools 缺省 []（§3.1、§6.1）；详情页结构校验（§3.10.5 规则 3）。
- * 组件注册器（app-registry）的注册路径应使用本函数或等效校验。
- * App-scoped definePage: enforces the /apps url shape, contract defaults, and
- * the detail-page structure rules (§3.10.5 rule 3). App-registry's registration
- * path should use this function or equivalent validation.
+ * 并做详情页说明校验（§3.10.5 规则 3 的说明半边；工具半边移到挂载期，由
+ * page-registry 以真实登记面判）。组件注册器（app-registry）的注册路径应使用
+ * 本函数或等效校验。
+ * App-scoped definePage: enforces the /apps url shape and the instructions
+ * half of the detail rule (§3.10.5 rule 3; the tool half moved to mount time,
+ * judged by page-registry over the really-collected face). App-registry's
+ * registration path should use this function or equivalent validation.
  */
 export function defineAppPage<S>(definition: Parameters<typeof definePage<S>>[0]): PageDefinition<S> {
   assertAppUrlPattern(definition.name, definition.url)
@@ -92,27 +92,20 @@ export function defineAppPage<S>(definition: Parameters<typeof definePage<S>>[0]
   const hasParams = patternParamsOf(page.url).length > 0
   const isDetail = hasParams && page.writes === true
   if (isDetail) {
-    // §3.10.5 规则 3：只约束"带 :param 且声明了写意图"的详情页——至少挂一个
-    // 工具 + 说明非空。带 :param 而未声明 writes = viewer（只读详情），全部豁免
-    // （规则 2）。工具页缺写工具走 §3.9 警告通道，不做门禁。
-    // Rule 3: binds only parameterized pages that declared write intent — at
-    // least one mounted tool plus non-empty instructions. A parameterized page
-    // without the declaration is a viewer (a read-only drilldown) and is fully
-    // exempt (rule 2). An action page missing its write tools rides the §3.9
-    // warning channel, never a gate.
-    if ((page.tools ?? []).length === 0) {
-      throw new PageError(PageErrorCode.DetailInvalid,
-        `detail page "${page.name}" (${page.url}) must mount at least one tool to fulfill its duty`)
-    }
+    // §3.10.5 规则 3（说明半边）：带 :param 且声明写意图的详情页说明非空；
+    // 工具半边（至少登记一个工具）在挂载期由 page-registry 以真实登记面判。
+    // 带 :param 而未声明 writes = viewer（只读详情），全部豁免（规则 2）。
+    // Rule 3 (the instructions half): a parameterized page that declared write
+    // intent must carry non-empty instructions; the tool half (at least one
+    // recorded tool) is judged at mount time by page-registry over the really-
+    // collected face. A parameterized page without the declaration is a viewer
+    // (a read-only drilldown) and is fully exempt (rule 2).
     if (page.instructions === undefined || page.instructions.trim().length === 0) {
       throw new PageError(PageErrorCode.DetailInvalid,
         `detail page "${page.name}" (${page.url}) must carry non-empty instructions ("this page does exactly one thing")`)
     }
   }
-  return {
-    ...page,
-    tools: page.tools ?? [],
-  }
+  return page
 }
 
 /**

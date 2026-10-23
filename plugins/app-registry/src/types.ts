@@ -7,7 +7,6 @@
  * This file is the contract between session A (the app-registry implementer)
  * and the other sessions; field semantics follow the design doc §2.3/§3.1/§6.2.
  */
-import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { PageDefinition, PageLiveBinding } from '@veren/prompt-page'
 
 /** 应用 id：安装后稳定，进入页面 URL、存储域、任务 kind、工具前缀 / stable app identity */
@@ -65,22 +64,6 @@ export interface AppRecord {
    * consumers/tests that hand-build AppRecord default to no pages.
    */
   readonly pages?: ReadonlyMap<string, { readonly url: string; readonly description: string; readonly component: boolean }>
-}
-
-/**
- * 工具定义直接复用 DSH 的 `ToolDefinition`（`@deepseek-ai/dsh-tools` 的
- * `defineTool` 产物）：名称/描述/参数/输出契约/执行体只有一种形状，应用目录
- * 不是第二套工具类型。能力等注册期元数据走 {@link AppToolRegistrar.define}
- * 的第二个参数，不塞进 DSH 类型。
- * Tool definitions reuse DSH's `ToolDefinition` verbatim — the app catalog is
- * not a second tool type. Capability metadata rides the registrar, not DSH.
- */
-/** 应用工具目录条目：DSH 工具本体 + 注册期元数据 / catalog entry: DSH tool + registration meta */
-export interface AppToolEntry {
-  /** 工具本体（defineTool 产物，未改字段）/ the DSH definition itself, fields untouched */
-  readonly tool: ToolDefinition
-  /** 第 1 阶段只记录不强制的能力声明 / capability declaration, recorded not enforced in phase 1 */
-  readonly requires?: readonly AppCapability[]
 }
 
 /**
@@ -147,17 +130,6 @@ export interface PageMirrorFace {
   registerAppPage(appId: AppId, page: PageDefinition<never>, live: PageLiveBinding): () => void
   /** 应用卸载/禁用：摘掉该应用所有活会话的页面工具（§7.2/§7.4）/ strip page tools on teardown */
   releaseApp?(appId: AppId): Promise<void> | void
-}
-
-/** 工具目录注册面 / app-scoped tool registrar */
-export interface AppToolRegistrar {
-  /**
-   * 定义工具：本体必须是 `defineTool` 产物；本地名重复 fail loud（app/tool-duplicate）。
-   * `requires` 等应用侧元数据放这里，工具本体保持纯 DSH 形状（第 1 阶段只记录不强制）。
-   * The tool body must come from `defineTool`; app-side metadata rides here so
-   * the DSH shape stays pure (recorded, not enforced, in phase 1).
-   */
-  define(tool: ToolDefinition, meta?: { readonly requires?: readonly AppCapability[] }): () => void
 }
 
 /**

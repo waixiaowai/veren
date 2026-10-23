@@ -14,9 +14,9 @@
  * - 任务租约随废弃释放：旧会话持有的 `taken` 租约由 tasks 面 release，
  *   否则新会话会 `already-taken`，任务被废弃会话占死。
  *
- * 宿主对接走注入端口（sessions/apps/toolsOf/tasks/deliveries/releaseLeases）：
+ * 宿主对接走注入端口（sessions/apps/tasks/deliveries/releaseLeases/warn）：
  * 端口全部由装配层（app-host）经 bindPorts **纯参数**传入（G13 规则 2），本包
- * 不触碰任何 ctx、不探测兄弟服务；apps/toolsOf 是必填端口（没有它们页面打不开），
+ * 不触碰任何 ctx、不探测兄弟服务；apps 是必填端口（没有它页面打不开），
  * tasks/deliveries/releaseLeases 是可选能力端口（缺席时按各自语义降级，同 G13
  * 规格中"可选能力仍走参数"的形态）。本包只依赖各服务包的类型出口，不依赖其运行时。
  * Host access goes through injected ports passed as pure parameters by the
@@ -25,7 +25,7 @@
  * @module @veren/page-registry/runtime
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { PageError, PageErrorCode, assertParamsMatchPattern, canonicalizePageUrl, isMarkdownDocHost, pageToolWarning, snapshotSinkOf } from '@veren/prompt-page'
+import { PageError, PageErrorCode, assertParamsMatchPattern, canonicalizePageUrl, isMarkdownDocHost, pageArchetypeOf, pageToolWarning, patternParamsOf, snapshotSinkOf } from '@veren/prompt-page'
 import type { PageJsonValue, PageLoadEnv, PageSession, PageSkill } from '@veren/prompt-page'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { PageInstanceIndex, PageInstanceKey, PageMatch } from '@veren/prompt-page'
@@ -38,12 +38,7 @@ import type { TaskCenterContract, TaskId, TaskRecord } from '@veren/task-center'
 import type { AppRegistryService } from '@veren/app-registry'
 import type { TaskCenterService } from '@veren/task-center'
 
-/** 应用工具目录面：本地名 → DSH `ToolDefinition` 本体（listTools 的投影，非影子副本）
- * / app tool catalog: local name → DSH definition (a projection of listTools, not a shadow) */
-export type ToolsFace = (appId: string) => ReadonlyMap<string, ToolDefinition>
-
-/**
- * 挂进会话的页面工具：就是 DSH `ToolDefinition` 本体，唯一改动是把 `name`
+/** 挂进会话的页面工具：就是 DSH `ToolDefinition` 本体，唯一改动是把 `name`
  * 换成对外名（`<toolPrefix>__<本地名>`）——字段零删减，不是形状转换。
  * A mounted page tool IS the DSH definition; only `name` is renamed to the
  * external form — no field is dropped, so this is not a shape conversion.
@@ -138,14 +133,12 @@ export interface PageDataPort {
   unbind(sessionId: string): void
 }
 
-/** 运行时端口集：apps/toolsOf 必填，任务相关为可选能力端口（全部是纯参数）
- * / the runtime's ports: apps/toolsOf required, task faces optional capabilities */
+/** 运行时端口集：apps 必填，任务相关为可选能力端口（全部是纯参数）
+ * / the runtime's ports: apps required, task faces optional capabilities */
 export interface PageRuntimePorts {
   readonly sessions: PageSessionPort
   /** 应用注册表真实面（AppRecord）：应用不在场时 openUrl 给 app/not-found / the real app-registry face */
   readonly apps: Pick<AppRegistryService, 'get'>
-  /** 应用工具目录（listTools 投影）：页面声明了工具就必须有目录 / the app tool catalog */
-  readonly toolsOf: ToolsFace
   /**
    * 挂载期完备性告警（§3.9）：真实工具面收集后判"声明要写却挂不出工具"——
    * 注册期看不到组件体的动态登记，只有这里才有资格下结论。缺席 → 静默跳过。
@@ -254,52 +247,27 @@ export function externalToolName(toolPrefix: string, localName: string): string 
   return `${toolPrefix}__${localName}`
 }
 
-/** 把页面声明的本地工具名解析成挂载清单：DSH 本体只改 name（§3.4.3）/ resolve local names to mounted DSH definitions */
-function resolveMountedTools(
-  app: AppRecord,
-  match: PageMatch<never>,
-  toolsOf: ToolsFace,
-): MountedTool[] {
-  const localNames = match.page.tools ?? []
-  if (localNames.length === 0) return []
-  const catalog = toolsOf(app.definition.id)
-  return localNames.map((localName) => {
-    const spec = catalog.get(localName)
-    if (spec === undefined) {
-      throw new PageError(PageErrorCode.UnknownTool, `page "${match.page.name}" references unknown tool "${localName}" of app "${app.definition.id}"`)
-    }
-    // 唯一允许的"转换"：改名。字段原样保留（含 output/presentCall 等 DSH 契约）。
-    // The one permitted change: the name. Every DSH field is preserved verbatim.
-    return { ...spec, name: externalToolName(app.toolPrefix, localName) }
-  })
-}
-
 /**
- * 一次收集页面工具面：目录解析（meta.tools 本地名）+ 组件会话内动态注册的
- * defineTool 产物，两者都改外名后按固定顺序成表。**预览与正式挂载共用这一处**：
- * 两条路径产出的定义逐字相同，模型侧的请求头因此不会在提升时变化。
- * Collect the page tool face in one place: catalog resolution (meta.tools local
- * names) + the defineTool products dynamically registered by the component, both
- * renamed and kept in a fixed order. Preview and real mount share this single
- * implementation, so both produce byte-identical definitions and the model's
- * request header never changes at promotion.
+ * 一次收集页面工具面：组件体 `ctx.page.tool` 登记的 defineTool 产物，改外名后
+ * 成表（设计律：工具只在页面存在——页面登记面就是页面的全部工具面）。
+ * **预览与正式挂载共用这一处**：两条路径产出的定义逐字相同，模型侧的请求头
+ * 因此不会在提升时变化。
+ * Collect the page tool face in one place: the defineTool products the
+ * component body recorded via `ctx.page.tool`, renamed (design law: a tool
+ * exists only inside a page — the page's recorded face IS its whole tool
+ * face). Preview and real mount share this single implementation, so both
+ * produce byte-identical definitions and the model's request header never
+ * changes at promotion.
  * @param app - 页面所属应用 / the owning app
- * @param match - 页面命中 / the page match
- * @param toolsOf - 应用工具目录 / the app tool catalog
  * @param view - 已渲染的组件视图（可为空）/ the rendered component view (may be absent)
  * @returns 改外名后的挂载清单 / the renamed mount list
  */
 function collectMountedTools(
   app: AppRecord,
-  match: PageMatch<never>,
-  toolsOf: ToolsFace,
   view: PageSession<never> | undefined,
 ): MountedTool[] {
   const dynamicTools = componentViewOf(view)?.takeRecordedTools() ?? []
-  return [
-    ...resolveMountedTools(app, match, toolsOf),
-    ...dynamicTools.map((definition) => ({ ...definition, name: externalToolName(app.toolPrefix, definition.name) })),
-  ]
+  return dynamicTools.map((definition) => ({ ...definition, name: externalToolName(app.toolPrefix, definition.name) }))
 }
 
 /** 组件页视图的扩展面（prompt-page/component.tsx 的每会话视图）/ the component-page view's extension face (prompt-page/component.tsx) */
@@ -650,7 +618,18 @@ export async function createPageSession(
     // 工具：目录 + 组件动态注册，一次收集——与预览路径同一实现，定义逐字相同。
     // / tools: catalog + dynamic registrations collected once — the same
     // implementation as the preview path, byte-identical definitions.
-    tools = collectMountedTools(app, match, ports.toolsOf, view)
+    tools = collectMountedTools(app, view)
+    // §3.10.5 规则 3（工具半边，挂载期 fail loud）：带 :param 且声明写意图的
+    // 详情页，真实登记面为零 = 页面开着、活干不了——注册期看不到组件体的
+    // ctx.page.tool，只有这里才有资格拒绝。
+    // §3.10.5 rule 3 (the tool half, fail loud at mount): a parameterized page
+    // that declared write intent with an empty really-recorded face is a page
+    // that is open yet cannot do its job — registration never sees the body's
+    // ctx.page.tool, so only here may it be refused.
+    if (patternParamsOf(match.page.url).length > 0 && match.page.writes === true && tools.length === 0) {
+      throw new PageError(PageErrorCode.DetailInvalid,
+        `detail page "${match.page.name}" (${match.page.url}) recorded no tools; its write duty cannot be fulfilled`)
+    }
     // §3.9 完备性告警在挂载期判（判据 = 真实收集面，含组件体的动态登记）：
     // 注册期看不到 ctx.page.tool 的记录，"声明要写却没挂工具"只有这里才有
     // 资格下结论。
@@ -764,7 +743,7 @@ export async function mountPreviewTools(
     // 与 createPageSession 同口径：仅 load 页下发；store 页保持首帧快照。
     // / same rule as createPageSession: push for load pages only; a store page keeps its first-frame snapshot.
     pushFirstScreen(match, view, data)
-    tools = collectMountedTools(app, match, ports.toolsOf, view)
+    tools = collectMountedTools(app, view)
   } finally {
     // 预览视图只服务工具收集：首帧/快照渲染完即退订，订阅与 effect 全部释放。
     // / the preview view only exists to collect tools: after the first frame and

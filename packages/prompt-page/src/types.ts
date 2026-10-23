@@ -109,8 +109,6 @@ export interface PageDefinition<S> {
   readonly url: string
   /** 面向目录/入口的描述 / catalog-facing description */
   readonly description: string
-  /** 本页挂载的工具（应用工具目录的本地名）/ local tool names from the app tool catalog */
-  readonly tools?: readonly string[]
   /**
    * 写意图声明（§3.9/§3.10.1）：**本页职责需要写能力**——它是声明，不是事实，
    * 价值正在于和"挂没挂工具"这个事实互相核对（§3.9 完备性警告）。两轴四档

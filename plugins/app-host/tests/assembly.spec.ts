@@ -32,7 +32,7 @@ import type { ComponentPageRegistration } from '@veren/prompt-page'
 import { createElement } from '@veren/prompt-core'
 import type { Entity } from '@veren/prompt-core'
 import AppRegistryPlugin from '@veren/app-registry'
-import type { AppCapability, AppId, PageKey } from '@veren/app-registry'
+import type { AppId, PageKey } from '@veren/app-registry'
 import PageRegistryPlugin from '@veren/page-registry'
 import type { PageRegistryService } from '@veren/page-registry'
 import TaskCenterPlugin from '@veren/task-center'
@@ -300,12 +300,20 @@ function makeBoardStore(initial: BoardCard[]): {
  * / the board detail page (a compliant second-level fixture): the component reads the authoritative store to render cards */
 function boardPage(store: { getState(): BoardCard[]; subscribe(listener: () => void): () => void }): ComponentPageRegistration {
   return defineComponentPage(
-    () => createElement('ul', { children: store.getState().map((c) => createElement('li', { key: c.id, children: c.title })) }),
+    (_props, pageCtx) => {
+      // 工具只在页面存在：详情页声明了写意图，组件体就登记它的写工具（设计律 + 规则 3 挂载期判定）
+      // / a tool exists only inside a page: a detail page declaring write intent records its write tool in the body (design law + rule 3 at mount)
+      pageCtx.page.tool(defineTool({
+        name: 'pin', description: '置顶这张看板', parameters: {},
+        output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+        execute: async () => ({ ok: true }),
+      }))
+      return createElement('ul', { children: store.getState().map((c) => createElement('li', { key: c.id, children: c.title })) })
+    },
     {
       name: 'board',
       url: '/apps/board/board/:id',
       description: '看板页',
-      tools: ['pin'],
       writes: true,
       instructions: '只处理 params.id 指定的这一块看板。',
       store,
@@ -398,22 +406,26 @@ function registerMiniApp(h: Boot, eventDeliveries: string[] = []): void {
   const { ctx } = h
   const apps = ctx.apps
   apps.register({ id: 'mini' as AppId, name: 'mini', description: '装配层验证应用', entry: 'list' as PageKey }, ctx)
-  const tools = apps.tools('mini' as AppId, ctx)
-  tools.define(defineTool({
+  // 工具只在页面存在（设计律）：目录登记面已退役，工具由各页组件体 ctx.page.tool
+  // 登记——下面的两个构建器只是夹具，注册动作发生在每个页面的组件体里。
+  // A tool exists only inside a page (design law): the catalog registration face
+  // is retired, tools are recorded by each page's body via ctx.page.tool — the
+  // two builders below are fixtures only; registration happens in the bodies.
+  const readTool = () => defineTool({
     name: 'read',
     description: '读取材料',
     parameters: {},
     output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
     execute: async () => ({ ok: true }),
-  }), { requires: ['files:read' as AppCapability] })
-  // 写工具：二级页规则 3 要求详情页至少挂一个写工具 / the write tool: rule 3 wants a write tool on the detail page
-  tools.define(defineTool({
+  })
+  // 写工具：二级页规则 3 要求详情页至少登记一个写工具 / the write tool: rule 3 wants a write tool recorded on the detail page
+  const writeTool = () => defineTool({
     name: 'write',
     description: '写入材料。Parameters: text.',
     parameters: { text: { type: 'string', required: true, description: '要写入的文本' } },
     output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
     execute: async () => ({ ok: true }),
-  }))
+  })
   const pages = apps.pages('mini' as AppId, ctx)
   // 事件页：`ctx.page.on` 注册在该会话的 agent 作用域（跨会话隔离断言）
   // / an event page: `ctx.page.on` registers on that session's agent scope (cross-session isolation)
@@ -430,21 +442,27 @@ function registerMiniApp(h: Boot, eventDeliveries: string[] = []): void {
   // 一级页（entry）：map 由注册表推导（§3.5 定案），不再手写
   // / the home page (entry): the map is registry-derived (§3.5), never hand-written
   pages.register(
-    (props: { id?: string }) => createElement('p', { children: `任务 ${props.id ?? ''}` }),
-    // 首页也挂一个只读工具：暂存测试要观察"预挂的面非空且提升后不重复"
-    // / the home page mounts one read tool too: the staging test observes a
-    // non-empty pre-mounted face that does not duplicate at promotion
-    { url: '/apps/mini/list', description: '任务列表页', tools: ['read'], instructions: '这是 mini 应用的首页：看列表，去详情。' },
+    (_props: { id?: string }, pageCtx) => {
+      // 首页也登记一个只读工具：暂存测试要观察"预挂的面非空且提升后不重复"
+      // / the home page records one read tool too: the staging test observes a
+      // non-empty pre-mounted face that does not duplicate at promotion
+      pageCtx.page.tool(readTool())
+      return createElement('p', { children: `任务 ${_props.id ?? ''}` })
+    },
+    { url: '/apps/mini/list', description: '任务列表页', instructions: '这是 mini 应用的首页：看列表，去详情。' },
   )
-  // 二级页：带参数 + writes + 工具 + 说明 + 页面级 skill（skills 挂载断言面）
-  // / the detail page: params + writes + tools + instructions + a page-scope
-  // skill (the skills-mounting assertion face)
+  // 二级页：带参数 + writes + 说明 + 页面级 skill（skills 挂载断言面）；工具在组件体登记
+  // / the detail page: params + writes + instructions + a page-scope skill (the
+  // skills-mounting assertion face); tools record in the component body
   pages.register(
-    (props: { id?: string }) => createElement('p', { children: `任务 ${props.id ?? ''}` }),
+    (_props: { id?: string }, pageCtx) => {
+      pageCtx.page.tool(readTool())
+      pageCtx.page.tool(writeTool())
+      return createElement('p', { children: `任务 ${_props.id ?? ''}` })
+    },
     {
       url: '/apps/mini/task/:id',
       description: '任务页',
-      tools: ['read', 'write'],
       writes: true,
       instructions: '只处理 params.id 指定的这一条任务。',
       skills: [{ name: 'mini-skill', description: '任务页专属技能', content: '# mini skill\n只在任务页可见。' }],
@@ -848,19 +866,22 @@ describe('注册必须发生：宿主工具表里真能看到引导工具（第�
     // this round).
     const apps = h.ctx.apps
     apps.register({ id: 'twin' as AppId, name: 'twin', description: '同名页面应用', entry: 'list' as PageKey }, h.ctx)
-    apps.tools('twin' as AppId, h.ctx).define(defineTool({
-      name: 'read', description: '读取', parameters: {},
-      output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
-      execute: async () => ({}),
-    }))
     const twinPages = apps.pages('twin' as AppId, h.ctx)
     twinPages.register(
       () => createElement('p', { children: 'twin list' }),
       { url: '/apps/twin/list', description: '同名页列表', instructions: 'twin 首页。' },
     )
     twinPages.register(
-      () => createElement('p', { children: 'twin task' }),
-      { url: '/apps/twin/task/:taskId', description: '同名页', tools: ['read'], writes: true, instructions: '只处理这一条任务。' },
+      (_props: { taskId?: string }, pageCtx) => {
+        // 工具只在页面存在：组件体登记（设计律）/ a tool exists only inside a page: recorded in the body (design law)
+        pageCtx.page.tool(defineTool({
+          name: 'read', description: '读取', parameters: {},
+          output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+          execute: async () => ({}),
+        }))
+        return createElement('p', { children: 'twin task' })
+      },
+      { url: '/apps/twin/task/:taskId', description: '同名页', writes: true, instructions: '只处理这一条任务。' },
     )
     const a = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
     const b = await h.pages.openUrl('/apps/twin/task/1' as PageInstanceKey)

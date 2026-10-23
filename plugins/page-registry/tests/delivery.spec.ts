@@ -48,11 +48,18 @@ function fakeSessions() {
  * / the delivery fixture page: the component-page shape (live required), a one-line body — delivery tests care about blocks and messages */
 function taskPageRegistration() {
   return defineComponentPage(
-    () => createElement('p', { children: '任务详情' }),
+    (_props: Record<string, string>, pageCtx) => {
+      // 工具只在页面存在：组件体登记（设计律）/ a tool exists only inside a page: recorded in the body (design law)
+      pageCtx.page.tool(defineTool({
+        name: 'read', description: '读材料', parameters: {},
+        output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+        execute: async () => ({ ok: true }),
+      }))
+      return createElement('p', { children: '任务详情' })
+    },
     {
       url: '/apps/demo/task/:id',
       description: '任务详情页',
-      tools: ['read'],
       writes: true,
       instructions: '只处理 params.id 指定的这一条任务。',
     },
@@ -73,15 +80,9 @@ function makeService() {
     definition: { id: 'demo' as never, name: 'Demo', description: 'demo app', entry: 'task' as never },
     owner: 'test', version: '1.0.0', toolPrefix: 'demo', state: 'active',
   }
-  const toolsOf = () => new Map([['read', defineTool({
-    name: 'read', description: '读', parameters: {},
-    output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
-    execute: async () => ({ ok: true }),
-  })]])
   const ports = {
     sessions: sessions.port,
     apps: { get: () => app },
-    toolsOf,
   } satisfies PageRuntimePorts
   service.bindPorts(ports, new KvPageInstanceIndex(kv, { sessionExists: (id) => sessions.port.exists(id) }))
   return { service, kv, sessions, ports, dispose }
@@ -231,7 +232,7 @@ describe('页面工具完备性警告（§3.9，挂载期判据 / mount-time ver
     // registration never sees ctx.page.tool, only the mount may conclude.
     const silent = defineAppPage({ name: 'read-only', url: '/apps/demo/ro', description: '只读页' })
     expect(pageToolWarning(silent, 0)).toBeUndefined()
-    const declared = defineAppPage({ name: 'writer', url: '/apps/demo/w', description: 'd', writes: true, tools: ['read'] })
+    const declared = defineAppPage({ name: 'writer', url: '/apps/demo/w', description: 'd', writes: true })
     // 声明了清单但真实面为零（比如组件体没登记）→ 照样警告 / declared but the real face is empty → still warns
     expect(pageToolWarning(declared, 0)).toContain('declares writes: true but mounts no tools')
     expect(pageToolWarning(declared, 2)).toBeUndefined()

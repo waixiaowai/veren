@@ -61,12 +61,16 @@ export interface PageHooks {
   tool(definition: ToolDefinition): void
 }
 
-/** 页面组件 ctx：真实宿主 ctx（服务面与固有成员原样）+ 页面 hooks 面
- * / the component ctx: the real host ctx (services and inherent members intact) plus the page hooks face */
+/** 页面组件 ctx：从会话作用域派生的宿主 ctx（服务面与固有成员原样，注册随会话回收）+ 页面 hooks 面；
+ * 无会话作用域（暂存预览）时从创建者 ctx 派生
+ * / the component ctx: the host ctx derived from the session scope (services and
+ * inherent members intact; registrations unwind with the session) plus the page
+ * hooks face; derived from the creator ctx when no session scope exists (an
+ * agentless preview) */
 export type PageCtx = Context & { readonly page: PageHooks }
 
-/** 页面组件：props = URL params，ctx = 真实宿主 ctx + `ctx.page`
- * / a page component: props = the URL params, ctx = the real host ctx plus `ctx.page` */
+/** 页面组件：props = URL params，ctx = 会话作用域派生的宿主 ctx + `ctx.page`
+ * / a page component: props = the URL params, ctx = the session-scope-derived host ctx plus `ctx.page` */
 export type PageFC<P extends Record<string, unknown> = Record<string, unknown>> =
   (props: P, ctx: PageCtx) => ElementInput
 
@@ -76,9 +80,6 @@ export interface ComponentPageMeta<P extends Record<string, unknown> = Record<st
   readonly name?: string
   readonly url: string
   readonly description: string
-  /** 应用工具目录的本地名清单（既有面：runtime 经 toolsOf 解析并 mountTools）
-   * / local tool names from the app catalog (existing face: resolved via toolsOf and mounted by the runtime) */
-  readonly tools?: readonly string[]
   /** 外部权威 store（既有面）：订阅变化触发重渲，useSnapshot() 读其状态——数据面单一事实源。状态类型在 useSnapshot<T>() 处收窄
    * / an external authoritative store (existing face): changes re-render and useSnapshot() reads its state — a single source of data fact. The state type narrows at useSnapshot<T>() */
   readonly store?: ExternalStore<unknown>
@@ -167,7 +168,6 @@ export function defineComponentPage<P extends Record<string, unknown>>(
     name: meta.name ?? nameFromUrl(meta.url),
     url: meta.url,
     description: meta.description,
-    tools: meta.tools,
     instructions: meta.instructions,
     skills: meta.skills,
     writes: meta.writes,
@@ -309,7 +309,15 @@ function createSessionView<P extends Record<string, unknown>>(
     tornDown: false,
   }
   const { root, doc } = state
-  const componentCtx = pageCtxOf(ctx, createPageHooks(state, scope, ctx))
+  // 页面 ctx 从会话 ctx 派生（ctx.extend：同一作用域的官方子上下文）——页面上的
+  // 固有成员注册随会话回收，服务读经会话链路解析（与工具执行里的 exec.agent.ctx
+  // 同一实现逻辑）；无会话作用域（暂存预览）时回退从创建者 ctx 派生。
+  // The component ctx derives from the session ctx (ctx.extend — the official
+  // same-scope child context): inherent-member registrations unwind with the
+  // session and service reads resolve through it (the same implementation logic
+  // as exec.agent.ctx in tool execution); without a session scope (a staged
+  // preview) it falls back to deriving from the creator ctx.
+  const componentCtx = pageCtxOf(scope ?? ctx, createPageHooks(state, scope, ctx))
 
   /** 渲染一帧：组件（hooks + ctx.page）→ reconciler 展开 → fiber 树 → Markdown diff
    * / render one frame: the component (hooks + ctx.page) → reconciler expansion → the fiber tree → a Markdown diff */

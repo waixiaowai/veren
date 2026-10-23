@@ -69,11 +69,19 @@ function taskPage() {
   const items = [{ id: 't-1', title: '九' }]
   const store = { getState: () => items, subscribe: () => () => undefined }
   const registration = defineComponentPage(
-    (props: { id?: string }) => createElement('p', { children: `任务 #${props.id ?? '?'}` }),
+    (_props: { id?: string }, pageCtx) => {
+      // 工具只在页面存在：详情页的读工具由组件体登记（设计律）
+      // / a tool exists only inside a page: the detail page records its read tool in the body (design law)
+      pageCtx.page.tool(defineTool({
+        name: 'read', description: '读材料', parameters: {},
+        output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+        execute: async () => ({ ok: true }),
+      }))
+      return createElement('p', { children: `任务 #${_props.id ?? '?'}` })
+    },
     {
       url: '/apps/demo/task/:id',
       description: '任务详情页',
-      tools: ['read'],
       instructions: '先读材料，再作答。',
       // 页面级 skill 假件：skills 与工具同路挂载的断言面
       // / a page-scope skill fake: the assertion face for skills riding the tool path
@@ -117,16 +125,9 @@ function makeService(options: {
       ...(options.siblings ?? []).map((s): [string, { url: string; description: string; component: boolean }] => [s.name, { url: s.url, description: s.description, component: true }]),
     ]),
   }
-  // 目录值就是 DSH ToolDefinition 本体（defineTool 产物）/ the catalog value IS a DSH ToolDefinition
-  const toolsOf = () => new Map([['read', defineTool({
-    name: 'read', description: '读材料', parameters: {},
-    output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
-    execute: async () => ({ ok: true }),
-  })]])
   const ports = {
     sessions: sessions.port,
     apps: options.withApps === false ? { get: () => undefined } : { get: () => app },
-    toolsOf,
     ...(options.tasks === undefined ? {} : { tasks: { take: (id: never, claim: never) => options.tasks!.take(String(id), claim) as Promise<TaskRecord> } }),
     ...(options.presetOf === undefined ? {} : { presetOf: options.presetOf }),
   } satisfies PageRuntimePorts
@@ -505,7 +506,7 @@ describe('任务闭环（§5.3：先 take 再追加 TASK 块）', () => {
     // live 必填：注册必须带实时绑定（页面 = 组件页）/ live is required: registration carries the binding (a page IS a component page)
     service.register(task.page, task.live)
     // 端口齐备但 bindPorts 不传索引 → UnavailableIndex（fail loud，不假成功）
-    service.bindPorts({ sessions: fakeSessions().port, apps: { get: () => ({ definition: { id: 'demo' as never, name: 'Demo', description: 'd', entry: 'task' as never }, owner: 'test', version: '1.0.0', toolPrefix: 'demo', state: 'active' }) }, toolsOf: () => new Map() })
+    service.bindPorts({ sessions: fakeSessions().port, apps: { get: () => ({ definition: { id: 'demo' as never, name: 'Demo', description: 'd', entry: 'task' as never }, owner: 'test', version: '1.0.0', toolPrefix: 'demo', state: 'active' }) } })
     await expect(service.openUrl('/apps/demo/task/1'))
       .rejects.toMatchObject({ code: 'page/index-unavailable' })
   })
@@ -606,7 +607,7 @@ describe('预挂工具面（选中应用 ≠ 开始会话）：第一步就拿�
         }))
         return createElement('p', { children: '预挂页' })
       },
-      { url: '/apps/demo/preview', description: '预挂页', tools: ['read'], instructions: '预挂页说明。' },
+      { url: '/apps/demo/preview', description: '预挂页', instructions: '预挂页说明。' },
     )
     service.registerAppPage('demo', registration.page, registration.live)
   }
@@ -618,11 +619,11 @@ describe('预挂工具面（选中应用 ≠ 开始会话）：第一步就拿�
     const preview = await service.mountPreview(sessionId, '/apps/demo/preview')
     expect(preview.url).toBe('/apps/demo/preview')
     expect(preview.title).toBe('预挂页')
-    expect(preview.tools.map((tool) => tool.name)).toEqual(['demo__read', 'demo__extra_action'])
+    expect(preview.tools.map((tool) => tool.name)).toEqual(['demo__extra_action'])
     // 工具挂在该会话名下（目录 + 动态，同一个收集实现）
     // / tools sit under that session (catalog + dynamic, one collector)
     expect(sessions.mounted.get(sessionId)?.map((tool) => tool.name))
-      .toEqual(['demo__read', 'demo__extra_action'])
+      .toEqual(['demo__extra_action'])
     // 没有"开始"任何东西：不建会话、不追加块、不占 URL 索引
     // / nothing started: no session, no block, no url index row
     expect(sessions.created).not.toContain(sessionId)

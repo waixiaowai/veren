@@ -112,16 +112,10 @@ function makeService(options: { pageData?: ReturnType<typeof fakePageData> } = {
     definition: { id: 'demo' as never, name: 'Demo', description: 'demo app', entry: 'task' as never },
     owner: 'test', version: '1.0.0', toolPrefix: 'demo', state: 'active',
   }
-  const toolsOf = () => new Map([['read', defineTool({
-    name: 'read', description: '读材料', parameters: {},
-    output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
-    execute: async () => ({ ok: true }),
-  })]])
   const pageData = options.pageData ?? fakePageData()
   const ports = {
     sessions: sessions.port,
     apps: { get: () => app },
-    toolsOf,
     pageData: pageData.port,
   } satisfies PageRuntimePorts
   const kv = memKv()

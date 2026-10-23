@@ -7,7 +7,7 @@
  * - `apps.setPageMirror` ← `pageRegistry.registerAppPage/releaseApp`：页面单入口
  *   注册的镜像面（含卸载摘工具）；
  * - `pageRegistry.bindPorts({...})` ← 全部端口**纯参数**传入（G13 规则 2）：
- *   真实会话端口 + apps/tasks/toolsOf/deliveries/releaseLeases 能力面。
+ *   真实会话端口 + apps/tasks/deliveries/releaseLeases 能力面。
  *   pageRegistry 不再自己摸兄弟服务（守卫按属主归因，摸了就炸）；
  * - 宿主工具 `app_list` / `app_pages` / `app_open` 由本装配 `ctx.tools.register`
  *   挂进真实工具表（第三轮真机验证补上的丢失步骤）。
@@ -184,15 +184,7 @@ export function wireAppHost(ctx: Context): () => void {
       // / the mount-time completeness warning (§3.9): only the really-collected
       // tool face may judge "declares writes but mounts none" — registration
       // time cannot see the component body's dynamic registrations.
-      warn: (message) => { ctx.logger.warn(message) },
-      // 目录值就是 DSH ToolDefinition 本体；单应用目录异常不炸整面（回空目录）
-      toolsOf: (appId) => {
-        try {
-          return new Map(apps.listTools(appId as AppId).map((tool) => [tool.name, tool]))
-        } catch {
-          return new Map()
-        }
-      },
+      warn: (message: string) => { ctx.logger.warn(message) },
       tasks: taskCenter,
       deliveries: {
         pending: () => taskCenter.pendingDeliveries(),

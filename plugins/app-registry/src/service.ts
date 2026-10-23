@@ -15,11 +15,10 @@
  */
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
-import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { PageError, PageErrorCode, defineAppPage, defineComponentPage, pageArchetypeOf, patternParamsOf } from '@veren/prompt-page'
 import type { ComponentPageMeta, PageDefinition, PageFC, PageLiveBinding } from '@veren/prompt-page'
 import { AppErrorCode } from './types.ts'
-import type { AppCapability, AppId, AppPageRegistrar, AppRecord, AppToolEntry, AppToolRegistrar, ApplicationDefinition, PageKey, PageMirrorFace, PageRegistration } from './types.ts'
+import type { AppId, AppPageRegistrar, AppRecord, ApplicationDefinition, PageKey, PageMirrorFace, PageRegistration } from './types.ts'
 import { AppRegistryError, fail } from './errors.ts'
 
 /** 服务名（ctx.apps / inject 'apps'）/ service name */
@@ -43,8 +42,6 @@ interface AppEntry {
   ownerContext?: Context
   /** 已注册页面，键为应用内页面键 / registered pages keyed by app-internal page key */
   pages: Map<string, PageRegistration>
-  /** 工具目录：本地名 → DSH 工具本体 + 注册期元数据 / local name → DSH tool + meta */
-  tools: Map<string, AppToolEntry>
   /** 镜像注销器（应用级兜底，防止调用方丢弃 disposer）/ mirror disposers (app-level fallback) */
   mirrorDisposers: Array<() => void>
 }
@@ -139,7 +136,6 @@ export class AppRegistryService extends Service {
     })
     for (const dispose of entry.mirrorDisposers.splice(0)) dispose()
     entry.pages.clear()
-    entry.tools.clear()
   }
 
   // ---- pages 注册面 / page registrar ----
@@ -188,13 +184,6 @@ export class AppRegistryService extends Service {
     if (entry.pages.has(page.name)) {
       fail(AppErrorCode.ManifestInvalid, `duplicate page key "${id}/${page.name}" in app "${id}"`,
         { appId: id, page: page.name })
-    }
-    for (const localName of page.tools ?? []) {
-      if (!entry.tools.has(localName)) {
-        fail(AppErrorCode.ManifestInvalid,
-          `page "${page.name}" references unknown tool "${localName}" (define tools before pages)`,
-          { appId: id, page: page.name, tool: localName })
-      }
     }
     // §3.10.5 规则 1（注册期，fail loud；2026-10-21 收窄）：首页 URL 不含 :param；
     // map **仅当本应用还有记录页（详情/只读详情 viewer）时**强制非空——单页应用/
@@ -269,55 +258,6 @@ export class AppRegistryService extends Service {
       }
       throw error
     }
-  }
-
-  // ---- tools 注册面 / tool registrar ----
-
-  /** 工具注册面：同样校验 fiber 归属 / the tool registrar, ownership-checked as well */
-  tools(id: AppId, caller?: Context): AppToolRegistrar {
-    const entry = this.requireOwned(id, caller, 'tools')
-    return {
-      define: (tool, meta): (() => void) => this.defineTool(entry, id, tool, meta),
-    }
-  }
-
-  /** 校验并登记一个工具（本地名应用内唯一；本体保持纯 DSH 形状）/ validate and add one tool */
-  private defineTool(entry: AppEntry, id: AppId, tool: ToolDefinition, meta?: { readonly requires?: readonly AppCapability[] }): () => void {
-    const name = tool.name
-    if (typeof name !== 'string' || name.length === 0 || name.length > 24 || name.trim() !== name) {
-      fail(AppErrorCode.ManifestInvalid,
-        `tool local name must be non-empty, trimmed and ≤24 chars, got ${JSON.stringify(name)}`,
-        { appId: id, tool: name })
-    }
-    if (entry.tools.has(name)) {
-      fail(AppErrorCode.ToolDuplicate,
-        `tool "${name}" already defined in app "${id}"`, { appId: id, tool: name })
-    }
-    entry.tools.set(name, { tool, ...(meta?.requires === undefined ? {} : { requires: meta.requires }) })
-    return () => {
-      if (entry.tools.get(name)?.tool === tool) entry.tools.delete(name)
-    }
-  }
-
-  /** 工具对外最终名：`<toolPrefix>__<本地名>` / the exported name `<toolPrefix>__<local>` */
-  exportToolName(id: AppId, localName: string): string {
-    const entry = this.apps.get(id)
-    if (!entry) fail(AppErrorCode.NotFound, `app "${id}" is not registered`, { appId: id })
-    return `${entry.toolPrefix}__${localName}`
-  }
-
-  /**
-   * 列出应用工具目录：DSH `ToolDefinition` 本体（未改字段）+ 对外名 + requires。
-   * The app's catalog: DSH definitions untouched, plus external names and requires.
-   */
-  listTools(id: AppId): ReadonlyArray<ToolDefinition & { readonly externalName: string; readonly requires?: readonly AppCapability[] }> {
-    const entry = this.apps.get(id)
-    if (!entry) fail(AppErrorCode.NotFound, `app "${id}" is not registered`, { appId: id })
-    return [...entry.tools.values()].map(({ tool, requires }) => ({
-      ...tool,
-      externalName: `${entry.toolPrefix}__${tool.name}`,
-      ...(requires === undefined ? {} : { requires }),
-    }))
   }
 
   /** 列出应用已注册页面 / list the app's registered pages */

@@ -18,7 +18,7 @@ export {
 } from './runtime.ts'
 export type {
   DeliveryFace, MountedTool, OpenPageOptions, OpenPageResult, PageDataIdentity, PageDataPort,
-  PagePreview, PageRuntimePorts, PageSessionPort, ToolsFace,
+  PagePreview, PageRuntimePorts, PageSessionPort,
 } from './runtime.ts'
 export { createAppOpenTool, createPageSendTool } from './tools.ts'
 export type { AppOpenPort, PageSendPort } from './tools.ts'

@@ -177,6 +177,47 @@ describe('defineComponentPage 组件页管线', () => {
     expect(cleanups).toBe(1)
   })
 
+  it('页面 ctx 从会话 ctx 派生：读得到会话面上的服务，不是会话 ctx 本身', () => {
+    const owner = fakeCtx()
+    // 假会话作用域：cordis 同款 extend（原型继承子上下文）+ 会话级服务面
+    // / a fake session scope: a cordis-style extend (a prototypal child context) plus a session-level service face
+    const scope = {
+      extend(meta: Record<PropertyKey, unknown>) {
+        return Object.assign(Object.create(this), meta)
+      },
+      tasks: { list: () => [{ id: 'S-9', title: '会话里的任务' }] },
+    }
+    let pageCtx: unknown
+    const Page: PageFC = (_props, ctx) => {
+      pageCtx = ctx
+      // 经页面 ctx 读会话服务：派生 ctx 必须解析到会话作用域上的面
+      // / read a session service through the page ctx: the derived ctx must resolve the session scope's face
+      const first = (ctx as unknown as typeof scope).tasks.list()[0]
+      return createElement('p', { children: first?.id ?? 'none' })
+    }
+    const registration = defineComponentPage(Page, { url: '/apps/derived', description: '派生页' }, owner.ctx)
+    const view = registration.live.mount({}, scope as never) as unknown as ViewFace
+    // 组件拿到的是从会话 ctx 派生的那一份：继承会话面、带 page 脸、非同一对象
+    // / the component gets the session-derived ctx: it inherits the session face,
+    // carries the page face, and is not the session ctx itself
+    const derived = pageCtx as unknown as { page: unknown }
+    expect(derived).not.toBe(scope)
+    expect(Object.getPrototypeOf(derived)).toBe(scope)
+    expect(derived.page).toBeDefined()
+    const body = isMarkdownDocHost(view.host) ? view.host.bodyText() : ''
+    expect(body).toContain('S-9')
+    // 无会话作用域（暂存预览）：回退从创建者 ctx 派生
+    // / without a session scope (a staged preview): derived from the creator ctx instead
+    let bareCtx: unknown
+    const Bare: PageFC = (_props, ctx) => {
+      bareCtx = ctx
+      return createElement('p', { children: 'ok' })
+    }
+    const bare = defineComponentPage(Bare, { url: '/apps/bare', description: '裸页' }, owner.ctx)
+    bare.live.mount({})
+    expect(Object.getPrototypeOf(bareCtx)).toBe(owner.ctx)
+  })
+
   it('ctx.page.effect 只运行一次；ctx.page.tool 按名去重', () => {
     let effectRuns = 0
     let run: (() => void) | undefined
