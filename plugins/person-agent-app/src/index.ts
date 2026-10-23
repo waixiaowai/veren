@@ -21,7 +21,7 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
 import { APP_DEFINITION, APP_ID } from './app.ts'
-import { createPersonAgentPages } from './pages.tsx'
+import { bindPersonAgentContext, OverviewMeta, OverviewPage, WorkspacesMeta, WorkspacesPage } from './pages.tsx'
 
 export const name = 'personAgentApp'
 
@@ -87,8 +87,8 @@ export const apply = (ctx: Context): void => {
       //    exactly once on the page session's real Agent — tools register via
       //    the body (living and dying with the agent fiber) and async data
       //    settles in load; the page never renders again.
+      bindPersonAgentContext(ctx)
       const pages = apps.pages(APP_ID, ctx)
-      const { OverviewPage, OverviewMeta, WorkspacesPage, WorkspacesMeta } = createPersonAgentPages(ctx)
       done.push(pages.register(OverviewPage, OverviewMeta))
       done.push(pages.register(WorkspacesPage, WorkspacesMeta))
     } catch (error: unknown) {

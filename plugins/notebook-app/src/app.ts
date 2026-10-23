@@ -36,7 +36,7 @@ import {
   buildNotebookRewriteDefinition, buildNotebookWriteDefinition,
 } from '@veren/notebook'
 import type { NotebookToolsPort } from '@veren/notebook'
-import { createNotebookPages } from './pages.tsx'
+import { bindNotebookServices, ListMeta, ListPage, NoteMeta, NotePage } from './pages.tsx'
 
 // ---- 应用定义 / the application definition ----
 
@@ -110,7 +110,6 @@ export function registerNotebookApp(ctx: Context, port: () => NotebookToolsPort)
       //    register directly, single entry mirrored into the page registry
       //    (openUrl-resolvable).
       const pages = apps.pages(APP_ID, ctx)
-      const { ListPage, ListMeta, NotePage, NoteMeta } = createNotebookPages(port, tools)
       done.push(pages.register(ListPage, ListMeta))
       done.push(pages.register(NotePage, NoteMeta))
     } catch (error: unknown) {

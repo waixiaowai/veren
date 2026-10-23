@@ -16,7 +16,7 @@ import { apply, inject, name } from '../src/index.ts'
 import { APP_ID, APP_DEFINITION, createAppTools, createTaskChannel } from '../src/app.ts'
 import { defineComponentPage } from '@veren/prompt-page'
 import type { ComponentPageMeta, PageFC, PageJsonValue, PageParams } from '@veren/prompt-page'
-import { createTaskPages } from '../src/pages.tsx'
+import { bindWorkbenchRuntime, DetailMeta, DetailPage, ListMeta, ListPage, PublishMeta, PublishPage } from '../src/pages.tsx'
 import { TaskStore, makeList } from '../src/store.ts'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 
@@ -31,10 +31,10 @@ const testTools: ToolDefinition[] = createAppTools(testStore, fakeTaskCenter().c
   .map((tool) => ({ ...tool, name: `task_workbench__${tool.name}` }))
 // 组件页工厂（一次性渲染形态）：组件与契约面成对导出
 // / the component-page factory (the one-shot form): components and contract faces ship as pairs
-const taskPages = createTaskPages(testStore, testTools)
-const listPage = { ...taskPages.ListMeta, component: taskPages.ListPage }
-const detailPage = { ...taskPages.DetailMeta, component: taskPages.DetailPage }
-const publishPage = { ...taskPages.PublishMeta, component: taskPages.PublishPage }
+bindWorkbenchRuntime(testStore, testTools)
+const listPage = { ...ListMeta, component: ListPage }
+const detailPage = { ...DetailMeta, component: DetailPage }
+const publishPage = { ...PublishMeta, component: PublishPage }
 
 /** 假会话 agent：记录组件体直登的工具（页面工具面的断言源）
  * / a fake session agent: records the body's direct registrations (the assertion source of a page's tool face) */
@@ -290,9 +290,9 @@ describe('工具面口径（承诺=挂载，事实源如实）', () => {
    * / the three pages' meta faces and body text (bodies render via the one-shot
    * mount, proving the WYSIWYG consistency) */
   const metas = [
-    { key: 'list', meta: taskPages.ListMeta, component: taskPages.ListPage, params: {} as PageParams },
-    { key: 'detail', meta: taskPages.DetailMeta, component: taskPages.DetailPage, params: { taskId: 't-1' } as PageParams },
-    { key: 'publish', meta: taskPages.PublishMeta, component: taskPages.PublishPage, params: {} as PageParams },
+    { key: 'list', meta: ListMeta, component: ListPage, params: {} as PageParams },
+    { key: 'detail', meta: DetailMeta, component: DetailPage, params: { taskId: 't-1' } as PageParams },
+    { key: 'publish', meta: PublishMeta, component: PublishPage, params: {} as PageParams },
   ] as const
 
   /** 组件正文取词面：用页面自己的 meta 挂载（与真实注册同一条路）；登记名随挂载返回
@@ -330,11 +330,11 @@ describe('工具面口径（承诺=挂载，事实源如实）', () => {
   })
 
   it('发布页不点名 split_task（它登记在详情页——越页点名就是假承诺）', () => {
-    expect(taskPages.PublishMeta.instructions).not.toContain('split_task')
-    expect(bodyTextOf(taskPages.PublishPage, taskPages.PublishMeta, {}).body).not.toContain('split_task')
+    expect(PublishMeta.instructions).not.toContain('split_task')
+    expect(bodyTextOf(PublishPage, PublishMeta, {}).body).not.toContain('split_task')
     // 路由表述仍在：接取者在其详情页现场拆分 / the routing stays: the claimant
     // splits on its own detail page
-    expect(taskPages.PublishMeta.instructions).toContain('详情页现场拆分')
+    expect(PublishMeta.instructions).toContain('详情页现场拆分')
   })
 
   it('详情页不再让 complete_task 承诺 children-active（那是任务中心 task_complete 的规则）', () => {
@@ -343,8 +343,8 @@ describe('工具面口径（承诺=挂载，事实源如实）', () => {
     // / The local complete_task only flips the local store (bad-task-state /
     // task-not-found) and never returns task/children-active — the old note was
     // a false promise; the delivered-lane closer now names the global task_complete.
-    expect(taskPages.DetailMeta.instructions).not.toContain('children-active，先处理子任务')
-    expect(taskPages.DetailMeta.instructions).toContain('task_complete')
+    expect(DetailMeta.instructions).not.toContain('children-active，先处理子任务')
+    expect(DetailMeta.instructions).toContain('task_complete')
   })
 })
 
@@ -396,10 +396,10 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     // WYSIWYG：组件读 store 渲染 Markdown——标题与子树进度逐字来自 store
     // / WYSIWYG: the component renders the store to Markdown — titles and
     // subtree progress come verbatim from the store
-    const pages = createTaskPages(store, testTools)
+    bindWorkbenchRuntime(store, testTools)
     const { agent } = fakeAgent()
-    const snapshot = await pages.ListMeta.load?.({}, {}) as PageJsonValue
-    const body = defineComponentPage(pages.ListPage, pages.ListMeta).live.mount({}, agent, snapshot)
+    const snapshot = await ListMeta.load?.({}, {}) as PageJsonValue
+    const body = defineComponentPage(ListPage, ListMeta).live.mount({}, agent, snapshot)
     expect(body).toContain('任务 t-1')
     expect(body).toContain('任务 t-2')
     expect(body).toContain('0/1')
@@ -408,18 +408,18 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
 
   it('详情页按参数取该条记录（§3.10.3）：存在与不存在都如实渲染', async () => {
     const foundStore = new TaskStore([{ id: 't-1', title: '任务 t-1', status: 'open' }])
-    const found = createTaskPages(foundStore, testTools)
+    bindWorkbenchRuntime(foundStore, testTools)
     const { agent: foundAgent } = fakeAgent()
-    const foundSnap = await found.DetailMeta.load?.({ taskId: 't-1' }, {}) as PageJsonValue
-    const foundBody = defineComponentPage(found.DetailPage, found.DetailMeta).live.mount({ taskId: 't-1' }, foundAgent, foundSnap)
+    const foundSnap = await DetailMeta.load?.({ taskId: 't-1' }, {}) as PageJsonValue
+    const foundBody = defineComponentPage(DetailPage, DetailMeta).live.mount({ taskId: 't-1' }, foundAgent, foundSnap)
     expect(foundBody).toContain('t-1 任务 t-1')
     expect(foundBody).toContain('open')
 
     const missingStore = new TaskStore([])
-    const missing = createTaskPages(missingStore, testTools)
+    bindWorkbenchRuntime(missingStore, testTools)
     const { agent: missingAgent } = fakeAgent()
-    const missingSnap = await missing.DetailMeta.load?.({ taskId: 'ghost' }, {}) as PageJsonValue
-    const missingBody = defineComponentPage(missing.DetailPage, missing.DetailMeta).live.mount({ taskId: 'ghost' }, missingAgent, missingSnap)
+    const missingSnap = await DetailMeta.load?.({ taskId: 'ghost' }, {}) as PageJsonValue
+    const missingBody = defineComponentPage(DetailPage, DetailMeta).live.mount({ taskId: 'ghost' }, missingAgent, missingSnap)
     expect(missingBody).toContain('任务 ghost 不存在')
   })
 })

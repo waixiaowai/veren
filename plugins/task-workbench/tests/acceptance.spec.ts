@@ -364,17 +364,8 @@ describe('场景 5：两个应用同名工具 → 不同前缀共存', () => {
     // 第二个应用：同名工具 take_task，页面 /apps/other-app/task/:taskId
     const { createElement } = await import('@veren/prompt-core')
     apps.register({ id: 'other-app' as AppId, name: '另一个应用', description: '同名工具共存验证', entry: 'list' as PageKey }, ctx)
-    const otherTools = apps.tools('other-app' as AppId, ctx)
-    // defineTool 产物进目录（与本应用同一正路）/ defineTool product, same path as the host app
     const { defineTool } = await import('@deepseek-ai/dsh-tools')
-    otherTools.define(defineTool({
-      name: 'take_task', description: '另一个应用的 take_task', parameters: {},
-      output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
-      execute: async () => ({ ok: true }),
-    }))
     const otherPages = apps.pages('other-app' as AppId, ctx)
-    // 一级页（entry）：无参数 + 非空能力地图（§3.10.5 规则 1）
-    // home (entry): parameter-free with a non-empty map (rule 1)
     // 一级页（entry）：map 由注册表推导（§3.5），不再手写 / the home: the map is registry-derived (§3.5)
     otherPages.register(
       () => createElement('p', { children: 'other list' }),

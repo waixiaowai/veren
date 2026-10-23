@@ -19,7 +19,7 @@ import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
 import type {} from '@veren/task-center'
 import { APP_DEFINITION, APP_ID, createAppTools, createTaskChannel } from './app.ts'
-import { createTaskPages, externalName } from './pages.tsx'
+import { bindWorkbenchRuntime, externalName, ListMeta, ListPage, DetailMeta, DetailPage, PublishMeta, PublishPage } from './pages.tsx'
 import { TaskStore, makeList } from './store.ts'
 import type { PageTaskScope } from './types.ts'
 
@@ -85,21 +85,19 @@ export const apply = (ctx: Context, config: Config): void => {
       //    call agent.ctx.tools.register in the one render (publish's
       //    tasks:send capability stays declared on the app definition's requires).
       const tools = createAppTools(store, channel, scope).map((tool) => ({ ...tool, name: externalName(tool.name) }))
-      // 3) 页面注册（一次性渲染形态）：单入口，app-registry 内部镜像进
-      //    page-registry（可被 openUrl 解析）；镜像失败会回滚并抛错。三页闭包
-      //    引用本次装配的权威 store 与全名工具：组件体在唯一一次渲染里登记本页
-      //    工具、经 useSnapshot 读首屏快照——此后不再渲染，变化以工具结果为准。
-      // 3) Page registration (one-shot form): single entry, app-registry mirrors
-      //    into page-registry internally (resolvable by openUrl); a mirror
-      //    failure rolls back and throws. The three pages close over this
-      //    assembly's store and full-named tools: each body registers its page's
-      //    tools in the one render and reads the first screen via useSnapshot —
-      //    no second render; changes are learned from tool results.
+      // 3) 组件是模块级的，没有工厂：load 与组件体读的权威 store / 全名工具在
+      //    装配此刻绑进模块槽位。页面注册走单入口，app-registry 内部镜像进
+      //    page-registry（可被 openUrl 解析）；镜像失败会回滚并抛错。
+      // 3) Components are module-level, no factory: the authoritative store and
+      //    full-named tools that load and the bodies read bind into the module
+      //    slot right here. Registration rides the single entry, mirrored into
+      //    page-registry internally (openUrl-resolvable); a mirror failure rolls
+      //    back and throws.
+      bindWorkbenchRuntime(store, tools)
       const pages = apps.pages(APP_ID, ctx)
-      const taskPages = createTaskPages(store, tools)
-      done.push(pages.register(taskPages.ListPage, taskPages.ListMeta))
-      done.push(pages.register(taskPages.DetailPage, taskPages.DetailMeta))
-      done.push(pages.register(taskPages.PublishPage, taskPages.PublishMeta))
+      done.push(pages.register(ListPage, ListMeta))
+      done.push(pages.register(DetailPage, DetailMeta))
+      done.push(pages.register(PublishPage, PublishMeta))
     } catch (error: unknown) {
       for (const dispose of done.reverse()) dispose()
       throw error

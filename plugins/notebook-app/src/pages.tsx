@@ -20,6 +20,36 @@ import type { NotebookToolsPort } from '@veren/notebook'
 /** 应用内 URL 前缀 / the app-scoped url prefix */
 const URL_PREFIX = '/apps/notebook'
 
+/**
+ * 装配期绑定的模块级槽位：load（没有 agent 可用）与组件体的工具登记从这里取
+ * 工具定义与服务面。注册一定先于任何页面打开；未绑定即取 = 装配错误 fail loud。
+ * The module-level slot bound at assembly time: load (no agent there) and the
+ * bodies' tool registrations read the tool definitions and the service face
+ * from here. Registration always precedes any page open; reading unbound is an
+ * assembly error and fails loud.
+ */
+let services: { readonly port: () => NotebookToolsPort; readonly tools: readonly ToolDefinition[] } | undefined
+
+/** 装配时绑定（app.ts 的单入口注册调用一次）/ bind at assembly time (called once by app.ts's registration) */
+export function bindNotebookServices(port: () => NotebookToolsPort, tools: readonly ToolDefinition[]): void {
+  services = { port, tools }
+}
+
+/** 取绑定的服务面；未绑定 = 装配错误 fail loud / read the bound face; unbound = assembly error, fail loud */
+function requireServices(): { readonly port: () => NotebookToolsPort; readonly tools: readonly ToolDefinition[] } {
+  if (services === undefined) {
+    throw new Error('[notebook-app] notebook services are not bound; registerNotebookApp must run before pages open')
+  }
+  return services
+}
+
+/** 按本地名取全名工具定义 / look up a full-named tool definition by local name */
+function toolOf(localName: string): ToolDefinition {
+  const found = requireServices().tools.find((tool) => tool.name === `notebook__${localName}`)
+  if (found === undefined) throw new Error(`[notebook-app] tool notebook__${localName} is not defined`)
+  return found
+}
+
 /** 首屏列表条数上限（与 PAGE-DATA 的 50 条上限同口径）/ the first-screen list cap (aligned with the PAGE-DATA cap) */
 const FIRST_SCREEN_LIMIT = 50
 
@@ -63,24 +93,17 @@ function firstScreenOwner(env: { readonly preset?: string }): string | null {
   return env.preset ?? null
 }
 
-/**
- * 页面工厂：端口与全名工具以纯参数进入，产出两页的组件与契约面。组件体在
- * 唯一一次渲染里登记本页工具（跑一次，安全）。
- * The page factory: the port and the full-named tools arrive as pure
- * parameters; produces both pages' components and contract faces. Each body
- * registers its page's tools in the one render (run once, safe).
- */
-export function createNotebookPages(port: () => NotebookToolsPort, tools: readonly ToolDefinition[]): NotebookPages {
-  /** 按本地名取全名工具定义 / look up a full-named tool definition by local name */
-  const toolOf = (localName: string): ToolDefinition => {
-    const found = tools.find((tool) => tool.name === `notebook__${localName}`)
-    if (found === undefined) throw new Error(`[notebook-app] tool notebook__${localName} is not defined`)
-    return found
-  }
+// ---- 列表页（首页 home / entry，笔记列表）---- List page (the home page / entry, the note list) ----
 
-  // ---- 列表页（首页 home / entry，笔记列表）---- List page (the home page / entry, the note list) ----
+/** 页面集合出口（模块级组件 + 契约面）/ the module-level components and contract faces */
+export interface NotebookPages {
+  readonly ListPage: PageFC
+  readonly ListMeta: ComponentPageMeta
+  readonly NotePage: PageFC<{ noteId: string }>
+  readonly NoteMeta: ComponentPageMeta<{ noteId: string }>
+}
 
-  const ListPage: PageFC = (_props, agent) => {
+export const ListPage: PageFC = (_props, agent) => {
     agent.ctx.tools.register(toolOf('list_notes'))
     agent.ctx.tools.register(toolOf('write_note'))
     const snap = useSnapshot<NotebookListFirstScreen>()
@@ -110,7 +133,7 @@ export function createNotebookPages(port: () => NotebookToolsPort, tools: readon
     )
   }
 
-  const ListMeta: ComponentPageMeta = {
+export const ListMeta: ComponentPageMeta = {
     name: 'list',
     url: `${URL_PREFIX}/list`,
     description: '记事本列表页：浏览当前预设的全部笔记，并可新建笔记',
@@ -128,7 +151,7 @@ export function createNotebookPages(port: () => NotebookToolsPort, tools: readon
     load: async (_params, env) => {
       const owner = firstScreenOwner(env)
       if (owner === null) return { available: false, owner: null, notes: [] } satisfies PageJsonValue
-      const notes = await port().list(owner)
+      const notes = await requireServices().port().list(owner)
       return {
         available: true,
         owner,
@@ -141,7 +164,7 @@ export function createNotebookPages(port: () => NotebookToolsPort, tools: readon
 
   // ---- 笔记详情页（详情页 detail）---- Note detail page (the detail archetype) ----
 
-  const NotePage: PageFC<{ noteId: string }> = (props, agent) => {
+export const NotePage: PageFC<{ noteId: string }> = (props, agent) => {
     agent.ctx.tools.register(toolOf('read_note'))
     agent.ctx.tools.register(toolOf('rewrite_note'))
     agent.ctx.tools.register(toolOf('delete_note'))
@@ -163,7 +186,7 @@ export function createNotebookPages(port: () => NotebookToolsPort, tools: readon
     )
   }
 
-  const NoteMeta: ComponentPageMeta<{ noteId: string }> = {
+export const NoteMeta: ComponentPageMeta<{ noteId: string }> = {
     name: 'note',
     url: `${URL_PREFIX}/note/:noteId`,
     description: '笔记详情页：查看并改写单条笔记的标题与正文，或删除它',
@@ -182,7 +205,7 @@ export function createNotebookPages(port: () => NotebookToolsPort, tools: readon
     load: async (params, env) => {
       const owner = firstScreenOwner(env)
       if (owner === null) return { owner: null, note: null } satisfies PageJsonValue
-      const note = await port().read(owner, String(params.noteId ?? ''))
+      const note = await requireServices().port().read(owner, String(params.noteId ?? ''))
       return {
         owner,
         note: { id: note.id, title: note.title, body: note.body, createdAt: note.createdAt, updatedAt: note.updatedAt },
@@ -190,5 +213,3 @@ export function createNotebookPages(port: () => NotebookToolsPort, tools: readon
     },
   }
 
-  return { ListPage, ListMeta, NotePage, NoteMeta }
-}

@@ -85,14 +85,17 @@ describe.skipIf(!existsSync(harnessTsxEntry))('page component executes under the
           `const { TaskStore, makeList } = await import(${JSON.stringify(storeUrl)})`,
           `const { agent } = await import(${JSON.stringify(fakeAgentUrl)})`,
           'const store = new TaskStore(makeList(2))',
-          // 组件页：实例化组件并执行（组件体是 JSX——classic 编译在此抛错）
-          // / component pages: instantiate the component and run it (the body is JSX — classic compilation fails here)
+          // 组件页：实例化组件并执行（组件体是 JSX——classic 编译在此抛错）。
+          // 模块级组件 + 装配期绑定：先 bind 再跑 ListPage。
+          // / component pages: instantiate the component and run it (the body is
+          // JSX — classic compilation fails here). Module-level components +
+          // assembly-time binding: bind first, then run ListPage.
           'const tools = [',
           '  { name: "task_workbench__take_task" },',
           '  { name: "task_workbench__complete_task" },',
           ']',
-          'const taskPages = pages.createTaskPages(store, tools)',
-          "const nodes = taskPages.ListPage({}, agent)",
+          'pages.bindWorkbenchRuntime(store, tools)',
+          "const nodes = pages.ListPage({}, agent)",
           "process.stdout.write('TREE_OK ' + (nodes !== undefined))",
           '',
         ].join('\n'), 'utf8')

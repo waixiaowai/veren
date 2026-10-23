@@ -30,7 +30,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { AppId, ApplicationDefinition, PageKey } from '@veren/app-registry'
 import type { ForumToolsPort } from '@veren/forum'
-import { createForumPages } from './pages.tsx'
+import { bindForumServices, CatalogMeta, CatalogPage, PostMeta, PostPage } from './pages.tsx'
 
 /** The app id; the URL prefix `/apps/forum` and the `forum__` tool prefix follow it. */
 export const FORUM_APP_ID = 'forum' as AppId
@@ -93,16 +93,15 @@ export function registerForumApp(ctx: Context, port: () => ForumToolsPort): void
       // 1) Definition first; bound to this fiber.
       //    先定义；绑定到本 fiber。
       disposers.push(apps.register(FORUM_APP_DEFINITION, ctx))
-      // 2) Page by page: the tools are registered by each page's body via
-      //    agent.ctx.tools.register in the one render (full names forum__*),
-      //    so there is no catalog indirection here — pages carry their own
-      //    tool bindings.
-      //    逐页进行：工具由每页组件体在唯一一次渲染里经 agent.ctx.tools.register
-      //    以全名登记（forum__*），这里没有任何目录间接层——工具绑定长在页面上。
+      // 2) 组件是模块级的，没有工厂：load（没有 agent 可用）读的论坛服务面在
+      //    装配此刻绑进模块槽位；组件体自己经 agent.ctx 解析服务。
+      //    Components are module-level, no factory: the forum face that load
+      //    reads (no agent there) binds into the module slot right here; the
+      //    bodies resolve services through agent.ctx themselves.
+      bindForumServices(ctx, port)
       const pages = apps.pages(FORUM_APP_ID, ctx)
-      const forumPages = createForumPages(port, ctx)
-      disposers.push(pages.register(forumPages.CatalogPage, forumPages.CatalogMeta))
-      disposers.push(pages.register(forumPages.PostPage, forumPages.PostMeta))
+      disposers.push(pages.register(CatalogPage, CatalogMeta))
+      disposers.push(pages.register(PostPage, PostMeta))
     } catch (error: unknown) {
       for (const dispose of disposers.reverse()) dispose()
       throw error

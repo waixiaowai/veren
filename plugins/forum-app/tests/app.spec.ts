@@ -25,7 +25,7 @@ import { AppRegistryService } from '@veren/app-registry'
 import { PageRegistryService } from '@veren/page-registry'
 import { defineComponentPage } from '@veren/prompt-page'
 import type { ComponentPageMeta, PageFC, PageJsonValue, PageParams } from '@veren/prompt-page'
-import { createForumPages } from '../src/pages.tsx'
+import { bindForumServices, CatalogMeta, CatalogPage, PostMeta, PostPage } from '../src/pages.tsx'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
@@ -85,18 +85,21 @@ function fakeAgent() {
   return { agent: agent as never, registered }
 }
 
-/** 页面工厂的产物 + 记录型 agent（一次构造，多处使用）/ the factory product + a recording agent (built once, used everywhere) */
+/** 记录型 agent（一次构造，多处使用）/ a recording agent (built once, used everywhere) */
 interface ForumFixture {
-  pages: ReturnType<typeof createForumPages>
   registered: Array<{ name: string; definition: unknown }>
   agent: never
 }
 
-/** 建页面工厂（真 ctx + 真 port：构建器闭包它们）并挂一只记录型 agent
- * / build the factory over the real ctx and port (the builders close over them) with a recording agent */
+/** 绑定装配槽位（真 ctx + 真 port）并挂一只记录型 agent：组件是模块级的，
+ * 依赖经 bindForumServices 进槽位，体里经 agent.ctx 解析服务
+ * / bind the assembly slot (real ctx + port) and hold a recording agent: the
+ * components are module-level; dependencies enter via bindForumServices and the
+ * bodies resolve services through agent.ctx */
 function makeFixture(ctx: Context, port: () => ForumToolsPort): ForumFixture {
+  bindForumServices(ctx, port)
   const { agent, registered } = fakeAgent()
-  return { pages: createForumPages(port, ctx), registered, agent }
+  return { registered, agent }
 }
 
 /** 按本地名取组件体登记的全名定义（exec 与名字无关，测试直呼无碍）
@@ -236,10 +239,10 @@ describe('forum app discovery and resolution / 应用可发现与可解析', () 
     // 按页断言：入口页三件；详情页四件（inbox 两页都挂——处理主题的会话也要读通知）
     // / per-page asserts: the catalog page's three; the post page's four (inbox
     // rides both pages — a session working one post still reads its notices)
-    const catalogRegistration = defineComponentPage(fixture.pages.CatalogPage, fixture.pages.CatalogMeta)
+    const catalogRegistration = defineComponentPage(CatalogPage, CatalogMeta)
     catalogRegistration.live.mount({}, fixture.agent, undefined)
     expect(fixture.registered.map((entry) => entry.name)).toEqual(['forum__list', 'forum__post', 'forum__inbox'])
-    const postRegistration = defineComponentPage(fixture.pages.PostPage, fixture.pages.PostMeta)
+    const postRegistration = defineComponentPage(PostPage, PostMeta)
     postRegistration.live.mount({ postId: 'p-1' }, fixture.agent, undefined)
     expect(fixture.registered.slice(3).map((entry) => entry.name)).toEqual(['forum__read', 'forum__comment', 'forum__vote', 'forum__inbox'])
 
@@ -272,8 +275,8 @@ describe('forum app tools act on the real service / 应用工具作用于真实�
     const fixture = makeFixture(ctx, port)
     // 两个组件体的登记动作把构建器产物带出来（execute 与名字无关）
     // / the bodies' registrations bring the builder products out (execute ignores the name)
-    defineComponentPage(fixture.pages.CatalogPage, fixture.pages.CatalogMeta).live.mount({}, fixture.agent, undefined)
-    defineComponentPage(fixture.pages.PostPage, fixture.pages.PostMeta).live.mount({ postId: 'p-1' }, fixture.agent, undefined)
+    defineComponentPage(CatalogPage, CatalogMeta).live.mount({}, fixture.agent, undefined)
+    defineComponentPage(PostPage, PostMeta).live.mount({ postId: 'p-1' }, fixture.agent, undefined)
     const boardId = (await ctx.forum.ensureBoardRemote({ workspaceId: 'ws-1', path: 'C:/work/demo' })).id
 
     // The page tool resolves the caller from the live Agent — no author
@@ -316,16 +319,16 @@ describe('挂载 = 说明 两方可核对 / mount = instructions', () => {
   function registeredOf(fixture: ForumFixture, page: 'catalog' | 'post'): Set<string> {
     const before = fixture.registered.length
     void (page === 'catalog'
-      ? defineComponentPage(fixture.pages.CatalogPage, fixture.pages.CatalogMeta).live.mount({}, fixture.agent, undefined)
-      : defineComponentPage(fixture.pages.PostPage, fixture.pages.PostMeta).live.mount({ postId: 'p-1' }, fixture.agent, undefined))
+      ? defineComponentPage(CatalogPage, CatalogMeta).live.mount({}, fixture.agent, undefined)
+      : defineComponentPage(PostPage, PostMeta).live.mount({ postId: 'p-1' }, fixture.agent, undefined))
     return new Set(fixture.registered.slice(before).map((entry) => entry.name))
   }
 
   it('每页说明点名的工具恰好等于该页组件体登记的工具（承诺 = 登记）', async () => {
     const { ctx, fiber, port } = await mount()
     const fixture = makeFixture(ctx, port)
-    expect(namedTools(fixture.pages.CatalogMeta.instructions)).toEqual(registeredOf(fixture, 'catalog'))
-    expect(namedTools(fixture.pages.PostMeta.instructions)).toEqual(registeredOf(fixture, 'post'))
+    expect(namedTools(CatalogMeta.instructions)).toEqual(registeredOf(fixture, 'catalog'))
+    expect(namedTools(PostMeta.instructions)).toEqual(registeredOf(fixture, 'post'))
     await fiber.dispose()
   })
 
@@ -365,7 +368,7 @@ describe('§3.10 页面 = 信息 + 工具：正文渲染真实记录，每行带
       boardId: board.id, author: 'standard', title: '开版帖', body: '第一篇',
     })
     const fixture = makeFixture(ctx, () => ctx.forum.toolsPort())
-    const body = await mountPage(fixture.pages.CatalogPage, fixture.pages.CatalogMeta, () => ctx.forum.toolsPort())
+    const body = await mountPage(CatalogPage, CatalogMeta, () => ctx.forum.toolsPort())
     expect(body).toContain('论坛 · 板块与主题列表')
     // 板块行：id 是工具要用的 boardId / the board row: its id is the tool's boardId
     expect(body).toContain('id: ws-1')
@@ -383,7 +386,7 @@ describe('§3.10 页面 = 信息 + 工具：正文渲染真实记录，每行带
       postId: created.value.id, author: 'ptc', body: '前排回复',
     })
     const fixture = makeFixture(ctx, () => ctx.forum.toolsPort())
-    const body = await mountPage(fixture.pages.PostPage, fixture.pages.PostMeta, () => ctx.forum.toolsPort(), { postId: created.value.id })
+    const body = await mountPage(PostPage, PostMeta, () => ctx.forum.toolsPort(), { postId: created.value.id })
     expect(body).toContain('被读的帖')
     expect(body).toContain(`id: ${created.value.id}`)
     expect(body).toContain('全文在这里')
@@ -400,10 +403,10 @@ describe('§3.10 页面 = 信息 + 工具：正文渲染真实记录，每行带
     // / load rejects (the service's stable refusal) — the test hands the runtime
     // envelope down; the body must carry the refusal verbatim (the code face is
     // locked in the forum package's own tool tests).
-    await expect(fixture.pages.PostMeta.load?.({ postId: 'p-missing' }, {})).rejects.toThrow('no post with id "p-missing"')
+    await expect(PostMeta.load?.({ postId: 'p-missing' }, {})).rejects.toThrow('no post with id "p-missing"')
     const body = await mountPage(
-      fixture.pages.PostPage,
-      fixture.pages.PostMeta,
+      PostPage,
+      PostMeta,
       () => ctx.forum.toolsPort(),
       { postId: 'p-missing' },
     )
@@ -414,9 +417,9 @@ describe('§3.10 页面 = 信息 + 工具：正文渲染真实记录，每行带
   it('说明指向正文行内 id：两页 instructions 都写明 id 取法', async () => {
     const { ctx, port } = await mount()
     const fixture = makeFixture(ctx, port)
-    expect(fixture.pages.CatalogMeta.instructions).toContain('行内')
-    expect(fixture.pages.CatalogMeta.instructions).toContain('id')
-    expect(fixture.pages.PostMeta.instructions).toContain('行内')
-    expect(fixture.pages.PostMeta.instructions).toContain('id')
+    expect(CatalogMeta.instructions).toContain('行内')
+    expect(CatalogMeta.instructions).toContain('id')
+    expect(PostMeta.instructions).toContain('行内')
+    expect(PostMeta.instructions).toContain('id')
   })
 })

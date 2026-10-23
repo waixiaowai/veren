@@ -98,75 +98,101 @@ export interface OverviewFirstScreen {
   readonly models: ModelsSection
 }
 
-/** 页面工厂产物 / the factory product */
-export interface PersonAgentPages {
-  readonly OverviewPage: PageFC
-  readonly OverviewMeta: ComponentPageMeta
-  readonly WorkspacesPage: PageFC
-  readonly WorkspacesMeta: ComponentPageMeta
+/**
+ * 装配期绑定的模块级槽位：组件体的同步读、工具构建器与结算看守，以及 load 的
+ * 异步读都从这里取本插件的 ctx。注册一定先于任何页面打开；未绑定即取 = 装配
+ * 错误 fail loud。
+ * The module-level slot bound at assembly time: the bodies' sync reads, the
+ * tool builders, the settlement watch, and load's async reads all take this
+ * plugin's ctx from here. Registration always precedes any page open; reading
+ * unbound is an assembly error and fails loud.
+ */
+let appCtx: Context | undefined
+
+/** 装配时绑定（index.ts 的单入口注册调用一次）/ bind at assembly time (called once by index.ts's wiring) */
+export function bindPersonAgentContext(ctx: Context): void {
+  appCtx = ctx
 }
 
+/** 取绑定的 ctx；未绑定 = 装配错误 fail loud / read the bound ctx; unbound = assembly error, fail loud */
+function requireCtx(): Context {
+  if (appCtx === undefined) {
+    throw new Error('[person-agent-app] the app ctx is not bound; the app wiring must run before pages open')
+  }
+  return appCtx
+}
+
+// ---- 工具全名化与预挂（绑定 ctx 就绪后惰性构建；builder 产出本地名，登记即对外名）
+// ---- full-naming and the prebuilt sets (built lazily once the bound ctx is
+// ---- ready; builders produce local names, registration is the external name)
+/** 工具全名化 / full-name a builder product */
+const named = (definition: ToolDefinition): ToolDefinition => ({ ...definition, name: externalName(definition.name) })
+/** 概览页的九件无状态工具（惰性首取后缓存）/ the overview's nine stateless tools (lazy, cached on first take) */
+let overviewTools: readonly ToolDefinition[] | undefined
+function takeOverviewTools(): readonly ToolDefinition[] {
+  if (overviewTools === undefined) {
+    const ctx = requireCtx()
+    overviewTools = [
+      named(buildSessionCreateDefinition(ctx)),
+      named(buildSessionRenameDefinition(ctx)),
+      named(buildSessionArchiveDefinition(ctx)),
+      named(buildSessionUnarchiveDefinition(ctx)),
+      named(buildSessionPinDefinition(ctx)),
+      named(buildSessionUnpinDefinition(ctx)),
+      named(buildWorkspaceCreateDefinition(ctx, { allowCreateDirectory: false })),
+      named(buildWorkspaceRenameDefinition(ctx)),
+      named(buildWorkspaceSessionListDefinition(ctx, { maxListSessions: 200 })),
+    ]
+  }
+  return overviewTools
+}
+/** 工作区页的四件工具（惰性首取后缓存）/ the workspace page's four tools (lazy, cached on first take) */
+let workspaceTools: readonly ToolDefinition[] | undefined
+function takeWorkspaceTools(): readonly ToolDefinition[] {
+  if (workspaceTools === undefined) {
+    const ctx = requireCtx()
+    workspaceTools = [
+      named(buildWorkspaceSessionListDefinition(ctx, { maxListSessions: 200 })),
+      named(buildSessionCreateDefinition(ctx)),
+      named(buildWorkspaceCreateDefinition(ctx, { allowCreateDirectory: false })),
+      named(buildWorkspaceRenameDefinition(ctx)),
+    ]
+  }
+  return workspaceTools
+}
+
+// ---- 概览页（home 档 / entry）---- Overview page (the home archetype / entry) ----
+
 /**
- * 页面工厂：本插件的 ctx 以纯参数进入（G13 规则 2）——同步读、工具构建器与
- * 结算看守都闭包它；组件体拿到的 agent 只承担登记与会话作用域。
- * The page factory: this plugin's ctx arrives as the pure parameter (G13 rule
- * 2) — sync reads, the tool builders and the settlement watch all close over
- * it; the agent the body receives only carries registration and the session
- * scope.
+ * 个人工作台概览：应用目录与工作区是同步内存读——绑定 ctx 直读；预设名单、
+ * 模型目录与任务中心是异步读——load 取齐（每节失败各自落地），正文如实渲染，
+ * 绝不编造数字。三块名单（Workspace List / Agent Preset List / Model
+ * Catalog）都在正文里，模型从正文取 id，不依赖任何隐藏的 pre-step 注入。
+ * The personal workbench overview: catalog and workspaces are sync in-memory
+ * reads through the bound ctx; the preset roster, model catalog and task
+ * center are async reads fetched in load (each section's failure lands
+ * separately), rendered honestly — never faked. All three lists live in the
+ * body, so the model takes ids from the page, never from a hidden pre-step.
  */
-export function createPersonAgentPages(ctx: Context): PersonAgentPages {
-  /** 工具全名化（builder 产出本地名，登记即对外名）/ full-name a builder product */
-  const named = (definition: ToolDefinition): ToolDefinition => ({ ...definition, name: externalName(definition.name) })
-  /** 预挂的全名工具（无状态九件 + 四件）/ the prebuilt full-named tools (nine stateless + four) */
-  const overviewTools = [
-    named(buildSessionCreateDefinition(ctx)),
-    named(buildSessionRenameDefinition(ctx)),
-    named(buildSessionArchiveDefinition(ctx)),
-    named(buildSessionUnarchiveDefinition(ctx)),
-    named(buildSessionPinDefinition(ctx)),
-    named(buildSessionUnpinDefinition(ctx)),
-    named(buildWorkspaceCreateDefinition(ctx, { allowCreateDirectory: false })),
-    named(buildWorkspaceRenameDefinition(ctx)),
-    named(buildWorkspaceSessionListDefinition(ctx, { maxListSessions: 200 })),
-  ]
-  const workspaceTools = [
-    named(buildWorkspaceSessionListDefinition(ctx, { maxListSessions: 200 })),
-    named(buildSessionCreateDefinition(ctx)),
-    named(buildWorkspaceCreateDefinition(ctx, { allowCreateDirectory: false })),
-    named(buildWorkspaceRenameDefinition(ctx)),
-  ]
-
-  // ---- 概览页（home 档 / entry）---- Overview page (the home archetype / entry) ----
-
-  /**
-   * 个人工作台概览：应用目录与工作区是同步内存读——工厂闭包直读；预设名单、
-   * 模型目录与任务中心是异步读——load 取齐（每节失败各自落地），正文如实渲染，
-   * 绝不编造数字。三块名单（Workspace List / Agent Preset List / Model
-   * Catalog）都在正文里，模型从正文取 id，不依赖任何隐藏的 pre-step 注入。
-   * The personal workbench overview: catalog and workspaces are sync in-memory
-   * reads through the factory closure; the preset roster, model catalog and
-   * task center are async reads fetched in load (each section's failure lands
-   * separately), rendered honestly — never faked. All three lists live in the
-   * body, so the model takes ids from the page, never from a hidden pre-step.
-   */
-  const OverviewPage: PageFC = (_props, agent) => {
-    // 本页工具（跑一次，安全）：无状态九件就地登记；session_dispatch 连同本页
-    // 自己的结算看守经 agent.ctx.effect 登记——看守随 agent 销毁结清，派给已
-    // 废弃会话的回报不会悬空。登记即承诺：instructions 点名 session_dispatch。
-    // This page's tools (run once, safe): the nine stateless tools register in
-    // place; session_dispatch together with this page's own settlement watch
-    // registers via agent.ctx.effect — the watch settles at agent disposal, so
-    // a report addressed to a deprecated session never dangles. Registration is
-    // the promise: instructions name session_dispatch.
-    for (const tool of overviewTools) agent.ctx.tools.register(tool)
-    agent.ctx.effect(() => {
-      const watch = createSettlementWatch(ctx, WATCH_DEFAULTS)
-      agent.ctx.tools.register(named(buildSessionDispatchDefinition(ctx, watch)))
-      return () => { watch.dispose() }
-    }, 'person-agent:dispatch-watch')
-    const catalog = ctx.apps.catalog()
-    const rows = ctx.workspaceRegistry.list()
-    const snap = useSnapshot<OverviewFirstScreen>()
+export const OverviewPage: PageFC = (_props, agent) => {
+  const ctx = requireCtx()
+  // 本页工具（跑一次，安全）：无状态九件就地登记；session_dispatch 连同本页
+  // 自己的结算看守经 agent.ctx.effect 登记——看守随 agent 销毁结清，派给已
+  // 废弃会话的回报不会悬空。登记即承诺：instructions 点名 session_dispatch。
+  // This page's tools (run once, safe): the nine stateless tools register in
+  // place; session_dispatch together with this page's own settlement watch
+  // registers via agent.ctx.effect — the watch settles at agent disposal, so
+  // a report addressed to a deprecated session never dangles. Registration is
+  // the promise: instructions name session_dispatch.
+  for (const tool of takeOverviewTools()) agent.ctx.tools.register(tool)
+  agent.ctx.effect(() => {
+    const watch = createSettlementWatch(ctx, WATCH_DEFAULTS)
+    agent.ctx.tools.register(named(buildSessionDispatchDefinition(ctx, watch)))
+    return () => { watch.dispose() }
+  }, 'person-agent:dispatch-watch')
+  const catalog = ctx.apps.catalog()
+  const rows = ctx.workspaceRegistry.list()
+  const snap = useSnapshot<OverviewFirstScreen>()
     return (
       <>
         <h1>Person Agent · 个人工作台（人机桥概览）</h1>
@@ -240,7 +266,7 @@ export function createPersonAgentPages(ctx: Context): PersonAgentPages {
     )
   }
 
-  const OverviewMeta: ComponentPageMeta = {
+  export const OverviewMeta: ComponentPageMeta = {
     name: 'overview',
     url: `${URL_PREFIX}/overview`,
     description: '个人工作台概览：看清部署的应用、工作区、预设与模型，处理待办任务，并可新建/派发/归档会话',
@@ -277,15 +303,16 @@ export function createPersonAgentPages(ctx: Context): PersonAgentPages {
     // The three async reads settle together in load; each section catches its
     // own failures — failure states ride the snapshot into the body.
     load: async (_params, _env): Promise<PageJsonValue> => {
-      const tasks = await ctx.taskCenter.list({ status: 'open' }).then(
+      const appCtx = requireCtx()
+      const tasks = await appCtx.taskCenter.list({ status: 'open' }).then(
         (openTasks) => ({ error: null, openCount: openTasks.length }) satisfies TasksSection,
         (error: unknown) => ({ error: errorMessage(error), openCount: null }) satisfies TasksSection,
       )
-      const presets = await readAgentPresets(ctx).then(
+      const presets = await readAgentPresets(appCtx).then(
         (views) => ({ error: null, presets: views }) satisfies PresetsSection,
         (error: unknown) => ({ error: errorMessage(error), presets: [] }) satisfies PresetsSection,
       )
-      const models = await readModelCatalogGroups(ctx).then(
+      const models = await readModelCatalogGroups(appCtx).then(
         (groups) => ({ error: null, groups }) satisfies ModelsSection,
         (error: unknown) => ({ error: errorMessage(error), groups: [] }) satisfies ModelsSection,
       )
@@ -302,9 +329,10 @@ export function createPersonAgentPages(ctx: Context): PersonAgentPages {
    * factory closure — zero state. The four tools register in place in the
    * component body (design law: a tool exists only inside a page).
    */
-  const WorkspacesPage: PageFC = (_props, agent) => {
-    for (const tool of workspaceTools) agent.ctx.tools.register(tool)
-    const rows = ctx.workspaceRegistry.list()
+export const WorkspacesPage: PageFC = (_props, agent) => {
+  const ctx = requireCtx()
+  for (const tool of takeWorkspaceTools()) agent.ctx.tools.register(tool)
+  const rows = ctx.workspaceRegistry.list()
     return (
       <>
         <h1>Person Agent · 工作区浏览</h1>
@@ -323,7 +351,7 @@ export function createPersonAgentPages(ctx: Context): PersonAgentPages {
     )
   }
 
-  const WorkspacesMeta: ComponentPageMeta = {
+  export const WorkspacesMeta: ComponentPageMeta = {
     name: 'workspaces',
     url: `${URL_PREFIX}/workspaces`,
     description: '工作区浏览：列出各工作区及其会话账目，并可在工作区内新建会话',
@@ -342,5 +370,3 @@ export function createPersonAgentPages(ctx: Context): PersonAgentPages {
     instanceTitle: () => '工作区浏览',
   }
 
-  return { OverviewPage, OverviewMeta, WorkspacesPage, WorkspacesMeta }
-}

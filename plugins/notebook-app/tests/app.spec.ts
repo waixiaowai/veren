@@ -34,7 +34,7 @@ import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as NotebookApp from '../src/index.ts'
 import { APP_DEFINITION, APP_ID, Config as AppConfig } from '../src/index.ts'
 import { createAppTools } from '../src/app.ts'
-import { createNotebookPages } from '../src/pages.tsx'
+import { bindNotebookServices, ListMeta, ListPage, NoteMeta, NotePage } from '../src/pages.tsx'
 import { defineComponentPage } from '@veren/prompt-page'
 import type { NoteSummary, NoteView } from '@veren/notebook'
 import NotebookService, { Config as HostConfig } from '@veren/notebook'
@@ -260,10 +260,10 @@ describe('生命周期 / lifecycle', () => {
 })
 
 describe('§3.9 承诺对齐：登记 = 说明点名 / registration = instructions naming', () => {
-  /** 两页组件体登记的本地名（一次性渲染的登记面）/ local names the two bodies register (the one-shot face) */
+  /** 两页组件体登记的本地名（一次性渲染的登记面）：先绑槽位再挂模块级组件
+   * / local names the two bodies register (the one-shot face): bind the slot first, then mount the module-level components */
   function registeredLocal(ctx: Context, tools: readonly ToolDefinition[]) {
-    const port = () => ctx.notebook.toolsPort()
-    const { ListPage, ListMeta, NotePage, NoteMeta } = createNotebookPages(port, tools)
+    bindNotebookServices(() => ctx.notebook.toolsPort(), tools)
     const list = mountPage(ListPage, ListMeta, tools)
     const note = mountPage(NotePage, NoteMeta, tools)
     const local = (page: { registered: string[] }): string[] => page.registered.map((fullName) => fullName.split('__').pop() ?? fullName)
@@ -342,6 +342,10 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全 / the
 
   it('首页 load 按页面会话的预设取真实笔记列表：归属未知如实降级，不编造', async () => {
     const { ctx, apps, fiber } = await mount()
+    // 模块槽位是进程级单例：本用例开头重绑自己的 ctx，防其他用例的绑定漂移
+    // / the module slot is a process-level singleton: rebind this test's own ctx
+    // up front so other tests' bindings cannot drift it
+    bindNotebookServices(() => ctx.notebook.toolsPort(), createAppTools(ctx, () => ctx.notebook.toolsPort()))
     const pages = apps.listPages(APP_ID)
     const home = pages.find((page) => page.name === APP_DEFINITION.entry)
     if (home === undefined || home.load === undefined) throw new Error('the list page must carry a load')
@@ -364,6 +368,8 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全 / the
 
   it('详情页 load 按参数取该条笔记（§3.10.3）：归属对得上才给，别人的笔记如实找不到', async () => {
     const { ctx, apps, fiber } = await mount()
+    // 同上：重绑本用例的 ctx / same as above: rebind this test's own ctx
+    bindNotebookServices(() => ctx.notebook.toolsPort(), createAppTools(ctx, () => ctx.notebook.toolsPort()))
     const pages = apps.listPages(APP_ID)
     const note = pages.find((page) => page.name === 'note')
     if (note === undefined || note.load === undefined) throw new Error('the note page must carry a load')
@@ -384,7 +390,7 @@ describe('页面 = 信息 + 工具，缺一不可 / a page is its information pl
     // 直挂组件（无宿主运行时喂首屏快照）——这正是"快照缺席"的状态，正文必须自己说话。
     // / Mount the component directly (no host runtime feeds the first-screen
     // snapshot) — this IS the snapshot-absent state, and the body must speak for itself.
-    const { ListPage, ListMeta } = createNotebookPages(() => ctx.notebook.toolsPort(), createAppTools(ctx, () => ctx.notebook.toolsPort()))
+    bindNotebookServices(() => ctx.notebook.toolsPort(), createAppTools(ctx, () => ctx.notebook.toolsPort()))
     const { agent } = fakeAgent()
     const body = defineComponentPage(ListPage, ListMeta).live.mount({}, agent, undefined)
     // 正文经 markdown 渲染（下划线转义成 \_），断言用不含下划线的短语。
