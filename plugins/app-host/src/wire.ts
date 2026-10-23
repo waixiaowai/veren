@@ -35,7 +35,6 @@ import { createBootstrapTools } from '@veren/app-registry'
 import { createAppOpenTool, createPageSendTool } from '@veren/page-registry'
 
 import { createPresetOf, createRealSessionPort } from './session-port.ts'
-import { createPageDataSync } from './page-sync.ts'
 
 /** 显式解析三个服务与工具注册表；缺任何一个 fail loud（misconfiguration fails loud）。
  *  服务经属性代理解析（本插件声明了 inject，属主合法）；返回面直接复用
@@ -61,16 +60,6 @@ export function requireFaces(ctx: Context): Pick<Context, 'apps' | 'pageRegistry
  */
 export function wireAppHost(ctx: Context): () => void {
   const { apps, pageRegistry, taskCenter, tools } = requireFaces(ctx)
-  // PAGE-PATCH 同步枢纽（§3.10.3）：会话提交后接实时视图、agent 激活时挂
-  // pre-step 注入器。枢纽是纯闭包，不注册任何宿主级资源——卸载走 disposer 里的
-  // dispose()（退订全部视图）。
-  // The PAGE-PATCH sync hub (§3.10.3): receives live views after session commit
-  // and mounts the pre-step injector at agent activation. The hub is a pure
-  // closure registering nothing host-level — unload goes through dispose() in
-  // the disposer (unsubscribes every view).
-  const pageSync = createPageDataSync({
-    warn: (message) => ctx.logger.warn(message),
-  })
 
   // 宿主引导工具（app_list / app_pages，归 app-registry）与 app_open（归
   // page-registry）的工具本体在这里构造——**注册**发生在本装配的最后一步，
@@ -173,17 +162,16 @@ export function wireAppHost(ctx: Context): () => void {
     //    plugin owns apps/taskCenter via inject and hands their capability
     //    faces through public interfaces to pageRegistry.
     pageRegistry.bindPorts({
-      // focus 走缺省（eventFocus）；PAGE-DATA 枢纽作为注入面纯参数传入
-      // / focus keeps its default (eventFocus); the PAGE-DATA hub travels as the injection-face parameter
-      sessions: createRealSessionPort(ctx, undefined, pageSync),
+      // focus 走缺省（eventFocus）/ focus keeps its default (eventFocus)
+      sessions: createRealSessionPort(ctx),
       apps,
       // 页面会话归属（§3.10.3 PageLoadEnv.preset 的来源）/ page-session ownership
       presetOf: createPresetOf(ctx),
-      // 挂载期完备性告警（§3.9，见 page-registry 的挂载期检查）：真实登记面收集
-      // 之后才有资格判"声明要写却挂不出工具"，注册期看不到组件体的动态登记。
-      // / the mount-time completeness warning (§3.9): only the really-collected
-      // tool face may judge "declares writes but mounts none" — registration
-      // time cannot see the component body's dynamic registrations.
+      // 挂载期完备性告警（§3.9，见 page-registry 的挂载期检查）：真实登记差集
+      // 收集之后才有资格判"声明要写却挂不出工具"，注册期看不到组件体的动态登记。
+      // / the mount-time completeness warning (§3.9): only the really-registered
+      // delta may judge "declares writes but mounts none" — registration time
+      // cannot see the component body's dynamic registrations.
       warn: (message: string) => { ctx.logger.warn(message) },
       tasks: taskCenter,
       deliveries: {
@@ -198,9 +186,6 @@ export function wireAppHost(ctx: Context): () => void {
           await taskCenter.release(task.id, `page session ${sessionId} deprecated`).catch(() => undefined)
         }
       },
-      // 实时视图端口（§3.10.3）：会话提交后 bind、废弃/回滚时 unbind
-      // / the live-view port (§3.10.3): bind after commit, unbind on deprecation/rollback
-      pageData: pageSync.port,
     })
   } catch (error: unknown) {
     // 逆序回滚已执行步骤（G13 规则 3）：工具行最先摘（注册最晚），然后镜像
@@ -213,16 +198,10 @@ export function wireAppHost(ctx: Context): () => void {
     undoRegistrations()
     try { apps.setPageMirror(undefined) } catch (e: unknown) { ctx.logger.error(`app-host: rollback setPageMirror failed: ${String(e)}`) }
     try { taskCenter.setAppResolver(undefined) } catch (e: unknown) { ctx.logger.error(`app-host: rollback setAppResolver failed: ${String(e)}`) }
-    // 已接入的枢纽一并收掉（可能已有视图绑定）/ the hub (possibly holding views) unwinds with the rollback
-    pageSync.dispose()
     throw error
   }
 
   return () => {
-    // 实时视图最先退订（视图引用应用侧 store，先于镜像面消失）
-    // / live views unsubscribe first (they reference app-side stores, which can
-    // disappear before the mirror face does)
-    pageSync.dispose()
     undoRegistrations()
     apps.setPageMirror(undefined)
     taskCenter.setAppResolver(undefined)

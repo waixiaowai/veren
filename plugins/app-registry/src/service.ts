@@ -96,7 +96,6 @@ export class AppRegistryService extends Service {
       toolPrefix,
       state: 'active',
       pages: new Map(),
-      tools: new Map(),
       mirrorDisposers: [],
       ownerContext: owner,
     }
@@ -146,7 +145,6 @@ export class AppRegistryService extends Service {
    */
   pages(id: AppId, caller?: Context): AppPageRegistrar {
     const entry = this.requireOwned(id, caller, 'pages')
-    const owner = caller ?? this.host
     // 组件页是唯一形态（RFC prompt-page-render 减法）：PageFC + meta →
     // defineComponentPage → PageDefinition + 每会话视图。没有第二种页面。
     // The component page is the only shape (RFC prompt-page-render subtraction):
@@ -156,7 +154,7 @@ export class AppRegistryService extends Service {
       // 两种形态：PageFC + meta（现场适配）｜预构建注册对象（调用方自持）
       // / two shapes: PageFC + meta (adapted here) | a pre-built registration (caller-held)
       const registration = typeof componentOrRegistration === 'function'
-        ? defineComponentPage(componentOrRegistration as PageFC, (meta ?? {}) as ComponentPageMeta, owner)
+        ? defineComponentPage(componentOrRegistration as PageFC, (meta ?? {}) as ComponentPageMeta)
         : componentOrRegistration
       return this.registerPage(entry, id, registration.page, registration.live, true)
     }) as unknown as AppPageRegistrar['register']

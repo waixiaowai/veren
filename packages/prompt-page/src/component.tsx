@@ -1,78 +1,48 @@
 /**
- * 组件页适配器（C5/§3.5）：PageFC + meta → PageDefinition + 每会话实时视图。
- * The component-page adapter (C5/§3.5): a PageFC + meta → a PageDefinition plus
- * a per-session live view.
+ * 组件页适配器（一次性渲染形态）：PageFC + meta → PageDefinition + 挂载绑定。
+ * The component-page adapter (one-shot form): PageFC + meta → a PageDefinition
+ * plus the mount binding.
  *
- * 四件事：
+ * 三件事：
  * - **defineComponentPage**：把"组件即页面"包成既有注册面能收的形状
  *   （PageDefinition + PageLiveBinding）——注册面零新建（C8）；
- * - **页面 hooks（`ctx.page`）**：render 期的 `ctx.page.effect` / `ctx.page.on` /
- *   `ctx.page.tool` 走槽位记账（一次运行/订阅，RFC §5.3）；effect 清理与事件订阅
- *   挂在会话的 `agent.ctx` 作用域上（事件按 agent 过滤，agent 销毁兜底）；ctx 的
- *   固有成员（tools/effect/on）原样保留，不被改写；
- * - **每会话视图**：自有 prompt-core root + MarkdownDocHost——首帧 body 进 PAGE
- *   块，后续渲染 diff 出 PAGE-PATCH；teardown 随视图 unsubscribe 逆序清理；
+ * - **一个会话恰好一次渲染**：挂载时组件体在页面会话的真实 Agent 上执行
+ *   恰好一次，产物即刻成型为 Markdown（进 PAGE 块）。体只跑一次，所以
+ *   `agent.ctx.tools.register` / `agent.ctx.effect` / `agent.ctx.on` 直接
+ *   调用就是安全的——没有槽位、没有记账、没有重渲；此后页面不再渲染，
+ *   后续变化由页面自己经 agent.inject/followup 以新消息进上下文；
  * - **useSnapshot**：读 meta.load 的首屏结果（组件与首屏数据的类型化通道）。
- * Four pieces:
+ * Three pieces:
  * - **defineComponentPage**: wraps "the component IS the page" into the shape
  *   the existing registration face accepts (PageDefinition + PageLiveBinding) —
  *   zero new registration face (C8);
- * - **the page hooks (`ctx.page`)**: render-time `ctx.page.effect` /
- *   `ctx.page.on` / `ctx.page.tool` are recorded through hook slots (run once /
- *   subscribed once, RFC §5.3); effect cleanups and event subscriptions register
- *   on the session's `agent.ctx` scope (agent-filtered events, agent-disposal
- *   fallback); the ctx's inherent members (tools/effect/on) stay untouched;
- * - **the per-session view**: its own prompt-core root + MarkdownDocHost — the
- *   first-frame body feeds the PAGE block, later renders diff into PAGE-PATCH;
- *   teardown rides the view's unsubscribe in reverse order;
+ * - **exactly one render per session**: at mount the component body runs on
+ *   the page session's real Agent exactly once and its output is immediately
+ *   finalized into Markdown (the PAGE block). The body runs once, so calling
+ *   `agent.ctx.tools.register` / `agent.ctx.effect` / `agent.ctx.on` directly
+ *   is safe — no slots, no recording, no re-render; the page never renders
+ *   again, and later changes reach the context as new messages the page pushes
+ *   itself via agent.inject/followup;
  * - **useSnapshot**: reads meta.load's first-screen result (the typed channel
  *   between component and first screen).
  * @module @veren/prompt-page/component
  */
-import { createRoot, runWithHookScope, scheduleRender, useSlot } from '@veren/prompt-core'
-import type { Context } from '@deepseek-ai/cordis'
-import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type { ElementInput, ExternalStore, Fiber, HookCell, PromptRoot } from '@veren/prompt-core'
-import type { PageDefinition, PageHostFace, PageJsonValue, PageLiveBinding, PageLoadEnv, PageParams, PageSession, PageSkill } from './types.ts'
-import { MarkdownDocHost } from './markdown.ts'
-import { formatPath } from './registry.ts'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { elementsToMarkdown } from './markdown.ts'
+import type { PageJsonValue, PageLiveBinding, PageLoadEnv, PageParams, PageDefinition, PageSkill } from './types.ts'
+import type { ElementInput } from '@veren/prompt-core'
 
 /**
- * 页面自己的生命周期与工具登记面：**不改写 ctx 的固有成员**。`ctx` 仍是真实的
- * Cordis Context（`ctx.effect` / `ctx.on` / `ctx.tools` 语义原样），页面专用的
- * 记账面只出现在这个独立对象上：
- * - `effect` / `on`：首帧执行/订阅一次；有会话作用域（`agent.ctx`）时经它注册——
- *   事件按 agent 过滤、清理随作用域；否则随视图 teardown。视图提前退订时先执行。
- * - `tool`：记录工具定义，页面运行时在会话的 agent 作用域上挂载，随会话卸载。
- * The page's own lifecycle and tool-registration face: it **never rewrites the
- * inherent ctx members**. `ctx` stays a real Cordis Context (`ctx.effect` /
- * `ctx.on` / `ctx.tools` keep their semantics); page-only recording lives on
- * this separate object:
- * - `effect` / `on`: run/subscribe once on the first frame; with a session scope
- *   (`agent.ctx`) they register through it — agent-filtered events and
- *   scope-owned cleanup; otherwise they ride the view teardown, which also runs
- *   first when the view is unpublished early.
- * - `tool`: records a definition the page runtime mounts on the session's agent
- *   scope, removed with the session.
+ * 页面组件：props = URL params，agent = 页面会话的真实 Agent（原样，不包装、
+ * 不扩展）。体恰好执行一次；工具/订阅/清理直接经 `agent.ctx` 登记，返回值就是
+ * 正文元素树。
+ * The page component: props are the URL params; agent is the page session's
+ * real Agent (as-is — no wrapping, no extension). The body runs exactly once;
+ * tools/subscriptions/cleanups register directly via `agent.ctx`, and the
+ * return value is the body element tree.
  */
-export interface PageHooks {
-  effect(run: () => (() => void) | void): void
-  on(name: string, handler: (payload: unknown) => void): void
-  tool(definition: ToolDefinition): void
-}
-
-/** 页面组件 ctx：从会话作用域派生的宿主 ctx（服务面与固有成员原样，注册随会话回收）+ 页面 hooks 面；
- * 无会话作用域（暂存预览）时从创建者 ctx 派生
- * / the component ctx: the host ctx derived from the session scope (services and
- * inherent members intact; registrations unwind with the session) plus the page
- * hooks face; derived from the creator ctx when no session scope exists (an
- * agentless preview) */
-export type PageCtx = Context & { readonly page: PageHooks }
-
-/** 页面组件：props = URL params，ctx = 会话作用域派生的宿主 ctx + `ctx.page`
- * / a page component: props = the URL params, ctx = the session-scope-derived host ctx plus `ctx.page` */
 export type PageFC<P extends Record<string, unknown> = Record<string, unknown>> =
-  (props: P, ctx: PageCtx) => ElementInput
+  (props: P, agent: Agent) => ElementInput
 
 /** 组件页契约面（适配器并成 PageDefinition 时并入）/ the component page's contract face (merged into the PageDefinition by the adapter) */
 export interface ComponentPageMeta<P extends Record<string, unknown> = Record<string, unknown>> {
@@ -80,18 +50,16 @@ export interface ComponentPageMeta<P extends Record<string, unknown> = Record<st
   readonly name?: string
   readonly url: string
   readonly description: string
-  /** 外部权威 store（既有面）：订阅变化触发重渲，useSnapshot() 读其状态——数据面单一事实源。状态类型在 useSnapshot<T>() 处收窄
-   * / an external authoritative store (existing face): changes re-render and useSnapshot() reads its state — a single source of data fact. The state type narrows at useSnapshot<T>() */
-  readonly store?: ExternalStore<unknown>
-  /** 首屏数据（无 store 的页面用）：结果经 useSnapshot() 进组件；抛错 → 失败态进组件如实渲染 */
-  readonly load?: (params: P & PageParams, env: PageLoadEnv) => Promise<PageJsonValue>
-  readonly instructions?: string
-  /** 页面级 skills：随本页挂进会话 agent 作用域，随页面工具同一组清理
-   * / page-scope skills: mounted into the session's agent scope with the page, cleaned up with the tool group */
-  readonly skills?: readonly PageSkill[]
+  /** 写意图声明（§3.9/§3.10.1），语义见 PageDefinition.writes / the write-intent declaration, see PageDefinition.writes */
   readonly writes?: boolean
-  /** 会话列表标题（§3.6.1）：宿主会话列表的显示名，不进文档正文；缺省用 description
-   * / the session-list title (§3.6.1): the host session list's display name, never document body content; defaults to description */
+  /** 本页给模型的说明；随 PAGE 块附上 / the page note, appended to the PAGE block */
+  readonly instructions?: string
+  /** 页面级 skills：随本页挂进会话 agent 作用域 / page-scope skills mounted into the session's agent scope */
+  readonly skills?: readonly PageSkill[]
+  /** 首屏数据：结果经 useSnapshot() 进组件；抛错 → 失败态进组件如实渲染
+   * / the first-screen data: read via useSnapshot(); a throw renders the failure state honestly */
+  readonly load?: (params: P & PageParams, env: PageLoadEnv) => Promise<PageJsonValue>
+  /** 会话列表标题（§3.6.1）；缺省用 description / the session-list title (§3.6.1); defaults to description */
   readonly instanceTitle?: (params: P & PageParams) => string
 }
 
@@ -107,22 +75,7 @@ export function isComponentPageRegistration(value: unknown): value is ComponentP
   return typeof value === 'object' && value !== null && (value as { __componentPage?: boolean }).__componentPage === true
 }
 
-/** URL 末段 → 页面名（:param 取参数名）/ the last url segment → the page name (a :param uses its name) */
-function nameFromUrl(url: string): string {
-  // URL → 页面名：取应用段后第一个非 `:param` 段（/apps/tasks/task/:taskId → task）；
-  // 全为参数时退到第一个参数名，再退 'page'。
-  // The url → page name: the first non-`:param` segment after the app segment
-  // (/apps/tasks/task/:taskId → task); all-param urls fall back to the first
-  // parameter name, then 'page'.
-  const segments = url.split('/').filter((segment) => segment.length > 0)
-  const afterApp = segments.slice(2)
-  const named = afterApp.find((segment) => !segment.startsWith(':'))
-  if (named !== undefined) return named
-  const firstParam = afterApp.find((segment) => segment.startsWith(':'))
-  return firstParam !== undefined ? firstParam.slice(1) : 'page'
-}
-
-// ---- 页级渲染作用域：useSnapshot 的载体（渲染可嵌套，保存恢复）/ the page-render scope carrying useSnapshot ----
+// ---- 页级渲染作用域：useSnapshot 的载体（一次渲染内的环境读取）/ the page-render scope carrying useSnapshot ----
 
 interface PageRenderScope {
   readonly snapshot: PageJsonValue | undefined
@@ -142,8 +95,10 @@ function runWithPageRender<T>(scope: PageRenderScope, fn: () => T): T {
 
 /**
  * useSnapshot：读 meta.load 的首屏结果（含失败态——失败态也是数据，由组件如实渲染）。
+ * 仅在唯一一次渲染内可读；挂载之外调用返回 undefined。
  * useSnapshot: reads meta.load's first-screen result (failure states included —
- * they are data too, rendered honestly by the component).
+ * they are data too, rendered honestly by the component). Readable only inside
+ * the one render; returns undefined outside a mount.
  */
 export function useSnapshot<T = PageJsonValue>(): T {
   const scope = pageRenderStack[pageRenderStack.length - 1]
@@ -156,37 +111,28 @@ export function useSnapshot<T = PageJsonValue>(): T {
 export function defineComponentPage<P extends Record<string, unknown>>(
   component: PageFC<P>,
   meta: ComponentPageMeta<P>,
-  ctx?: Context,
 ): ComponentPageRegistration {
-  // load → useSnapshot 的桥：首屏结果先落 pending，live.mount 建视图时取走。
-  // 并发建会话时按序覆盖（reserve → load → mount 顺序执行）；边界见 README。
-  // The load→useSnapshot bridge: the first screen lands in pending, taken by
-  // live.mount when the view is built. Concurrent creations overwrite in order
-  // (reserve → load → mount run sequentially); the edge is documented in the README.
-  let pendingSnapshot: PageJsonValue | undefined
   const page: PageDefinition<never> = {
     name: meta.name ?? nameFromUrl(meta.url),
     url: meta.url,
     description: meta.description,
-    instructions: meta.instructions,
-    skills: meta.skills,
-    writes: meta.writes,
-    instanceTitle: meta.instanceTitle === undefined ? undefined : (params) => meta.instanceTitle!(params as P & PageParams),
-    load: meta.load === undefined ? undefined : (params, env) => meta.load!(params as P & PageParams, env),
+    ...(meta.writes === undefined ? {} : { writes: meta.writes }),
+    ...(meta.instructions === undefined ? {} : { instructions: meta.instructions }),
+    ...(meta.skills === undefined ? {} : { skills: meta.skills }),
+    ...(meta.load === undefined ? {} : { load: (params, env) => meta.load!(params as P & PageParams, env) }),
+    ...(meta.instanceTitle === undefined ? {} : { instanceTitle: (params) => meta.instanceTitle!(params as P & PageParams) }),
   }
   const live: PageLiveBinding = {
-    mount: (params, scope) => {
-      // 快照源：有 store 读权威 store（单一事实源）；无 store 由运行时经
-      // setSnapshot 下发 load 结果（含失败态）。
-      // The snapshot source: with a store read it (the single source of fact);
-      // without, the runtime pushes the load result (failures included) via
-      // setSnapshot.
-      const snapshotSource: () => PageJsonValue | undefined = meta.store === undefined
-        ? () => pendingSnapshot
-        : () => meta.store!.getState() as PageJsonValue
-      const view = createSessionView(component, meta, ctx, scope, params, page, snapshotSource)
-      pendingSnapshot = undefined
-      return view
+    mount: (params, agent, snapshot) => {
+      // 唯一一次渲染：体在页面会话的真实 Agent 上执行，产物即刻成型为 Markdown。
+      // 失败原样抛出（挂载方回滚整个半成品会话）。
+      // The only render: the body runs on the page session's real Agent and its
+      // output is finalized into Markdown at once. Failures rethrow (the mounter
+      // rolls back the whole half-built session).
+      return runWithPageRender(
+        { snapshot },
+        () => elementsToMarkdown(component({ ...params } as P, agent)),
+      )
     },
   }
   const registration: ComponentPageRegistration & { __componentPage: boolean } = {
@@ -197,211 +143,17 @@ export function defineComponentPage<P extends Record<string, unknown>>(
   return registration
 }
 
-// ---- 每会话视图（隔离的 hooks/文档/facade）/ the per-session view (isolated hooks/doc/facade) ----
-
-/** 每会话运行时状态 / the per-session runtime state */
-interface SessionRuntime<P> {
-  readonly cells: HookCell[]
-  readonly root: PromptRoot
-  readonly doc: MarkdownDocHost
-  readonly params: PageParams
-  readonly recordedTools: ToolDefinition[]
-  readonly subscriptions: Array<() => void>
-  readonly cleanups: Array<() => void>
-  snapshot: PageJsonValue | undefined
-  tornDown: boolean
-}
-
-/**
- * 页面 hooks 的记账实现：effect/on 按槽位只执行/订阅一次，tool 按名去重记录。
- * `scope` 是该会话的 agent 作用域（`agent.ctx`）：effect 的清理与事件订阅经它
- * 注册——事件按 agent 过滤、agent 销毁时兜底；视图提前退订时仍由 state 里的
- * 清理面提前执行（单次）。缺省（agent 未创建，如暂存预览）时清理随视图 teardown，
- * 订阅回退到 `fallbackCtx`（创建者 ctx）。
- * The page hooks' recording implementation: effect/on run/subscribe once per
- * slot and tool records by name. `scope` is the session's agent scope
- * (`agent.ctx`): effect cleanups and event subscriptions register through it —
- * agent-filtered events and agent-disposal fallback; an earlier view teardown
- * still runs the recorded cleanup first (once). Absent (no agent yet, e.g. a
- * staged preview), cleanup rides the view teardown and subscriptions fall back
- * to `fallbackCtx` (the creator ctx).
- */
-function createPageHooks<P>(state: SessionRuntime<P>, scope: Context | undefined, fallbackCtx: Context | undefined): PageHooks {
-  return {
-    tool: (definition: ToolDefinition): void => {
-      if (!state.recordedTools.some((existing) => existing.name === definition.name)) {
-        state.recordedTools.push(definition)
-      }
-    },
-    effect: (run: () => (() => void) | void): void => {
-      const cell = useSlot(() => ({ ran: false }))
-      if (cell.current.ran) return
-      cell.current.ran = true
-      const cleanup = run()
-      if (typeof cleanup !== 'function') return
-      if (scope === undefined) {
-        // 无会话作用域（暂存预览/裸注册）：清理随视图 teardown。
-        // No session scope (staged preview/bare registration): cleanup rides the view teardown.
-        state.cleanups.push(cleanup)
-        return
-      }
-      // 官方模型：清理归会话作用域（agent.ctx.effect），agent 销毁时自动执行；
-      // 视图提前退订（预览/废弃）时由 state.cleanups 里的 disposer 提前执行一次。
-      // The official model: the cleanup belongs to the session scope
-      // (agent.ctx.effect) and runs at agent disposal; an earlier view teardown
-      // (preview/deprecation) runs it once through the recorded disposer.
-      const dispose = scope.effect(() => cleanup, 'prompt-page: page effect')
-      state.cleanups.push(() => { void dispose() })
-    },
-    on: (name: string, handler: (payload: unknown) => void): void => {
-      const cell = useSlot(() => ({ subscribed: false }))
-      if (cell.current.subscribed) return
-      cell.current.subscribed = true
-      // 有会话作用域时经它订阅：scopeTarget 只放行该 agent 的事件。缺省回退到
-      // 创建者 ctx（暂存预览的订阅只活到预览视图退订）。
-      // With a session scope, subscribe through it: scopeTarget admits only that
-      // agent's events. The fallback is the creator ctx (a staged preview's
-      // subscription lives only until the preview view unsubscribes).
-      const target = scope ?? fallbackCtx
-      if (target === undefined) return
-      const dispose = (target as unknown as { on: (n: string, h: never) => () => void }).on(name, handler as never)
-      state.subscriptions.push(() => { dispose() })
-    },
-  }
-}
-
-/**
- * 把页面 hooks 挂到真实 ctx 上：`ctx.extend({ page })` 是 Cordis 的正式子上下文，
- * 固有成员（tools/effect/on）一个都不改。无 ctx 的裸注册（测试）只带 page 面；
- * 非 Cordis 的假 ctx 用原型继承兜底。
- * Hang the page hooks on the real ctx: `ctx.extend({ page })` is Cordis's child
- * context primitive and leaves every inherent member (tools/effect/on) intact.
- * A bare registration (tests) carries only the page face; a non-Cordis fake
- * falls back to prototype inheritance.
- */
-function pageCtxOf(ctx: Context | undefined, page: PageHooks): PageCtx {
-  if (ctx === undefined) return { page } as PageCtx
-  const extend = (ctx as { extend?: (meta: Record<PropertyKey, unknown>) => Context }).extend
-  return (typeof extend === 'function'
-    ? extend.call(ctx, { page })
-    : Object.assign(Object.create(ctx as object), { page })) as PageCtx
-}
-
-/** 每会话视图：渲染回路 + teardown + PageSession 结构面 / the per-session view: the render loop + teardown + the PageSession structural face */
-function createSessionView<P extends Record<string, unknown>>(
-  component: PageFC<P>,
-  meta: ComponentPageMeta<P>,
-  ctx: Context | undefined,
-  scope: Context | undefined,
-  params: PageParams,
-  page: PageDefinition<never>,
-  snapshot: () => PageJsonValue | undefined,
-): PageSession<never> & SnapshotSink & { takeRecordedTools(): ToolDefinition[] } {
-  const state: SessionRuntime<P> = {
-    cells: [],
-    root: createRoot({ append: () => undefined, revise: () => undefined, evict: () => undefined }),
-    doc: new MarkdownDocHost(),
-    params: { ...params },
-    recordedTools: [],
-    subscriptions: [],
-    cleanups: [],
-    snapshot: snapshot(),
-    tornDown: false,
-  }
-  const { root, doc } = state
-  // 页面 ctx 从会话 ctx 派生（ctx.extend：同一作用域的官方子上下文）——页面上的
-  // 固有成员注册随会话回收，服务读经会话链路解析（与工具执行里的 exec.agent.ctx
-  // 同一实现逻辑）；无会话作用域（暂存预览）时回退从创建者 ctx 派生。
-  // The component ctx derives from the session ctx (ctx.extend — the official
-  // same-scope child context): inherent-member registrations unwind with the
-  // session and service reads resolve through it (the same implementation logic
-  // as exec.agent.ctx in tool execution); without a session scope (a staged
-  // preview) it falls back to deriving from the creator ctx.
-  const componentCtx = pageCtxOf(scope ?? ctx, createPageHooks(state, scope, ctx))
-
-  /** 渲染一帧：组件（hooks + ctx.page）→ reconciler 展开 → fiber 树 → Markdown diff
-   * / render one frame: the component (hooks + ctx.page) → reconciler expansion → the fiber tree → a Markdown diff */
-  const renderNow = (): void => {
-    // 卸载守卫：视图退订后挂起中的异步回调（如 `.then(setState)`）不得再渲染
-    // 孤儿视图。设计文档 §5.3 的 unmounted guard 在此落实（幂等早返回）。
-    // Unmounted guard: a pending async callback (e.g. `.then(setState)`) must not
-    // render an orphan view after teardown. This implements §5.3's unmounted
-    // guard as an idempotent early return.
-    if (state.tornDown) return
-    const first: Fiber | null = root.current?.child ?? null
-    runWithPageRender({ snapshot: state.snapshot }, () =>
-      runWithHookScope(root, state.cells, () => {
-        const elements = component({ ...state.params } as P, componentCtx)
-        scheduleRender(root, elements)
-      }),
-    )
-    const after: Fiber | null = root.current?.child ?? null
-    if (docInitialized) doc.update(after)
-    else {
-      doc.initialize(after)
-      docInitialized = true
-    }
-    void first
-  }
-  let docInitialized = false
-
-  /** teardown：事件订阅 + effect 清理逆序 + 幂等（store 退订在其后叠加）
-   * / teardown: subscriptions + effect cleanups in reverse + idempotent (the store unsubscribe layers after) */
-  let teardown = (): void => {
-    if (state.tornDown) return
-    state.tornDown = true
-    for (const dispose of state.subscriptions) dispose()
-    for (const cleanup of [...state.cleanups].reverse()) cleanup()
-  }
-
-  root.refresh = () => renderNow()
-
-  // 外部权威 store 订阅（既有面）：变化 → 重渲 → diff → PAGE-PATCH；退订随 teardown
-  // / the external authoritative store subscription (existing face): change → re-render → diff → PAGE-PATCH; unsubscribed at teardown
-  if (meta.store !== undefined) {
-    // 订阅先刷新渲染作用域的快照（useSnapshot 读的是它），再触发重渲
-    // / the listener refreshes the render scope's snapshot (what useSnapshot reads) before triggering the re-render
-    const unsubscribeStore = meta.store.subscribe(() => {
-      state.snapshot = meta.store!.getState() as PageJsonValue | undefined
-      renderNow()
-    })
-    const previousTeardown = teardown
-    teardown = (): void => {
-      unsubscribeStore()
-      previousTeardown()
-    }
-  }
-
-  renderNow() // 首帧（initialize）
-
-  const session: PageSession<never> & SnapshotSink & { takeRecordedTools(): ToolDefinition[] } = {
-    page,
-    params: { ...params },
-    host: doc,
-    pointerMessage: `OPEN ${formatPath(page.url, params)} ${JSON.stringify(params)}`,
-    get version(): number {
-      return doc.currentVersion
-    },
-    syncText(cursor?: number): string {
-      return doc.takeMarkdownPatch(cursor ?? 0)?.text ?? ''
-    },
-    unsubscribe: () => teardown(),
-    takeRecordedTools: () => [...state.recordedTools],
-    setSnapshot: (value: PageJsonValue | undefined) => {
-      state.snapshot = value
-      renderNow()
-    },
-  }
-  return session
-}
-
-/** 快照下发面（page-registry 的 createPageSession 在 load 后调用）/ the snapshot sink (called by createPageSession after load) */
-export interface SnapshotSink {
-  setSnapshot(value: PageJsonValue | undefined): void
-}
-
-/** 快照下发面守卫 / a snapshot-sink guard */
-export function snapshotSinkOf(view: PageSession<never> | undefined): SnapshotSink | undefined {
-  if (view === undefined) return undefined
-  return typeof (view as { setSnapshot?: unknown }).setSnapshot === 'function' ? (view as unknown as SnapshotSink) : undefined
+/** URL 末段 → 页面名（:param 取参数名）/ the last url segment → the page name (a :param uses its name) */
+function nameFromUrl(url: string): string {
+  // URL → 页面名：取应用段后第一个非 `:param` 段（/apps/tasks/task/:taskId → task）；
+  // 全为参数时退到第一个参数名，再退 'page'。
+  // The url → page name: the first non-`:param` segment after the app segment
+  // (/apps/tasks/task/:taskId → task); all-param urls fall back to the first
+  // parameter name, then 'page'.
+  const segments = url.split('/').filter((segment) => segment.length > 0)
+  const afterApp = segments.slice(2)
+  const named = afterApp.find((segment) => !segment.startsWith(':'))
+  if (named !== undefined) return named
+  const firstParam = afterApp.find((segment) => segment.startsWith(':'))
+  return firstParam !== undefined ? firstParam.slice(1) : 'page'
 }

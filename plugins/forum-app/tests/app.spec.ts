@@ -19,25 +19,25 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { AppRegistryService } from '@veren/app-registry'
 import { PageRegistryService } from '@veren/page-registry'
-import { defineComponentPage, isMarkdownDocHost } from '@veren/prompt-page'
-import type { ComponentPageMeta, MarkdownDocHost, PageFC, PageParams } from '@veren/prompt-page'
-import { CatalogMeta, CatalogPage, CatalogPageTools, PostMeta, PostPage, PostPageTools } from '../src/pages.tsx'
+import { defineComponentPage } from '@veren/prompt-page'
+import type { ComponentPageMeta, PageFC, PageJsonValue, PageParams } from '@veren/prompt-page'
+import { createForumPages } from '../src/pages.tsx'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as ForumApp from '../src/index.ts'
 import { Config as AppConfig, FORUM_APP_DEFINITION, FORUM_APP_ID } from '../src/index.ts'
+import type { ForumToolsPort } from '@veren/forum'
 import ForumService, { Config as HostConfig } from '@veren/forum'
 
 /** The roots one spec's temp storage lives under, removed after the spec. 每条用例的临时存储根，测后删除。 */
 const roots: string[] = []
 
 afterEach(() => {
-  for (const unsubscribe of pageViews.splice(0).reverse()) unsubscribe()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
@@ -62,27 +62,73 @@ function toolValue<T>(result: unknown): T {
   return result as T
 }
 
-/** 本轮用例挂起的 live 页面视图，afterEach 逆序退订。Live page views to unsubscribe after each spec. */
-const pageViews: Array<() => void> = []
+/**
+ * 假会话 agent：记录组件体直登的定义（页面的工具面断言源）。
+ * A fake session agent: records the body's direct registrations (the assertion
+ * source of a page's tool face).
+ */
+function fakeAgent() {
+  const registered: Array<{ name: string; definition: unknown }> = []
+  const agent = {
+    ctx: {
+      tools: {
+        register: (definition: { name: string }) => {
+          registered.push({ name: definition.name, definition })
+          return () => undefined
+        },
+      },
+      effect: () => async () => undefined,
+      on: () => () => undefined,
+    },
+    session: { id: 'spec' },
+  }
+  return { agent: agent as never, registered }
+}
+
+/** 页面工厂的产物 + 记录型 agent（一次构造，多处使用）/ the factory product + a recording agent (built once, used everywhere) */
+interface ForumFixture {
+  pages: ReturnType<typeof createForumPages>
+  registered: Array<{ name: string; definition: unknown }>
+  agent: never
+}
+
+/** 建页面工厂（真 ctx + 真 port：构建器闭包它们）并挂一只记录型 agent
+ * / build the factory over the real ctx and port (the builders close over them) with a recording agent */
+function makeFixture(ctx: Context, port: () => ForumToolsPort): ForumFixture {
+  const { agent, registered } = fakeAgent()
+  return { pages: createForumPages(port, ctx), registered, agent }
+}
+
+/** 按本地名取组件体登记的全名定义（exec 与名字无关，测试直呼无碍）
+ * / a body-registered full-named definition by local name (execute ignores the name) */
+function toolOf(fixture: ForumFixture, localName: string): AppTool {
+  const found = fixture.registered.find((entry) => entry.name === `forum__${localName}`)
+  if (found === undefined) throw new Error(`tool forum__${localName} was not registered by the page bodies`)
+  return found.definition as AppTool
+}
 
 /**
- * 挂载真实页面组件并返回其文档宿主：正文里的 `ctx.forum` 经测试 ctx 的真实服务面
- * 解析——与生产装配同一组件、同一上下文语义，零工厂、零闭包注入。
- * Mount a real page component and return its doc host: the body's `ctx.forum`
- * resolves through the test ctx's real service face — the same component and
- * context semantics as the production assembly, zero factory, zero closures.
+ * 挂载真实页面组件（一次性渲染）并返回正文 Markdown：load 先取数（真实服务面，
+ * 失败按运行时信封包一层——firstScreenData 的同款形状），快照经 useSnapshot 进
+ * 正文——与生产同一条路，零工厂、零闭包注入。
+ * Mount a real page component (one-shot) and return the body Markdown: load
+ * fetches first (the real service face; failures wrap in the runtime envelope —
+ * the same shape as firstScreenData), the snapshot reaches the body via
+ * useSnapshot — the same path as production, zero factory, zero closures.
  */
-function mountPage(
-  component: PageFC,
-  meta: ComponentPageMeta,
-  ctx: Context,
+async function mountPage(
+  component: (props: never, agent: never) => unknown,
+  meta: ComponentPageMeta<never>,
+  port: () => ForumToolsPort,
   params: PageParams = {},
-): { host: MarkdownDocHost } {
-  const view = defineComponentPage(component, meta, ctx).live.mount(params)
-  pageViews.push(() => { view.unsubscribe() })
-  const host = isMarkdownDocHost(view.host) ? view.host : undefined
-  if (host === undefined) throw new Error('expected the markdown doc host')
-  return { host }
+): Promise<string> {
+  const { agent } = fakeAgent()
+  const snapshot = meta.load === undefined
+    ? undefined
+    : await meta.load(params as never, {}).catch(
+      (error: unknown) => ({ error: { code: 'page/load-failed', message: error instanceof Error ? error.message : String(error) }, retry: '重开本页 URL 即可重取首屏数据' }) as unknown as PageJsonValue,
+    )
+  return defineComponentPage(component as PageFC, meta as ComponentPageMeta).live.mount(params, agent, snapshot)
 }
 
 /**
@@ -97,6 +143,7 @@ async function mount(): Promise<{
   fiber: Fiber
   apps: AppRegistryService
   pageRegistry: PageRegistryService
+  port: () => ForumToolsPort
 }> {
   const ctx = new Context()
   const tools = new Map<string, AppTool>()
@@ -141,7 +188,7 @@ async function mount(): Promise<{
 
   const fiber = ctx.plugin(ForumApp, AppConfig({ reserved: false }))
   await fiber
-  return { ctx, fiber, apps, pageRegistry }
+  return { ctx, fiber, apps, pageRegistry, port: () => ctx.forum.toolsPort() }
 }
 
 describe('forum app discovery and resolution / 应用可发现与可解析', () => {
@@ -172,8 +219,6 @@ describe('forum app discovery and resolution / 应用可发现与可解析', () 
 
   it('every page URL lives under /apps/forum/, carries no preset, and titles its instances', async () => {
     const { apps, fiber } = await mount()
-    // 页面是工厂（闭包持有装配端口），结构断言直接读注册表里挂好的实例
-    // / pages are factories (closing over the assembly port); structural asserts read the registered instances
     const listed = apps.listPages(FORUM_APP_ID)
     for (const page of listed) {
       expect(page.url.startsWith('/apps/forum/')).toBe(true)
@@ -185,17 +230,18 @@ describe('forum app discovery and resolution / 应用可发现与可解析', () 
     await fiber.dispose()
   })
 
-  it('page tools carry the forum__ external-name prefix', async () => {
-    const { apps, fiber } = await mount()
-
-    // 登记顺序 = 逐页绑定顺序、同名只入目录一次：入口页三件套，随后详情页新增的三件
-    // （inbox 由入口页带入目录，详情页清单只是再声明挂同一份）。
-    // / the registration order is the per-page binding order with one definition per name:
-    // the catalog page's three, then the post page's three new ones (inbox entered with its first binding;
-    // the post page's manifest merely re-declares the same mount).
-    expect(apps.listTools(FORUM_APP_ID).map((tool) => tool.externalName)).toEqual([
-      'forum__list', 'forum__post', 'forum__inbox', 'forum__read', 'forum__comment', 'forum__vote',
-    ])
+  it('page tools carry the forum__ external-name prefix (bodies register full names in the one render)', async () => {
+    const { ctx, fiber, port } = await mount()
+    const fixture = makeFixture(ctx, port)
+    // 按页断言：入口页三件；详情页四件（inbox 两页都挂——处理主题的会话也要读通知）
+    // / per-page asserts: the catalog page's three; the post page's four (inbox
+    // rides both pages — a session working one post still reads its notices)
+    const catalogRegistration = defineComponentPage(fixture.pages.CatalogPage, fixture.pages.CatalogMeta)
+    catalogRegistration.live.mount({}, fixture.agent, undefined)
+    expect(fixture.registered.map((entry) => entry.name)).toEqual(['forum__list', 'forum__post', 'forum__inbox'])
+    const postRegistration = defineComponentPage(fixture.pages.PostPage, fixture.pages.PostMeta)
+    postRegistration.live.mount({ postId: 'p-1' }, fixture.agent, undefined)
+    expect(fixture.registered.slice(3).map((entry) => entry.name)).toEqual(['forum__read', 'forum__comment', 'forum__vote', 'forum__inbox'])
 
     await fiber.dispose()
   })
@@ -222,21 +268,25 @@ describe('forum app discovery and resolution / 应用可发现与可解析', () 
 
 describe('forum app tools act on the real service / 应用工具作用于真实服务', () => {
   it('publishes through forum__post and reads back through forum__list', async () => {
-    const { ctx, apps, fiber } = await mount()
-    const toolOf = (name: string): AppTool => apps.listTools(FORUM_APP_ID).find((tool) => tool.name === name)!
+    const { ctx, fiber, port } = await mount()
+    const fixture = makeFixture(ctx, port)
+    // 两个组件体的登记动作把构建器产物带出来（execute 与名字无关）
+    // / the bodies' registrations bring the builder products out (execute ignores the name)
+    defineComponentPage(fixture.pages.CatalogPage, fixture.pages.CatalogMeta).live.mount({}, fixture.agent, undefined)
+    defineComponentPage(fixture.pages.PostPage, fixture.pages.PostMeta).live.mount({ postId: 'p-1' }, fixture.agent, undefined)
     const boardId = (await ctx.forum.ensureBoardRemote({ workspaceId: 'ws-1', path: 'C:/work/demo' })).id
 
     // The page tool resolves the caller from the live Agent — no author
     // argument — and writes the same record set the host tools serve.
     // 页面工具从活 Agent 解析调用者——没有作者参数——并写入宿主工具所服务的同一份记录集合。
     const written = toolValue<{ value: { id: string } }>(
-      await toolOf('post').execute({ title: 'from the page', body: 'body' }, { agent: AGENT }),
+      await toolOf(fixture, 'post').execute({ title: 'from the page', body: 'body' }, { agent: AGENT }),
     )
     const listed = toolValue<{ posts: Array<{ id: string }> }>(
-      await toolOf('list').execute({ boardId }, { agent: AGENT }),
+      await toolOf(fixture, 'list').execute({ boardId }, { agent: AGENT }),
     )
     expect(listed.posts.map((post) => post.id)).toContain(written.value.id)
-    await expect(toolOf('post').execute({ title: 'x', body: 'y' }, {}))
+    await expect(toolOf(fixture, 'post').execute({ title: 'x', body: 'y' }, {}))
       .rejects.toMatchObject({ code: 'no_caller' })
 
     await fiber.dispose()
@@ -256,69 +306,51 @@ describe('forum app lifecycle / 生命周期', () => {
   })
 })
 
-describe('目录 = 挂载 = 说明 三方可核对 / catalog = mount = instructions', () => {
+describe('挂载 = 说明 两方可核对 / mount = instructions', () => {
   /** Pull the `forum__*` names an instruction text promises. 从说明文本里提取它承诺的 forum__* 工具名。 */
   function namedTools(text: string | undefined): Set<string> {
     return new Set(text?.match(/forum__[a-z_]+/g) ?? [])
   }
 
-  /** The external names of one page's mounted tools. 一个页面所挂工具的外部名。 */
-  function mountedOf(page: { tools?: readonly string[] }): Set<string> {
-    return new Set((page.tools ?? []).map((name) => `forum__${name}`))
+  /** The external names one page's body registers. 一个页面组件体登记的外部名。 */
+  function registeredOf(fixture: ForumFixture, page: 'catalog' | 'post'): Set<string> {
+    const before = fixture.registered.length
+    void (page === 'catalog'
+      ? defineComponentPage(fixture.pages.CatalogPage, fixture.pages.CatalogMeta).live.mount({}, fixture.agent, undefined)
+      : defineComponentPage(fixture.pages.PostPage, fixture.pages.PostMeta).live.mount({ postId: 'p-1' }, fixture.agent, undefined))
+    return new Set(fixture.registered.slice(before).map((entry) => entry.name))
   }
 
-  it('工具绑定长在页面上：meta.tools 与目录意图都从每页唯一声明推导（无第二份名单）', () => {
-    // meta.tools 由声明推导（构造上不可漂移）；断言钉住声明的具体内容与共有工具（inbox）语义。
-    // / meta.tools derives from the declaration (drift-proof by construction); the asserts pin the
-    // declaration's concrete content and the shared-tool (inbox) semantics.
-    expect(CatalogPageTools.map((binding) => binding.name)).toEqual(['list', 'post', 'inbox'])
-    expect(PostPageTools.map((binding) => binding.name)).toEqual(['read', 'comment', 'vote', 'inbox'])
-    expect(CatalogMeta.tools).toEqual(CatalogPageTools.map((binding) => binding.name))
-    expect(PostMeta.tools).toEqual(PostPageTools.map((binding) => binding.name))
-  })
-
-  it('应用目录与页面挂载一一对应：无目录外挂载，也无挂载外目录项', async () => {
-    const { apps, fiber } = await mount()
-
-    const catalog = new Set(apps.listTools(FORUM_APP_ID).map((tool) => tool.externalName))
-    const mounted = new Set(apps.listPages(FORUM_APP_ID).flatMap((page) => [...mountedOf(page)]))
-    expect(mounted).toEqual(catalog)
-
+  it('每页说明点名的工具恰好等于该页组件体登记的工具（承诺 = 登记）', async () => {
+    const { ctx, fiber, port } = await mount()
+    const fixture = makeFixture(ctx, port)
+    expect(namedTools(fixture.pages.CatalogMeta.instructions)).toEqual(registeredOf(fixture, 'catalog'))
+    expect(namedTools(fixture.pages.PostMeta.instructions)).toEqual(registeredOf(fixture, 'post'))
     await fiber.dispose()
   })
 
-  it('每页说明点名的工具恰好等于该页挂载的工具（承诺 = 挂载）', async () => {
-    const { apps, fiber } = await mount()
-
-    for (const page of apps.listPages(FORUM_APP_ID)) {
-      expect(namedTools(page.instructions), `page "${page.name}" instructions`).toEqual(mountedOf(page))
-    }
-
-    await fiber.dispose()
-  })
-
-  it('应用说明点名的工具都被某一页挂载', async () => {
-    const { apps, fiber } = await mount()
-
-    const mounted = new Set(apps.listPages(FORUM_APP_ID).flatMap((page) => [...mountedOf(page)]))
+  it('应用说明点名的工具都被某一页登记', async () => {
+    const { ctx, fiber, port } = await mount()
+    const fixture = makeFixture(ctx, port)
+    registeredOf(fixture, 'catalog')
+    registeredOf(fixture, 'post')
+    const mounted = new Set(fixture.registered.map((entry) => entry.name))
     const named = namedTools(FORUM_APP_DEFINITION.instructions)
     expect(named.size).toBeGreaterThan(0)
     for (const name of named) {
-      expect(mounted.has(name), `${name} named by the app note must be mounted on some page`).toBe(true)
+      expect(mounted.has(name), `${name} named by the app note must be registered on some page`).toBe(true)
     }
 
     await fiber.dispose()
   })
 
-  it('收件箱工具两个页面都挂，首页如实声明写意图', async () => {
+  it('收件箱工具两个页面都登记，首页如实声明写意图', async () => {
     const { apps, fiber } = await mount()
 
     const pages = apps.listPages(FORUM_APP_ID)
     const catalog = pages.find((page) => page.name === 'catalog')
     const post = pages.find((page) => page.name === 'post')
-    expect(catalog?.tools).toEqual(['list', 'post', 'inbox'])
     expect(catalog?.writes).toBe(true)
-    expect(post?.tools).toEqual(['read', 'comment', 'vote', 'inbox'])
     expect(post?.writes).toBe(true)
 
     await fiber.dispose()
@@ -326,19 +358,19 @@ describe('目录 = 挂载 = 说明 三方可核对 / catalog = mount = instructi
 })
 
 describe('§3.10 页面 = 信息 + 工具：正文渲染真实记录，每行带 id / the body renders the real records, ids on every row', () => {
-  it('入口页正文渲染真实目录：板块/主题/人物行内带 id，读取中先如实在场', async () => {
+  it('入口页正文渲染真实目录：板块/主题/人物行内带 id（load 取数，正文同步成型）', async () => {
     const { ctx, fiber } = await mount()
     const board = await ctx.forum.ensureBoardRemote({ workspaceId: 'ws-1', path: 'C:/work/demo' })
     await ctx.forum.toolsPort().publish({
       boardId: board.id, author: 'standard', title: '开版帖', body: '第一篇',
     })
-    const { host } = mountPage(CatalogPage, CatalogMeta, ctx)
-    await vi.waitFor(() => expect(host.bodyText()).toContain('论坛 · 板块与主题列表'))
+    const fixture = makeFixture(ctx, () => ctx.forum.toolsPort())
+    const body = await mountPage(fixture.pages.CatalogPage, fixture.pages.CatalogMeta, () => ctx.forum.toolsPort())
+    expect(body).toContain('论坛 · 板块与主题列表')
     // 板块行：id 是工具要用的 boardId / the board row: its id is the tool's boardId
-    await vi.waitFor(() => expect(host.bodyText()).toContain('id: ws-1'))
-    await vi.waitFor(() => expect(host.bodyText()).toContain('开版帖（id:'))
-    await vi.waitFor(() => expect(host.bodyText()).toContain('作者 standard'))
-    await vi.waitFor(() => expect(host.bodyText()).toContain('standard'))
+    expect(body).toContain('id: ws-1')
+    expect(body).toContain('开版帖（id:')
+    expect(body).toContain('作者 standard')
   })
 
   it('详情页正文渲染该主题与评论树：评论行内 id 可作 parentCommentId/subjectId', async () => {
@@ -350,28 +382,41 @@ describe('§3.10 页面 = 信息 + 工具：正文渲染真实记录，每行带
     await ctx.forum.toolsPort().comment({
       postId: created.value.id, author: 'ptc', body: '前排回复',
     })
-    const { host } = mountPage(PostPage, PostMeta, ctx, { postId: created.value.id })
-    await vi.waitFor(() => expect(host.bodyText()).toContain('被读的帖'))
-    await vi.waitFor(() => expect(host.bodyText()).toContain(`id: ${created.value.id}`))
-    await vi.waitFor(() => expect(host.bodyText()).toContain('全文在这里'))
-    await vi.waitFor(() => expect(host.bodyText()).toContain('前排回复'))
+    const fixture = makeFixture(ctx, () => ctx.forum.toolsPort())
+    const body = await mountPage(fixture.pages.PostPage, fixture.pages.PostMeta, () => ctx.forum.toolsPort(), { postId: created.value.id })
+    expect(body).toContain('被读的帖')
+    expect(body).toContain(`id: ${created.value.id}`)
+    expect(body).toContain('全文在这里')
+    expect(body).toContain('前排回复')
     // 评论行格式：作者（id: ...）：内容 / the comment row format: author (id: ...): body
-    await vi.waitFor(() => expect(host.bodyText()).toContain('ptc（id:'))
+    expect(body).toContain('ptc（id:')
   })
 
-  it('主题不存在：失败态如实渲染（失败态也是数据，不编造内容）', async () => {
-    const { ctx, fiber } = await mount()
-    const { host } = mountPage(PostPage, PostMeta, ctx, { postId: 'p-missing' })
-    await vi.waitFor(() => expect(host.bodyText()).toContain('主题读取失败'))
-    // 服务面的稳定拒绝消息原样进正文（code 面 由 forum 包自己的工具测试锁定）
-    // / the service's stable refusal message lands verbatim (the code face is locked in the forum package's own tool tests)
-    await vi.waitFor(() => expect(host.bodyText()).toContain('no post with id "p-missing"'))
+  it('主题不存在：load 抛错 → 运行时失败态信封经 useSnapshot 如实渲染（失败态也是数据）', async () => {
+    const { ctx, fiber, port } = await mount()
+    const fixture = makeFixture(ctx, port)
+    // load 会 reject（服务面的稳定拒绝）——测试按运行时信封下发失败态，
+    // 组件正文必须原样携带拒绝消息（code 面由 forum 包自己的工具测试锁定）。
+    // / load rejects (the service's stable refusal) — the test hands the runtime
+    // envelope down; the body must carry the refusal verbatim (the code face is
+    // locked in the forum package's own tool tests).
+    await expect(fixture.pages.PostMeta.load?.({ postId: 'p-missing' }, {})).rejects.toThrow('no post with id "p-missing"')
+    const body = await mountPage(
+      fixture.pages.PostPage,
+      fixture.pages.PostMeta,
+      () => ctx.forum.toolsPort(),
+      { postId: 'p-missing' },
+    )
+    expect(body).toContain('主题读取失败')
+    expect(body).toContain('no post with id "p-missing"')
   })
 
   it('说明指向正文行内 id：两页 instructions 都写明 id 取法', async () => {
-    expect(CatalogMeta.instructions).toContain('行内')
-    expect(CatalogMeta.instructions).toContain('id')
-    expect(PostMeta.instructions).toContain('行内')
-    expect(PostMeta.instructions).toContain('id')
+    const { ctx, port } = await mount()
+    const fixture = makeFixture(ctx, port)
+    expect(fixture.pages.CatalogMeta.instructions).toContain('行内')
+    expect(fixture.pages.CatalogMeta.instructions).toContain('id')
+    expect(fixture.pages.PostMeta.instructions).toContain('行内')
+    expect(fixture.pages.PostMeta.instructions).toContain('id')
   })
 })

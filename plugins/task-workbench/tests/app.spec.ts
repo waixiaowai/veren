@@ -1,9 +1,9 @@
 /**
  * 组合测试：真实 cordis Context + 真实 AppRegistryService/PageRegistryService，
- * 锁定验收面：目录可发现、入口 URL 可解析、三页 URL 前缀、工具外部名前缀、
+ * 锁定验收面：目录可发现、入口 URL 可解析、三页 URL 前缀、工具全名、
  * taskCenter 走显式 inject 的真实接缝、装配失败不留半接线。
  * Composition tests: real cordis Context with real registries; locks catalog
- * discovery, entry-url resolution, url prefixes, tool external names, the real
+ * discovery, entry-url resolution, url prefixes, full tool names, the real
  * task-center seam over an explicit inject, and rollback without half-wiring.
  */
 import { afterEach, describe, expect, it } from 'vitest'
@@ -13,23 +13,43 @@ import AppRegistryPlugin, { AppRegistryService } from '@veren/app-registry'
 import type { AppId } from '@veren/app-registry'
 import PageRegistryPlugin, { PageRegistryService } from '@veren/page-registry'
 import { apply, inject, name } from '../src/index.ts'
-import { APP_ID, APP_DEFINITION, createAppTools } from '../src/app.ts'
-import { defineComponentPage, isMarkdownDocHost } from '@veren/prompt-page'
-import type { ComponentPageMeta, PageFC, PageParams } from '@veren/prompt-page'
+import { APP_ID, APP_DEFINITION, createAppTools, createTaskChannel } from '../src/app.ts'
+import { defineComponentPage } from '@veren/prompt-page'
+import type { ComponentPageMeta, PageFC, PageJsonValue, PageParams } from '@veren/prompt-page'
 import { createTaskPages } from '../src/pages.tsx'
 import { TaskStore, makeList } from '../src/store.ts'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 
-// 页面定义是工厂（闭包持有装配时的权威 store），测试用一份独立 store 实例化；
-// 这些断言只读结构（URL/标题），不触碰数据。
-// Page definitions are factories closing over the assembly's store, so the tests
-// instantiate them against a throwaway store; these assertions read structure only.
+// 页面定义是工厂（闭包持有装配时的权威 store 与全名工具），测试用一份独立
+// store 实例化；这些断言只读结构（URL/标题），不触碰数据。
+// Page definitions are factories closing over the assembly's store and tools,
+// so the tests instantiate them against a throwaway store; these assertions
+// read structure only.
 const testStore = new TaskStore(makeList(3))
-// 组件页工厂（组件形态，RFC prompt-page-render §3.5）：组件与契约面成对导出
-// / the component-page factory (the component form): components and contract faces ship as pairs
-const taskPages = createTaskPages(testStore)
+/** 全名工具（与 index.ts 的装配同一拼法）/ the full-named tools (same spelling as index.ts's wiring) */
+const testTools: ToolDefinition[] = createAppTools(testStore, fakeTaskCenter().contract as never, { liveDetailTaskOf: async () => undefined })
+  .map((tool) => ({ ...tool, name: `task_workbench__${tool.name}` }))
+// 组件页工厂（一次性渲染形态）：组件与契约面成对导出
+// / the component-page factory (the one-shot form): components and contract faces ship as pairs
+const taskPages = createTaskPages(testStore, testTools)
 const listPage = { ...taskPages.ListMeta, component: taskPages.ListPage }
 const detailPage = { ...taskPages.DetailMeta, component: taskPages.DetailPage }
 const publishPage = { ...taskPages.PublishMeta, component: taskPages.PublishPage }
+
+/** 假会话 agent：记录组件体直登的工具（页面工具面的断言源）
+ * / a fake session agent: records the body's direct registrations (the assertion source of a page's tool face) */
+function fakeAgent() {
+  const registered: string[] = []
+  const agent = {
+    ctx: {
+      tools: { register: (definition: { name: string }) => { registered.push(definition.name); return () => undefined } },
+      effect: () => async () => undefined,
+      on: () => () => undefined,
+    },
+    session: { id: 'spec' },
+  }
+  return { agent: agent as never, registered }
+}
 
 /** 假任务中心：记录 send/addSubtask 调用；parentMissing 时 get 找不到父记录
  * / a fake task center recording send calls; with parentMissing, get finds no parent */
@@ -130,19 +150,23 @@ describe('应用可被发现与解析', () => {
     expect(detailPage.url).toBe('/apps/task-workbench/task/:taskId')
     expect(detailPage.instanceTitle?.({ taskId: '1' })).toBe('任务 #1')
     // 矩阵（§3.10.1）：详情页的活是"动这一条"——页面作用域接取必须挂在详情页，
-    // 且带参 take_task 留在列表页（任意 id 的浏览入口职责）。
+    // 且带参 take_task 留在列表页（任意 id 的浏览入口职责）。工具面 = 组件体
+    // 直登（一次性渲染），假 agent 记录登记名。
     // / Matrix (§3.10.1): the detail page's job is to act on its one record — the
     // page-scoped take must sit here, while the parametered take_task stays on
-    // the list page (the browsing entry's arbitrary-id duty).
-    expect(detailPage.tools).toContain('take_page_task')
-    expect(detailPage.tools).not.toContain('take_task')
-    expect(listPage.tools).toContain('take_task')
+    // the list page. The tool face = the body's registrations (one-shot), recorded
+    // by the fake agent.
+    const detailRegistered = fakeAgent()
+    defineComponentPage(detailPage.component, detailPage).live.mount({ taskId: 't-1' }, detailRegistered.agent, undefined)
+    expect(detailRegistered.registered).toContain('task_workbench__take_page_task')
+    expect(detailRegistered.registered).not.toContain('task_workbench__take_task')
+    const listRegistered = fakeAgent()
+    defineComponentPage(listPage.component, listPage).live.mount({}, listRegistered.agent, undefined)
+    expect(listRegistered.registered).toContain('task_workbench__take_task')
   })
 
-  it('页面工具对外名带 task_workbench__ 前缀', async () => {
-    const { apps, fiber } = await install()
-    disposers.push(() => fiber.dispose())
-    const externalNames = apps.listTools(APP_ID as AppId).map((tool) => tool.externalName)
+  it('页面工具对外名带 task_workbench__ 前缀（工具不再走应用目录，全名在创建处拼定）', () => {
+    const externalNames = testTools.map((tool) => tool.name)
     expect(externalNames).toEqual([
       'task_workbench__take_task',
       'task_workbench__take_page_task',
@@ -154,14 +178,32 @@ describe('应用可被发现与解析', () => {
   })
 })
 
+/** 共享夹具：一份 store + 一份 fake 任务中心 + 按本地名取工具（两个 describe 共用）
+ * / a shared harness: one store + one fake task center + tools by local name (shared by both describes) */
+function harness(parentMissing = false): {
+  sent: Array<Record<string, unknown>>
+  splits: Array<Record<string, unknown>>
+  store: TaskStore
+  toolOf(toolName: string): ToolDefinition
+} {
+    const fake = fakeTaskCenter(parentMissing)
+    const store = new TaskStore(makeList(3))
+    const tools = createAppTools(store, createTaskChannel(fake.contract as never), { liveDetailTaskOf: async () => undefined })
+    const toolOf = (toolName: string): ToolDefinition => {
+      const found = tools.find((tool) => tool.name === toolName)
+      if (found === undefined) throw new Error(`tool ${toolName} is not defined`)
+      return found
+    }
+    return { ...fake, store, toolOf }
+}
+
 describe('任务接缝', () => {
-  it('装配中途失败（第三页镜像抛错）→ 应用、工具、已镜像页面整组回滚，不留半接线', async () => {
+  it('装配中途失败（第三页镜像抛错）→ 应用、已镜像页面整组回滚，不留半接线', async () => {
     // 镜像面在前两页照常、第三页（publish）抛错：插件注册到第三步的中途才失败，
-    // 此时应用定义、全部工具、前两页的镜像都已完成——正是要验证的"半接线"场景。
+    // 此时应用定义、前两页的镜像都已完成——正是要验证的"半接线"场景。
     // The mirror behaves for the first two pages and throws on the third
-    // ("publish"): the plugin fails midway through step 3 with the definition,
-    // every tool, and two mirrored pages already in place — the half-wiring
-    // scenario under test.
+    // ("publish"): the plugin fails midway through step 3 with the definition
+    // and two mirrored pages already in place — the half-wiring scenario under test.
     const ctx = new Context()
     const hostCtx = new Context()
     const apps = new AppRegistryService(hostCtx)
@@ -181,7 +223,6 @@ describe('任务接缝', () => {
     // rolled back:
     await expect(ctx.plugin({ name, inject, apply }, { listSize: 3 })).rejects.toThrow('mirror exploded')
     expect(apps.catalog()).toHaveLength(0)
-    expect(() => apps.listTools(APP_ID as AppId)).toThrow()
     expect(() => apps.listPages(APP_ID as AppId)).toThrow()
     // page-registry 里也不残留：已镜像的两页被逆序摘除。
     // Nothing lingers in the page registry: the two mirrored pages were
@@ -200,10 +241,8 @@ describe('任务接缝', () => {
   })
 
   it('taskCenter 在场：publish_task 调 send，draft.target 指向详情页规范 URL', async () => {
-    const { apps, fiber, sent } = await install()
-    disposers.push(() => fiber.dispose())
-    const publish = apps.listTools(APP_ID as AppId).find((tool) => tool.name === 'publish_task')
-    const outcome = await publish?.execute({ title: '评审 PR #7' }, {} as never) as { ok: boolean }
+    const { toolOf, sent } = harness()
+    const outcome = await toolOf('publish_task').execute({ title: '评审 PR #7' }, {} as never) as { ok: boolean }
     expect(outcome.ok).toBe(true)
     expect(sent).toHaveLength(1)
     expect(sent[0]).toMatchObject({
@@ -213,10 +252,7 @@ describe('任务接缝', () => {
   })
 
   it('take/complete/abandon 状态机：非法迁移返回结构化结果而非抛错', async () => {
-    const { apps, fiber } = await install()
-    disposers.push(() => fiber.dispose())
-    const toolOf = (toolName: string) =>
-      apps.listTools(APP_ID as AppId).find((tool) => tool.name === toolName)!
+    const { toolOf } = harness()
     expect(await toolOf('complete_task').execute({ task_id: 't-1' }, {} as never))
       .toMatchObject({ ok: false, code: 'bad-task-state' })
     expect(await toolOf('take_task').execute({ task_id: 't-1' }, {} as never)).toMatchObject({ ok: true })
@@ -229,74 +265,73 @@ describe('任务接缝', () => {
 })
 
 describe('拆分子任务（§4.7.6/§4.7.8）', () => {
-  const toolOf = (apps: AppRegistryService, toolName: string) =>
-    apps.listTools(APP_ID as AppId).find((tool) => tool.name === toolName)!
-
   it('taskCenter 在场：split_task 走 addSubtask，父 id 与标题透传', async () => {
-    const { apps, fiber, splits } = await install()
-    disposers.push(() => fiber.dispose())
+    const { toolOf, splits } = harness()
     // 本地门槛：只有 taken 节点能拆 / local gate: taken nodes only
-    expect(await toolOf(apps, 'split_task').execute({ task_id: 't-1', title: '子步骤' }, {} as never))
+    expect(await toolOf('split_task').execute({ task_id: 't-1', title: '子步骤' }, {} as never))
       .toMatchObject({ ok: false, code: 'bad-task-state' })
-    expect(await toolOf(apps, 'take_task').execute({ task_id: 't-1' }, {} as never)).toMatchObject({ ok: true })
-    expect(await toolOf(apps, 'split_task').execute({ task_id: 't-1', title: '子步骤' }, {} as never))
+    expect(await toolOf('take_task').execute({ task_id: 't-1' }, {} as never)).toMatchObject({ ok: true })
+    expect(await toolOf('split_task').execute({ task_id: 't-1', title: '子步骤' }, {} as never))
       .toMatchObject({ ok: true })
     expect(splits).toHaveLength(1)
     expect(splits[0]).toMatchObject({ parentId: 't-1', draft: { title: '子步骤' } })
   })
 
   it('taskCenter 找不到父任务：split_task 以工具错误失败（fail loud），树形事实留在本地', async () => {
-    const { apps, fiber } = await install({ parentMissing: true })
-    disposers.push(() => fiber.dispose())
-    await toolOf(apps, 'take_task').execute({ task_id: 't-1' }, {} as never)
-    await expect(toolOf(apps, 'split_task').execute({ task_id: 't-1', title: '子步骤' }, {} as never))
+    const { toolOf } = harness(true)
+    await toolOf('take_task').execute({ task_id: 't-1' }, {} as never)
+    await expect(toolOf('split_task').execute({ task_id: 't-1', title: '子步骤' }, {} as never))
       .rejects.toThrow('parent task t-1 not found')
   })
 })
 
 describe('工具面口径（承诺=挂载，事实源如实）', () => {
-  /** 三页的 meta 面与正文取词面（正文经组件挂载渲染，验证 WYSIWYG 一致性）
-   * / the three pages' meta faces and body text (bodies render via mounted
-   * components, proving the WYSIWYG consistency) */
+  /** 三页的 meta 面与正文取词面（正文经一次性挂载渲染，验证 WYSIWYG 一致性）
+   * / the three pages' meta faces and body text (bodies render via the one-shot
+   * mount, proving the WYSIWYG consistency) */
   const metas = [
-    { key: 'list', meta: taskPages.ListMeta, component: taskPages.ListPage, params: {} },
-    { key: 'detail', meta: taskPages.DetailMeta, component: taskPages.DetailPage, params: { taskId: 't-1' } },
-    { key: 'publish', meta: taskPages.PublishMeta, component: taskPages.PublishPage, params: {} },
+    { key: 'list', meta: taskPages.ListMeta, component: taskPages.ListPage, params: {} as PageParams },
+    { key: 'detail', meta: taskPages.DetailMeta, component: taskPages.DetailPage, params: { taskId: 't-1' } as PageParams },
+    { key: 'publish', meta: taskPages.PublishMeta, component: taskPages.PublishPage, params: {} as PageParams },
   ] as const
 
-  /** 组件正文取词面：用页面自己的 meta 挂载（与真实注册同一条路）
-   * / the body-text face: mounts with the page's own meta (the same path as a
-   * real registration) */
-  function bodyTextOf(component: PageFC, meta: ComponentPageMeta, params: PageParams): string {
-    const view = defineComponentPage(component, meta).live.mount(params)
-    return isMarkdownDocHost(view.host) ? view.host.bodyText() : ''
+  /** 组件正文取词面：用页面自己的 meta 挂载（与真实注册同一条路）；登记名随挂载返回
+   * / the body-text face: mounts with the page's own meta (the same path as a real
+   * registration); the registered names come back with the mount */
+  function bodyTextOf(component: (props: never, agent: never) => unknown, meta: ComponentPageMeta<never>, params: PageParams): { body: string; registered: string[] } {
+    const { agent, registered } = fakeAgent()
+    const body = defineComponentPage(component as PageFC, meta as ComponentPageMeta).live.mount(params, agent, undefined)
+    return { body, registered }
   }
 
-  it('页面=信息+工具，缺一不可：每页说明非空且至少挂载一个工具', () => {
-    for (const { key, meta } of metas) {
+  it('页面=信息+工具，缺一不可：每页说明非空且至少登记一个工具', () => {
+    for (const { key, meta, component, params } of metas) {
       expect((meta.instructions ?? '').trim().length, `${key} 页缺页面说明`).toBeGreaterThan(0)
-      expect(meta.tools?.length ?? 0, `${key} 页缺挂载工具`).toBeGreaterThan(0)
+      const { registered } = bodyTextOf(component, meta, params)
+      expect(registered.length, `${key} 页缺登记工具`).toBeGreaterThan(0)
     }
   })
 
-  it('每页挂载的工具都在说明里点名（挂了就要说）', () => {
-    for (const { key, meta } of metas) {
-      for (const tool of meta.tools ?? []) {
-        expect(meta.instructions, `${key} 页挂载的 ${tool} 未在说明中点名`).toContain(tool)
+  it('每页登记的工具都在说明里点名（挂了就要说）', () => {
+    for (const { key, meta, component, params } of metas) {
+      const { registered } = bodyTextOf(component, meta, params)
+      for (const fullName of registered) {
+        const localName = fullName.split('__').pop() ?? fullName
+        expect(meta.instructions, `${key} 页登记的 ${localName} 未在说明中点名`).toContain(localName)
       }
     }
   })
 
-  it('目录里每个工具都至少挂在一个页面上（无死工具）', () => {
-    const mounted = new Set(metas.flatMap(({ meta }) => meta.tools ?? []))
-    for (const tool of createAppTools(new TaskStore([]), fakeTaskCenter().contract as never, { liveDetailTaskOf: async () => undefined })) {
-      expect(mounted.has(tool.name), `目录工具 ${tool.name} 没有挂载在任何页面`).toBe(true)
+  it('每个工具都至少登记在一个页面上（无死工具）', () => {
+    const mounted = new Set(metas.flatMap(({ component, meta, params }) => bodyTextOf(component, meta, params).registered))
+    for (const tool of testTools) {
+      expect(mounted.has(tool.name), `工具 ${tool.name} 没有登记在任何页面`).toBe(true)
     }
   })
 
-  it('发布页不点名 split_task（它挂载在详情页——越页点名就是假承诺）', () => {
+  it('发布页不点名 split_task（它登记在详情页——越页点名就是假承诺）', () => {
     expect(taskPages.PublishMeta.instructions).not.toContain('split_task')
-    expect(bodyTextOf(taskPages.PublishPage, taskPages.PublishMeta, {})).not.toContain('split_task')
+    expect(bodyTextOf(taskPages.PublishPage, taskPages.PublishMeta, {}).body).not.toContain('split_task')
     // 路由表述仍在：接取者在其详情页现场拆分 / the routing stays: the claimant
     // splits on its own detail page
     expect(taskPages.PublishMeta.instructions).toContain('详情页现场拆分')
@@ -361,28 +396,30 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     // WYSIWYG：组件读 store 渲染 Markdown——标题与子树进度逐字来自 store
     // / WYSIWYG: the component renders the store to Markdown — titles and
     // subtree progress come verbatim from the store
-    const pages = createTaskPages(store)
-    const registration = defineComponentPage(pages.ListPage, pages.ListMeta)
-    const view = registration.live.mount({})
-    const body = isMarkdownDocHost(view.host) ? view.host.bodyText() : ''
+    const pages = createTaskPages(store, testTools)
+    const { agent } = fakeAgent()
+    const snapshot = await pages.ListMeta.load?.({}, {}) as PageJsonValue
+    const body = defineComponentPage(pages.ListPage, pages.ListMeta).live.mount({}, agent, snapshot)
     expect(body).toContain('任务 t-1')
     expect(body).toContain('任务 t-2')
     expect(body).toContain('0/1')
     expect(body).toContain('open 2')
   })
 
-  it('详情页按参数取该条记录（§3.10.3）：存在与不存在都如实渲染', () => {
+  it('详情页按参数取该条记录（§3.10.3）：存在与不存在都如实渲染', async () => {
     const foundStore = new TaskStore([{ id: 't-1', title: '任务 t-1', status: 'open' }])
-    const found = createTaskPages(foundStore)
-    const foundView = defineComponentPage(found.DetailPage, found.DetailMeta).live.mount({ taskId: 't-1' })
-    const foundBody = isMarkdownDocHost(foundView.host) ? foundView.host.bodyText() : ''
+    const found = createTaskPages(foundStore, testTools)
+    const { agent: foundAgent } = fakeAgent()
+    const foundSnap = await found.DetailMeta.load?.({ taskId: 't-1' }, {}) as PageJsonValue
+    const foundBody = defineComponentPage(found.DetailPage, found.DetailMeta).live.mount({ taskId: 't-1' }, foundAgent, foundSnap)
     expect(foundBody).toContain('t-1 任务 t-1')
     expect(foundBody).toContain('open')
 
     const missingStore = new TaskStore([])
-    const missing = createTaskPages(missingStore)
-    const missingView = defineComponentPage(missing.DetailPage, missing.DetailMeta).live.mount({ taskId: 'ghost' })
-    const missingBody = isMarkdownDocHost(missingView.host) ? missingView.host.bodyText() : ''
+    const missing = createTaskPages(missingStore, testTools)
+    const { agent: missingAgent } = fakeAgent()
+    const missingSnap = await missing.DetailMeta.load?.({ taskId: 'ghost' }, {}) as PageJsonValue
+    const missingBody = defineComponentPage(missing.DetailPage, missing.DetailMeta).live.mount({ taskId: 'ghost' }, missingAgent, missingSnap)
     expect(missingBody).toContain('任务 ghost 不存在')
   })
 })

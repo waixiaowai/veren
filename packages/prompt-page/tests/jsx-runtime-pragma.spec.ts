@@ -63,32 +63,39 @@ describe.skipIf(!existsSync(harnessTsxEntry))('page component executes under the
     // 动态入口：加载源码 pages.tsx 并执行页面组件——classic 编译恰好在此抛错
     // / dynamic entry: load the source pages.tsx and execute the page component —
     // classic compilation fails exactly here
-    const work = mkdtempSync(join(tmpdir(), 'veren-jsx-pragma-'))
-    try {
-      const entry = join(work, 'entry.mjs')
-      const pagesUrl = pathToFileURL(join(repoRoot, 'plugins', 'task-workbench', 'src', 'pages.tsx')).href
-      const storeUrl = pathToFileURL(join(repoRoot, 'plugins', 'task-workbench', 'src', 'store.ts')).href
-      const fakeCtxUrl = pathToFileURL(join(work, 'ctx.mjs')).href
-      writeFileSync(join(work, 'ctx.mjs'), [
-        'export const ctx = {',
-        '  tools: { register: () => undefined },',
-        '  effect: () => undefined,',
-        '  on: () => () => undefined,',
-        '}',
-        '',
-      ].join('\n'), 'utf8')
-      writeFileSync(entry, [
-        `const pages = await import(${JSON.stringify(pagesUrl)})`,
-        `const { TaskStore, makeList } = await import(${JSON.stringify(storeUrl)})`,
-        `const { ctx } = await import(${JSON.stringify(fakeCtxUrl)})`,
-        'const store = new TaskStore(makeList(2))',
-        // 组件页：实例化组件并执行（组件体是 JSX——classic 编译在此抛错）
-        // / component pages: instantiate the component and run it (the body is JSX — classic compilation fails here)
-        'const taskPages = pages.createTaskPages(store)',
-        "const nodes = taskPages.ListPage({}, ctx)",
-        "process.stdout.write('TREE_OK ' + (nodes !== undefined))",
-        '',
-      ].join('\n'), 'utf8')
+      const work = mkdtempSync(join(tmpdir(), 'veren-jsx-pragma-'))
+      try {
+        const entry = join(work, 'entry.mjs')
+        const pagesUrl = pathToFileURL(join(repoRoot, 'plugins', 'task-workbench', 'src', 'pages.tsx')).href
+        const storeUrl = pathToFileURL(join(repoRoot, 'plugins', 'task-workbench', 'src', 'store.ts')).href
+        const fakeAgentUrl = pathToFileURL(join(work, 'agent.mjs')).href
+        writeFileSync(join(work, 'agent.mjs'), [
+          'export const agent = {',
+          '  ctx: {',
+          '    tools: { register: () => undefined },',
+          '    effect: () => undefined,',
+          '    on: () => () => undefined,',
+          '  },',
+          '  session: { id: "pragma-check" },',
+          '}',
+          '',
+        ].join('\n'), 'utf8')
+        writeFileSync(entry, [
+          `const pages = await import(${JSON.stringify(pagesUrl)})`,
+          `const { TaskStore, makeList } = await import(${JSON.stringify(storeUrl)})`,
+          `const { agent } = await import(${JSON.stringify(fakeAgentUrl)})`,
+          'const store = new TaskStore(makeList(2))',
+          // 组件页：实例化组件并执行（组件体是 JSX——classic 编译在此抛错）
+          // / component pages: instantiate the component and run it (the body is JSX — classic compilation fails here)
+          'const tools = [',
+          '  { name: "task_workbench__take_task" },',
+          '  { name: "task_workbench__complete_task" },',
+          ']',
+          'const taskPages = pages.createTaskPages(store, tools)',
+          "const nodes = taskPages.ListPage({}, agent)",
+          "process.stdout.write('TREE_OK ' + (nodes !== undefined))",
+          '',
+        ].join('\n'), 'utf8')
       // 环境净洗（AGENTS 纪律）：剥敏感键与 DSH_*，大小写不敏感
       // / scrub the environment (AGENTS rule): strip secrets and DSH_* case-insensitively
       const env: Record<string, string> = {}

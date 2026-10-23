@@ -102,7 +102,11 @@ function pagesView(apps: AppRegistryService, args: { appId: string }): unknown {
       urlPattern: page.url,
       description: page.description,
       isEntry: page.name === record.definition.entry,
-      tools: (page.tools ?? []).map((local) => `${record.toolPrefix}__${local}`),
+      // 工具不走目录声明：页面工具由组件体在挂载时直接登记（真实登记面即事实），
+      // 打开后的 PAGE 块 tools 行才是权威清单。
+      // Tools carry no catalog declaration: page tools register via the body at
+      // mount (the real registration face is the fact); the PAGE block's tools
+      // line after opening is the authoritative list.
     })),
   }
 }

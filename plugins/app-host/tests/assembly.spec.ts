@@ -4,9 +4,10 @@
  *
  * 真实程度（如实）：真实 cordis 装配 + 真实 storage 栈（json backend，临时目录）
  * + 真实 PageSessionPort 接线路径；`ctx.sessions` / `ctx.agents` 用最小结构面
- * 替身——但**每个会话的 agent 作用域是一个真实的 cordis 子上下文**，工具经
- * `agent.ctx.tools.register` 挂进该子上下文自己的工具表（与 AgentRegistry 的
- * `resolve: sessionId => this.get(sessionId)?.ctx` 同机制、同注销器语义）。
+ * 替身——但**每个会话的 agent 作用域是一个真实的 cordis 子上下文**，组件体在
+ * 唯一一次渲染里经 `agent.ctx.tools.register` 挂进该子上下文自己的工具表（与
+ * AgentRegistry 的 `resolve: sessionId => this.get(sessionId)?.ctx` 同机制、同
+ * 注销器语义）。
  * 未做：完整 DSH profile 启动（需要测试节点安装，归 H/部署侧），因此
  * ToolRuntime 的 scope 层不在本测试覆盖内。
  */
@@ -16,9 +17,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { UserMessage } from '@deepseek-ai/dsh-llm'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 // 与生产同型：每个 agent 一个 createScope（独立 fiber + scope tag），事件过滤才真实
 // / same shape as production: one createScope per agent (own fiber + scope tag), so event filtering is real
@@ -27,10 +26,7 @@ import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { defineComponentPage } from '@veren/prompt-page'
-import type { ComponentPageRegistration } from '@veren/prompt-page'
 import { createElement } from '@veren/prompt-core'
-import type { Entity } from '@veren/prompt-core'
 import AppRegistryPlugin from '@veren/app-registry'
 import type { AppId, PageKey } from '@veren/app-registry'
 import PageRegistryPlugin from '@veren/page-registry'
@@ -56,7 +52,7 @@ interface AgentScope {
 }
 
 /**
- * 建一个与生产同型的 agent 作用域：`createScope(parent, agent)` 给出独立 fiber +
+ * 一个生产形状的 agent 作用域：createScope(parent, agent) 提供私有 fiber 与
  * scope tag，工具服务由该作用域自己提供。tag 必须是**同一个 agent 对象**——
  * `agentEvents(ctx, agent)` 用 agent 作 scopeTarget 的 key，事件过滤才成立。
  * Build a production-shaped agent scope: `createScope(parent, agent)` provides
@@ -90,6 +86,10 @@ function makeAgentScope(parent: Context, agent: Agent): AgentScope {
       registry.set(tool.name, tool)
       return () => { registry.delete(tool.name) }
     },
+    // 一次性渲染的工具差集读这里：schemas 每次从登记表拷贝快照（name + description）
+    // / the one-shot render's tool delta reads here: schemas copies a snapshot from
+    // the registry per call (name + description)
+    schemas: () => [...registry.values()].map((tool) => ({ name: (tool as { name: string }).name, description: (tool as { description?: string }).description ?? '' })),
     restrict: (filter: { deny?: readonly string[] }) => {
       denials.push(...(filter.deny ?? []))
       return () => { denials.length = 0 }
@@ -253,12 +253,6 @@ function makeHostSessions(ctx: Context, failTool?: string) {
     defaultWorkspacePath,
     /** 该会话的稳定 agent 对象（也是作用域 tag）；agent 未创建 → undefined */
     agentOf(id: string): Agent | undefined { return agentObjects.get(id) },
-    /** 先发布会话记录、不建 agent：暂存预览 / 队列挂载测试的懒创建场景 */
-    publishSession(id: string): StubSession {
-      const record = newSession(id)
-      sessions.set(id, record)
-      return record
-    },
     /** agent 销毁：作用域注销器全部执行（真实 cordis 语义）+ 广播 agent/disposed */
     stopAgent(id: string): void {
       scopes.get(id)?.disposeAll()
@@ -267,74 +261,6 @@ function makeHostSessions(ctx: Context, failTool?: string) {
       emit('agent/disposed', { agent: { session: { id } } })
     },
   }
-}
-
-// ---- PAGE-DATA 同步测试的极简件（看板应用 + store + pre-step 派发） ----
-// ---- Minimal pieces for the PAGE-DATA sync tests (board app + store + pre-step dispatch) ----
-
-/** 看板条目 / one board card */
-interface BoardCard extends Entity { readonly title: string }
-
-/** 权威 store 假件：可变、可订阅、引用稳定 / the authoritative store fake */
-function makeBoardStore(initial: BoardCard[]): {
-  getState(): BoardCard[]
-  subscribe(listener: () => void): () => void
-  mutate(next: BoardCard[]): void
-} {
-  let items = initial
-  const listeners = new Set<() => void>()
-  return {
-    getState: () => items,
-    subscribe(listener) {
-      listeners.add(listener)
-      return () => { listeners.delete(listener) }
-    },
-    mutate(next) {
-      items = next
-      for (const listener of listeners) listener()
-    },
-  }
-}
-
-/** 看板详情页（二级页夹具，§3.10 合规）：组件读权威 store 渲染卡片列表
- * / the board detail page (a compliant second-level fixture): the component reads the authoritative store to render cards */
-function boardPage(store: { getState(): BoardCard[]; subscribe(listener: () => void): () => void }): ComponentPageRegistration {
-  return defineComponentPage(
-    (_props, pageCtx) => {
-      // 工具只在页面存在：详情页声明了写意图，组件体就登记它的写工具（设计律 + 规则 3 挂载期判定）
-      // / a tool exists only inside a page: a detail page declaring write intent records its write tool in the body (design law + rule 3 at mount)
-      pageCtx.page.tool(defineTool({
-        name: 'pin', description: '置顶这张看板', parameters: {},
-        output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
-        execute: async () => ({ ok: true }),
-      }))
-      return createElement('ul', { children: store.getState().map((c) => createElement('li', { key: c.id, children: c.title })) })
-    },
-    {
-      name: 'board',
-      url: '/apps/board/board/:id',
-      description: '看板页',
-      writes: true,
-      instructions: '只处理 params.id 指定的这一块看板。',
-      store,
-    },
-  )
-}
-
-/** 在该会话的 agent 作用域上跑一轮 pre-step（最内层 next 返回已认领消息）
- * / run one pre-step in that session's agent scope (innermost next returns the claimed messages) */
-async function runPreStep(ctx: Context, agent: Agent): Promise<PreStepDecision> {
-  // 用稳定的 agent 对象派发：它与 createScope 的 tag 同一身份，agent.ctx 上的
-  // pre-step 监听器（staging / PAGE-DATA）才会被作用域过滤放行。
-  // Dispatch with the stable agent object: it is the same identity as the
-  // createScope tag, so pre-step listeners on agent.ctx pass the scope filter.
-  const claimed: UserMessage[] = [createUserMessage({ content: [{ type: 'text', text: '继续' }], source: { kind: 'user' } })]
-  return await agentEvents(ctx, agent).waterfall('agent/pre-step', {
-    messages: claimed,
-    turn: 0,
-    step: 0,
-    signal: new AbortController().signal,
-  }, async (): Promise<PreStepDecision> => ({ kind: 'enter', messages: claimed }))
 }
 
 // ---- 装配 + 一个迷你应用 ----
@@ -406,13 +332,13 @@ function registerMiniApp(h: Boot, eventDeliveries: string[] = []): void {
   const { ctx } = h
   const apps = ctx.apps
   apps.register({ id: 'mini' as AppId, name: 'mini', description: '装配层验证应用', entry: 'list' as PageKey }, ctx)
-  // 工具只在页面存在（设计律）：目录登记面已退役，工具由各页组件体 ctx.page.tool
-  // 登记——下面的两个构建器只是夹具，注册动作发生在每个页面的组件体里。
-  // A tool exists only inside a page (design law): the catalog registration face
-  // is retired, tools are recorded by each page's body via ctx.page.tool — the
-  // two builders below are fixtures only; registration happens in the bodies.
+  // 工具只在页面存在（设计律）：组件体在唯一一次渲染里直登全名工具——下面的两个
+  // 构建器只是夹具，注册动作发生在每个页面的组件体里。
+  // A tool exists only inside a page (design law): the body registers full-named
+  // tools in the one render — the two builders below are fixtures only;
+  // registration happens in the bodies.
   const readTool = () => defineTool({
-    name: 'read',
+    name: 'mini__read',
     description: '读取材料',
     parameters: {},
     output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
@@ -420,18 +346,18 @@ function registerMiniApp(h: Boot, eventDeliveries: string[] = []): void {
   })
   // 写工具：二级页规则 3 要求详情页至少登记一个写工具 / the write tool: rule 3 wants a write tool recorded on the detail page
   const writeTool = () => defineTool({
-    name: 'write',
+    name: 'mini__write',
     description: '写入材料。Parameters: text.',
     parameters: { text: { type: 'string', required: true, description: '要写入的文本' } },
     output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
     execute: async () => ({ ok: true }),
   })
   const pages = apps.pages('mini' as AppId, ctx)
-  // 事件页：`ctx.page.on` 注册在该会话的 agent 作用域（跨会话隔离断言）
-  // / an event page: `ctx.page.on` registers on that session's agent scope (cross-session isolation)
+  // 事件页：`agent.ctx.on` 注册在该会话的 agent 作用域（跨会话隔离断言）
+  // / an event page: `agent.ctx.on` registers on that session's agent scope (cross-session isolation)
   pages.register(
-    (_props: Record<string, string>, pageCtx) => {
-      pageCtx.page.on('agent/status', (payload: unknown) => {
+    (_props: Record<string, string>, agent) => {
+      agent.ctx.on('agent/status', (payload: unknown) => {
         const status = (payload as { status?: string }).status
         if (status !== undefined) eventDeliveries.push(status)
       })
@@ -442,22 +368,21 @@ function registerMiniApp(h: Boot, eventDeliveries: string[] = []): void {
   // 一级页（entry）：map 由注册表推导（§3.5 定案），不再手写
   // / the home page (entry): the map is registry-derived (§3.5), never hand-written
   pages.register(
-    (_props: { id?: string }, pageCtx) => {
-      // 首页也登记一个只读工具：暂存测试要观察"预挂的面非空且提升后不重复"
-      // / the home page records one read tool too: the staging test observes a
-      // non-empty pre-mounted face that does not duplicate at promotion
-      pageCtx.page.tool(readTool())
+    (_props: { id?: string }, agent) => {
+      // 首页也登记一个只读工具：选择即开会话的完整断言面
+      // / the home page records one read tool too: the full assertion face of "pick = open"
+      agent.ctx.tools.register(readTool())
       return createElement('p', { children: `任务 ${_props.id ?? ''}` })
     },
     { url: '/apps/mini/list', description: '任务列表页', instructions: '这是 mini 应用的首页：看列表，去详情。' },
   )
-  // 二级页：带参数 + writes + 说明 + 页面级 skill（skills 挂载断言面）；工具在组件体登记
+  // 二级页：带参数 + writes + 说明 + 页面级 skill（skills 挂载断言面）；工具在组件体直登
   // / the detail page: params + writes + instructions + a page-scope skill (the
-  // skills-mounting assertion face); tools record in the component body
+  // skills-mounting assertion face); tools register in the body
   pages.register(
-    (_props: { id?: string }, pageCtx) => {
-      pageCtx.page.tool(readTool())
-      pageCtx.page.tool(writeTool())
+    (_props: { id?: string }, agent) => {
+      agent.ctx.tools.register(readTool())
+      agent.ctx.tools.register(writeTool())
       return createElement('p', { children: `任务 ${_props.id ?? ''}` })
     },
     {
@@ -496,19 +421,19 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     })).rejects.toMatchObject({ code: 'task/send-forbidden' })
   })
 
-  it('页面级 skills 随工具进 agent 作用域：本页可见，重开（废弃）时与工具同组释放', async () => {
+  it('页面级 skills 随页面进 agent 作用域：本页可见，重开（废弃=退役 agent）时随 fiber 释放', async () => {
     const h = await boot()
     registerMiniApp(h)
-    // 详情页声明了 mini-skill：agent/created 即挂进该会话的作用域
-    // / the detail page declares mini-skill: it lands in the scope at agent/created
+    // 详情页声明了 mini-skill：挂载即进该会话的作用域
+    // / the detail page declares mini-skill: it lands in the scope at mount
     const opened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
     const firstScope = h.host.scopes.get(opened.sessionId)
     if (firstScope === undefined) throw new Error('expected the first page session scope')
     expect(firstScope.skills.has('mini-skill')).toBe(true)
     expect(firstScope.registry.has('mini__read')).toBe(true)
-    // 重开同 URL：旧会话废弃 → releaseTools 摘工具，skills 注销器同组逆序执行
-    // / reopen the same url: the old session is deprecated → releaseTools strips
-    // the tools and the skill disposers run in the same reverse-order group
+    // 重开同 URL：旧会话废弃 → retire 整体拆除 agent，作用域登记全部消失
+    // / reopen the same url: the old session is deprecated → retire tears the
+    // agent down whole, every scope registration goes away
     const reopened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
     expect(firstScope.skills.has('mini-skill')).toBe(false)
     expect(firstScope.registry.has('mini__read')).toBe(false)
@@ -535,149 +460,52 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     expect((await h.ctx.appHost.sessionApp(reopened.sessionId))?.id).toBe('mini')
   })
 
-  it('暂存应用：选中不建会话，首条消息的 pre-step 把该会话提升为页面会话', async () => {
+  it('选择应用 = 立即打开页面会话（一次性渲染语义）：新建会话、agent 当场激活、工具挂好、屏蔽生效', async () => {
     const h = await boot()
     registerMiniApp(h)
-    // GUI 的普通会话（"未命名"）：先存在，用户还没发送
-    // / the GUI's ordinary session ("untitled"): it exists before the user sends
-    // 品牌收窄只发生在测试边界（与生产 spawn/会话端口的 sid() 同一纪律）
-    // / the brand narrows once at the test boundary (the same rule as the host's sid())
-    const sessionId = 'session-gui-1' as SessionId
-    await h.ctx.agents.create({
-      sessionId,
-      agentOptions: { provider: 'test', model: 'test-model' },
-      meta: { cwd: h.host.defaultWorkspacePath, agentPreset: 'standard' },
-    })
-    // 选中应用：预挂工具面 + 登记意图，不建页面实例 / the pick pre-mounts the face and records intent; no instance
-    const staged = await h.ctx.appHost.stage('mini', sessionId)
-    expect(staged.id).toBe('mini')
-    expect(await h.pages.instances.listByApp('mini')).toHaveLength(0)
-    // 工具栏显示已选应用（暂存态）/ the toolbar shows the selected app (staged)
-    expect(await h.ctx.appHost.sessionApp(sessionId)).toMatchObject({ id: 'mini' })
-    const scope = h.host.scopes.get(sessionId)
-    if (scope === undefined) throw new Error('expected the agent scope')
-    // 发送前工具面就已挂好：第一步请求头 = 最终形态；引导工具同时被屏蔽
-    // / the face is mounted before the send: step 1's header is final, and the
-    // bootstrap tools are denied at the same time
+    const focusEvents: Array<{ sessionId: string }> = []
+    h.ctx.on('app-host/focus', (payload) => { focusEvents.push(payload) })
+    // 选择动作：传入的 sessionId 只做 Remote 面兼容，新页面会话总是新建
+    // / the pick: the passed sessionId is Remote-surface compatibility only; a
+    // fresh page session is always created
+    const picked = await h.ctx.appHost.stage('mini', 'session-composer' as SessionId)
+    expect(picked.sessionId).not.toBe('session-composer')
+    // 页面实例即刻 live（页面实例与 agent 共存亡，渲染发生在 agent/created）
+    // / the instance is live right away (the instance lives and dies with the
+    // agent; the render happens at agent/created)
+    const rows = await h.pages.instances.listByApp('mini')
+    expect(rows.some((row) => row.sessionId === picked.sessionId && row.state === 'live')).toBe(true)
+    // 新会话的 agent 作用域：工具已登记（组件体的唯一一次渲染已执行）、引导工具已屏蔽
+    // / the new session's agent scope: tools registered (the body's one render ran), bootstrap tools denied
+    const scope = h.host.scopes.get(picked.sessionId)
+    if (scope === undefined) throw new Error('expected the picked page session scope')
     expect([...scope.registry.keys()]).toEqual(['mini__read'])
     expect(scope.denials).toEqual(['app_open', 'app_list', 'app_pages'])
-    const previewFace = [...scope.registry.values()].map((tool) => JSON.stringify(tool))
-    // 首条消息的 pre-step：提升为页面会话 / the first message's pre-step promotes it
-    const agent = h.host.agentOf(sessionId)
-    if (agent === undefined) throw new Error('expected the stable agent object')
-    const decision = await runPreStep(h.ctx, agent)
-    expect(decision.kind).toBe('enter')
-    const rows = await h.pages.instances.listByApp('mini')
-    expect(rows.some((row) => row.sessionId === sessionId && row.state === 'live')).toBe(true)
-    // PAGE 块进入本轮决策（而不是事后补一条日志）/ the PAGE block enters this round's decision
-    expect(JSON.stringify(decision)).toContain('PAGE mini/')
-    // 正式提升重挂同一套定义：没有重复登记，定义逐字相同（第二步不会"工具已更新"）
-    // / the promotion re-mounts the same definitions: no duplicates, byte-identical
-    // (step 2 must not report "tools updated")
-    expect([...scope.registry.keys()]).toEqual(['mini__read'])
-    expect([...scope.registry.values()].map((tool) => JSON.stringify(tool))).toEqual(previewFace)
-    // 侧栏标题换成实例标题 / the sidebar title becomes the instance title
-    expect(h.host.sessions.get(sessionId)?.titles).toContainEqual(expect.objectContaining({ title: '任务列表页' }))
+    // PAGE 块经 followup 进入会话；GUI 收到切界面事件
+    // / the PAGE block enters the session via followup; the GUI got the focus event
+    expect(scope.followups.some((m) => m.startsWith('PAGE mini/list'))).toBe(true)
+    expect(focusEvents).toEqual([{ sessionId: picked.sessionId }])
+    // 工具栏显示已选应用 / the toolbar shows the selected app
+    expect(await h.ctx.appHost.sessionApp(picked.sessionId)).toMatchObject({ id: 'mini' })
   })
 
-  it('暂存时 agent 尚未创建：预挂工具排队到 agent/created，首条消息第一步可见', async () => {
+  it('unstage = 关闭该会话的页面实例：agent 退役（登记随 fiber 拆除）、索引行翻废弃', async () => {
     const h = await boot()
     registerMiniApp(h)
-    const sessionId = 'session-gui-lazy' as SessionId
-    // GUI 的会话记录先存在，agent 懒创建（发送首条消息时）——暂存预览必须能等
-    // / the GUI session record exists first; the agent is lazy (created on send) — staging must wait
-    h.host.publishSession(sessionId)
-    await h.ctx.appHost.stage('mini', sessionId)
-    // 还没有 agent：工具在端口的等待队列里，没有作用域可挂
-    // / no agent yet: the tools wait in the port queue, with no scope to mount on
-    expect(h.host.scopes.get(sessionId)).toBeUndefined()
-    expect(await h.pages.instances.listByApp('mini')).toHaveLength(0)
-    // 首条消息前创建 agent：agent/created 把队列里的工具面挂上
-    // / the agent is created before the first message: agent/created mounts the queued face
-    await h.ctx.agents.create({
-      sessionId,
-      agentOptions: { provider: 'test', model: 'test-model' },
-      meta: { cwd: h.host.defaultWorkspacePath, agentPreset: 'standard' },
-    })
-    const scope = h.host.scopes.get(sessionId)
-    if (scope === undefined) throw new Error('expected the agent scope after creation')
+    const picked = await h.ctx.appHost.stage('mini', 'session-composer' as SessionId)
+    const scope = h.host.scopes.get(picked.sessionId)
+    if (scope === undefined) throw new Error('expected the picked page session scope')
     expect([...scope.registry.keys()]).toEqual(['mini__read'])
-    expect(scope.denials).toEqual(['app_open', 'app_list', 'app_pages'])
-    const agent = h.host.agentOf(sessionId)
-    if (agent === undefined) throw new Error('expected the stable agent object')
-    const decision = await runPreStep(h.ctx, agent)
-    expect(JSON.stringify(decision)).toContain('PAGE mini/')
-    // 正式提升重挂同一套定义，仍只有一份 / the promotion re-mounts the same definitions, no duplicates
-    expect([...scope.registry.keys()]).toEqual(['mini__read'])
-    expect(h.host.sessions.get(sessionId)?.titles).toContainEqual(expect.objectContaining({ title: '任务列表页' }))
-    const rows = await h.pages.instances.listByApp('mini')
-    expect(rows.some((row) => row.sessionId === sessionId && row.state === 'live')).toBe(true)
-  })
-
-  it('取消暂存：预挂的工具面整组摘掉，首条消息按普通会话走（不提升）', async () => {
-    const h = await boot()
-    registerMiniApp(h)
-    const sessionId = 'session-gui-2' as SessionId
-    await h.ctx.agents.create({
-      sessionId,
-      agentOptions: { provider: 'test', model: 'test-model' },
-      meta: { cwd: h.host.defaultWorkspacePath, agentPreset: 'standard' },
-    })
-    await h.ctx.appHost.stage('mini', sessionId)
-    const scope = h.host.scopes.get(sessionId)
-    if (scope === undefined) throw new Error('expected the agent scope')
-    expect([...scope.registry.keys()]).toEqual(['mini__read'])
-    await h.ctx.appHost.unstage(sessionId)
-    // 工具与屏蔽一起撤销（restrict 的注销器随挂载整组释放）
-    // / tools and the deny are undone together (the restrict disposer goes with the mounted set)
+    await h.ctx.appHost.unstage(picked.sessionId)
+    // retire = 整体 dispose agent：登记全部摘除（含屏蔽断言面上的 deny——
+    // disposeAll 清空 denials 记录）/ retire = dispose the agent whole: every
+    // registration goes away (disposeAll clears the denials record too)
     expect(scope.registry.size).toBe(0)
     expect(scope.denials).toEqual([])
-    const agent = h.host.agentOf(sessionId)
-    if (agent === undefined) throw new Error('expected the stable agent object')
-    const decision = await runPreStep(h.ctx, agent)
-    expect(JSON.stringify(decision)).not.toContain('PAGE mini/')
-    expect(await h.pages.instances.listByApp('mini')).toHaveLength(0)
-    expect(await h.ctx.appHost.sessionApp(sessionId)).toBeNull()
-  })
-
-  it('agent 销毁带走预挂面与暂存意图：重建后的首条消息不会用旧工具面跑第一步', async () => {
-    const h = await boot()
-    registerMiniApp(h)
-    const sessionId = 'session-gui-3' as SessionId
-    await h.ctx.agents.create({
-      sessionId,
-      agentOptions: { provider: 'test', model: 'test-model' },
-      meta: { cwd: h.host.defaultWorkspacePath, agentPreset: 'standard' },
-    })
-    await h.ctx.appHost.stage('mini', sessionId)
-    h.host.stopAgent(sessionId)
-    // 暂存意图随 agent 一起消失：工具栏退回下拉，不会显示一个已经挂不上的面
-    // / the intent dies with the agent: the toolbar falls back to the dropdown
-    expect(await h.ctx.appHost.sessionApp(sessionId)).toBeNull()
-    // 重建 agent 后首条消息按普通会话走：没有 PAGE 块、没有页面实例
-    // / after recreation the first message runs as an ordinary session: no PAGE block, no instance
-    await h.ctx.agents.create({
-      sessionId,
-      agentOptions: { provider: 'test', model: 'test-model' },
-      meta: { cwd: h.host.defaultWorkspacePath, agentPreset: 'standard' },
-    })
-    const scope = h.host.scopes.get(sessionId)
-    if (scope === undefined) throw new Error('expected the recreated agent scope')
-    const agent = h.host.agentOf(sessionId)
-    if (agent === undefined) throw new Error('expected the recreated agent object')
-    const decision = await runPreStep(h.ctx, agent)
-    expect(JSON.stringify(decision)).not.toContain('PAGE mini/')
-    expect(await h.pages.instances.listByApp('mini')).toHaveLength(0)
-  })
-
-  it('已是页面会话 → 拒绝暂存；不存在的会话 → session/not-found（不泄漏工具）', async () => {
-    const h = await boot()
-    registerMiniApp(h)
-    const opened = await h.pages.openUrl('/apps/mini/list' as PageInstanceKey)
-    await expect(h.ctx.appHost.stage('mini', opened.sessionId))
-      .rejects.toMatchObject({ code: 'session/has-app' })
-    await expect(h.ctx.appHost.stage('mini', 'ghost-session'))
-      .rejects.toMatchObject({ code: 'session/not-found' })
+    // 索引行翻废弃；会话不再属于该应用 / the row flips deprecated; the session no longer owns the app
+    const rows = await h.pages.instances.listByApp('mini')
+    expect(rows.some((row) => row.sessionId === picked.sessionId && row.state === 'live')).toBe(false)
+    expect(await h.ctx.appHost.sessionApp(picked.sessionId)).toBeNull()
   })
 
   it('装配 disposer 撤销全部注入：dispose 后镜像失效（注册只告警不镜像）', async () => {
@@ -712,14 +540,14 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     }
   })
 
-  it('§3.9 完备性警告在挂载期判（判据=真实登记面）：writes:true + 零登记仍告警，viewer 与组件体登记者沉默', async () => {
-    // 回归钉（动态登记时代）：告警移到挂载期、判据是真实收集面——注册期看不到
-    // ctx.page.tool，在那里判必然误报；viewer（只读）与组件体登记了工具的页面
-    // 必须沉默。
-    // / regression pin (the dynamic-registration era): the warning is judged at
-    // mount over the really-collected face — registration never sees
-    // ctx.page.tool, so judging there would misfire; viewers and pages whose
-    // body registers tools must stay silent.
+  it('§3.9 完备性警告在挂载期判（判据=真实登记差集）：writes:true + 零登记仍告警，viewer 与组件体登记者沉默', async () => {
+    // 回归钉（一次性渲染时代）：告警在挂载期、判据是真实登记差集——注册期看不到
+    // 组件体的 agent.ctx.tools.register，在那里判必然误报；viewer（只读）与组件体
+    // 登记了工具的页面必须沉默。
+    // / regression pin (the one-shot era): the warning is judged at mount over the
+    // really-registered delta — registration never sees the body's
+    // agent.ctx.tools.register, so judging there would misfire; viewers and pages
+    // whose body registers tools must stay silent.
     const h = await boot({ enabled: false })
     const apps = h.ctx.apps
     apps.register({ id: 'lazy' as AppId, name: 'lazy', description: 'd', entry: 'main' as PageKey }, h.ctx)
@@ -742,10 +570,10 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     )
     pages.register(
       // 动态登记者：writes: true、零静态声明，但组件体登记了工具——必须沉默
-      // / a dynamic declarer: writes: true, empty static list, but the body records tools — must stay silent
-      (_props, pageCtx) => {
-        pageCtx.page.tool(defineTool({
-          name: 'publish_now', description: '发布', parameters: {},
+      // / a dynamic declarer: writes: true, empty static list, but the body registers tools — must stay silent
+      (_props, agent) => {
+        agent.ctx.tools.register(defineTool({
+          name: 'lazy__publish_now', description: '发布', parameters: {},
           output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
           execute: async () => ({ ok: true }),
         }))
@@ -872,10 +700,10 @@ describe('注册必须发生：宿主工具表里真能看到引导工具（第�
       { url: '/apps/twin/list', description: '同名页列表', instructions: 'twin 首页。' },
     )
     twinPages.register(
-      (_props: { taskId?: string }, pageCtx) => {
-        // 工具只在页面存在：组件体登记（设计律）/ a tool exists only inside a page: recorded in the body (design law)
-        pageCtx.page.tool(defineTool({
-          name: 'read', description: '读取', parameters: {},
+      (_props: { taskId?: string }, agent) => {
+        // 工具只在页面存在：组件体直登（设计律）/ a tool exists only inside a page: registered in the body (design law)
+        agent.ctx.tools.register(defineTool({
+          name: 'twin__read', description: '读取', parameters: {},
           output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
           execute: async () => ({}),
         }))
@@ -931,7 +759,7 @@ describe('隔离是真的：同一宿主两个会话的 agent 作用域互不可
     expect(focusEvents).toEqual([{ sessionId: opened.sessionId }])
   })
 
-  it('ctx.page.on 挂在各自 agent 作用域：两个页面会话互不串事件（scopeTarget 过滤）', async () => {
+  it('agent.ctx.on 挂在各自 agent 作用域：两个页面会话互不串事件（scopeTarget 过滤）', async () => {
     const h = await boot()
     const deliveries: string[] = []
     registerMiniApp(h, deliveries)
@@ -950,7 +778,7 @@ describe('隔离是真的：同一宿主两个会话的 agent 作用域互不可
 })
 
 describe('真机探针的可自动化收编（原 @veren/app-host-verify 六项中的 5/6 项）', () => {
-  it('重开同一 URL → 总是新会话：旧会话废弃、工具摘除，索引指向新会话（真实实例索引持久化，非替身）', async () => {
+  it('重开同一 URL → 总是新会话：旧会话废弃、agent 退役，索引指向新会话（真实实例索引持久化，非替身）', async () => {
     const h = await boot()
     registerMiniApp(h)
     const first = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
@@ -964,7 +792,8 @@ describe('真机探针的可自动化收编（原 @veren/app-host-verify 六项�
     const rows = await h.pages.instances.listByApp('mini')
     expect(rows.find((row) => row.url === '/apps/mini/task/1' && row.state === 'live')?.sessionId).toBe(second.sessionId)
     expect(rows.some((row) => row.state === 'deprecated' && row.sessionId === first.sessionId)).toBe(true)
-    // 旧会话的页面工具已被废弃路径整组摘除；销毁旧 agent 不再是唯一清理者
+    // 旧会话的 agent 已被废弃路径整体退役：作用域登记全部消失
+    // / the old session's agent was retired whole by the deprecation path: every scope registration is gone
     expect(scopeA.registry.size).toBe(0)
   })
 
@@ -991,49 +820,5 @@ describe('真机探针的可自动化收编（原 @veren/app-host-verify 六项�
     expect(scope2.followups.some((m) => m.includes('[task-center] 真机验证任务'))).toBe(true)
     // 新会话 PAGE 块也在；旧会话没有收到任务的任何块
     expect(scope.followups.some((m) => m.includes(`TASK ${task.id}`))).toBe(false)
-  })
-})
-
-describe('PAGE-DATA 同步（§3.10.2）走真实装配链：回填镜像携带 live', () => {
-  it('先注册（带 store）、后装配 → openUrl 后 store 变化进下一轮 pre-step 的 PAGE-DATA', async () => {
-    const h = await boot({ enabled: false })
-    // 真机 Loader 的激活顺序：应用插件可能先于装配注册页面（镜像未在，只告警）。
-    // 回填必须把 live 绑定一起带过来，否则页面"能开"但"看不到变化"。
-    // The loader's activation order: the app may register before the assembly.
-    // The backfill must carry the live binding, or the page opens but never syncs.
-    const store = makeBoardStore([{ id: 'i-1', title: '基线卡' }])
-    const apps = h.ctx.apps
-    // entry 是无参一级页（§3.10.5 规则 1/4）；带参的看板页是二级页
-    // / the entry is a parameterless home page (rules 1/4); the parameterized board page is a detail page
-    apps.register({ id: 'board' as AppId, name: 'board', description: '看板应用', entry: 'home' as PageKey }, h.ctx)
-    apps.tools('board' as AppId, h.ctx).define(defineTool({
-      name: 'pin', description: '置顶一张卡片', parameters: {},
-      output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
-      execute: async () => ({ ok: true }),
-    }))
-    const boardPages = apps.pages('board' as AppId, h.ctx)
-    boardPages.register(
-      () => createElement('p', { children: '看板首页' }),
-      { name: 'home', url: '/apps/board/board', description: '看板首页', instructions: '看板首页。' },
-    )
-    const boardRegistration = boardPage(store)
-    boardPages.register(boardRegistration)
-    wireAppHost(h.ctx)
-    const opened = await h.pages.openUrl('/apps/board/board/1' as PageInstanceKey)
-    const scope = h.host.scopes.get(opened.sessionId)
-    if (scope === undefined) throw new Error('expected the page agent to activate at open')
-    // store 变化 → 下一轮 pre-step 的决策消息里真的出现新数据
-    // Store change → the next pre-step decision really carries the new data
-    store.mutate([{ id: 'i-1', title: '基线卡' }, { id: 'i-2', title: '装配链新卡' }])
-    const agent = h.host.agentOf(opened.sessionId)
-    if (agent === undefined) throw new Error('expected the page agent object')
-    const decision = await runPreStep(h.ctx, agent)
-    // PreStepDecision 是可判别联合：reject 在测试里就是失败
-    // PreStepDecision is a discriminated union; a reject decision is a test failure here
-    if (decision.kind !== 'enter') throw new Error('expected the pre-step to admit messages')
-    const injected = decision.messages.at(-1)
-    const text = injected?.content.map((block) => (block.type === 'text' ? block.text : '')).join('') ?? ''
-    expect(text.startsWith('PAGE-PATCH board/board /apps/board/board/1 v')).toBe(true)
-    expect(text).toContain('装配链新卡')
   })
 })

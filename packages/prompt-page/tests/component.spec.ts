@@ -1,10 +1,10 @@
 /**
- * 组件页管线（C5/§3.5）单元测试：defineComponentPage 的视图隔离、Markdown
- * 首帧与 PAGE-PATCH diff、ctx.page.effect/ctx.page.on 记账与 teardown、
- * ctx.page.tool 记录、useSnapshot 与 load 桥。
- * Component-page pipeline unit tests (C5/§3.5): defineComponentPage view
- * isolation, the Markdown first frame and PAGE-PATCH diff, ctx.page.effect /
- * ctx.page.on recording and teardown, ctx.page.tool recording, useSnapshot and
+ * 组件页管线（一次性渲染形态）单元测试：defineComponentPage 的契约映射、
+ * 唯一一次渲染、Markdown 成型（§3.2 映射）、组件体经 agent.ctx 直登工具/
+ * effect、useSnapshot 与 load 桥。
+ * Component-page pipeline unit tests (the one-shot form): defineComponentPage's
+ * contract mapping, the exactly-once render, Markdown shaping (the §3.2
+ * mapping), body registrations via agent.ctx (tools/effect), useSnapshot and
  * the load bridge.
  *
  * 本 spec 用 createElement（.ts 不走 JSX 转换）；JSX 形态由插件迁移的 .tsx
@@ -14,52 +14,65 @@
  * jsx-runtime-pragma.spec.
  */
 import { describe, expect, it } from 'vitest'
-import { createElement, useState } from "@veren/prompt-core"
-import { defineComponentPage, isMarkdownDocHost, useSnapshot } from '../src/index.ts'
+import { createElement } from "@veren/prompt-core"
+// 类型-only：拉取 ctx.tools 的 declaration merging（假 agent 的工具面由此获得类型）
+// / type-only: pulls the ctx.tools merge (types the fake agent's tool face)
+import type {} from '@deepseek-ai/dsh-tools'
+import { defineComponentPage, isComponentPageRegistration, useSnapshot } from '../src/index.ts'
 import type { PageFC } from '../src/index.ts'
 
-/** 假 cordis ctx：只实现组件页会碰到的面 / a fake cordis ctx: only the faces a component page touches */
-function fakeCtx() {
-  const subscriptions: Array<{ name: string; handler: (payload: unknown) => void }> = []
-  const ctx = {
-    on: (name: string, handler: (payload: unknown) => void) => {
-      subscriptions.push({ name, handler })
-      return () => {
-        const index = subscriptions.findIndex((s) => s.name === name && s.handler === handler)
-        if (index >= 0) subscriptions.splice(index, 1)
-      }
+/**
+ * 假会话 agent：ctx.tools.register / ctx.effect / ctx.on 记录登记——页面体拿到的
+ * agent 就是它（原样，不扩展）。
+ * A fake session agent: ctx.tools.register / ctx.effect / ctx.on record their
+ * registrations — the agent the body receives IS this object (as-is, no extension).
+ */
+function fakeAgent() {
+  const registered: Array<{ name: string }> = []
+  const effects: Array<{ label: string | undefined; ran: boolean; dispose: () => void }> = []
+  const subscriptions: Array<{ name: string }> = []
+  const agent = {
+    ctx: {
+      tools: {
+        register: (definition: { name: string }) => {
+          registered.push({ name: definition.name })
+          return () => undefined
+        },
+      },
+      effect: (run: () => (() => void) | void, label?: string) => {
+        const entry = { label, ran: true, dispose: () => undefined }
+        run()
+        effects.push(entry)
+        return async () => undefined
+      },
+      on: (name: string, _handler: (payload: unknown) => void) => {
+        subscriptions.push({ name })
+        return () => undefined
+      },
     },
-    emit: (name: string, payload?: unknown): void => {
-      for (const s of [...subscriptions]) if (s.name === name) s.handler(payload)
-    },
-    tasks: {
-      list: async () => [{ id: 'T-1', title: '任务一' }],
-    },
+    session: { id: 'agent-1' },
   }
-  return { ctx: ctx as never, subscriptions }
+  return { agent: agent as never, registered, effects, subscriptions }
 }
 
-/** 视图测试所需的最小结构面 / the minimal structural face the view tests need */
-interface ViewFace {
-  host: unknown
-  version: number
-  syncText(cursor?: number): string
-  unsubscribe(): void
-  takeRecordedTools(): Array<{ name: string }>
-  bodyText(): string
+/** 最小挂载面：defineComponentPage 的 live.mount 返回正文 Markdown / the minimal mount face: live.mount returns the body markdown */
+function mountOf<P extends Record<string, unknown>>(
+  component: PageFC<P>,
+  meta: Parameters<typeof defineComponentPage<P>>[1],
+  params: P,
+  agent: unknown,
+  snapshot?: unknown,
+): string {
+  const registration = defineComponentPage(component, meta)
+  return registration.live.mount({ ...params } as Record<string, string>, agent as never, snapshot as never)
 }
 
-function viewOf<P extends Record<string, unknown>>(component: PageFC<P>, meta: Parameters<typeof defineComponentPage<P>>[1], params: P): { view: ViewFace; subscriptions: Array<{ name: string }> } {
-  const { ctx, subscriptions } = fakeCtx()
-  const registration = defineComponentPage(component, meta, ctx)
-  const view = registration.live.mount({ ...params } as Record<string, string>) as unknown as ViewFace
-  return { view, subscriptions }
-}
-
-describe('defineComponentPage 组件页管线', () => {
-  it('首帧渲染 Markdown 正文：h1/p/ul/li 按 §3.2 映射', () => {
+describe('defineComponentPage 一次性渲染管线', () => {
+  it('唯一一次渲染成型 Markdown 正文：h1/p/ul/li 按 §3.2 映射', () => {
+    let runs = 0
     const Page: PageFC<{ status?: string }> = (props) => {
-      const [tasks] = useState([{ id: 'T-1', title: '修复登录' }, { id: 'T-2', title: '首页骨架' }])
+      runs++
+      const tasks = [{ id: 'T-1', title: '修复登录' }, { id: 'T-2', title: '首页骨架' }]
       return createElement("div", { children: [
         createElement('h1', { children: ['任务列表', props.status ? ` · ${props.status}` : ''] }),
         createElement('p', { children: ['共 ', tasks.length, ' 条。'] }),
@@ -68,9 +81,8 @@ describe('defineComponentPage 组件页管线', () => {
         ) }),
       ] })
     }
-    const { view } = viewOf(Page, { url: '/apps/tasks', description: '任务列表' }, {})
-    expect(isMarkdownDocHost(view.host)).toBe(true)
-    const body = isMarkdownDocHost(view.host) ? view.host.bodyText() : ''
+    const body = mountOf(Page, { url: '/apps/tasks', description: '任务列表' }, {}, fakeAgent().agent)
+    expect(runs).toBe(1) // 体恰好执行一次 / the body runs exactly once
     expect(body).toContain('# 任务列表')
     expect(body).toContain('共 2 条。')
     expect(body).toContain('- **T-1** 修复登录')
@@ -79,213 +91,75 @@ describe('defineComponentPage 组件页管线', () => {
 
   it('li 的多个行内子节点不重复拼接（逐子只序列化该节点自身）', () => {
     // 回归：逐子累加曾用"从该子起走整条兄弟链"的序列化，每个子都把后面的兄弟
-    // 又串了一遍，正文出现 （notebook · active）（notebook · active）notebook ·
-    // active）… 这样的重叠后缀。
-    // Regression: per-child accumulation used the walk-the-whole-chain serializer,
-    // so every child repeated the siblings that follow it and the body showed
-    // overlapping suffixes.
+    // 又串了一遍，正文出现 （notebook · active）（notebook · active）… 的重叠后缀。
+    // Regression: per-child accumulation once walked the whole sibling chain per
+    // child, so every child repeated the siblings after it — overlapping suffixes.
     const Page: PageFC = () => createElement('ul', { children: [
       createElement('li', { key: 'notebook', children: ['notebook', '（', 'notebook', ' · ', 'active', '）'] }),
     ] })
-    const { view } = viewOf(Page, { url: '/apps/demo', description: '演示' }, {})
-    const body = isMarkdownDocHost(view.host) ? view.host.bodyText() : ''
+    const body = mountOf(Page, { url: '/apps/demo', description: '演示' }, {}, fakeAgent().agent)
     expect(body).toBe('- notebook（notebook · active）')
   })
 
-  it('useState dispatch → PAGE-PATCH 只含变化单元（变化即补丁）', () => {
-    let setDone: ((v: boolean) => void) | undefined
-    const Page: PageFC = () => {
-      const [done, set] = useState(false)
-      setDone = set
-      return createElement("div", { children: [
-        createElement('h1', { children: '任务' }),
-        createElement('ul', { children: [createElement('li', { key: 'T-1', children: done ? '已完成' : '进行中' })] }),
-      ] })
-    }
-    const { view } = viewOf(Page, { url: '/apps/tasks', description: '任务' }, {})
-    expect(view.syncText(0)).toBe('') // 首帧无 patch / no patch on the first frame
-    setDone!(true)
-    const patch = view.syncText(0)
-    expect(patch).toContain('已完成')
-    expect(patch).not.toContain('# 任务') // 未变的标题不重发 / the unchanged heading is not re-sent
-  })
-
-  it('keyed 单元消失 → removal 走删除线；ctx.on 订阅随 unsubscribe 清理', () => {
-    let notify: (() => void) | undefined
-    const Page: PageFC = (_props, ctx) => {
-      const [rows, setRows] = useState([{ id: 'A' }, { id: 'B' }])
-      ctx.page.effect(() => {
-        notify = () => setRows((prev) => prev.slice(0, 1))
-      })
-      ctx.page.on('tasks/changed', () => undefined)
-      return createElement('ul', { children: rows.map((r) => createElement('li', { key: r.id, children: r.id })) })
-    }
-    const { view, subscriptions } = viewOf(Page, { url: '/apps/tasks', description: '任务' }, {})
-    expect(subscriptions).toHaveLength(1) // commit 后订阅真实生效 / the subscription is real after commit
-    notify!()
-    expect(view.syncText(0)).toContain('~~B~~')
-    view.unsubscribe()
-    expect(subscriptions).toHaveLength(0) // teardown 退订 / unsubscribed at teardown
-  })
-
-  it('会话作用域：effect/on 注册在 agent.ctx 上，视图退订提前清理（官方隔离模型）', () => {
-    const owner = fakeCtx()
-    // 假会话作用域：记录 effect/on 的注册与注销 / fake session scope: records effect/on registrations
-    const scopeSubscriptions: Array<{ name: string; handler: (payload: unknown) => void }> = []
-    const scopeEffects: Array<{ cleanup: () => void; label: string | undefined; disposed: boolean }> = []
-    const scope = {
-      on: (name: string, handler: (payload: unknown) => void) => {
-        const entry = { name, handler }
-        scopeSubscriptions.push(entry)
-        return () => {
-          const index = scopeSubscriptions.indexOf(entry)
-          if (index >= 0) scopeSubscriptions.splice(index, 1)
-        }
-      },
-      effect: (execute: () => (() => void) | void, label?: string) => {
-        const result = execute()
-        const entry = { cleanup: typeof result === 'function' ? result : () => undefined, label, disposed: false }
-        scopeEffects.push(entry)
-        return () => {
-          if (entry.disposed) return
-          entry.disposed = true
-          entry.cleanup()
-        }
-      },
-    }
-    let cleanups = 0
-    const Page: PageFC = (_props, ctx) => {
-      ctx.page.effect(() => () => { cleanups++ })
-      ctx.page.on('agent/status', () => undefined)
-      return createElement('p', { children: 'scoped' })
-    }
-    const registration = defineComponentPage(Page, { url: '/apps/scoped', description: '作用域页' }, owner.ctx)
-    const view = registration.live.mount({}, scope as never) as unknown as ViewFace
-    // 事件订阅与 effect 都落在会话作用域，而不是创建者 ctx
-    // / subscriptions and effects land on the session scope, not the creator ctx
-    expect(owner.subscriptions).toHaveLength(0)
-    expect(scopeSubscriptions.map((s) => s.name)).toEqual(['agent/status'])
-    expect(scopeEffects).toHaveLength(1)
-    // 视图早于 agent 退订：作用域订阅注销、清理提前执行一次
-    // / the view tears down before the agent: the scope subscription is removed
-    // and the cleanup runs once, early
-    view.unsubscribe()
-    expect(scopeSubscriptions).toHaveLength(0)
-    expect(scopeEffects[0]?.disposed).toBe(true)
-    expect(cleanups).toBe(1)
-    view.unsubscribe()
-    expect(cleanups).toBe(1)
-  })
-
-  it('页面 ctx 从会话 ctx 派生：读得到会话面上的服务，不是会话 ctx 本身', () => {
-    const owner = fakeCtx()
-    // 假会话作用域：cordis 同款 extend（原型继承子上下文）+ 会话级服务面
-    // / a fake session scope: a cordis-style extend (a prototypal child context) plus a session-level service face
-    const scope = {
-      extend(meta: Record<PropertyKey, unknown>) {
-        return Object.assign(Object.create(this), meta)
-      },
-      tasks: { list: () => [{ id: 'S-9', title: '会话里的任务' }] },
-    }
-    let pageCtx: unknown
-    const Page: PageFC = (_props, ctx) => {
-      pageCtx = ctx
-      // 经页面 ctx 读会话服务：派生 ctx 必须解析到会话作用域上的面
-      // / read a session service through the page ctx: the derived ctx must resolve the session scope's face
-      const first = (ctx as unknown as typeof scope).tasks.list()[0]
-      return createElement('p', { children: first?.id ?? 'none' })
-    }
-    const registration = defineComponentPage(Page, { url: '/apps/derived', description: '派生页' }, owner.ctx)
-    const view = registration.live.mount({}, scope as never) as unknown as ViewFace
-    // 组件拿到的是从会话 ctx 派生的那一份：继承会话面、带 page 脸、非同一对象
-    // / the component gets the session-derived ctx: it inherits the session face,
-    // carries the page face, and is not the session ctx itself
-    const derived = pageCtx as unknown as { page: unknown }
-    expect(derived).not.toBe(scope)
-    expect(Object.getPrototypeOf(derived)).toBe(scope)
-    expect(derived.page).toBeDefined()
-    const body = isMarkdownDocHost(view.host) ? view.host.bodyText() : ''
-    expect(body).toContain('S-9')
-    // 无会话作用域（暂存预览）：回退从创建者 ctx 派生
-    // / without a session scope (a staged preview): derived from the creator ctx instead
-    let bareCtx: unknown
-    const Bare: PageFC = (_props, ctx) => {
-      bareCtx = ctx
+  it('工具经 agent.ctx.tools.register 直登：全名原样、体只登记一次', () => {
+    const { agent, registered } = fakeAgent()
+    const Page: PageFC = (_props, agentInBody) => {
+      agentInBody.ctx.tools.register({ name: 'task_workbench__take_task', description: 'd', parameters: {}, output: { schema: {}, render: () => [] } } as never)
+      agentInBody.ctx.tools.register({ name: 'task_workbench__complete_task', description: 'd', parameters: {}, output: { schema: {}, render: () => [] } } as never)
       return createElement('p', { children: 'ok' })
     }
-    const bare = defineComponentPage(Bare, { url: '/apps/bare', description: '裸页' }, owner.ctx)
-    bare.live.mount({})
-    expect(Object.getPrototypeOf(bareCtx)).toBe(owner.ctx)
+    mountOf(Page, { url: '/apps/tasks', description: '任务' }, {}, agent)
+    // 挂载方不经手定义：登记面就是组件体直呼的那两笔，全名原样
+    // / the mounter never handles definitions: the face is exactly the body's
+    // two registrations, full names untouched
+    expect(registered.map((tool) => tool.name)).toEqual(['task_workbench__take_task', 'task_workbench__complete_task'])
   })
 
-  it('ctx.page.effect 只运行一次；ctx.page.tool 按名去重', () => {
-    let effectRuns = 0
-    let run: (() => void) | undefined
-    const Page: PageFC = (_props, ctx) => {
-      ctx.page.effect(() => {
-        effectRuns++
-        run = () => {
-          ctx.page.tool({ name: 'task_take', description: 'd', parameters: {}, output: { schema: {}, render: () => [] } } as never)
-          ctx.page.tool({ name: 'task_take', description: 'd', parameters: {}, output: { schema: {}, render: () => [] } } as never)
-        }
-      })
+  it('agent.ctx.effect 在挂载时执行（清理随 agent 的约定不变）', () => {
+    const { agent, effects } = fakeAgent()
+    const Page: PageFC = (_props, agentInBody) => {
+      ;(agentInBody.ctx.effect as (run: () => void, label?: string) => unknown)(() => undefined, 'page:watch')
       return createElement('p', { children: 'ok' })
     }
-    const { view } = viewOf(Page, { url: '/apps/tasks', description: '任务' }, {})
-    run!()
-    expect(effectRuns).toBe(1)
-    expect(view.takeRecordedTools().map((t) => t.name)).toEqual(['task_take'])
+    mountOf(Page, { url: '/apps/effects', description: '效果页' }, {}, agent)
+    expect(effects).toHaveLength(1)
+    expect(effects[0]?.label).toBe('page:watch')
   })
 
-  it('视图退订后 setState 不再渲染孤儿视图（unmounted 守卫）', () => {
-    let renders = 0
-    let setDone: ((value: boolean) => void) | undefined
-    const Page: PageFC = () => {
-      renders += 1
-      const [done, set] = useState(false)
-      setDone = set
-      return createElement('p', { children: done ? 'done' : 'idle' })
+  it('useSnapshot 读挂载下发的首屏快照（含失败态——失败态也是数据）', () => {
+    const Page: PageFC<{ taskId: string }> = (props) => {
+      const snap = useSnapshot<{ id: string; error?: { message: string } }>()
+      if (snap?.error !== undefined) return createElement('p', { children: `失败：${snap.error.message}` })
+      return createElement('p', { children: `${snap?.id ?? 'none'}@${String(props.taskId)}` })
     }
-    const { view } = viewOf(Page, { url: '/apps/guard', description: '卸载守卫页' }, {})
-    expect(renders).toBe(1)
-    view.unsubscribe()
-    // 退订后的异步回调：只更新胞值，不触发第二帧
-    // / an async callback after unsubscribe updates the cell but renders no second frame
-    setDone!(true)
-    expect(renders).toBe(1)
+    // 成功快照 / a success snapshot
+    const ok = mountOf(Page, { url: '/apps/tasks/:taskId', description: '详情' }, { taskId: 'T-9' }, fakeAgent().agent, { id: 'T-9' })
+    expect(ok).toBe('T-9@T-9')
+    // 失败态快照（如实渲染，绝不静默空白）/ a failure snapshot (rendered honestly)
+    const failed = mountOf(Page, { url: '/apps/tasks/:taskId', description: '详情' }, { taskId: 'T-9' }, fakeAgent().agent, { id: 'T-9', error: { message: 'boom' } })
+    expect(failed).toBe('失败：boom')
   })
 
-  it('useSnapshot 读 meta.load 的首屏结果；每会话视图互不串台', async () => {
-    let loadCount = 0
-    const meta = {
-      url: '/apps/tasks/:taskId',
-      description: '任务详情',
-      load: async (params: { taskId: string }) => {
-        loadCount++
-        return { id: params.taskId, seq: loadCount }
+  it('契约映射：name 缺省取 URL 末段、load/instanceTitle 适配进 PageDefinition', async () => {
+    const registration = defineComponentPage(
+      (() => createElement('p', { children: 'ok' })) as PageFC,
+      {
+        url: '/apps/demo/task/:taskId',
+        description: '详情',
+        writes: true,
+        instanceTitle: (params) => `任务 #${params.taskId}`,
+        load: async () => null,
       },
-    }
-    const Page: PageFC<{ taskId: string }> = () => {
-      const snap = useSnapshot<{ id: string; seq: number }>()
-      return createElement('p', { children: `${snap?.id}#${snap?.seq}` })
-    }
-    const { ctx } = fakeCtx()
-    const registration = defineComponentPage(Page, meta, ctx)
-    // 真实时序（createPageSession 同款）：load 先跑 → live.mount 建视图 →
-    // setSnapshot 下发 load 结果（组件重渲为正文）
-    // / the real order (same as createPageSession): load runs first → live.mount
-    // builds the view → setSnapshot pushes the result (the component re-renders it)
-    const sinkOf = (view: unknown) => view as unknown as { setSnapshot(v: unknown): void }
-    const dataA = await registration.page.load?.({ taskId: 'T-1' } as never, {})
-    const viewA = registration.live.mount({ taskId: 'T-1' }) as unknown as ViewFace
-    sinkOf(viewA).setSnapshot(dataA)
-    const dataB = await registration.page.load?.({ taskId: 'T-2' } as never, {})
-    const viewB = registration.live.mount({ taskId: 'T-2' }) as unknown as ViewFace
-    sinkOf(viewB).setSnapshot(dataB)
-    const bodyA = isMarkdownDocHost(viewA.host) ? viewA.host.bodyText() : ''
-    const bodyB = isMarkdownDocHost(viewB.host) ? viewB.host.bodyText() : ''
-    expect(bodyA).toContain('T-1#1')
-    expect(bodyB).toContain('T-2#2')
-    viewA.unsubscribe()
+    )
+    expect(isComponentPageRegistration(registration)).toBe(true)
+    expect(registration.page.name).toBe('task')
+    expect(registration.page.url).toBe('/apps/demo/task/:taskId')
+    expect(registration.page.writes).toBe(true)
+    expect(await registration.page.load?.({ taskId: 'T-1' }, {})).toBeNull()
+    expect(registration.page.instanceTitle?.({ taskId: 'T-1' })).toBe('任务 #T-1')
+  })
+
+  it('useSnapshot 在挂载之外返回 undefined（没有第二次渲染可读快照）', () => {
+    expect(useSnapshot()).toBeUndefined()
   })
 })

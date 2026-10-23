@@ -30,8 +30,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { AppId, ApplicationDefinition, PageKey } from '@veren/app-registry'
 import type { ForumToolsPort } from '@veren/forum'
-import { CatalogMeta, CatalogPage, CatalogPageTools, PostMeta, PostPage, PostPageTools } from './pages.tsx'
-import type { PageToolBinding } from './pages.tsx'
+import { createForumPages } from './pages.tsx'
 
 /** The app id; the URL prefix `/apps/forum` and the `forum__` tool prefix follow it. */
 export const FORUM_APP_ID = 'forum' as AppId
@@ -94,27 +93,16 @@ export function registerForumApp(ctx: Context, port: () => ForumToolsPort): void
       // 1) Definition first; bound to this fiber.
       //    先定义；绑定到本 fiber。
       disposers.push(apps.register(FORUM_APP_DEFINITION, ctx))
-      // 2) Page by page: derive everything from the page's one binding
-      //    declaration — the builder produces the catalog definition, the name
-      //    is the page's mounted intent. The catalog holds ONE definition per
-      //    local name: a tool two pages share (inbox) enters the catalog with
-      //    its first binding; the later page's declaration merely re-states the
-      //    same mount.
-      //    逐页进行：一切从页面的唯一绑定声明推导——构建器产出目录定义，名字就是
-      //    该页的挂载意图。目录里每个本地名只存一份定义：两页共有的工具（inbox）
-      //    随首次绑定入目录，后一页的声明只是重申挂同一份。
-      const tools = apps.tools(FORUM_APP_ID, ctx)
+      // 2) Page by page: the tools are registered by each page's body via
+      //    agent.ctx.tools.register in the one render (full names forum__*),
+      //    so there is no catalog indirection here — pages carry their own
+      //    tool bindings.
+      //    逐页进行：工具由每页组件体在唯一一次渲染里经 agent.ctx.tools.register
+      //    以全名登记（forum__*），这里没有任何目录间接层——工具绑定长在页面上。
       const pages = apps.pages(FORUM_APP_ID, ctx)
-      const defined = new Set<string>()
-      const defineBound = ({ name, build }: PageToolBinding): void => {
-        if (defined.has(name)) return
-        defined.add(name)
-        disposers.push(tools.define(build(ctx, port)))
-      }
-      for (const binding of CatalogPageTools) defineBound(binding)
-      disposers.push(pages.register(CatalogPage, CatalogMeta))
-      for (const binding of PostPageTools) defineBound(binding)
-      disposers.push(pages.register(PostPage, PostMeta))
+      const forumPages = createForumPages(port, ctx)
+      disposers.push(pages.register(forumPages.CatalogPage, forumPages.CatalogMeta))
+      disposers.push(pages.register(forumPages.PostPage, forumPages.PostMeta))
     } catch (error: unknown) {
       for (const dispose of disposers.reverse()) dispose()
       throw error

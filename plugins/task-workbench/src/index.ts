@@ -4,22 +4,22 @@
  *
  * 这是「怎样写一个 Veren 应用」的参考实现（README 有完整流程）：
  * 1. ctx.apps.register(def, ctx) —— 定义应用并绑定本 fiber（卸载即整应用摘除）；
- * 2. ctx.apps.tools(id, ctx) —— 定义应用级工具目录（本地名，前缀由注册表拼）；
- * 3. ctx.apps.pages(id, ctx) —— 注册页面（/apps/<appId>/...，tools 引用本地名）。
- *    页面注册是单入口：app-registry 内部自动镜像进 page-registry 的 URL 索引，
- *    应用作者不再（也不能）自己调 ctx.pageRegistry.registerAppPage。
+ * 2. createAppTools —— defineTool 产物以全名（`<toolPrefix>__<本地名>`）备好；
+ * 3. ctx.apps.pages(id, ctx) —— 注册页面（/apps/<appId>/...）：组件体在唯一一次
+ *    渲染里直接 agent.ctx.tools.register 登记本页工具。页面注册是单入口：
+ *    app-registry 内部自动镜像进 page-registry 的 URL 索引，应用作者不再
+ *    （也不能）自己调 ctx.pageRegistry.registerAppPage。
  * 4. 依赖全部显式声明（G13）：apps / pageRegistry / taskCenter 都是硬 inject，
  *    没有任何运行期探测兄弟服务的降级通道——那条通道在真实宿主上从未生效过。
  * @module @veren/task-workbench
  */
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import type { AppCapability } from '@veren/app-registry'
 import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
 import type {} from '@veren/task-center'
-import { APP_DEFINITION, APP_ID, createAppTools, createTaskChannel, PUBLISH_TASK_REQUIRES } from './app.ts'
-import { createTaskPages } from './pages.tsx'
+import { APP_DEFINITION, APP_ID, createAppTools, createTaskChannel } from './app.ts'
+import { createTaskPages, externalName } from './pages.tsx'
 import { TaskStore, makeList } from './store.ts'
 import type { PageTaskScope } from './types.ts'
 
@@ -77,27 +77,26 @@ export const apply = (ctx: Context, config: Config): void => {
     try {
       // 1) 应用定义：绑定本 fiber，fiber 销毁 → 整应用（页面+工具）摘除
       done.push(apps.register(APP_DEFINITION, ctx))
-      // 2) 工具目录先于页面：defineTool 产物进应用目录（publish 需要 tasks:send
-      //    能力，经 define 的 meta 参数声明；take_page_task 带页面作用域解析面）
-      const tools = apps.tools(APP_ID, ctx)
-      for (const tool of createAppTools(store, channel, scope)) {
-        done.push(tools.define(tool, tool.name === 'publish_task'
-          ? { requires: [...PUBLISH_TASK_REQUIRES] as AppCapability[] }
-          : undefined))
-      }
-      // 3) 页面注册（组件形态，RFC prompt-page-render §3.5）：单入口，app-registry
-      //    内部镜像进 page-registry（可被 openUrl 解析）；镜像失败会回滚并抛错。
-      //    三页闭包引用本次装配的权威 store（§3.10.3）：组件经 useSnapshot 读它，
-      //    变化经 PAGE-PATCH 增量进上下文——单一事实源，无第二数据源。
-      // 3) Page registration (component form, RFC prompt-page-render §3.5):
-      //    single entry, app-registry mirrors into page-registry internally
-      //    (resolvable by openUrl); a mirror failure rolls back and throws. All
-      //    three pages close over this assembly's authoritative store
-      //    (§3.10.3): components read it via useSnapshot, and changes reach the
-      //    context as PAGE-PATCH blocks — a single source of fact, no second
-      //    data source.
+      // 2) 工具以全名备好（`<toolPrefix>__<本地名>`，§3.4.3）：不再走应用目录的
+      //    define 间接层——页面组件体在唯一一次渲染里直接 agent.ctx.tools.register
+      //    （publish 的 tasks:send 能力声明保留在应用定义的 requires 上）。
+      // 2) Tools are prepared under full names (`<toolPrefix>__<localName>`,
+      //    §3.4.3): the app catalog's define indirection is gone — page bodies
+      //    call agent.ctx.tools.register in the one render (publish's
+      //    tasks:send capability stays declared on the app definition's requires).
+      const tools = createAppTools(store, channel, scope).map((tool) => ({ ...tool, name: externalName(tool.name) }))
+      // 3) 页面注册（一次性渲染形态）：单入口，app-registry 内部镜像进
+      //    page-registry（可被 openUrl 解析）；镜像失败会回滚并抛错。三页闭包
+      //    引用本次装配的权威 store 与全名工具：组件体在唯一一次渲染里登记本页
+      //    工具、经 useSnapshot 读首屏快照——此后不再渲染，变化以工具结果为准。
+      // 3) Page registration (one-shot form): single entry, app-registry mirrors
+      //    into page-registry internally (resolvable by openUrl); a mirror
+      //    failure rolls back and throws. The three pages close over this
+      //    assembly's store and full-named tools: each body registers its page's
+      //    tools in the one render and reads the first screen via useSnapshot —
+      //    no second render; changes are learned from tool results.
       const pages = apps.pages(APP_ID, ctx)
-      const taskPages = createTaskPages(store)
+      const taskPages = createTaskPages(store, tools)
       done.push(pages.register(taskPages.ListPage, taskPages.ListMeta))
       done.push(pages.register(taskPages.DetailPage, taskPages.DetailMeta))
       done.push(pages.register(taskPages.PublishPage, taskPages.PublishMeta))

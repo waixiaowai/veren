@@ -66,13 +66,18 @@ export const APP_DEFINITION: ApplicationDefinition = {
  * `ctx.tools`.
  */
 export function createAppTools(ctx: Context, port: () => NotebookToolsPort): ToolDefinition[] {
+  // 全名（`notebook__<本地名>`，§3.4.3）：组件体在唯一一次渲染里直接
+  // agent.ctx.tools.register——没有目录间接层，名字即对外名。
+  // Full names (`notebook__<local>`, §3.4.3): the body registers via
+  // agent.ctx.tools.register in the one render — no catalog indirection; the
+  // name IS the external name.
   return [
     buildNotebookListDefinition(ctx, port),
     buildNotebookReadDefinition(ctx, port),
     buildNotebookWriteDefinition(ctx, port),
     buildNotebookRewriteDefinition(ctx, port),
     buildNotebookDeleteDefinition(ctx, port),
-  ]
+  ].map((tool) => ({ ...tool, name: `notebook__${tool.name}` }))
 }
 
 // ---- 单入口注册 / the single-entry registration ----
@@ -95,15 +100,17 @@ export function registerNotebookApp(ctx: Context, port: () => NotebookToolsPort)
     const done: Array<() => void> = []
     try {
       done.push(apps.register(APP_DEFINITION, ctx))
-      const tools = apps.tools(APP_ID, ctx)
-      for (const tool of createAppTools(ctx, port)) done.push(tools.define(tool))
-      // 3) 页面注册（自承载组件，RFC §3.5）：工厂产出的 PageFC + meta 直接注册，
+      // 2) 工具以全名备好：组件体在唯一一次渲染里直接 agent.ctx.tools.register。
+      // 2) Tools are prepared under full names: the body registers via
+      //    agent.ctx.tools.register in the one render.
+      const tools = createAppTools(ctx, port)
+      // 3) 页面注册（一次性渲染形态）：工厂产出的 PageFC + meta 直接注册，
       //    单入口内部自动镜像进 page-registry（可被 openUrl 解析）。
-      //    Page registration (self-contained components, RFC §3.5): the factory's
-      //    PageFC + meta pairs register directly, single entry mirrored into the
-      //    page registry (openUrl-resolvable).
+      //    Page registration (one-shot form): the factory's PageFC + meta pairs
+      //    register directly, single entry mirrored into the page registry
+      //    (openUrl-resolvable).
       const pages = apps.pages(APP_ID, ctx)
-      const { ListPage, ListMeta, NotePage, NoteMeta } = createNotebookPages(port)
+      const { ListPage, ListMeta, NotePage, NoteMeta } = createNotebookPages(port, tools)
       done.push(pages.register(ListPage, ListMeta))
       done.push(pages.register(NotePage, NoteMeta))
     } catch (error: unknown) {

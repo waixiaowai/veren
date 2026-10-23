@@ -1,24 +1,24 @@
 /**
  * 组合测试：真实 cordis Context + 真实 AppRegistryService/PageRegistryService，
- * 锁定验收面：目录可发现、入口 URL 可解析、页面 URL 前缀、工具外部名前缀、
- * 单入口一致性、卸载清理、正文直读同步面的首帧真实数据、异步面的读取失败
- * 显式降级（服务都是硬 inject）。
+ * 锁定验收面：目录可发现、入口 URL 可解析、页面 URL 前缀、工具全名、
+ * 单入口一致性、卸载清理、正文（load 快照 + 闭包同步读）首帧真实数据、
+ * 异步面的读取失败显式降级（服务都是硬 inject）。
  * Composition tests: real cordis Context with real registries; locks catalog
- * discovery, entry-url resolution, url prefixes, tool external-name prefixes,
- * single-entry consistency, teardown, the first-frame real data of
- * body-read sync faces, and the async face's explicit read-failure degrade
- * (all services are hard injects).
+ * discovery, entry-url resolution, url prefixes, full tool names, single-entry
+ * consistency, teardown, the first-frame real data (load snapshots + closure
+ * sync reads), and the async face's explicit read-failure degrade (all services
+ * are hard injects).
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
 import AppRegistryPlugin, { AppRegistryService } from '@veren/app-registry'
 import PageRegistryPlugin, { PageRegistryService } from '@veren/page-registry'
 import { apply, inject, name } from '../src/index.ts'
 import { APP_DEFINITION, APP_ID } from '../src/app.ts'
-import { defineComponentPage, isMarkdownDocHost } from '@veren/prompt-page'
-import type { ComponentPageMeta, MarkdownDocHost, PageFC } from '@veren/prompt-page'
-import { OverviewMeta, OverviewPage, WorkspacesMeta, WorkspacesPage } from '../src/pages.tsx'
+import { defineComponentPage } from '@veren/prompt-page'
+import type { ComponentPageMeta, PageJsonValue, PageParams } from '@veren/prompt-page'
+import { createPersonAgentPages } from '../src/pages.tsx'
 
 /** 假任务中心：open 列表可编程 / a fake task center with a programmable open list */
 function fakeTaskCenter(options: { openTitles?: string[]; failList?: boolean } = {}) {
@@ -76,7 +76,7 @@ async function install(options: {
   ctx.provide('workspaceRegistry', fakeWorkspaceRegistry(options.workspaces) as never)
   ctx.provide('taskCenter', fakeTaskCenter(options) as never)
   // 页面正文的另外两块部署事实：预设名单与模型目录。默认给真实形状的数据，
-  // 失败测试用开关让读取抛错，钉住“失败如实渲染、不编造”。
+  // 失败测试用开关让读取抛错，钉住"失败如实渲染、不编造"。
   // The other two deployment facts in the page body: preset roster and model
   // catalog. The defaults carry realistic shapes; failure tests flip a switch so
   // the read throws, pinning "failures render honestly, never faked".
@@ -132,34 +132,55 @@ afterEach(async () => {
 })
 
 /**
- * 挂载真实页面组件并返回其文档宿主与登记的工具（名 + 定义本体）：正文里的
- * ctx.apps / ctx.workspaceRegistry / ctx.taskCenter 经 facade 转发到测试 ctx 的
- * fake 服务面——零工厂、零闭包注入。设计律（工具只在页面存在）下，这次挂载的
- * 记录就是页面的全部工具面。
- * Mount a real page component and return its doc host plus the recorded tools
- * (names + definition bodies): the body's ctx.apps / ctx.workspaceRegistry /
- * ctx.taskCenter forward through the facade to the test ctx's fake faces —
- * zero factory, zero closure injection. Under the design law (a tool exists
- * only inside a page), this mount's records ARE the page's whole tool face.
+ * 假会话 agent：记录组件体直登的定义（页面的工具面断言源）。
+ * A fake session agent: records the body's direct registrations (the assertion
+ * source of a page's tool face).
  */
-function mountPage(component: PageFC, meta: ComponentPageMeta, ctx: Context): {
-  host: MarkdownDocHost
+function fakeAgent() {
+  const registered: Array<{ name: string; definition: unknown }> = []
+  const agent = {
+    ctx: {
+      tools: {
+        register: (definition: { name: string }) => {
+          registered.push({ name: definition.name, definition })
+          return () => undefined
+        },
+      },
+      effect: (run: () => (() => void) | void) => {
+        run()
+        return async () => undefined
+      },
+      on: () => () => undefined,
+    },
+    session: { id: 'spec' },
+  }
+  return { agent: agent as never, registered }
+}
+
+/**
+ * 挂载真实页面组件（一次性渲染）：异步面经 meta.load 取齐快照（与运行时同序），
+ * 组件体在假 agent 上执行恰好一次——登记名剥去 `person_agent__` 前缀返回，正文
+ * 与登记面一次拿全。
+ * Mount a real page component (one-shot): the async face settles in meta.load
+ * (the same order as the runtime) and the body runs exactly once on the fake
+ * agent — registered names come back with the `person_agent__` prefix stripped,
+ * body and registration face in one call.
+ */
+async function mountPage(component: (props: never, agent: never) => unknown, meta: ComponentPageMeta<never>, ctx: Context, params: PageParams = {}): Promise<{
+  body: string
   recorded: () => string[]
   definitions: () => { name: string; execute: (args: unknown, exec: unknown) => Promise<unknown> }[]
-} {
-  const view = defineComponentPage(component, meta, ctx).live.mount({})
-  disposers.push(async () => { view.unsubscribe() })
-  const host = isMarkdownDocHost(view.host) ? view.host : undefined
-  if (host === undefined) throw new Error('expected the markdown doc host')
-  // 组件页视图的记账面：ctx.page.tool 的记录（运行时改名后挂载）——最小执行面
-  // 收窄一次，宿主 exec 由假对象顶替。
-  // The component-page view's recording face: ctx.page.tool records (renamed
-  // and mounted by the runtime) — narrowed once to the minimal execution face,
-  // an empty object stands in for the host exec.
-  const take = (view as unknown as { takeRecordedTools?: () => { name: string; execute: (args: unknown, exec: unknown) => Promise<unknown> }[] }).takeRecordedTools
-  const recorded = (): string[] => (typeof take === 'function' ? take.call(view).map((tool) => tool.name) : [])
-  const definitions = () => (typeof take === 'function' ? take.call(view) : [])
-  return { host, recorded, definitions }
+}> {
+  const { agent, registered } = fakeAgent()
+  const snapshot = meta.load === undefined
+    ? undefined
+    : await meta.load(params as never, {}) as PageJsonValue
+  const body = defineComponentPage(component as never, meta).live.mount(params, agent, snapshot)
+  return {
+    body,
+    recorded: () => registered.map((entry) => entry.name.replace('person_agent__', '')),
+    definitions: () => registered.map((entry) => entry.definition as { name: string; execute: (args: unknown, exec: unknown) => Promise<unknown> }),
+  }
 }
 
 describe('应用可被发现与解析', () => {
@@ -184,7 +205,7 @@ describe('应用可被发现与解析', () => {
     expect(pageRegistry.resolve('/apps/person-agent/workspaces')?.page.name).toBe('person-agent/workspaces')
   })
 
-  it('所有页面 URL 都是 /apps/person-agent/...，不绑定预设，revision ≥ 1', async () => {
+  it('所有页面 URL 都是 /apps/person-agent/...，不绑定预设', async () => {
     const { apps, fiber } = await install()
     disposers.push(() => fiber.dispose())
     const pages = apps.listPages(APP_ID)
@@ -253,7 +274,7 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
   })
 
   it('概览页"会话明细现查"的承诺有工具承接：说明点名 workspace_session_list，组件体就真登记它', async () => {
-    const { apps, ctx, fiber } = await install()
+    const { ctx, apps, fiber } = await install()
     disposers.push(() => fiber.dispose())
     const home = apps.listPages(APP_ID).find((page) => page.name === APP_DEFINITION.entry)
     if (home === undefined) throw new Error('the overview page must be registered')
@@ -262,56 +283,59 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     // 登记的工具也必须被说明提到（不许出现模型看不见来源的能力）。
     // / Live-host lesson: the overview once mounted no person_agent__* tool at
     // all, leaving the instructions' promise empty. Pin promise-vs-record:
-    // naming an on-demand tool in the instructions requires really recording it
-    // in the body; and every recorded tool must be named in the instructions
+    // naming an on-demand tool in the instructions requires really registering it
+    // in the body; and every registered tool must be named in the instructions
     // (no capability whose source the model cannot see).
     if (home.instructions === undefined) throw new Error('the overview page must carry instructions')
     expect(home.instructions).toContain('workspace_session_list')
-    // 登记面核对：组件体的记录里必须有它（承诺 = 登记 / promise = record）
-    const { recorded } = mountPage(OverviewPage, OverviewMeta, ctx)
+    // 登记面核对：组件体的记录里必须有它（承诺 = 登记 / promise = registration）
+    const pages = createPersonAgentPages(ctx)
+    const { recorded } = await mountPage(pages.OverviewPage, pages.OverviewMeta, ctx)
     expect(recorded()).toContain('workspace_session_list')
   })
 
-  it('概览页正文直读：同步面首帧即真实数据，异步任务区 effect 拉取后进正文（WYSIWYG）', async () => {
+  it('概览页正文：同步面首帧即真实数据，异步面在 load 取齐后进正文（一次性渲染，无 loading 态）', async () => {
     const { ctx, fiber } = await install({ openTitles: ['唯一任务'] })
     disposers.push(() => fiber.dispose())
-    const { host } = mountPage(OverviewPage, OverviewMeta, ctx)
-    // 同步面（apps/workspaces）正文直读：首帧即真实数据，无 loading 态
-    // / sync faces (apps/workspaces) read straight in the body: real data on frame 1, no loading state
-    expect(host.bodyText()).toContain('Workspace List')
-    expect(host.bodyText()).toContain('主工作区（id: ws-1；会话账目 2）')
-    expect(host.bodyText()).toContain('副工作区（id: ws-2；会话账目 0）')
-    expect(host.bodyText()).toContain('工作区 2 个')
-    expect(host.bodyText()).toContain('Person Agent')
-    expect(host.bodyText()).toContain('读取中')
-    // 异步面（tasks/presets/models）effect 拉取后重渲进正文
-    // / async faces (tasks/presets/models) re-render into the body after the effect fetches
-    await vi.waitFor(() => expect(host.bodyText()).toContain('open 任务 1 条'))
-    await vi.waitFor(() => expect(host.bodyText()).toContain('Agent Preset List'))
-    await vi.waitFor(() => expect(host.bodyText()).toContain('Standard mode(standard)'))
-    await vi.waitFor(() => expect(host.bodyText()).toContain('Person Agent(person-agent):Bridge'))
-    await vi.waitFor(() => expect(host.bodyText()).toContain('（不可用：activation failed）'))
-    await vi.waitFor(() => expect(host.bodyText()).toContain('Model Catalog'))
-    await vi.waitFor(() => expect(host.bodyText()).toContain('DeepSeek(deepseek)'))
-    await vi.waitFor(() => expect(host.bodyText()).toContain('DeepSeek Flash(deepseek-flash)'))
-    await vi.waitFor(() => expect(host.bodyText()).toContain('context 128000 tokens'))
+    const pages = createPersonAgentPages(ctx)
+    const { body } = await mountPage(pages.OverviewPage, pages.OverviewMeta, ctx)
+    // 同步面（apps/workspaces）正文直读 / sync faces (apps/workspaces) read straight in the body
+    expect(body).toContain('Workspace List')
+    expect(body).toContain('主工作区（id: ws-1；会话账目 2）')
+    expect(body).toContain('副工作区（id: ws-2；会话账目 0）')
+    expect(body).toContain('工作区 2 个')
+    expect(body).toContain('Person Agent')
+    // 异步面（tasks/presets/models）在 load 里取齐（没有"读取中"形态——取不齐就失败态如实渲染）
+    // / async faces (tasks/presets/models) settle in load (no "reading" state —
+    // failures render honestly instead)
+    expect(body).toContain('open 任务 1 条')
+    expect(body).toContain('Agent Preset List')
+    expect(body).toContain('Standard mode(standard)')
+    expect(body).toContain('Person Agent(person-agent):Bridge')
+    expect(body).toContain('（不可用：activation failed）')
+    expect(body).toContain('Model Catalog')
+    expect(body).toContain('DeepSeek(deepseek)')
+    expect(body).toContain('DeepSeek Flash(deepseek-flash)')
+    expect(body).toContain('context 128000 tokens')
   })
 
   it('预设/模型读取失败：正文如实标注原因，工作区与任务区不受影响', async () => {
     const { ctx, fiber } = await install({ failPresetList: true, failModelList: true })
     disposers.push(() => fiber.dispose())
-    const { host } = mountPage(OverviewPage, OverviewMeta, ctx)
-    expect(host.bodyText()).toContain('主工作区（id: ws-1；会话账目 2）')
-    await vi.waitFor(() => expect(host.bodyText()).toContain('预设名单读取失败：preset registry down'))
-    await vi.waitFor(() => expect(host.bodyText()).toContain('模型目录读取失败：llm registry down'))
+    const pages = createPersonAgentPages(ctx)
+    const { body } = await mountPage(pages.OverviewPage, pages.OverviewMeta, ctx)
+    expect(body).toContain('主工作区（id: ws-1；会话账目 2）')
+    expect(body).toContain('预设名单读取失败：preset registry down')
+    expect(body).toContain('模型目录读取失败：llm registry down')
   })
 
   it('工作区浏览页正文直读：打开即真实工作区行（ws-1/会话账目 2），零 loading 态', async () => {
     const { ctx, fiber } = await install({ openTitles: [] })
     disposers.push(() => fiber.dispose())
-    const { host } = mountPage(WorkspacesPage, WorkspacesMeta, ctx)
-    expect(host.bodyText()).toContain('主工作区（id: ws-1；会话账目 2）')
-    expect(host.bodyText()).toContain('共 2 个工作区')
+    const pages = createPersonAgentPages(ctx)
+    const { body } = await mountPage(pages.WorkspacesPage, pages.WorkspacesMeta, ctx)
+    expect(body).toContain('主工作区（id: ws-1；会话账目 2）')
+    expect(body).toContain('共 2 个工作区')
   })
 
   it('工作区 id 进正文：工具按 id 解析，正文必须给出 id（标题只是展示名）', async () => {
@@ -322,16 +346,17 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     // / Live-host lesson: when the body rendered only titles (default-workspace),
     // the model passed the title as the id and got WORKSPACE_NOT_FOUND — every
     // promise must carry its source of fact.
-    const workspacesBody = mountPage(WorkspacesPage, WorkspacesMeta, ctx).host.bodyText()
-    expect(workspacesBody).toContain('id: ws-1')
-    expect(workspacesBody).toContain('id: ws-2')
+    const pages = createPersonAgentPages(ctx)
+    const workspaces = await mountPage(pages.WorkspacesPage, pages.WorkspacesMeta, ctx)
+    expect(workspaces.body).toContain('id: ws-1')
+    expect(workspaces.body).toContain('id: ws-2')
     // 概览页同样带来下钻/建会话工具，正文也必须给 id
     // / the overview mounts the same drilldown/create tools, so its body must carry ids too
-    const overviewBody = mountPage(OverviewPage, OverviewMeta, ctx).host.bodyText()
-    expect(overviewBody).toContain('id: ws-1')
+    const overview = await mountPage(pages.OverviewPage, pages.OverviewMeta, ctx)
+    expect(overview.body).toContain('id: ws-1')
     // 说明必须指向 id 而不是标题 / the instructions must point at the id, not the title
-    expect(WorkspacesMeta.instructions).toContain('id:')
-    expect(OverviewMeta.instructions).toContain('id:')
+    expect(pages.WorkspacesMeta.instructions).toContain('id:')
+    expect(pages.OverviewMeta.instructions).toContain('id:')
   })
 })
 
@@ -339,13 +364,14 @@ describe('工具只在页面存在：组件体登记即页面全部工具面', (
   it('概览页组件体登记十件工具，instructions 逐一点名（承诺 = 登记）', async () => {
     const { ctx, fiber } = await install()
     disposers.push(() => fiber.dispose())
-    const { recorded } = mountPage(OverviewPage, OverviewMeta, ctx)
-    // 设计律下的完整清单：无状态九件就地登记，session_dispatch 携带随页面视图
-    // 创建/销毁的结算看守（effect 登记项）。顺序 = 组件体书写顺序 + effect 项。
+    const pages = createPersonAgentPages(ctx)
+    const { recorded } = await mountPage(pages.OverviewPage, pages.OverviewMeta, ctx)
+    // 设计律下的完整清单：无状态九件就地登记，session_dispatch 携带结算看守
+    // （agent.ctx.effect 登记项，看守随 agent 销毁结清）。顺序 = 组件体书写顺序 + effect 项。
     // / the full list under the design law: nine stateless tools register in
-    // place, session_dispatch carries the settlement watch created and disposed
-    // with the page view (the effect-registered one). Order = body order, with
-    // the effect entry last.
+    // place, session_dispatch carries the settlement watch (the agent.ctx.effect
+    // entry; the watch settles at agent disposal). Order = body order, with the
+    // effect entry last.
     expect(recorded()).toEqual([
       'session_create',
       'session_rename',
@@ -358,8 +384,8 @@ describe('工具只在页面存在：组件体登记即页面全部工具面', (
       'workspace_session_list',
       'session_dispatch',
     ])
-    const instructions = OverviewMeta.instructions ?? ''
-    // 组件体登记的每个工具都必须被说明点名 / every body-recorded tool is named in the instructions
+    const instructions = pages.OverviewMeta.instructions ?? ''
+    // 组件体登记的每个工具都必须被说明点名 / every body-registered tool is named in the instructions
     for (const name of recorded()) {
       expect(instructions).toContain(name)
     }
@@ -368,21 +394,24 @@ describe('工具只在页面存在：组件体登记即页面全部工具面', (
   it('工作区页组件体登记四件工具，instructions 逐一点名', async () => {
     const { ctx, fiber } = await install()
     disposers.push(() => fiber.dispose())
-    const { recorded } = mountPage(WorkspacesPage, WorkspacesMeta, ctx)
+    const pages = createPersonAgentPages(ctx)
+    const { recorded } = await mountPage(pages.WorkspacesPage, pages.WorkspacesMeta, ctx)
     expect(recorded()).toEqual(['workspace_session_list', 'session_create', 'workspace_create', 'workspace_rename'])
-    const instructions = WorkspacesMeta.instructions ?? ''
+    const instructions = pages.WorkspacesMeta.instructions ?? ''
     for (const name of recorded()) {
       expect(instructions).toContain(name)
     }
   })
 
-  it('renhua 随两页声明为页面级 skill：name/description/content 齐全（挂载归 app-host）', () => {
+  it('renhua 随两页声明为页面级 skill：name/description/content 齐全（挂载归 app-host）', async () => {
+    const { ctx } = await install()
     // 页面级 skills 是"页面承诺里有真实来源"的一部分：声明了就得可读、可挂。
     // 挂载路径（app-host → ctx.skills.register）已由 app-host 的装配测试锁定。
     // / Page-scope skills are part of "every promise has a real source":
     // declared means readable and mountable. The mounting path (app-host →
     // ctx.skills.register) is locked by app-host's assembly tests.
-    for (const meta of [OverviewMeta, WorkspacesMeta]) {
+    const pages = createPersonAgentPages(ctx)
+    for (const meta of [pages.OverviewMeta, pages.WorkspacesMeta]) {
       expect(meta.skills).toHaveLength(1)
       const skill = meta.skills?.[0]
       expect(skill?.name).toBe('renhua')
@@ -394,9 +423,10 @@ describe('工具只在页面存在：组件体登记即页面全部工具面', (
   it('页面登记的工具执行不撞属性守卫：会话事实依赖在 inject 里声明且真能读到', async () => {
     const { ctx, fiber } = await install()
     disposers.push(() => fiber.dispose())
-    const { definitions } = mountPage(OverviewPage, OverviewMeta, ctx)
-    const tool = definitions().find((entry) => entry.name === 'workspace_session_list')
-    if (tool === undefined) throw new Error('workspace_session_list must be recorded by the overview body')
+    const pages = createPersonAgentPages(ctx)
+    const { definitions } = await mountPage(pages.OverviewPage, pages.OverviewMeta, ctx)
+    const tool = definitions().find((entry) => entry.name === 'person_agent__workspace_session_list')
+    if (tool === undefined) throw new Error('workspace_session_list must be registered by the overview body')
     // 真机教训：页面登记的工具闭包捕获应用 plugin ctx，缺 inject 时执行报
     // "cannot get property \"sessions\" without inject"——这里用真实 plugin ctx
     // 执行一次，钉住 sessions / sessionProjections 两条属性访问路径。
@@ -416,35 +446,30 @@ describe('工具只在页面存在：组件体登记即页面全部工具面', (
       model: 'deepseek-chat',
     })
   })
-
-  it('重渲不重复注册：异步面刷新后登记仍是同一批工具（按名去重）', async () => {
-    const { ctx, fiber } = await install({ openTitles: ['唯一任务'] })
-    disposers.push(() => fiber.dispose())
-    const { host, recorded } = mountPage(OverviewPage, OverviewMeta, ctx)
-    await vi.waitFor(() => expect(host.bodyText()).toContain('open 任务 1 条'))
-    expect(recorded()).toHaveLength(10)
-  })
 })
 
 describe('真实数据与读取失败降级', () => {
   it('taskCenter 读取失败：任务区如实标注原因，同步两区照常给真实数据', async () => {
     const { ctx, fiber } = await install({ failList: true, workspaces: undefined })
     disposers.push(() => fiber.dispose())
-    const { host } = mountPage(OverviewPage, OverviewMeta, ctx)
+    const pages = createPersonAgentPages(ctx)
+    const { body } = await mountPage(pages.OverviewPage, pages.OverviewMeta, ctx)
     // 同步区首帧照常真实；失败显式降级进正文（不抛异常、不编造）
     // / sync sections stay real on frame 1; the failure degrades explicitly into the body (no throw, no faking)
-    expect(host.bodyText()).toContain('主工作区（id: ws-1；会话账目 2）')
-    await vi.waitFor(() => expect(host.bodyText()).toContain('任务中心读取失败：storage backend down'))
+    expect(body).toContain('主工作区（id: ws-1；会话账目 2）')
+    expect(body).toContain('任务中心读取失败：storage backend down')
   })
 
   it('workspaceRegistry 在场：workspaces 页给出真实行；注册表为空时给出空列表', async () => {
     const withWorkspaces = await install()
     disposers.push(() => withWorkspaces.fiber.dispose())
-    const { host } = mountPage(WorkspacesPage, WorkspacesMeta, withWorkspaces.ctx)
-    expect(host.bodyText()).toContain('主工作区（id: ws-1；会话账目 2）')
+    const withPages = createPersonAgentPages(withWorkspaces.ctx)
+    const withMount = await mountPage(withPages.WorkspacesPage, withPages.WorkspacesMeta, withWorkspaces.ctx)
+    expect(withMount.body).toContain('主工作区（id: ws-1；会话账目 2）')
     const empty = await install({ workspaces: [] })
     disposers.push(() => empty.fiber.dispose())
-    const { host: emptyHost } = mountPage(WorkspacesPage, WorkspacesMeta, empty.ctx)
-    expect(emptyHost.bodyText()).toContain('共 0 个工作区')
+    const emptyPages = createPersonAgentPages(empty.ctx)
+    const emptyMount = await mountPage(emptyPages.WorkspacesPage, emptyPages.WorkspacesMeta, empty.ctx)
+    expect(emptyMount.body).toContain('共 0 个工作区')
   })
 })

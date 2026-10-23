@@ -14,6 +14,7 @@
  */
 import { useSnapshot } from '@veren/prompt-page'
 import type { ComponentPageMeta, PageFC, PageJsonValue } from '@veren/prompt-page'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { NotebookToolsPort } from '@veren/notebook'
 
 /** 应用内 URL 前缀 / the app-scoped url prefix */
@@ -63,14 +64,25 @@ function firstScreenOwner(env: { readonly preset?: string }): string | null {
 }
 
 /**
- * 页面工厂：端口以纯参数进入，产出两页的组件与契约面。
- * The page factory: the port arrives as a pure parameter; produces both pages'
- * components and contract faces.
+ * 页面工厂：端口与全名工具以纯参数进入，产出两页的组件与契约面。组件体在
+ * 唯一一次渲染里登记本页工具（跑一次，安全）。
+ * The page factory: the port and the full-named tools arrive as pure
+ * parameters; produces both pages' components and contract faces. Each body
+ * registers its page's tools in the one render (run once, safe).
  */
-export function createNotebookPages(port: () => NotebookToolsPort): NotebookPages {
+export function createNotebookPages(port: () => NotebookToolsPort, tools: readonly ToolDefinition[]): NotebookPages {
+  /** 按本地名取全名工具定义 / look up a full-named tool definition by local name */
+  const toolOf = (localName: string): ToolDefinition => {
+    const found = tools.find((tool) => tool.name === `notebook__${localName}`)
+    if (found === undefined) throw new Error(`[notebook-app] tool notebook__${localName} is not defined`)
+    return found
+  }
+
   // ---- 列表页（首页 home / entry，笔记列表）---- List page (the home page / entry, the note list) ----
 
-  const ListPage: PageFC = (_props, _ctx) => {
+  const ListPage: PageFC = (_props, agent) => {
+    agent.ctx.tools.register(toolOf('list_notes'))
+    agent.ctx.tools.register(toolOf('write_note'))
     const snap = useSnapshot<NotebookListFirstScreen>()
     // 信息面（页面 = 信息 + 工具，缺一不可）：正文如实渲染首屏的每一种状态——
     // 归属未知、空列表、有笔记都不留白，模型与用户拿正文即可当事实源。
@@ -102,13 +114,12 @@ export function createNotebookPages(port: () => NotebookToolsPort): NotebookPage
     name: 'list',
     url: `${URL_PREFIX}/list`,
     description: '记事本列表页：浏览当前预设的全部笔记，并可新建笔记',
-    tools: ['list_notes', 'write_note'],
-    // 本页静态挂了写工具（write_note），如实声明写意图
-    // / this page statically mounts a write tool (write_note); declare the intent honestly
+    // 本页登记了写工具（write_note），如实声明写意图
+    // / this page registers a write tool (write_note); declare the intent honestly
     writes: true,
     instructions: '这是记事本的首页（笔记列表）。正文即首屏快照：owner（归属预设）与 notes（该预设的笔记，id/title/excerpt/updatedAt）；'
       + 'available=false 表示宿主未暴露归属，此时如实告知用户，用 list_notes 让模型自行取列表。'
-      + '数据变化经 PAGE-PATCH 增量同步（按行首笔记 id 对位）。'
+      + '正文是打开时刻的首屏——此后变化以你调用工具返回的结果为准。'
       + '用 list_notes 刷新列表，用 write_note 新建笔记；新建后报出笔记标题即可。'
       + '要读/改/删某一条笔记时，打开 map 里的笔记详情页 URL。',
     instanceTitle: () => '笔记列表',
@@ -130,7 +141,10 @@ export function createNotebookPages(port: () => NotebookToolsPort): NotebookPage
 
   // ---- 笔记详情页（详情页 detail）---- Note detail page (the detail archetype) ----
 
-  const NotePage: PageFC<{ noteId: string }> = (props, _ctx) => {
+  const NotePage: PageFC<{ noteId: string }> = (props, agent) => {
+    agent.ctx.tools.register(toolOf('read_note'))
+    agent.ctx.tools.register(toolOf('rewrite_note'))
+    agent.ctx.tools.register(toolOf('delete_note'))
     const snap = useSnapshot<NotebookNoteFirstScreen>()
     const note = snap?.note
     if (note === null || note === undefined) {
@@ -153,10 +167,10 @@ export function createNotebookPages(port: () => NotebookToolsPort): NotebookPage
     name: 'note',
     url: `${URL_PREFIX}/note/:noteId`,
     description: '笔记详情页：查看并改写单条笔记的标题与正文，或删除它',
-    tools: ['read_note', 'rewrite_note', 'delete_note'],
     writes: true,
     instructions: '这是笔记详情页，只处理 params.noteId 指定的这一条笔记——这一页只干这一件事。'
       + '正文自带该笔记的首屏（owner/note 字段）；note 为 null 表示归属未知或笔记不存在，不要凭空操作。'
+      + '正文是打开时刻的首屏——此后变化以你调用工具返回的结果为准。'
       + '用 read_note 读取全文；用 rewrite_note 改写，携带读到的 updatedAt 作 expectedUpdatedAt 防覆盖；'
       + 'delete_note 永久删除，删除前先向用户确认。',
     instanceTitle: (params) => `笔记 #${params.noteId ?? ''}`,

@@ -14,8 +14,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { KvPageInstanceIndex, PageError, PageErrorCode, PageRegistry, canonicalizePageUrl, formatPath } from '@veren/prompt-page'
 import type { InstanceKvPort, PageCatalogEntry, PageDefinition, PageInstanceIndex, PageInstanceKey, PageInstanceRecord, PageLiveBinding, PageMatch, PageParams } from '@veren/prompt-page'
 import { APP_PAGES_DOMAIN_NAME, appPagesDomain, instanceTableView } from './storage.ts'
-import { mountPreviewTools, openPageUrl } from './runtime.ts'
-import type { OpenPageOptions, OpenPageResult, PagePreview, PageRuntimePorts } from './runtime.ts'
+import { openPageUrl } from './runtime.ts'
+import type { OpenPageOptions, OpenPageResult, PageRuntimePorts } from './runtime.ts'
 import { deliverToPageUrl, HopLedger } from './delivery.ts'
 import type { DeliverPageOptions, DeliveryResult } from './delivery.ts'
 
@@ -196,36 +196,6 @@ export class PageRegistryService extends Service {
   }
 
   /**
-   * 预挂页面工具面（"选中应用 ≠ 开始会话"）：渲染页面（含首屏 load）收集
-   * catalog + 动态工具并挂到该会话的 agent 作用域，但不建实例、不写索引、不追加
-   * PAGE 块。首条消息正式提升走 openUrl 的复用路径，同一套定义重挂——模型第一步
-   * 的工具面即最终形态。
-   * Pre-mount a page's tool face (picking an app is not a session start): render
-   * the page (first-screen load included), collect catalog + dynamic tools and
-   * mount them on the session's agent scope — no instance, no index row, no PAGE
-   * block. The first message's promotion re-mounts the same definitions through
-   * openUrl's reuse path, so step 1 already sees the final tool face.
-   * @param sessionId - 用户的普通会话 / the user's ordinary session
-   * @param url - 页面 URL / the page url
-   * @returns 预挂的 URL、标题与工具面 / the pre-mounted url, title, and tool face
-   */
-  mountPreview(sessionId: string, url: string): Promise<PagePreview> {
-    return Promise.resolve().then(() => mountPreviewTools(this.registry, this.ports, sessionId, url))
-  }
-
-  /**
-   * 撤销预挂（用户改主意 / 提升失败）：摘掉该会话上的页面工具并复位引导工具
-   * 屏蔽。只作用于预挂面——真实页面会话的释放走 releaseApp/废弃路径。
-   * Release a pre-mounted face (the user changed their mind / promotion failed):
-   * strip the page tools and restore the bootstrap deny. Scoped to the preview
-   * face — a real page session releases through releaseApp/deprecation.
-   * @param sessionId - 预挂所在的会话 / the session holding the preview
-   */
-  releasePreview(sessionId: string): Promise<void> {
-    return Promise.resolve().then(async () => { await this.ports.sessions.releaseTools(sessionId) })
-  }
-
-  /**
    * 按 URL 幂等投递（§3.9）：该 URL 有活会话则直接 append（唤醒它干活），
    * 没有则新建会话再投。级联硬上限与废弃竞态重投都在投递运行时收口。
    * Idempotent url-addressed delivery (§3.9): append to the url's live session,
@@ -237,20 +207,41 @@ export class PageRegistryService extends Service {
   }
 
   /**
-   * 应用卸载/禁用（§3.4.4、§7.2/§7.4）：摘掉该应用所有活会话的页面工具，
-   * 会话本身保留。app-registry 的应用清理器在 fiber 销毁时调用这里。
-   * App teardown: strip this app's page tools from every live session while
-   * keeping the sessions; called by app-registry's fiber cleanup.
+   * 关闭一个 URL 的活页面实例（GUI 的"取消选择/关闭页面"）：退役该会话的
+   * agent——页面登记的一切随 fiber 逆序拆除，会话日志保留可读；索引行翻废弃，
+   * URL 腾出。行不在场或非 live 时幂等返回。
+   * Close a url's live page instance (the GUI's "unpick / close page"): retire
+   * the session's agent — everything the page registered unwinds with the fiber
+   * while the session log stays readable; the index row flips deprecated and
+   * the url frees up. Idempotent when the row is absent or not live.
+   */
+  async closePage(url: PageInstanceKey | string): Promise<void> {
+    const key = canonicalizePageUrl(url)
+    const record = await this.instances.lookup(key)
+    if (record === undefined || record.state !== 'live') return
+    await this.ports.sessions.retire(record.sessionId).catch((error: unknown) => {
+      this.ctx.logger.warn(`page-registry: retire(${record.sessionId}) on close failed: ${String(error)}`)
+    })
+    await this.instances.deprecate(key, `closed via closePage(${key})`)
+  }
+
+  /**
+   * 应用卸载/禁用（§3.4.4、§7.2/§7.4）：退役该应用所有活会话的 agent——页面
+   * 登记的一切随 fiber 逆序拆除，会话日志保留可读。app-registry 的应用清理器
+   * 在 fiber 销毁时调用这里。
+   * App teardown: retire the agent of every live session of this app —
+   * everything the page registered unwinds with the fiber while the session log
+   * stays readable; called by app-registry's fiber cleanup.
    */
   async releaseApp(appId: string): Promise<void> {
     const rows = await this.instances.listByApp(appId)
     for (const row of rows) {
       if (row.state !== 'live') continue
       try {
-        await this.ports.sessions.releaseTools(row.sessionId)
+        await this.ports.sessions.retire(row.sessionId)
       } catch (error: unknown) {
         // 单个会话失败只影响该会话，记录后继续（§5.6 binding-release-failed 语义）
-        this.ctx.logger.warn(`page-registry: releaseTools(${row.sessionId}) failed: ${String(error)}`)
+        this.ctx.logger.warn(`page-registry: retire(${row.sessionId}) failed: ${String(error)}`)
       }
     }
   }

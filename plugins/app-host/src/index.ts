@@ -15,12 +15,8 @@ import { wireAppHost } from './wire.ts'
 export { wireAppHost, requireFaces } from './wire.ts'
 export { createRealSessionPort, loggingFocus, eventFocus, PAGE_MESSAGE_SOURCE, TASK_MESSAGE_SOURCE, NOTICE_MESSAGE_SOURCE } from './session-port.ts'
 export type { FocusPort, FocusEventPayload } from './session-port.ts'
-export {
-  createPageDataSync, PAGE_DATA_MESSAGE_SOURCE,
-} from './page-sync.ts'
-export type { PageDataSyncFace, PageDataSyncHub, PageDataSyncOptions } from './page-sync.ts'
 export { AppHostGatewayService, APP_HOST_GATEWAY_NAME } from './gateway.ts'
-export type { AppGatewayApp } from './gateway.ts'
+export type { AppGatewayApp, AppGatewayOpened } from './gateway.ts'
 
 export const name = 'veren-app-host'
 

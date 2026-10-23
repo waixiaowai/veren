@@ -22,24 +22,41 @@ function memKv(): InstanceKvPort & { readonly map: Map<string, PageInstanceRecor
   }
 }
 
-/** 会话端口假件：记录 append 的 wake 选项 / session fake recording wake options */
+/** 会话端口假件：记录 append 的 wake 选项；工具面按会话记账（差集的真实来源）
+ * / session fake recording wake options; the tool face books per session (the real source of the delta) */
 function fakeSessions() {
   const created: string[] = []
   const messages = new Map<string, string[]>()
   const wakeOptions: Array<boolean | undefined> = []
   const focused: string[] = []
+  const faces = new Map<string, Array<{ name: string; description: string }>>()
   const port: PageSessionPort = {
     exists: (id) => created.includes(id),
     mintId: () => `s-${created.length + 1}`,
-    async create(id) { created.push(id); messages.set(id, []) },
+    async create(id) {
+      created.push(id); messages.set(id, [])
+      const face: Array<{ name: string; description: string }> = []
+      faces.set(id, face)
+    },
+    agentOf: (id) => ({
+      ctx: {
+        tools: { register: (definition: { name: string; description?: string }) => { faces.get(id)?.push({ name: definition.name, description: definition.description ?? '' }); return () => undefined } },
+        effect: () => async () => undefined,
+        on: () => () => undefined,
+      },
+      session: { id },
+    }) as never,
+    // 快照必须拷贝：活引用会让 before/after 同数组、差集恒空
+    // / the snapshot must copy: a live reference makes before/after one array and the delta permanently empty
+    toolFace: (id) => [...(faces.get(id) ?? [])],
+    async mountSkills() {},
+    async retire() {},
     async appendUserMessage(id, text, source, options) {
       wakeOptions.push(options?.wake)
       messages.get(id)?.push(`${source}::${text}`)
     },
-    async mountTools() {},
-    async releaseTools() {},
     async focus(id) { focused.push(id) },
-    async destroy() {},
+    async destroy(id) { faces.delete(id) },
   }
   return { port, created, messages, wakeOptions, focused }
 }
@@ -48,9 +65,9 @@ function fakeSessions() {
  * / the delivery fixture page: the component-page shape (live required), a one-line body — delivery tests care about blocks and messages */
 function taskPageRegistration() {
   return defineComponentPage(
-    (_props: Record<string, string>, pageCtx) => {
-      // 工具只在页面存在：组件体登记（设计律）/ a tool exists only inside a page: recorded in the body (design law)
-      pageCtx.page.tool(defineTool({
+    (_props: Record<string, string>, agent) => {
+      // 工具只在页面存在：组件体直登（设计律）/ a tool exists only inside a page: registered in the body (design law)
+      agent.ctx.tools.register(defineTool({
         name: 'read', description: '读材料', parameters: {},
         output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
         execute: async () => ({ ok: true }),

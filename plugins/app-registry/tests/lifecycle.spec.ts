@@ -46,11 +46,9 @@ describe('fiber 归属与生命周期', () => {
     const fiber = await root.plugin((ctx: Context) => {
       dispose = apps.register(appDef('todo'), ctx)
       apps.pages('todo' as AppId, ctx).register(...pageDef('todo', 'main'))
-      apps.tools('todo' as AppId, ctx).define(makeTool('add'))
     })
     expect(apps.catalog()).toHaveLength(1)
     expect(apps.listPages('todo' as AppId)).toHaveLength(1)
-    expect(apps.listTools('todo' as AppId)).toHaveLength(1)
 
     await fiber.dispose()
     expect(apps.catalog()).toHaveLength(0)
@@ -70,7 +68,7 @@ describe('fiber 归属与生命周期', () => {
     expect(() => apps.register(appDef('todo'))).not.toThrow()
   })
 
-  it('pages/tools 只允许注册 fiber 自己获取；跨 fiber → Forbidden', async () => {
+  it('pages 只允许注册 fiber 自己获取；跨 fiber → Forbidden', async () => {
     const root = new Context()
     const apps = new AppRegistryService(root)
     let ownerCtx: Context | undefined
@@ -82,7 +80,6 @@ describe('fiber 归属与生命周期', () => {
     expect(() => apps.pages('todo' as AppId, ownerCtx)).not.toThrow()
     // 他人被拒 / others are rejected
     expect(() => apps.pages('todo' as AppId, otherCtx)).toThrowError(AppErrorCode.Forbidden)
-    expect(() => apps.tools('todo' as AppId, otherCtx)).toThrowError(AppRegistryError)
   })
 
   it('AppRegistryError 带稳定 code 与机器可读 details', () => {
@@ -113,19 +110,17 @@ describe('宿主引导工具 app_list / app_pages', () => {
     expect(ghost?.entryUrl).toBeNull()
   })
 
-  it('app_pages 返回页面键/URL 模式/入口标记/带前缀的工具名；disabled 返回结构化错误', async () => {
+  it('app_pages 返回页面键/URL 模式/入口标记；disabled 返回结构化错误', async () => {
     const apps = new AppRegistryService(new Context())
     apps.register(appDef('todo'))
-    apps.tools('todo' as AppId).define(makeTool('add'))
     const [component, meta] = pageDef('todo', 'main')
-    apps.pages('todo' as AppId).register(component, { ...meta, tools: ['add'] })
+    apps.pages('todo' as AppId).register(component, meta)
     const tools = createBootstrapTools(apps)
     const ok = await tools.appPages.execute({ appId: 'todo' }, {} as never) as { pages: Array<Record<string, unknown>> }
     expect(ok.pages[0]).toMatchObject({
       pageKey: 'todo/main',
       urlPattern: '/apps/todo/main',
       isEntry: true,
-      tools: ['todo__add'],
     })
     apps.disable('todo' as AppId)
     const disabled = await tools.appPages.execute({ appId: 'todo' }, {} as never) as { error: { code: string } }

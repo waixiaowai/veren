@@ -21,7 +21,7 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
 import { APP_DEFINITION, APP_ID } from './app.ts'
-import { OverviewMeta, OverviewPage, WorkspacesMeta, WorkspacesPage } from './pages.tsx'
+import { createPersonAgentPages } from './pages.tsx'
 
 export const name = 'personAgentApp'
 
@@ -77,17 +77,18 @@ export const apply = (ctx: Context): void => {
       // 1) 应用定义：绑定本 fiber，fiber 销毁 → 整应用摘除。
       //    Bind the definition to this fiber: disposing it removes the whole app.
       done.push(apps.register(APP_DEFINITION, ctx))
-      // 2) 页面注册（自承载组件，RFC prompt-page-render §3.5）：模块级 PageFC +
-      //    meta 直接注册，单入口内部自动镜像进 page-registry（可被 openUrl 解析）。
-      //    组件在渲染体内自加载数据、自登记工具（ctx.page.tool），变化经
-      //    PAGE-PATCH 进上下文——工具随页面存在，应用卸载即随页面一起消失。
-      //    Page registration (self-contained components, RFC §3.5): module-level
-      //    PageFCs and metas registered directly, single entry mirrored into the
-      //    page registry (openUrl-resolvable). Components load their own data and
-      //    register their own tools (ctx.page.tool) in their bodies; changes flow
-      //    as PAGE-PATCH blocks — tools exist with their page and vanish with it
-      //    when the app unloads.
+      // 2) 页面注册（一次性渲染形态）：工厂以本插件 ctx 为纯参数产出 PageFC +
+      //    meta，单入口内部自动镜像进 page-registry（可被 openUrl 解析）。组件体
+      //    在页面会话的真实 Agent 上执行恰好一次——工具由体直接登记（随 agent
+      //    fiber 生灭），异步数据在 load 里取齐；此后不再渲染。
+      //    Page registration (one-shot form): the factory takes this plugin's
+      //    ctx as the pure parameter and yields PageFCs + metas, single entry
+      //    mirrored into the page registry (openUrl-resolvable). Each body runs
+      //    exactly once on the page session's real Agent — tools register via
+      //    the body (living and dying with the agent fiber) and async data
+      //    settles in load; the page never renders again.
       const pages = apps.pages(APP_ID, ctx)
+      const { OverviewPage, OverviewMeta, WorkspacesPage, WorkspacesMeta } = createPersonAgentPages(ctx)
       done.push(pages.register(OverviewPage, OverviewMeta))
       done.push(pages.register(WorkspacesPage, WorkspacesMeta))
     } catch (error: unknown) {

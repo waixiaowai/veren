@@ -1,33 +1,84 @@
-# Prompt Page（页面运行时）
+# @veren/prompt-page
 
-[English](./README.md) | 中文
+组件即页面，一次渲染。页面组件在页面会话的真实 DSH Agent 身上执行**恰好一次**，产物即刻成型为 Markdown 进 PAGE 块；此后页面不再渲染——后续变化由页面自己经 `agent.inject` / `agent.followup` 以新消息进上下文。
 
-## 是什么 / 何时用
+## 核心契约
 
-`@veren/prompt-core` 之上的 LLM 页面会话运行时——`react-dom/client` 的对应物（原 `@veren/prompt-host-messages` 依赖已摘除，文档同步形状改由本包自有定义）。用它把页面写成组件、注册进 `PageRegistry`、把解析出的页面挂载为独立页面会话。静态面（系统提示词/工具/skills）归 DSH preset；本包只管 URL、组件渲染管线与页面生命周期钩子。
-
-## 模型
-
-- **一页 = 一会话**：独立 `MessageHost`（独立版本链/文档基线）；状态在共享的权威 store 里——关闭会话永不丢状态。
-- **页面注册表**：页面注册 `{ name, url, description }`；url 模式仅路径段（`/task-detail/:taskId`）；`resolve(url)` 合并路径参数 + query（path 优先），返回规范化后的具体 URL。
-- **导航 = resolve → mount**：关旧会话、挂新会话；指针经 `session.pointerMessage`（`OPEN /task-detail/t-12 {...}`）作为新会话第一条 user 消息注入。挂载原语是 `PageLiveBinding.mount(params, scope?)`，由页面运行时调用——不再有 `mountPage` 这类作者侧入口。
-- **组件页是唯一路径**：旧块词汇（`Static`/`Data`/`Keyed`）、块宿主挂载与动态 preset 构建已整体删除。`definePage` / `defineAppPage` 保留为契约校验入口（URL 形态、§3.10.5 规则 3），与 `defineComponentPage` 共用。
-- **生命周期钩子**：`meta.load(params, env)` 提供首屏数据，组件经 `useSnapshot()` 读取（失败态也是数据，正文里如实渲染）。没有 `onComplete` 钩子——它已随减法移除；关闭/归档会话是消费方的显式动作（插件经 `workspaceRegistry.archiveSession` 关闭）。
-- **页面 hooks（`ctx.page`）**：组件页拿到**从会话 ctx 派生**的宿主 Context（`ctx.extend`——同一作用域的官方子上下文，固有成员的注册落在会话上、随会话回收；没有作用域——暂存预览——时从创建者 ctx 派生）加一个 `ctx.page` 面——`ctx.page.effect(run)` / `ctx.page.on(name, handler)` 登记到该会话的 `agent.ctx` 作用域（事件按 agent 过滤、清理随 agent 销毁；没有作用域时回退到创建者 ctx / 视图 teardown），`ctx.page.tool(def)` 记录会话作用域工具由页面运行时挂载。ctx 固有成员（`ctx.effect` / `ctx.on` / `ctx.tools`）不被改写。
-- **实时绑定（`PageLiveBinding`）**：页面注册时可一并声明权威 store（`meta.store`），封成 `{ mount(params, scope?): PageSession<never> }`——状态类型 `S` 在 store 所在处被消费，注册表与挂载点都从不接触它。`defineComponentPage(component, meta, ctx?)` 返回 `{ page, live }`；store 变化全同步进 `MessageHost` 的版本链，并 diff 成增量 `PAGE-PATCH` 块进入下一轮模型请求（§3.10.2/§3.10.3）。
-
-## 组件页（`defineComponentPage`）
-
-页面组件是模块级函数 `PageFC<P> = (props, ctx) => ElementInput`：`props` 是 URL 参数，`ctx` 是**从会话 ctx 派生的宿主 Context**（声明合并的服务面直接读——与工具执行里 `exec.agent.ctx` 同一条解析链路）。页面自己的生命周期与工具登记在 `ctx.page` 上——ctx 固有的 `effect` / `on` / `tools` 不被改写：
-
-- `ctx.page.effect(run)`：首帧执行一次；返回的清理登记到该会话的 `agent.ctx` 作用域（带作用域挂载时），agent 销毁时执行，视图提前退订时更早执行。
-- `ctx.page.on(name, handler)`：首帧订阅一次；有作用域时经 `agent.ctx` 订阅，`scopeTarget` 只放行该 agent 的事件。
-- `ctx.page.tool(definition)`：记录会话工具，页面运行时把它挂到该会话的 agent 作用域。
-
-`defineComponentPage(component, meta, ctx?)` 返回 `{ page, live }`；页面运行时按会话调用 `live.mount(params, scope?)`。应用通常经 `ctx.apps.pages(id).register(component, meta)` 注册（内部走这个适配器）。
-
-## 运行
-
-```bash
-pnpm --filter @veren/prompt-page test
+```ts
+type PageFC<P> = (props: P, agent: Agent) => ElementInput
+// 时机：agent/created（建会话即激活），恰好一次
+// 返回值：元素树 → Markdown → PAGE 块进上下文
+// 体里可直呼：agent.ctx.tools.register / agent.ctx.effect / agent.ctx.on
+//   ——体只跑一次，无需任何去重守卫
 ```
+
+- **props** = URL 参数（`/apps/<appId>/task/:taskId` → `{ taskId }`）
+- **agent** = 页面会话的真实 DSH `Agent`，原样不包装：`agent.ctx`（会话作用域，登记随 fiber 生灭）、`agent.session`、`agent.status`、`agent.inject` / `followup` / `steer` / `cancel` 全是真面
+- **工具属于页面**：组件体直呼 `agent.ctx.tools.register(definition)`（全名，`<toolPrefix>__<本地名>`），随 agent fiber 生灭；PAGE 块的 tools 行由挂载方取渲染前后工具面快照的**差集**（单一事实源 = 真实登记面）
+- **首屏数据**：`meta.load(params, env)` 建会话时跑一次，结果经 `useSnapshot()` 进组件（失败态也是数据，如实渲染）
+- **禁止二次渲染**：没有 fiber、没有调和器、没有 PAGE-PATCH、没有槽位记账。页面的视觉呈现即 PAGE 块本身；数据变化 = 新消息
+
+## 写一个页面
+
+```tsx
+/** @jsxRuntime automatic @jsxImportSource @veren/prompt-core */
+import { useSnapshot } from '@veren/prompt-page'
+import type { ComponentPageMeta, PageFC } from '@veren/prompt-page'
+
+const DetailPage: PageFC<{ taskId: string }> = (props, agent) => {
+  // 工具直登（跑一次，安全；全名即对外名）
+  agent.ctx.tools.register({ name: 'demo__read', /* ToolDefinition */ } as never)
+  const snap = useSnapshot<{ title: string }>()
+  return <h1>{snap?.title ?? '未知'}</h1>
+}
+
+const DetailMeta: ComponentPageMeta<{ taskId: string }> = {
+  url: '/apps/demo/task/:taskId',
+  description: '任务详情页',
+  writes: true,
+  instructions: '只处理 params.taskId 指定的这一条任务。',
+  load: async (params, env) => fetchTask(params.taskId, env.preset),
+  instanceTitle: (params) => `任务 #${params.taskId}`,
+}
+```
+
+注册走应用单入口（app-registry 内部镜像进 page-registry）：
+
+```ts
+const pages = apps.pages(APP_ID, ctx)
+pages.register(DetailPage, DetailMeta)
+```
+
+## 运行时序（挂载即全部）
+
+1. `openUrl(url)` → 旧会话废弃（agent 退役，登记随 fiber 拆除）
+2. 建会话 + 当场激活 agent（agent/created）+ 页面作用域屏蔽（app_open/app_list/app_pages 的 deny）
+3. `meta.load` 首屏取数（10s 超时 → 失败态）
+4. **唯一一次渲染**：组件体在真实 agent 上执行；工具/skills/订阅/清理此刻登记
+5. PAGE 块（定位行 + 能力地图 + tools 差集行 + 应用/页面说明 + 正文）进会话
+6. 任务接取块、收件箱通知、focus——照常
+
+## 设计律
+
+1. **一个会话一次渲染**：渲染结果进上下文后不再改变；变化 = 新消息（页面经 `agent.inject` 自己推）。要"再渲染"，重开 URL = 新会话
+2. **页面实例与 agent 共存亡**：agent 生则渲染；agent 死则登记尽拆。没有"没 agent 的渲染"——那在类型上就不可表示
+3. **工具只在页面存在**：无应用级目录清单、无 meta.tools 间接层。页面 body 的登记就是页面的全部工具面
+4. **misconfiguration fails loud**：声明 `writes: true` 的详情页登记差集为零 → 挂载期拒绝；agent 缺席 → 挂载期拒绝；没有回退形态
+
+## API 速览
+
+| 出口 | 用途 |
+| --- | --- |
+| `defineComponentPage(component, meta)` | PageFC + meta → `{ page, live }`（注册面收的形状） |
+| `PageFC<P>` | `(props, agent) => ElementInput`——页面组件契约 |
+| `useSnapshot<T>()` | 读 `meta.load` 的首屏结果（含失败态；挂载之外 undefined） |
+| `isComponentPageRegistration(value)` | 注册面检测标记 |
+| `definePage` / `defineAppPage` | 契约校验入口（URL 形态、规则 3 说明半边） |
+| `pageToolWarning(page, mountedCount)` | §3.9 完备性警告（挂载期判据） |
+| `elementsToMarkdown(input)` | 元素树 → Markdown（§3.2 映射，WYSIWYG） |
+
+## 更详细的文档
+
+- 设计全集（RFC prompt-page-render）：`docs/prompt-page-render-design.md` / `.cn.md`
+- page-registry（打开/索引/投递运行时）：`plugins/page-registry/README.cn.md`
+- app-host（装配/网关/会话端口）：`plugins/app-host/README.cn.md`

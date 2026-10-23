@@ -31,7 +31,8 @@ import type { TaskCenterService } from '@veren/task-center'
 import type { AppId, PageKey } from '@veren/app-registry'
 import type { PageInstanceKey } from '@veren/prompt-page'
 import { apply, inject, name as workbenchName } from '../src/index.ts'
-import type { MountedTool, PageSessionPort, ToolsFace } from '@veren/page-registry'
+import type { PageSessionPort, PageToolEntry } from '@veren/page-registry'
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 
 // ---- 落盘的会话目录（DSH 会话系统的最小替身，但状态在文件里）----
 // ---- The file-backed session directory (a minimal DSH-session stand-in whose state lives on disk) ----
@@ -43,11 +44,14 @@ interface SessionFile {
 /** 会话目录：JSON 文件落盘；agent.followup 追加消息并立即写回。 */
 class FileSessionStore {
   private readonly data: SessionFile = { sessions: {} }
-  /** 各会话挂着的页面工具名（内存即可：重启后由重开路径重新挂载）。
-   *  Page tool names mounted per session (memory only: a restart remounts via reopen). */
+  /** 各会话登记的页面工具名（内存即可：重启后由重开路径重新登记）。
+   *  Page tool names registered per session (memory only: a restart re-registers via reopen). */
   readonly #mountedTools = new Map<string, string[]>()
+  /** 各会话的登记面（agentOf 假 agent 写它，toolFace 快照读它）
+   * / each session's registration face (the agentOf fake writes it; toolFace snapshots read it) */
+  readonly #toolFaces = new Map<string, PageToolEntry[]>()
 
-  constructor(readonly file: string, private readonly tools: Map<string, MountedTool>) {
+  constructor(readonly file: string, private readonly tools: Map<string, ToolDefinition>) {
     if (existsSync(file)) this.data.sessions = JSON.parse(readFileSync(file, 'utf8')) as SessionFile['sessions']
   }
 
@@ -91,35 +95,58 @@ class FileSessionStore {
       : undefined),
   }
 
-  /** 摘掉一个会话挂的全部页面工具（废弃/销毁路径共用）/ strip every page tool a session mounted (shared by deprecate & destroy) */
+  /** 摘掉一个会话登记的全部页面工具（废弃/销毁路径共用）：名字来自登记面快照
+   * / strip every page tool a session registered (shared by deprecate & destroy): names come from the registration face */
   releaseToolsOf(id: string): void {
-    for (const name of this.#mountedTools.get(id) ?? []) this.tools.delete(name)
+    for (const entry of this.#toolFaces.get(id) ?? []) this.tools.delete(entry.name)
+    this.#toolFaces.delete(id)
     this.#mountedTools.delete(id)
   }
 
   /**
    * page-registry 的会话端口（G13 后端口是纯参数，由装配显式传入；这里是测试
-   * 版的真实会话机制——状态落盘、工具进共享注册表、releaseTools 真的摘掉）。
+   * 版的真实会话机制——状态落盘、组件体直登的工具进共享注册表、retire 真的摘掉）。
    * The page-registry session port (post-G13 ports arrive as pure parameters
    * from the assembly). This is the test face of the real session mechanism:
-   * state on disk, tools into the shared registry, releaseTools actually strips.
+   * state on disk, body-registered tools into the shared registry, retire
+   * actually strips.
    */
   readonly port: PageSessionPort = {
     exists: (id) => this.alive(id),
     mintId: () => `s-${randomUUID()}`,
     create: async (id, title) => {
       this.data.sessions[id] = { title, messages: [], alive: true }
+      this.#toolFaces.set(id, [])
       this.save()
     },
+    agentOf: (id) => {
+      if (!this.alive(id)) return undefined
+      const face = this.#toolFaces.get(id) ?? []
+      return {
+        ctx: {
+          tools: {
+            register: (definition: ToolDefinition) => {
+              const entry: PageToolEntry = { name: definition.name, description: definition.description }
+              face.push(entry)
+              this.tools.set(definition.name, definition)
+              return () => undefined
+            },
+          },
+          effect: () => async () => undefined,
+          on: () => () => undefined,
+        },
+        session: { id },
+      } as never
+    },
+    // 快照必须拷贝：活引用会让 before/after 同数组、差集恒空
+    // / the snapshot must copy: a live reference makes before/after one array and the delta permanently empty
+    toolFace: (id) => [...(this.#toolFaces.get(id) ?? [])],
+    mountSkills: async () => undefined,
+    retire: async (id) => { this.releaseToolsOf(id) },
     appendUserMessage: async (id, text) => {
       this.data.sessions[id]?.messages.push(text)
       this.save()
     },
-    mountTools: async (id, mounted) => {
-      this.#mountedTools.set(id, mounted.map((tool) => tool.name))
-      for (const tool of mounted) this.tools.set(tool.name, tool)
-    },
-    releaseTools: async (id) => { this.releaseToolsOf(id) },
     focus: async () => undefined,
     destroy: async (id) => {
       this.releaseToolsOf(id)
@@ -149,7 +176,7 @@ function tempRoot(): string {
 interface Boot {
   ctx: Context
   store: FileSessionStore
-  tools: Map<string, MountedTool>
+  tools: Map<string, ToolDefinition>
   apps: AppRegistryService
   pages: PageRegistryService
   tasks: TaskCenterService
@@ -171,10 +198,10 @@ function provideStub(ctx: Context, name: string, value: unknown): void {
 async function boot(root: string): Promise<Boot & { stop(): Promise<void> }> {
   const ctx = new Context()
   // 工具注册表替身：register 记录，disposer 摘除（真实释放语义）
-  const tools = new Map<string, MountedTool>()
+  const tools = new Map<string, ToolDefinition>()
   const store = new FileSessionStore(join(root, 'sessions.json'), tools)
   provideStub(ctx, 'tools', {
-    register: (tool: MountedTool) => {
+    register: (tool: ToolDefinition) => {
       tools.set(tool.name, tool)
       return () => { tools.delete(tool.name) }
     },
@@ -205,12 +232,9 @@ async function boot(root: string): Promise<Boot & { stop(): Promise<void> }> {
     registerAppPage: (appId, page, live) => pageRegistry.registerAppPage(appId, page, live),
     releaseApp: (appId) => pageRegistry.releaseApp(appId),
   })
-  // 目录值就是 DSH ToolDefinition 本体，键 = 本地名（与 wire.ts 同一投影）
-  const toolsOf: ToolsFace = (appId) => new Map(apps.listTools(appId as never).map((tool) => [tool.name, tool]))
   pageRegistry.bindPorts({
     sessions: store.port,
     apps,
-    toolsOf,
     tasks: taskCenter,
     deliveries: {
       pending: () => taskCenter.pendingDeliveries(),
@@ -359,8 +383,17 @@ describe('场景 5：两个应用同名工具 → 不同前缀共存', () => {
     // 二级页：带 :param + writes + 工具 + 说明（规则 3）
     // detail page: a :param plus writes, a tool and instructions (rule 3)
     otherPages.register(
-      () => createElement('p', { children: 'other task' }),
-      { url: '/apps/other-app/task/:taskId', description: '另一应用任务页', tools: ['take_task'], writes: true, instructions: '只处理 params.taskId 指定的这一条任务。' },
+      (_props: { taskId?: string }, agent) => {
+        // 工具只在页面存在：组件体直登全名（设计律；工具不再走目录声明）
+        // / a tool exists only inside a page: the body registers the full name (design law; no catalog indirection)
+        agent.ctx.tools.register(defineTool({
+          name: 'other_app__take_task', description: '另一个应用的 take_task', parameters: {},
+          output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
+          execute: async () => ({ ok: true }),
+        }))
+        return createElement('p', { children: 'other task' })
+      },
+      { url: '/apps/other-app/task/:taskId', description: '另一应用任务页', writes: true, instructions: '只处理 params.taskId 指定的这一条任务。' },
     )
     const a = await open(pages, '1')
     const b = await pages.openUrl('/apps/other-app/task/1')

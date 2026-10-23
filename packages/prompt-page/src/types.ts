@@ -1,11 +1,28 @@
 /**
  * 类型定义（只放类型）/ Type definitions (types only)
  *
- * 页面运行时的形状：一页 = 一个会话；页面经应用作用域注册表以唯一 URL 注册。
- * 页面不再绑定预设；应用/实例/工具契约见 contract.ts 与两个插件的 types.ts。
+ * 页面运行时的形状：一页 = 一个会话 = 一次渲染。页面组件拿到真实会话 Agent，
+ * 产物（Markdown）在挂载时一次成型进 PAGE 块；此后页面不再渲染——后续变化由
+ * 页面自己经 agent.inject/followup 以新消息进上下文。
+ * The page runtime's shape: one page = one session = ONE render. The page
+ * component receives the real session Agent; its output (Markdown) is shaped
+ * once at mount into the PAGE block. The page never renders again — later
+ * changes reach the context as new messages the page pushes itself via
+ * agent.inject/followup.
  */
-import type { Context } from '@deepseek-ai/cordis'
-import type { PromptElement } from '@veren/prompt-core'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+
+/**
+ * 页面侧的 JSON 值面（§3.10.2 的 `data` / `map` 序列化契约）：PAGE 块里出现的一切
+ * 结构化数据都必须能落进这个闭集。只有 fresh 字面量与 type 别名能直接赋值；
+ * 接口类型请在装配处展开成字面量行（保持 JSON 可序列化，不为绕类型造 as）。
+ * The page-side JSON value face (the serialization contract of §3.10.2's
+ * `data` / `map`): every structured value a PAGE block carries must fit this
+ * closed set. Only fresh literals and type aliases assign directly; interface
+ * instances are projected into literal rows at the assembly site (JSON-
+ * serializable, no `as` escapes).
+ */
+export type PageJsonValue = null | boolean | number | string | PageJsonValue[] | { [key: string]: PageJsonValue | undefined }
 
 /** URL 参数：路径参数 + query 合并（path 优先）/ path params + query (path wins) */
 export type PageParams = Record<string, string>
@@ -32,41 +49,24 @@ export interface PageSkill {
 }
 
 /**
- * 页面的实时数据绑定（§3.10.3 的最小闭环面）：注册页面时由应用一并声明权威
- * store，这里把它封成"按参数挂载一个视图会话"的闭包——挂载点（页面运行时）
- * 不接触 store 类型，状态类型在注册处（S 在场的地方）就被消费掉。
- * The page's live data binding (the minimal §3.10.3 loop): the app declares the
- * authoritative store at page registration; it is sealed here as a
- * mount-per-params closure so the mounting site (the page runtime) never sees
- * the store type — the state type is consumed where S is still in scope.
+ * 页面的挂载绑定：在页面会话的 agent 上执行**唯一一次**组件渲染。
+ * - `agent` 就是会话的真实 Agent：组件体里 `agent.ctx.tools.register` /
+ *   `agent.ctx.effect` / `agent.ctx.on` 直接登记——体只跑一次，天然无重复；
+ * - `snapshot` 是 meta.load 的首屏结果（含失败态），经 useSnapshot() 读取；
+ * - 返回值是正文 Markdown（进 PAGE 块）。
+ * The page's mount binding: runs the component's **only** render on the page
+ * session's agent.
+ * - `agent` IS the session's real Agent: the body registers via
+ *   `agent.ctx.tools.register` / `agent.ctx.effect` / `agent.ctx.on` directly —
+ *   the body runs once, so no duplicates are possible;
+ * - `snapshot` is meta.load's first-screen result (failures included), read via
+ *   useSnapshot();
+ * - the return value is the body Markdown (into the PAGE block).
  */
 export interface PageLiveBinding {
-  /**
-   * 为一个页面会话挂载实时视图（已订阅 store）。`scope` 是该会话的 agent 作用域
-   * （`agent.ctx`）：组件的 effect/on 经它注册——事件按 agent 过滤、清理随作用域
-   * 销毁；缺省（agent 尚未创建，如暂存预览）回退到创建者 ctx。
-   * Mount one live view for a page session (store-subscribed). `scope` is the
-   * session's agent scope (`agent.ctx`): the component's effect/on register
-   * through it, so events are agent-filtered and cleanup is scope-owned; absent
-   * (the agent does not exist yet, e.g. a staged preview) it falls back to the
-   * creator ctx.
-   */
-  mount(params: PageParams, scope?: Context): PageSession<never>
+  /** 为一个页面会话执行唯一一次渲染 / run the one render for a page session */
+  mount(params: PageParams, agent: Agent, snapshot: PageJsonValue | undefined): string
 }
-
-
-/**
- * 页面侧的 JSON 值面（§3.10.2 的 `data` / `map` 序列化契约）：PAGE 块里出现的一切
- * 结构化数据都必须能落进这个闭集。只有 fresh 字面量与 type 别名能直接赋值；
- * 接口类型请在装配处展开成字面量行（保持 JSON 可序列化，不为绕类型造 as）。
- * The page-side JSON value face (the serialization contract of §3.10.2's
- * `data` / `map`): every structured value a PAGE block carries must fit this
- * closed set. Only fresh literals and type aliases assign directly; interface
- * instances are projected into literal rows at the assembly site (JSON-
- * serializable, no `as` escapes).
- */
-export type PageJsonValue = null | boolean | number | string | PageJsonValue[] | { [key: string]: PageJsonValue | undefined }
-
 
 /**
  * 首屏载入环境（§3.10.3/§3.10.8）：宿主在建会话跑 `load` 时提供的页面会话事实。
@@ -96,11 +96,21 @@ export interface PageLoadEnv {
 /**
  * 页面定义（应用作用域）：
  * - **preset 字段已删除**：页面不再绑定预设，静态面归用户自选的会话配置（§2.2）
- * - 新增 tools/instructions/instanceTitle（§3.1）；
- *   `tools` 写应用工具目录里的本地名，最终名在挂载时拼前缀（§3.4.3）
  * - 页面契约版本 `pageRevision` 已删除（G11）：打开一律新建会话（§9.1.1），
  *   新会话没有旧契约预期，无需版本判断
  * - 应用作用域注册时 URL 必须是 `/apps/<appId>/...` 形态（见 contract.ts 的校验器）
+ * - 工具不走声明清单：组件体经 `agent.ctx.tools.register` 直接登记，PAGE 块的
+ *   tools 行由挂载方对比登记前后差集推导（单一事实源 = 真实登记面）
+ * The page definition (app-scoped):
+ * - the preset field is gone: pages bind no preset; the static face belongs to
+ *   the user-chosen session config (§2.2)
+ * - the pageRevision contract version is gone (G11): opening always creates a
+ *   fresh session (§9.1.1) with no stale contract expectations
+ * - app-scoped urls must be `/apps/<appId>/...` (the contract.ts validator)
+ * - tools carry no declaration list: the body registers via
+ *   `agent.ctx.tools.register` and the PAGE block's tools line is derived by
+ *   the mounter as the before/after registration delta (the single source of
+ *   fact is the real registration face)
  */
 export interface PageDefinition<S> {
   /** 页面唯一名（应用内唯一；全局页面键为 `appId/name`）/ unique page name */
@@ -112,25 +122,23 @@ export interface PageDefinition<S> {
   /**
    * 写意图声明（§3.9/§3.10.1）：**本页职责需要写能力**——它是声明，不是事实，
    * 价值正在于和"挂没挂工具"这个事实互相核对（§3.9 完备性警告）。两轴四档
-   * （§3.10.1）中的**写意图轴**：详情页（带 `:param`）必须声明 true，且至少挂
-   * 一个工具 + 非空说明（规则 3，注册期拦）；无参非入口页声明 true 即自报
-   * "我是工具页（action）"，缺工具走 §3.9 警告（规则 3b）；**只读详情页
-   * （viewer）不声明**——只读下钻如实注册是合法形态，逼它谎称要写比没有校验
-   * 更糟；首页与只读副页也不声明，且不因缺写工具报警（规则 2）。
-   * 显式 `writes: false` 与缺省同义（都按只读读档）。
+   * （§3.10.1）中的**写意图轴**：详情页（带 `:param`）必须声明 true，且挂载时
+   * 至少登记一个工具 + 非空说明（规则 3，挂载期拦）；无参非入口页声明 true 即
+   * 自报"我是工具页（action）"，缺工具走 §3.9 警告（规则 3b）；**只读详情页
+   * （viewer）不声明**——只读下钻如实注册是合法形态；首页与只读副页也不声明，
+   * 且不因缺写工具报警（规则 2）。显式 `writes: false` 与缺省同义。
    * The write-intent declaration (§3.9/§3.10.1): **this page's duty needs write
    * capability** — a declaration, not a fact, and worth keeping precisely
-   * because it is cross-checked against the fact of mounted tools (the §3.9
-   * coverage warning). It is the **write-intent axis** of the two-axis, four-tier
-   * taxonomy (§3.10.1): a detail page (with a `:param`) must declare true and
-   * mount at least one tool with non-empty instructions (rule 3, refused at
-   * registration); a parameterless non-entry page declaring true self-reports
-   * "I am an action page" and its missing tools ride the §3.9 warning (rule 3b);
-   * a **viewer page never declares it** — a read-only drilldown registers
-   * honestly, and forcing it to claim writes is worse than no validation; home
-   * and read-only secondary pages do not declare it either and are never flagged
-   * for lacking write tools (rule 2). An explicit `writes: false` equals the
-   * default (both read as read-only).
+   * because it is cross-checked against the fact of registered tools (the §3.9
+   * coverage warning). It is the **write-intent axis** of the two-axis,
+   * four-tier taxonomy (§3.10.1): a detail page (with a `:param`) must declare
+   * true and register at least one tool with non-empty instructions at mount
+   * (rule 3, refused at mount); a parameterless non-entry page declaring true
+   * self-reports "I am an action page" and its missing tools ride the §3.9
+   * warning (rule 3b); a **viewer page never declares it** — a read-only
+   * drilldown registers honestly; home and read-only secondary pages do not
+   * declare it either and are never flagged for lacking write tools (rule 2).
+   * An explicit `writes: false` equals the default (both read as read-only).
    */
   readonly writes?: boolean
   /** 本页给模型的说明；随 PAGE 块附上，不是系统提示词 / page note, not a system prompt */
@@ -144,45 +152,16 @@ export interface PageDefinition<S> {
    */
   readonly skills?: readonly PageSkill[]
   /**
-   * 首屏数据（§3.10.3，组件页语义）：建会话时跑一次，结果经 useSnapshot() 进
-   * 组件——组件把它渲染为正文（失败态也是数据，如实渲染，不允许静默空白）。
-   * 参数来自 URL 解析；env 带页面会话事实。
-   * The first-screen data (§3.10.3, component-page semantics): runs once at
-   * session creation and reaches the component via useSnapshot() — the
-   * component renders it into the body (failure states are data too, rendered
-   * honestly, never a silent blank). Params come from the url; env carries
-   * page-session facts.
+   * 首屏数据（§3.10.3）：建会话时跑一次，结果经 useSnapshot() 进组件——组件把
+   * 它渲染为正文（失败态也是数据，如实渲染，不允许静默空白）。参数来自 URL
+   * 解析；env 带页面会话事实。仅此一次：后续变化由页面经 agent.inject 推新消息。
+   * The first-screen data (§3.10.3): runs once at session creation and reaches
+   * the component via useSnapshot() — rendered into the body (failure states
+   * are data too, rendered honestly, never a silent blank). Params come from
+   * the url; env carries page-session facts. Once only: later changes ride new
+   * messages the page pushes via agent.inject.
    */
   readonly load?: (params: PageParams, env: PageLoadEnv) => Promise<PageJsonValue>
   /** 实例标题函数；缺省用 description 兜底（§3.6.1）/ instance title, falls back to description */
   readonly instanceTitle?: (params: PageParams) => string
-}
-
-/**
- * 会话宿主的结构面（C5）：Markdown 文档宿主（component.tsx 的 MarkdownDocHost）
- * 结构性满足——页面只有组件页一种形态。增量/全量同步走 takeMarkdownPatch
- * （消费方自持游标）；本面不承诺 renderSince 之类的通用同步形状。
- * The session host's structural face (C5): the Markdown doc host
- * (MarkdownDocHost in component.tsx) satisfies it structurally — the component
- * page is the only page shape. Deltas ride takeMarkdownPatch (consumers own the
- * cursor); this face promises no generic renderSince-like sync shape.
- */
-export interface PageHostFace {
-  /** 当前版本号（交付门控来源）/ the current version (the delivery gating source) */
-  readonly currentVersion: number
-}
-
-/** 一个已挂载的页面会话 / one mounted page-session */
-export interface PageSession<S> {
-  readonly page: PageDefinition<S>
-  readonly params: PageParams
-  readonly host: PageHostFace
-  /** 打开指针注入文本（新会话第一条 user 消息）/ pointer message injected at open */
-  readonly pointerMessage: string
-  get version(): number
-  /** 渲染 cursor 之后的同步文本 / sync text after the given cursor */
-  syncText(cursor?: number): string
-  /** 解除 store 订阅（会话结束；组件页 = teardown：effect 清理逆序 + 订阅退订）
-   * / detach from the store (session end; for component pages this is teardown: cleanups in reverse + subscriptions) */
-  unsubscribe(): void
 }

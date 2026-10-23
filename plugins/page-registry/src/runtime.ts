@@ -5,30 +5,33 @@
  *
  * 简化后的不变量：
  * - 打开 URL 不再复用：同一 URL 连开两次得到两条会话，索引指向后一条，
- *   前一条被标废弃（工具摘除、租约释放），但仍可读、不再追加 PAGE 块；
- * - 会话内永不换页；打开另一个 URL 与当前会话零改动（只废弃同 URL 的旧会话）；
- * - 废弃释放顺序（§3.5.3）：摘页面工具 → 释放任务租约 → 写废弃标记（索引腾出
- *   URL）→ 两阶段建新会话（reserve → 建会话/挂工具/写 PAGE → commit）；
- *   任何一步失败都收敛：废弃标记写失败 = 旧会话仍是索引里的活会话（下次打开
- *   重试废弃）；建新会话失败 = 半成品清理 + reserved 行删除，URL 下次打开重试；
+ *   前一条被标废弃（agent 退役、租约释放），但仍可读、不再追加 PAGE 块；
+ * - **一个会话恰好一次渲染**：组件体在建会话激活 agent 之后、写 PAGE 块之前
+ *   执行恰好一次——工具由组件体直接 `agent.ctx.tools.register` 登记，PAGE 块的
+ *   tools 行取挂载前后工具面的**差集**（单一事实源 = 真实登记面）；此后页面
+ *   不再渲染，后续变化由页面自己经 agent.inject/followup 以新消息进上下文；
+ * - 废弃释放顺序（§3.5.3）：退役 agent（页面登记的一切随 fiber 逆序拆除）→
+ *   释放任务租约 → 写废弃标记（索引腾出 URL）→ 建新会话（create → load →
+ *   一次渲染 → 写 PAGE → commit）；任何一步失败都收敛：废弃标记写失败 = 旧
+ *   会话仍是索引里的活会话（下次打开重试）；建新会话失败 = 销毁半成品（agent
+ *   一并销毁，工具随之消失）+ reserved 行删除，URL 下次打开重试；
  * - 任务租约随废弃释放：旧会话持有的 `taken` 租约由 tasks 面 release，
  *   否则新会话会 `already-taken`，任务被废弃会话占死。
  *
  * 宿主对接走注入端口（sessions/apps/tasks/deliveries/releaseLeases/warn）：
  * 端口全部由装配层（app-host）经 bindPorts **纯参数**传入（G13 规则 2），本包
  * 不触碰任何 ctx、不探测兄弟服务；apps 是必填端口（没有它页面打不开），
- * tasks/deliveries/releaseLeases 是可选能力端口（缺席时按各自语义降级，同 G13
- * 规格中"可选能力仍走参数"的形态）。本包只依赖各服务包的类型出口，不依赖其运行时。
+ * tasks/deliveries/releaseLeases 是可选能力端口（缺席时按各自语义降级）。本包
+ * 只依赖各服务包的类型出口，不依赖其运行时。
  * Host access goes through injected ports passed as pure parameters by the
  * host assembly (app-host); nothing here touches a Context or probes siblings.
  *
  * @module @veren/page-registry/runtime
  */
-import type { Context } from '@deepseek-ai/cordis'
-import { PageError, PageErrorCode, assertParamsMatchPattern, canonicalizePageUrl, isMarkdownDocHost, pageArchetypeOf, pageToolWarning, patternParamsOf, snapshotSinkOf } from '@veren/prompt-page'
-import type { PageJsonValue, PageLoadEnv, PageSession, PageSkill } from '@veren/prompt-page'
-import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { PageError, PageErrorCode, assertParamsMatchPattern, canonicalizePageUrl, pageToolWarning, patternParamsOf } from '@veren/prompt-page'
+import type { PageJsonValue, PageLoadEnv, PageSkill } from '@veren/prompt-page'
 import type { PageInstanceIndex, PageInstanceKey, PageMatch } from '@veren/prompt-page'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 // 服务面类型只引真正的那一份：应用记录/任务契约来自各自的 declaration merging 出口，
 // 本包不再手写影子副本（同一事实只有一份类型声明）。
 // Service-surface types are imported, never shadowed: the app record and the task
@@ -38,12 +41,20 @@ import type { TaskCenterContract, TaskId, TaskRecord } from '@veren/task-center'
 import type { AppRegistryService } from '@veren/app-registry'
 import type { TaskCenterService } from '@veren/task-center'
 
-/** 挂进会话的页面工具：就是 DSH `ToolDefinition` 本体，唯一改动是把 `name`
- * 换成对外名（`<toolPrefix>__<本地名>`）——字段零删减，不是形状转换。
- * A mounted page tool IS the DSH definition; only `name` is renamed to the
- * external form — no field is dropped, so this is not a shape conversion.
+/**
+ * 工具面条目（PAGE 块 tools 行的来源）：名字 + 用途描述，取自该 agent 作用域
+ * 真实可见的工具。页面工具 = 挂载前后两次快照的差集——组件体直接登记，挂载方
+ * 不经手定义，因此不存在"声明与事实两张皮"。
+ * A tool-face entry (the source of the PAGE block's tools line): name + usage
+ * description, read from what the agent's scope really sees. The page's tools
+ * are the DELTA of two snapshots around the one render — the body registers
+ * directly and the mounter never handles definitions, so declaration and fact
+ * cannot drift apart.
  */
-export type MountedTool = ToolDefinition
+export interface PageToolEntry {
+  readonly name: string
+  readonly description: string
+}
 
 /**
  * 任务通知投递面（B 的 pendingDeliveries/markDelivered 投影）：只留投递必需的
@@ -58,8 +69,6 @@ export interface DeliveryFace {
   mark(deliveryId: string, error?: string): Promise<unknown>
 }
 
-/** 挂进会话的工具：就是 DSH `ToolDefinition` 本体（见文件顶部 MountedTool 别名）/ a mounted tool IS the DSH definition */
-
 /**
  * 会话端口：运行时对 DSH 会话机制的全部假设收在这一个面上。
  * The session port: every assumption about DSH sessions narrows to this face.
@@ -67,7 +76,49 @@ export interface DeliveryFace {
 export interface PageSessionPort {
   exists(sessionId: string): boolean
   mintId(): string
+  /**
+   * 建会话并**当场激活 agent**（H 修复：不激活的页面会话永远不可见）。页面
+   * 作用域屏蔽（app_open/app_list/app_pages 的 deny）属于"这个会话是页面会话"
+   * 的事实，在此一并应用——组件体渲染时屏蔽已生效。
+   * Create the session and **activate its agent right away** (the H fix: an
+   * agent-less page session is never visible). The page-scope masking (the
+   * app_open/app_list/app_pages deny) is a fact of "this session is a page
+   * session" and applies here — it is already in force when the body renders.
+   */
   create(sessionId: string, title: string): Promise<void>
+  /**
+   * 该会话的活 agent：页面组件体在它身上执行恰好一次。undefined = agent 未激活
+   * ——一次性渲染没有"等 agent"的回退，缺了就是装配错误，fail loud。
+   * The session's live agent: the page body runs on it exactly once. undefined
+   * = the agent is not active — the one-shot render has no "wait for the agent"
+   * fallback; a miss is an assembly error and fails loud.
+   */
+  agentOf(sessionId: string): Agent | undefined
+  /**
+   * 该 agent 作用域当前可见的工具面（名字 + 用途描述）。挂载前后各取一次，
+   * 差集就是页面工具——PAGE 块的 tools 行与 §3.9 完备性检查都以此为准。
+   * The tool face currently visible in the agent's scope (names + usage
+   * descriptions). Snapshot before and after the render; the delta IS the
+   * page's tools — both the PAGE block's tools line and the §3.9 completeness
+   * check read it.
+   */
+  toolFace(sessionId: string): readonly PageToolEntry[]
+  /**
+   * 挂页面级 skills（§页面作用域）：进该会话 agent 作用域的运行时技能层，退役
+   * 随 agent 整组拆除。缺席 skills 时运行时不调用本面。
+   * Mount the page-scope skills (§page scope): runtime skills into the session's
+   * agent scope, torn down with the agent at retirement. The runtime never calls
+   * this when the page declares none.
+   */
+  mountSkills(sessionId: string, skills: readonly PageSkill[]): Promise<void>
+  /**
+   * 退役该会话的 agent（废弃路径）：页面登记的一切（工具/skills/订阅/清理）
+   * 随 fiber 逆序拆除，会话日志保留可读。
+   * Retire the session's agent (the deprecation path): everything the page
+   * registered (tools/skills/subscriptions/cleanups) unwinds with the fiber in
+   * reverse order; the session log stays readable.
+   */
+  retire(sessionId: string): Promise<void>
   /**
    * 追加一条消息。`options.wake === false` 时不唤醒 agent（消息只落会话日志，
    * 等该会话下一次被唤醒时一并消费）；缺省唤醒（§3.9 唤醒策略）。
@@ -76,61 +127,9 @@ export interface PageSessionPort {
    * default wakes (§3.9 wake policy).
    */
   appendUserMessage(sessionId: string, text: string, source: string, options?: { readonly wake?: boolean }): Promise<void>
-  /**
-   * 该会话的 agent 作用域（`agent.ctx`）：页面组件的 effect/on 经它注册，
-   * 事件按 agent 过滤、清理随作用域销毁。缺省（agent 尚未创建，如暂存预览）
-   * 或端口未实现时，视图回退到创建者 ctx / 视图级清理。
-   * The session's agent scope (`agent.ctx`): the page's effect/on register
-   * through it, so events are agent-filtered and cleanup follows the scope.
-   * Absent (no agent yet, e.g. a staged preview) or unimplemented, the view
-   * falls back to the creator ctx / view-level cleanup.
-   */
-  scopeOf?(sessionId: string): Context | undefined
-  /**
-   * 挂页面工具与页面级 skills；工具重名冲突抛 PageError(page/tool-conflict)。
-   * skills 随同一组注销器挂进会话 agent 作用域，释放与工具同序。
-   * Mount the page tools and the page-scope skills; tool conflicts raise
-   * PageError(page/tool-conflict). Skills join the same disposer group in the
-   * session's agent scope and are released together with the tools.
-   */
-  mountTools(sessionId: string, tools: readonly MountedTool[], skills?: readonly PageSkill[]): Promise<void>
-  releaseTools(sessionId: string): Promise<void>
   focus(sessionId: string): Promise<void>
-  /** 创建失败兜底：销毁半成品会话 / destroy a half-built session */
+  /** 创建失败兜底：销毁半成品会话（agent 一并销毁，页面登记随其消失）/ destroy a half-built session (the agent dies with it) */
   destroy(sessionId: string): Promise<void>
-}
-
-/** 实时视图的身份标识：PAGE-DATA 块头用的页面键与规范 URL / the live view identity: pageKey + canonical url for the PAGE-DATA header */
-export interface PageDataIdentity {
-  /** 页面键（应用页即 `<appId>/<本地名>`）/ the page key (app pages: `<appId>/<localName>`) */
-  readonly pageKey: string
-  /** 规范 URL / the canonical url */
-  readonly url: string
-}
-
-/**
- * 实时视图端口（§3.10.2 的 PAGE-DATA 承载通道）：会话提交后绑定、废弃/回滚时
- * 解绑。视图本体（订阅 store 的 MessageHost）由绑定方持有——本运行时只宣布
- * "这条会话现在是这个页面的活视图"，怎么渲染、怎么截断、怎么进上下文都归宿主。
- * The live-view port (the PAGE-DATA channel of §3.10.2): bound once a session
- * commits, unbound on deprecation/rollback. The view itself (the store-subscribed
- * MessageHost) is owned by the binder — this runtime only announces "this
- * session is now the live view of that page"; rendering, caps, and context
- * delivery all belong to the host.
- */
-export interface PageDataPort {
-  /**
-   * 会话提交后绑定一个实时视图（视图生命周期自此归端口）。`cursor` 是 PAGE 块
-   * 已经覆盖到的版本：块正文与视图同源，绑定从该版本之后开始投递，避免把块里
-   * 已有的内容再当 PAGE-PATCH 发一遍。
-   * Bind one live view after commit (lifecycle passes to the port). `cursor` is
-   * the version already covered by the PAGE block: the block body comes from the
-   * same view, so delivery starts after it and never re-sends that content as a
-   * PAGE-PATCH.
-   */
-  bind(sessionId: string, view: PageSession<never>, identity: PageDataIdentity, cursor?: number): void
-  /** 废弃/回滚：解绑并退订 store / deprecation or rollback: unbind and unsubscribe the store */
-  unbind(sessionId: string): void
 }
 
 /** 运行时端口集：apps 必填，任务相关为可选能力端口（全部是纯参数）
@@ -140,12 +139,11 @@ export interface PageRuntimePorts {
   /** 应用注册表真实面（AppRecord）：应用不在场时 openUrl 给 app/not-found / the real app-registry face */
   readonly apps: Pick<AppRegistryService, 'get'>
   /**
-   * 挂载期完备性告警（§3.9）：真实工具面收集后判"声明要写却挂不出工具"——
-   * 注册期看不到组件体的动态登记，只有这里才有资格下结论。缺席 → 静默跳过。
+   * 挂载期完备性告警（§3.9）：真实登记面收集后判"声明要写却挂不出工具"——
+   * 缺席 → 静默跳过。
    * The mount-time completeness warning (§3.9): judges "declares writes but
-   * mounts none" after the real tool face is collected — registration time
-   * cannot see the body's dynamic records, so only here may the verdict be
-   * drawn. Absent → skipped silently.
+   * mounts none" after the real registration face is collected. Absent →
+   * skipped silently.
    */
   readonly warn?: (message: string) => void
   /** 任务中心真实契约的 take：缺席则任务场景给 page/host-unavailable / the real task contract */
@@ -160,8 +158,6 @@ export interface PageRuntimePorts {
   readonly releaseLeases?: (sessionId: string) => Promise<void>
   /** 任务租约时长（分钟），缺省 30 / lease minutes, default 30 */
   readonly leaseMinutes?: number
-  /** 实时视图端口：缺席则页面保持静态（无 PAGE-DATA 同步）/ the live-view port; absent → pages stay static */
-  readonly pageData?: PageDataPort
   /**
    * 页面会话的预设 id（§3.10.3 PageLoadEnv.preset 的来源）：按预设隔离数据的
    * 应用（记事本）在首屏 load 里以此解析归属。缺席 → env 不带 preset，load
@@ -174,23 +170,13 @@ export interface PageRuntimePorts {
   readonly presetOf?: (sessionId: string) => string | undefined
 }
 
-/** openUrl 的可选参数；createPageSession 另接受 `focus: false`（投递路径不切界面） */
+/** openUrl 的可选参数；`focus: false` 用于投递路径（§3.9）：建会话但不切界面 */
 export interface OpenPageOptions {
   /** 任务场景：先 take 再追加 TASK 块（§5.3）/ take the task, then append TASK */
   readonly taskId?: string
   readonly actor?: string
   /** 投递路径置 false：建会话但不发 GUI focus（投递不是导航，§3.9） */
   readonly focus?: boolean
-  /**
-   * 复用一条已存在的会话（"先选应用、发送才开会话"的提升路径）：跳过建会话，
-   * 直接在给定会话上落页面实例（PAGE 块以 wake=false 追加，不另起一轮）；失败时
-   * 绝不销毁调用方的会话。
-   * Reuse an existing session (the "pick the app, the session starts on send"
-   * promotion path): skips session creation and lands the page instance on the
-   * given session (the PAGE block is appended with wake=false, starting no extra
-   * round); a failure never destroys the caller's session.
-   */
-  readonly reuseSessionId?: string
 }
 
 /** openUrl 的结果：打开一律新建，结果就是新会话 / openUrl result: the fresh session */
@@ -198,36 +184,6 @@ export interface OpenPageResult {
   readonly sessionId: string
   readonly url: string
   readonly title: string
-  /**
-   * 复用路径的 PAGE 块正文：调用方（首回合的 pre-step）把它注入本轮决策——块不能
-   * 只落日志，否则当前这一轮看不到页面。新建路径为 undefined（块已落会话日志）。
-   * The PAGE block body on the reuse path: the caller (the first turn's pre-step)
-   * injects it into that step's decision — landing it in the log alone would keep
-   * the current round from seeing the page. Undefined on the create path (the
-   * block already landed in the session log).
-   */
-  readonly block?: string
-}
-
-/**
- * 预挂的页面工具面（"选中应用 ≠ 开始会话"的暂存态）：只渲染、只挂工具——
- * 不建页面实例、不写索引、不追加 PAGE 块。首条消息正式提升时 `openUrl` 走复用
- * 路径，用同一套定义重挂（收集逻辑见 {@link collectMountedTools}），因此模型
- * 第一步看到的工具面就是最终形态，不会在第二步才收到"工具已更新"。
- * The pre-mounted page tool face (the "picking an app is not a session start"
- * staged state): render + mount tools only — no page instance, no index row, no
- * PAGE block. The first message's promotion re-mounts the very same definitions
- * through openUrl's reuse path (both share {@link collectMountedTools}), so the
- * model sees the final tool face on step 1 instead of a "tools updated" swap on
- * step 2.
- */
-export interface PagePreview {
-  /** 规范 URL / the canonical url */
-  readonly url: string
-  /** 实例标题（正式提升时落 session/title）/ the instance title (landed at promotion) */
-  readonly title: string
-  /** 已挂进会话的工具面 / the tool face mounted on the session */
-  readonly tools: readonly MountedTool[]
 }
 
 /** 规范 URL 里的 appId 段 / the appId segment of a canonical url */
@@ -242,67 +198,39 @@ export function instanceTitleOf(match: PageMatch<never>, params: Record<string, 
   return raw.length > 60 ? `${raw.slice(0, 59)}…` : raw
 }
 
-/** 工具对外名：`<toolPrefix>__<本地名>`（§3.4.3）/ external tool name */
-export function externalToolName(toolPrefix: string, localName: string): string {
-  return `${toolPrefix}__${localName}`
-}
-
 /**
- * 一次收集页面工具面：组件体 `ctx.page.tool` 登记的 defineTool 产物，改外名后
- * 成表（设计律：工具只在页面存在——页面登记面就是页面的全部工具面）。
- * **预览与正式挂载共用这一处**：两条路径产出的定义逐字相同，模型侧的请求头
- * 因此不会在提升时变化。
- * Collect the page tool face in one place: the defineTool products the
- * component body recorded via `ctx.page.tool`, renamed (design law: a tool
- * exists only inside a page — the page's recorded face IS its whole tool
- * face). Preview and real mount share this single implementation, so both
- * produce byte-identical definitions and the model's request header never
- * changes at promotion.
- * @param app - 页面所属应用 / the owning app
- * @param view - 已渲染的组件视图（可为空）/ the rendered component view (may be absent)
- * @returns 改外名后的挂载清单 / the renamed mount list
+ * 一次收集页面工具面：挂载前后两次快照的差集。组件体在渲染里直接
+ * `agent.ctx.tools.register`，挂载方不经手任何定义——差集就是页面工具，
+ * PAGE 块的 tools 行、§3.10.5 规则 3 与 §3.9 完备性检查共用这一份事实。
+ * Collect the page tool face in one place: the delta of two snapshots around
+ * the render. The body registers via `agent.ctx.tools.register` directly and
+ * the mounter never handles definitions — the delta IS the page's tools, and
+ * the PAGE block's tools line, §3.10.5 rule 3 and the §3.9 completeness check
+ * all share this one fact.
  */
-function collectMountedTools(
-  app: AppRecord,
-  view: PageSession<never> | undefined,
-): MountedTool[] {
-  const dynamicTools = componentViewOf(view)?.takeRecordedTools() ?? []
-  return dynamicTools.map((definition) => ({ ...definition, name: externalToolName(app.toolPrefix, definition.name) }))
-}
-
-/** 组件页视图的扩展面（prompt-page/component.tsx 的每会话视图）/ the component-page view's extension face (prompt-page/component.tsx) */
-interface ComponentPageView extends PageSession<never> {
-  takeRecordedTools(): ToolDefinition[]
-}
-
-/** 组件页视图守卫：有 takeRecordedTools 即组件页视图 / a component-page view guard: takeRecordedTools marks one */
-function componentViewOf(view: PageSession<never> | undefined): ComponentPageView | undefined {
-  if (view === undefined) return undefined
-  return typeof (view as { takeRecordedTools?: unknown }).takeRecordedTools === 'function'
-    ? (view as ComponentPageView)
-    : undefined
+function collectPageTools(before: readonly PageToolEntry[], after: readonly PageToolEntry[]): PageToolEntry[] {
+  return after.filter((tool) => !before.some((entry) => entry.name === tool.name))
 }
 
 /**
  * 组件页 PAGE 块（RFC prompt-page-render §3.3/C7 的骨架）：PAGE 定位行 + map
  * （注册表推导：本应用兄弟页、排除自身、按注册序，`- 模板 → description`）+
- * tools 行（目录解析 + 会话内动态注册，改外名）+ 应用说明行 + 可选页面说明行 +
- * Markdown 正文。
+ * tools 行（真实登记面差集）+ 应用说明行 + 可选页面说明行 + Markdown 正文。
  * 无 params/data JSON 行——URL 本身表达 params，meta.load 经 useSnapshot 进组件、
  * 由组件渲染为正文（失败态也是正文）。
  * The component-page PAGE block (the §3.3/C7 skeleton of RFC prompt-page-render):
  * the PAGE locator line + map (registry-derived: sibling pages of this app,
- * excluding self, in registration order, `- template → description`) + the tools
- * line (catalog resolution + in-session dynamic registration, renamed) + the
- * app-level note + an optional page note + the Markdown body. No params/data
- * JSON lines — params ride the URL itself, and meta.load reaches the component
- * via useSnapshot to be rendered into the body (failure states included).
+ * excluding self, in registration order, `- template → description`) + the
+ * tools line (the real registration delta) + the app-level note + an optional
+ * page note + the Markdown body. No params/data JSON lines — params ride the
+ * url itself, and meta.load reaches the component via useSnapshot to be
+ * rendered into the body (failure states included).
  */
 export function componentPageBlock(
   app: AppRecord,
   match: PageMatch<never>,
   canonicalUrl: string,
-  tools: readonly MountedTool[],
+  tools: readonly PageToolEntry[],
   body: string,
 ): string {
   const selfKey = pageKeyOf(app, match.page.name)
@@ -354,9 +282,6 @@ export function toolUsagePhrase(description: string): string {
   return fallback.length > 60 ? `${fallback.slice(0, 59)}…` : fallback
 }
 
-/** map 行用途短语上限（与工具用途短语同口径，防单条地图行失控）/ the use-phrase cap of a map row (same as the tool phrase; keeps one row bounded) */
-const MAP_USE_CAP = 60
-
 /**
  * 能力地图行头（§3.10.2）：告诉模型这一组行怎么用——模板里的 `:参数` 替换成
  * 实际值即为可打开的 URL。"能被模型直接照抄"是本格式的验收标准，不是装饰。
@@ -366,16 +291,14 @@ const MAP_USE_CAP = 60
  */
 const MAP_HEADER = 'map:（能力地图——本应用可去的页面；把模板里的 :参数 替换为实际值即为可打开 URL）'
 
-
-
 /**
- * 首屏数据（§3.10.3）：load 是 PAGE 块 data 的唯一合法来源。未声明 load →
+ * 首屏数据（§3.10.3）：load 是首屏快照的唯一合法来源。未声明 load →
  * null（如实表达"本页无可预载的数据"，仍不许空白）；抛错/超时 → 失败态
  * （page/load-failed + 重试指引）——错误也是信息。
- * The first-screen data (§3.10.3): load is the only legal source of the PAGE
- * block's data line. No loader → null (an explicit "nothing to preload", still
- * not a blank); a throw or timeout → the error state (page/load-failed with a
- * retry hint) — errors are information too.
+ * The first-screen data (§3.10.3): load is the only legal source of the
+ * first-screen snapshot. No loader → null (an explicit "nothing to preload",
+ * still not a blank); a throw or timeout → the error state (page/load-failed
+ * with a retry hint) — errors are information too.
  */
 export async function firstScreenData(page: PageMatch<never>['page'], params: Record<string, string>, env: PageLoadEnv): Promise<PageJsonValue> {
   const load = page.load
@@ -450,31 +373,22 @@ export async function openPageUrl(
 }
 
 /**
- * 废弃同 URL 的旧会话（§3.5.3 释放顺序）：摘页面工具 → 释放任务租约 → 写废弃
- * 标记（索引腾出 URL）。单步失败不阻断：工具摘除/租约释放失败只影响旧会话自身，
- * 废弃标记照写（旧会话已不该被 URL 访问）；废弃标记写失败则整步中止——旧会话
+ * 废弃同 URL 的旧会话（§3.5.3 释放顺序）：退役 agent（页面登记的一切随 fiber
+ * 拆除）→ 释放任务租约 → 写废弃标记（索引腾出 URL）。单步失败不阻断：退役/
+ * 租约失败只影响旧会话自身，废弃标记照写；废弃标记写失败则整步中止——旧会话
  * 仍是索引里的活会话，下次打开重试废弃，收敛为"恰好一条活会话"。
- * Deprecate the previous session on this url (§3.5.3 release order): strip page
- * tools → release task leases → write the deprecated marker (freeing the url).
- * Tool/lease failures never block: only the old session is affected, and the
- * marker still moves it out of the url. A marker write failure aborts the whole
- * step — the old session remains the index's live row, the next open retries
- * the deprecation, and the invariant "exactly one live session per url" holds.
+ * Deprecate the previous session on this url (§3.5.3 release order): retire the
+ * agent (everything the page registered unwinds with the fiber) → release task
+ * leases → write the deprecated marker (freeing the url). Retire/lease failures
+ * never block: only the old session is affected, and the marker still moves it
+ * out of the url. A marker write failure aborts the whole step — the old
+ * session remains the index's live row, the next open retries the deprecation,
+ * and the invariant "exactly one live session per url" holds.
  */
 async function deprecatePrevious(index: PageInstanceIndex, ports: PageRuntimePorts, key: PageInstanceKey): Promise<void> {
   const previous = await index.lookup(key)
   if (previous === undefined) return
-  await ports.sessions.releaseTools(previous.sessionId).catch(() => undefined)
-  // 实时视图随工具一起摘（§3.10.3）：旧会话退出活跃视图，store 订阅同步退订。
-  // The live view leaves with the tools (§3.10.3): the old session stops being
-  // an active view and its store subscription is unsubscribed.
-  try {
-    ports.pageData?.unbind(previous.sessionId)
-  } catch {
-    // 解绑失败不阻断废弃（unbindError 只可能是端口实现内的瞬态故障）：最坏情形
-    // 是旧视图多活一阵，下轮打开重试/覆盖 / an unbind failure never blocks
-    // deprecation: worst case the stale view lingers and the next open retries
-  }
+  await ports.sessions.retire(previous.sessionId).catch(() => undefined)
   await ports.releaseLeases?.(previous.sessionId).catch(() => undefined)
   try {
     await index.deprecate(key, `superseded by a fresh open of ${key}`)
@@ -523,22 +437,6 @@ export async function pumpDeliveries(ports: PageRuntimePorts, sessionId: string)
   }
 }
 
-/**
- * 把 load 结果下发进组件（含失败态）：组件渲染为正文，绝不静默空白。
- * 只有声明了 load 的页面才有"下发"语义——store 页的快照源是权威 store，
- * 无 load 时 firstScreenData 产出 null，原样下发会把组件首帧正确的快照
- * 清空并重渲，首屏正文随之丢失（模型读不到数据）。
- * Push the load result into the component (failures included): rendered into
- * the body, never a silent blank. Only pages that declare load carry the push
- * semantics — a store page's snapshot source is its authoritative store; with
- * no load, firstScreenData yields null, and pushing it would wipe the
- * component's correct first frame and lose the first-screen body.
- */
-function pushFirstScreen(match: PageMatch<never>, view: PageSession<never> | undefined, data: PageJsonValue): void {
-  if (match.page.load === undefined) return
-  snapshotSinkOf(view)?.setSnapshot(data)
-}
-
 /** 两阶段创建；每一步失败都清理半成品 + 删 reserved 行。`focus: false` 用于
  *  投递路径（§3.9）：建会话但不把 GUI 切过去——投递不是导航。 */
 export async function createPageSession(
@@ -553,7 +451,7 @@ export async function createPageSession(
   // §3.10.5 规则 5（挂载期）：params 必须覆盖 URL 模式的每个 :param，写 PAGE 块前 fail loud。
   // §3.10.5 rule 5 (mount time): params must cover every :param of the pattern, failing loud before the PAGE block.
   assertParamsMatchPattern(match.page.url, params)
-  const sessionId = options.reuseSessionId ?? ports.sessions.mintId()
+  const sessionId = ports.sessions.mintId()
   try {
     await index.reserve(key, sessionId, {
       appId: app.definition.id,
@@ -570,193 +468,85 @@ export async function createPageSession(
     throw wrap(error, PageErrorCode.IndexUnavailable, `reserve(${key}) failed`)
   }
   const title = instanceTitleOf(match, params)
-  const reusing = options.reuseSessionId !== undefined
-  let tools: MountedTool[] = []
-  let view: PageSession<never> | undefined
-  // PAGE 块正文：复用路径要在返回值里交给首回合的 pre-step（见 OpenPageResult.block）
-  // / the PAGE block body: the reuse path hands it to the first turn's pre-step
-  let block = ''
-  if (!reusing) {
-    try {
-      await ports.sessions.create(sessionId, title)
-    } catch (error: unknown) {
-      await ports.sessions.releaseTools(sessionId).catch(() => undefined)
-      await ports.sessions.destroy(sessionId).catch(() => undefined)
-      await index.fail(key, error instanceof Error ? error.message : String(error)).catch(() => undefined)
-      throw wrap(error, PageErrorCode.SessionCreateFailed, `session create failed for ${key}`)
-    }
+  try {
+    await ports.sessions.create(sessionId, title)
+  } catch (error: unknown) {
+    await ports.sessions.destroy(sessionId).catch(() => undefined)
+    await index.fail(key, error instanceof Error ? error.message : String(error)).catch(() => undefined)
+    throw wrap(error, PageErrorCode.SessionCreateFailed, `session create failed for ${key}`)
   }
   try {
-    // 首屏数据（§3.10.3）在写 PAGE 块前取齐：两阶段 commit 允许先落 reserved，
-    // load 完成（或失败态定形）才翻 live——首屏数据建会话时就进上下文。组件页
-    // 的 load 适配器把快照交给 live.mount 的 useSnapshot（含失败态）。
-    // The first-screen data (§3.10.3) settles before the PAGE block: the
-    // two-phase commit keeps the row reserved until load resolves (or its
-    // error state forms) — the first screen enters the context at creation.
-    // A component page's load adapter hands the snapshot to live.mount's
-    // useSnapshot (failure states included).
+    // 首屏数据（§3.10.3）在渲染前取齐：一次性渲染的快照经 useSnapshot 进组件
+    // （含失败态），没有"渲染后再下发"的第二次入口。
+    // The first-screen data (§3.10.3) settles before the render: the one-shot
+    // snapshot reaches the component via useSnapshot (failures included) —
+    // there is no second "push after render" entry.
     const env: PageLoadEnv = ports.presetOf === undefined ? {} : { preset: ports.presetOf(sessionId) }
     const data = await firstScreenData(match.page, params, env)
-    // 实时视图提前建（组件页在视图里完成首帧渲染、ctx.effect/ctx.on 运行与
-    // ctx.tools.register 记录——都在写 PAGE 块之前，正文与工具行由此有据）。
-    // The live view is built early (a component page does its first-frame
-    // render, ctx.effect/ctx.on runs and ctx.tools.register recording inside the
-    // view — all before the PAGE block, so the body and the tools line have
-    // their facts).
-    // 页面组件的 effect/on 挂到该会话的 agent 作用域（事件按 agent 过滤）；
-    // agent 未创建（暂存预览）时为 undefined，视图回退到创建者 ctx。
-    // The page's effect/on register on that session's agent scope (agent-filtered
-    // events); undefined when no agent exists yet (staged preview) — the view
-    // then falls back to the creator ctx.
-    // live 绑定必填（页面 = 组件页）：视图一定挂得出，"无视图的静态页"形态不存在。
-    // The live binding is required (a page IS a component page): the view always
-    // mounts; a "viewless static page" shape does not exist.
-    view = match.live.mount(params, ports.sessions.scopeOf?.(sessionId))
-    // load 结果下发进组件（仅 load 页；store 页保持首帧的 store 快照）：
-    // / push the load result into the component (load pages only; a store page keeps its first-frame store snapshot):
-    pushFirstScreen(match, view, data)
-    // 工具：目录 + 组件动态注册，一次收集——与预览路径同一实现，定义逐字相同。
-    // / tools: catalog + dynamic registrations collected once — the same
-    // implementation as the preview path, byte-identical definitions.
-    tools = collectMountedTools(app, view)
+    // 唯一一次渲染的载体：页面会话的真实 Agent。缺席 = 装配错误，fail loud
+    // （一次性渲染没有"等 agent"的回退形态）。
+    // The carrier of the only render: the page session's real Agent. A miss is
+    // an assembly error and fails loud (the one-shot render has no "wait for
+    // the agent" fallback).
+    const agent = ports.sessions.agentOf(sessionId)
+    if (agent === undefined) {
+      throw new PageError(PageErrorCode.HostUnavailable, `page session ${sessionId} has no active agent; the one-shot render cannot run`)
+    }
+    // 工具差集的两端：渲染前后各一次真实工具面快照（deny 屏蔽已在 create 内
+    // 生效，两次快照都不含引导工具）。页面级 skills 与工具同页：渲染前挂进
+    // agent 作用域，退役随 agent 整组拆除。
+    // Both ends of the tool delta: a real tool-face snapshot before and after
+    // the render (the deny masking took effect inside create, so neither
+    // snapshot contains the bootstrap tools). Page-scope skills ride the same
+    // page: mounted into the agent scope before the render, torn down with the
+    // agent at retirement.
+    if (match.page.skills !== undefined && match.page.skills.length > 0) {
+      await ports.sessions.mountSkills(sessionId, match.page.skills)
+    }
+    const before = ports.sessions.toolFace(sessionId)
+    // 唯一一次渲染：组件体在真实 agent 上执行——工具/订阅/清理直接经 agent.ctx
+    // 登记，产物即刻成型为正文 Markdown。
+    // The only render: the body runs on the real agent — tools, subscriptions
+    // and cleanups register via agent.ctx directly, and the output is finalized
+    // into the body Markdown at once.
+    const body = match.live.mount(params, agent, match.page.load === undefined ? undefined : data)
+    const pageTools = collectPageTools(before, ports.sessions.toolFace(sessionId))
     // §3.10.5 规则 3（工具半边，挂载期 fail loud）：带 :param 且声明写意图的
-    // 详情页，真实登记面为零 = 页面开着、活干不了——注册期看不到组件体的
-    // ctx.page.tool，只有这里才有资格拒绝。
+    // 详情页，真实登记差集为零 = 页面开着、活干不了——只有这里才有资格拒绝。
     // §3.10.5 rule 3 (the tool half, fail loud at mount): a parameterized page
-    // that declared write intent with an empty really-recorded face is a page
-    // that is open yet cannot do its job — registration never sees the body's
-    // ctx.page.tool, so only here may it be refused.
-    if (patternParamsOf(match.page.url).length > 0 && match.page.writes === true && tools.length === 0) {
+    // that declared write intent with an empty really-registered delta is a
+    // page that is open yet cannot do its job — only here may it be refused.
+    if (patternParamsOf(match.page.url).length > 0 && match.page.writes === true && pageTools.length === 0) {
       throw new PageError(PageErrorCode.DetailInvalid,
-        `detail page "${match.page.name}" (${match.page.url}) recorded no tools; its write duty cannot be fulfilled`)
+        `detail page "${match.page.name}" (${match.page.url}) registered no tools; its write duty cannot be fulfilled`)
     }
-    // §3.9 完备性告警在挂载期判（判据 = 真实收集面，含组件体的动态登记）：
-    // 注册期看不到 ctx.page.tool 的记录，"声明要写却没挂工具"只有这里才有
-    // 资格下结论。
+    // §3.9 完备性告警在挂载期判（判据 = 真实登记差集）：只有这里才有资格下结论。
     // The §3.9 coverage warning is judged at mount (the verdict input is the
-    // really-collected face, dynamic records included): registration time never
-    // sees the ctx.page.tool records, so only here may "declares writes but
-    // mounts none" be concluded.
-    const warning = pageToolWarning(match.page, tools.length)
+    // really-registered delta): only here may it be concluded.
+    const warning = pageToolWarning(match.page, pageTools.length)
     if (warning !== undefined) ports.warn?.(`${warning} (app "${app.definition.id}", url "${key}")`)
-    // 页面级 skills 与工具同路：同一端口、同一组注销器（agent 作用域）。
-    // Page-scope skills ride the same path as the tools: one port, one disposer
-    // group (the agent scope).
-    await ports.sessions.mountTools(sessionId, tools, match.page.skills)
-    // PAGE 块：头行（map 注册表推导）+ Markdown 正文——所有页面都是组件页，
-    // 正文来自视图的 Markdown 文档宿主（结构性校验，非组件宿主即空正文兜底）。
-    // The PAGE block: the header (registry-derived map) + the Markdown body —
-    // every page is a component page, and the body comes from the view's
-    // Markdown doc host (structural guard; a non-component host degrades to an
-    // empty body).
-    const markdownView = isMarkdownDocHost(view!.host) ? view!.host : undefined
-    block = componentPageBlock(app, match, key, tools, markdownView !== undefined ? markdownView.bodyText() : '')
-    // PAGE 块覆盖到的版本：块正文取自这一版视图，绑定从它之后开始投递——块里已有
-    // 的快照/首帧内容不会被当成 PAGE-PATCH 再发一遍（提前挂载的预览监听器因此
-    // 也没有重复可发）。
-    // The version covered by the PAGE block: the block body is this view's body,
-    // so delivery starts after it — snapshot/first-frame content already in the
-    // block is never re-sent as a PAGE-PATCH (and a preview listener mounted
-    // earlier finds nothing to duplicate).
-    const blockVersion = markdownView?.currentVersion
-    // 复用路径（提升）：调用方正在首回合里，块由它注入本轮决策（wake 语义不适用，
-    // 也不落日志——见 OpenPageResult.block 的说明）。
-    // Reuse path (promotion): the caller is inside the first turn and injects the
-    // block into that step's decision (wake does not apply, and the block is not
-    // appended — see OpenPageResult.block).
-    if (!reusing) await ports.sessions.appendUserMessage(sessionId, block, 'app/page')
-    // 实时视图在 commit 前绑定（§3.10.3）：挂载失败走下方既有回滚（fail loud），
-    // 不产生"会话活着但视图死着"的半状态；commit 后该视图归端口所有。
-    // The live view binds before commit (§3.10.3): a mount failure rides the
-    // existing rollback below (fail loud), so a live session never pairs with
-    // a dead view; after commit the port owns the view.
-    if (view !== undefined && ports.pageData !== undefined) {
-      ports.pageData.bind(sessionId, view, {
-        pageKey: pageKeyOf(app, match.page.name),
-        url: key,
-      }, blockVersion)
-    }
+    // PAGE 块：头行（map 注册表推导）+ tools 行（真实登记差集）+ Markdown 正文。
+    // The PAGE block: the header (registry-derived map) + the tools line (the
+    // real registration delta) + the Markdown body.
+    const block = componentPageBlock(app, match, key, pageTools, body)
+    await ports.sessions.appendUserMessage(sessionId, block, 'app/page')
     await index.commit(key, sessionId)
   } catch (error: unknown) {
-    // 兜底：半成品视图退订 → 摘工具 → 销毁半成品会话 → 删 reserved 行；原始错误码优先透出
-    // 复用路径不销毁会话：那是用户的会话，会话本身无辜。
-    // Rollback: unsubscribe the half-built view → strip tools → destroy the
-    // half-built session → delete the reserved row; the original code wins.
-    // The reuse path never destroys the session — it is the user's session and
-    // is not at fault.
-    view?.unsubscribe()
-    await ports.sessions.releaseTools(sessionId).catch(() => undefined)
-    if (!reusing) await ports.sessions.destroy(sessionId).catch(() => undefined)
+    // 兜底：销毁半成品会话（agent 一并销毁，组件体登记的工具/订阅随 fiber 逆序
+    // 拆除）→ 删 reserved 行；原始错误码优先透出。
+    // Rollback: destroy the half-built session (the agent dies with it; the
+    // body's registrations unwind with the fiber) → delete the reserved row;
+    // the original code wins.
+    await ports.sessions.destroy(sessionId).catch(() => undefined)
     await index.fail(key, error instanceof Error ? error.message : String(error)).catch(() => undefined)
-    // 已绑定的实时视图随半成品一起摘除（幂等；bind 在 commit 前可能已发生）
-    // / a bound live view dies with the half-built session (idempotent)
-    ports.pageData?.unbind(sessionId)
     throw error
   }
   if (options.taskId !== undefined) await takeTask(ports, options.taskId, sessionId, options.actor)
-  // 新会话启动即注入收件箱通知（§5.2 inbox）；失败只降级。复用路径跳过：用户的
-  // 首条消息不该被收件箱块挤到后面。
-  // A new session gets the inbox pumped at start (§5.2); failures degrade. The
-  // reuse path skips it: the user's first message must not be pushed behind
-  // inbox blocks.
-  if (!reusing) await pumpDeliveries(ports, sessionId)
+  // 新会话启动即注入收件箱通知（§5.2 inbox）；失败只降级。
+  // A new session gets the inbox pumped at start (§5.2); failures degrade.
+  await pumpDeliveries(ports, sessionId)
   if (options.focus !== false) await ports.sessions.focus(sessionId)
-  return { sessionId, url: key, title, ...(reusing ? { block } : {}) }
-}
-
-/**
- * 预挂一个页面的工具面（"选中应用 ≠ 开始会话"）：解析 URL → 首屏 load → 渲染
- * 一次性视图收集工具 → **挂到给定会话** → 退订视图。不 reserve/commit 索引、
- * 不建会话、不追加 PAGE 块、不 focus——用户还没发送时什么都不该"开始"。
- * 正式提升走 createPageSession 的复用路径，collectMountedTools 产出同一套定义，
- * 模型第一步的请求头因此与第二步一致（无"工具已更新"、无缓存断点）。
- * Pre-mount a page's tool face (picking an app is not a session start): resolve
- * the url → first-screen load → render a one-shot view to collect the tools →
- * **mount them on the given session** → unsubscribe the view. No index
- * reserve/commit, no session creation, no PAGE block, no focus — nothing may
- * "start" before the user sends. The real promotion goes through
- * createPageSession's reuse path, and collectMountedTools yields the very same
- * definitions, so the model's step-1 header equals step 2 (no "tools updated",
- * no cache break).
- * @param registry - 页面注册表 / the page registry
- * @param ports - 运行时端口 / the runtime ports
- * @param sessionId - 预挂的会话（用户的普通会话）/ the session to pre-mount on
- * @param url - 页面 URL / the page url
- * @returns 预挂的 URL、标题与工具面 / the pre-mounted url, title, and tool face
- */
-export async function mountPreviewTools(
-  registry: { resolve(url: string): PageMatch<never> | null },
-  ports: PageRuntimePorts,
-  sessionId: string,
-  url: string,
-): Promise<PagePreview> {
-  const { key, app, match } = resolvePageTarget(registry, ports, url)
-  const params = { ...match.params }
-  assertParamsMatchPattern(match.page.url, params)
-  const env: PageLoadEnv = ports.presetOf === undefined ? {} : { preset: ports.presetOf(sessionId) }
-  const data = await firstScreenData(match.page, params, env)
-  // live 绑定必填（页面 = 组件页）：预挂视图一定挂得出。
-  // The live binding is required (a page IS a component page): the preview view always mounts.
-  const view = match.live.mount(params, ports.sessions.scopeOf?.(sessionId))
-  let tools: MountedTool[]
-  try {
-    // 与 createPageSession 同口径：仅 load 页下发；store 页保持首帧快照。
-    // / same rule as createPageSession: push for load pages only; a store page keeps its first-frame snapshot.
-    pushFirstScreen(match, view, data)
-    tools = collectMountedTools(app, view)
-  } finally {
-    // 预览视图只服务工具收集：首帧/快照渲染完即退订，订阅与 effect 全部释放。
-    // / the preview view only exists to collect tools: after the first frame and
-    // snapshot it unsubscribes, releasing subscriptions and effects.
-    view?.unsubscribe()
-  }
-  // 工具与页面级 skills 挂进该会话的 agent 作用域（agent 未激活时由端口排队到
-  // agent/created）。真实端口同时应用 app_* 屏蔽：预挂后第一步就不再暴露引导工具。
-  // Mount the tools and page-scope skills onto the session's agent scope (the
-  // port queues until agent/created if needed). The real port also applies the
-  // app_* deny: step 1 no longer offers the bootstrap tools.
-  await ports.sessions.mountTools(sessionId, tools, match.page.skills)
-  return { url: key, title: instanceTitleOf(match, params), tools }
+  return { sessionId, url: key, title }
 }
 
 /** 把非 PageError 的底层失败包成带稳定 code 的 PageError */

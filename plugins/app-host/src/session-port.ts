@@ -7,35 +7,43 @@
  * 已随 G13 拆除）不同：
  * - `sessions` / `agents` 走**声明过的 inject + declaration merging 真实面**，
  *   无 `ctx.get` 探测、无 `?.` 降级分支（G13 规则 1）；
- * - 页面工具优先挂**该会话 agent 作用域**（`agent.ctx.tools.register`）——只有
- *   这个 agent 可见，agent 销毁随其 fiber 自动释放，跨会话互不可见；
- * - agent 尚未激活时工具进入等待队列，`agent/created` 到达即挂上（新建的
- *   页面会话在用户真正进入时才有 agent）；
+ * - **一次性渲染**：页面组件体在 create 激活的 agent 身上执行恰好一次，工具由
+ *   组件体直接 `agent.ctx.tools.register` 登记（随 agent fiber 生灭）——本端口
+ *   不经手任何工具定义，只提供 toolFace 快照（挂载前后差集即页面工具）；
+ * - create 当场应用页面作用域屏蔽（app_open/app_list/app_pages 的 deny）：
+ *   页面会话已在页面之内，引导工具不该再暴露（"打开页 → 新 agent → 再开页"
+ *   会话雪崩的对称面）；
+ * - retire（废弃路径）= 整体 dispose 该端口经 agents.create 拿到的句柄——
+ *   页面登记的一切随 fiber 逆序拆除，会话日志保留可读；
  * - 消息经 `agent.followup` + `ctx.sessions.flush` 确认（forum 的投递纪律）；
  * - focus 是显式接缝（{@link FocusPort}）：真实实现 {@link eventFocus} 发
  *   `app-host/focus` 事件，Web 伴生插件接收后执行真正的界面切换；
  * - 页面会话创建即激活 agent（H 根因修复）：GUI 侧栏按 blank 隐藏非当前会话，
  *   agent 不激活会话就永远 blank/不可见/进不去；激活后第一条 turn 使会话
  *   非 blank，instanceTitle 以 user source 的 session/title 落盘供侧栏显示。
- *
- * 测试注入每会话独立的真实 cordis 子上下文（与 AgentRegistry 的
- * `resolve: sessionId => this.get(sessionId)?.ctx` 同机制），生产路径解析
- * `ctx.agents.get(sessionId)?.ctx`。
+ * The one-shot render: the page component body runs exactly once on the agent
+ * activated by create; tools are registered by the body via
+ * `agent.ctx.tools.register` directly (they live and die with the agent
+ * fiber) — this port never touches tool definitions, it only offers the
+ * toolFace snapshots whose before/after delta IS the page's tools.
  * @module @veren/app-host/session-port
  */
+import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
 // 类型-only import：拉取 dsh-agent / dsh-session 的 declaration merging（ctx.agents / ctx.sessions）
-// 以及 Agent / SessionId 的权威类型——不再手写最小探测面（G13：显式 inject，无结构探测）。
+// 以及 Agent / AgentHandle 的权威类型——不再手写最小探测面（G13：显式 inject，无结构探测）。
 // type-only imports: pull the dsh-agent/dsh-session declaration merges (ctx.agents /
-// ctx.sessions) and the authoritative Agent/SessionId types — no hand-written probe faces.
+// ctx.sessions) and the authoritative Agent/AgentHandle types — no hand-written probe faces.
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 // 类型-only import：拉取 session/title 事件的 SessionEventMap merge（权威标题落盘用）
+// type-only import: pulls the session/title event's SessionEventMap merge (authoritative title persistence)
 import type {} from '@deepseek-ai/dsh-session-title'
-// 类型-only import：拉取 agentDefaultModel 的 declaration merging（ctx.agentDefaultModel）
+// 类型-only import：拉取 ctx.agentDefaultModel 的 declaration merging（部署默认模型选型）
+// type-only import: pulls the ctx.agentDefaultModel declaration merge (the deployment default model)
 import type {} from '@deepseek-ai/dsh-agent-default-model'
-// 类型-only import：拉取 ctx.tools（agent 作用域挂工具 / restrict 的实际服务面来源）。
+// 类型-only import：拉取 ctx.tools（agent 作用域工具面 / restrict 的实际服务面来源）。
 // 不能靠 dsh-agent 间接带上：间接 merge 一旦上游调整就静默失效。
 // type-only import: declares ctx.tools — the actual service surface behind
 // `agent.ctx.tools.register` / `.restrict`. Never rely on a transitive merge.
@@ -53,8 +61,7 @@ import type { Workspace } from '@deepseek-ai/dsh-workspace'
 // merge.
 import type {} from '@deepseek-ai/dsh-skill'
 import type { PageSkill } from '@veren/prompt-page'
-import type { MountedTool, PageSessionPort } from '@veren/page-registry'
-import type { PageDataSyncFace } from './page-sync.ts'
+import type { PageSessionPort, PageToolEntry } from '@veren/page-registry'
 
 /** focus 接缝：把界面切到某会话 / the focus seam: bring a session to the GUI front */
 export interface FocusPort {
@@ -159,34 +166,28 @@ async function pageSessionWorkspace(ctx: Context): Promise<Workspace | undefined
  * 也不带"缺席即降级"分支——服务缺席是装配错误，由 inject 等待/fail loud 兜住。
  * @param ctx - 宿主上下文（读 `sessions` / `agents` 服务）
  * @param focus - focus 接缝（GUI 实现归 H）
- * @param sync - PAGE-DATA 注入面（缺省 = 不注入，页面保持静态）——G13：兄弟能力
- *   走参数，端口不自己摸装配层
- * @param sync - the PAGE-DATA injection face (absent → static pages); G13:
- *   sibling capabilities travel as parameters, the port never reaches for the assembly
  */
-export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocus(ctx), sync?: PageDataSyncFace): PageSessionPort {
+export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocus(ctx)): PageSessionPort {
   const agentOf = (sessionId: string): Agent | undefined => ctx.agents.get(sid(sessionId))
-  // 会话 → 该会话当前挂载的注销器（agent 作用域注销器，重挂/清理用）
-  const mounted = new Map<string, Array<() => void>>()
   // 会话 → 本端口经 agents.create 拿到的句柄：只有持有者能整体拆除该 agent
   // / session → the handle from agents.create; only the holder can tear the agent down
   const handles = new Map<string, AgentHandle>()
-  // 会话 → 等待 agent 激活的开场内容（PAGE/TASK/通知块）与工具/skills；
-  // agent/created 到达即按序落地——页面会话的内容随它的第一个 agent 开始存在
-  const queued = new Map<string, { tools: readonly MountedTool[]; skills: readonly PageSkill[]; blocks: Array<{ source: string; text: string }> }>()
 
-  const releaseMounted = (sessionId: string): void => {
-    const disposers = mounted.get(sessionId)
-    mounted.delete(sessionId)
-    // 逆序释放；单个失败只影响该会话，不中断其余（§5.6 语义）
-    for (const dispose of (disposers ?? []).reverse()) {
-      try {
-        dispose()
-      } catch (error: unknown) {
-        ctx.logger.warn(`app-host: releaseTools(${sessionId}) entry failed: ${String(error)}`)
-      }
+  /** 整体拆除该会话的 agent（retire/destroy 共用；幂等） / tear the session's agent down whole (shared by retire/destroy; idempotent) */
+  const disposeAgent = async (sessionId: string): Promise<void> => {
+    const handle = handles.get(sessionId)
+    if (handle === undefined) return
+    handles.delete(sessionId)
+    try {
+      await handle.dispose()
+    } catch (error: unknown) {
+      ctx.logger.warn(`app-host: dispose(${sessionId}) failed: ${String(error)}`)
     }
   }
+
+  /** 该 agent 作用域当前可见的工具面（名字 + 用途描述）/ the tool face currently visible in the agent's scope */
+  const toolFaceOf = (agent: Agent): readonly PageToolEntry[] =>
+    agent.ctx.tools.schemas(scopeOf(agent.ctx)).map((schema) => ({ name: schema.name, description: schema.description }))
 
   const followup = (agent: Agent, text: string, source: string): void => {
     agent.followup(createUserMessage({
@@ -195,89 +196,39 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
     }))
   }
 
-  /** 把一组工具/skills 与排队块挂进某个 agent 作用域（每次挂载即一次整组登记） */
-  /** Mount one group of tools/skills and queued blocks onto an agent scope (each mount is one whole-group registration). */
-  const mountOnAgent = (sessionId: string, agent: Agent, pending: { tools: readonly MountedTool[]; skills: readonly PageSkill[]; blocks: Array<{ source: string; text: string }> }): void => {
-    releaseMounted(sessionId)
-    const disposers: Array<() => void> = []
-    for (const tool of pending.tools) disposers.push(agent.ctx.tools.register(tool))
-    // 页面级 skills 与工具同一组注销器：source 固定 'runtime'（registry 的
-    // 运行时技能层），作用域取自 agent.ctx——只有本会话可见，释放随组逆序。
-    // Page-scope skills join the tool disposer group: source is fixed to
-    // 'runtime' (the registry's runtime layer) and the scope is agent.ctx —
-    // visible to this session alone, released in reverse order with the group.
-    for (const skill of pending.skills) {
-      disposers.push(agent.ctx.skills.register({ ...skill, source: 'runtime' }))
-    }
-    // 页面引导工具在页面会话作用域内屏蔽：页面会话已在页面之内，模型照 PAGE 块
-    // 再调 app_open 打开同一 URL 会自激成"开页 → 新 agent → 再开页"的递归
-    // （真机实测的会话雪崩）；这也是「页面工具只对该 agent 可见」作用域互斥的
-    // 同一原则在引导工具方向的对称面。restrict 返回的注销器随挂载整组撤销。
-    // Bootstrap tools are masked inside a page-session scope: the session is
-    // already inside the page, and a model that follows the PAGE block by
-    // calling app_open on the same url self-ignites the
-    // "open page → new agent → open page" recursion (the live session
-    // avalanche); this is the bootstrap-side twin of the "page tools are only
-    // visible to their own agent" scope rule. The restriction disposer joins
-    // the mounted set and is undone with it.
-    disposers.push(agent.ctx.tools.restrict({ deny: ['app_open', 'app_list', 'app_pages'] }))
-    // PAGE-DATA 注入器（§3.10.3）：挂在同一 agent 作用域——dsh-scope 过滤保证
-    // 只有本会话的 pre-step 会送达它；注销器随挂载整组撤销。
-    // The PAGE-DATA injector (§3.10.3): registered on the same agent scope —
-    // dsh-scope filtering delivers only this session's pre-steps to it; the
-    // disposer joins the mounted set.
-    if (sync !== undefined) disposers.push(sync.attach(sessionId, agent))
-    mounted.set(sessionId, disposers)
-    for (const block of pending.blocks) followup(agent, block.text, block.source)
-  }
-
-  // agent 激活：等待队列里的页面工具此刻才真正挂上（只对该 agent 可见），
-  // 排队的 PAGE/TASK/通知块按序 followup 进会话。
-  // 事件与载荷走 dsh-agent 的 declaration merging 真实类型，无断言。
-  ctx.on('agent/created', ({ agent }): undefined => {
-    const sessionId = agent?.session?.id
-    if (sessionId === undefined) return undefined
-    const pending = queued.get(sessionId)
-    if (pending === undefined) return undefined
-    queued.delete(sessionId)
-    mountOnAgent(sessionId, agent, pending)
-    return undefined
-  })
-  // agent 销毁：作用域注册随 fiber 自动消失，这里只清登记；实时视图一并解绑
-  // （外部拆除的 agent 不该留下孤儿视图订阅）。
+  // agent 销毁：句柄登记清理（作用域注册已随 fiber 自动消失）。
   ctx.on('agent/disposed', ({ agent }) => {
     const sessionId = agent?.session?.id
-    if (sessionId !== undefined) {
-      mounted.delete(sessionId)
-      handles.delete(sessionId)
-      sync?.drop(sessionId)
-    }
+    if (sessionId !== undefined) handles.delete(sessionId)
   })
 
   return {
     exists: (sessionId) => ctx.sessions.get(sid(sessionId)) !== undefined,
-    // 页面组件的 effect/on 经该会话的 agent 作用域注册（DSH 官方模型）：
-    // 事件由 scopeTarget 按 agent 过滤，清理随 agent 销毁。agent 未激活时
-    // 返回 undefined，视图回退到创建者 ctx（暂存预览的短命订阅）。
-    // The page's effect/on register on that session's agent scope (the DSH
-    // model): scopeTarget filters events per agent and cleanup follows agent
-    // disposal. An inactive agent yields undefined — the view falls back to the
-    // creator ctx (a staged preview's short-lived subscription).
-    scopeOf: (sessionId) => agentOf(sessionId)?.ctx,
+    // 页面组件体的唯一载体：该会话的活 agent。工具/skills/订阅/清理由组件体
+    // 直接经 agent.ctx 登记——随 agent fiber 生灭，端口不经手任何定义。
+    // The sole carrier of the page body: the session's live agent. Tools,
+    // skills, subscriptions and cleanups are registered by the body via
+    // agent.ctx directly — they live and die with the agent fiber; this port
+    // never handles definitions.
+    agentOf: (sessionId) => agentOf(sessionId),
+    toolFace: (sessionId) => {
+      const agent = agentOf(sessionId)
+      return agent === undefined ? [] : toolFaceOf(agent)
+    },
     mintId: () => crypto.randomUUID(),
     async create(sessionId, title) {
       // H 的根因修复：页面会话必须当场激活 agent（不再是"等用户进入"）。GUI
       // 侧栏按 blank（没有第一条 turn）隐藏非当前会话——不激活 agent，页面会话
       // 永远 blank，也就永远不可见、进不去，agent 永远不会被激活（死锁）。
-      // agents.create 会连同创建会话并发布 agent/created；工具/开场块随后经
-      // mountTools/appendUserMessage 落到这个活 agent 上，第一条 turn 随之提交。
+      // agents.create 会连同创建会话并发布 agent/created；组件体的唯一一次
+      // 渲染随之落到这个活 agent 上，第一条 turn 随之提交。
       // The root-cause fix: a page session activates its agent right away (no
       // more "wait until the user enters"). The GUI sidebar hides non-current
       // blank sessions — without an agent the page session stays blank forever,
       // so it can never be seen or entered and its agent can never activate
       // (a deadlock). agents.create publishes the session and agent/created;
-      // tools and opening blocks then land on the live agent via
-      // mountTools/appendUserMessage and the first turn commits.
+      // the body's one render then lands on this live agent, and the first
+      // turn commits.
       // agentOptions.model 来自部署默认模型（agentDefaultModel）：agent-loop 用
       // agent.options.model 注册 {{model}} 提示变量——不给模型，deployment
       // persona 段的 {{model}} 插值在首回合就失败（真机实测）。这是 webhook
@@ -300,6 +251,18 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
         agentOptions: { provider: selected.provider, model: selected.model },
         meta: { cwd: workspace?.path ?? process.cwd(), agentPreset: 'standard' },
       })
+      handles.set(sessionId, handle)
+      // 页面作用域屏蔽（页面会话已在页面之内）：app_open/app_list/app_pages 对
+      // 本 agent 隐藏，模型照 PAGE 块再调 app_open 打开同一 URL 会自激成
+      // "开页 → 新 agent → 再开页"的递归（真机实测的会话雪崩）。屏蔽随 agent
+      // fiber 生灭，无需单独释放。
+      // Page-scope masking (the session is already inside the page):
+      // app_open/app_list/app_pages are hidden from this agent — a model that
+      // follows the PAGE block by calling app_open on the same url self-ignites
+      // the "open page → new agent → open page" recursion (the live session
+      // avalanche). The masking lives and dies with the agent fiber; no
+      // separate release is needed.
+      handle.agent.ctx.tools.restrict({ deny: ['app_open', 'app_list', 'app_pages'] })
       if (workspace !== undefined) {
         // 归属失败不阻断开页（会话已建好），但必须留痕：这是装配/路径契约的缺陷。
         // A failed attach does not abort the open (the session exists) but it is
@@ -308,7 +271,6 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
           ctx.logger.warn(`app-host: page session ${sessionId} could not join workspace "${workspace.id}": ${String(error)}`)
         })
       }
-      handles.set(sessionId, handle)
       // instanceTitle 是页面实例的权威标题（§3.6.1）：立即落成 user source 的
       // session/title（空 messageSeqs 恰好是 user 标题的合法形状）——侧栏按它
       // 显示「发布任务」「主题 #12」，且不会被标题 LLM 事后改写。
@@ -317,6 +279,28 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
       // legal user-title shape) — the sidebar shows it and the title LLM never
       // rewrites it.
       ctx.sessions.get(sid(sessionId))?.append('session/title', { title, messageSeqs: [], source: { kind: 'user' } })
+    },
+    async mountSkills(sessionId, skills) {
+      const agent = agentOf(sessionId)
+      if (agent === undefined) {
+        throw new Error(`app-host: mountSkills(${sessionId}) found no active agent; page sessions always have one after create`)
+      }
+      for (const skill of skills) {
+        // source 固定 'runtime'（registry 的运行时技能层），作用域取自
+        // agent.ctx——只有本会话可见，随 agent fiber 释放。
+        // source is fixed to 'runtime' (the registry's runtime layer) and the
+        // scope is agent.ctx — visible to this session alone, released with the
+        // agent fiber.
+        agent.ctx.skills.register({ ...skill, source: 'runtime' })
+      }
+    },
+    async retire(sessionId) {
+      // 废弃路径（§3.5.3）：整只拆除 agent——页面登记的工具/skills/订阅/清理随
+      // fiber 逆序拆除，会话日志保留可读。
+      // The deprecation path (§3.5.3): tear the agent down whole — everything
+      // the page registered unwinds with the fiber; the session log stays
+      // readable.
+      await disposeAgent(sessionId)
     },
     async appendUserMessage(sessionId, text, source, options) {
       // wake=false（§3.9 唤醒策略的可选面）：只把消息落会话日志，不 followup、
@@ -332,57 +316,27 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
         return
       }
       const agent = agentOf(sessionId)
-      if (agent !== undefined) {
-        followup(agent, text, source)
-        const flushed = await ctx.sessions.flush(agent.session)
-        if (flushed === false) {
-          ctx.logger.warn(`app-host: session ${sessionId} did not flush the "${source}" block`)
-        }
-        return
+      // 页面会话在 create 时即激活 agent，这里没有"等 agent"的分支——缺席是
+      // 装配错误，fail loud。
+      // A page session activates its agent at create; there is no "wait for the
+      // agent" branch here — a miss is an assembly error and fails loud.
+      if (agent === undefined) {
+        throw new Error(`app-host: appendUserMessage(${sessionId}) found no active agent`)
       }
-      // agent 未激活：入队，随 agent/created 与工具一起落地（页面会话的内容
-      // 随它的第一个 agent 开始存在）
-      const pending = queued.get(sessionId) ?? { tools: [], skills: [], blocks: [] }
-      pending.blocks.push({ source, text })
-      queued.set(sessionId, pending)
-    },
-    async mountTools(sessionId, tools, skills) {
-      const agent = agentOf(sessionId)
-      if (agent !== undefined) {
-        // 活 agent：直接挂 agent 作用域——只有该 agent 可见，销毁随 fiber 释放
-        mountOnAgent(sessionId, agent, { tools, skills: skills ?? [], blocks: [] })
-        return
+      followup(agent, text, source)
+      const flushed = await ctx.sessions.flush(agent.session)
+      if (flushed === false) {
+        ctx.logger.warn(`app-host: session ${sessionId} did not flush the "${source}" block`)
       }
-      // agent 未激活（打开时用户尚未进入会话）：入队，agent/created 到达即挂上
-      const pending = queued.get(sessionId) ?? { tools: [], skills: [], blocks: [] }
-      queued.set(sessionId, { tools, skills: skills ?? [], blocks: pending.blocks })
-    },
-    async releaseTools(sessionId) {
-      const pending = queued.get(sessionId)
-      queued.set(sessionId, { tools: [], skills: [], blocks: pending?.blocks ?? [] })
-      releaseMounted(sessionId)
     },
     focus: (sessionId) => focus.focus(sessionId),
     async destroy(sessionId) {
-      queued.delete(sessionId)
-      releaseMounted(sessionId)
-      // 半成品会话不该留下视图订阅（bind 可能已在 commit 前发生；幂等）
-      // / a half-built session must not leave a view subscription behind (bind
-      // may have happened before commit; idempotent)
-      sync?.drop(sessionId)
       // 半成品兜底路径（页面创建失败回滚）：整只拆除本端口创建的 agent——
       // 句柄持有者才有资格 dispose，失败的会话不该留下活 agent。
       // Half-built rollback path (page-create failure): tear down the agent this
       // port created — only the handle holder may dispose; a failed session
       // must not leave a live agent behind.
-      const handle = handles.get(sessionId)
-      if (handle === undefined) return
-      handles.delete(sessionId)
-      try {
-        await handle.dispose()
-      } catch (error: unknown) {
-        ctx.logger.warn(`app-host: dispose(${sessionId}) failed: ${String(error)}`)
-      }
+      await disposeAgent(sessionId)
     },
   }
 }
@@ -397,12 +351,6 @@ declare module '@deepseek-ai/dsh-llm' {
     'task-center/notice': { kind: 'task-center/notice' }
     /** A page_send delivery message (wake or wake=false log-only). @persistenceSource user */
     'page/send': { kind: 'page/send' }
-    /**
-     * A PAGE-DATA view sync appended at pre-step (§3.10.2). The agent loop
-     * commits decision messages itself, so the block lands as a user message.
-     * @persistenceSource user
-     */
-    'page/data': { kind: 'page/data' }
   }
 }
 

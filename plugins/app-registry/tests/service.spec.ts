@@ -201,7 +201,12 @@ describe('pages 注册面', () => {
     expect(registered).toBeDefined()
     expect('tools' in (registered ?? {})).toBe(false)
     const [fakeComponent, fakeMeta] = pageDef('todo', 'fake', 'fake/:id')
-    expect(() => pages.register(fakeComponent, { ...fakeMeta, writes: true })).not.toThrow()
+    // writes:true 的详情页必须带非空说明（规则 3 的说明半边，注册期拦）；
+    // 说明补上后注册放行，工具半边才轮到挂载期判。
+    // / a writes:true detail page must carry non-empty instructions (rule 3's
+    // instructions half, refused at registration); with them the registration
+    // passes and only the tool half waits for mount.
+    expect(() => pages.register(fakeComponent, { ...fakeMeta, writes: true, instructions: '只处理 params.id 指定的这一条。' })).not.toThrow()
   })
 })
 
