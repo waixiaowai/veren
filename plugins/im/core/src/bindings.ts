@@ -3,9 +3,15 @@
  * This module owns every mutation of the durable binding table and the
  * active-pointer invariant. It never renders a prompt and never listens to a
  * channel: routing stays in `router.ts`.
+ *
+ * The logging/credential/gateway seams and the shared log-line helper live in
+ * `runtime-seams.ts` and are re-exported unchanged here.
+ *
  * 绑定、授权轮询、发送与列表。
  * 本模块拥有绑定表的全部写操作与 active 指针不变量。它不渲染 Prompt，也不监听渠道：路由留在
  * `router.ts`。
+ *
+ * 日志/凭据/网关接缝与共用日志助手在 `runtime-seams.ts`，并在此原样再导出。
  *
  * @module @veren/im/bindings
  */
@@ -20,39 +26,23 @@ import type {
   ImBindAttempt,
   ImBindRequest,
   ImConversationView,
-  ImMessageContent,
   ImRegistry,
 } from './contract.ts'
 import type { ImAccountRow, ImBindingStore } from './store.ts'
-/** Logging surface shared by the router and bindings. */
-export interface ImLogger {
-  info?(message: string): void
-  warn(message: string): void
-  error(message: string): void
-}
-/** Credential removal seam; the DSH implementation deletes the account grant. */
-export interface ImCredentialStore {
-  remove(accountId: string): Promise<void>
-}
-/** One inbound prompt's provenance, kept out of the prompt body. */
-export interface ImPromptSource {
-  providerId: string
-  accountId: string
-  conversationId: string
-  messageId: string
-}
-/** Session hand-off used by the router; tests provide a deterministic fake. */
-export interface ImSessionGateway {
-  ensureSession(request: {
-    sessionId?: string
-    settings: ImBindingSettings
-  }): Promise<{ sessionId: string; created: boolean }>
-  ask(request: {
-    sessionId: string
-    prompt: string
-    source: ImPromptSource
-  }): Promise<string | undefined>
-}
+import { errorMessage } from './runtime-seams.ts'
+import type { ImLogger, ImSessionGateway } from './runtime-seams.ts'
+
+// ---- unchanged export surface (seams re-exported from runtime-seams.ts) ----
+// ---- 导出面不变（接缝由 runtime-seams.ts 原样再导出）----
+export { errorMessage } from './runtime-seams.ts'
+export type {
+  ImCredentialStore,
+  ImLogger,
+  ImPromptSource,
+  ImRouterSendRequest,
+  ImSessionGateway,
+} from './runtime-seams.ts'
+
 /** One `im_link` request. */
 export interface ImLinkRequest {
   accountId: string
@@ -61,25 +51,20 @@ export interface ImLinkRequest {
   settings?: ImBindingSettings
   active?: boolean
 }
-/** One router-level send request; exactly one target form is allowed. */
-export interface ImRouterSendRequest {
-  bindingId?: string
-  accountId?: string
-  conversationId?: string
-  content: ImMessageContent
-  replyToMessageId?: string
-}
+
 /** One bind poll result. */
 export interface ImBindPollResult {
   attempt: ImBindAttempt
   account?: ImAccount
 }
+
 /** Read-only list result. */
 export interface ImListResult {
   accounts?: ImAccountView[]
   bindings?: ImBinding[]
   conversations?: ImConversationView[]
 }
+
 export interface ImBindingsOptions {
   store: ImBindingStore
   registry: ImRegistry
@@ -87,10 +72,7 @@ export interface ImBindingsOptions {
   logger: ImLogger
   newId?: (prefix: string) => string
 }
-/** Turn an unknown value into one log line. */
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
+
 /** Binding table operations shared by the router and tools. */
 export class ImBindings {
   private readonly store: ImBindingStore
@@ -223,6 +205,16 @@ export class ImBindings {
       await this.store.putBinding(binding)
       return binding
     })
+  }
+  /**
+   * Drop every remembered bind attempt; called on plugin unload. The attempts
+   * stay alive on their provider — unloading the core must not cancel a user's
+   * in-flight authorization — but the core stops pinning them.
+   * 丢弃全部已记住的 bind 尝试；插件卸载时调用。尝试在其 provider 上保持存活——卸载核心
+   * 不取消用户正在进行的授权——但核心不再钉住它们。
+   */
+  dispose(): void {
+    this.attempts.clear()
   }
   /** Persist one authorized account. */
   private async persistAccount(providerId: string, account: ImAccount): Promise<void> {

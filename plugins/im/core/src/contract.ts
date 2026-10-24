@@ -3,8 +3,16 @@
  * Providers implement ImService and register one ImProvider; the host routes
  * through ImRegistry, never a channel singleton.
  *
+ * This file keeps the error class, the provider behavior contract, the
+ * credential key, and the registry; the pure data model (accounts,
+ * conversations, contacts, claims, messages) lives in `contract-model.ts` and
+ * is re-exported unchanged here.
+ *
  * 渠道无关的 IM 契约与注册表：provider 实现 ImService 并注册一个 ImProvider；宿主只通过
  * ImRegistry 路由，不依赖渠道单例。
+ *
+ * 本文件保留错误类、provider 行为契约、凭据键与注册表；纯数据模型（账号、会话、联系方式、
+ * 自述、消息）在 `contract-model.ts`，并在此原样再导出。
  *
  * @module @veren/im/contract
  */
@@ -15,6 +23,25 @@ import type { Context, Disposable } from '@deepseek-ai/cordis'
 import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import type { CredentialKey } from '@deepseek-ai/dsh-credentials'
 import { defineToken } from '@veren/core'
+
+// ---- data model: declared in contract-model.ts, re-exported unchanged ----
+// ---- 数据模型：声明在 contract-model.ts，原样再导出 ----
+export type {
+  ImAccount,
+  ImAccountView,
+  ImConversation,
+  ImConversationView,
+  ImMessage,
+  ImMessageContent,
+  ImPersonClaim,
+  ImPersonContact,
+  ImUser,
+} from './contract-model.ts'
+import type {
+  ImAccount,
+  ImMessage,
+  ImMessageContent,
+} from './contract-model.ts'
 
 /** Stable error codes a provider or the router may refuse with. */
 export type ImErrorCode =
@@ -57,120 +84,7 @@ export class ImError extends Error {
     if (options.details !== undefined) this.details = options.details
   }
 }
-/** One reachable identity inside a provider. */
-export interface ImAccount {
-  /** Stable provider-scoped account id. */
-  id: string
-  /** Human-readable account name. */
-  displayName: string
-  /** The human who authorized this account, when known. */
-  ownerId?: string
-  /** Live connection status; never persisted. */
-  status: 'online' | 'offline' | 'error'
-}
-/** One addressable conversation inside an account. */
-export interface ImConversation {
-  /** Provider-scoped opaque conversation id. */
-  id: string
-  /** Conversation kind. */
-  kind: 'direct' | 'group' | 'thread'
-  /** Optional human-readable title. */
-  title?: string
-}
-/** One account as a listing renders it, with the owning provider id. */
-export interface ImAccountView extends ImAccount {
-  provider: string
-}
-/** One conversation as a listing renders it, with its account. */
-export interface ImConversationView extends ImConversation {
-  accountId: string
-}
-/** One message participant. */
-export interface ImUser {
-  /** Provider-scoped opaque user id. */
-  id: string
-  /** Optional display name. */
-  name?: string
-}
-/**
- * One contact method stored on a person record.
- *
- * This is identity data a human gave us (WeChat id, email, phone, or another
- * handle); it is searchable and shown back to the model, but only a provider
- * address can actually receive a message.
- * 人员记录上的一种联系方式。
- *
- * 这是人提供的身份信息（微信号、邮箱、电话或其他账号），可搜索、会展示给模型；但真正能收消息的
- * 只有 provider 地址。
- */
-export interface ImPersonContact {
-  kind: 'wechat' | 'email' | 'phone' | 'other'
-  value: string
-  /** Optional qualifier, for example "工作" / "personal". */
-  label?: string
-}
-/**
- * One identity statement a person made about themselves.
- *
- * A claim is evidence, never verification: it lives beside `realName`,
- * `displayName`, `aliases`, and `contacts`, which only a human (through
- * `im_person_save`) or a provider profile may set. Sending by a claimed name is
- * reported as `matchedBy: 'claimedName'`; a claimed name that collides with
- * another person stays ambiguous and is never silently chosen.
- * 一个人对自己身份的自述。
- *
- * 自述只是证据，不是核实：它与 realName、displayName、aliases、contacts 并列保存，后者只能由人
- * （通过 im_person_save）或 provider 档案设置。按自述名发送会以 matchedBy: 'claimedName' 报告依据；
- * 与其他人重名时保持歧义，绝不静默选中。
- */
-export interface ImPersonClaim {
-  /** The name the person used for themselves; unverified. */
-  name?: string
-  /** Contact details the person offered; unverified. */
-  contacts: ImPersonContact[]
-  /** Where the claim came from. V1 records one provider self-report. */
-  source: 'self-report'
-  /** Provider whose conversation produced the claim. */
-  provider: string
-  /** Account that received the claim. */
-  accountId: string
-  /** Conversation the claim arrived in. */
-  conversationId: string
-  /** Inbound message the claim was read from. */
-  messageId: string
-  /** Epoch milliseconds when the claim was recorded. */
-  at: number
-}
-/**
- * One normalized content block.
- *
- * V1 WeChat produces and consumes text only; the other variants are the
- * extension point for providers that can carry richer content.
- */
-export type ImMessageContent =
-  | { type: 'text'; text: string }
-  | { type: 'markdown'; text: string }
-  | { type: 'image'; mime: string; name?: string; size?: number; load(): Promise<Buffer> }
-  | { type: 'file'; mime: string; name: string; size?: number; load(): Promise<Buffer> }
-/** One normalized inbound message. */
-export interface ImMessage {
-  /** Provider-stable message id, used for deduplication. */
-  id: string
-  /** Account that received the message. */
-  accountId: string
-  /** Conversation the message belongs to. */
-  conversationId: string
-  /** Who sent it. */
-  sender: ImUser
-  /** Epoch milliseconds at the provider. */
-  sentAt: number
-  /** Normalized content. */
-  content: ImMessageContent
-  /** Message id this message replies to, when the provider exposes it. */
-  replyTo?: string
-  /** Thread id, when the provider has native threads. */
-  threadId?: string
-}
+
 /** Capabilities a provider declares statically. */
 export interface ImFeatures {
   direct: boolean
@@ -182,12 +96,14 @@ export interface ImFeatures {
   auth: ReadonlyArray<'qrcode' | 'oauth' | 'token' | 'password'>
   limits: { textChars?: number; fileBytes?: number }
 }
+
 /** How one account authorization starts. */
 export type ImBindRequest =
   | { method: 'qrcode'; label?: string }
   | { method: 'oauth'; label?: string }
   | { method: 'token'; token: string; label?: string }
   | { method: 'password'; username: string; password: string; label?: string }
+
 /** Human-facing challenge produced by an authorization attempt. */
 export interface ImBindChallenge {
   kind: 'qrcode' | 'device-code' | 'url'
@@ -198,8 +114,10 @@ export interface ImBindChallenge {
   userCode?: string
   expiresAt?: number
 }
+
 /** One authorization attempt's state. */
 export type ImBindStatus = 'pending' | 'scanned' | 'needs-code' | 'bound' | 'expired' | 'failed'
+
 /** A live authorization attempt; the provider advances it in the background. */
 export interface ImBindAttempt {
   bindId: string
@@ -209,17 +127,20 @@ export interface ImBindAttempt {
   wait(signal?: AbortSignal): Promise<ImAccount>
   cancel(): Promise<void>
 }
+
 /** One explicit outbound destination. */
 export interface ImSendTarget {
   accountId: string
   conversationId: string
 }
+
 /** One send request; `target` is always explicit. */
 export interface ImSendRequest {
   target: ImSendTarget
   content: ImMessageContent
   replyToMessageId?: string
 }
+
 /** One send result. */
 export interface ImSendResult {
   id: string
@@ -227,6 +148,7 @@ export interface ImSendResult {
   /** True when the message may have been delivered. */
   uncertain?: boolean
 }
+
 /** Per-binding agent settings. */
 export interface ImBindingSettings {
   presetId?: string
@@ -234,6 +156,7 @@ export interface ImBindingSettings {
   model?: string
   reasoning?: string
 }
+
 /** One conversation-to-session binding. */
 export interface ImBinding {
   id: string
@@ -243,6 +166,7 @@ export interface ImBinding {
   active: boolean
   settings: ImBindingSettings
 }
+
 /**
  * The behavior every provider implements.
  *
@@ -266,6 +190,7 @@ export interface ImService {
    */
   removeAccount?(accountId: string): Promise<void>
 }
+
 /** Registration descriptor: provider identity, capabilities, and behavior. */
 export interface ImProvider {
   id: string
@@ -273,8 +198,10 @@ export interface ImProvider {
   features: ImFeatures
   service: ImService
 }
+
 /** Callback the registry uses to hand an inbound message to the router. */
 export type ImMessageHandler = (providerId: string, message: ImMessage) => void | Promise<void>
+
 /** The `im` service token. */
 export const ImToken = defineToken<ImRegistry>('im')
 declare module '@deepseek-ai/cordis' {
@@ -283,6 +210,7 @@ declare module '@deepseek-ai/cordis' {
     im: ImRegistry
   }
 }
+
 /**
  * Derive the one credential key an account's secrets live under.
  *
@@ -299,6 +227,7 @@ export function imCredentialKey(accountId: string): CredentialKey {
   // 摘要是十六进制，可能以数字开头；键语法要求首字符为字母，因此加稳定的 `k` 前缀。
   return credentialKey('im', `k${digest}`)
 }
+
 /**
  * Registry of provider descriptors.
  *

@@ -31,11 +31,14 @@ class TestAttempt implements ImBindAttempt {
   readonly bindId = 'bind-1'
   status: 'pending' | 'bound' = 'pending'
   challenge = { kind: 'qrcode' as const }
+  cancels = 0
   async submitCode(): Promise<void> {}
   async wait(): Promise<ImAccount> {
     return { id: 'acc', displayName: 'Account', status: 'online' }
   }
-  async cancel(): Promise<void> {}
+  async cancel(): Promise<void> {
+    this.cancels += 1
+  }
 }
 
 class TestService implements ImService {
@@ -43,6 +46,7 @@ class TestService implements ImService {
   started = 0
   stopped = 0
   bindCalls = 0
+  lastAttempt: TestAttempt | undefined
   readonly sent: ImSendRequest[] = []
   #handler: ((message: ImMessage) => void | Promise<void>) | undefined
 
@@ -57,7 +61,9 @@ class TestService implements ImService {
   }
   async bind(_request: ImBindRequest): Promise<ImBindAttempt> {
     this.bindCalls += 1
-    return new TestAttempt()
+    const attempt = new TestAttempt()
+    this.lastAttempt = attempt
+    return attempt
   }
   async send(request: ImSendRequest): Promise<ImSendResult> {
     this.sent.push(request)
@@ -159,6 +165,15 @@ describe('ImRouter', () => {
     expect(gateway.asks[1]?.sessionId).toBe('s2')
     expect(store.getBinding(first.id)?.active).toBe(false)
     expect(second.active).toBe(true)
+  })
+
+  it('drops remembered bind attempts on dispose without cancelling them', async () => {
+    const { router, service } = setup()
+    const attempt = await router.beginBind('fake', { method: 'qrcode' })
+    expect(attempt.status).toBe('pending')
+    router.dispose()
+    await expect(router.pollBind(attempt.bindId)).rejects.toMatchObject({ code: 'IM_NOT_FOUND' })
+    expect(service.lastAttempt?.cancels).toBe(0)
   })
 
   it('replies to the conversation that produced the turn', async () => {

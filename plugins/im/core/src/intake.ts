@@ -15,98 +15,36 @@
  * 回复：读懂回答是语义判断，由会话模型决定并经工具写入。这一侧只保留提问侧（限频、ask-once、
  * 审计）以及供工具回写的 settle 接口。
  *
+ * Declarations (config, the fixed question, view shapes, options) live in
+ * `intake-types.ts` and are re-exported unchanged here.
+ * 声明面（配置、固定询问、视图形状、选项）在 `intake-types.ts`，并在此原样再导出。
+ *
  * @module @veren/im/intake
  */
 
+import { errorMessage } from './runtime-seams.ts'
+import type { ImLogger } from './runtime-seams.ts'
 import type { ImMessage, ImSendResult } from './contract.ts'
-import type { ImLogger } from './bindings.ts'
 import type { ImPeople, ImPersonView } from './people.ts'
-import type { ImIntakeStatus, ImPersonIntakeRow } from './store.ts'
+import type { ImPersonIntakeRow } from './store.ts'
+import { STRANGER_INTAKE_ASK, STRANGER_INTAKE_DEFAULTS } from './intake-types.ts'
+import type {
+  ImIntakeRecordView, ImIntakeSettle, ImIntakeStatusView, ImStrangerIntakeConfig, ImStrangerIntakeOptions,
+} from './intake-types.ts'
 
-/** One switch and its safety bounds. */
-export interface ImStrangerIntakeConfig {
-  /** The total switch. `false` sends nothing and records nothing. */
-  enabled: boolean
-  /**
-   * Display reference only: how long after the question a reply was once
-   * considered an answer. Rows are never moved to `expired` anymore; the
-   * conversation model settles them through `im_person_report`.
-   * 仅作展示参考：过去认为询问后多久内的回复算回答。行不再被打成 expired 终态；由会话模型
-   * 通过 `im_person_report` 收尾。
-   */
-  replyWindowMs: number
-  /** Per-account cap across a sliding hour; 0 is treated as 1. */
-  maxAsksPerHour: number
-  /** Minimum gap between two questions from one account. */
-  minAskIntervalMs: number
-}
-
-/** Defaults used by the plugin config and by direct router construction. */
-export const STRANGER_INTAKE_DEFAULTS: ImStrangerIntakeConfig = {
-  enabled: true,
-  replyWindowMs: 120_000,
-  maxAsksPerHour: 10,
-  minAskIntervalMs: 10_000,
-}
-
-/**
- * The one question. It asks only for a form of address and a contact method,
- * states that declining is fine, and makes no promise the host cannot keep.
- * 唯一的一条询问：只问怎么称呼和联系方式，说明不方便也没关系，不承诺做不到的事。
- */
-export const STRANGER_INTAKE_ASK = '你好，我们好像还没认识过。请问怎么称呼你？方便的话再留个联系方式，我记一下，以后好找你，不方便也没关系。'
-
-/** What the model settled the open question with. */
-export type ImIntakeSettle = 'answered' | 'declined'
-
-/** One intake record as the status tool shows it. */
-export interface ImIntakeRecordView {
-  personId: string
-  personName: string
-  claimedName?: string
-  status: ImIntakeStatus
-  provider: string
-  accountId: string
-  conversationId: string
-  askedAt: number
-  askMessageId: string
-  askText: string
-  /** Display reference computed from the reply window. */
-  expiresAt: number
-  settledAt?: number
-  outcome?: 'name' | 'contact' | 'both'
-  replyMessageId?: string
-  replyExcerpt?: string
-}
-
-/** The switch, counts, and a bounded audit window. */
-export interface ImIntakeStatusView {
-  enabled: boolean
-  askText: string
-  replyWindowMs: number
-  maxAsksPerHour: number
-  minAskIntervalMs: number
-  counts: Record<ImIntakeStatus, number>
-  recent: ImIntakeRecordView[]
-}
-
-/** Construction options; the clock, store, and sender are injectable. */
-export interface ImStrangerIntakeOptions {
-  people: ImPeople
-  logger: ImLogger
-  /** Send one text to one explicit target. */
-  send: (request: { accountId: string; conversationId: string; text: string }) => Promise<ImSendResult>
-  config?: Partial<ImStrangerIntakeConfig>
-  now?: () => number
-}
+// ---- unchanged export surface (declarations moved to intake-types.ts) ----
+// ---- 导出面不变（声明面移至 intake-types.ts）----
+export { STRANGER_INTAKE_ASK, STRANGER_INTAKE_DEFAULTS } from './intake-types.ts'
+export type {
+  ImIntakeRecordView,
+  ImIntakeSettle,
+  ImIntakeStatusView,
+  ImStrangerIntakeConfig,
+  ImStrangerIntakeOptions,
+} from './intake-types.ts'
 
 const HOUR_MS = 3_600_000
 const RECENT_LIMIT = 100
-
-/** Stable message for logs. */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
 
 /**
  * The automatic stranger-intake service. It never routes messages and never
@@ -158,15 +96,14 @@ export class ImStrangerIntake {
     try {
       await this.askOnce(providerId, message, person)
     } catch (error: unknown) {
-      this.logger.error(`[im:${providerId}] stranger intake failed: ${messageOf(error)}`)
+      this.logger.error(`[im:${providerId}] stranger intake failed: ${errorMessage(error)}`)
     }
   }
 
   /** Read the switch, counts, and recent audit records. */
   status(limit = 20): ImIntakeStatusView {
     const rows = this.people.intakes().sort((left, right) => right.asked_at - left.asked_at)
-    const counts: Record<ImIntakeStatus, number> = { asked: 0, answered: 0, declined: 0, expired: 0 }
-    for (const row of rows) counts[this.effectiveStatus(row)] += 1
+    const counts = this.countsOf(rows)
     const requested = Number.isFinite(limit) ? Math.trunc(limit) : 20
     const size = Math.max(1, Math.min(RECENT_LIMIT, requested))
     return {
@@ -224,47 +161,69 @@ export class ImStrangerIntake {
     if (this.asking.has(person.id) || !this.allow(providerId, message.accountId)) return
     this.asking.add(person.id)
     try {
-      let sent: ImSendResult
-      try {
-        sent = await this.send({
-          accountId: message.accountId,
-          conversationId: message.conversationId,
-          text: STRANGER_INTAKE_ASK,
-        })
-      } catch (error: unknown) {
-        // Nothing was sent, so no intake row is written: a later message may ask.
-        // 没有发出去，因此不写 intake 行：之后的消息仍可以询问。
-        this.logger.error(
-          `[im:${providerId}] stranger intake could not ask ${message.accountId}/${message.conversationId}: ${messageOf(error)}`,
-        )
-        return
-      }
+      const sent = await this.deliverQuestion(providerId, message)
+      if (sent === undefined) return
       this.asked.add(person.id)
-      try {
-        await this.people.recordIntake({
-          person_id: person.id,
-          provider: providerId,
-          account_id: message.accountId,
-          conversation_id: message.conversationId,
-          status: 'asked',
-          asked_at: this.now(),
-          ask_message_id: sent.id,
-          ask_text: STRANGER_INTAKE_ASK,
-        })
-      } catch (error: unknown) {
-        // The question did go out; the in-memory guard prevents a second one.
-        // 询问已经发出；进程内闸门防止再问第二次。
-        this.logger.error(
-          `[im:${providerId}] stranger intake was sent but not recorded for person ${person.id}: ${messageOf(error)}`,
-        )
-      }
-      this.logger.info?.(
-        `[im:${providerId}] stranger intake asked ${message.accountId}/${message.conversationId}`
-        + ` (message ${sent.id}): ${STRANGER_INTAKE_ASK}`,
-      )
+      await this.recordAsk(providerId, message, person, sent)
     } finally {
       this.asking.delete(person.id)
     }
+  }
+
+  /**
+   * Send the fixed question. `undefined` means nothing went out: no intake row
+   * is written and a later message may still ask.
+   * 发送固定询问。undefined 表示什么都没发出去：不写 intake 行，之后的消息仍可询问。
+   */
+  private async deliverQuestion(
+    providerId: string,
+    message: ImMessage,
+  ): Promise<ImSendResult | undefined> {
+    try {
+      return await this.send({
+        accountId: message.accountId,
+        conversationId: message.conversationId,
+        text: STRANGER_INTAKE_ASK,
+      })
+    } catch (error: unknown) {
+      this.logger.error(
+        `[im:${providerId}] stranger intake could not ask ${message.accountId}/${message.conversationId}: ${errorMessage(error)}`,
+      )
+      return undefined
+    }
+  }
+
+  /**
+   * Record one sent question. The question did go out, so the in-memory guard
+   * stays even when the write fails: there will be no second question.
+   * 记录一次已发出的询问。询问已经发出，即使写入失败进程内闸门也保留：不会再问第二次。
+   */
+  private async recordAsk(
+    providerId: string,
+    message: ImMessage,
+    person: ImPersonView,
+    sent: ImSendResult,
+  ): Promise<void> {
+    try {
+      await this.people.recordIntake({
+        person_id: person.id,
+        provider: providerId,
+        account_id: message.accountId,
+        conversation_id: message.conversationId,
+        status: 'asked',
+        asked_at: this.now(),
+        ask_message_id: sent.id,
+        ask_text: STRANGER_INTAKE_ASK,
+      })
+    } catch (error: unknown) {
+      this.logger.error(
+        `[im:${providerId}] stranger intake was sent but not recorded for person ${person.id}: ${errorMessage(error)}`,
+      )
+    }
+    this.logger.info?.(
+      `[im:${providerId}] stranger intake asked ${message.accountId}/${message.conversationId}`
+      + ` (message ${sent.id}): ${STRANGER_INTAKE_ASK}`,
+    )
   }
 
   /** Reserve one send slot under the per-account sliding-hour cap. */
@@ -288,8 +247,15 @@ export class ImStrangerIntake {
     return true
   }
 
+  /** Per-status tally used by the audit view. */
+  private countsOf(rows: ImPersonIntakeRow[]): Record<ImIntakeRecordView['status'], number> {
+    const counts: Record<ImIntakeRecordView['status'], number> = { asked: 0, answered: 0, declined: 0, expired: 0 }
+    for (const row of rows) counts[this.effectiveStatus(row)] += 1
+    return counts
+  }
+
   /** Effective status, treating an overdue `asked` as expired for display. */
-  private effectiveStatus(row: ImPersonIntakeRow): ImIntakeStatus {
+  private effectiveStatus(row: ImPersonIntakeRow): ImIntakeRecordView['status'] {
     if (row.status !== 'asked') return row.status
     return this.now() > row.asked_at + this.config.replyWindowMs ? 'expired' : 'asked'
   }
