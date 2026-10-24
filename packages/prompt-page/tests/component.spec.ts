@@ -1,11 +1,14 @@
 /**
  * 组件页管线（一次性渲染形态）单元测试：defineComponentPage 的契约映射、
  * 唯一一次渲染、Markdown 成型（§3.2 映射）、组件体经 agent.ctx 直登工具/
- * effect、useSnapshot 与 load 桥。
+ * effect/on。load 与 useSnapshot 已退役——首屏读取是组件体自己的生命周期
+ * （effect 发起、followup 送达），本文件锁定"挂载不经手任何数据"。
  * Component-page pipeline unit tests (the one-shot form): defineComponentPage's
  * contract mapping, the exactly-once render, Markdown shaping (the §3.2
- * mapping), body registrations via agent.ctx (tools/effect), useSnapshot and
- * the load bridge.
+ * mapping), body registrations via agent.ctx (tools/effect/on). load and
+ * useSnapshot are retired — the first-screen read is the body's own lifecycle
+ * (started by an effect, delivered by a followup); this file locks in "the
+ * mount touches no data".
  *
  * 本 spec 用 createElement（.ts 不走 JSX 转换）；JSX 形态由插件迁移的 .tsx
  * 页面与既有 jsx-runtime-pragma.spec 覆盖。
@@ -18,7 +21,7 @@ import { createElement } from "@veren/prompt-core"
 // 类型-only：拉取 ctx.tools 的 declaration merging（假 agent 的工具面由此获得类型）
 // / type-only: pulls the ctx.tools merge (types the fake agent's tool face)
 import type {} from '@deepseek-ai/dsh-tools'
-import { defineComponentPage, isComponentPageRegistration, useSnapshot } from '../src/index.ts'
+import { defineComponentPage, isComponentPageRegistration } from '../src/index.ts'
 import type { PageFC } from '../src/index.ts'
 
 /**
@@ -55,16 +58,16 @@ function fakeAgent() {
   return { agent: agent as never, registered, effects, subscriptions }
 }
 
-/** 最小挂载面：defineComponentPage 的 live.mount 返回正文 Markdown / the minimal mount face: live.mount returns the body markdown */
+/** 最小挂载面：defineComponentPage 的 live.mount 返回正文 Markdown（两参，无快照）
+ * / the minimal mount face: live.mount returns the body markdown (two params, no snapshot) */
 function mountOf<P extends Record<string, unknown>>(
   component: PageFC<P>,
   meta: Parameters<typeof defineComponentPage<P>>[1],
   params: P,
   agent: unknown,
-  snapshot?: unknown,
 ): string {
   const registration = defineComponentPage(component, meta)
-  return registration.live.mount({ ...params } as Record<string, string>, agent as never, snapshot as never)
+  return registration.live.mount({ ...params } as Record<string, string>, agent as never)
 }
 
 describe('defineComponentPage 一次性渲染管线', () => {
@@ -115,32 +118,18 @@ describe('defineComponentPage 一次性渲染管线', () => {
     expect(registered.map((tool) => tool.name)).toEqual(['task_workbench__take_task', 'task_workbench__complete_task'])
   })
 
-  it('agent.ctx.effect 在挂载时执行（清理随 agent 的约定不变）', () => {
+  it('agent.ctx.effect 在挂载时执行（清理随 agent 的约定不变；首屏读由此发起）', () => {
     const { agent, effects } = fakeAgent()
     const Page: PageFC = (_props, agentInBody) => {
-      ;(agentInBody.ctx.effect as (run: () => void, label?: string) => unknown)(() => undefined, 'page:watch')
+      ;(agentInBody.ctx.effect as (run: () => void, label?: string) => unknown)(() => undefined, 'page:first-screen')
       return createElement('p', { children: 'ok' })
     }
     mountOf(Page, { url: '/apps/effects', description: '效果页' }, {}, agent)
     expect(effects).toHaveLength(1)
-    expect(effects[0]?.label).toBe('page:watch')
+    expect(effects[0]?.label).toBe('page:first-screen')
   })
 
-  it('useSnapshot 读挂载下发的首屏快照（含失败态——失败态也是数据）', () => {
-    const Page: PageFC<{ taskId: string }> = (props) => {
-      const snap = useSnapshot<{ id: string; error?: { message: string } }>()
-      if (snap?.error !== undefined) return createElement('p', { children: `失败：${snap.error.message}` })
-      return createElement('p', { children: `${snap?.id ?? 'none'}@${String(props.taskId)}` })
-    }
-    // 成功快照 / a success snapshot
-    const ok = mountOf(Page, { url: '/apps/tasks/:taskId', description: '详情' }, { taskId: 'T-9' }, fakeAgent().agent, { id: 'T-9' })
-    expect(ok).toBe('T-9@T-9')
-    // 失败态快照（如实渲染，绝不静默空白）/ a failure snapshot (rendered honestly)
-    const failed = mountOf(Page, { url: '/apps/tasks/:taskId', description: '详情' }, { taskId: 'T-9' }, fakeAgent().agent, { id: 'T-9', error: { message: 'boom' } })
-    expect(failed).toBe('失败：boom')
-  })
-
-  it('契约映射：name 缺省取 URL 末段、load/instanceTitle 适配进 PageDefinition', async () => {
+  it('契约映射：name 缺省取 URL 末段、writes/instanceTitle 适配进 PageDefinition；meta 无任何行为钩子', () => {
     const registration = defineComponentPage(
       (() => createElement('p', { children: 'ok' })) as PageFC,
       {
@@ -148,18 +137,29 @@ describe('defineComponentPage 一次性渲染管线', () => {
         description: '详情',
         writes: true,
         instanceTitle: (params) => `任务 #${params.taskId}`,
-        load: async () => null,
       },
     )
     expect(isComponentPageRegistration(registration)).toBe(true)
     expect(registration.page.name).toBe('task')
     expect(registration.page.url).toBe('/apps/demo/task/:taskId')
     expect(registration.page.writes).toBe(true)
-    expect(await registration.page.load?.({ taskId: 'T-1' }, {})).toBeNull()
     expect(registration.page.instanceTitle?.({ taskId: 'T-1' })).toBe('任务 #T-1')
+    // load 已退役：契约面上没有任何宿主经手的取数钩子
+    // / load is retired: the contract face carries no host-mediated data hook
+    expect('load' in registration.page).toBe(false)
+    expect('load' in registration.live).toBe(false)
   })
 
-  it('useSnapshot 在挂载之外返回 undefined（没有第二次渲染可读快照）', () => {
-    expect(useSnapshot()).toBeUndefined()
+  it('mount 不收快照：二参签名，挂载不经手任何数据', () => {
+    // 回归锁：mount(params, agent)——第三参（首屏快照）随 load 一起删除，
+    // 防止宿主经手取数的旧路悄悄回来。
+    // / Regression lock: mount(params, agent) — the third parameter (the
+    // first-screen snapshot) died with load, so the old host-mediated data
+    // path cannot sneak back.
+    const registration = defineComponentPage(
+      (() => createElement('p', { children: 'ok' })) as PageFC,
+      { url: '/apps/demo', description: '演示' },
+    )
+    expect(registration.live.mount.length).toBe(2)
   })
 })

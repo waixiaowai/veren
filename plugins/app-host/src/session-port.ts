@@ -54,13 +54,6 @@ import type {} from '@deepseek-ai/dsh-tools'
 // membership is resolved from the header cwd, see pageSessionWorkspace).
 import type {} from '@deepseek-ai/dsh-workspace'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
-// 类型-only import：拉取 ctx.skills 的 declaration merging（页面级 skills 挂到
-// 会话 agent 作用域的真实服务面）。不能靠间接 merge 带上。
-// type-only import: declares ctx.skills — the real service face mounting
-// page-scope skills onto the session's agent scope. Never rely on a transitive
-// merge.
-import type {} from '@deepseek-ai/dsh-skill'
-import type { PageSkill } from '@veren/prompt-page'
 import type { PageSessionPort, PageToolEntry } from '@veren/page-registry'
 
 /** focus 接缝：把界面切到某会话 / the focus seam: bring a session to the GUI front */
@@ -114,21 +107,6 @@ function sourceKind(source: string): PageSourceKind {
     case PAGE_SEND_MESSAGE_SOURCE: return PAGE_SEND_MESSAGE_SOURCE
     default: return PAGE_MESSAGE_SOURCE
   }
-}
-
-/**
- * 页面会话的预设 id（§3.10.3 PageLoadEnv.preset 的来源）：与会话头同源——页面
- * 工具解析调用者（如 notebook callerOf）读的就是 header.agentPreset，两条路径
- * 口径一致，load 看到的归属与工具调用看到的归属不会分叉。
- * 它挂在 PageRuntimePorts 上（不是会话面）：这是宿主对"这条会话属于谁"的回答。
- * The page session's preset id (the source of PageLoadEnv.preset, §3.10.3):
- * sourced from the session header — the same field page tools read their caller
- * from (e.g. notebook's callerOf), so what load sees as the owner never drifts
- * from what a tool call sees. It belongs to PageRuntimePorts rather than the
- * session face: it is the host's answer to "whose session is this".
- */
-export function createPresetOf(ctx: Context): (sessionId: string) => string | undefined {
-  return (sessionId) => ctx.sessions.get(sid(sessionId))?.header.agentPreset
 }
 
 /**
@@ -279,20 +257,6 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
       // legal user-title shape) — the sidebar shows it and the title LLM never
       // rewrites it.
       ctx.sessions.get(sid(sessionId))?.append('session/title', { title, messageSeqs: [], source: { kind: 'user' } })
-    },
-    async mountSkills(sessionId, skills) {
-      const agent = agentOf(sessionId)
-      if (agent === undefined) {
-        throw new Error(`app-host: mountSkills(${sessionId}) found no active agent; page sessions always have one after create`)
-      }
-      for (const skill of skills) {
-        // source 固定 'runtime'（registry 的运行时技能层），作用域取自
-        // agent.ctx——只有本会话可见，随 agent fiber 释放。
-        // source is fixed to 'runtime' (the registry's runtime layer) and the
-        // scope is agent.ctx — visible to this session alone, released with the
-        // agent fiber.
-        agent.ctx.skills.register({ ...skill, source: 'runtime' })
-      }
     },
     async retire(sessionId) {
       // 废弃路径（§3.5.3）：整只拆除 agent——页面登记的工具/skills/订阅/清理随

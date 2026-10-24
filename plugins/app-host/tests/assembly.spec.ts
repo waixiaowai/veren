@@ -22,6 +22,9 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 // 与生产同型：每个 agent 一个 createScope（独立 fiber + scope tag），事件过滤才真实
 // / same shape as production: one createScope per agent (own fiber + scope tag), so event filtering is real
 import { createScope } from '@deepseek-ai/dsh-scope'
+// 类型-only：拉取 ctx.skills 的 declaration merging（组件体直登单会话 skill 的服务面）
+// type-only: declares ctx.skills — the face the body registers a single-session skill through
+import type {} from '@deepseek-ai/dsh-skill'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
@@ -376,13 +379,16 @@ function registerMiniApp(h: Boot, eventDeliveries: string[] = []): void {
     },
     { url: '/apps/mini/list', description: '任务列表页', instructions: '这是 mini 应用的首页：看列表，去详情。' },
   )
-  // 二级页：带参数 + writes + 说明 + 页面级 skill（skills 挂载断言面）；工具在组件体直登
-  // / the detail page: params + writes + instructions + a page-scope skill (the
-  // skills-mounting assertion face); tools register in the body
+  // 二级页：带参数 + writes + 说明；工具与单会话 skill 都在组件体直登
+  // （skills 挂载断言面——与工具同机制，随 agent fiber 生灭）
+  // / the detail page: params + writes + instructions; tools and the
+  // single-session skill register in the body (the skills-mounting assertion
+  // face — the same mechanism as the tools, living and dying with the agent fiber)
   pages.register(
     (_props: { id?: string }, agent) => {
       agent.ctx.tools.register(readTool())
       agent.ctx.tools.register(writeTool())
+      agent.ctx.skills.register({ name: 'mini-skill', description: '任务页专属技能', content: '# mini skill\n只在任务页可见。', source: 'runtime' })
       return createElement('p', { children: `任务 ${_props.id ?? ''}` })
     },
     {
@@ -390,7 +396,6 @@ function registerMiniApp(h: Boot, eventDeliveries: string[] = []): void {
       description: '任务页',
       writes: true,
       instructions: '只处理 params.id 指定的这一条任务。',
-      skills: [{ name: 'mini-skill', description: '任务页专属技能', content: '# mini skill\n只在任务页可见。' }],
     },
   )
 }
@@ -421,11 +426,12 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     })).rejects.toMatchObject({ code: 'task/send-forbidden' })
   })
 
-  it('页面级 skills 随页面进 agent 作用域：本页可见，重开（废弃=退役 agent）时随 fiber 释放', async () => {
+  it('单会话 skill 随组件体直登进 agent 作用域：本页可见，重开（废弃=退役 agent）时随 fiber 释放', async () => {
     const h = await boot()
     registerMiniApp(h)
-    // 详情页声明了 mini-skill：挂载即进该会话的作用域
-    // / the detail page declares mini-skill: it lands in the scope at mount
+    // 详情页组件体直登 mini-skill：挂载即进该会话的作用域（宿主不经手挂载）
+    // / the detail page's body registers mini-skill: it lands in the scope at
+    // mount (the host never mounts one)
     const opened = await h.pages.openUrl('/apps/mini/task/1' as PageInstanceKey)
     const firstScope = h.host.scopes.get(opened.sessionId)
     if (firstScope === undefined) throw new Error('expected the first page session scope')

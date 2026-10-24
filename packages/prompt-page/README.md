@@ -17,13 +17,13 @@ type PageFC<P> = (props: P, agent: Agent) => ElementInput
 - **props** = URL 参数（`/apps/<appId>/task/:taskId` → `{ taskId }`）
 - **agent** = 页面会话的真实 DSH `Agent`，原样不包装：`agent.ctx`（会话作用域，登记随 fiber 生灭）、`agent.session`、`agent.status`、`agent.inject` / `followup` / `steer` / `cancel` 全是真面
 - **工具属于页面**：组件体直呼 `agent.ctx.tools.register(definition)`（全名，`<toolPrefix>__<本地名>`），随 agent fiber 生灭；PAGE 块的 tools 行由挂载方取渲染前后工具面快照的**差集**（单一事实源 = 真实登记面）
-- **首屏数据**：`meta.load(params, env)` 建会话时跑一次，结果经 `useSnapshot()` 进组件（失败态也是数据，如实渲染）
+- **首屏数据**：组件体自己的 lifecycle——`agent.ctx.effect` 发起异步读，读到的事实（失败态也是信息）经 `agent.followup` 以新消息进上下文；宿主不经手任何取数
 - **禁止二次渲染**：没有 fiber、没有调和器、没有 PAGE-PATCH、没有槽位记账。页面的视觉呈现即 PAGE 块本身；数据变化 = 新消息
 
 - **props** are the url params (`/apps/<appId>/task/:taskId` → `{ taskId }`)
 - **agent** is the page session's real DSH `Agent`, verbatim and unwrapped: `agent.ctx` (the session scope; registrations live and die with the fiber), `agent.session`, `agent.status`, `agent.inject` / `followup` / `steer` / `cancel` — all real
 - **Tools belong to the page**: the body calls `agent.ctx.tools.register(definition)` directly (full names, `<toolPrefix>__<local>`); they live and die with the agent fiber. The PAGE block's tools line is the **delta** of tool-face snapshots around the render (the single source of fact is the real registration face)
-- **First-screen data**: `meta.load(params, env)` runs once at session creation; the result reaches the component via `useSnapshot()` (failure states are data too, rendered honestly)
+- **First-screen data**: the body's own lifecycle — an `agent.ctx.effect` starts the async read, and the facts it lands (failures are information too) ride `agent.followup` as a new message; the host touches no data fetching
 - **No second render**: no fibers, no reconciler, no PAGE-PATCH, no slot bookkeeping. The page's visual presence IS the PAGE block; a data change is a new message
 
 ## 写一个页面 / Authoring a page
@@ -65,14 +65,14 @@ pages.register(DetailPage, DetailMeta)
 
 1. `openUrl(url)` → 旧会话废弃（agent 退役，登记随 fiber 拆除）
 2. 建会话 + 当场激活 agent（agent/created）+ 页面作用域屏蔽（app_open/app_list/app_pages 的 deny）
-3. `meta.load` 首屏取数（10s 超时 → 失败态）
+3. 组件体经 `agent.ctx.effect` 自行发起首屏读（宿主不经手）
 4. **唯一一次渲染**：组件体在真实 agent 上执行；工具/skills/订阅/清理此刻登记
 5. PAGE 块（定位行 + 能力地图 + tools 差集行 + 应用/页面说明 + 正文）进会话
 6. 任务接取块、收件箱通知、focus——照常
 
 1. `openUrl(url)` → the previous session is deprecated (its agent retires; registrations unwind with the fiber)
 2. create the session, activate the agent right away (agent/created), apply the page-scope masking (the app_open/app_list/app_pages deny)
-3. `meta.load` fetches the first screen (10s timeout → failure state)
+3. the body fetches its own first screen via `agent.ctx.effect` (no host involvement)
 4. **the only render**: the body runs on the real agent; tools/skills/subscriptions/cleanups register now
 5. the PAGE block (locator + capability map + tools-delta line + app/page notes + body) enters the session
 6. task blocks, inbox notices, focus — as usual
@@ -95,7 +95,7 @@ pages.register(DetailPage, DetailMeta)
 | --- | --- |
 | `defineComponentPage(component, meta)` | PageFC + meta → `{ page, live }`（注册面收的形状）/ wraps a PageFC into the registrable shape |
 | `PageFC<P>` | `(props, agent) => ElementInput`——页面组件契约 / the page component contract |
-| `useSnapshot<T>()` | 读 `meta.load` 的首屏结果（含失败态；挂载之外 undefined）/ reads meta.load's first-screen result (failures included; undefined outside a mount) |
+| `agent.ctx.effect(run, label)` | 组件体自己的 lifecycle：异步首屏读由此发起，清理随 agent fiber / the body's own lifecycle: async first-screen reads start here, cleanup rides the agent fiber |
 | `isComponentPageRegistration(value)` | 注册面检测标记 / the registration-face marker |
 | `definePage` / `defineAppPage` | 契约校验入口（URL 形态、规则 3 说明半边）/ contract validation entries (url shape, rule 3's instructions half) |
 | `pageToolWarning(page, mountedCount)` | §3.9 完备性警告（挂载期判据）/ the §3.9 coverage warning (judged at mount) |

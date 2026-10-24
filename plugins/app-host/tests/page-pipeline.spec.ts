@@ -35,7 +35,7 @@ import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { defineComponentPage, useSnapshot } from '@veren/prompt-page'
+import { defineComponentPage } from '@veren/prompt-page'
 import { createElement } from '@veren/prompt-core'
 import type { Entity } from '@veren/prompt-core'
 import AppRegistryPlugin from '@veren/app-registry'
@@ -282,26 +282,24 @@ function registerPipelineApp(h: Boot): { url: PageInstanceKey } {
         output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
         execute: async () => ({ ok: true }),
       }))
-      const cards = useSnapshot<Card[]>() ?? []
+      const cards = store.getState()
       return createElement('ul', { children: cards.map((c) => createElement('li', { key: c.id, children: `${c.id} ${c.title}` })) })
     },
     {
       name: 'list', url: '/apps/pipeline/list', description: '看板列表页',
-      load: async () => JSON.parse(JSON.stringify(store.getState())),
     },
   ))
-  // 详情页：load 产出经 useSnapshot 进正文。
-  // / the detail page: the load result reaches the body via useSnapshot.
+  // 详情页：正文按 params 直读（同步可得的派生值在体内现算）。
+  // / the detail page: the body reads by params directly (a synchronously
+  // derivable value computes in place).
   pages.register(defineComponentPage(
-    () => {
-      const doc = useSnapshot<{ doc: string; owner: string }>()
-      if (doc === undefined) return createElement('p', { children: '首屏数据未就绪' })
+    (props: { id?: string }) => {
+      const doc = { doc: `七号-${props.id ?? ''}`, owner: '天权' }
       return createElement('p', { children: `文档 ${doc.doc}（归属 ${doc.owner}）` })
     },
     {
       name: 'doc', url: '/apps/pipeline/doc/:id', description: '文档详情页',
       instructions: '只处理 params.id 指定的这一篇文档。',
-      load: async (params) => ({ doc: `七号-${params.id}`, owner: '天权' }),
     },
   ))
   return { url: '/apps/pipeline/list' as PageInstanceKey }
@@ -326,7 +324,7 @@ describe('页面管线端到端：注册 → 打开 URL → PAGE 块（头行 + 
     expect(block).toContain('- i-1 首屏基线')
   })
 
-  it('load 页全链：load 产出经 useSnapshot 渲染为 PAGE 块正文；无工具页 tools 行如实（无）', async () => {
+  it('无工具详情页全链：正文按 params 直读成型为 PAGE 块正文；tools 行如实（无）', async () => {
     const h = await boot()
     registerPipelineApp(h)
     const opened = await h.pages.openUrl('/apps/pipeline/doc/7' as PageInstanceKey)

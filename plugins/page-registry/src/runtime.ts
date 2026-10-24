@@ -8,10 +8,11 @@
  *   前一条被标废弃（agent 退役、租约释放），但仍可读、不再追加 PAGE 块；
  * - **一个会话恰好一次渲染**：组件体在建会话激活 agent 之后、写 PAGE 块之前
  *   执行恰好一次——工具由组件体直接 `agent.ctx.tools.register` 登记，PAGE 块的
- *   tools 行取挂载前后工具面的**差集**（单一事实源 = 真实登记面）；此后页面
- *   不再渲染，后续变化由页面自己经 agent.inject/followup 以新消息进上下文；
+ *   tools 行取挂载前后工具面的**差集**（单一事实源 = 真实登记面）；首屏
+ *   读取同样由组件体经 agent.ctx.effect 自己发起，读到的事实经 followup
+ *   以新消息进上下文——宿主不经手任何取数，此后页面不再渲染；
  * - 废弃释放顺序（§3.5.3）：退役 agent（页面登记的一切随 fiber 逆序拆除）→
- *   释放任务租约 → 写废弃标记（索引腾出 URL）→ 建新会话（create → load →
+ *   释放任务租约 → 写废弃标记（索引腾出 URL）→ 建新会话（create →
  *   一次渲染 → 写 PAGE → commit）；任何一步失败都收敛：废弃标记写失败 = 旧
  *   会话仍是索引里的活会话（下次打开重试）；建新会话失败 = 销毁半成品（agent
  *   一并销毁，工具随之消失）+ reserved 行删除，URL 下次打开重试；
@@ -29,7 +30,6 @@
  * @module @veren/page-registry/runtime
  */
 import { PageError, PageErrorCode, assertParamsMatchPattern, canonicalizePageUrl, pageToolWarning, patternParamsOf } from '@veren/prompt-page'
-import type { PageJsonValue, PageLoadEnv, PageSkill } from '@veren/prompt-page'
 import type { PageInstanceIndex, PageInstanceKey, PageMatch } from '@veren/prompt-page'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 // 服务面类型只引真正的那一份：应用记录/任务契约来自各自的 declaration merging 出口，
@@ -104,14 +104,6 @@ export interface PageSessionPort {
    */
   toolFace(sessionId: string): readonly PageToolEntry[]
   /**
-   * 挂页面级 skills（§页面作用域）：进该会话 agent 作用域的运行时技能层，退役
-   * 随 agent 整组拆除。缺席 skills 时运行时不调用本面。
-   * Mount the page-scope skills (§page scope): runtime skills into the session's
-   * agent scope, torn down with the agent at retirement. The runtime never calls
-   * this when the page declares none.
-   */
-  mountSkills(sessionId: string, skills: readonly PageSkill[]): Promise<void>
-  /**
    * 退役该会话的 agent（废弃路径）：页面登记的一切（工具/skills/订阅/清理）
    * 随 fiber 逆序拆除，会话日志保留可读。
    * Retire the session's agent (the deprecation path): everything the page
@@ -158,16 +150,6 @@ export interface PageRuntimePorts {
   readonly releaseLeases?: (sessionId: string) => Promise<void>
   /** 任务租约时长（分钟），缺省 30 / lease minutes, default 30 */
   readonly leaseMinutes?: number
-  /**
-   * 页面会话的预设 id（§3.10.3 PageLoadEnv.preset 的来源）：按预设隔离数据的
-   * 应用（记事本）在首屏 load 里以此解析归属。缺席 → env 不带 preset，load
-   * 自行显式表达"归属未知"。
-   * The page session's preset id (the source of PageLoadEnv.preset, §3.10.3):
-   * preset-scoped apps (the notebook) resolve their owner in the first-screen
-   * load from it. Absent → env carries no preset and the load states "owner
-   * unknown" explicitly.
-   */
-  readonly presetOf?: (sessionId: string) => string | undefined
 }
 
 /** openUrl 的可选参数；`focus: false` 用于投递路径（§3.9）：建会话但不切界面 */
@@ -216,15 +198,15 @@ function collectPageTools(before: readonly PageToolEntry[], after: readonly Page
  * 组件页 PAGE 块（RFC prompt-page-render §3.3/C7 的骨架）：PAGE 定位行 + map
  * （注册表推导：本应用兄弟页、排除自身、按注册序，`- 模板 → description`）+
  * tools 行（真实登记面差集）+ 应用说明行 + 可选页面说明行 + Markdown 正文。
- * 无 params/data JSON 行——URL 本身表达 params，meta.load 经 useSnapshot 进组件、
- * 由组件渲染为正文（失败态也是正文）。
+ * 无 params/data JSON 行——URL 本身表达 params，正文由组件体渲染；首屏数据
+ * 由组件体自己读取并经 followup 以新消息送达，不进 PAGE 块。
  * The component-page PAGE block (the §3.3/C7 skeleton of RFC prompt-page-render):
  * the PAGE locator line + map (registry-derived: sibling pages of this app,
  * excluding self, in registration order, `- template → description`) + the
  * tools line (the real registration delta) + the app-level note + an optional
  * page note + the Markdown body. No params/data JSON lines — params ride the
- * url itself, and meta.load reaches the component via useSnapshot to be
- * rendered into the body (failure states included).
+ * url itself, the body renders itself, and first-screen data is fetched by the
+ * body and delivered as followup messages, never inside the PAGE block.
  */
 export function componentPageBlock(
   app: AppRecord,
@@ -263,12 +245,6 @@ export function pageKeyOf(app: AppRecord, pageName: string): string {
   return pageName.includes('/') ? pageName : `${app.definition.id}/${pageName}`
 }
 
-/** 首屏 load 超时（§3.10.3：超时兜底按失败态处理，不静默悬挂）/ the first-screen load timeout (§3.10.3: timeout degrades to the error state) */
-export const PAGE_LOAD_TIMEOUT_MS = 10_000
-
-/** data 失败态的重试指引（§3.10.3：错误也是信息，必须带重试路径）/ the retry hint of the data error state (§3.10.3) */
-const LOAD_RETRY_HINT = '重开本页 URL 即可重取首屏数据'
-
 /**
  * 工具用途短语（§3.10.2 的 tools 行）：取 description 的第一句——中英文都以
  * 句号为界，超长截断。"只有名字没有什么时候用"正是本轮要消灭的形状。
@@ -290,37 +266,6 @@ export function toolUsagePhrase(description: string): string {
  * by the model" is the acceptance bar of this format, not decoration.
  */
 const MAP_HEADER = 'map:（能力地图——本应用可去的页面；把模板里的 :参数 替换为实际值即为可打开 URL）'
-
-/**
- * 首屏数据（§3.10.3）：load 是首屏快照的唯一合法来源。未声明 load →
- * null（如实表达"本页无可预载的数据"，仍不许空白）；抛错/超时 → 失败态
- * （page/load-failed + 重试指引）——错误也是信息。
- * The first-screen data (§3.10.3): load is the only legal source of the
- * first-screen snapshot. No loader → null (an explicit "nothing to preload",
- * still not a blank); a throw or timeout → the error state (page/load-failed
- * with a retry hint) — errors are information too.
- */
-export async function firstScreenData(page: PageMatch<never>['page'], params: Record<string, string>, env: PageLoadEnv): Promise<PageJsonValue> {
-  const load = page.load
-  if (load === undefined) return null
-  try {
-    return await new Promise<PageJsonValue>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`first-screen load timed out after ${PAGE_LOAD_TIMEOUT_MS}ms`)), PAGE_LOAD_TIMEOUT_MS)
-      load(params, env).then(
-        (value) => { clearTimeout(timer); resolve(value) },
-        (error: unknown) => { clearTimeout(timer); reject(error) },
-      )
-    })
-  } catch (error: unknown) {
-    return {
-      error: {
-        code: PageErrorCode.LoadFailed,
-        message: error instanceof Error ? error.message : String(error),
-      },
-      retry: LOAD_RETRY_HINT,
-    }
-  }
-}
 
 /** TASK 块：任务成功接取后追加一次（§5.4）/ the TASK block, appended once */
 export function taskBlock(taskId: string, task: TaskRecord | undefined): string {
@@ -476,40 +421,30 @@ export async function createPageSession(
     throw wrap(error, PageErrorCode.SessionCreateFailed, `session create failed for ${key}`)
   }
   try {
-    // 首屏数据（§3.10.3）在渲染前取齐：一次性渲染的快照经 useSnapshot 进组件
-    // （含失败态），没有"渲染后再下发"的第二次入口。
-    // The first-screen data (§3.10.3) settles before the render: the one-shot
-    // snapshot reaches the component via useSnapshot (failures included) —
-    // there is no second "push after render" entry.
-    const env: PageLoadEnv = ports.presetOf === undefined ? {} : { preset: ports.presetOf(sessionId) }
-    const data = await firstScreenData(match.page, params, env)
     // 唯一一次渲染的载体：页面会话的真实 Agent。缺席 = 装配错误，fail loud
-    // （一次性渲染没有"等 agent"的回退形态）。
+    // （一次性渲染没有"等 agent"的回退形态）。首屏数据不在此取——那是组件体
+    // 自己的 lifecycle（effect 发起、followup 送达），宿主不经手取数。
     // The carrier of the only render: the page session's real Agent. A miss is
     // an assembly error and fails loud (the one-shot render has no "wait for
-    // the agent" fallback).
+    // the agent" fallback). First-screen data is NOT fetched here — that is the
+    // body's own lifecycle (started by an effect, delivered by a followup); the
+    // host touches no data fetching.
     const agent = ports.sessions.agentOf(sessionId)
     if (agent === undefined) {
       throw new PageError(PageErrorCode.HostUnavailable, `page session ${sessionId} has no active agent; the one-shot render cannot run`)
     }
     // 工具差集的两端：渲染前后各一次真实工具面快照（deny 屏蔽已在 create 内
-    // 生效，两次快照都不含引导工具）。页面级 skills 与工具同页：渲染前挂进
-    // agent 作用域，退役随 agent 整组拆除。
+    // 生效，两次快照都不含引导工具）。
     // Both ends of the tool delta: a real tool-face snapshot before and after
     // the render (the deny masking took effect inside create, so neither
-    // snapshot contains the bootstrap tools). Page-scope skills ride the same
-    // page: mounted into the agent scope before the render, torn down with the
-    // agent at retirement.
-    if (match.page.skills !== undefined && match.page.skills.length > 0) {
-      await ports.sessions.mountSkills(sessionId, match.page.skills)
-    }
+    // snapshot contains the bootstrap tools).
     const before = ports.sessions.toolFace(sessionId)
     // 唯一一次渲染：组件体在真实 agent 上执行——工具/订阅/清理直接经 agent.ctx
     // 登记，产物即刻成型为正文 Markdown。
     // The only render: the body runs on the real agent — tools, subscriptions
     // and cleanups register via agent.ctx directly, and the output is finalized
     // into the body Markdown at once.
-    const body = match.live.mount(params, agent, match.page.load === undefined ? undefined : data)
+    const body = match.live.mount(params, agent)
     const pageTools = collectPageTools(before, ports.sessions.toolFace(sessionId))
     // §3.10.5 规则 3（工具半边，挂载期 fail loud）：带 :param 且声明写意图的
     // 详情页，真实登记差集为零 = 页面开着、活干不了——只有这里才有资格拒绝。

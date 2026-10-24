@@ -126,7 +126,6 @@ export const PageErrorCode = {
    * / the first-screen load failed (§3.10.3): the error lands in the PAGE
    * block's data line with a retry hint.
    */
-  LoadFailed: 'page/load-failed',
 } as const
 
 export type PageErrorCode = (typeof PageErrorCode)[keyof typeof PageErrorCode]

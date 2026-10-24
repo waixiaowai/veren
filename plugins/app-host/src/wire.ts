@@ -34,7 +34,7 @@ import type { AppId } from '@veren/app-registry'
 import { createBootstrapTools } from '@veren/app-registry'
 import { createAppOpenTool, createPageSendTool } from '@veren/page-registry'
 
-import { createPresetOf, createRealSessionPort } from './session-port.ts'
+import { createRealSessionPort } from './session-port.ts'
 
 /** 显式解析三个服务与工具注册表；缺任何一个 fail loud（misconfiguration fails loud）。
  *  服务经属性代理解析（本插件声明了 inject，属主合法）；返回面直接复用
@@ -165,8 +165,6 @@ export function wireAppHost(ctx: Context): () => void {
       // focus 走缺省（eventFocus）/ focus keeps its default (eventFocus)
       sessions: createRealSessionPort(ctx),
       apps,
-      // 页面会话归属（§3.10.3 PageLoadEnv.preset 的来源）/ page-session ownership
-      presetOf: createPresetOf(ctx),
       // 挂载期完备性告警（§3.9，见 page-registry 的挂载期检查）：真实登记差集
       // 收集之后才有资格判"声明要写却挂不出工具"，注册期看不到组件体的动态登记。
       // / the mount-time completeness warning (§3.9): only the really-registered

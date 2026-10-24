@@ -327,3 +327,39 @@
   一并发布）；profile 安装，节点 3080 重启。
 - 真机：新会话选 Person Agent 发送；页面正文出现 Workspace List / Agent Preset List /
   Model Catalog / 待办任务；chip 显示"已选应用"；缓存命中 93%。
+
+## 第二十轮：页面逻辑全部收进组件体（2026-10-24）
+
+方向再按用户修正做减法：**页面的逻辑不许脱离页面**。meta 上的行为钩子全部退役，
+组件体是唯一的行为面；复测同时确认"工具只在页面"的全量合规。
+
+- **prompt-page**：`ComponentPageMeta.load` / `useSnapshot` / `PageLoadEnv` /
+  `PageJsonValue` / `ComponentPageMeta.skills` 全部删除；`PageLiveBinding.mount`
+  收敛为 `(params, agent)` 两参——挂载不经手任何数据。契约面只剩声明
+  （name/url/description/writes/instructions/instanceTitle）。
+- **page-registry**：`firstScreenData` / `PAGE_LOAD_TIMEOUT_MS` / `presetOf` 端口 /
+  `mountSkills` 端口删除；"没有渲染后再下发的第二次入口"铁律反转——首屏读取就是
+  组件体自己的入口。
+- **app-host**：`createPresetOf` / `mountSkills` 实现删除；wire 相应收敛。
+- **五应用迁移**（新形态范本 = forum-app/notebook-app）：
+  - 同步内存 store（task-workbench、sub2api-admin）：正文直读 store 当前状态，
+    首屏零 followup；
+  - 异步读（forum-app 目录/详情、notebook-app 列表/笔记、person-agent-app 概览
+    三节）：`agent.ctx.effect` 发起异步读，事实经 `agent.followup`（source
+    `app/page`，各 app 以同形状 declaration merging 复用宿主常量）以新消息送达，
+    正文是打开时刻的静态框、绝不留白；失败态也是信息，随消息如实送达；
+  - **单会话 skill**（person-agent renhua）：组件体直接
+    `agent.ctx.skills.register({ ...skill, source: 'runtime' })`——与工具同机制，
+    `meta.skills` / `mountSkills` 退役；
+  - 归属解析：`env.preset` 退役后，组件体从会话头 `agentPreset` 自取（与工具取
+    调用者同源）。
+- **工具注册面全量复测**（本轮起点）：40+ 插件包 test+typecheck 逐包跑；唯一下场
+  红包是 sub2api-admin（最后一个应用目录工具 + meta.tools 声明的包，其依赖的
+  `apps.tools`/`ComponentPageMeta.tools` API 已删）→ 迁到组件体直登（task-workbench
+  同款槽位形态）。宿主/会话级基础设施的全局面按既有裁定保留：app-host 引导四件
+  （app_list/app_pages/app_open/page_send）、task_center 任务泵、select_model、
+  session_fork、dsh-test；`im/tool` 与 `startup-autostart-tool` 为无页面的独立
+  能力插件，全局注册是其当前唯一形态（如需页面化另立任务）。
+- 测试：prompt-page 40、page-registry 31、app-host 21、task-workbench 34、
+  notebook-app 14、forum-app 14、person-agent-app 18、sub2api-admin 33 全绿；
+  `check-page-api` 门禁绿。

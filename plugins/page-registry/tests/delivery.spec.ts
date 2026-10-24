@@ -49,7 +49,6 @@ function fakeSessions() {
     // 快照必须拷贝：活引用会让 before/after 同数组、差集恒空
     // / the snapshot must copy: a live reference makes before/after one array and the delta permanently empty
     toolFace: (id) => [...(faces.get(id) ?? [])],
-    async mountSkills() {},
     async retire() {},
     async appendUserMessage(id, text, source, options) {
       wakeOptions.push(options?.wake)

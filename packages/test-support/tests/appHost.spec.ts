@@ -35,12 +35,14 @@ function registerMiniApp(host: AppHost, scope: Context): void {
     id: MINI_APP_ID, name: 'mini', description: '装配验证应用', entry: MINI_ENTRY,
   }, scope)
   const pages = apps.pages(MINI_APP_ID, scope)
-  // 工具先于页面进目录（注册路径要求）/ tools enter the catalog before pages (the registration path requires it)
-  apps.tools(MINI_APP_ID, scope).define(defineTool({
-    name: 'read', description: '读取', parameters: {},
+  // 应用工具目录已不存在：工具以全名由页面组件体在唯一一次渲染里直登
+  // / the app tool catalog is gone: tools register under full names by the page
+  // bodies in the one render
+  const readTool = defineTool({
+    name: 'mini__read', description: '读取', parameters: {},
     output: { schema: { type: 'object', additionalProperties: true } as const, render: () => [] },
     execute: async () => ({ ok: true }),
-  }))
+  })
   // 组件页是唯一形态：PageFC + meta 经 register 现场适配（§3.5 定案，map 由
   // 注册表推导，不再手写）。
   // Component pages are the only shape: a PageFC + meta, adapted on the spot by
@@ -50,13 +52,17 @@ function registerMiniApp(host: AppHost, scope: Context): void {
     () => createElement('h1', { children: 'mini 主页' }),
     { url: '/apps/mini/main', description: '主页', instructions: 'mini 首页。' },
   )
-  // 二级页：带 :param + writes + 工具 + 说明（§3.10.5 规则 3）
-  // / the detail page: a :param plus writes, a tool and instructions (§3.10.5 rule 3)
+  // 二级页：带 :param + writes + 工具 + 说明（§3.10.5 规则 3）；工具组件体直登
+  // / the detail page: a :param plus writes, a tool and instructions (§3.10.5
+  // rule 3); the tool registers in the body
   pages.register(
-    (props) => createElement('h1', { children: `mini 文档 ${props.docId ?? ''}` }),
+    (props, agent) => {
+      agent.ctx.tools.register(readTool)
+      return createElement('h1', { children: `mini 文档 ${props.docId ?? ''}` })
+    },
     {
       url: '/apps/mini/doc/:docId', description: '文档页',
-      tools: ['read'], writes: true, instructions: '只处理 params.docId 指定的这一篇文档。',
+      writes: true, instructions: '只处理 params.docId 指定的这一篇文档。用 mini__read 读取。',
     },
   )
 }
@@ -72,8 +78,6 @@ describe('mountAppHost 装配与清理', () => {
     const { apps, pageRegistry } = requireRegistries(host)
     expectPagesRegisteredOnce(apps, pageRegistry, MINI_APP_ID)
     expect(pageRegistry.resolve('/apps/mini/main')).not.toBeNull()
-    // 工具经应用注册表面可解析，外部名带前缀 / tools resolve with the prefixed external name
-    expect(apps.listTools(MINI_APP_ID).map((tool) => tool.externalName)).toEqual(['mini__read'])
     await fiber.dispose()
     expectAppRemoved(apps, pageRegistry, MINI_APP_ID, ['/apps/mini/main'])
     await host.dispose()

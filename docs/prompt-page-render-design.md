@@ -1,6 +1,7 @@
 # PAGE Block Render-Face Redesign: WYSIWYG JSX (HTML Vocabulary → Markdown) + Direct cordis Calls
 
 - Status: RFC v2 (converged 2026-10-21; draft, not implemented)
+- **⚠ Amendment 2026-10-24 (this entry prevails)**: `meta.load` / `useSnapshot` / `PageLoadEnv` / `meta.skills` are retired outright — the first-screen read and single-session skills are **the component body's own lifecycle**: the async first-screen read starts via `agent.ctx.effect` and its facts ride `agent.followup` as new messages; a single-session skill is registered by the body via `agent.ctx.skills.register` (the same mechanism as tools, living and dying with the agent fiber). The host touches neither data fetching nor mounting; every `load` / `useSnapshot` / `meta.skills` statement below is superseded by this amendment (implementation record: WIP doc round 20)
 - Scope: `@veren/prompt-core`, `@veren/prompt-page`, `plugins/page-registry`, the exemplar plugin (the three task-center pages in Appendix A)
 - Related: `docs/application-concept.cn.md` (§3.9/§3.10 page-spec numbering and semantics follow that document)
 

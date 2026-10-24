@@ -2,95 +2,41 @@
  * 类型定义（只放类型）/ Type definitions (types only)
  *
  * 页面运行时的形状：一页 = 一个会话 = 一次渲染。页面组件拿到真实会话 Agent，
- * 产物（Markdown）在挂载时一次成型进 PAGE 块；此后页面不再渲染——后续变化由
- * 页面自己经 agent.inject/followup 以新消息进上下文。
+ * 产物（Markdown）在挂载时一次成型进 PAGE 块；页面的全部逻辑——工具登记、
+ * 首屏读取、后续变化——都活在组件体自己的生命周期里：异步读经
+ * `agent.ctx.effect` 发起，读到的事实经 `agent.followup` 以新消息进上下文。
+ * 宿主不经手任何取数。
  * The page runtime's shape: one page = one session = ONE render. The page
  * component receives the real session Agent; its output (Markdown) is shaped
- * once at mount into the PAGE block. The page never renders again — later
- * changes reach the context as new messages the page pushes itself via
- * agent.inject/followup.
+ * once at mount into the PAGE block. ALL page logic — tool registration, the
+ * first-screen read, later changes — lives in the body's own lifecycle: async
+ * reads start via `agent.ctx.effect`, and the facts they land ride
+ * `agent.followup` as new messages. The host touches no data fetching.
  */
 import type { Agent } from '@deepseek-ai/dsh-agent'
-
-/**
- * 页面侧的 JSON 值面（§3.10.2 的 `data` / `map` 序列化契约）：PAGE 块里出现的一切
- * 结构化数据都必须能落进这个闭集。只有 fresh 字面量与 type 别名能直接赋值；
- * 接口类型请在装配处展开成字面量行（保持 JSON 可序列化，不为绕类型造 as）。
- * The page-side JSON value face (the serialization contract of §3.10.2's
- * `data` / `map`): every structured value a PAGE block carries must fit this
- * closed set. Only fresh literals and type aliases assign directly; interface
- * instances are projected into literal rows at the assembly site (JSON-
- * serializable, no `as` escapes).
- */
-export type PageJsonValue = null | boolean | number | string | PageJsonValue[] | { [key: string]: PageJsonValue | undefined }
 
 /** URL 参数：路径参数 + query 合并（path 优先）/ path params + query (path wins) */
 export type PageParams = Record<string, string>
 
 /**
- * 页面级 skill 的声明面（随页面挂进该会话 agent 作用域的运行时技能）：字段与
- * 宿主 `ctx.skills.register` 的运行时技能对齐（name/description/content 必填，
- * whenToUse 可选）——宿主侧注册时补 source/provider，本面不重复声明。
- * The page-scope skill declaration face (a runtime skill mounted into the
- * session's agent scope with the page): fields align with the host
- * `ctx.skills.register` runtime-skill face (name/description/content required,
- * whenToUse optional) — the host side adds source/provider at registration;
- * this face does not redeclare them.
- */
-export interface PageSkill {
-  /** Kebab-case 技能名 / kebab-case skill name */
-  readonly name: string
-  /** 路由描述 / the routing description */
-  readonly description: string
-  /** 何时使用的补充指引 / extra when-to-use guidance */
-  readonly whenToUse?: string
-  /** Markdown 指令正文 / the Markdown instruction body */
-  readonly content: string
-}
-
-/**
  * 页面的挂载绑定：在页面会话的 agent 上执行**唯一一次**组件渲染。
  * - `agent` 就是会话的真实 Agent：组件体里 `agent.ctx.tools.register` /
  *   `agent.ctx.effect` / `agent.ctx.on` 直接登记——体只跑一次，天然无重复；
- * - `snapshot` 是 meta.load 的首屏结果（含失败态），经 useSnapshot() 读取；
+ *   首屏异步读也由体经 `agent.ctx.effect` 自己发起，结果经 `agent.followup`
+ *   以新消息进上下文——挂载不经手任何数据；
  * - 返回值是正文 Markdown（进 PAGE 块）。
  * The page's mount binding: runs the component's **only** render on the page
  * session's agent.
  * - `agent` IS the session's real Agent: the body registers via
  *   `agent.ctx.tools.register` / `agent.ctx.effect` / `agent.ctx.on` directly —
- *   the body runs once, so no duplicates are possible;
- * - `snapshot` is meta.load's first-screen result (failures included), read via
- *   useSnapshot();
+ *   the body runs once, so no duplicates are possible. The first-screen read is
+ *   the body's own too, started via `agent.ctx.effect`; its result rides
+ *   `agent.followup` as a new message — mounting touches no data;
  * - the return value is the body Markdown (into the PAGE block).
  */
 export interface PageLiveBinding {
   /** 为一个页面会话执行唯一一次渲染 / run the one render for a page session */
-  mount(params: PageParams, agent: Agent, snapshot: PageJsonValue | undefined): string
-}
-
-/**
- * 首屏载入环境（§3.10.3/§3.10.8）：宿主在建会话跑 `load` 时提供的页面会话事实。
- * 按预设隔离数据的应用（记事本、论坛）以 `preset` 解析归属——与页面工具取调用者
- * 的口径同源（会话头 agentPreset）。缺省 = 宿主未暴露该事实，load 应显式表达
- * "归属未知"，不编造数据。
- * **"身份类信息不进 URL"原则（§3.10.8）**：URL 是可分享、可复现的定位符，只回答
- * "哪一页、哪条记录"；调用者是谁走本环境进入取数路径，永远不出现在 URL 模式里。
- * 因此同一 URL 在不同 preset 下拿到不同数据是有意的取数语义，不是泄漏。
- * The first-screen load environment (§3.10.3/§3.10.8): facts about the page
- * session the host hands `load` at session creation. Preset-scoped apps (the
- * notebook, the forum) resolve their owner from `preset` — the same face the
- * page tools read the caller from (the session header's agentPreset). Absent =
- * the host did not expose it; `load` must then say "owner unknown" explicitly,
- * never fake data.
- * The "identity never enters the URL" principle (§3.10.8): the url is a
- * shareable, reproducible locator answering "which page, which record"; caller
- * identity travels through this environment and never appears in a url pattern.
- * The same url yielding different data under different presets is therefore
- * intentional semantics, not a leak.
- */
-export interface PageLoadEnv {
-  /** 页面会话的预设 id / the page session's preset id */
-  readonly preset?: string
+  mount(params: PageParams, agent: Agent): string
 }
 
 /**
@@ -98,6 +44,10 @@ export interface PageLoadEnv {
  * - **preset 字段已删除**：页面不再绑定预设，静态面归用户自选的会话配置（§2.2）
  * - 页面契约版本 `pageRevision` 已删除（G11）：打开一律新建会话（§9.1.1），
  *   新会话没有旧契约预期，无需版本判断
+ * - **load 已删除**：首屏读取是组件体自己的生命周期（effect 发起、followup
+ *   送达），宿主不再预载任何首屏数据
+ * - **skills 已删除**：单会话 skill 与工具同机制——组件体直接
+ *   `agent.ctx.skills.register`，随 agent fiber 生灭，宿主不经手挂载
  * - 应用作用域注册时 URL 必须是 `/apps/<appId>/...` 形态（见 contract.ts 的校验器）
  * - 工具不走声明清单：组件体经 `agent.ctx.tools.register` 直接登记，PAGE 块的
  *   tools 行由挂载方对比登记前后差集推导（单一事实源 = 真实登记面）
@@ -106,6 +56,11 @@ export interface PageLoadEnv {
  *   the user-chosen session config (§2.2)
  * - the pageRevision contract version is gone (G11): opening always creates a
  *   fresh session (§9.1.1) with no stale contract expectations
+ * - load is gone: the first-screen read is the body's own lifecycle (started
+ *   by an effect, delivered by a followup); the host preloads nothing
+ * - skills are gone: a single-session skill rides the same mechanism as tools —
+ *   the body registers it via `agent.ctx.skills.register`, it lives and dies
+ *   with the agent fiber, and the host never mounts one
  * - app-scoped urls must be `/apps/<appId>/...` (the contract.ts validator)
  * - tools carry no declaration list: the body registers via
  *   `agent.ctx.tools.register` and the PAGE block's tools line is derived by
@@ -143,25 +98,6 @@ export interface PageDefinition<S> {
   readonly writes?: boolean
   /** 本页给模型的说明；随 PAGE 块附上，不是系统提示词 / page note, not a system prompt */
   readonly instructions?: string
-  /**
-   * 页面级 skills（§页面作用域）：随本页挂进会话 agent 作用域的运行时技能，
-   * 与页面工具同一组逆序清理；普通会话与其他页面不可见。
-   * Page-scope skills: runtime skills mounted into this session's agent scope
-   * with the page, torn down with the same disposer group as the page tools;
-   * invisible to ordinary sessions and to other pages.
-   */
-  readonly skills?: readonly PageSkill[]
-  /**
-   * 首屏数据（§3.10.3）：建会话时跑一次，结果经 useSnapshot() 进组件——组件把
-   * 它渲染为正文（失败态也是数据，如实渲染，不允许静默空白）。参数来自 URL
-   * 解析；env 带页面会话事实。仅此一次：后续变化由页面经 agent.inject 推新消息。
-   * The first-screen data (§3.10.3): runs once at session creation and reaches
-   * the component via useSnapshot() — rendered into the body (failure states
-   * are data too, rendered honestly, never a silent blank). Params come from
-   * the url; env carries page-session facts. Once only: later changes ride new
-   * messages the page pushes via agent.inject.
-   */
-  readonly load?: (params: PageParams, env: PageLoadEnv) => Promise<PageJsonValue>
   /** 实例标题函数；缺省用 description 兜底（§3.6.1）/ instance title, falls back to description */
   readonly instanceTitle?: (params: PageParams) => string
 }
