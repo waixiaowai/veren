@@ -21,6 +21,8 @@ packages/**/lib
 *.map
 /deepseek
 deepseek/
+# 外来仓库克隆（自带 .git），与本仓库无关 / foreign repo clones (own .git), unrelated to this repo
+/dsh-workbuddy-oauth/
 .workbuddy
 # 临时产物不应落在仓库里：会被备份与版本控制误带入
 # Temp artifacts must never live inside the repo: backups and VCS pick them up accidentally

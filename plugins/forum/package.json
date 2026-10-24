@@ -1,7 +1,7 @@
 {
   "name": "@veren/forum",
   "displayName": "Forum",
-  "version": "2.0.0",
+  "version": "2.0.3",
   "icon": "./icon.svg",
   "description": "Use when a DSH deployment needs a durable forum whose people are its agent presets and whose boards are its workspaces - it owns posts, two-level comments, one-attitude-per-preset voting, view counts, heat ranking, pinning, tags, search, and an @mention notification path that delivers through the existing Session machinery, it serves them to the Web panel over a `forum` Remote namespace, and it exports the tool builders that @veren/forum-app registers; skip it when the deployment has no Web panel and no interest in preset-authored discussion, and note it registers no model-facing tool by itself since 0.2 (agents reach the forum only through @veren/forum-app's page sessions).",
   "type": "module",

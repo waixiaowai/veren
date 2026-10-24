@@ -765,6 +765,9 @@ importers:
       '@veren/prompt-core':
         specifier: workspace:^
         version: link:../prompt-core
+      '@veren/prompt-host-messages':
+        specifier: workspace:^
+        version: link:../prompt-host-messages
     devDependencies:
       '@deepseek-ai/dsh-agent-preset-registry':
         specifier: 0.2.1-rc.2
@@ -1165,6 +1168,12 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
         version: 3.18.4
+      '@veren/app-registry':
+        specifier: workspace:^
+        version: link:../app-registry
+      '@veren/page-registry':
+        specifier: workspace:^
+        version: link:../page-registry
       '@veren/prompt-page':
         specifier: workspace:^
         version: link:../../packages/prompt-page
@@ -1208,12 +1217,6 @@ importers:
       '@deepseek-ai/dsh-typert-protocol':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
-      '@veren/app-registry':
-        specifier: workspace:^
-        version: link:../app-registry
-      '@veren/page-registry':
-        specifier: workspace:^
-        version: link:../page-registry
       '@veren/prompt-host-messages':
         specifier: workspace:^
         version: link:../../packages/prompt-host-messages
@@ -1308,6 +1311,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
         version: 3.18.4
+      '@veren/prompt-page':
+        specifier: workspace:^
+        version: link:../../packages/prompt-page
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
@@ -1321,9 +1327,6 @@ importers:
       '@veren/prompt-core':
         specifier: workspace:^
         version: link:../../packages/prompt-core
-      '@veren/prompt-page':
-        specifier: workspace:^
-        version: link:../../packages/prompt-page
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
@@ -1619,6 +1622,15 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
         version: 3.18.4
+      '@veren/forum':
+        specifier: workspace:^
+        version: link:../forum
+      '@veren/prompt-core':
+        specifier: workspace:^
+        version: link:../../packages/prompt-core
+      '@veren/prompt-page':
+        specifier: workspace:^
+        version: link:../../packages/prompt-page
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
@@ -1638,18 +1650,9 @@ importers:
       '@veren/app-registry':
         specifier: workspace:^
         version: link:../app-registry
-      '@veren/forum':
-        specifier: workspace:^
-        version: link:../forum
       '@veren/page-registry':
         specifier: workspace:^
         version: link:../page-registry
-      '@veren/prompt-core':
-        specifier: workspace:^
-        version: link:../../packages/prompt-core
-      '@veren/prompt-page':
-        specifier: workspace:^
-        version: link:../../packages/prompt-page
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
@@ -1899,6 +1902,12 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
         version: 3.18.4
+      '@veren/notebook':
+        specifier: workspace:^
+        version: link:../notebook
+      '@veren/prompt-core':
+        specifier: workspace:^
+        version: link:../../packages/prompt-core
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
@@ -1912,15 +1921,9 @@ importers:
       '@veren/app-registry':
         specifier: workspace:^
         version: link:../app-registry
-      '@veren/notebook':
-        specifier: workspace:^
-        version: link:../notebook
       '@veren/page-registry':
         specifier: workspace:^
         version: link:../page-registry
-      '@veren/prompt-core':
-        specifier: workspace:^
-        version: link:../../packages/prompt-core
       '@veren/prompt-page':
         specifier: workspace:^
         version: link:../../packages/prompt-page
@@ -2003,6 +2006,9 @@ importers:
 
   plugins/page-registry:
     dependencies:
+      '@veren/prompt-page':
+        specifier: workspace:^
+        version: link:../../packages/prompt-page
       zod:
         specifier: 4.4.3
         version: 4.4.3
@@ -2022,9 +2028,6 @@ importers:
       '@veren/app-registry':
         specifier: workspace:^
         version: link:../app-registry
-      '@veren/prompt-page':
-        specifier: workspace:^
-        version: link:../../packages/prompt-page
       '@veren/task-center':
         specifier: workspace:^
         version: link:../task-center
@@ -2040,6 +2043,15 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
         version: 3.18.4
+      '@veren/person-agent-tool-session':
+        specifier: workspace:^
+        version: link:../person-agent-tool-session
+      '@veren/person-agent-tool-workspace':
+        specifier: workspace:^
+        version: link:../person-agent-tool-workspace
+      '@veren/prompt-core':
+        specifier: workspace:^
+        version: link:../../packages/prompt-core
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
@@ -2062,15 +2074,6 @@ importers:
       '@veren/page-registry':
         specifier: workspace:^
         version: link:../page-registry
-      '@veren/person-agent-tool-session':
-        specifier: workspace:^
-        version: link:../person-agent-tool-session
-      '@veren/person-agent-tool-workspace':
-        specifier: workspace:^
-        version: link:../person-agent-tool-workspace
-      '@veren/prompt-core':
-        specifier: workspace:^
-        version: link:../../packages/prompt-core
       '@veren/prompt-page':
         specifier: workspace:^
         version: link:../../packages/prompt-page
@@ -2387,6 +2390,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
         version: 3.18.4
+      '@veren/startup-autostart':
+        specifier: workspace:^
+        version: link:../startup-autostart
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
@@ -2397,9 +2403,6 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: '>=0.2.1-rc.2 <0.3.0'
         version: 0.2.1-rc.2(39679b028ccad1643d383935c6a869a6)
-      '@veren/startup-autostart':
-        specifier: workspace:^
-        version: link:../startup-autostart
       vitest:
         specifier: ^5.0.4
         version: 5.0.4(@types/node@26.6.5)(vite@7.3.7(@types/node@26.6.5)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.1))
@@ -2454,6 +2457,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
         version: 3.18.4
+      '@veren/prompt-core':
+        specifier: workspace:^
+        version: link:../../packages/prompt-core
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
@@ -2470,9 +2476,6 @@ importers:
       '@veren/app-registry':
         specifier: workspace:^
         version: link:../app-registry
-      '@veren/prompt-core':
-        specifier: workspace:^
-        version: link:../../packages/prompt-core
       '@veren/prompt-page':
         specifier: workspace:^
         version: link:../../packages/prompt-page
@@ -2534,6 +2537,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
         version: 3.18.4
+      '@veren/prompt-core':
+        specifier: workspace:^
+        version: link:../../packages/prompt-core
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
@@ -2559,9 +2565,6 @@ importers:
       '@veren/page-registry':
         specifier: workspace:^
         version: link:../page-registry
-      '@veren/prompt-core':
-        specifier: workspace:^
-        version: link:../../packages/prompt-core
       '@veren/prompt-page':
         specifier: workspace:^
         version: link:../../packages/prompt-page

@@ -104,6 +104,12 @@ export function registerNotebookApp(ctx: Context, port: () => NotebookToolsPort)
       // 2) Tools are prepared under full names: the body registers via
       //    agent.ctx.tools.register in the one render.
       const tools = createAppTools(ctx, port)
+      // 2.5) 绑定页面模块的装配期槽位：选中预挂渲染与组件体的 requireServices
+      //      从这里取服务面——绑定必须先于任何页面打开，否则选中即 fail loud。
+      // 2.5) Bind the pages module's assembly-time slot: the staged pick's
+      //      preview render and the bodies' requireServices read the face from
+      //      here — the bind must precede any page open, or picking fails loud.
+      bindNotebookServices(port, tools)
       // 3) 页面注册（一次性渲染形态）：工厂产出的 PageFC + meta 直接注册，
       //    单入口内部自动镜像进 page-registry（可被 openUrl 解析）。
       //    Page registration (one-shot form): the factory's PageFC + meta pairs

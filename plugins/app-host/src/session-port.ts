@@ -30,6 +30,10 @@
  */
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+// 运行时导入：页面会话 agent 缺 skills 服务面时的真面兜底（见 agentOf 内注释）。
+// runtime import: the real-face fallback when a page-session agent lacks the
+// skills service (see the comment inside agentOf).
+import { SkillRegistry } from '@deepseek-ai/dsh-skill'
 import type { Context } from '@deepseek-ai/cordis'
 // 类型-only import：拉取 dsh-agent / dsh-session 的 declaration merging（ctx.agents / ctx.sessions）
 // 以及 Agent / AgentHandle 的权威类型——不再手写最小探测面（G13：显式 inject，无结构探测）。
@@ -146,7 +150,34 @@ async function pageSessionWorkspace(ctx: Context): Promise<Workspace | undefined
  * @param focus - focus 接缝（GUI 实现归 H）
  */
 export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocus(ctx)): PageSessionPort {
-  const agentOf = (sessionId: string): Agent | undefined => ctx.agents.get(sid(sessionId))
+  const agentOf = (sessionId: string): Agent | undefined => {
+    const agent = ctx.agents.get(sid(sessionId))
+    if (agent === undefined) return undefined
+    // 页面会话的 agent 作用域由宿主会话机制创建，而 preset realm 把 skills
+    // **隔离**了：属性访问 `agent.ctx.skills` 重定向进隔离子域（页面会话里是
+    // 空的），`get('skills')` 却读主链——两条通道不同，单靠 get 判断会漏（真机
+    // 实测：get 返回已提供、属性访问照样 fail loud）。这里以属性探测为准：抛错
+    // 就把一个真正的 SkillRegistry 挂进隔离子域——单会话 runtime skill 本就该
+    // 会话私有，随 agent fiber 生灭，绝不泄漏到别的会话；属性访问本已成功的
+    // 部署（宿主组合提供了该面）什么都不做、绝不遮蔽。
+    // The page-session agent scope is created by the host session machinery, and
+    // the preset realm **isolates** skills: the property access
+    // `agent.ctx.skills` redirects into the isolate child (empty for a page
+    // session) while `get('skills')` reads the main chain — two different
+    // channels, so a get-based check misses it (verified live: get reports the
+    // face as provided while the property access still fails loud). Probe the
+    // property instead: on throw, mount a real SkillRegistry into the isolate —
+    // a single-session runtime skill is session-private by definition, lives and
+    // dies with the agent fiber, and never leaks into other sessions. Where the
+    // property already resolves (the host composition provides the face), do
+    // nothing and never shadow it.
+    try {
+      void agent.ctx.skills
+    } catch {
+      new SkillRegistry(agent.ctx.isolate('skills'))
+    }
+    return agent
+  }
   // 会话 → 本端口经 agents.create 拿到的句柄：只有持有者能整体拆除该 agent
   // / session → the handle from agents.create; only the holder can tear the agent down
   const handles = new Map<string, AgentHandle>()

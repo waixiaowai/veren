@@ -118,10 +118,15 @@ describe('person-agent-bundle owns the stack\'s only bundle layer', () => {
     expect(bundle.dependencies?.[app.name]).toBeDefined()
     for (const tool of ['person-agent-tool-session', 'person-agent-tool-workspace']) {
       const manifest = readMemberManifest(tool)
-      // 工具包走 DSH 依赖政策（peer+dev），不在 dependencies 里。
-      // Tool packages follow the DSH dependency policy (peer+dev), never
-      // dependencies.
-      expect(app.peerDependencies?.[manifest.name]).toBeDefined()
+      // 工具构建器包被应用运行时 import（页面组件体直登构建器），必须声明成
+      // dependencies 才会随 bundle → app 链真实安装；挂 peer 在 pnpm v10（默认
+      // 不自动装 peer）下会装出孤儿，应用模块加载即失败。这里锁住这条安装链。
+      // The tool builder packages are runtime-imported by the app (page bodies
+      // register the builders directly), so they must be dependencies for the
+      // bundle → app → tools chain to actually install; a peer leaves them
+      // orphaned under pnpm v10 (peers are not auto-installed) and the app
+      // module then fails to load. The install chain is locked here.
+      expect(app.dependencies?.[manifest.name]).toBeDefined()
     }
   })
 

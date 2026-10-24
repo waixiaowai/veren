@@ -1,7 +1,7 @@
 {
   "name": "@veren/device-id-mac",
   "displayName": "Veren Device ID (macOS)",
-  "version": "2.0.0",
+  "version": "2.0.3",
   "description": "Use on macOS only as the platform plugin for @veren/device-id: it collects the stable-tier hardware fingerprint from IOPlatformUUID via ioreg (firmware-level, survives an OS reinstall) and keeps a best-effort anchor file in ~/Library/Application Support/veren; skip it on non-macOS hosts.",
   "type": "module",
   "main": "./dist/index.js",

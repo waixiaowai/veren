@@ -1,7 +1,7 @@
 {
   "name": "@veren/app-host",
   "description": "Use when a DSH profile needs the Veren application framework wired in one place: this host-assembly plugin binds the app registry, page registry, and task center together (app resolver, page mirror, real agent-scoped session port, focus seam) so that installing an app plugin requires no manual cross-service wiring; skip it only when you compose the three services by hand in tests.",
-  "version": "2.0.0",
+  "version": "2.0.3",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
@@ -32,8 +32,6 @@
     "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-skill": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-scope": ">=0.2.1-rc.2 <0.3.0",
-    "@veren/app-registry": "workspace:^",
-    "@veren/page-registry": "workspace:^",
     "@veren/prompt-host-messages": "workspace:^",
     "@veren/task-center": "workspace:^",
     "@deepseek-ai/dsh-typert-protocol": ">=0.2.1-rc.2 <0.3.0",
@@ -44,6 +42,8 @@
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/app-registry": "workspace:^",
+    "@veren/page-registry": "workspace:^",
     "@veren/prompt-page": "workspace:^"
   },
   "devDependencies": {

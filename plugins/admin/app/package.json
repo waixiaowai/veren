@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-app",
   "displayName": "Admin App",
-  "version": "2.0.0",
+  "version": "2.0.3",
   "description": "Use when a DSH profile must become the generic AI admin platform in one install: it is a configuration-only bundle whose patch inserts the kernel, gateway, data, auth, access, navigation, audit, docs, UI-kernel, default packs and SPA rows in dependency order, and its member plugins ship as plain dependencies without bundle declarations of their own, so this patch is the stack's only profile layer; skip it when you want to compose those plugins row by row yourself.",
   "type": "module",
   "engines": {

@@ -1,7 +1,7 @@
 {
   "name": "@veren/notebook-app",
   "displayName": "Notebook-应用",
-  "version": "2.0.0",
+  "version": "2.0.3",
   "description": "Use when the notebook domain service is installed and its tools should live only in notebook page sessions: registers the notebook app (a note list entry page plus a note detail page under /apps/notebook) as the single registration face - the five notebook__* page tools are the @veren/notebook builders, defined into the app catalog and mounted per page via meta.tools; skip it for headless deployments, where the domain service alone is wanted and nothing mounts the tools.",
   "type": "module",
   "main": "./dist/index.js",
@@ -30,11 +30,12 @@
     "@deepseek-ai/dsh-agent-preset-registry": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0",
     "@veren/app-registry": "workspace:^",
-    "@veren/notebook": "workspace:^",
     "@veren/prompt-page": "workspace:^"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.4"
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/notebook": "workspace:^",
+    "@veren/prompt-core": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",

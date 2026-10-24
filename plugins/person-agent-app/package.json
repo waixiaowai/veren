@@ -1,7 +1,7 @@
 {
   "name": "@veren/person-agent-app",
   "displayName": "管家-应用",
-  "version": "2.0.0",
+  "version": "2.0.3",
   "icon": "./icon.svg",
   "description": "Use when a DSH deployment hosts the Person Agent bridge and needs it visible as a first-class Veren application: registers the person-agent app (a personal workbench overview page plus a workspace browser page under /apps/person-agent) in the host app catalog, renders the live workspace list, agent preset roster and model catalog in the overview body, mounts the full session/workspace maintenance tool face and the renhua writing skill into each page session's agent scope, and declares the bridge persona in the app instructions; skip it when the Person Agent should not appear as an app.",
   "type": "module",
@@ -42,14 +42,14 @@
     "@deepseek-ai/dsh-workspace": ">=0.2.1-rc.2 <0.3.0",
     "@veren/app-registry": "workspace:^",
     "@veren/page-registry": "workspace:^",
-    "@veren/person-agent-tool-session": "workspace:^",
-    "@veren/person-agent-tool-workspace": "workspace:^",
-    "@veren/prompt-core": "workspace:^",
     "@veren/prompt-page": "workspace:^",
     "@veren/task-center": "workspace:^"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.4"
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/person-agent-tool-session": "workspace:^",
+    "@veren/person-agent-tool-workspace": "workspace:^",
+    "@veren/prompt-core": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",

@@ -1,7 +1,7 @@
 {
   "name": "@veren/startup-autostart-tool",
   "displayName": "Startup Autostart Tools",
-  "version": "2.0.0",
+  "version": "2.0.3",
   "icon": "./icon.svg",
   "description": "Use when agents need model-facing startup item management tools backed by the separately installed Startup Autostart host service; omit it when startup items should run without being editable by agents.",
   "type": "module",
@@ -30,11 +30,11 @@
     "test": "vitest run --no-fsModuleCache"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0",
-    "@veren/startup-autostart": "^1.3.0"
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.4"
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/startup-autostart": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",

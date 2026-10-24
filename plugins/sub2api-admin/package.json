@@ -1,7 +1,7 @@
 {
   "name": "@veren/sub2api-admin",
   "displayName": "Sub2API 杩愯惀",
-  "version": "2.0.0",
+  "version": "2.0.3",
   "icon": "./icon.svg",
   "description": "Use when a DSH profile should carry the Sub2API operations app: registers the 'Sub2API 杩愯惀' application (dashboard/accounts/usage pages backed by a live-data store) and eleven model-facing admin tools sharing one API client and one credential config; omit it when agent sessions and the GUI need no Sub2API operations.",
   "type": "module",
@@ -37,11 +37,11 @@
     "@deepseek-ai/cordis": ">=4.0.0",
     "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0",
     "@veren/app-registry": "workspace:^",
-    "@veren/prompt-core": "workspace:^",
     "@veren/prompt-page": "workspace:^"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.4"
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/prompt-core": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",

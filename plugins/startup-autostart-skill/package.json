@@ -1,7 +1,7 @@
 {
   "name": "@veren/startup-autostart-skill",
   "displayName": "Startup Autostart Skill",
-  "version": "2.0.0",
+  "version": "2.0.3",
   "icon": "./icon.svg",
   "description": "Use when a DSH profile installs the Startup Autostart stack and agents must know when and how to manage startup items: it contributes one bundled, model-invocable skill named startup-autostart that explains when a recurring every-start job is the right request, how to choose among new_session, resume_session, message_session, and queue_message, the no-debounce run rules with enabled as the only gate, the input boundaries, and how to diagnose a failed item; skip it when the stack is absent or agents never touch startup items.",
   "type": "module",
