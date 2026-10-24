@@ -1,6 +1,6 @@
 # @veren/sub2api-admin
 
-应用型 DSH 插件：注册「Sub2API 运营」应用——九个 GUI 页面（首页 / 渠道 / 分组 / 用户 / 订阅 / 资金 / 卡密 / 账号 / 用量）+ 十一个面向模型的管理工具，页面与工具共用同一个 `Sub2AdminClient` 与同一份凭据配置。结构与 `@veren/task-workbench` 参考实现一致（`ctx.apps.register` → `apps.tools` → `apps.pages`，组件页（`PageFC` + `useSnapshot`）+ 共享 store）。
+应用型 DSH 插件：注册「Sub2API 运营」应用——九个 GUI 页面（首页 / 渠道 / 分组 / 用户 / 订阅 / 资金 / 卡密 / 账号 / 用量）+ 十一个面向模型的管理工具，页面与工具共用同一个 `Sub2AdminClient` 与同一份凭据配置。结构与 `@veren/task-workbench` 参考实现一致：`ctx.apps.register` → 工具以全名备好、经 `bindSub2ApiRuntime` 绑进页面模块槽位 → `apps.pages`。工具登记与首屏读都在页面组件体里（`PageFC`，一次性渲染），数据面是共享的内存 store。
 
 ## 页面
 
@@ -18,7 +18,7 @@
 
 插件激活即拉一次真实数据；工具写入成功后自动刷新对应 store 切片，页面树经 SNAPSHOT/PATCH 同步进页面会话。每页 `instructions` 点名的工具与该页实际挂载严格一致（承诺=挂载），listPage 正文「配套工具」行列出全部挂载工具外名。
 
-## 工具（应用目录本地名，对外名 `sub2api_admin__<name>`）
+## 工具（本地名，对外名 `sub2api_admin__<name>`，由页面组件体登记）
 
 `overview`、`channels`、`groups`、`users`、`subscriptions`、`payment`、`promo_codes`、`redeem_codes`、`accounts`（15 个动作）、`usage`、`request`（`/api/v1/admin/**` 直通）。动作→端点映射表驱动，定义见 `src/tools.ts`。
 

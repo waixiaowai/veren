@@ -1,8 +1,11 @@
 /**
- * 应用定义 + 应用级工具（`ctx.apps.tools(id).define` 目录，本地名）。
- * The application definition and app-scoped tools (local names; the registry
- * prefixes `<toolPrefix>__`). Action→endpoint mapping is table-driven; each
- * successful write refreshes the matching store slice so pages update.
+ * 应用定义 + 应用全部工具（本地名；装配以全名 `sub2api_admin__<本地名>` 备好后，
+ * 由页面组件体在唯一一次渲染里 `agent.ctx.tools.register` 登记）。
+ * The application definition and the app's full toolset (local names; assembly
+ * prepares them under full names `sub2api_admin__<local>` and the page bodies
+ * register them via `agent.ctx.tools.register` in the one render).
+ * Action→endpoint mapping is table-driven; each successful write refreshes the
+ * matching store slice so pages update.
  * @module @veren/sub2api-admin/tools
  */
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -24,7 +27,7 @@ export const APP_DEFINITION: ApplicationDefinition = {
   instructions: 'Sub2API 运营应用覆盖运营全流程：home 是指挥台（经营指标+待办+操作指引），'
     + 'channels 渠道、groups 分组与倍率、users 用户与余额、subscriptions 订阅、finance 订单与套餐、'
     + 'codes 兑换码与优惠码、accounts 上游账号、usage 用量分析。'
-    + '页面数据由 sub2api_admin__* 工具读写，写入成功后页面自动刷新；写操作前先向用户确认。',
+    + '页面数据由 sub2api_admin__* 工具读写，正文是打开时刻的首屏——此后的变化以工具返回的结果为准；写操作前先向用户确认。',
   toolPrefix: 'sub2api_admin',
 }
 

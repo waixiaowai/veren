@@ -4,9 +4,20 @@
  *
  * 结构与 task-workbench 参考实现一致：
  * 1. ctx.apps.register(def, ctx) —— 定义应用并绑定本 fiber（卸载即整应用摘除）；
- * 2. ctx.apps.tools(id, ctx) —— 应用级工具目录（本地名，对外名由注册表拼前缀）；
- * 3. ctx.apps.pages(id, ctx) —— 注册页面（/apps/<appId>/...，单入口镜像进 page-registry）。
- * 页面与工具共用同一 Sub2AdminClient 与同一凭据配置（行 config 或 SUB2API_* env）。
+ * 2. createAppTools —— defineTool 产物以全名（`sub2api_admin__<本地名>`）备好，
+ *    经 bindSub2ApiRuntime 绑进页面模块槽位：组件体在唯一一次渲染里直接
+ *    agent.ctx.tools.register 登记本页工具——没有应用目录的 define 间接层；
+ * 3. ctx.apps.pages(id, ctx) —— 注册页面（/apps/<appId>/...，单入口镜像进
+ *    page-registry）。页面与工具共用同一 Sub2AdminClient 与同一凭据配置。
+ * Same shape as the task-workbench reference:
+ * 1. ctx.apps.register(def, ctx) — the app rides this fiber (teardown removes it whole);
+ * 2. createAppTools — defineTool products prepared under full names
+ *    (`sub2api_admin__<local>`), bound into the pages' module slot via
+ *    bindSub2ApiRuntime: the bodies register their tools via
+ *    agent.ctx.tools.register in the one render — no catalog define indirection;
+ * 3. ctx.apps.pages(id, ctx) — the pages (single entry, mirrored into
+ *    page-registry internally). Pages and tools share one client and one
+ *    credential config.
  * @module @veren/sub2api-admin
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -14,7 +25,18 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@veren/app-registry'
 import { Sub2AdminClient } from './client.ts'
 import type { AdminConfig } from './client.ts'
-import { createSub2ApiPages } from './pages.tsx'
+import {
+  AccountsMeta, AccountsPage,
+  bindSub2ApiRuntime,
+  ChannelsMeta, ChannelsPage,
+  CodesMeta, CodesPage,
+  externalName, FinanceMeta, FinancePage,
+  GroupsMeta, GroupsPage,
+  HomeMeta, HomePage,
+  SubscriptionsMeta, SubscriptionsPage,
+  UsageMeta, UsagePage,
+  UsersMeta, UsersPage,
+} from './pages.tsx'
 import { Sub2ApiStore } from './store.ts'
 import { APP_DEFINITION, APP_ID, createAppTools } from './tools.ts'
 
@@ -54,34 +76,36 @@ export const apply = (ctx: Context, config: Config): void => {
   const client = new Sub2AdminClient((config ?? {}) as AdminConfig)
   const store = new Sub2ApiStore()
 
-  // 单一 effect 收线：定义 → 工具 → 页面，失败逆序回滚（task-workbench 同款）
-  // One effect owns the wiring: definition → tools → pages; failures roll back in reverse.
+  // 单一 effect 收线：定义 → 工具 → 页面，体内任何一步失败都把已完成的步骤
+  // 逆序回滚——绝不留下"应用在、工具缺页"的半接线状态（task-workbench 同款）。
+  // One effect owns the wiring: definition → tools → pages; any failing step
+  // rolls the finished ones back in reverse (the task-workbench shape).
   ctx.effect(() => {
     const done: Array<() => void> = []
     try {
+      // 1) 应用定义：绑定本 fiber，fiber 销毁 → 整应用（页面+工具）摘除
+      // / 1) the app definition: fiber-bound; fiber teardown removes pages+tools
       done.push(apps.register(APP_DEFINITION, ctx))
-      const tools = apps.tools(APP_ID, ctx)
-      for (const tool of createAppTools(client, store)) {
-        done.push(tools.define(tool))
-      }
+      // 2) 工具以全名备好（`sub2api_admin__<本地名>`，§3.4.3）绑进页面模块槽位：
+      //    页面组件体在唯一一次渲染里直接 agent.ctx.tools.register 登记。
+      // / 2) tools prepared under full names, bound into the pages' module slot:
+      //    the bodies register via agent.ctx.tools.register in the one render.
+      const tools = createAppTools(client, store).map((tool) => ({ ...tool, name: externalName(tool.name) }))
+      bindSub2ApiRuntime(store, tools)
+      // 3) 页面注册走单入口，app-registry 内部镜像进 page-registry（可被 openUrl
+      //    解析）；镜像失败会回滚并抛错。
+      // / 3) registration rides the single entry, mirrored into page-registry
+      //    (openUrl-resolvable); a mirror failure rolls back and throws.
       const pages = apps.pages(APP_ID, ctx)
-      // 组件页（组件形态，RFC prompt-page-render §3.5）：组件 + 契约面成对注册
-      // / component pages: components and contract faces registered as pairs
-      const app9 = createSub2ApiPages(store)
-      const pairs: Array<[unknown, unknown]> = [
-        [app9.HomePage, app9.HomeMeta],
-        [app9.ChannelsPage, app9.ChannelsMeta],
-        [app9.GroupsPage, app9.GroupsMeta],
-        [app9.UsersPage, app9.UsersMeta],
-        [app9.SubscriptionsPage, app9.SubscriptionsMeta],
-        [app9.FinancePage, app9.FinanceMeta],
-        [app9.CodesPage, app9.CodesMeta],
-        [app9.AccountsPage, app9.AccountsMeta],
-        [app9.UsagePage, app9.UsageMeta],
-      ]
-      for (const [component, meta] of pairs) {
-        done.push((pages.register as (c: unknown, m: unknown) => () => void)(component, meta))
-      }
+      done.push(pages.register(HomePage, HomeMeta))
+      done.push(pages.register(ChannelsPage, ChannelsMeta))
+      done.push(pages.register(GroupsPage, GroupsMeta))
+      done.push(pages.register(UsersPage, UsersMeta))
+      done.push(pages.register(SubscriptionsPage, SubscriptionsMeta))
+      done.push(pages.register(FinancePage, FinanceMeta))
+      done.push(pages.register(CodesPage, CodesMeta))
+      done.push(pages.register(AccountsPage, AccountsMeta))
+      done.push(pages.register(UsagePage, UsageMeta))
     } catch (error: unknown) {
       for (const dispose of done.reverse()) dispose()
       throw error

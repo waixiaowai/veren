@@ -1,6 +1,6 @@
 # @veren/sub2api-admin
 
-Application-form DSH plugin: registers the "Sub2API 运营" app — nine GUI pages (home / channels / groups / users / subscriptions / finance / codes / accounts / usage) plus eleven model-facing admin tools, sharing one `Sub2AdminClient` and one credential config. The structure mirrors the `@veren/task-workbench` reference (`ctx.apps.register` → `apps.tools` → `apps.pages`, component pages (`PageFC` + `useSnapshot`) over a shared store).
+Application-form DSH plugin: registers the "Sub2API 运营" app — nine GUI pages (home / channels / groups / users / subscriptions / finance / codes / accounts / usage) plus eleven model-facing admin tools, sharing one `Sub2AdminClient` and one credential config. The structure mirrors the `@veren/task-workbench` reference: `ctx.apps.register` → tools prepared under full names and bound into the pages' module slot (`bindSub2ApiRuntime`) → `apps.pages`. Tool registration and first-screen reads live in the page bodies (`PageFC`, one-shot render) over a shared in-memory store.
 
 ## Pages
 
@@ -18,7 +18,7 @@ Application-form DSH plugin: registers the "Sub2API 运营" app — nine GUI pag
 
 Live data is pulled once on activation; successful tool writes refresh the matching store slice and the trees sync into page sessions via SNAPSHOT/PATCH. Every page's `instructions` name exactly the tools mounted on it (promise = mount), and a listPage body's 配套工具 line lists their external names.
 
-## Tools (local catalog names; external `sub2api_admin__<name>`)
+## Tools (local names; external `sub2api_admin__<name>`, registered by the page bodies)
 
 `overview`, `channels`, `groups`, `users`, `subscriptions`, `payment`, `promo_codes`, `redeem_codes`, `accounts` (15 actions), `usage`, `request` (raw `/api/v1/admin/**` passthrough). Action→endpoint mapping is table-driven; see `src/tools.ts`.
 
