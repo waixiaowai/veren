@@ -1,7 +1,7 @@
 {
   "name": "@veren/app-registry",
   "description": "Use when DSH plugins need to install an application as a user-facing product unit: owns the host-level application registry (stable id, entry page, tool prefix, capabilities), the app-scoped page/tool registrars, and application lifecycle records; skip it for plain capability plugins that never expose pages or tasks.",
-  "version": "0.1.4",
+  "version": "2.0.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

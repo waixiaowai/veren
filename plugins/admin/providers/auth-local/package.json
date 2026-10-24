@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-auth-local",
   "displayName": "Admin Auth Local",
-  "version": "0.1.2",
+  "version": "2.0.0",
   "description": "Use when an admin deployment needs local accounts without an external identity provider: it owns users, scrypt password hashes, browser sessions with absolute and idle expiry, one-time API tokens, first-run setup, and the sign-in/user/token routes; skip it when authentication must come from an external OIDC or LDAP provider.",
   "type": "module",
   "main": "./dist/index.js",

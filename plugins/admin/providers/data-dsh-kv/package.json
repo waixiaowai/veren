@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-data-dsh-kv",
   "displayName": "Admin Data (DSH KV)",
-  "version": "0.1.2",
+  "version": "2.0.0",
   "description": "Use when a DSH admin deployment must serve the `data` capability without an external database: it implements the AdminDatabase port over one self-declared `admin_data` storage-domain KV table (a hex-encoded composite key per record, one document each) and registers itself as the `data` provider through ctx.admin, leaving the medium (json/sqlite) to the storage group's backend routes; skip it when the deployment needs real multi-record transactions, secondary indexes, or full-text queries.",
   "type": "module",
   "main": "./dist/index.js",

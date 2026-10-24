@@ -1,6 +1,6 @@
 {
   "name": "@veren/compiler-options",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "description": "Use when a TypeScript build stage needs ts.CompilerOptions supplied through the context, typically as the very first service of the compiler pipeline; skip it when the options already come from somewhere else.",
   "private": true,
   "type": "module",

@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-shell-default",
   "displayName": "Admin Shell Default",
-  "version": "0.1.1",
+  "version": "2.0.0",
   "description": "Use when an admin deployment needs the default chrome identity — the registered shell row that the SPA top bar and sidebar render — while layout stays in the SPA stylesheet; skip it when the deployment must advertise a different shell identity, because the row is replaced rather than edited.",
   "type": "module",
   "main": "./index.js",
