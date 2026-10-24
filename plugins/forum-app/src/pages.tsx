@@ -71,14 +71,14 @@ function requireServices(): { readonly ctx: Context; readonly port: () => ForumT
 /**
  * 一条页面工具绑定：本地名 + 产出该定义的构建器。构建器闭包 ctx（callerOf 从
  * ctx.agentPresets 解析调用者）与 port；组件体按绑定登记全名定义——页面的工具
- * 面只有这一份声明，永不漂移。
+ * 面只有这一份声明，永不漂移。仅本模块内部使用，不对外导出。
  * One page-tool binding: the local name plus the builder producing its
  * definition. The builder closes over ctx (callerOf resolves the caller from
  * ctx.agentPresets) and the port; the body registers the full-named definition
  * from the binding — the page's tool face has this one declaration and can
- * never drift.
+ * never drift. Internal to this module; not exported.
  */
-export interface PageToolBinding {
+interface PageToolBinding {
   readonly name: string
   readonly build: (ctx: Context, port: () => ForumToolsPort) => ToolDefinition
 }
