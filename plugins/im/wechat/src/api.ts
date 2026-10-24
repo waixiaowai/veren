@@ -1,12 +1,14 @@
 /**
  * Tencent iLink bot HTTP client.
  *
- * Owns protocol shape, trusted-host checks, request timeouts, and error-code
- * mapping. `-14` means the login is stale; a rejected `sendmessage` (`ret=-2`)
- * is a delivery refusal, not a network error.
+ * Owns protocol shape, request timeouts, and error-code mapping. `-14` means
+ * the login is stale; a rejected `sendmessage` (`ret=-2`) is a delivery
+ * refusal, not a network error. The trusted-URL policy lives in `api-url.ts`
+ * and is re-exported unchanged here.
  *
- * 腾讯 iLink 机器人 HTTP 客户端。负责协议形状、可信主机校验、请求超时与错误码映射。
- * `-14` 表示登录失效；`sendmessage` 被拒（`ret=-2`）是投递拒绝，不是网络错误。
+ * 腾讯 iLink 机器人 HTTP 客户端。负责协议形状、请求超时与错误码映射。`-14` 表示登录失效；
+ * `sendmessage` 被拒（`ret=-2`）是投递拒绝，不是网络错误。可信 URL 策略在 `api-url.ts`，
+ * 并在此原样再导出。
  *
  * @module @veren/im-wechat/api
  */
@@ -14,7 +16,12 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { ImError } from '@veren/im'
 import { isRecord, toLoginStatus, toMessage } from './state.ts'
+import { assertTrustedUrl, normalizeBaseUrl, normalizeQrUrl } from './api-url.ts'
 import type { WechatLoginStatus, WechatMessage } from './state.ts'
+
+// ---- unchanged export surface (URL policy moved to api-url.ts) ----
+// ---- 导出面不变（URL 策略移至 api-url.ts）----
+export { normalizeBaseUrl, normalizeQrUrl } from './api-url.ts'
 
 /** Default iLink API base URL and bot type. */
 export const WEIXIN_BASE_URL = 'https://ilinkai.weixin.qq.com/'
@@ -250,42 +257,6 @@ export class WechatApi {
   }
 }
 
-/** Normalize one configured base URL, rejecting untrusted hosts. */
-export function normalizeBaseUrl(value: string, fallback: string): string {
-  const url = new URL(value, fallback)
-  assertTrustedUrl(url)
-  url.search = ''
-  url.hash = ''
-  if (!url.pathname.endsWith('/')) url.pathname += '/'
-  return url.toString()
-}
-
-/** Normalize one QR URL, rejecting untrusted hosts. */
-export function normalizeQrUrl(value: string): string {
-  const url = new URL(value)
-  assertTrustedUrl(url)
-  return url.toString()
-}
-
-/** Reject a URL that is not HTTPS on a WeChat host. */
-function assertTrustedUrl(url: URL): void {
-  if (url.protocol !== 'https:' || !isTrustedHost(url.hostname)) {
-    throw new ImError('IM_INTERNAL', 'wechat refused an untrusted URL')
-  }
-  url.username = ''
-  url.password = ''
-}
-
-/** WeChat host allowlist; no arbitrary redirect host is followed. */
-function isTrustedHost(host: string): boolean {
-  return host === 'ilinkai.weixin.qq.com' || host.endsWith('.weixin.qq.com')
-}
-
-/** Protocol metadata sent with every request. */
-function baseInfo(): Record<string, unknown> {
-  return { channel_version: PROTOCOL_VERSION, bot_agent: 'VerenIM/0.1.0' }
-}
-
 /** Return the first non-zero `ret`/`errcode`. */
 function rejectedCode(value: Record<string, unknown>): string | undefined {
   for (const field of ['ret', 'errcode'] as const) {
@@ -303,5 +274,10 @@ function requiredString(value: unknown, field: string): string {
     throw new ImError('IM_INTERNAL', `wechat response is missing ${field}`)
   }
   return value.trim()
+}
+
+/** Protocol metadata sent with every request. */
+function baseInfo(): Record<string, unknown> {
+  return { channel_version: PROTOCOL_VERSION, bot_agent: 'VerenIM/0.1.0' }
 }
 

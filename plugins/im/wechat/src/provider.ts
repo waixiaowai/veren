@@ -4,11 +4,12 @@
  * V1 is private conversations, text only, one account per `ilink_bot_id`. It
  * persists the cursor and deduplication ring in the `im_wechat` storage domain,
  * caches context_token there, keeps the bot token in the credential seam, and
- * stops after three failed polls.
+ * stops after three failed polls. The per-account monitor lives in
+ * `monitor.ts`; this file keeps the service face.
  *
  * 微信 provider：仅私聊、仅文字、每个 `ilink_bot_id` 一个账号；游标与去重环持久化在
  * `im_wechat` 存储域，context_token 也缓存在那里，bot token 留在凭据服务，并在连续失败
- * 3 次后停止。
+ * 3 次后停止。单账号监视器在 `monitor.ts`；本文件保留服务门面。
  *
  * @module @veren/im-wechat/provider
  */
@@ -32,15 +33,20 @@ import {
   WechatApi,
   normalizeBaseUrl,
 } from './api.ts'
-import { WechatBindAttempt, delay, messageIdOf, qrImagePath, splitText, storeConfirmedAccount, textOf, writeQrImage } from './runtime.ts'
+import { WechatBindAttempt, qrImagePath, splitText, storeConfirmedAccount, writeQrImage } from './runtime.ts'
+import { messageOf, WechatMonitor } from './monitor.ts'
+import type { AccountRuntime } from './monitor.ts'
 import type {
-  WechatMessage,
   WechatProviderOptions,
-  WechatSecrets,
   WechatSecretStore,
   WechatState,
   WechatStore,
 } from './state.ts'
+
+// splitText is re-exported unchanged: tests and the plugin entry read it here.
+// splitText 原样再导出：测试与插件入口都从这里读取。
+export { splitText } from './runtime.ts'
+
 /** Capabilities WeChat V1 declares. */
 export const WEIXIN_FEATURES: ImFeatures = {
   direct: true,
@@ -52,14 +58,7 @@ export const WEIXIN_FEATURES: ImFeatures = {
   auth: ['qrcode'],
   limits: { textChars: 1_800 },
 }
-/** One live account runtime. */
-interface AccountRuntime {
-  state: WechatState
-  secrets: WechatSecrets
-  status: 'online' | 'offline' | 'error'
-  controller?: AbortController
-  monitor?: Promise<void>
-}
+
 /** WeChat implementation of the provider-neutral service. */
 export class WechatProvider implements ImService {
   readonly features = WEIXIN_FEATURES
@@ -75,6 +74,7 @@ export class WechatProvider implements ImService {
   // 命名为 `runtimes`，因为公开的 `accounts()` 方法已占用该名称。
   private readonly runtimes = new Map<string, AccountRuntime>()
   private readonly handlers = new Set<(message: ImMessage) => void | Promise<void>>()
+  private readonly monitor: WechatMonitor
   // Guards against a stop() landing while start() is still loading accounts.
   // 防止 stop() 在 start() 仍在加载账号时落下，导致卸载后重启监听循环。
   private disposed = false
@@ -91,6 +91,15 @@ export class WechatProvider implements ImService {
       botType: options.botType ?? WEIXIN_BOT_TYPE,
       longPollTimeoutMs: options.longPollTimeoutMs ?? WEIXIN_LONG_POLL_MS,
       ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
+    })
+    this.monitor = new WechatMonitor({
+      api: this.api,
+      store: this.store,
+      logger: this.logger,
+      now: this.now,
+      runtimes: this.runtimes,
+      handlers: this.handlers,
+      isDisposed: () => this.disposed,
     })
   }
   async start(): Promise<void> {
@@ -116,7 +125,7 @@ export class WechatProvider implements ImService {
           continue
         }
         this.runtimes.set(accountId, { state, secrets, status: 'offline' })
-        this.startMonitor(accountId)
+        this.monitor.start(accountId)
       } catch (error: unknown) {
         this.logger.error(`[im:wechat] account ${accountId} could not load: ${messageOf(error)}`)
       }
@@ -250,119 +259,7 @@ export class WechatProvider implements ImService {
       secrets: stored.secrets,
       status: 'offline',
     })
-    this.startMonitor(stored.state.accountId)
+    this.monitor.start(stored.state.accountId)
     return stored.account
   }
-  /** Start one account monitor unless it is already running or stopped. */
-  private startMonitor(accountId: string): void {
-    if (this.disposed) return
-    const runtime = this.runtimes.get(accountId)
-    if (runtime === undefined || runtime.controller !== undefined) return
-    const controller = new AbortController()
-    runtime.controller = controller
-    runtime.monitor = this.monitor(accountId, runtime, controller.signal).catch((error: unknown) => {
-      runtime.status = 'error'
-      this.logger.error(`[im:wechat] account ${accountId} monitor failed: ${messageOf(error)}`)
-    })
-  }
-  /** One account's long-poll loop. */
-  private async monitor(accountId: string, runtime: AccountRuntime, signal: AbortSignal): Promise<void> {
-    try {
-      await this.api.notifyStart(runtime.secrets.token, signal)
-    } catch (error: unknown) {
-      runtime.status = 'error'
-      this.logger.error(`[im:wechat] account ${accountId} notifystart failed: ${messageOf(error)}`)
-      return
-    }
-    let failures = 0
-    while (!signal.aborted) {
-      try {
-        const batch = await this.api.getUpdates(runtime.secrets.token, runtime.state.cursor, signal)
-        if (signal.aborted) return
-        failures = 0
-        runtime.status = 'online'
-        for (const message of batch.messages) await this.accept(runtime, message)
-        runtime.state.cursor = batch.cursor
-        await this.persistState(accountId)
-      } catch (error: unknown) {
-        if (signal.aborted) return
-        if (error instanceof ImError && error.code === 'IM_AUTH_REQUIRED') {
-          runtime.status = 'error'
-          this.logger.error(`[im:wechat] account ${accountId} credential is stale (-14); runtime stopped`)
-          return
-        }
-        failures += 1
-        if (failures >= 3) {
-          runtime.status = 'error'
-          this.logger.error(`[im:wechat] account ${accountId} failed ${failures} times; runtime stopped`)
-          return
-        }
-        await delay(2_000 * 2 ** (failures - 1), signal)
-      }
-    }
-  }
-  /** Persist one runtime's cursor and deduplication ring, logging any failure. */
-  private async persistState(accountId: string): Promise<void> {
-    const runtime = this.runtimes.get(accountId)
-    if (runtime === undefined) return
-    try {
-      await this.store.putState(runtime.state)
-    } catch (error: unknown) {
-      this.logger.error(`[im:wechat] account ${accountId} state was not persisted: ${messageOf(error)}`)
-      throw error
-    }
-  }
-  /** Cache one context token; a storage failure is reported, never swallowed. */
-  private async cacheContextToken(accountId: string, userId: string, token: string): Promise<void> {
-    let current: string | undefined
-    try {
-      current = this.store.contextToken(accountId, userId)
-    } catch (error: unknown) {
-      this.logger.warn(`[im:wechat] account ${accountId} context_token could not be read: ${messageOf(error)}`)
-      return
-    }
-    if (current === token) return
-    try {
-      await this.store.putContextToken(accountId, userId, token, this.now())
-    } catch (error: unknown) {
-      this.logger.warn(`[im:wechat] account ${accountId} context_token was not persisted: ${messageOf(error)}`)
-    }
-  }
-  /** Normalize one inbound message, deduplicate it, and notify listeners. */
-  private async accept(runtime: AccountRuntime, message: WechatMessage): Promise<void> {
-    if (message.message_type === 2) return
-    const id = messageIdOf(message)
-    if (id === undefined || runtime.state.seen.includes(id)) return
-    runtime.state.seen.push(id)
-    if (runtime.state.seen.length > 1_000) runtime.state.seen.splice(0, runtime.state.seen.length - 1_000)
-    const sender = message.from_user_id?.trim()
-    if (sender === undefined || sender === '') return
-    const text = textOf(message)
-    if (text === undefined) return
-    const contextToken = message.context_token?.trim()
-    if (contextToken !== undefined && contextToken !== '') {
-      await this.cacheContextToken(runtime.state.accountId, sender, contextToken)
-    }
-    const inbound: ImMessage = {
-      id,
-      accountId: runtime.state.accountId,
-      conversationId: `p2p:${sender}`,
-      sender: { id: sender },
-      sentAt: message.create_time_ms ?? this.now(),
-      content: { type: 'text', text },
-    }
-    for (const handler of [...this.handlers]) {
-      try {
-        await handler(inbound)
-      } catch (error: unknown) {
-        this.logger.error(`[im:wechat] inbound handler failed: ${messageOf(error)}`)
-      }
-    }
-  }
 }
-/** Turn an unknown failure into one log line. */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-export { splitText } from './runtime.ts'
