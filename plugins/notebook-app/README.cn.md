@@ -6,12 +6,13 @@
 
 ## 注册什么
 
-- **应用** `notebook`（工具前缀 `notebook_`），入口页 `list`。
+- **应用** `notebook`（工具前缀 `notebook`），入口页 `list`。
 - **页面**
   - `list` —— `/apps/notebook/list`（入口）：调用者预设的笔记列表，工具 `notebook__list_notes` / `notebook__write_note`；
   - `note` —— `/apps/notebook/note/:noteId`：单条笔记的标题/正文/更新时间，工具 `notebook__read_note` / `notebook__rewrite_note` / `notebook__delete_note`。
-- **应用级工具**——`@veren/notebook` 的五个构建器（唯一的面向模型实现）：经
-  `ctx.apps.tools(id).define` define 进应用目录，并经 `meta.tools` 逐页挂载；绝不注册进
+- **应用级工具**——`@veren/notebook` 的五个构建器（唯一的面向模型实现）：注册时以全名
+  `notebook__<本地名>` 备好，经 `bindNotebookServices` 绑进页面模块槽位；各页组件体在唯一一次
+  渲染里经 `agent.ctx.tools.register` 自行登记（随 agent fiber 生灭）；绝不注册进
   `ctx.tools`。归属规则一如既往：归属永远取自调用者的预设，绝不是参数。
 
 ## 承诺对齐（§3.9）
@@ -27,7 +28,7 @@
 宿主包 `@veren/notebook` 不装本包也照常工作，但 0.2.0 起它不注册任何工具；没有本包，
 任何 agent 都够不到记事本。装上本包，记事本才成为应用。
 
-注册走单入口（`ctx.apps.register` → `ctx.apps.tools(id).define` →
+注册走单入口（`ctx.apps.register` → 工具以全名备好并绑进页面模块槽位 →
 `ctx.apps.pages(id).register`），收在单个 `ctx.effect` 里，后一步失败即逆序回滚已完成步骤。
 
 ## 什么时候装哪几个包

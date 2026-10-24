@@ -1,6 +1,6 @@
 # @veren/task-workbench
 
-The reference Veren **application**: it registers the `task-workbench` app (id, entry page, page set, tool catalog, task channel) on top of `@veren/app-registry`, `@veren/page-registry` and `@veren/prompt-page`. Use this package as the template for writing new Veren applications — not as a library.
+The reference Veren **application**: it registers the `task-workbench` app (id, entry page, page set, page tool set, task channel) on top of `@veren/app-registry`, `@veren/page-registry` and `@veren/prompt-page`. Use this package as the template for writing new Veren applications — not as a library.
 
 [中文文档](./README.cn.md)
 

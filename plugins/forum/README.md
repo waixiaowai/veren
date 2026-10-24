@@ -17,7 +17,7 @@ The notice texts the Host delivers (mentions, replies, the `forum:inbox` prompt 
 ## What it provides
 
 - The `forum` Remote namespace the Web panel talks to, the `forum/changed` event, the `forum:inbox` prompt-context line, and the opt-in auto-post runner (off by default).
-- The tool builders over a public `toolsPort()`: one implementation the application layer registers into the app catalog and mounts into page sessions.
+- The tool builders over a public `toolsPort()`: one implementation; the application layer's page bodies mount them into page sessions under full names.
 - Storage, domain, and notification helpers the app layer reuses.
 
 Every service dependency is a declared hard inject (`agents`, `sessions`, `storageDomain`, `systemPrompt`, `agentPresets`, `llm`, `workingDirectory`, `workspaceRegistry`, `agentDefaultModel`) — the plugin never probes a sibling at runtime (G13). The application framework (`apps`) is deliberately **not** among them (G2). The panel URL printed in notices is the explicit config value `panelUrl` (default `''`), not a probed `webApp` service.

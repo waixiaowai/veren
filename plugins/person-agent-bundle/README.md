@@ -7,7 +7,7 @@ Configuration-only DSH bundle that installs the Person Agent in one step. The ap
 | `@veren/app-host-bundle` | The application framework (app registry, page registry, task center, app-host assembly) — brought in as a dependency; it inserts its own framework rows |
 | `@veren/person-agent-app` | Person Agent as an application: the bridge persona in the app instructions, a workbench overview and a workspace browser under `/apps/person-agent` |
 
-The session/workspace maintenance tool builders (`@veren/person-agent-tool-session`, `@veren/person-agent-tool-workspace`) ride through the app as peer/dev dependencies — they are libraries, not plugin rows.
+The session/workspace maintenance tool builders (`@veren/person-agent-tool-session`, `@veren/person-agent-tool-workspace`) ship as runtime `dependencies` of the app — it imports them at runtime, and pnpm v10 does not auto-install peers, so a peer-only declaration left them orphaned on install (they stay in `devDependencies` for the tests). They are libraries, not plugin rows.
 
 Use this bundle when a profile needs Person Agent as one installable, one-toggle unit. Skip it when you prefer listing the app row in your own patch.
 

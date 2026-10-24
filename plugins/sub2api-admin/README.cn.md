@@ -16,7 +16,7 @@
 | accounts | `/apps/sub2api-admin/accounts` | 上游账号列表（平台 / 类型 / 状态 / 可调度）；状态 / 调度 / 清错 / 配额 / 批量运维 | `accounts` |
 | usage | `/apps/sub2api-admin/usage` | 近 7 日趋势、模型维度统计、区间汇总 | `usage` |
 
-插件激活即拉一次真实数据；工具写入成功后自动刷新对应 store 切片，页面树经 SNAPSHOT/PATCH 同步进页面会话。每页 `instructions` 点名的工具与该页实际挂载严格一致（承诺=挂载），listPage 正文「配套工具」行列出全部挂载工具外名。
+插件激活即拉一次真实数据；工具写入成功后自动刷新对应 store 切片，各页组件体在一次性渲染时读 store——PAGE 块正文即打开时刻的状态，数据过期就再调工具刷新。每页 `instructions` 点名的工具与该页实际挂载严格一致（承诺=挂载），listPage 正文「配套工具」行列出全部挂载工具外名。
 
 ## 工具（本地名，对外名 `sub2api_admin__<name>`，由页面组件体登记）
 

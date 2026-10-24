@@ -1,6 +1,6 @@
 # @veren/task-workbench
 
-Veren **应用**的参考实现：在 `@veren/app-registry`、`@veren/page-registry` 与 `@veren/prompt-page` 之上注册 `task-workbench` 应用（id、入口页面、页面集合、工具目录、任务通道）。把本包当作「怎样写一个 Veren 应用」的样板来抄，而不是当库用。
+Veren **应用**的参考实现：在 `@veren/app-registry`、`@veren/page-registry` 与 `@veren/prompt-page` 之上注册 `task-workbench` 应用（id、入口页面、页面集合、页面工具集、任务通道）。把本包当作「怎样写一个 Veren 应用」的样板来抄，而不是当库用。
 
 [English](./README.md)
 

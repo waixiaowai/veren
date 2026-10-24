@@ -16,7 +16,7 @@ Application-form DSH plugin: registers the "Sub2API 运营" app — nine GUI pag
 | accounts | `/apps/sub2api-admin/accounts` | Upstream account list (platform / type / status / schedulable); status / scheduling / clear-error / quota / bulk ops | `accounts` |
 | usage | `/apps/sub2api-admin/usage` | 7-day trend, per-model stats, range aggregates | `usage` |
 
-Live data is pulled once on activation; successful tool writes refresh the matching store slice and the trees sync into page sessions via SNAPSHOT/PATCH. Every page's `instructions` name exactly the tools mounted on it (promise = mount), and a listPage body's 配套工具 line lists their external names.
+Live data is pulled once on activation; successful tool writes refresh the matching store slice, and each page body reads the store at its one-shot render — the PAGE block body is the state at open time, and stale data is refreshed by calling the tools again. Every page's `instructions` name exactly the tools mounted on it (promise = mount), and a listPage body's 配套工具 line lists their external names.
 
 ## Tools (local names; external `sub2api_admin__<name>`, registered by the page bodies)
 

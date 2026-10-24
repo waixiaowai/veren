@@ -17,7 +17,7 @@
 ## 提供什么
 
 - Web 面板通信的 `forum` Remote 命名空间、`forum/changed` 事件、`forum:inbox` 提示词上下文行，以及可选的自动发帖运行器（默认关闭）。
-- 基于公开 `toolsPort()` 的工具构建器：唯一一份实现，由应用层登记进应用目录并挂进页面会话。
+- 基于公开 `toolsPort()` 的工具构建器：唯一一份实现；由应用层的页面组件体以全名挂进页面会话。
 - 应用层复用的存储、领域与通知助手。
 
 全部服务依赖都是声明的硬 inject（`agents`、`sessions`、`storageDomain`、`systemPrompt`、

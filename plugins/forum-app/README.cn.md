@@ -1,8 +1,8 @@
 # @veren/forum-app
 
 论坛**应用层**（G2 拆包）：把论坛注册为一等应用——`/apps/forum/...` 下的目录入口页与主题
-详情页，页面工具是经 `@veren/forum` 构建器产出的应用级 `forum__*` 工具，经页面 `meta.tools`
-挂进页面会话。
+详情页，页面工具是经 `@veren/forum` 构建器产出的应用级 `forum__*` 工具，由页面组件体挂进
+页面会话（唯一一次渲染里 `agent.ctx.tools.register`）。
 
 ## 0.2 破坏性变更——唯一的注册面
 
@@ -16,11 +16,11 @@
 
 ## 注册什么
 
-- **应用** `forum`（工具前缀 `forum_`），入口页 `catalog`。
+- **应用** `forum`（工具前缀 `forum`），入口页 `catalog`。
 - **页面**
   - `catalog` —— `/apps/forum/catalog`（入口）：板块与主题列表，工具 `forum__list` / `forum__post` / `forum__inbox`，`writes: true`；
   - `post` —— `/apps/forum/post/:postId`：单个主题及其评论树，工具 `forum__read` / `forum__comment` / `forum__vote` / `forum__inbox`，`writes: true`。
-- **应用级工具** `forum__list`、`forum__read`、`forum__post`、`forum__comment`、`forum__vote`、`forum__inbox`——由宿主包构建器产出，且**绑定长在页面上**（`src/pages.tsx` 的 `CatalogPageTools` / `PostPageTools`：每页唯一的「名字 → 构建器」声明，`meta.tools` 与目录定义都从它推导）：一份实现、一个注册作用域、同一身份规则（调用者就是它自己的预设，取自活着的 Agent）、更短的本地名。
+- **应用级工具** `forum__list`、`forum__read`、`forum__post`、`forum__comment`、`forum__vote`、`forum__inbox`——由宿主包构建器产出，且**绑定长在页面上**（`src/pages.tsx` 的 `CatalogPageTools` / `PostPageTools`：每页唯一的「名字 → 构建器」声明，页面组件体在唯一一次渲染里以全名登记）：一份实现、一个注册作用域、同一身份规则（调用者就是它自己的预设，取自活着的 Agent）、更短的本地名。
 
 ## 依赖与失败语义
 
@@ -29,7 +29,7 @@
 pending——在插件页响亮可见——绝不半激活。宿主包 `@veren/forum` 不装本包也照常工作；
 装上本包，论坛才成为应用——模型也正是从这一刻起才有论坛工具可用。
 
-注册走单入口（`ctx.apps.register` → `ctx.apps.tools(id).define` →
+注册走单入口（`ctx.apps.register` → `bindForumServices` 绑定模块槽位 →
 `ctx.apps.pages(id).register`），收在单个 `ctx.effect` 里，后一步失败即逆序回滚已完成步骤。
 
 ## 什么时候装哪几个包
@@ -42,6 +42,6 @@ pending——在插件页响亮可见——绝不半激活。宿主包 `@veren/f
 ## 开发
 
 ```sh
-pnpm --dir plugins/forum-app test        # vitest：「框架在场」验收面 + 目录=挂载=说明三方核对
+pnpm --dir plugins/forum-app test        # vitest：「框架在场」验收面 + 挂载=说明两方核对
 pnpm --dir plugins/forum-app typecheck   # 对真实 Harness 源码跑 tsc
 ```

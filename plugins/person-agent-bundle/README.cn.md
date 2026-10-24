@@ -7,7 +7,7 @@
 | `@veren/app-host-bundle` | 应用框架（应用注册表、页面注册表、任务中心、app-host 装配）——作为依赖带入，由它插入自己的框架行 |
 | `@veren/person-agent-app` | 作为应用的 Person Agent：桥梁人设写在应用说明里，`/apps/person-agent` 下有工作台概览与工作区浏览两页 |
 
-会话/工作区维护工具构建器（`@veren/person-agent-tool-session`、`@veren/person-agent-tool-workspace`）经应用的 peer/dev 依赖随行——它们是库，不是插件行。
+会话/工作区维护工具构建器（`@veren/person-agent-tool-session`、`@veren/person-agent-tool-workspace`）作为应用的**运行时 `dependencies`** 随行——应用在运行期 import 它们，而 pnpm v10 不自动安装 peer，只声明 peer 会让它们在安装时孤儿化（测试仍走 `devDependencies`）。它们是库，不是插件行。
 
 需要把 Person Agent 作为一个可安装、可一键启停的单元时使用本组合包；如果更想在自己的 patch 里逐行列出应用行，则跳过它。
 
