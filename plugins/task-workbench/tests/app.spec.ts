@@ -15,7 +15,7 @@ import PageRegistryPlugin, { PageRegistryService } from '@veren/page-registry'
 import { apply, inject, name } from '../src/index.ts'
 import { APP_ID, APP_DEFINITION, createAppTools, createTaskChannel } from '../src/app.ts'
 import { defineComponentPage } from '@veren/prompt-page'
-import type { ComponentPageMeta, PageFC, PageJsonValue, PageParams } from '@veren/prompt-page'
+import type { ComponentPageMeta, PageFC, PageParams } from '@veren/prompt-page'
 import { bindWorkbenchRuntime, DetailMeta, DetailPage, ListMeta, ListPage, PublishMeta, PublishPage } from '../src/pages.tsx'
 import { TaskStore, makeList } from '../src/store.ts'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -157,11 +157,11 @@ describe('应用可被发现与解析', () => {
     // the list page. The tool face = the body's registrations (one-shot), recorded
     // by the fake agent.
     const detailRegistered = fakeAgent()
-    defineComponentPage(detailPage.component, detailPage).live.mount({ taskId: 't-1' }, detailRegistered.agent, undefined)
+    defineComponentPage(detailPage.component, detailPage).live.mount({ taskId: 't-1' }, detailRegistered.agent)
     expect(detailRegistered.registered).toContain('task_workbench__take_page_task')
     expect(detailRegistered.registered).not.toContain('task_workbench__take_task')
     const listRegistered = fakeAgent()
-    defineComponentPage(listPage.component, listPage).live.mount({}, listRegistered.agent, undefined)
+    defineComponentPage(listPage.component, listPage).live.mount({}, listRegistered.agent)
     expect(listRegistered.registered).toContain('task_workbench__take_task')
   })
 
@@ -300,7 +300,7 @@ describe('工具面口径（承诺=挂载，事实源如实）', () => {
    * registration); the registered names come back with the mount */
   function bodyTextOf(component: (props: never, agent: never) => unknown, meta: ComponentPageMeta<never>, params: PageParams): { body: string; registered: string[] } {
     const { agent, registered } = fakeAgent()
-    const body = defineComponentPage(component as PageFC, meta as ComponentPageMeta).live.mount(params, agent, undefined)
+    const body = defineComponentPage(component as PageFC, meta as ComponentPageMeta).live.mount(params, agent)
     return { body, registered }
   }
 
@@ -398,8 +398,7 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     // subtree progress come verbatim from the store
     bindWorkbenchRuntime(store, testTools)
     const { agent } = fakeAgent()
-    const snapshot = await ListMeta.load?.({}, {}) as PageJsonValue
-    const body = defineComponentPage(ListPage, ListMeta).live.mount({}, agent, snapshot)
+    const body = defineComponentPage(ListPage, ListMeta).live.mount({}, agent)
     expect(body).toContain('任务 t-1')
     expect(body).toContain('任务 t-2')
     expect(body).toContain('0/1')
@@ -410,16 +409,14 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     const foundStore = new TaskStore([{ id: 't-1', title: '任务 t-1', status: 'open' }])
     bindWorkbenchRuntime(foundStore, testTools)
     const { agent: foundAgent } = fakeAgent()
-    const foundSnap = await DetailMeta.load?.({ taskId: 't-1' }, {}) as PageJsonValue
-    const foundBody = defineComponentPage(DetailPage, DetailMeta).live.mount({ taskId: 't-1' }, foundAgent, foundSnap)
+    const foundBody = defineComponentPage(DetailPage, DetailMeta).live.mount({ taskId: 't-1' }, foundAgent)
     expect(foundBody).toContain('t-1 任务 t-1')
     expect(foundBody).toContain('open')
 
     const missingStore = new TaskStore([])
     bindWorkbenchRuntime(missingStore, testTools)
     const { agent: missingAgent } = fakeAgent()
-    const missingSnap = await DetailMeta.load?.({ taskId: 'ghost' }, {}) as PageJsonValue
-    const missingBody = defineComponentPage(DetailPage, DetailMeta).live.mount({ taskId: 'ghost' }, missingAgent, missingSnap)
+    const missingBody = defineComponentPage(DetailPage, DetailMeta).live.mount({ taskId: 'ghost' }, missingAgent)
     expect(missingBody).toContain('任务 ghost 不存在')
   })
 })

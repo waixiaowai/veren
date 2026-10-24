@@ -19,12 +19,12 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { AppRegistryService } from '@veren/app-registry'
 import { PageRegistryService } from '@veren/page-registry'
 import { defineComponentPage } from '@veren/prompt-page'
-import type { ComponentPageMeta, PageFC, PageJsonValue, PageParams } from '@veren/prompt-page'
+import type { ComponentPageMeta, PageFC, PageParams } from '@veren/prompt-page'
 import { bindForumServices, CatalogMeta, CatalogPage, PostMeta, PostPage } from '../src/pages.tsx'
 import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -69,6 +69,7 @@ function toolValue<T>(result: unknown): T {
  */
 function fakeAgent() {
   const registered: Array<{ name: string; definition: unknown }> = []
+  const followups: string[] = []
   const agent = {
     ctx: {
       tools: {
@@ -77,12 +78,15 @@ function fakeAgent() {
           return () => undefined
         },
       },
-      effect: () => async () => undefined,
+      effect: (run: () => unknown) => { void run(); return async () => undefined },
       on: () => () => undefined,
     },
     session: { id: 'spec' },
+    followup: (message: { content: ReadonlyArray<{ type: string; text?: string }> }) => {
+      followups.push(...message.content.map((block) => block.text ?? ''))
+    },
   }
-  return { agent: agent as never, registered }
+  return { agent: agent as never, registered, followups }
 }
 
 /** 记录型 agent（一次构造，多处使用）/ a recording agent (built once, used everywhere) */
@@ -111,27 +115,25 @@ function toolOf(fixture: ForumFixture, localName: string): AppTool {
 }
 
 /**
- * 挂载真实页面组件（一次性渲染）并返回正文 Markdown：load 先取数（真实服务面，
- * 失败按运行时信封包一层——firstScreenData 的同款形状），快照经 useSnapshot 进
- * 正文——与生产同一条路，零工厂、零闭包注入。
- * Mount a real page component (one-shot) and return the body Markdown: load
- * fetches first (the real service face; failures wrap in the runtime envelope —
- * the same shape as firstScreenData), the snapshot reaches the body via
- * useSnapshot — the same path as production, zero factory, zero closures.
+ * 挂载真实页面组件（一次性渲染）并等首屏落地：正文是静态框（立即成型），
+ * 首屏数据由组件体自己的 effect 异步读出、经 followup 送达——与生产同一条路，
+ * 零工厂、零闭包注入。返回正文与首屏消息。
+ * Mount a real page component (one-shot) and wait for the first screen to land:
+ * the body is the static frame (finalized at once), the first-screen data is
+ * read by the body's own effect and delivered via followup — the same path as
+ * production, zero factory, zero closures. Returns the body plus the
+ * first-screen messages.
  */
 async function mountPage(
   component: (props: never, agent: never) => unknown,
   meta: ComponentPageMeta<never>,
   port: () => ForumToolsPort,
   params: PageParams = {},
-): Promise<string> {
-  const { agent } = fakeAgent()
-  const snapshot = meta.load === undefined
-    ? undefined
-    : await meta.load(params as never, {}).catch(
-      (error: unknown) => ({ error: { code: 'page/load-failed', message: error instanceof Error ? error.message : String(error) }, retry: '重开本页 URL 即可重取首屏数据' }) as unknown as PageJsonValue,
-    )
-  return defineComponentPage(component as PageFC, meta as ComponentPageMeta).live.mount(params, agent, snapshot)
+): Promise<{ body: string; followups: string[] }> {
+  const fixture = fakeAgent()
+  const body = defineComponentPage(component as PageFC, meta as ComponentPageMeta).live.mount(params, fixture.agent)
+  await vi.waitFor(() => expect(fixture.followups.length).toBeGreaterThan(0))
+  return { body, followups: fixture.followups }
 }
 
 /**
@@ -240,10 +242,10 @@ describe('forum app discovery and resolution / 应用可发现与可解析', () 
     // / per-page asserts: the catalog page's three; the post page's four (inbox
     // rides both pages — a session working one post still reads its notices)
     const catalogRegistration = defineComponentPage(CatalogPage, CatalogMeta)
-    catalogRegistration.live.mount({}, fixture.agent, undefined)
+    catalogRegistration.live.mount({}, fixture.agent)
     expect(fixture.registered.map((entry) => entry.name)).toEqual(['forum__list', 'forum__post', 'forum__inbox'])
     const postRegistration = defineComponentPage(PostPage, PostMeta)
-    postRegistration.live.mount({ postId: 'p-1' }, fixture.agent, undefined)
+    postRegistration.live.mount({ postId: 'p-1' }, fixture.agent)
     expect(fixture.registered.slice(3).map((entry) => entry.name)).toEqual(['forum__read', 'forum__comment', 'forum__vote', 'forum__inbox'])
 
     await fiber.dispose()
@@ -275,8 +277,8 @@ describe('forum app tools act on the real service / 应用工具作用于真实�
     const fixture = makeFixture(ctx, port)
     // 两个组件体的登记动作把构建器产物带出来（execute 与名字无关）
     // / the bodies' registrations bring the builder products out (execute ignores the name)
-    defineComponentPage(CatalogPage, CatalogMeta).live.mount({}, fixture.agent, undefined)
-    defineComponentPage(PostPage, PostMeta).live.mount({ postId: 'p-1' }, fixture.agent, undefined)
+    defineComponentPage(CatalogPage, CatalogMeta).live.mount({}, fixture.agent)
+    defineComponentPage(PostPage, PostMeta).live.mount({ postId: 'p-1' }, fixture.agent)
     const boardId = (await ctx.forum.ensureBoardRemote({ workspaceId: 'ws-1', path: 'C:/work/demo' })).id
 
     // The page tool resolves the caller from the live Agent — no author
@@ -319,8 +321,8 @@ describe('挂载 = 说明 两方可核对 / mount = instructions', () => {
   function registeredOf(fixture: ForumFixture, page: 'catalog' | 'post'): Set<string> {
     const before = fixture.registered.length
     void (page === 'catalog'
-      ? defineComponentPage(CatalogPage, CatalogMeta).live.mount({}, fixture.agent, undefined)
-      : defineComponentPage(PostPage, PostMeta).live.mount({ postId: 'p-1' }, fixture.agent, undefined))
+      ? defineComponentPage(CatalogPage, CatalogMeta).live.mount({}, fixture.agent)
+      : defineComponentPage(PostPage, PostMeta).live.mount({ postId: 'p-1' }, fixture.agent))
     return new Set(fixture.registered.slice(before).map((entry) => entry.name))
   }
 
@@ -360,23 +362,28 @@ describe('挂载 = 说明 两方可核对 / mount = instructions', () => {
   })
 })
 
-describe('§3.10 页面 = 信息 + 工具：正文渲染真实记录，每行带 id / the body renders the real records, ids on every row', () => {
-  it('入口页正文渲染真实目录：板块/主题/人物行内带 id（load 取数，正文同步成型）', async () => {
+describe('§3.10 页面 = 信息 + 工具：首屏消息渲染真实记录，每行带 id / the first-screen message renders the real records, ids on every row', () => {
+  it('入口页首屏消息渲染真实目录：板块/主题/人物行内带 id（组件体异步读、followup 送达）', async () => {
     const { ctx, fiber } = await mount()
     const board = await ctx.forum.ensureBoardRemote({ workspaceId: 'ws-1', path: 'C:/work/demo' })
     await ctx.forum.toolsPort().publish({
       boardId: board.id, author: 'standard', title: '开版帖', body: '第一篇',
     })
     const fixture = makeFixture(ctx, () => ctx.forum.toolsPort())
-    const body = await mountPage(CatalogPage, CatalogMeta, () => ctx.forum.toolsPort())
+    void fixture
+    const { body, followups } = await mountPage(CatalogPage, CatalogMeta, () => ctx.forum.toolsPort())
+    // 正文是静态框 / the body is the static frame
     expect(body).toContain('论坛 · 板块与主题列表')
-    // 板块行：id 是工具要用的 boardId / the board row: its id is the tool's boardId
-    expect(body).toContain('id: ws-1')
-    expect(body).toContain('开版帖（id:')
-    expect(body).toContain('作者 standard')
+    expect(body).toContain('随后以消息送达')
+    // 首屏消息携带真实目录（板块行 id 是工具要用的 boardId）
+    // / the first-screen message carries the real catalog (the board row's id is the tool's boardId)
+    const screen = followups.join('\n')
+    expect(screen).toContain('id: ws-1')
+    expect(screen).toContain('开版帖（id:')
+    expect(screen).toContain('作者 standard')
   })
 
-  it('详情页正文渲染该主题与评论树：评论行内 id 可作 parentCommentId/subjectId', async () => {
+  it('详情页首屏消息渲染该主题与评论树：评论行内 id 可作 parentCommentId/subjectId', async () => {
     const { ctx, fiber } = await mount()
     const board = await ctx.forum.ensureBoardRemote({ workspaceId: 'ws-1', path: 'C:/work/demo' })
     const created = await ctx.forum.toolsPort().publish({
@@ -385,33 +392,33 @@ describe('§3.10 页面 = 信息 + 工具：正文渲染真实记录，每行带
     await ctx.forum.toolsPort().comment({
       postId: created.value.id, author: 'ptc', body: '前排回复',
     })
-    const fixture = makeFixture(ctx, () => ctx.forum.toolsPort())
-    const body = await mountPage(PostPage, PostMeta, () => ctx.forum.toolsPort(), { postId: created.value.id })
-    expect(body).toContain('被读的帖')
-    expect(body).toContain(`id: ${created.value.id}`)
-    expect(body).toContain('全文在这里')
-    expect(body).toContain('前排回复')
+    const { body, followups } = await mountPage(PostPage, PostMeta, () => ctx.forum.toolsPort(), { postId: created.value.id })
+    expect(body).toContain(`论坛主题 ${created.value.id}`)
+    const screen = followups.join('\n')
+    expect(screen).toContain('被读的帖')
+    expect(screen).toContain(`id: ${created.value.id}`)
+    expect(screen).toContain('全文在这里')
+    expect(screen).toContain('前排回复')
     // 评论行格式：作者（id: ...）：内容 / the comment row format: author (id: ...): body
-    expect(body).toContain('ptc（id:')
+    expect(screen).toContain('ptc（id:')
   })
 
-  it('主题不存在：load 抛错 → 运行时失败态信封经 useSnapshot 如实渲染（失败态也是数据）', async () => {
-    const { ctx, fiber, port } = await mount()
-    const fixture = makeFixture(ctx, port)
-    // load 会 reject（服务面的稳定拒绝）——测试按运行时信封下发失败态，
-    // 组件正文必须原样携带拒绝消息（code 面由 forum 包自己的工具测试锁定）。
-    // / load rejects (the service's stable refusal) — the test hands the runtime
-    // envelope down; the body must carry the refusal verbatim (the code face is
-    // locked in the forum package's own tool tests).
-    await expect(PostMeta.load?.({ postId: 'p-missing' }, {})).rejects.toThrow('no post with id "p-missing"')
-    const body = await mountPage(
+  it('主题不存在：服务面拒绝原样随首屏消息送达（失败态也是信息）', async () => {
+    const { ctx, fiber } = await mount()
+    // 详情读会 reject（服务面的稳定拒绝）——拒绝消息必须原样进首屏消息
+    // （code 面由 forum 包自己的工具测试锁定）。
+    // / the detail read rejects (the service's stable refusal) — the refusal
+    // must land verbatim in the first-screen message (the code face is locked
+    // in the forum package's own tool tests).
+    const { followups } = await mountPage(
       PostPage,
       PostMeta,
       () => ctx.forum.toolsPort(),
       { postId: 'p-missing' },
     )
-    expect(body).toContain('主题读取失败')
-    expect(body).toContain('no post with id "p-missing"')
+    const screen = followups.join('\n')
+    expect(screen).toContain('读取失败')
+    expect(screen).toContain('no post with id "p-missing"')
   })
 
   it('说明指向正文行内 id：两页 instructions 都写明 id 取法', async () => {

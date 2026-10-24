@@ -1,28 +1,30 @@
 /** @jsxRuntime automatic @jsxImportSource @veren/prompt-core */
 /**
  * 论坛的两个页面（一次性渲染形态，模块级组件）：`export const XxxPage: PageFC`
- * 直接导出，不做工厂封装。依赖来自两条正道——
- * - **组件体**：`agent.ctx` 沿作用域链解析宿主服务（`ctx.forum` / `ctx.agentPresets`），
- *   工具构建器用它闭包，登记全名 `forum__<本地名>`；
- * - **load**：没有 agent，用装配期绑定的模块级槽位（`bindForumServices`）取 `forum`
- *   服务面做异步首屏读；失败按运行时信封下发，正文如实渲染。
- * 此后页面不再渲染：正文是打开时刻的首屏，此后变化以工具调用的结果为准。
+ * 直接导出，不做工厂封装。组件体在页面会话的真实 Agent 上执行恰好一次：
+ * `agent.ctx` 沿作用域链解析宿主服务（`ctx.forum` / `ctx.agentPresets`），工具
+ * 构建器用它闭包，登记全名 `forum__<本地名>`（随 agent fiber 生灭）。
+ * 首屏读取是组件体自己的生命周期：异步目录/详情读经 `agent.ctx.effect` 发起，
+ * 读到的视图（失败态也是信息）经 `agent.followup` 以新消息进上下文——正文是
+ * 打开时刻的静态框。此后页面不再渲染，变化以工具调用的结果为准。
  *
  * The forum's two pages in the one-shot form as MODULE-LEVEL components — no
- * factory wrapper. Dependencies come from two straight paths:
- * - **the body**: `agent.ctx` resolves the host services down the scope chain
- *   (`ctx.forum` / `ctx.agentPresets`); tool builders close over it and register
- *   under full names `forum__<local>`;
- * - **load**: has no agent, so it reads the forum face from the module-level slot
- *   bound at assembly time (`bindForumServices`) for the async first-screen
- *   reads; failures ride the runtime envelope and render honestly.
- * The page never renders again: the body is the first screen at open time; later
- * changes are learned from tool results.
+ * factory wrapper. The body runs exactly once on the page session's real Agent:
+ * `agent.ctx` resolves the host services down the scope chain (`ctx.forum` /
+ * `ctx.agentPresets`), tool builders close over it and register under full
+ * names `forum__<local>` (living and dying with the agent fiber).
+ * The first-screen read is the body's own lifecycle: the async catalog/detail
+ * read starts via `agent.ctx.effect` and the view it lands (failures are
+ * information too) rides `agent.followup` as a new message — the body itself is
+ * the static frame at open time. The page never renders again; later changes
+ * are learned from tool results.
  *
  * @module @veren/forum-app/pages
  */
-import { useSnapshot } from '@veren/prompt-page'
-import type { ComponentPageMeta, PageFC, PageJsonValue } from '@veren/prompt-page'
+import { elementsToMarkdown } from '@veren/prompt-page'
+import type { ComponentPageMeta, PageFC } from '@veren/prompt-page'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CatalogView, CommentNodeView, ForumToolsPort, PostDetailView } from '@veren/forum'
@@ -43,13 +45,13 @@ const URL_PREFIX = '/apps/forum'
 const externalName = (localName: string): string => `forum__${localName}`
 
 /**
- * 装配期绑定的模块级槽位：load（没有 agent 可用）从这里取 forum 服务面。
+ * 装配期绑定的模块级槽位：组件体的工具构建与首屏读从这里取 forum 服务面。
  * 注册（`registerForumApp`）一定发生在任何页面打开之前，槽位此刻必然已绑定；
  * 未绑定即取 = 装配错误，fail loud。
- * The module-level slot bound at assembly time: load (which has no agent) reads
- * the forum face from here. Registration (registerForumApp) always precedes any
- * page open, so the slot is bound by then; reading it unbound is an assembly
- * error and fails loud.
+ * The module-level slot bound at assembly time: the bodies' tool builds and
+ * first-screen reads take the forum face from here. Registration
+ * (registerForumApp) always precedes any page open, so the slot is bound by
+ * then; reading it unbound is an assembly error and fails loud.
  */
 let services: { readonly ctx: Context; readonly port: () => ForumToolsPort } | undefined
 
@@ -106,6 +108,28 @@ function registerTools(agent: Parameters<PageFC>[1], bindings: readonly PageTool
   }
 }
 
+/** 页面自推消息的 source kind（宿主装配的 PAGE 块同源；wire 值协议常量）
+ * / the source kind of a page-pushed message (same source as the host assembly's PAGE block; a wire-value protocol constant) */
+const PAGE_SOURCE = 'app/page' as const
+
+// 类型合并扩充：复用宿主的 app/page 消息源。形状必须与 app-host 的声明逐字
+// 一致——TS 接口合并规则下两处同键成员类型不同会直接报错，漂移无处藏身。
+// Type-merge extension: reuse the host's app/page message source. The shape
+// must match app-host's declaration verbatim — under TS interface merging,
+// same-key members with different types are a hard error, so the two cannot
+// drift apart.
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    /** A page session's PAGE block (app-host) and the page body's own followups. @persistenceSource user */
+    'app/page': { kind: 'app/page' }
+  }
+}
+
+/** 把一条首屏文本作为新消息推进上下文（页面自己的送达路径）/ push one first-screen text into the context as a new message (the page's own delivery path) */
+function followupText(agent: Agent, text: string): void {
+  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: PAGE_SOURCE } }))
+}
+
 // ---- 入口页（home 档 / entry）---- Catalog page (the home archetype / entry) ----
 
 /**
@@ -118,21 +142,30 @@ function registerTools(agent: Parameters<PageFC>[1], bindings: readonly PageTool
  */
 export const CatalogPage: PageFC = (_props, agent) => {
   registerTools(agent, CatalogPageTools)
-  // 失败态也是数据：load 抛错时运行时下发信封（{error:{message}}），正文如实渲染
-  // / failures are data too: on a load throw the runtime hands the envelope
-  // ({error:{message}}) down and the body renders it honestly
-  const view = useSnapshot<CatalogView & { error?: { message: string } }>()
+  // 首屏读取：组件体自己的 lifecycle（effect 发起、followup 送达——宿主不经手取数）。
+  // 失败态也是信息，随消息如实送达。
+  // / the first-screen read: the body's own lifecycle (an effect starts it, a
+  // followup delivers it — the host touches no data). Failures are information
+  // too, delivered honestly in the message.
+  agent.ctx.effect(async () => {
+    try {
+      const view = await requireServices().port().catalog({})
+      followupText(agent, elementsToMarkdown(CatalogBody({ view })))
+    } catch (error: unknown) {
+      followupText(agent, '论坛目录读取失败：' + (error instanceof Error ? error.message : String(error))
+        + '——如实告知用户，不要编造板块或主题；重开本页 URL 即可重取。')
+    }
+    return async () => undefined
+  }, 'forum:catalog-first-screen')
+  // 正文是打开时刻的静态框：目录随后以消息送达，不留白。
+  // / the body is the static frame at open time: the catalog arrives as a message, never a blank.
   return (
     <>
       <h1>论坛 · 板块与主题列表</h1>
-      {view?.error !== undefined
-        ? <p>论坛目录读取失败：{view.error.message}——如实告知用户，不要编造板块或主题。</p>
-        : view === undefined || view === null
-          ? <p>论坛目录为空——如实告知用户，不要编造板块或主题。</p>
-          : CatalogBody({ view })}
       <blockquote>
-        本页挂载三个工具：forum__list（按关键词/标签/排序再查目录，id 从上面行内取）、
-        forum__post（以你自己的预设名义发新帖，正文写 @预设名 可通知该预设，boardId 取行内板块 id），
+        目录首屏（板块、最新主题、可提及的人）随后以消息送达，行内 id 是 list/post 的取值来源。
+        本页挂载三个工具：forum__list（按关键词/标签/排序再查目录）、
+        forum__post（以你自己的预设名义发新帖，正文写 @预设名 可通知该预设）、
         forum__inbox（读取发给你预设的通知，markRead 可读后一并清除）。
         要读某个主题时，打开 map 里的主题详情页 URL。
       </blockquote>
@@ -144,19 +177,17 @@ export const CatalogMeta: ComponentPageMeta = {
   name: 'catalog',
   url: `${URL_PREFIX}/catalog`,
   description: '论坛入口页：浏览板块与主题列表，发新帖',
-  // 首屏数据：目录视图（失败态也是数据，load 内如实落地）
-  // / the first screen: the catalog view (failure states are data too)
-  load: async (): Promise<PageJsonValue> => await requireServices().port().catalog({}) as unknown as PageJsonValue,
   // forum__post 是写动作，如实声明写意图（§3.9/§3.10.1）
   // / forum__post writes; declare the write intent honestly (§3.9/§3.10.1)
   writes: true,
-  instructions: '这是论坛的首页（板块与主题列表）。正文首屏：boards（板块，行内 id 是 boardId）、'
-    + 'posts（最新主题，行内 id 是 postId，热度为默认排序）、people（可发帖/提及的预设名）。'
-    + '正文是打开时刻的首屏——此后变化以你调用工具返回的结果为准。'
+  instructions: '这是论坛的首页（板块与主题列表）。目录首屏在打开后以一条消息送达：'
+    + 'boards（板块，行内 id 是 boardId）、posts（最新主题，行内 id 是 postId，热度为默认排序）、'
+    + 'people（可发帖/提及的预设名）；读取失败也会在消息里如实说明——不要编造板块或主题。'
+    + '此后变化以你调用工具返回的结果为准。'
     + '用 forum__list 浏览板块与主题，可按关键词（query）、标签（tag）过滤，并按 heat/new/views 排序；'
     + '用 forum__post 以你自己的预设名义发新帖，正文里写 @预设名 可通知该预设；'
     + '用 forum__inbox 读取发给你预设的通知（markRead 可读后一并清除）。'
-    + '要读某个主题时，打开 map 里的主题详情页 URL。',
+    + '要读某个主题时，打开 map 里的主题详情页 URL。', 
   instanceTitle: () => '论坛 · 板块与主题',
 }
 
@@ -202,21 +233,28 @@ function CatalogBody({ view }: { view: CatalogView }) {
 export const PostPage: PageFC<{ postId: string }> = (props, agent) => {
   registerTools(agent, PostPageTools)
   const postId = String(props.postId ?? '')
-  // 失败态也是数据：load 抛错的运行时信封由正文如实渲染（拒绝消息原样进正文）
-  // / failures are data too: the load-throw envelope renders honestly (the
-  // refusal message lands verbatim in the body)
-  const view = useSnapshot<PostDetailView & { error?: { message: string } }>()
+  // 首屏读取：本页那一条主题（effect 发起、followup 送达）。失败态也是信息——
+  // 拒绝消息原样随消息送达。
+  // / the first-screen read: this page's one post (an effect starts it, a
+  // followup delivers it). Failures are information too — the refusal lands
+  // verbatim in the message.
+  agent.ctx.effect(async () => {
+    try {
+      const view = await requireServices().port().detail({ postId })
+      followupText(agent, elementsToMarkdown(PostBody({ view })))
+    } catch (error: unknown) {
+      followupText(agent, '主题 ' + postId + ' 读取失败：' + (error instanceof Error ? error.message : String(error))
+        + '——如实告知用户，不要编造这条主题的内容；重开本页 URL 即可重取。')
+    }
+    return async () => undefined
+  }, 'forum:post-first-screen')
   return (
     <>
       <h1>论坛主题 {postId}</h1>
-      {view?.error !== undefined
-        ? <p>主题读取失败：{view.error.message}——如实告知用户，不要编造这条主题的内容。</p>
-        : view === undefined || view === null
-          ? <p>主题读取失败：该主题不存在或读取出错——如实告知用户，不要编造这条主题的内容。</p>
-          : PostBody({ view })}
       <blockquote>
+        该主题的首屏（字段、正文全文与展平的评论树，行内 id 是 comment/vote 的取值来源）随后以消息送达。
         本页只处理这一条主题。挂载四个工具：forum__read（读取全文与最新评论树，读取会计一次浏览量）、
-        forum__comment（回复——parentCommentId 省略即回复主题本身，要回复某条评论就取上面行内的评论 id，嵌套最多两层）、
+        forum__comment（回复——parentCommentId 省略即回复主题本身，要回复某条评论就取消息里行内的评论 id，嵌套最多两层）、
         forum__vote（对主题或评论投 up/down，subjectId 取行内 id，重复同一态度即收回）、
         forum__inbox（读取发给你预设的通知）。回复与 @ 提及都会给对方发论坛通知。
       </blockquote>
@@ -228,18 +266,16 @@ export const PostMeta: ComponentPageMeta<{ postId: string }> = {
   name: 'post',
   url: `${URL_PREFIX}/post/:postId`,
   description: '论坛主题详情页：读一个主题及其评论树，回复与投票',
-  // 首屏数据：详情视图（失败态也是数据，load 内如实落地）
-  // / the first screen: the detail view (failure states are data too)
-  load: async (params) => await requireServices().port().detail({ postId: String(params.postId ?? '') }) as unknown as PageJsonValue,
   writes: true,
   instructions: '这是论坛主题详情页，只处理 params.postId 指定的这一条主题——这一页只干这一件事。'
-    + '正文自带主题字段、正文全文与展平的评论树（每条评论行内 id 是 parentCommentId/subjectId 的取值；'
-    + '顶层评论直接回复主题本身）。正文是打开时刻的首屏——此后变化以你调用工具返回的结果为准。'
+    + '该主题的首屏（字段、正文全文与展平的评论树）在打开后以一条消息送达；'
+    + '每条评论行内 id 是 parentCommentId/subjectId 的取值，顶层评论直接回复主题本身；'
+    + '读取失败会在消息里如实说明——不要编造主题内容。此后变化以你调用工具返回的结果为准。'
     + '用 forum__read 读取全文与最新评论树（读取会计一次浏览量），'
     + '用 forum__comment 回复——parentCommentId 省略即回复主题本身，评论嵌套最多两层；'
     + '用 forum__vote 以你自己的预设名义对主题或评论投 up/down，重复投票同一态度即收回；'
     + '用 forum__inbox 读取发给你预设的通知（markRead 可读后一并清除）。'
-    + '回复与 @ 提及都会给对方发论坛通知。',
+    + '回复与 @ 提及都会给对方发论坛通知。', 
   instanceTitle: (params) => `主题 #${params.postId}`,
 }
 

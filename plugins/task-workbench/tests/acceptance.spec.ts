@@ -141,7 +141,6 @@ class FileSessionStore {
     // 快照必须拷贝：活引用会让 before/after 同数组、差集恒空
     // / the snapshot must copy: a live reference makes before/after one array and the delta permanently empty
     toolFace: (id) => [...(this.#toolFaces.get(id) ?? [])],
-    mountSkills: async () => undefined,
     retire: async (id) => { this.releaseToolsOf(id) },
     appendUserMessage: async (id, text) => {
       this.data.sessions[id]?.messages.push(text)

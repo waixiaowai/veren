@@ -9,7 +9,7 @@
  * sync reads), and the async face's explicit read-failure degrade (all services
  * are hard injects).
  */
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
 import AppRegistryPlugin, { AppRegistryService } from '@veren/app-registry'
@@ -17,7 +17,7 @@ import PageRegistryPlugin, { PageRegistryService } from '@veren/page-registry'
 import { apply, inject, name } from '../src/index.ts'
 import { APP_DEFINITION, APP_ID } from '../src/app.ts'
 import { defineComponentPage } from '@veren/prompt-page'
-import type { ComponentPageMeta, PageJsonValue, PageParams } from '@veren/prompt-page'
+import type { ComponentPageMeta, PageParams } from '@veren/prompt-page'
 import { bindPersonAgentContext, OverviewMeta, OverviewPage, WorkspacesMeta, WorkspacesPage } from '../src/pages.tsx'
 
 /** 假任务中心：open 列表可编程 / a fake task center with a programmable open list */
@@ -138,6 +138,8 @@ afterEach(async () => {
  */
 function fakeAgent() {
   const registered: Array<{ name: string; definition: unknown }> = []
+  const followups: string[] = []
+  const skills: Array<{ name: string; description: string; content: string }> = []
   const agent = {
     ctx: {
       tools: {
@@ -146,40 +148,51 @@ function fakeAgent() {
           return () => undefined
         },
       },
-      effect: (run: () => (() => void) | void) => {
-        run()
-        return async () => undefined
-      },
+      // 组件体的首屏读经 effect 发起：这里立即执行，promise 异步落定
+      // / the body's first-screen read starts via an effect: run it now, the promise settles async
+      effect: (run: () => unknown) => { void Promise.resolve().then(run); return async () => undefined },
       on: () => () => undefined,
+      // 单会话 skill 组件体直登的断言面 / the assertion face of body-registered single-session skills
+      skills: {
+        register: (skill: { name: string; description: string; content: string }) => {
+          skills.push(skill)
+          return () => undefined
+        },
+      },
     },
     session: { id: 'spec' },
+    followup: (message: { content: ReadonlyArray<{ type: string; text?: string }> }) => {
+      followups.push(...message.content.map((block) => block.text ?? ''))
+    },
   }
-  return { agent: agent as never, registered }
+  return { agent: agent as never, registered, followups, skills }
 }
 
 /**
- * 挂载真实页面组件（一次性渲染）：异步面经 meta.load 取齐快照（与运行时同序），
- * 组件体在假 agent 上执行恰好一次——登记名剥去 `person_agent__` 前缀返回，正文
- * 与登记面一次拿全。
- * Mount a real page component (one-shot): the async face settles in meta.load
- * (the same order as the runtime) and the body runs exactly once on the fake
- * agent — registered names come back with the `person_agent__` prefix stripped,
- * body and registration face in one call.
+ * 挂载真实页面组件（一次性渲染）：组件体在假 agent 上执行恰好一次——登记名剥去
+ * `person_agent__` 前缀返回；异步首屏由组件体自己的 effect 读出、经 followup
+ * 送达（本帮手不等它，测试按需 vi.waitFor）。
+ * Mount a real page component (one-shot): the body runs exactly once on the
+ * fake agent — registered names come back with the `person_agent__` prefix
+ * stripped; the async first screen is read by the body's own effect and
+ * delivered via followup (this helper does not wait for it; tests vi.waitFor
+ * as needed).
  */
 async function mountPage(component: (props: never, agent: never) => unknown, meta: ComponentPageMeta<never>, ctx: Context, params: PageParams = {}): Promise<{
   body: string
+  followups: () => string[]
+  skills: () => Array<{ name: string; description: string; content: string }>
   recorded: () => string[]
   definitions: () => { name: string; execute: (args: unknown, exec: unknown) => Promise<unknown> }[]
 }> {
-  const { agent, registered } = fakeAgent()
-  const snapshot = meta.load === undefined
-    ? undefined
-    : await meta.load(params as never, {}) as PageJsonValue
-  const body = defineComponentPage(component as never, meta).live.mount(params, agent, snapshot)
+  const fake = fakeAgent()
+  const body = defineComponentPage(component as never, meta).live.mount(params, fake.agent)
   return {
     body,
-    recorded: () => registered.map((entry) => entry.name.replace('person_agent__', '')),
-    definitions: () => registered.map((entry) => entry.definition as { name: string; execute: (args: unknown, exec: unknown) => Promise<unknown> }),
+    followups: () => fake.followups,
+    skills: () => fake.skills,
+    recorded: () => fake.registered.map((entry) => entry.name.replace('person_agent__', '')),
+    definitions: () => fake.registered.map((entry) => entry.definition as { name: string; execute: (args: unknown, exec: unknown) => Promise<unknown> }),
   }
 }
 
@@ -298,35 +311,40 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全', () 
     const { ctx, fiber } = await install({ openTitles: ['唯一任务'] })
     disposers.push(() => fiber.dispose())
     bindPersonAgentContext(ctx)
-    const { body } = await mountPage(OverviewPage, OverviewMeta, ctx)
+    const page = await mountPage(OverviewPage, OverviewMeta, ctx)
     // 同步面（apps/workspaces）正文直读 / sync faces (apps/workspaces) read straight in the body
-    expect(body).toContain('Workspace List')
-    expect(body).toContain('主工作区（id: ws-1；会话账目 2）')
-    expect(body).toContain('副工作区（id: ws-2；会话账目 0）')
-    expect(body).toContain('工作区 2 个')
-    expect(body).toContain('Person Agent')
-    // 异步面（tasks/presets/models）在 load 里取齐（没有"读取中"形态——取不齐就失败态如实渲染）
-    // / async faces (tasks/presets/models) settle in load (no "reading" state —
-    // failures render honestly instead)
-    expect(body).toContain('open 任务 1 条')
-    expect(body).toContain('Agent Preset List')
-    expect(body).toContain('Standard mode(standard)')
-    expect(body).toContain('Person Agent(person-agent):Bridge')
-    expect(body).toContain('（不可用：activation failed）')
-    expect(body).toContain('Model Catalog')
-    expect(body).toContain('DeepSeek(deepseek)')
-    expect(body).toContain('DeepSeek Flash(deepseek-flash)')
-    expect(body).toContain('context 128000 tokens')
+    expect(page.body).toContain('Workspace List')
+    expect(page.body).toContain('主工作区（id: ws-1；会话账目 2）')
+    expect(page.body).toContain('副工作区（id: ws-2；会话账目 0）')
+    expect(page.body).toContain('工作区 2 个')
+    expect(page.body).toContain('Person Agent')
+    // 异步面（tasks/presets/models）由组件体 effect 读出、经 followup 消息送达
+    // （失败态在消息里如实渲染）
+    // / async faces (tasks/presets/models) are read by the body's effect and
+    // delivered as a followup message (failures render honestly in it)
+    await vi.waitFor(() => expect(page.followups().length).toBeGreaterThan(0))
+    const msg = page.followups().join('\n')
+    expect(msg).toContain('open 任务 1 条')
+    expect(msg).toContain('Agent Preset List')
+    expect(msg).toContain('Standard mode(standard)')
+    expect(msg).toContain('Person Agent(person-agent):Bridge')
+    expect(msg).toContain('（不可用：activation failed）')
+    expect(msg).toContain('Model Catalog')
+    expect(msg).toContain('DeepSeek(deepseek)')
+    expect(msg).toContain('DeepSeek Flash(deepseek-flash)')
+    expect(msg).toContain('context 128000 tokens')
   })
 
   it('预设/模型读取失败：正文如实标注原因，工作区与任务区不受影响', async () => {
     const { ctx, fiber } = await install({ failPresetList: true, failModelList: true })
     disposers.push(() => fiber.dispose())
     bindPersonAgentContext(ctx)
-    const { body } = await mountPage(OverviewPage, OverviewMeta, ctx)
-    expect(body).toContain('主工作区（id: ws-1；会话账目 2）')
-    expect(body).toContain('预设名单读取失败：preset registry down')
-    expect(body).toContain('模型目录读取失败：llm registry down')
+    const page = await mountPage(OverviewPage, OverviewMeta, ctx)
+    await vi.waitFor(() => expect(page.followups().length).toBeGreaterThan(0))
+    const msg = page.followups().join('\n')
+    expect(page.body).toContain('主工作区（id: ws-1；会话账目 2）')
+    expect(msg).toContain('预设名单）读取失败：preset registry down')
+    expect(msg).toContain('模型目录）读取失败：llm registry down')
   })
 
   it('工作区浏览页正文直读：打开即真实工作区行（ws-1/会话账目 2），零 loading 态', async () => {
@@ -403,18 +421,18 @@ describe('工具只在页面存在：组件体登记即页面全部工具面', (
     }
   })
 
-  it('renhua 随两页声明为页面级 skill：name/description/content 齐全（挂载归 app-host）', async () => {
+  it('renhua 随两页由组件体直登为单会话 skill：name/description/content 齐全（与工具同机制）', async () => {
     const { ctx } = await install()
-    // 页面级 skills 是"页面承诺里有真实来源"的一部分：声明了就得可读、可挂。
-    // 挂载路径（app-host → ctx.skills.register）已由 app-host 的装配测试锁定。
-    // / Page-scope skills are part of "every promise has a real source":
-    // declared means readable and mountable. The mounting path (app-host →
-    // ctx.skills.register) is locked by app-host's assembly tests.
+    // 单会话 skill 与工具同一承诺律：页面直登、随 agent fiber 生灭；
+    // 宿主不经手挂载（meta.skills/mountSkills 已随 load 一起退役）。
+    // / A single-session skill carries the same promise law as the tools:
+    // the body registers it, it lives and dies with the agent fiber, and the
+    // host never mounts one (meta.skills/mountSkills died with load).
     bindPersonAgentContext(ctx)
-    for (const meta of [OverviewMeta, WorkspacesMeta]) {
-      expect(meta.skills).toHaveLength(1)
-      const skill = meta.skills?.[0]
-      expect(skill?.name).toBe('renhua')
+    for (const [pageName, component, meta] of [['overview', OverviewPage, OverviewMeta], ['workspaces', WorkspacesPage, WorkspacesMeta]] as const) {
+      const page = await mountPage(component, meta, ctx)
+      const skill = page.skills().find((entry) => entry.name === 'renhua')
+      expect(skill, `${pageName} 页必须直登 renhua`).toBeDefined()
       expect(skill?.description.length).toBeGreaterThan(0)
       expect(skill?.content).toContain('人话')
     }
@@ -453,11 +471,12 @@ describe('真实数据与读取失败降级', () => {
     const { ctx, fiber } = await install({ failList: true, workspaces: undefined })
     disposers.push(() => fiber.dispose())
     bindPersonAgentContext(ctx)
-    const { body } = await mountPage(OverviewPage, OverviewMeta, ctx)
-    // 同步区首帧照常真实；失败显式降级进正文（不抛异常、不编造）
-    // / sync sections stay real on frame 1; the failure degrades explicitly into the body (no throw, no faking)
-    expect(body).toContain('主工作区（id: ws-1；会话账目 2）')
-    expect(body).toContain('任务中心读取失败：storage backend down')
+    const page = await mountPage(OverviewPage, OverviewMeta, ctx)
+    await vi.waitFor(() => expect(page.followups().length).toBeGreaterThan(0))
+    // 同步区首帧照常真实；失败显式降级进首屏消息（不抛异常、不编造）
+    // / sync sections stay real on frame 1; the failure degrades explicitly into the first-screen message (no throw, no faking)
+    expect(page.body).toContain('主工作区（id: ws-1；会话账目 2）')
+    expect(page.followups().join('\n')).toContain('待办任务读取失败：storage backend down')
   })
 
   it('workspaceRegistry 在场：workspaces 页给出真实行；注册表为空时给出空列表', async () => {

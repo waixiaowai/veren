@@ -24,7 +24,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { AppRegistryService } from '@veren/app-registry'
 import { PageRegistryService } from '@veren/page-registry'
@@ -107,34 +107,38 @@ function execution(preset: string): { agent: unknown } {
 }
 
 /**
- * 假会话 agent：记录组件体直登的定义（页面的工具面断言源）。
- * A fake session agent: records the body's direct registrations (the assertion
- * source of a page's tool face).
+ * 假会话 agent：记录组件体直登的定义与首屏 followup（工具面与首屏的断言源）。
+ * A fake session agent: records the body's direct registrations and first-screen
+ * followups (the assertion source of the tool face and the first screen).
  */
-function fakeAgent() {
+function fakeAgent(preset?: string) {
   const registered: string[] = []
+  const followups: string[] = []
   const agent = {
     ctx: {
       tools: { register: (definition: { name: string }) => { registered.push(definition.name); return () => undefined } },
-      effect: () => async () => undefined,
+      effect: (run: () => unknown) => { void run(); return async () => undefined },
       on: () => () => undefined,
     },
-    session: { id: 'spec' },
+    session: { id: 'spec', ...(preset === undefined ? {} : { header: { agentPreset: preset } }) },
+    followup: (message: { content: ReadonlyArray<{ type: string; text?: string }> }) => {
+      followups.push(...message.content.map((block) => block.text ?? ''))
+    },
   }
-  return { agent: agent as never, registered }
+  return { agent: agent as never, registered, followups }
 }
 
-/** 挂一页并返回正文与登记名（一次性渲染）/ mount one page, returning the body and the registered names */
+/** 挂一页并返回正文与登记名（一次性渲染；快照通道已随 load 退役）
+ * / mount one page, returning the body and the registered names (the snapshot channel died with load) */
 function mountPage(
   page: (props: never, agent: never) => unknown,
   meta: object,
   tools: readonly ToolDefinition[],
   params: Record<string, string> = {},
-  snapshot?: unknown,
 ): { body: string; registered: string[] } {
   const { agent, registered } = fakeAgent()
   void tools
-  const body = defineComponentPage(page as never, meta as never).live.mount(params, agent, (snapshot ?? undefined) as never)
+  const body = defineComponentPage(page as never, meta as never).live.mount(params, agent)
   return { body, registered }
 }
 
@@ -330,74 +334,85 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全 / the
     const home = pages.find((page) => page.name === entryKey)
     if (home === undefined) throw new Error(`entry page ${entryKey} is not registered`)
     // 判据：map 由注册表推导（RFC prompt-page-render §3.5）——AppRecord.pages
-    // 投影列全兄弟页（笔记详情页），构造上覆盖；首页自带 load。
+    // 投影列全兄弟页（笔记详情页），构造上覆盖；契约面无任何宿主经手的取数钩子。
     // / the criterion: the map is registry-derived (§3.5) — the AppRecord.pages
     // projection lists the sibling (the note detail page), coverage by
-    // construction; the home carries a load.
+    // construction; the contract face carries no host-mediated data hook.
     const record = apps.get(APP_ID)
     expect(record?.pages?.get('note')?.url).toBe('/apps/notebook/note/:noteId')
-    expect(typeof home.load).toBe('function')
+    expect('load' in home).toBe(false)
     await fiber.dispose()
   })
 
-  it('首页 load 按页面会话的预设取真实笔记列表：归属未知如实降级，不编造', async () => {
-    const { ctx, apps, fiber } = await mount()
+  it('首屏读取是组件体自己的生命周期：列表页 effect 异步读、事实经 followup 进上下文', async () => {
+    const { ctx, fiber } = await mount()
     // 模块槽位是进程级单例：本用例开头重绑自己的 ctx，防其他用例的绑定漂移
     // / the module slot is a process-level singleton: rebind this test's own ctx
     // up front so other tests' bindings cannot drift it
     bindNotebookServices(() => ctx.notebook.toolsPort(), createAppTools(ctx, () => ctx.notebook.toolsPort()))
-    const pages = apps.listPages(APP_ID)
-    const home = pages.find((page) => page.name === APP_DEFINITION.entry)
-    if (home === undefined || home.load === undefined) throw new Error('the list page must carry a load')
-    // 归属未知（env.preset 缺席）→ available=false，绝不跨预设读数据
-    // / unknown owner (env.preset absent) → available=false; another preset's notes are never read
-    expect(await home.load({}, {})).toMatchObject({ available: false, owner: null, notes: [] })
-    // 写一条真笔记 → 同一预设的首页首屏能看到它
-    // / write a real note → the same preset's home first screen lists it
+    // 归属未知（会话头无 preset）→ 消息里如实说明，不编造
+    // / unknown owner (no preset in the session header) → stated honestly in the message, never faked
+    const unknown = fakeAgent()
+    defineComponentPage(ListPage, ListMeta).live.mount({}, unknown.agent)
+    await vi.waitFor(() => expect(unknown.followups).toHaveLength(1))
+    expect(unknown.followups[0]).toContain('归属未知')
+
+    // 空列表 → 空态如实送达 / an empty notebook → the empty state delivered honestly
+    const empty = fakeAgent('ada')
+    defineComponentPage(ListPage, ListMeta).live.mount({}, empty.agent)
+    await vi.waitFor(() => expect(empty.followups).toHaveLength(1))
+    expect(empty.followups[0]).toContain('还是空的')
+
+    // 写一条真笔记 → 同一预设的首页首屏消息能看到它；别人的看不到
+    // / write a real note → the same preset's first-screen message lists it
     const exec = execution('ada')
     const toolOf = (name: string): AppTool => createAppTools(ctx, () => ctx.notebook.toolsPort()).find((tool) => tool.name === `notebook__${name}`)!
     const created = toolValue<{ note: NoteView }>(await toolOf('write_note').execute({ title: 'Plan', body: 'x' }, exec))
-    const screen = await home.load({}, { preset: 'ada' })
-    if (typeof screen !== 'object' || screen === null || Array.isArray(screen)) {
-      throw new Error('the list load must return a first-screen object')
-    }
-    expect(screen).toMatchObject({ available: true, owner: 'ada' })
-    expect(JSON.stringify(screen)).toContain(created.note.id)
+    const listed = fakeAgent('ada')
+    defineComponentPage(ListPage, ListMeta).live.mount({}, listed.agent)
+    await vi.waitFor(() => expect(listed.followups).toHaveLength(1))
+    expect(listed.followups[0]).toContain(created.note.id)
+    expect(listed.followups[0]).toContain('Plan')
     await fiber.dispose()
   })
 
-  it('详情页 load 按参数取该条笔记（§3.10.3）：归属对得上才给，别人的笔记如实找不到', async () => {
-    const { ctx, apps, fiber } = await mount()
-    // 同上：重绑本用例的 ctx / same as above: rebind this test's own ctx
+  it('详情页首屏：归属对得上才给，别人的笔记如实找不到（按参数取该条记录）', async () => {
+    const { ctx, fiber } = await mount()
     bindNotebookServices(() => ctx.notebook.toolsPort(), createAppTools(ctx, () => ctx.notebook.toolsPort()))
-    const pages = apps.listPages(APP_ID)
-    const note = pages.find((page) => page.name === 'note')
-    if (note === undefined || note.load === undefined) throw new Error('the note page must carry a load')
     const exec = execution('ada')
     const toolOf = (name: string): AppTool => createAppTools(ctx, () => ctx.notebook.toolsPort()).find((tool) => tool.name === `notebook__${name}`)!
     const created = toolValue<{ note: NoteView }>(await toolOf('write_note').execute({ title: 'Plan', body: 'x' }, exec))
-    const screen = await note.load({ noteId: created.note.id }, { preset: 'ada' })
-    expect(screen).toMatchObject({ owner: 'ada', note: { id: created.note.id, title: 'Plan' } })
+
+    // 归属一致：首屏消息带全文 / matching owner: the message carries the full text
+    const found = fakeAgent('ada')
+    defineComponentPage(NotePage, NoteMeta).live.mount({ noteId: created.note.id }, found.agent)
+    await vi.waitFor(() => expect(found.followups).toHaveLength(1))
+    expect(found.followups[0]).toContain('Plan')
+
     // 归属不匹配 = 笔记不存在（存储按预设隔离）/ a mismatched owner = the note does not exist (preset-scoped storage)
-    await expect(note.load({ noteId: created.note.id }, { preset: 'bob' })).rejects.toMatchObject({ code: 'notebook/note-not-found' })
+    const stranger = fakeAgent('bob')
+    defineComponentPage(NotePage, NoteMeta).live.mount({ noteId: created.note.id }, stranger.agent)
+    await vi.waitFor(() => expect(stranger.followups).toHaveLength(1))
+    expect(stranger.followups[0]).toContain('不存在或归属未知')
     await fiber.dispose()
   })
 })
 
 describe('页面 = 信息 + 工具，缺一不可 / a page is its information plus its tools, neither optional', () => {
-  it('列表页无首屏快照时正文如实宣告归属未知，绝不留白页', async () => {
+  it('正文是打开时刻的静态框：不留白、如实宣告首屏随后以消息送达', async () => {
     const { ctx, fiber } = await mount()
-    // 直挂组件（无宿主运行时喂首屏快照）——这正是"快照缺席"的状态，正文必须自己说话。
-    // / Mount the component directly (no host runtime feeds the first-screen
-    // snapshot) — this IS the snapshot-absent state, and the body must speak for itself.
     bindNotebookServices(() => ctx.notebook.toolsPort(), createAppTools(ctx, () => ctx.notebook.toolsPort()))
-    const { agent } = fakeAgent()
-    const body = defineComponentPage(ListPage, ListMeta).live.mount({}, agent, undefined)
-    // 正文经 markdown 渲染（下划线转义成 \_），断言用不含下划线的短语。
-    // / the body renders through markdown (underscores escaped), so assert on
-    // underscore-free phrases.
-    expect(body).toContain('归属未知')
-    expect(body).toContain('不要编造笔记')
+    const { agent } = fakeAgent('ada')
+    const body = defineComponentPage(ListPage, ListMeta).live.mount({}, agent)
+    // 正文是静态框：宿主不等首屏，数据由组件体经 followup 送达——框绝不留白。
+    // / the body is the static frame: the host waits for no first screen; data
+    // arrives via the body's followup — the frame is never a blank.
+    // 正文经 markdown 渲染（下划线转义成 \_），比对前剥掉转义反斜杠。
+    // / the body renders through markdown (underscores escaped), so strip
+    // escape backslashes before comparing.
+    const plain = body.replaceAll('\\', '')
+    expect(plain).toContain('首屏随后以消息送达')
+    expect(plain).toContain('list_notes')
     await fiber.dispose()
   })
 })

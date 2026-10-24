@@ -5,24 +5,25 @@
  * 成型为 PAGE 块正文；工具由组件体直接 `agent.ctx.tools.register` 登记（全名，
  * 随 agent fiber 生灭）。此后页面不再渲染：任务列表的变化不推给上下文——模型
  * 经工具调用的结果获知变化（工具结果即事实）。
- * 依赖来自两条正道：**组件体/工具定义**读装配期绑定的模块级槽位（权威 store +
- * 全名工具，`bindWorkbenchRuntime` 由装配调用一次）；**load**（没有 agent 可用）
- * 走同一槽位读 store 当前状态。
+ * 依赖只有一条正道：组件体与工具定义读装配期绑定的模块级槽位（权威 store +
+ * 全名工具，`bindWorkbenchRuntime` 由装配调用一次）。store 是同步内存面，正文
+ * 直接读当前状态——首屏不经手任何宿主取数。
  * The app's three pages in the one-shot form as MODULE-LEVEL components — no
  * factory wrapper. The body runs exactly once on the page session's real Agent
  * and its output becomes the PAGE block body; tools are registered by the body
  * via `agent.ctx.tools.register` directly (full names, living and dying with
  * the agent fiber). The page never renders again: task list changes are not
  * pushed to the context — the model learns them from tool results.
- * Dependencies come from two straight paths: **the bodies and the tool
- * definitions** read the assembly-bound module slot (the authoritative store +
- * full-named tools, bound once by `bindWorkbenchRuntime`); **load** (no agent
- * there) reads the store's current state through the same slot.
+ * Dependencies take one straight path: the bodies and the tool definitions
+ * read the assembly-bound module slot (the authoritative store + full-named
+ * tools, bound once by `bindWorkbenchRuntime`). The store is a synchronous
+ * in-memory face: bodies read the current state directly — no host-mediated
+ * first-screen fetching.
  *
  * §3.10.1 三档标注：
  * - `list` = **首页（home）**：entry；能力地图由注册表推导——不再手写 map；
- * - `detail` = **详情页（detail）**：URL 带 :taskId，useSnapshot 读 load 首屏
- *   （store 快照）；工具矩阵沿 §3.10.1：take_page_task（页面作用域接取）+
+ * - `detail` = **详情页（detail）**：URL 带 :taskId，正文直读 store 当前状态；
+ *   工具矩阵沿 §3.10.1：take_page_task（页面作用域接取）+
  *   complete/abandon/split；
  * - `publish` = **工具页（action）**：无参、非入口、writes: true + publish_task。
  *
@@ -33,20 +34,18 @@
  * session of their own (§4.7.4) — the tree is data, not identity.
  * @module @veren/task-workbench
  */
-import { useSnapshot } from '@veren/prompt-page'
-import type { ComponentPageMeta, PageFC, PageJsonValue } from '@veren/prompt-page'
+import type { ComponentPageMeta, PageFC } from '@veren/prompt-page'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { rootsOf, subtreeProgress, subtaskTree } from './store.ts'
 import type { TaskStore } from './store.ts'
 import type { TaskItem } from './types.ts'
 
 /**
- * 装配期绑定的模块级槽位：load（没有 agent 可用）与组件体的工具登记从这里取
- * 权威 store 与全名工具。注册一定先于任何页面打开；未绑定即取 = 装配错误 fail loud。
- * The module-level slot bound at assembly time: load (no agent there) and the
- * bodies' tool registrations read the authoritative store and full-named tools
- * from here. Registration always precedes any page open; reading unbound is an
- * assembly error and fails loud.
+ * 装配期绑定的模块级槽位：组件体的工具登记与 store 直读都从这里取权威事实。
+ * 注册一定先于任何页面打开；未绑定即取 = 装配错误 fail loud。
+ * The module-level slot bound at assembly time: the bodies' tool registrations
+ * and store reads take their authoritative facts from here. Registration always
+ * precedes any page open; reading unbound is an assembly error and fails loud.
  */
 let runtime: { readonly store: TaskStore; readonly tools: readonly ToolDefinition[] } | undefined
 
@@ -68,13 +67,6 @@ function toolOf(localName: string): ToolDefinition {
   const found = requireRuntime().tools.find((tool) => tool.name === externalName(localName))
   if (found === undefined) throw new Error(`[task-workbench] tool ${externalName(localName)} is not defined`)
   return found
-}
-
-/** 首屏快照：权威 store 的当前状态（load 只此一次；接口类型在边界无损 JSON 化）
- * / the first screen: the store's current state (load runs once; interface
- * types are losslessly JSON-ed at this boundary) */
-async function loadItems(): Promise<PageJsonValue> {
-  return JSON.parse(JSON.stringify(requireRuntime().store.getState())) as PageJsonValue
 }
 
 // ---- 双语文案（§4.7.8 第 6 条；页面树是唯一取词方）----
@@ -123,7 +115,7 @@ export const ListPage: PageFC = (_props, agent) => {
   // entry's legitimate duty) + complete
   agent.ctx.tools.register(toolOf('take_task'))
   agent.ctx.tools.register(toolOf('complete_task'))
-  const items = useSnapshot<TaskItem[]>() ?? []
+  const items = requireRuntime().store.getState()
   const byStatus = (status: TaskItem['status']): number => items.filter((item) => item.status === status).length
   const roots = rootsOf(items).map((item) => ({
     ...item,
@@ -149,7 +141,6 @@ export const ListMeta: ComponentPageMeta = {
   name: 'list',
   url: `${URL_PREFIX}/list`,
   description: '任务工作台列表页：浏览全部任务，接取/完成任务',
-  load: loadItems,
   instructions: '这是任务工作台的首页（列表页）。列表只显示根任务，每条带整棵子树的进度徽标（2/5 = 全树终态/全树节点）。'
     + '正文是打开时刻的首屏快照——此后的任务变化不经页面刷新，以你调用工具返回的结果为准。'
     + '用 take_task 接取 open 任务，complete_task 完成 taken 任务；完成后用一句话确认。',
@@ -166,7 +157,7 @@ export const DetailPage: PageFC<{ taskId: string }> = (props, agent) => {
   agent.ctx.tools.register(toolOf('complete_task'))
   agent.ctx.tools.register(toolOf('abandon_task'))
   agent.ctx.tools.register(toolOf('split_task'))
-  const items = useSnapshot<TaskItem[]>() ?? []
+  const items = requireRuntime().store.getState()
   const taskId = String(props.taskId ?? '')
   const task = items.find((item) => item.id === taskId)
   if (task === undefined) {
@@ -205,7 +196,6 @@ export const DetailMeta: ComponentPageMeta<{ taskId: string }> = {
   name: 'detail',
   url: `${URL_PREFIX}/task/:taskId`,
   description: '任务详情页：接取本页任务（take_page_task，无参数），处理该任务的标题/状态/负责人与子任务树',
-  load: loadItems,
   writes: true,
   // 实例化后显示「任务 #1」——会话列表标题始终是根任务标识（§4.7.4；不进文档正文）
   // / the instance shows 「任务 #1」 — the session-list title stays the root task's

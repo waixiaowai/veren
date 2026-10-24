@@ -1,21 +1,20 @@
 /** @jsxRuntime automatic @jsxImportSource @veren/prompt-core */
 /**
- * 应用的两个页面（一次性渲染形态）：`createPersonAgentPages(ctx)` 以本插件的
- * ctx 为纯参数产出 PageFC + meta——同步服务面（应用目录、工作区注册表）由工厂
- * 闭包直读；异步面（任务中心、预设名单、模型目录）全部进 load（一次性渲染
- * 没有"渲染后再取数"的第二次入口），失败态随快照如实渲染。
- * The app's two pages in the one-shot form: `createPersonAgentPages(ctx)` takes
- * this plugin's ctx as the pure parameter and yields PageFCs + metas — sync
- * service faces (the app catalog, the workspace registry) are read straight
- * through the factory closure; the async faces (task center, preset roster,
- * model catalog) all live in load (a one-shot render has no second "fetch after
- * render" entry), with failures rendered honestly from the snapshot.
+ * 应用的两个页面（一次性渲染形态，模块级组件）：同步服务面（应用目录、工作区
+ * 注册表）由组件体直读；异步面（任务中心、预设名单、模型目录）是组件体自己的
+ * lifecycle——effect 取齐后以一条 followup 消息送达，失败态随消息如实渲染。
+ * The app's two pages in the one-shot form as MODULE-LEVEL components: sync
+ * service faces (the app catalog, the workspace registry) are read straight in
+ * the body; the async faces (task center, preset roster, model catalog) are the
+ * body's own lifecycle — an effect fetches them and one followup message
+ * delivers the sections, failures rendered honestly in the message.
  *
  * 设计律：**工具只在页面存在**。组件体在页面会话的真实 Agent 上执行恰好一次，
  * 工具由体直接 `agent.ctx.tools.register` 登记（全名 `person_agent__<本地名>`，
  * 随 agent fiber 生灭）；session_dispatch 携带结算看守——它经
  * `agent.ctx.effect` 登记，看守随 agent 销毁结清，派给已废弃会话的回报不会悬空。
- * 页面级 skill（renhua）随 meta.skills 声明，由 app-host 挂进会话 agent 作用域。
+ * 单会话 skill（renhua）与工具同机制：组件体直接 `agent.ctx.skills.register`，
+ * 随 agent fiber 生灭，宿主不经手挂载。
  * §3.9 承诺对齐 = "说明点名 = 这一段登记"。
  * Design law: **a tool exists only inside a page**. The body runs exactly once
  * on the page session's real Agent; tools register via `agent.ctx.tools.register`
@@ -27,11 +26,15 @@
  * "named in the instructions = registered in this block".
  * @module @veren/person-agent-app
  */
-import { useSnapshot } from '@veren/prompt-page'
-import type { ComponentPageMeta, PageFC, PageJsonValue } from '@veren/prompt-page'
+import type { ComponentPageMeta, PageFC } from '@veren/prompt-page'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-workspace'
+// 类型-only：拉取 ctx.skills 的 declaration merging（单会话 skill 组件体直登的服务面）
+// type-only: declares ctx.skills — the service face the body registers its single-session skill through
+import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@veren/app-registry'
 import type {} from '@veren/task-center'
 // 动作工具：复用兄弟工具包的构建器（同一份实现，页面是唯一注册面）。
@@ -60,11 +63,12 @@ import {
 // factory closure.
 import { errorMessage, readAgentPresets, readModelCatalogGroups } from './facts.ts'
 import type { AgentPresetView, ModelCatalogGroupView } from './facts.ts'
-// 页面级 skill：renhua（写给人看的文字前先加载）随两页声明，app-host 挂进
-// 会话 agent 作用域。结算看守的默认上限单一来源（app.ts）。
+// 页面级 skill：renhua（写给人看的文字前先加载）由两页组件体直登（与工具同
+// 机制，随 agent fiber 生灭）。结算看守的默认上限单一来源（app.ts）。
 // The page-scope skill: renhua (load before writing anything a human reads),
-// declared on both pages, mounted by app-host into the session's agent scope.
-// The settlement watch's default bounds have one source (app.ts).
+// registered by both page bodies (the same mechanism as the tools, living and
+// dying with the agent fiber). The settlement watch's default bounds have one
+// source (app.ts).
 import { WATCH_DEFAULTS } from './app.ts'
 import { loadRenhuaSkill } from './skills.ts'
 
@@ -73,6 +77,89 @@ const URL_PREFIX = '/apps/person-agent'
 
 /** 工具对外名：`person_agent__<本地名>`（§3.4.3）/ the external tool name */
 const externalName = (localName: string): string => `person_agent__${localName}`
+
+/** 页面自推消息的 source kind（宿主装配的 PAGE 块同源；wire 值协议常量）
+ * / the source kind of a page-pushed message (same source as the host assembly's PAGE block; a wire-value protocol constant) */
+const PAGE_SOURCE = 'app/page' as const
+
+// 类型合并扩充：复用宿主的 app/page 消息源。形状必须与 app-host 的声明逐字
+// 一致——TS 接口合并规则下两处同键成员类型不同会直接报错，漂移无处藏身。
+// Type-merge extension: reuse the host's app/page message source. The shape
+// must match app-host's declaration verbatim — under TS interface merging,
+// same-key members with different types are a hard error, so the two cannot
+// drift apart.
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    /** A page session's PAGE block (app-host) and the page body's own followups. @persistenceSource user */
+    'app/page': { kind: 'app/page' }
+  }
+}
+
+/** 把一条首屏文本作为新消息推进上下文（页面自己的送达路径）/ push one first-screen text into the context as a new message (the page's own delivery path) */
+function followupText(agent: Agent, text: string): void {
+  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: PAGE_SOURCE } }))
+}
+
+// ---- 概览页异步三节的文本渲染（首屏随 followup 消息送达，每节失败各自如实落地）
+// ---- text renderers of the overview's three async sections (the first screen
+// ---- rides one followup message; each section's failure lands honestly)
+
+/** 预设名单节渲染成文本 / render the preset-roster section as text */
+function renderPresetsSection(section: PresetsSection): string {
+  if (section.error !== null && section.error !== undefined) {
+    return `Agent Preset List（预设名单）读取失败：${section.error}——如实告知用户，不要编造。`
+  }
+  if (section.presets.length === 0) return 'Agent Preset List（预设名单）：（无可用预设）'
+  const rows = section.presets.map((preset) =>
+    `- ${preset.name}(${preset.id})${preset.description ? `:${preset.description}` : ''}${preset.broken ? `（不可用：${preset.broken}）` : ''}`)
+  return ['Agent Preset List（预设名单）：', ...rows].join('\n')
+}
+
+/** 模型目录节渲染成文本 / render the model-catalog section as text */
+function renderModelsSection(section: ModelsSection): string {
+  if (section.error !== null && section.error !== undefined) {
+    return `Model Catalog（模型目录）读取失败：${section.error}——如实告知用户，不要编造。`
+  }
+  if (section.groups.length === 0) return 'Model Catalog（模型目录）：（无可用模型）'
+  const lines = ['Model Catalog（模型目录）：']
+  for (const group of section.groups) {
+    lines.push(`- ${group.name}(${group.id})${group.error === undefined ? '' : `: 读取失败：${group.error}`}`)
+    for (const model of group.models) {
+      lines.push(`  - ${model.name}(${model.id}): input ${model.inputModalities.includes('image') ? 'text+image' : 'text'}`
+        + ` · ${model.contextWindow === undefined ? 'context unknown' : `context ${model.contextWindow} tokens`}`
+        + (model.hint === '' ? '' : ` · use when: ${model.hint}`))
+    }
+  }
+  return lines.join('\n')
+}
+
+/** 待办任务节渲染成文本 / render the open-tasks section as text */
+function renderTasksSection(section: TasksSection): string {
+  if (section.error !== null && section.error !== undefined) {
+    return `待办任务读取失败：${section.error}——如实告知用户，不要编造数字。`
+  }
+  return `待办任务：open 任务 ${section.openCount ?? 0} 条（live 自任务中心）。`
+}
+
+/** 概览页首屏读取：三路异步读一次取齐（每节独立携带失败原因）
+ * / the overview page's first-screen read: three async reads settle together (each section carries its own failure) */
+async function overviewFirstScreenText(ctx: Context): Promise<string> {
+  const [tasks, presets, models] = await Promise.all([
+    ctx.taskCenter.list({ status: 'open' }).then(
+      (openTasks) => ({ error: null, openCount: openTasks.length }) satisfies TasksSection,
+      (error: unknown) => ({ error: errorMessage(error), openCount: null }) satisfies TasksSection,
+    ),
+    readAgentPresets(ctx).then(
+      (views) => ({ error: null, presets: views }) satisfies PresetsSection,
+      (error: unknown) => ({ error: errorMessage(error), presets: [] }) satisfies PresetsSection,
+    ),
+    readModelCatalogGroups(ctx).then(
+      (groups) => ({ error: null, groups }) satisfies ModelsSection,
+      (error: unknown) => ({ error: errorMessage(error), groups: [] }) satisfies ModelsSection,
+    ),
+  ])
+  return [renderPresetsSection(presets), renderModelsSection(models), renderTasksSection(tasks)].join('\n\n')
+}
 
 // ---- 首屏快照类型（每一节独立携带失败原因——失败态也是数据）/ first-screen snapshot types (each section carries its own failure reason — failures are data) ----
 
@@ -176,6 +263,10 @@ function takeWorkspaceTools(): readonly ToolDefinition[] {
  */
 export const OverviewPage: PageFC = (_props, agent) => {
   const ctx = requireCtx()
+  // renhua 随页挂载：单会话 skill 由组件体直登（与工具同机制，随 agent fiber 生灭）。
+  // renhua rides the page: the single-session skill registers in the body (the
+  // same mechanism as the tools, living and dying with the agent fiber).
+  agent.ctx.skills.register({ ...loadRenhuaSkill(), source: 'runtime' })
   // 本页工具（跑一次，安全）：无状态九件就地登记；session_dispatch 连同本页
   // 自己的结算看守经 agent.ctx.effect 登记——看守随 agent 销毁结清，派给已
   // 废弃会话的回报不会悬空。登记即承诺：instructions 点名 session_dispatch。
@@ -190,9 +281,17 @@ export const OverviewPage: PageFC = (_props, agent) => {
     agent.ctx.tools.register(named(buildSessionDispatchDefinition(ctx, watch)))
     return () => { watch.dispose() }
   }, 'person-agent:dispatch-watch')
+  // 首屏读取：三路异步读是组件体自己的 lifecycle——effect 取齐后以一条消息
+  // 送达（宿主不经手取数），每节失败在消息里如实落地。
+  // / the first-screen read: the three async reads are the body's own lifecycle —
+  // an effect fetches them and one message delivers the sections (the host
+  // touches no data), each section's failure landing honestly in the message.
+  agent.ctx.effect(async () => {
+    followupText(agent, await overviewFirstScreenText(ctx))
+    return async () => undefined
+  }, 'person-agent:overview-first-screen')
   const catalog = ctx.apps.catalog()
   const rows = ctx.workspaceRegistry.list()
-  const snap = useSnapshot<OverviewFirstScreen>()
     return (
       <>
         <h1>Person Agent · 个人工作台（人机桥概览）</h1>
@@ -209,52 +308,10 @@ export const OverviewPage: PageFC = (_props, agent) => {
             <li key={workspace.id}>{workspace.title}（id: {workspace.id}；会话账目 {workspace.sessionIds.length}）</li>
           ))}
         </ul>
-        <h2>Agent Preset List（预设名单）</h2>
-        {snap?.presets.error !== null && snap?.presets.error !== undefined
-          ? <p>预设名单读取失败：{snap.presets.error}——如实告知用户，不要编造。</p>
-          : snap === undefined
-            ? <p>读取中…</p>
-            : snap.presets.presets.length === 0
-              ? <p>（无可用预设）</p>
-              : <ul>
-                  {snap.presets.presets.map((preset) => (
-                    <li key={preset.id}>
-                      {preset.name}({preset.id})
-                      {preset.description ? `:${preset.description}` : null}
-                      {preset.broken ? `（不可用：${preset.broken}）` : null}
-                    </li>
-                  ))}
-                </ul>}
-        <h2>Model Catalog（模型目录）</h2>
-        {snap?.models.error !== null && snap?.models.error !== undefined
-          ? <p>模型目录读取失败：{snap.models.error}——如实告知用户，不要编造。</p>
-          : snap === undefined
-            ? <p>读取中…</p>
-            : snap.models.groups.length === 0
-              ? <p>（无可用模型）</p>
-              : <ul>
-                  {snap.models.groups.map((group) => (
-                    <li key={group.id}>
-                      {group.name}({group.id}){group.error === undefined ? null : `: 读取失败：${group.error}`}
-                      {group.models.length > 0
-                        ? <ul>
-                            {group.models.map((model) => (
-                              <li key={model.id}>
-                                {model.name}({model.id}): input {model.inputModalities.includes('image') ? 'text+image' : 'text'}
-                                {' · '}
-                                {model.contextWindow === undefined ? 'context unknown' : `context ${model.contextWindow} tokens`}
-                                {model.hint === '' ? null : ` · use when: ${model.hint}`}
-                              </li>
-                            ))}
-                          </ul>
-                        : null}
-                    </li>
-                  ))}
-                </ul>}
-        <h2>待办任务</h2>
-        {snap?.tasks.error !== null && snap?.tasks.error !== undefined
-          ? <p>任务中心读取失败：{snap.tasks.error}——如实告知用户，不要编造数字。</p>
-          : <p>{snap === undefined ? '读取中…' : `open 任务 ${snap.tasks.openCount ?? 0} 条（live 自任务中心）`}</p>}
+        <blockquote>
+          Agent Preset List / Model Catalog / 待办任务三节随后以一条消息送达（每节失败各自如实标注）；
+          选预设或模型时取消息行内 id，省略 presetId/provider/model 即用部署默认。
+        </blockquote>
         <blockquote>
           要看某个工作区的会话明细，用本页挂载的 workspace_session_list 工具：workspaceId 取上面行内
           “id:” 之后的完整值（不是标题，也不是把标题改写成连字符形式）；标题只是展示名，注册表按 id 解析。
@@ -270,19 +327,14 @@ export const OverviewPage: PageFC = (_props, agent) => {
     name: 'overview',
     url: `${URL_PREFIX}/overview`,
     description: '个人工作台概览：看清部署的应用、工作区、预设与模型，处理待办任务，并可新建/派发/归档会话',
-    // renhua 随页挂载：写给人看的文字之前先加载（应用说明的分内线）。
-    // renhua rides the page: load it before writing anything a human reads (the
-    // app note's carve-out line).
-    skills: [loadRenhuaSkill()],
     // 十件工具都是写动作，如实声明写意图
     // / all ten tools are writes; declare the intent honestly
     writes: true,
     instructions: '这是 Person Agent 的首页（个人工作台概览）。正文即真实状态：'
-      + 'apps 区来自应用目录（正文直读），Workspace List 来自工作区注册表（正文直读，每行带工作区 id 与会话账目），'
-      + 'Agent Preset List 与 Model Catalog 来自部署的预设/模型注册表（首屏快照，每行带 id），'
-      + 'tasks 区来自任务中心的 open 任务计数（首屏快照）。'
-      + '预设/模型/任务读取失败时正文会如实标注失败原因——如实告知用户，不要编造数字。'
-      + '正文是打开时刻的首屏——此后变化不经页面刷新，以你调用工具返回的结果为准。'
+      + 'apps 区来自应用目录（正文直读），Workspace List 来自工作区注册表（正文直读，每行带工作区 id 与会话账目）。'
+      + 'Agent Preset List、Model Catalog 与待办任务三节在打开后以一条消息送达（每行带 id）；'
+      + '读取失败时消息会如实标注失败原因——如实告知用户，不要编造数字。'
+      + '此后变化不经页面刷新，以你调用工具返回的结果为准。'
       + '本页挂载十个工具：workspace_session_list（查某工作区的会话明细，session id 从它的结果里查）、'
       + 'session_create（新建会话，省略 workspaceId 则继承当前会话的工作区）、'
       + 'session_rename（按 sessionId 改会话标题）、'
@@ -299,25 +351,6 @@ export const OverviewPage: PageFC = (_props, agent) => {
       + '用 session_create 加 session_dispatch 把目标与验收标准派给一个会话，然后向用户汇报，不要轮询。'
       + '你唯一亲手做的是给人看的文字——那也要先加载 renhua 技能。',
     instanceTitle: () => '个人工作台',
-    // 三路异步读在 load 里一次取齐；每节独立 try/catch——失败态随快照进正文。
-    // The three async reads settle together in load; each section catches its
-    // own failures — failure states ride the snapshot into the body.
-    load: async (_params, _env): Promise<PageJsonValue> => {
-      const appCtx = requireCtx()
-      const tasks = await appCtx.taskCenter.list({ status: 'open' }).then(
-        (openTasks) => ({ error: null, openCount: openTasks.length }) satisfies TasksSection,
-        (error: unknown) => ({ error: errorMessage(error), openCount: null }) satisfies TasksSection,
-      )
-      const presets = await readAgentPresets(appCtx).then(
-        (views) => ({ error: null, presets: views }) satisfies PresetsSection,
-        (error: unknown) => ({ error: errorMessage(error), presets: [] }) satisfies PresetsSection,
-      )
-      const models = await readModelCatalogGroups(appCtx).then(
-        (groups) => ({ error: null, groups }) satisfies ModelsSection,
-        (error: unknown) => ({ error: errorMessage(error), groups: [] }) satisfies ModelsSection,
-      )
-      return { tasks, presets, models } satisfies OverviewFirstScreen as unknown as PageJsonValue
-    },
   }
 
   // ---- 工作区浏览页（只读副页）---- Workspace browser page (a read-only secondary page) ----
@@ -331,6 +364,8 @@ export const OverviewPage: PageFC = (_props, agent) => {
    */
 export const WorkspacesPage: PageFC = (_props, agent) => {
   const ctx = requireCtx()
+  // renhua 随页挂载 / renhua rides the page
+  agent.ctx.skills.register({ ...loadRenhuaSkill(), source: 'runtime' })
   for (const tool of takeWorkspaceTools()) agent.ctx.tools.register(tool)
   const rows = ctx.workspaceRegistry.list()
     return (
@@ -355,8 +390,6 @@ export const WorkspacesPage: PageFC = (_props, agent) => {
     name: 'workspaces',
     url: `${URL_PREFIX}/workspaces`,
     description: '工作区浏览：列出各工作区及其会话账目，并可在工作区内新建会话',
-    // renhua 随页挂载 / renhua rides the page
-    skills: [loadRenhuaSkill()],
     // 本页登记的四个工具都是写动作，如实声明写意图
     // / all four registered tools are writes; declare the write intent honestly
     writes: true,
