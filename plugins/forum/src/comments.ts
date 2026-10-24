@@ -20,7 +20,7 @@ import type { CreateCommentInput, SubjectCounters } from './types.ts'
 import { ForumError } from './types.ts'
 import type { CommentNodeView } from './types.ts'
 import { mintId } from './ids.ts'
-import type { ForumStore } from './storage.ts'
+import type { ForumStore, ForumTables } from './storage.ts'
 import { view } from './storage.ts'
 import type { Tables } from './posts.ts'
 import { requirePost } from './posts.ts'
@@ -129,6 +129,19 @@ export function commentsOf(tables: CommentTables, postId: string): readonly Comm
 /** Count the comments of one post. */
 export function countComments(tables: CommentTables, postId: string): number {
   return commentsOf(tables, postId).length
+}
+
+/**
+ * Resolve one stored comment, or refuse.
+ * @param tables - the full forum tables (comments included).
+ * @param commentId - the comment to find.
+ * @returns the stored comment.
+ * @throws ForumError `comment_not_found`.
+ */
+export function requireComment(tables: ForumTables, commentId: string): CommentRecord {
+  const comment = tables.comments.get(commentId)
+  if (comment === undefined) throw new ForumError('forum/comment-not-found', `no comment with id "${commentId}".`)
+  return comment
 }
 
 /**

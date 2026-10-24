@@ -17,10 +17,12 @@
  */
 
 import type { VoteRecord, VoteValue } from './domain.ts'
-import type { ForumStore } from './storage.ts'
+import type { ForumStore, ForumTables } from './storage.ts'
 import { view } from './storage.ts'
 import { voteKey } from './ids.ts'
 import type { SubjectCounters } from './types.ts'
+import { requirePost } from './posts.ts'
+import { requireComment } from './comments.ts'
 
 /** The vote table, ready to use. */
 export interface VoteTables {
@@ -106,4 +108,30 @@ export async function castVote(
   }
   await tables.votes.put(key, { id: key, subjectKind, subjectId, actor, value, updatedAt: now })
   return { totals: totalsFor(tables, subjectKind, subjectId, actor), cleared: false }
+}
+
+/**
+ * Guard the subject, record one preset's attitude, and flatten the totals.
+ *
+ * The Remote surface's vote path: the subject must exist (post or comment),
+ * and the caller reads flat counters, not the cast result's shape.
+ * 守卫对象、记录一个预设的态度，并把计数摊平。远端面的投票路径：对象必须存在
+ * （帖子或评论），调用方读取的是摊平的计数，不是投票结果的原始形状。
+ * @param tables - every forum table (the guards read the post and comment tables).
+ * @param votes - the vote table.
+ * @param subjectKind - whether the subject is a post or a comment.
+ * @param subjectId - the subject's id.
+ * @param actor - the voting preset.
+ * @param value - the attitude the click expresses.
+ * @param now - ISO instant stamped on the row.
+ * @returns the flat totals after the write, plus whether the attitude was cleared.
+ */
+export async function castSubjectVote(
+  tables: ForumTables, votes: VoteTables, subjectKind: 'post' | 'comment', subjectId: string,
+  actor: string, value: VoteValue, now: string,
+): Promise<{ readonly up: number; readonly down: number; readonly cleared: boolean }> {
+  if (subjectKind === 'post') requirePost(tables, subjectId)
+  else requireComment(tables, subjectId)
+  const result = await castVote(votes, subjectKind, subjectId, actor, value, now)
+  return { up: result.totals.up, down: result.totals.down, cleared: result.cleared }
 }

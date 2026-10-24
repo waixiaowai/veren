@@ -17,11 +17,23 @@
  */
 
 import { z } from 'zod'
+import type { Context } from '@deepseek-ai/cordis'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { Domain, KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type {
   AutoPostRecord, BoardRecord, CommentRecord, NotificationRecord, PostRecord, VoteRecord,
 } from './domain.ts'
+import { ForumError } from './types.ts'
+// Type-only: the composite table type is the union of every module's projected
+// tables; type imports are erased, so this back-reference adds no runtime edge.
+// 仅类型导入：复合表类型是各模块投影表的并集；类型导入会被擦除，因此这条反向引用
+// 不引入任何运行期依赖。
+import type { CommentTables } from './comments.ts'
+import type { NotificationTables } from './notifications.ts'
+import type { Tables } from './posts.ts'
+
+/** Every projected table one forum store exposes, ready to use. 一个论坛存储暴露的全部投影表，即取即用。 */
+export type ForumTables = CommentTables & NotificationTables & Tables
 
 const boardSchema = z.object({
   id: z.string().min(1),
@@ -153,5 +165,93 @@ export function view<T>(table: KvTable<string, T>): ForumTable<T> {
     put: (key, value) => table.put(key, value),
     del: key => table.delete(key),
     all: () => [...table.entries()].map(([, value]) => value),
+  }
+}
+
+/**
+ * One open forum domain, owned by one service activation.
+ *
+ * A live reinstall or hot reload can leave the previous activation's domain
+ * open under the same name; the owner closes that handle first, and a failure
+ * to open is recorded and reported as a stable refusal instead of thrown at
+ * construction time — a forum that cannot open its storage disables itself
+ * without touching the rest of the Harness.
+ * 一个由单次服务激活持有的已打开论坛域。热重装或热重载可能留下上一次激活打开的同名域，
+ * 持有者会先关闭该句柄；打开失败会被记录并以稳定拒绝的形式报告，而不是在构造时抛出——
+ * 打不开存储的论坛自行停用，不牵动 Harness 的其余部分。
+ */
+export class ForumStorage {
+  /** Resolves when the open attempt settles: the domain, or undefined when storage is down. 打开尝试落定后兑现：域，或存储不可用时的 undefined。 */
+  readonly opened: Promise<ForumStore | undefined>
+  private current: ForumStore | undefined
+  private failure: string | undefined
+  private chain: Promise<unknown> = Promise.resolve()
+
+  /** @param host - Host services owning the storage-domain facility. */
+  constructor(private readonly host: Context) {
+    this.opened = this.open()
+  }
+
+  /** The open domain, or undefined while storage is down. 已打开的域，存储不可用时为 undefined。 */
+  get domain(): ForumStore | undefined {
+    return this.current
+  }
+
+  /** Resolve the open domain, or raise the recorded storage failure. 解析已打开的域，或抛出记录的存储失败。 */
+  async require(): Promise<ForumStore> {
+    const domain = await this.opened
+    if (domain !== undefined) return domain
+    throw new ForumError(
+      'forum/storage-unavailable',
+      `forum storage is unavailable${this.failure === undefined ? '' : `: ${this.failure}`}`,
+    )
+  }
+
+  /** Run one read against the open domain. 对已打开的域执行一次读取。 */
+  async read<T>(work: (domain: ForumStore) => T): Promise<T> {
+    return work(await this.require())
+  }
+
+  /** Run one mutation at a time against the open domain, preserving FIFO order. 对已打开的域一次只跑一个写入，保持 FIFO 顺序。 */
+  mutate<T>(work: (domain: ForumStore) => Promise<T>): Promise<T> {
+    const pending = this.chain.then(async () => work(await this.require()))
+    this.chain = pending.catch(() => undefined)
+    return pending
+  }
+
+  /** Open the storage domain, reporting rather than throwing on failure. 打开存储域，失败时报告而不抛出。 */
+  private async open(): Promise<ForumStore | undefined> {
+    // A live reinstall or hot reload can leave the previous activation's domain
+    // open under the same name. Close that handle first, which frees the name for
+    // a fresh open; a real restart finds nothing here and takes the same path.
+    // 热重装或热重载可能留下上一次激活打开的同一个域。先关闭该句柄，为新的打开释放名称；
+    // 真正的重启在这里什么也找不到，走同一条打开路径。
+    const stale = this.host.storageDomain.get(FORUM_DOMAIN_NAME)
+    if (stale !== undefined) {
+      try {
+        await stale.close()
+        this.host.logger.warn('forum: closed the storage domain left open by a previous activation')
+      } catch (error: unknown) {
+        this.host.logger.warn(`forum: the previous storage domain could not close: ${String(error)}`)
+      }
+    }
+    try {
+      const domain = await this.host.storageDomain.open(forumDomain)
+      this.current = domain
+      // The caller owns the handle: close it when this plugin unloads so the
+      // next activation starts from a free name.
+      // 调用方持有句柄：插件卸载时关闭，让下一次激活从空闲的名称开始。
+      this.host.effect(() => () => {
+        this.current = undefined
+        return domain.close()
+      }, 'forum:storage')
+      return domain
+    } catch (error: unknown) {
+      this.failure = error instanceof Error ? error.message : String(error)
+      this.host.logger.error(
+        `forum: storage domain "${FORUM_DOMAIN_NAME}" could not open, so the forum is disabled: ${this.failure}`,
+      )
+      return undefined
+    }
   }
 }

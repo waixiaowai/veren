@@ -25,6 +25,9 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { NotificationRecord } from './domain.ts'
 import type { DeliveryOutcome } from './types.ts'
+import type { ForumStore } from './storage.ts'
+import { inboxOf, notificationTablesOf } from './notifications.ts'
+import { inboxLine } from './views.ts'
 
 /** The message-source tag every forum notice carries into a Session log. */
 export const FORUM_MESSAGE_SOURCE = 'forum-notification'
@@ -141,11 +144,10 @@ export class SessionLink {
         detail: `session ${sessionId} is no longer live; the notice stays in the durable inbox.`,
       }
     }
-    agent.followup(createUserMessage({
+    const flushed = await this.handOver(agent, createUserMessage({
       content: [{ type: 'text', text: notificationText(record, this.url()) }],
       source: { kind: FORUM_MESSAGE_SOURCE, notificationId: record.id, postId: record.postId },
     }))
-    const flushed = await this.ctx.sessions.flush(agent.session)
     if (!flushed) {
       return {
         id: record.id,
@@ -156,6 +158,31 @@ export class SessionLink {
       }
     }
     return { id: record.id, recipient: record.recipient, status: 'woken', sessionId }
+  }
+
+  /**
+   * Hand one plain text notice to a preset's live Session, as a real user
+   * message. The same delivery contract as {@link wake}, for notices that are
+   * not stored rows (the auto-post runner's author notice).
+   * 把一条纯文本通知作为真正的用户消息交给预设的活会话。与 {@link wake} 相同的投递契约，
+   * 用于不是存储行的通知（自动发帖运行器给作者的回执）。
+   * @param recipient - the preset to reach.
+   * @param text - the notice body.
+   * @returns the delivery outcome.
+   */
+  async deliverText(recipient: string, text: string): Promise<DeliveryOutcome> {
+    const sessionId = this.byPreset.get(recipient)
+    const agent = sessionId === undefined ? undefined : this.requireAgent(sessionId)
+    if (agent === undefined || sessionId === undefined) {
+      return { id: '', recipient, status: 'inboxed', detail: 'no live session for this preset' }
+    }
+    const flushed = await this.handOver(agent, createUserMessage({
+      content: [{ type: 'text', text }],
+      source: { kind: FORUM_MESSAGE_SOURCE, notificationId: '', postId: '' },
+    }))
+    return flushed
+      ? { id: '', recipient, status: 'woken', sessionId }
+      : { id: '', recipient, status: 'inboxed', sessionId, detail: 'session did not acknowledge the message' }
   }
 
   /**
@@ -179,4 +206,61 @@ export class SessionLink {
   private requireAgent(sessionId: SessionId): Agent | undefined {
     return this.ctx.agents.get(sessionId)
   }
+
+  /** Hand one user message to a live Agent and report whether its log took it. 把一条用户消息交给活着的 Agent，并报告其日志是否接收。 */
+  private async handOver(agent: Agent, message: ReturnType<typeof createUserMessage>): Promise<boolean> {
+    agent.followup(message)
+    return this.ctx.sessions.flush(agent.session)
+  }
+}
+
+/**
+ * Follow Session creation and disposal, and inject pending notices on start.
+ *
+ * The forum service calls this once per activation: each new Session for a
+ * preset is remembered, and its preset's pending notices are injected as soon
+ * as the forum domain finishes opening — a Session that starts before storage
+ * is up still receives them. Disposal forgets the Session unless a newer one
+ * already took its preset over.
+ * 跟随会话的创建与销毁，并在会话启动时注入未送达通知。论坛服务每次激活调用一次：记住每个
+ * 预设的新会话，并等论坛域打开完成后注入该预设的未送达通知——先于存储就绪启动的会话也能
+ * 收到。销毁时遗忘该会话，除非更新的会话已接管其预设。
+ * @param ctx - Host context whose `agent/created` and `agent/disposed` events are followed.
+ * @param link - the live preset→Session map to maintain.
+ * @param opened - resolves with the open forum domain, or undefined when storage is down.
+ */
+export function watchSessionLifecycle(
+  ctx: Context,
+  link: SessionLink,
+  opened: Promise<ForumStore | undefined>,
+): void {
+  ctx.effect(() => {
+    const offCreated = ctx.on('agent/created', ({ agent }) => {
+      const preset = agent.session.header.agentPreset
+      link.remember(agent.session.id, preset)
+      void opened.then((domain) => {
+        if (domain === undefined || preset === undefined) return undefined
+        link.injectPending(agent, inboxOf(notificationTablesOf(domain), preset, 'pending'))
+        return undefined
+      }, () => undefined)
+    })
+    const offDisposed = ctx.on('agent/disposed', ({ agent }) => { link.forget(agent.session.id) })
+    return () => { offCreated(); offDisposed() }
+  }, 'forum.sessions()')
+}
+
+/**
+ * The one-line prompt context announcing unread notices, or `''`.
+ * @param link - the live preset→Session map, resolving the reading Session's preset.
+ * @param domain - the open forum domain, or undefined while storage is down.
+ * @param sessionId - the Session being assembled.
+ * @returns the line, or `''` when there is nothing to announce.
+ */
+export function promptLine(
+  link: SessionLink, domain: ForumStore | undefined, sessionId: SessionId | undefined,
+): string {
+  if (sessionId === undefined || domain === undefined) return ''
+  const preset = link.presetFor(sessionId)
+  if (preset === undefined) return ''
+  return inboxLine(preset, inboxOf(notificationTablesOf(domain), preset, 'pending').length)
 }

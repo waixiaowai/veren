@@ -22,7 +22,7 @@ import type { BoardRecord, PostRecord } from './domain.ts'
 import { ForumError } from './types.ts'
 import type { BoardView, PostCounters, PostSort, PostView } from './types.ts'
 import { mintId } from './ids.ts'
-import type { ForumStore } from './storage.ts'
+import type { ForumStore, ForumTables } from './storage.ts'
 import { view } from './storage.ts'
 
 /** Characters of the body a list row shows. */
@@ -280,4 +280,16 @@ export function requirePost(tables: Tables, postId: string): PostRecord {
   const post = tables.posts.get(postId)
   if (post === undefined) throw new ForumError('forum/post-not-found', `no post with id "${postId}".`)
   return post
+}
+
+/**
+ * Refuse an unknown board by name.
+ * @param tables - the full forum tables (boards included).
+ * @param boardId - the board a write targets.
+ * @throws ForumError `board_not_found`.
+ */
+export function requireBoard(tables: ForumTables, boardId: string): void {
+  if (tables.boards.get(boardId) === undefined) {
+    throw new ForumError('forum/board-not-found', `no board with id "${boardId}"; open the workspace first.`)
+  }
 }

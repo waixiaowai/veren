@@ -18,10 +18,10 @@
  * @module @veren/forum/notifications
  */
 
-import type { NotificationRecord, NotificationReason } from './domain.ts'
+import type { CommentRecord, NotificationRecord, NotificationReason, PostRecord } from './domain.ts'
 import type { DeliveryOutcome } from './types.ts'
 import { mintId, notificationKey } from './ids.ts'
-import type { ForumStore } from './storage.ts'
+import type { ForumStore, ForumTables } from './storage.ts'
 import { view } from './storage.ts'
 
 /** The notification table, ready to use. */
@@ -145,4 +145,70 @@ export async function markAllRead(tables: NotificationTables, recipient: string)
     await tables.notifications.put(notificationKey(record.recipient, record.id), { ...record, state: 'read' })
   }
   return pending.length
+}
+
+/**
+ * Mark one notification, or a recipient's whole inbox, read.
+ * @param tables - the notification table.
+ * @param recipient - the preset that owns the rows.
+ * @param id - the single notification id, ignored when `all` is set.
+ * @param all - clear the whole inbox instead of one row.
+ * @returns how many rows changed.
+ */
+export async function markInbox(
+  tables: NotificationTables, recipient: string, id: string | undefined, all: boolean,
+): Promise<number> {
+  if (all) return markAllRead(tables, recipient)
+  return (await markRead(tables, recipient, id ?? '')) ? 1 : 0
+}
+
+/**
+ * Notify a post's parent author plus every mentioned preset.
+ *
+ * The parent's author is told once, as a reply; a preset that is both the
+ * parent's author and mentioned gets the reply notice only, because two
+ * notices for one write is noise.
+ * 通知帖子的父级作者与每个被 @ 的预设。父级作者只收到一条回复通知；既是父级作者又被 @ 的
+ * 预设只收到回复通知，因为一次写入两条通知只是噪音。
+ * @param tables - every table the forum touches (the parent comment's author is read here).
+ * @param post - the post the write belongs to.
+ * @param comment - the comment that caused it, when there is one.
+ * @param mentions - presets named with `@`.
+ * @param mode - whether to wake a live session or leave the notice in the inbox.
+ * @param now - the service clock; each notice is stamped as it is attempted.
+ * @param wake - delivery hook used by `wake` mode only.
+ * @returns one outcome per notice attempted.
+ */
+export async function announce(
+  tables: ForumTables,
+  post: PostRecord,
+  comment: CommentRecord | undefined,
+  mentions: readonly string[],
+  mode: 'inbox' | 'wake',
+  now: () => string,
+  wake: NotificationWaker,
+): Promise<readonly DeliveryOutcome[]> {
+  const author = comment?.author ?? post.author
+  const targets = new Map<string, 'reply' | 'mention'>()
+  if (comment !== undefined) {
+    const parentAuthor = comment.parentKind === 'comment'
+      ? tables.comments.get(comment.parentId)?.author
+      : post.author
+    if (parentAuthor !== undefined && parentAuthor !== author) targets.set(parentAuthor, 'reply')
+  }
+  for (const name of mentions) if (!targets.has(name)) targets.set(name, 'mention')
+  const outcomes: DeliveryOutcome[] = []
+  for (const [recipient, reason] of targets) {
+    outcomes.push(await deliverNotification(tables, {
+      recipient,
+      author,
+      reason,
+      boardId: post.boardId,
+      postId: post.id,
+      summary: `${author} ${reason === 'mention' ? 'mentioned you in' : 'answered you in'} "${post.title}"`,
+      mode,
+      ...comment === undefined ? {} : { commentId: comment.id },
+    }, now(), wake))
+  }
+  return outcomes
 }
