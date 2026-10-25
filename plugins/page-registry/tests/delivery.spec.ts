@@ -101,7 +101,7 @@ function makeService() {
     apps: { get: () => app },
   } satisfies PageRuntimePorts
   service.bindPorts(ports, new KvPageInstanceIndex(kv, { sessionExists: (id) => sessions.port.exists(id) }))
-  return { service, kv, sessions, ports, dispose }
+  return { service, kv, sessions, ports, dispose, ctx }
 }
 
 /** 便捷投递 / deliver shorthand */
@@ -127,6 +127,36 @@ describe('page_send 投递运行时（§3.9：有会话则 append、无则新建
     const result = await deliver(service, '/apps/demo/task/1')
     expect(sessions.focused).toEqual([]) // openUrl 会 focus；deliverUrl 绝不
     void result
+  })
+
+  it('回执武装先于唤醒（竞态回归）：append 的同一刻目标就开轮，回执仍然到达', async () => {
+    const { service, sessions, ctx } = makeService()
+    await service.openUrl('/apps/demo/task/1')
+    const opened = (await service.instances.lookup('/apps/demo/task/1' as never))?.sessionId ?? ''
+    // 发送方会话先在场（回执落它的日志）
+    await sessions.port.create('caller-1', 'caller')
+    // 竞态形状：page/send 落地的同一刻目标 turn/start（早于投递函数返回）
+    // / the race shape: the target's turn/start fires the instant page/send
+    // lands — earlier than the delivery call returns
+    const originalAppend = sessions.port.appendUserMessage.bind(sessions.port)
+    const port = sessions.port as { appendUserMessage: (id: string, text: string, source: string, options?: { wake?: boolean }) => Promise<void> }
+    port.appendUserMessage = async (id, text, source, options) => {
+      await originalAppend(id, text, source, options)
+      if (source === 'page/send') {
+        ;(ctx.events as { emit: (...args: unknown[]) => void }).emit('session/event', { id }, { type: 'turn/start', data: { turn: 1 } })
+      }
+    }
+    const result = await deliver(service, '/apps/demo/task/1', 'caller-1')
+    expect(result.receipt).toBe(true)
+    // 回应回合完成 → 回执落发送方日志
+    ;(ctx.events as { emit: (...args: unknown[]) => void }).emit('session/event', { id: opened },
+      { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '干完了' }] } } })
+    ;(ctx.events as { emit: (...args: unknown[]) => void }).emit('session/event', { id: opened },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
+    await new Promise((resolve) => { setImmediate(resolve) })
+    const receipts = (sessions.messages.get('caller-1') ?? []).filter((m) => m.startsWith('page/receipt::PAGE-RECEIPT'))
+    expect(receipts).toHaveLength(1)
+    expect(receipts[0]).toContain('干完了')
   })
 
   it('有活会话 → 直接 append（created=false），不新建、不废弃', async () => {

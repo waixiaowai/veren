@@ -104,9 +104,10 @@ export function createPageSendTool(port: () => PageSendPort) {
       + 'This is delivery, not navigation: no GUI switch happens. Cascade is capped — a chain '
       + 'deeper than 4 hops is refused with page/hop-limit. '
       + 'RECEIPT (default wake): when receipt=true comes back, the target\'s woken turn will '
-      + 'end with a PAGE-RECEIPT message landing in YOUR session log (record-only, no wake) — '
-      + 'read it on your next turn and report from it. Do NOT retry on silence, do NOT poll, '
-      + 'do NOT send follow-up "did you finish" messages; one delivery per intent. '
+      + 'end with a PAGE-RECEIPT landing in YOUR session log — record-only, it NEVER wakes '
+      + 'you. Do NOT end a turn just to wait for it: finish your work, and read the receipt '
+      + 'from your log on your NEXT turn. Do NOT retry on silence, do NOT poll, do NOT send '
+      + 'follow-up "did you finish" messages; one delivery per intent. '
       + 'Use session_dispatch when you already know the exact sessionId; use page_send when '
       + 'you know the page URL.',
     parameters: {

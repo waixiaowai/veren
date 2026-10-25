@@ -55,6 +55,19 @@ export interface DeliverPageOptions {
   readonly wake?: boolean
   /** 调用方会话（工具经 exec.agent 注入）；缺席 = 人/宿主，链深 0 */
   readonly callerSessionId?: string
+  /**
+   * 在 append（唤醒）**之前**武装回执。时序是正确性的关键：append 即唤醒，
+   * 目标的 turn/start 可能赶在投递函数返回之后、调用方 arm 之前——先武装
+   * 才保证回执台账看得到回应回合的 turn/start（真机竞态：list 页投递的
+   * 回执因 arm 晚于 turn/start 被边界判定当成旧回合而永未发出）。
+   * Arm the receipt BEFORE the append (the wake). Ordering is correctness:
+   * the append wakes the target, whose turn/start can beat the caller's
+   * post-return arm — arming first guarantees the ledger sees the answering
+   * turn's turn/start (live race: a list-page delivery's receipt never fired
+   * because arm landed after turn/start and the boundary check read the
+   * answering round as a pre-arm one).
+   */
+  readonly armReceipt?: (targetSessionId: string, url: PageInstanceKey) => void
 }
 
 /** 投递回执 / the delivery receipt */
@@ -164,6 +177,10 @@ export async function deliverToPageUrl(
       await deprecatePrevious(index, ports, key)
       const created = await createPageSession(index, ports, key, app, match, { focus: false })
       ledger.record(created.sessionId, nextDepth)
+      // 武装必须先于 append（唤醒）：见 DeliverPageOptions.armReceipt 的时序注释
+      // / arming must precede the append (the wake): see the ordering note on
+      // DeliverPageOptions.armReceipt
+      options.armReceipt?.(created.sessionId, key)
       await ports.sessions.appendUserMessage(created.sessionId, options.message, PAGE_SEND_SOURCE, { wake: options.wake })
       return receiptOf(created.sessionId, key, true, options, redirected)
     }
@@ -171,6 +188,7 @@ export async function deliverToPageUrl(
     // 续链：目标链深至少是 caller+1（既有的浅会话被更深的链投递时抬升）
     // Chain extension: the target's depth is at least caller+1 (raised when a shallower session is handed deeper work)
     ledger.record(row.sessionId, Math.max(ledger.depthOf(ports.sessions, row.sessionId), nextDepth))
+    options.armReceipt?.(row.sessionId, key)
     await ports.sessions.appendUserMessage(row.sessionId, options.message, PAGE_SEND_SOURCE, { wake: options.wake })
     // 废弃竞态（§3.9 风险 3）：投递后重查；指针已易主 → 补投给当前活会话
     // Deprecation race: re-consult after appending; pointer moved → re-deliver

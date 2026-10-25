@@ -220,11 +220,19 @@ export class PageRegistryService extends Service {
    */
   deliverUrl(url: PageInstanceKey | string, options: DeliverPageOptions): Promise<DeliveryResult> {
     return Promise.resolve().then(async () => {
-      const result = await deliverToPageUrl(this.registry, this.instances, this.ports, this.ledger, url, options)
-      if (result.receipt) {
-        this.receipts.arm(result.sessionId, options.callerSessionId as string, result.url)
-      }
-      return result
+      // 回执武装经 armReceipt 在 append（唤醒）之前执行——投后补武装存在
+      // turn/start 竞态（真机反例：list 页回执永未发出）。
+      // / the receipt arms via armReceipt BEFORE the append (the wake) —
+      // arming after the delivery races turn/start (live counter-example:
+      // a list-page receipt never fired).
+      const armReceipt = options.wake !== false && options.callerSessionId !== undefined
+        ? (targetSessionId: string, targetUrl: PageInstanceKey): void => {
+            if (targetSessionId !== options.callerSessionId) {
+              this.receipts.arm(targetSessionId, options.callerSessionId as string, targetUrl)
+            }
+          }
+        : undefined
+      return await deliverToPageUrl(this.registry, this.instances, this.ports, this.ledger, url, { ...options, armReceipt })
     })
   }
 

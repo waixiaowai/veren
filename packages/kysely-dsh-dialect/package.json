@@ -1,7 +1,7 @@
 {
   "name": "@veren/kysely-dsh-dialect",
   "displayName": "Veren Kysely DSH Dialect",
-  "version": "2.0.9",
+  "version": "2.0.10",
   "description": "Use when Kysely (and anything built on it, such as Better Auth) must read and write records stored in a DSH storage domain's KvTables through a type-safe query builder: it compiles Kysely queries into instructions executed against domain tables; skip it when the backend is a real SQL database and an official Kysely dialect fits.",
   "type": "module",
   "main": "./dist/index.js",

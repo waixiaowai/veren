@@ -1,7 +1,7 @@
 {
   "name": "@veren/task-workbench",
   "description": "Reference Veren application: registers the task-workbench app (entry page, three /apps/task-workbench pages, app-scoped tools) and forwards publishes to the host task center over declared hard injects; use it as the template for writing new Veren applications, not as a library.",
-  "version": "2.0.9",
+  "version": "2.0.10",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-locale-zh-en",
   "displayName": "Admin Locale zh-en",
-  "version": "2.0.9",
+  "version": "2.0.10",
   "description": "Use when an admin deployment needs the bilingual Chinese/English message dictionary every SPA label is resolved from; skip it when the deployment serves a single other language or brand wording, because a locale pack is replaced rather than edited.",
   "type": "module",
   "main": "./index.js",
