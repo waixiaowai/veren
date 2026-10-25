@@ -111,6 +111,7 @@ export function apply(ctx: Context): void { ... }
     5. 重开同 URL 总是新建（§9.1 反转）：同一 URL 再开一次；看什么——新建会话、旧会话标废弃（工具摘除、索引指向新会话）；通过标准——`app-pages` 里该 URL 的 live 行 sessionId 变为新会话，旧 sessionId 行 state=deprecated（自动化已有，真机复核持久化跨重启）。
     6. 任务通知落真实日志：`taskCenter.send` 一条 target 指向 detail 页的任务，再带 taskId 打开该页；看什么——真实会话日志里出现 `TASK <id>` 块与 `[task-center] <标题>` 收件箱文本；通过标准——两条都进日志且任务翻 delivered（真实 followup + 投递泵跑在真宿主上的判据）。
     7. 能力地图进 PAGE 块（§3.10.2 一等数据，2026-10-21 加）：打开 `/apps/task-workbench/list` 会话，先看日志里 PAGE 块有 `map:（能力地图…` 头行与 `- /apps/task-workbench/task/:taskId → …` 逐条行，再问该会话 agent"要处理某条任务应打开哪个 URL，你是从哪里知道的"；看什么——回答含详情页 URL，且**来源自述为"本页 PAGE 块的 map"**，而不是"根据任务记录的 target.url 推断"（本轮真机抓到的假 PASS 正是后者）；通过标准——模板与用途能被模型引用作答，会话挂载的工具含 `task_workbench__*` 而模型不再依赖推断。顺带复核：person-agent `/apps/person-agent/overview` 会话挂有 `person_agent__workspace_session_list`（此前一个工具都没挂，承诺落空）。
+  - 多环境体系（2026-10-25 起）：本节定义的是**测试环境**；**预发布环境**在 `deepseek\.dsh-staging`（3100，registry 精确 pin，发布演练与验收签发的舞台，用 `node scripts/env-init.mjs` 创建）；**正式环境**=桌面应用 `~/.dsh`（只许读、禁止任何写，升级只走用户的市场操作）。职责边界、晋升流水线与搭建方法见 `docs/environments.cn.md`——新环境一律用该脚本初始化，违反三隔离铁律（独立 home / 独立 store / 凭据只出不进）的搭建一律不合法。
 
 ## 注意
 - 跨包共享用 import type，行为走注入的 Cordis 服务，UI 走 slots
