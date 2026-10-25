@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-ui-contract",
   "displayName": "Admin UI Contract",
-  "version": "2.0.3",
+  "version": "2.0.7",
   "description": "Use when a browser-side admin plugin needs the stable UI contract: it declares the pack manifest, the per-audience manifest, the theme/locale/icon/shell/page contribution types and the runtime object a pack receives, so packs and the SPA can evolve independently; skip it when you only need Host capability types.",
   "type": "module",
   "main": "./dist/index.js",

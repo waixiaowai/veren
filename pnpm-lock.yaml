@@ -1028,7 +1028,7 @@ importers:
         specifier: ^4.0.5
         version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.10)(@deepseek-ai/cordis-plugin-loader@1.0.6)
       '@deepseek-ai/dsh-storage-domain':
-        specifier: '>=0.2.1-rc.2 <0.3.0'
+        specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-storage@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
@@ -1211,6 +1211,9 @@ importers:
       '@deepseek-ai/dsh-storage-json':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-storage@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-llm@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/dsh-scope@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))
       '@deepseek-ai/dsh-tools':
         specifier: '>=0.2.1-rc.2 <0.3.0'
         version: 0.2.1-rc.2(39679b028ccad1643d383935c6a869a6)
@@ -2266,9 +2269,6 @@ importers:
 
   plugins/startup-autostart:
     dependencies:
-      '@deepseek-ai/dsh-brand':
-        specifier: 0.2.1-rc.2
-        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
       zod:
         specifier: 4.4.3
         version: 4.4.3
@@ -2285,6 +2285,9 @@ importers:
       '@deepseek-ai/dsh-api-session-controller':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(1b607bd8db380f1d04dac69eb6cb8abc)
+      '@deepseek-ai/dsh-brand':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
       '@deepseek-ai/dsh-cmdline':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis-plugin-loader@1.0.6)(@deepseek-ai/cordis@4.0.5)
@@ -2337,9 +2340,6 @@ importers:
 
   plugins/startup-autostart-recovery:
     dependencies:
-      '@deepseek-ai/dsh-brand':
-        specifier: 0.2.1-rc.2
-        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
         version: 3.18.4
@@ -2353,6 +2353,9 @@ importers:
       '@deepseek-ai/dsh-api-session-controller':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(1b607bd8db380f1d04dac69eb6cb8abc)
+      '@deepseek-ai/dsh-brand':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
       '@deepseek-ai/dsh-llm':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)

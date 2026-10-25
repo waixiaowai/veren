@@ -15,7 +15,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 
 /** app_open 需要的最小服务面 / the minimal service face app_open needs */
 export interface AppOpenPort {
-  openUrl(url: string, options?: { taskId?: string }): Promise<{ sessionId: string; title: string }>
+  openUrl(url: string, options?: { taskId?: string; callerSessionId?: string }): Promise<{ sessionId: string; title: string }>
 }
 
 
@@ -51,8 +51,15 @@ export function createAppOpenTool(port: () => AppOpenPort): ReturnType<typeof de
       taskId: { type: 'string', description: 'Task id to take after the page session is open (task workflow).' },
     },
     output: { schema: { type: 'object', additionalProperties: true } as const, render: renderValue },
-    async execute(args) {
-      return await port().openUrl(args.url, args.taskId === undefined ? {} : { taskId: args.taskId })
+    async execute(args, exec) {
+      // 调用方会话随行:自我打开(app_open 自己的页面)时幂等返回,不废弃自己的 live 行
+      // the caller rides along: opening your own page degrades to an idempotent return instead of deprecating your own live row
+      const callerSessionId = exec?.agent?.session?.id
+      const options = {
+        ...(args.taskId === undefined ? {} : { taskId: args.taskId }),
+        ...(callerSessionId === undefined ? {} : { callerSessionId }),
+      }
+      return await port().openUrl(args.url, options)
     },
     presentCall: args => ({ card: 'generic' as const, title: '打开页面', kind: 'other' as const, ...(args === undefined ? {} : { rawInput: args }) }),
   })

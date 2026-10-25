@@ -178,6 +178,56 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
     }
     return agent
   }
+
+  /**
+   * 页面身份系统提示（组装期动态解析）：agent 创建时查页面实例行——新会话与重启后
+   * 再激活的老会话走同一条 agent/created 接缝,同等获得身份;非页面会话不注册。
+   * 真机反例:页面会话模型曾无视页面工具,去文件系统寻找业务数据(先扫了用户 home
+   * 的错误 home!),一回合烧约 40 万 token——根因是页面身份只以一条消息存在,权重
+   * 压不过宿主编码人设的 system prompt。这里把身份与自治协议提升到 system prompt
+   * 层,按 agent 作用域注册(随 fiber 生灭,不泄漏到别的会话)。
+   * The page-identity system prompt (resolved dynamically at assembly): on agent
+   * creation we look up the page instance row — fresh sessions and old sessions
+   * re-activated after a restart share the same agent/created seam, so both get
+   * the identity; non-page sessions register nothing. Live counter-example: a
+   * page-session model ignored its page tools and went filesystem-diving for
+   * business data (scanning the wrong user home first!), burning ~400K tokens in
+   * one turn — the page identity existed only as one message, outweighed by the
+   * host's coding-persona system prompt. This lifts the identity and the
+   * autonomy protocol into the system prompt, scoped to the agent (dies with the
+   * fiber, never leaks into other sessions).
+   */
+  const attachPageIdentity = async (agent: Agent): Promise<void> => {
+    const sessionId = agent.session?.id
+    if (sessionId === undefined) return
+    try {
+      for (const app of ctx.apps.catalog()) {
+        const rows = await ctx.pageRegistry.instances.listByApp(app.definition.id)
+        const row = rows.find((candidate) => candidate.sessionId === sessionId && candidate.state === 'live')
+        if (row === undefined) continue
+        agent.ctx.systemPrompt.context({
+          name: 'APP_HOST_PAGE_IDENTITY',
+          // WORKING_DIRECTORY(100) 之后:页面会话的工作目录只是宿主开发工作区,与本页任务无关。
+          // After WORKING_DIRECTORY(100): a page session's cwd is the host dev workspace, unrelated to the page task.
+          order: 105,
+          interpolate: false,
+          text: [
+            `页面会话身份:你当前在应用页面 ${row.url}(应用 ${app.definition.id})上工作。`,
+            '- 本页挂载的工具是你操作业务数据的唯一正道:业务数据不在工作区文件里。禁止用文件系统、终端、命令行或阅读源码的方式寻找业务数据、存储位置或工具实现。',
+            '- 工作目录只是宿主开发工作区,与本页任务无关。',
+            '- 任务与业务 id 属于各自模块的命名空间(如任务工作台的 t-N 与任务中心的 task-*),不可混用。',
+            '- 行动前先用页面工具读取事实;页面说明(PAGE 块)与本说明冲突时,以页面工具的返回为准。',
+          ].join('\n'),
+        })
+        return
+      }
+    } catch (error: unknown) {
+      // 身份注入失败不阻断 agent 创建:页面 PAGE 块仍在,只是少了 system 层加固。
+      // A failed identity injection must not block agent creation: the PAGE block
+      // still rides, only the system-level hardening is missing.
+      ctx.logger.warn(`app-host: page identity for ${sessionId} failed: ${String(error)}`)
+    }
+  }
   // 会话 → 本端口经 agents.create 拿到的句柄：只有持有者能整体拆除该 agent
   // / session → the handle from agents.create; only the holder can tear the agent down
   const handles = new Map<string, AgentHandle>()
@@ -193,6 +243,47 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
       ctx.logger.warn(`app-host: dispose(${sessionId}) failed: ${String(error)}`)
     }
   }
+
+  // agent 创建即挂页面身份 + 重挂页面工具面:新建与重启后再激活的老会话都经
+  // 这条接缝。serial 契约:同步监听器返回 undefined 即放行;身份挂载与重挂异步
+  // 进行、绝不阻塞创建链。重挂专治真机反例:一次性渲染绑定原始 fiber,重启后
+  // 重建的 agent 没有页面工具面,模型只能靠通用工具 improvising(40 万 token 的
+  // 文件系统探查)。reserved 行在两阶段创建中会被 rerender 幂等跳过,新会话的
+  // 正常渲染不会因此双重执行。
+  // Attach the page identity AND remount the page tool face on agent creation:
+  // fresh sessions and old sessions re-activated after a restart share this
+  // seam. Serial contract: a sync listener returning undefined passes; the
+  // attach and remount run asynchronously and never block the creation chain.
+  // The remount answers the live counter-example: the one-shot render is bound
+  // to the original fiber, so a recreated agent carried no page tool face and
+  // the model improvised with generic tools (~400K tokens of filesystem
+  // probing). Reserved rows are idempotently skipped by rerender (mid two-phase
+  // create), so a fresh session's normal render never double-runs.
+  ctx.on('agent/created', async ({ agent }) => {
+    const sessionId = agent.session?.id
+    if (sessionId !== undefined) {
+      // agent/created 是 serial 事件(创建链 await 监听器):监听器必须**异步等待**
+      // 重挂与身份完成再放行——重挂含存储读与组件体渲染,fire-and-forget 会与
+      // 首回合的工具清单组装竞速(真机反例:2.0.6 上旧会话重挂没赶上首个 LLM
+      // 调用,forum__list 报 unknown tool)。reserved 行会被 rerender 幂等跳过,
+      // 新会话的正常渲染不会因此双重执行。
+      // agent/created is a serial event (the creation chain awaits its
+      // listeners): the listener must await the remount and identity before
+      // passing — the remount does storage reads plus a body render, and a
+      // fire-and-forget races the first turn's tool-list assembly (live
+      // counter-example on 2.0.6: an old session's remount missed the first LLM
+      // call and forum__list came back unknown tool). Reserved rows are
+      // idempotently skipped by rerender, so a fresh session's normal render
+      // never double-runs.
+      try {
+        await ctx.pageRegistry.rerender(sessionId, agent)
+      } catch (error: unknown) {
+        ctx.logger.warn(`app-host: page rerender for ${sessionId} failed: ${String(error)}`)
+      }
+      await attachPageIdentity(agent)
+    }
+    return undefined
+  })
 
   /** 该 agent 作用域当前可见的工具面（名字 + 用途描述）/ the tool face currently visible in the agent's scope */
   const toolFaceOf = (agent: Agent): readonly PageToolEntry[] =>

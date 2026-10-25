@@ -155,6 +155,18 @@ function makeHostSessions(ctx: Context) {
     list: () => [makeWorkspace('ws-default', defaultWorkspacePath)],
     initializeDefault: async () => makeWorkspace('ws-default', defaultWorkspacePath),
   })
+  // 页面身份系统提示的替身:记录注册进来的 context,disposer 摘除
+  // stub for the page-identity system prompt: records contexts, disposer removes
+  const promptContexts: Array<{ name: string; order: number }> = []
+  ;(ctx.provide as unknown as (n: string, v: unknown) => void)('systemPrompt', {
+    context: (c: { name: string; order: number }) => {
+      promptContexts.push({ name: c.name, order: c.order })
+      return () => {
+        const at = promptContexts.findIndex(p => p.name === c.name)
+        if (at >= 0) promptContexts.splice(at, 1)
+      }
+    },
+  })
   ;(ctx.provide as unknown as (n: string, v: unknown) => void)('agents', {
     get: (id: string) => (sessions.get(id)?.alive === true ? agentObjects.get(id) : undefined),
     create: async (options: { sessionId: string; meta?: { cwd?: string } }) => {

@@ -207,6 +207,19 @@ function makeHostSessions(ctx: Context, failTool?: string) {
     list: () => [makeWorkspace('ws-newer', 'C:\\fake-newer-workspace'), makeWorkspace('ws-default', defaultWorkspacePath)],
     initializeDefault: async () => makeWorkspace('ws-default', defaultWorkspacePath),
   })
+  // 页面身份系统提示的替身:记录注册进来的 context(断言面),disposer 逆序摘除
+  // stub for the page-identity system prompt: records registered contexts (an
+  // assertion surface); the disposer removes them again
+  const promptContexts: Array<{ name: string; order: number }> = []
+  ;(ctx.provide as unknown as (n: string, v: unknown) => void)('systemPrompt', {
+    context: (c: { name: string; order: number }) => {
+      promptContexts.push({ name: c.name, order: c.order })
+      return () => {
+        const at = promptContexts.findIndex(p => p.name === c.name)
+        if (at >= 0) promptContexts.splice(at, 1)
+      }
+    },
+  })
   /** 记录 agents.create 的入参（页面会话 cwd 归属的断言面）/ records agents.create options */
   const agentCreations: Array<{ sessionId: string; cwd?: string }> = []
   ;(ctx.provide as unknown as (n: string, v: unknown) => void)('agents', {

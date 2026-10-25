@@ -159,6 +159,17 @@ export interface OpenPageOptions {
   readonly actor?: string
   /** 投递路径置 false：建会话但不发 GUI focus（投递不是导航，§3.9） */
   readonly focus?: boolean
+  /**
+   * 调用方会话:与目标 URL 的 live 行同会话时,打开退化为幂等返回——否则
+   * "一律新建"会废弃调用方自己的 live 行(页面会话经 app_open 打开自己的
+   * 页面 = 自杀;真机反例:重挂机制依赖的 live 行被调用方的自救动作废弃)。
+   * The caller's session: when it already owns the target url's live row, the
+   * open degrades to an idempotent return — otherwise "always fresh" would
+   * deprecate the caller's own live row (a page session opening its own page
+   * via app_open = suicide; live counter-example: the live row the remount
+   * depends on got deprecated by the caller's self-rescue).
+   */
+  readonly callerSessionId?: string
 }
 
 /** openUrl 的结果：打开一律新建，结果就是新会话 / openUrl result: the fresh session */
@@ -313,6 +324,21 @@ export async function openPageUrl(
   options: OpenPageOptions = {},
 ): Promise<OpenPageResult> {
   const { key, app, match } = resolvePageTarget(registry, ports, url)
+  // 自我打开守卫(幂等返回):调用方已持有该 URL 的 live 行时,"另起新会话"会
+  // 废弃调用方自己——页面会话经 app_open 打开自己的页面等于自杀。这里原样
+  // 返回当前会话,不废弃、不新建;需要 fresh 会话的调用方显式放弃 caller 身份。
+  // Self-open guard (idempotent return): when the caller already owns the url's
+  // live row, "always fresh" would deprecate the caller itself — a page session
+  // opening its own page via app_open is suicide. Return the current session
+  // as-is; a caller that truly wants a fresh session must forgo its identity.
+  if (options.callerSessionId !== undefined) {
+    const own = await index.lookup(key)
+    if (own !== undefined && own.state === 'live' && own.sessionId === options.callerSessionId) {
+      // 自我打开也兑现 taskId(在自己的页面上接任务依旧合法)/ a self-open still honors taskId (taking a task on your own page is legitimate)
+      if (options.taskId !== undefined) await takeTask(ports, options.taskId, own.sessionId, options.actor)
+      return { sessionId: own.sessionId, url: key, title: own.instanceTitle }
+    }
+  }
   await deprecatePrevious(index, ports, key)
   return createPageSession(index, ports, key, app, match, options)
 }
@@ -488,4 +514,69 @@ export async function createPageSession(
 function wrap(error: unknown, code: PageErrorCode, prefix: string): unknown {
   if (error instanceof PageError) return error
   return new PageError(code, `${prefix}: ${error instanceof Error ? error.message : String(error)}`)
+}
+
+/** 已完成一次性渲染的 agent（同进程内防重挂；跨进程靠新 agent 对象天然区分）*/
+/** Agents whose one-shot render already ran (in-process remount guard; across processes the fresh agent object distinguishes naturally) */
+const renderedAgents = new WeakSet<object>()
+
+/**
+ * 页面会话再激活重挂:老会话的 agent 在重启/失效后重新创建,而一次性渲染绑定在
+ * 原始 fiber 上——新 agent 身上没有页面工具面,也没有本会话的 PAGE 块,模型只能
+ * 靠通用工具 improvising(真机反例:一个回合约 40 万 token 的文件系统探查)。
+ * 这里按 session 找到 live 行,解析页面定义,把唯一渲染 + PAGE 块重放到新 agent:
+ * 工具/订阅/skill 随组件体重挂,首屏 effect 重发,fresh 事实经 followup 进上下文。
+ * 同一 agent 只重挂一次(WeakSet);reserved 行(两阶段创建中)与非 live 行跳过,
+ * 因此新会话的创建路径不会由此双重渲染。失败只降级(warn + false),绝不销毁
+ * 已有会话——老会话的日志与索引行都是既成事实。
+ *
+ * Re-activation remount: when an old page session's agent is recreated after a
+ * restart/invalidation, the one-shot render is still bound to the original
+ * fiber — the new agent carries no page tool face and no PAGE block, and the
+ * model can only improvise with generic tools (live counter-example: ~400K
+ * tokens of filesystem probing in one turn). Given a session id, find the live
+ * row, resolve the page definition, and replay the one-shot render + PAGE block
+ * onto the new agent: tools/subscriptions/skills re-register with the body, the
+ * first-screen effects re-fire, and fresh facts ride followup into the context.
+ * Each agent remounts at most once (WeakSet); reserved rows (mid two-phase
+ * create) and non-live rows are skipped, so the fresh-create path never
+ * double-renders through this entry. Failures degrade (warn + false) and never
+ * destroy the existing session — its log and index row are already facts.
+ */
+export async function rerenderLivePage(
+  registry: { resolve(url: string): PageMatch<never> | null; catalog(): ReadonlyArray<{ url: string }> },
+  index: PageInstanceIndex,
+  ports: PageRuntimePorts,
+  sessionId: string,
+  agent: Agent,
+): Promise<boolean> {
+  const tag = agent as unknown as object
+  if (renderedAgents.has(tag)) return false
+  for (const entry of registry.catalog()) {
+    const row = await index.lookup(entry.url as PageInstanceKey).catch(() => undefined)
+    if (row === undefined || row.sessionId !== sessionId || row.state !== 'live') continue
+    let resolved: { key: PageInstanceKey; app: AppRecord; match: PageMatch<never> }
+    try {
+      resolved = resolvePageTarget(registry, ports, row.url)
+    } catch {
+      continue
+    }
+    const { key, app, match } = resolved
+    const params = { ...row.params }
+    try {
+      assertParamsMatchPattern(match.page.url, params)
+    } catch {
+      continue
+    }
+    const before = ports.sessions.toolFace(sessionId)
+    const body = match.live.mount(params, agent)
+    const pageTools = collectPageTools(before, ports.sessions.toolFace(sessionId))
+    const warning = pageToolWarning(match.page, pageTools.length)
+    if (warning !== undefined) ports.warn?.(`${warning} (app "${app.definition.id}", url "${key}", rerender)`)
+    const block = componentPageBlock(app, match, key, pageTools, body)
+    await ports.sessions.appendUserMessage(sessionId, block, 'app/page')
+    renderedAgents.add(tag)
+    return true
+  }
+  return false
 }

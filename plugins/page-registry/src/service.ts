@@ -14,7 +14,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { KvPageInstanceIndex, PageError, PageErrorCode, PageRegistry, canonicalizePageUrl, formatPath } from '@veren/prompt-page'
 import type { InstanceKvPort, PageCatalogEntry, PageDefinition, PageInstanceIndex, PageInstanceKey, PageInstanceRecord, PageLiveBinding, PageMatch, PageParams } from '@veren/prompt-page'
 import { APP_PAGES_DOMAIN_NAME, appPagesDomain, instanceTableView } from './storage.ts'
-import { openPageUrl } from './runtime.ts'
+import { openPageUrl, rerenderLivePage } from './runtime.ts'
 import type { OpenPageOptions, OpenPageResult, PageRuntimePorts } from './runtime.ts'
 import { deliverToPageUrl, HopLedger } from './delivery.ts'
 import type { DeliverPageOptions, DeliveryResult } from './delivery.ts'
@@ -215,6 +215,24 @@ export class PageRegistryService extends Service {
    * while the session log stays readable; the index row flips deprecated and
    * the url frees up. Idempotent when the row is absent or not live.
    */
+  /**
+   * 页面会话再激活重挂:老会话的 agent 重建后(重启/失效),重挂页面工具面并重发
+   * PAGE 块——一次性渲染绑定原始 fiber,新 agent 身上没有页面工具,模型只能靠
+   * 通用工具 improvising。由装配层在 agent/created 接缝调用;非页面会话、
+   * reserved 行或已重挂过的 agent 幂等返回 false。
+   * Re-activation remount: after an old page session's agent is recreated
+   * (restart/invalidation), remount the page tool face and re-deliver the PAGE
+   * block — the one-shot render is bound to the original fiber, so a fresh agent
+   * carries no page tools and the model would improvise with generic ones. The
+   * assembly layer calls this from the agent/created seam; non-page sessions,
+   * reserved rows, and already-remounted agents idempotently return false.
+   * @param sessionId - 重建的会话 id / the recreated session id
+   * @param agent - 重建的 agent(身份与作用域) / the recreated agent (identity and scope)
+   */
+  async rerender(sessionId: string, agent: import('@deepseek-ai/dsh-agent').Agent): Promise<boolean> {
+    return Promise.resolve().then(() => rerenderLivePage(this.registry, this.instances, this.ports, sessionId, agent))
+  }
+
   async closePage(url: PageInstanceKey | string): Promise<void> {
     const key = canonicalizePageUrl(url)
     const record = await this.instances.lookup(key)
