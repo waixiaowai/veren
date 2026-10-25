@@ -11,13 +11,13 @@
  * hand would create the "visible in the catalog but unresolvable" drift the
  * single-entry design forbids.
  *
- * 本文件不含任何工具清单：工具绑定长在页面上（pages.tsx 的 XxxPageTools——
- * 本地名 → 构建器的唯一声明），meta.tools 与目录定义都从它推导，这里只逐页
- * 登记——先推导该页绑定的定义，再挂该页，一页一套信息+工具。
+ * 本文件不含任何工具清单：工具绑定长在页面上（pages.tsx 的 PageToolBinding——
+ * 本地名 → 构建器的唯一声明），组件体按绑定登记全名定义，这里只逐页
+ * 登记——先取该页绑定的定义，再挂该页，一页一套信息+工具。
  * The tool manifests do NOT live here: tool bindings live on their pages (the
- * XxxPageTools in pages.tsx — the one local-name → builder declaration), and
- * both meta.tools and the catalog definitions derive from them; this file only
- * registers page by page — derive the page's bound definitions, then mount the
+ * PageToolBinding in pages.tsx — the one local-name → builder declaration), the
+ * bodies register the full-named definitions from the bindings; this file only
+ * registers page by page — take the page's bound definitions, then mount the
  * page. One page, one information + tools unit.
  *
  * 工具实现来自 `@veren/forum` 的构建器（G2 拆包：宿主包在框架缺席的部署里照常激活）。

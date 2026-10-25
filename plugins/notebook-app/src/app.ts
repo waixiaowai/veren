@@ -3,10 +3,12 @@
  * collected page tools, and the single-entry registration through the host
  * application registry (`ctx.apps`) exactly the way task-workbench does it.
  * This is the notebook's ONLY registration face: the page tools are the
- * `@veren/notebook` builders — the one model-facing implementation — defined
- * into the app catalog here and mounted into page sessions via `meta.tools`;
- * nothing registers into `ctx.tools`. The pages themselves live in
- * `pages.tsx` (standard PageFC + meta form).
+ * `@veren/notebook` builders — the one model-facing implementation — prepared
+ * under their full names here, bound into the pages' module slot via
+ * `bindNotebookServices`, and registered by the page bodies themselves
+ * (`agent.ctx.tools.register`) in the one render; nothing registers into
+ * `ctx.tools`. The pages themselves live in `pages.tsx` (standard PageFC +
+ * meta form).
  *
  * Single-entry registration: `ctx.apps.pages(id).register(page)` mirrors every
  * page into the page registry internally, so this file never calls
@@ -14,8 +16,9 @@
  *
  * 记事本应用层：`notebook` 应用的定义、收编的页面工具，与经宿主应用注册表
  * （`ctx.apps`）的单入口注册，写法与 task-workbench 一致。这是记事本唯一的注册面：
- * 页面工具就是 `@veren/notebook` 的构建器——唯一的面向模型实现——在本文件 define 进
- * 应用目录，并经 `meta.tools` 挂进页面会话；绝不注册进 `ctx.tools`。页面本体在
+ * 页面工具就是 `@veren/notebook` 的构建器——唯一的面向模型实现——在这里以全名
+ * 备好，经 `bindNotebookServices` 绑进页面模块槽位，由页面组件体在唯一一次渲染里
+ * 自己 `agent.ctx.tools.register` 登记；绝不注册进 `ctx.tools`。页面本体在
  * `pages.tsx`（标准 PageFC + meta 形态）。
  *
  * 单入口注册：`ctx.apps.pages(id).register(page)` 会在内部把页面镜像进页面注册表，

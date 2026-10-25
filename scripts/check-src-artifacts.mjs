@@ -69,17 +69,14 @@ const ARTIFACT_SUFFIX_RE = /\.(?:js|mjs|cjs|d\.ts|js\.map|d\.ts\.map)$/
 const SRC_TWIN_SUFFIXES = ['.ts', '.tsx', '.mts', '.cts']
 
 /**
- * Allowlisted stale `dist/` artifacts (repo-relative): each sits in a frozen
- * lane this audit must not modify — real residue, deletion owed by its lane.
- * 白名单（仓库相对路径）：冻结泳道内的真实残留，删除责任在属主泳道。
+ * Allowlisted stale `dist/` artifacts (repo-relative). Empty since the frozen
+ * lanes' residue was deleted on 2026-10-25 — keep the mechanism: new residue
+ * (a deleted src whose dist twin survives a no-clean rebuild) lands here
+ * temporarily and its lane deletes it.
+ * 白名单（仓库相对路径）。当前为空——冻结泳道的残留已于 2026-10-25 删除；机制
+ * 保留：新残留（删源后的 dist 孪生在不清构建里存活）先进这里，由属主泳道删除。
  */
-const STALE_DIST_ALLOWLIST = new Set([
-  // prompt-page / forum-app / person-agent-app: the full emitted quartet 产物四件套
-  ...['packages/prompt-page/dist/mount.', 'plugins/forum-app/dist/app-tools.', 'plugins/person-agent-app/dist/views.']
-    .flatMap(stem => ['js', 'js.map', 'd.ts', 'd.ts.map'].map(ext => `${stem}${ext}`)),
-  'plugins/app-host/dist/page-sync.js', // deleted sources / 已删源码
-  'plugins/app-host/dist/staging.js',
-])
+const STALE_DIST_ALLOWLIST = new Set([])
 
 /** Directory entries or [] when unreadable. 读取目录项，不可读时返回空。 */
 function readEntries(dir) {

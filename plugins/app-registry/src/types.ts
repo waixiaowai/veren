@@ -97,16 +97,18 @@ export interface AppPageRegistrar {
   /**
    * 组件页注册（RFC prompt-page-render §3.5/C8 的唯一注册签名扩展）：传 PageFC
    * 组件 + 契约 meta，适配器（defineComponentPage）内部包成 PageDefinition 与
-   * 每会话实时视图——正文渲染为 Markdown，`ctx.page.effect`/`ctx.page.on`/
-   * `ctx.page.tool` 走槽位记账（ctx 固有成员不被改写）。返回 disposer（HMR/卸载安全）。
+   * 实时绑定——一次性渲染：组件体在页面会话的真实 Agent 上执行恰好一次，正文
+   * 成型为 Markdown，工具/订阅/skill/首屏读由组件体经 `agent.ctx` 直接登记
+   * （页面 meta 无任何行为钩子）。返回 disposer（HMR/卸载安全）。
    * P 由组件与 meta 同时推断。
    * Component-page registration (the single registration-signature extension of
    * RFC prompt-page-render §3.5/C8): pass a PageFC component + contract meta;
    * the adapter (defineComponentPage) wraps them into a PageDefinition plus a
-   * per-session live view — the body renders as Markdown and `ctx.page.effect` /
-   * `ctx.page.on` / `ctx.page.tool` record through hook slots (the ctx's
-   * inherent members are never rewritten). Returns a disposer (HMR/unload safe).
-   * P is inferred from both the component and meta.
+   * live binding — the one-shot render: the body runs exactly once on the page
+   * session's real Agent, its output finalized into Markdown, with tools/
+   * subscriptions/skills/the first-screen read registered by the body via
+   * `agent.ctx` (the page meta carries no behavioral hooks). Returns a disposer
+   * (HMR/unload safe). P is inferred from both the component and meta.
    */
   register<P extends Record<string, unknown>>(component: import('@veren/prompt-page').PageFC<P>, meta: import('@veren/prompt-page').ComponentPageMeta<P>): () => void
   /**
