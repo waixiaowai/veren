@@ -1,7 +1,7 @@
 {
   "name": "@veren/page-registry",
   "displayName": "Page Registry",
-  "version": "2.0.7",
+  "version": "2.0.9",
   "icon": "./icon.svg",
   "description": "Use when DSH plugins need to register and resolve LLM page-sessions by unique URL: provides the host-level PageRegistryService (register pages with name/url/description, resolve path params + query, catalog for entry points); skip it when there are no declarative pages.",
   "type": "module",
@@ -32,7 +32,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": ">=4.0.0",
+    "@deepseek-ai/cordis": "^4.0.5",
     "@deepseek-ai/dsh-llm": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-storage-domain": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0",

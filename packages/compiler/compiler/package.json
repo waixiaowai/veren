@@ -1,6 +1,6 @@
 {
   "name": "@veren/compiler-compiler",
-  "version": "2.0.7",
+  "version": "2.0.9",
   "description": "Use when you want the assembled compiler pipeline - a wired Compiler instance whose stages resolve against context services - instead of composing the individual providers yourself.",
   "private": true,
   "type": "module",

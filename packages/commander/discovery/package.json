@@ -1,7 +1,7 @@
 {
   "name": "@veren/commander-discovery",
   "displayName": "Veren Commander Discovery",
-  "version": "2.0.7",
+  "version": "2.0.9",
   "description": "Use when a Cordis plugin needs the veren workspace's units (npm packages and Rust crates) as structured data: it provides the DiscoveryService plugin (inject Project, then list/find units) with file-convention discovery, depth cap and skip list, plus the pure discoverUnits functions; skip it when you scan workspaces with other tooling.",
   "private": true,
   "type": "module",

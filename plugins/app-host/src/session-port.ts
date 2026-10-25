@@ -203,7 +203,17 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
     try {
       for (const app of ctx.apps.catalog()) {
         const rows = await ctx.pageRegistry.instances.listByApp(app.definition.id)
-        const row = rows.find((candidate) => candidate.sessionId === sessionId && candidate.state === 'live')
+        // live 之外也认 reserved:新建路径的 agent/created 触发在两阶段创建的
+        // reserve 与 commit 之间,此刻行还是 reserved——只认 live 会让新会话永远
+        // 拿不到身份(真机 2.0.8:三个新建页面会话日志零身份块)。reserved 行若
+        // 最终创建失败,agent 随 fiber 消亡,身份注册随之拆除,不会泄漏。
+        // Match reserved rows as well as live ones: on the fresh-create path
+        // agent/created fires between the two-phase reserve and commit, so the
+        // row is still reserved there — a live-only match left fresh sessions
+        // permanently unbadged (live 2.0.8: three fresh page sessions, zero
+        // identity blocks in their logs). If the create ultimately fails, the
+        // agent dies with its fiber and the registration unwinds — no leak.
+        const row = rows.find((candidate) => candidate.sessionId === sessionId && (candidate.state === 'live' || candidate.state === 'reserved'))
         if (row === undefined) continue
         agent.ctx.systemPrompt.context({
           name: 'APP_HOST_PAGE_IDENTITY',
@@ -259,6 +269,22 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
   // the model improvised with generic tools (~400K tokens of filesystem
   // probing). Reserved rows are idempotently skipped by rerender (mid two-phase
   // create), so a fresh session's normal render never double-runs.
+  //
+  // global 是硬要求,不是风格选择:agent/created 经 dsh-scope 的 scopeTarget 载体
+  // 派发,载体保留 agent(服务)自身的 isolate baseFilter——注册在装配 ctx(根域)
+  // 上的普通监听器会被过滤器排除,事件一次都到不了这里。真机反例(2.0.8):五个
+  // 新建页面会话 + 两次重启恢复,重挂与身份一次都没触发(会话日志零 APP_HOST_
+  // PAGE_IDENTITY、恢复回合首调用 unknown tool),而单测里裸 ctx 派发次次通过。
+  // { global: true } 让本监听器无视载体过滤接收每一次 agent 创建。
+  // `global` is a hard requirement, not a style choice: agent/created dispatches
+  // through a dsh-scope scopeTarget carrier that preserves the agent's (service)
+  // isolate baseFilter — a plain listener registered on the assembly ctx (the
+  // root realm) is filtered out and never sees the event. Live counter-example
+  // (2.0.8): across five fresh page sessions and two post-restart resumes the
+  // remount and identity never fired (zero APP_HOST_PAGE_IDENTITY in session
+  // logs, unknown-tool on the first resumed call), while unit tests dispatching
+  // on a bare ctx passed every time. { global: true } makes this listener
+  // receive every agent creation regardless of the carrier's filter.
   ctx.on('agent/created', async ({ agent }) => {
     const sessionId = agent.session?.id
     if (sessionId !== undefined) {
@@ -283,7 +309,7 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
       await attachPageIdentity(agent)
     }
     return undefined
-  })
+  }, { global: true })
 
   /** 该 agent 作用域当前可见的工具面（名字 + 用途描述）/ the tool face currently visible in the agent's scope */
   const toolFaceOf = (agent: Agent): readonly PageToolEntry[] =>
@@ -296,11 +322,17 @@ export function createRealSessionPort(ctx: Context, focus: FocusPort = eventFocu
     }))
   }
 
-  // agent 销毁：句柄登记清理（作用域注册已随 fiber 自动消失）。
+  // agent 销毁：句柄登记清理（作用域注册已随 fiber 自动消失）。agent/disposed
+  // 与 agent/created 走同一个 scopeTarget 载体派发——不加 global，根域监听器
+  // 同样一个事件都收不到，句柄表会只增不减。
+  // Agent disposal: drop the handle entry (scope registrations already died
+  // with the fiber). agent/disposed dispatches through the same scopeTarget
+  // carrier as agent/created — without global this root-realm listener sees
+  // nothing either, and the handle table would only ever grow.
   ctx.on('agent/disposed', ({ agent }) => {
     const sessionId = agent?.session?.id
     if (sessionId !== undefined) handles.delete(sessionId)
-  })
+  }, { global: true })
 
   return {
     exists: (sessionId) => ctx.sessions.get(sid(sessionId)) !== undefined,

@@ -106,7 +106,7 @@ describe('KvPageInstanceIndex（两阶段创建 + 持久化）', () => {
     expect(kv.map.size).toBe(0)
   })
 
-  it('会话被删除：lookup 探测失效并 forget，下次打开按未命中重建', async () => {
+  it('lookup 纯读：会话不在也不删行（重启窗口保行），死行由废弃路径正规收编', async () => {
     const kv = memKv()
     const alive = new Set(['s-1'])
     const index = new KvPageInstanceIndex(kv, { sessionExists: (id) => alive.has(id) })
@@ -114,7 +114,22 @@ describe('KvPageInstanceIndex（两阶段创建 + 持久化）', () => {
     await index.reserve(url, 's-1', snapshot())
     await index.commit(url, 's-1')
     alive.delete('s-1')
-    expect(await index.lookup(url)).toBeUndefined()
+    // 真机反例（2.0.8）：宿主重启后所有会话都未再激活，探测面恒为"不在"，
+    // live 行被无墓碑删除 → 再激活重挂查不到行 → unknown tool 停摆。lookup
+    // 必须原样返回行。
+    // Live counter-example (2.0.8): after a host restart no session is active
+    // yet, the probe says "gone" for everything, and live rows were deleted
+    // without a tombstone → the re-activation remount found no row →
+    // unknown-tool stalls. lookup must return the row untouched.
+    await expect(index.lookup(url)).resolves.toMatchObject({ sessionId: 's-1', state: 'live' })
+    expect(kv.map.has(url)).toBe(true)
+    // 指向已死会话的行由 openUrl 的 deprecatePrevious 收编（retire 失败不阻
+    // 断 + 墓碑必写），不经过 lookup 的越权清理。
+    // A row pointing at a dead session is retired by openUrl's
+    // deprecatePrevious (retire failures never block, the tombstone always
+    // lands), never by an out-of-band lookup cleanup.
+    await expect(index.deprecate(url, 'superseded')).resolves.toMatchObject({ state: 'deprecated' })
+    expect(kv.map.get('deprecated:s-1')?.state).toBe('deprecated')
     expect(kv.map.has(url)).toBe(false)
   })
 

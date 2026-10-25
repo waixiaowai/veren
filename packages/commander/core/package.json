@@ -1,7 +1,7 @@
 {
   "name": "@veren/commander-core",
   "displayName": "Veren Commander Core",
-  "version": "2.0.7",
+  "version": "2.0.9",
   "description": "Use when you want to build Cordis-plugin commands for the veren CLI or embed its command registry in your own tool: it provides the standard registry plugin (name/inject/Config/apply) with CommandDef, the CommandService (register/get/list/dispatch), the CliError type and the schemastery Config schema; skip it when you only run the CLI.",
   "private": true,
   "type": "module",

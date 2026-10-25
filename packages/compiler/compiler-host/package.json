@@ -1,6 +1,6 @@
 {
   "name": "@veren/compiler-host",
-  "version": "2.0.7",
+  "version": "2.0.9",
   "description": "Use when a TypeScript build stage needs a ts.CompilerHost service from the context - including the in-memory host factory for sources that never touch disk - instead of creating a host by hand.",
   "private": true,
   "type": "module",

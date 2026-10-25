@@ -1,7 +1,7 @@
 {
   "name": "@veren/prompt-page",
   "description": "Component-page runtime over prompt-core: defineComponentPage adapts a PageFC + meta into a registrable page definition plus a per-session live view, useSnapshot feeds first-screen data into the component; use it when authoring Veren application pages whose body renders as Markdown into the PAGE block — not for domain logic or host wiring.",
-  "version": "2.0.7",
+  "version": "2.0.9",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

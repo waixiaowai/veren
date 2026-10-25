@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { agentEvents } from '@deepseek-ai/dsh-agent'
+import { agentCarrier, agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 // 与生产同型：每个 agent 一个 createScope（独立 fiber + scope tag），事件过滤才真实
@@ -267,6 +267,8 @@ function makeHostSessions(ctx: Context, failTool?: string) {
     agentCreations,
     attached,
     defaultWorkspacePath,
+    /** 页面身份注册面（断言面）/ the page-identity registration surface */
+    promptContexts,
     /** 该会话的稳定 agent 对象（也是作用域 tag）；agent 未创建 → undefined */
     agentOf(id: string): Agent | undefined { return agentObjects.get(id) },
     /** agent 销毁：作用域注销器全部执行（真实 cordis 语义）+ 广播 agent/disposed */
@@ -275,6 +277,40 @@ function makeHostSessions(ctx: Context, failTool?: string) {
       scopes.delete(id)
       agentObjects.delete(id)
       emit('agent/disposed', { agent: { session: { id } } })
+    },
+    /** 重启后再激活（真实宿主的 resume 派发形态）：agent/created 经 agentCarrier
+     * （scopeTarget 载体）serial 派发，agent 带跨域 baseFilter——真实 Agent 是
+     * Service，其 isolate 过滤会把根域监听器全部排除；裸 emit 永远测不到这条
+     * 排除路径（真机 2.0.8 反例：重挂与身份零触发、单测却全绿）。
+     * / re-activation after a restart (the real host's resume dispatch shape):
+     * agent/created dispatches serially through agentCarrier (a scopeTarget
+     * carrier) with the agent carrying a cross-realm baseFilter — the real
+     * Agent is a Service whose isolate filter excludes every root-realm
+     * listener; a bare emit can never exercise this exclusion path (live 2.0.8
+     * counter-example: zero remount/identity firings while unit tests stayed
+     * green). */
+    async resumeAgentFiltered(id: string): Promise<Agent> {
+      const session = sessions.get(id) ?? newSession(id)
+      sessions.set(id, session)
+      const agent = {
+        id,
+        session,
+        followup: (m: { content: Array<{ text?: string }> }) => {
+          scopes.get(id)?.followups.push(m.content.map((block) => block.text ?? '').join(''))
+        },
+      } as unknown as Agent
+      const scope = makeAgentScope(ctx, agent)
+      ;(agent as { ctx: Context }).ctx = scope.ctx
+      scopes.set(id, scope)
+      agentObjects.set(id, agent)
+      // 跨域服务替身：baseFilter 恒 false = 任何作用域标签的监听器都被排除，
+      // 只有 { global: true } 的监听器能收到这次派发。
+      // Cross-realm service stand-in: an always-false baseFilter excludes every
+      // scope-tagged listener; only a { global: true } listener receives this.
+      ;(agent as unknown as Record<symbol, unknown>)[Context.filter] = () => false
+      await (ctx.serial as unknown as (carrier: Context, event: string, payload: unknown) => Promise<void>)(
+        agentCarrier(agent) as unknown as Context, 'agent/created', { agent })
+      return agent
     },
   }
 }
@@ -504,8 +540,40 @@ describe('装配是一处：wireAppHost 显式接上全部接缝', () => {
     // / the PAGE block enters the session via followup; the GUI got the focus event
     expect(scope.followups.some((m) => m.startsWith('PAGE mini/list'))).toBe(true)
     expect(focusEvents).toEqual([{ sessionId: picked.sessionId }])
+    // 新建路径的身份也在场：agent/created 触发于两阶段创建的 reserve 与 commit
+    // 之间，此刻行还是 reserved——live-only 匹配会让新会话永远拿不到身份
+    // / the fresh-create path carries the identity too: agent/created fires
+    // between the two-phase reserve and commit, so the row is still reserved
+    // there — a live-only match leaves fresh sessions permanently unbadged
+    expect(h.host.promptContexts.some((p) => p.name === 'APP_HOST_PAGE_IDENTITY')).toBe(true)
     // 工具栏显示已选应用 / the toolbar shows the selected app
     expect(await h.ctx.appHost.sessionApp(picked.sessionId)).toMatchObject({ id: 'mini' })
+  })
+
+  it('重启后再激活：agent/created 经 realm 过滤载体派发，重挂 + PAGE 重发 + 身份仍然到位（真机 2.0.8 反例的收编）', async () => {
+    const h = await boot()
+    registerMiniApp(h)
+    const picked = await h.ctx.appHost.stage('mini', 'session-composer' as SessionId)
+    const first = h.host.scopes.get(picked.sessionId)
+    if (first === undefined) throw new Error('expected the picked page session scope')
+    expect([...first.registry.keys()]).toEqual(['mini__read'])
+    // 重启语义：旧 agent 连同作用域消亡（fiber 死亡），live 行原样留在索引里
+    // / restart semantics: the old agent dies with its scope (fiber death);
+    // the live row stays in the index untouched
+    h.host.stopAgent(picked.sessionId)
+    expect(first.registry.size).toBe(0)
+    expect((await h.pages.instances.listByApp('mini')).some((row) => row.sessionId === picked.sessionId && row.state === 'live')).toBe(true)
+    // 真实宿主的 resume 派发：scopeTarget 载体 + 跨域 baseFilter——没有
+    // { global: true } 时这次派发一个监听器都到不了（这正是真机停摆的形状）。
+    // / the real host's resume dispatch: a scopeTarget carrier with a
+    // cross-realm baseFilter — without { global: true } this dispatch reaches
+    // zero listeners (exactly the live stall shape).
+    await h.host.resumeAgentFiltered(picked.sessionId)
+    const scope = h.host.scopes.get(picked.sessionId)
+    if (scope === undefined) throw new Error('expected the resumed agent scope')
+    expect([...scope.registry.keys()]).toEqual(['mini__read'])
+    expect(scope.followups.some((m) => m.startsWith('PAGE mini/list'))).toBe(true)
+    expect(h.host.promptContexts.some((p) => p.name === 'APP_HOST_PAGE_IDENTITY')).toBe(true)
   })
 
   it('unstage = 关闭该会话的页面实例：agent 退役（登记随 fiber 拆除）、索引行翻废弃', async () => {

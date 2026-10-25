@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-api-kernel",
   "displayName": "Admin API Kernel",
-  "version": "2.0.7",
+  "version": "2.0.9",
   "description": "Use when admin providers and modules must expose HTTP endpoints without re-implementing security: it registers audience-prefixed routes and applies request ids, origin and CSRF checks, authentication, permission enforcement, body limits, rate limiting, validation, auditing, the standard error envelope, and generated OpenAPI in one fixed order; skip it when the deployment has no HTTP surface.",
   "type": "module",
   "main": "./dist/index.js",

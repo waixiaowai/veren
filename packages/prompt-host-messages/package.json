@@ -1,7 +1,7 @@
 {
   "name": "@veren/prompt-host-messages",
   "description": "Message-log host renderer for prompt-core: commits fiber effects into an append-only SNAPSHOT/PATCH message log with versioned sync, gap fallback, and eviction policy; use as the react-dom-equivalent layer between page components and an LLM chat API.",
-  "version": "2.0.7",
+  "version": "2.0.9",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

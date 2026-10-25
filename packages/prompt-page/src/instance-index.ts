@@ -95,14 +95,19 @@ export class KvPageInstanceIndex implements PageInstanceIndex {
   }
 
   async lookup(url: PageInstanceKey): Promise<PageInstanceRecord | undefined> {
-    const row = this.table.get(url)
-    if (row === undefined) return undefined
-    // 只有 live 行做存活探测；reserved 行的会话可能还没建成，不算失效
-    if (row.state !== 'live' || this.sessionExists === undefined) return row
-    const alive = await this.sessionExists(row.sessionId)
-    if (alive) return row
-    await this.forget(url) // 会话已被删除：忘掉这一行，下次打开重建
-    return undefined
+    // 纯读：live 行不做存活探测、绝不删除。真机反例：宿主重启后所有会话都未
+    // 再激活，探测面（内存 store）恒为"不存在"，任何 lookup 都会把 live 行无
+    // 墓碑删掉——再激活重挂随之查不到行（unknown tool 停摆），§5 的废弃痕迹
+    // 契约也被破坏。指向已死会话的行由 openUrl 的 deprecatePrevious 正规收编
+    // （retire 失败不阻断 + 写墓碑），lookup 不越权替它清理。
+    // Pure read: no liveness probe, no deletion. Live counter-example: after a
+    // host restart every session is inactive and the probe face (the in-memory
+    // store) says "gone", so any lookup deleted live rows without a tombstone —
+    // the re-activation remount then found no row (unknown-tool stalls), and the
+    // §5 deprecation-trail contract broke. A row pointing at a dead session is
+    // retired properly by openUrl's deprecatePrevious (retire failures never
+    // block, the tombstone always lands); lookup must not clean up on its behalf.
+    return this.table.get(url)
   }
 
   async reserve(url: PageInstanceKey, sessionId: string, snapshot: InstanceSnapshot): Promise<PageInstanceRecord> {
