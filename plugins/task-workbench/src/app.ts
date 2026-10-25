@@ -1,10 +1,11 @@
 /**
- * 应用定义 + 应用级工具目录 + 任务通道（本包的业务核心）。
- * The application definition, the app tool catalog, and the task-channel seam.
+ * 应用定义 + 页面工具绑定 + 任务通道（本包的业务核心）。
+ * The application definition, the page tool bindings, and the task-channel seam.
  *
  * - 工具一律用 `@deepseek-ai/dsh-tools` 的 `defineTool` 定义（DSH `ToolDefinition`
- *   本体），经 `ctx.apps.tools(id, ctx).define(tool, { requires })` 进应用目录：
- *   本地注册名；对外名由注册表拼 `<toolPrefix>__<本地名>`（默认 task_workbench）。
+ *   本体），以全名（`<toolPrefix>__<本地名>`，默认 task_workbench）备好后绑定到
+ *   各自的页面；页面组件体在唯一一次渲染里经 `agent.ctx.tools.register` 直接
+ *   登记——没有应用级工具目录的 define 间接层。
  * - 动作体都在 actions.ts（单一职责：本文件只声明，不实现）。
  * - 任务接缝按 task-center 冻结契约（TaskDraft/TaskCenterContract）编写；
  *   taskCenter 是声明的硬 inject（G13）：发布与拆分直接走注入的服务面，
@@ -17,7 +18,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ApplicationDefinition, AppId, PageKey, AppCapability } from '@veren/app-registry'
 import type { TaskCenterContract, TaskDraft, TaskId, TaskRecord } from '@veren/task-center'
-import { entryUrlOf, presentTaskCall, publishTask, requireTaskId, runGuarded, splitTask, takePageTask } from './actions.ts'
+import { entryUrlOf, getPageTask, listTasksView, presentTaskCall, publishTask, requireTaskId, runGuarded, splitTask, takePageTask } from './actions.ts'
 import type { TaskStore } from './store.ts'
 import type { PageTaskScope } from './types.ts'
 
@@ -145,6 +146,26 @@ function asJson(value: unknown): Record<string, never> {
  */
 export function createAppTools(store: TaskStore, channel: TaskChannel, scope: PageTaskScope): ToolDefinition[] {
   return [
+    defineTool({
+      name: 'list_tasks',
+      description: '只读盘点：返回当前全部任务——根任务带子树进度、全量条目（含子任务与父引用）与状态计数。'
+        + '不改动任何状态；正文快照过时后以本工具的返回为准。'
+        + 'Read-only inventory of every current task — roots with subtree progress, all items (subtasks included), status counts. Changes nothing.',
+      parameters: {},
+      output: { schema: { type: 'object', additionalProperties: true } as const, render: renderValue },
+      execute: async () => asJson(listTasksView(store)),
+      presentCall: () => presentTaskCall('盘点任务'),
+    }),
+    defineTool({
+      name: 'get_page_task',
+      description: '只读读取本页对应那条任务的当前字段与子任务树（详情页专用，无需参数：读的就是 params.taskId 这条）。'
+        + '不改动任何状态；被投递来的盘点/询问类请求用本工具回答。'
+        + 'Read-only view of this page\'s current task fields and subtree (detail page, no arguments). Changes nothing.',
+      parameters: {},
+      output: { schema: { type: 'object', additionalProperties: true } as const, render: renderValue },
+      execute: async (_args, exec) => asJson(await getPageTask(store, scope, exec)),
+      presentCall: () => presentTaskCall('读取本页任务'),
+    }),
     defineTool({
       name: 'take_task',
       description: '接取一个任务。仅当任务状态为 open 时合法；接取后变为 taken。'

@@ -110,9 +110,15 @@ export const externalName = (localName: string): string => `task_workbench__${lo
 // ---- 列表页（首页 home / entry）---- List page (the home page / entry) ----
 
 export const ListPage: PageFC = (_props, agent) => {
-  // 本页工具（跑一次，安全）：接任意 id（浏览入口的合法职责）+ 完成任务
-  // / this page's tools (run once, safe): take an arbitrary id (the browsing
-  // entry's legitimate duty) + complete
+  // 本页工具（跑一次，安全）：只读盘点 + 接任意 id（浏览入口的合法职责）+ 完成
+  // 任务。写工具只在明确要求时使用——正文文案据此条件化（真机反例：祈使句措辞
+  // 曾让首屏自主回合顺手接取并完成任务）。
+  // / this page's tools (run once, safe): the read-only inventory + take an
+  // arbitrary id (the browsing entry's legitimate duty) + complete. The write
+  // tools fire only on explicit request — the body text is conditional for that
+  // reason (live counter-example: imperative phrasing once drove the first
+  // autonomous turn into taking and completing tasks unasked).
+  agent.ctx.tools.register(toolOf('list_tasks'))
   agent.ctx.tools.register(toolOf('take_task'))
   agent.ctx.tools.register(toolOf('complete_task'))
   const items = requireRuntime().store.getState()
@@ -124,7 +130,7 @@ export const ListPage: PageFC = (_props, agent) => {
   return (
     <>
       <h1>任务工作台 · 任务列表</h1>
-      <p>open {byStatus('open')} · taken {byStatus('taken')} · done {byStatus('done')}。接取用 take_task；完成用 complete_task；完成后用一句话确认。</p>
+      <p>open {byStatus('open')} · taken {byStatus('taken')} · done {byStatus('done')}。只读盘点/询问用 list_tasks 直接回答，不要改动任务状态；仅在用户或投递指令明确要求时才接取（take_task）或完成（complete_task），完成后用一句话确认。</p>
       <ul>
         {roots.map((root) => (
           <li key={root.id}>
@@ -140,19 +146,23 @@ export const ListPage: PageFC = (_props, agent) => {
 export const ListMeta: ComponentPageMeta = {
   name: 'list',
   url: `${URL_PREFIX}/list`,
-  description: '任务工作台列表页：浏览全部任务，接取/完成任务',
+  description: '任务工作台列表页：浏览/盘点全部任务，接取/完成任务',
   instructions: '这是任务工作台的首页（列表页）。列表只显示根任务，每条带整棵子树的进度徽标（2/5 = 全树终态/全树节点）。'
     + '正文是打开时刻的首屏快照——此后的任务变化不经页面刷新，以你调用工具返回的结果为准。'
-    + '用 take_task 接取 open 任务，complete_task 完成 taken 任务；完成后用一句话确认。',
+    + '只读盘点、询问类请求用 list_tasks 直接回答，不要改动任何任务状态；'
+    + '仅在用户或投递指令明确要求接取或完成时，才用 take_task 接取 open 任务、complete_task 完成 taken 任务，完成后用一句话确认。'
+    + '用户或投递方的显式要求与上述流程冲突时，以显式要求为准。',
 }
 
 // ---- 详情页（详情页 detail）---- Detail page (the detail archetype) ----
 
 export const DetailPage: PageFC<{ taskId: string }> = (props, agent) => {
-  // 本页工具（跑一次，安全）：页面作用域接取（无参数，接 params.taskId 这条）
-  // + 完成/放弃/拆分
-  // / this page's tools (run once, safe): the page-scoped take (parameterless,
-  // this page's task) + complete/abandon/split
+  // 本页工具（跑一次，安全）：只读读取（get_page_task）+ 页面作用域接取（无参数，
+  // 接 params.taskId 这条）+ 完成/放弃/拆分。写工具只在明确要求时使用。
+  // / this page's tools (run once, safe): the page-scoped read (get_page_task)
+  // + the page-scoped take (parameterless, this page's task) + complete/abandon/
+  // split. The write tools fire only on explicit request.
+  agent.ctx.tools.register(toolOf('get_page_task'))
   agent.ctx.tools.register(toolOf('take_page_task'))
   agent.ctx.tools.register(toolOf('complete_task'))
   agent.ctx.tools.register(toolOf('abandon_task'))
@@ -195,15 +205,17 @@ export const DetailPage: PageFC<{ taskId: string }> = (props, agent) => {
 export const DetailMeta: ComponentPageMeta<{ taskId: string }> = {
   name: 'detail',
   url: `${URL_PREFIX}/task/:taskId`,
-  description: '任务详情页：接取本页任务（take_page_task，无参数），处理该任务的标题/状态/负责人与子任务树',
+  description: '任务详情页：读取本页任务当前状态（get_page_task，无参数），接取本页任务（take_page_task，无参数），处理该任务的标题/状态/负责人与子任务树',
   writes: true,
   // 实例化后显示「任务 #1」——会话列表标题始终是根任务标识（§4.7.4；不进文档正文）
   // / the instance shows 「任务 #1」 — the session-list title stays the root task's
   // identifier (§4.7.4; never document body content)
   instanceTitle: (params) => `任务 #${params.taskId}`,
   instructions: '这是任务详情页，只处理 params.taskId 指定的这一条任务——这一页只干这一件事。'
-    + '有人把任务投给本页时：先用 take_page_task 接取（无需参数，接的就是本页这条；'
-    + '被别的会话持有时会返回 task/already-taken），再动手。'
+    + '有人把任务交给你**执行**时：先用 take_page_task 接取（无需参数，接的就是本页这条；'
+    + '被别的会话持有时会返回 task/already-taken），再动手；'
+    + '盘点、询问、查看类请求不接取、不改动任务，直接用 get_page_task 读取后回答。'
+    + '用户或投递方的显式要求与上述流程冲突时（如明确要求不调用工具），以显式要求为准。'
     + '正文即该任务的字段与子任务树首屏（"不存在"表示任务不在列表，不要凭空处理）；'
     + '此后任务变化不经页面刷新，以你调用工具返回的结果为准。'
     + '用 split_task 把已接取任务拆成子任务（仅当前接取者可用，深度 8 / 单节点 32 子 / 单树 200 节点，'

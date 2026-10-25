@@ -356,7 +356,7 @@ export async function openPageUrl(
  * session remains the index's live row, the next open retries the deprecation,
  * and the invariant "exactly one live session per url" holds.
  */
-async function deprecatePrevious(index: PageInstanceIndex, ports: PageRuntimePorts, key: PageInstanceKey): Promise<void> {
+export async function deprecatePrevious(index: PageInstanceIndex, ports: PageRuntimePorts, key: PageInstanceKey): Promise<void> {
   const previous = await index.lookup(key)
   if (previous === undefined) return
   await ports.sessions.retire(previous.sessionId).catch(() => undefined)

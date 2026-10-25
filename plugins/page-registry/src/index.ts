@@ -23,6 +23,7 @@ export { createAppOpenTool, createPageSendTool } from './tools.ts'
 export type { AppOpenPort, PageSendPort } from './tools.ts'
 export { MAX_DELIVERY_ATTEMPTS, MAX_DELIVERY_HOPS, PAGE_SEND_SOURCE, deliverToPageUrl, HopLedger } from './delivery.ts'
 export type { DeliverPageOptions, DeliveryResult } from './delivery.ts'
+export { DeliveryReceipts, PAGE_RECEIPT_SOURCE } from './receipts.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {

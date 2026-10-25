@@ -18,6 +18,7 @@ import { openPageUrl, rerenderLivePage } from './runtime.ts'
 import type { OpenPageOptions, OpenPageResult, PageRuntimePorts } from './runtime.ts'
 import { deliverToPageUrl, HopLedger } from './delivery.ts'
 import type { DeliverPageOptions, DeliveryResult } from './delivery.ts'
+import { DeliveryReceipts } from './receipts.ts'
 
 /** 服务名（ctx.pageRegistry / inject 'pageRegistry'）/ service name */
 export const PAGE_REGISTRY_NAME = 'pageRegistry'
@@ -52,6 +53,8 @@ export class PageRegistryService extends Service {
   private runtimePorts: PageRuntimePorts | undefined
   /** 投递链深台账（§3.9 级联闸门的状态）/ the hop ledger (§3.9 cascade gate state) */
   private readonly ledger = new HopLedger()
+  /** page_send 回执台账（目标回合结束→回执落发送方日志）/ the page_send receipt ledger */
+  private readonly receipts: DeliveryReceipts
 
   /** 页面实例索引：规范 URL → 当前活会话 + 废弃历史（持久化在 app-pages 域）*/
   get instances(): PageInstanceIndex { return this.indexFace }
@@ -72,6 +75,14 @@ export class PageRegistryService extends Service {
   constructor(ctx: Context) {
     super(ctx, PAGE_REGISTRY_NAME)
     this.registry = new PageRegistry<never>()
+    // 回执观察器：append 经端口惰性取（投递发生时端口必然已接线）
+    // / the receipt observer: append reads the port lazily (ports are always
+    // bound by the time deliveries happen)
+    this.receipts = new DeliveryReceipts({
+      ctx,
+      append: (sessionId, text, source, options) => this.ports.sessions.appendUserMessage(sessionId, text, source, options),
+      warn: (message) => ctx.logger.warn(message),
+    })
     // 域打开是异步的：先给失败索引，打开成功后原位换实现（打开失败保持降级）
     void this.openDomain().then(async (table) => {
       if (table === undefined) return
@@ -198,12 +209,23 @@ export class PageRegistryService extends Service {
   /**
    * 按 URL 幂等投递（§3.9）：该 URL 有活会话则直接 append（唤醒它干活），
    * 没有则新建会话再投。级联硬上限与废弃竞态重投都在投递运行时收口。
+   * 唤醒投递（wake !== false）且调用方在席时武装一条回执：目标回合结束，
+   * 其最终回答以 PAGE-RECEIPT 落回发送方日志（wake:false，只记账）。
    * Idempotent url-addressed delivery (§3.9): append to the url's live session,
    * or create one first. The cascade hard cap and the deprecation-race
-   * re-delivery both close inside the delivery runtime.
+   * re-delivery both close inside the delivery runtime. A waking delivery
+   * (wake !== false) with a caller present arms one receipt: when the target's
+   * turn ends, its final answer lands back in the sender's log as a
+   * PAGE-RECEIPT (wake:false — recorded only).
    */
   deliverUrl(url: PageInstanceKey | string, options: DeliverPageOptions): Promise<DeliveryResult> {
-    return Promise.resolve().then(() => deliverToPageUrl(this.registry, this.instances, this.ports, this.ledger, url, options))
+    return Promise.resolve().then(async () => {
+      const result = await deliverToPageUrl(this.registry, this.instances, this.ports, this.ledger, url, options)
+      if (result.receipt) {
+        this.receipts.arm(result.sessionId, options.callerSessionId as string, result.url)
+      }
+      return result
+    })
   }
 
   /**

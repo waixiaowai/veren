@@ -91,6 +91,7 @@ describe.skipIf(!existsSync(harnessTsxEntry))('page component executes under the
           // JSX — classic compilation fails here). Module-level components +
           // assembly-time binding: bind first, then run ListPage.
           'const tools = [',
+          '  { name: "task_workbench__list_tasks" },',
           '  { name: "task_workbench__take_task" },',
           '  { name: "task_workbench__complete_task" },',
           ']',

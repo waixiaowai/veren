@@ -35,7 +35,7 @@
 import { PageError, PageErrorCode } from '@veren/prompt-page'
 import type { PageInstanceIndex, PageInstanceKey, PageMatch } from '@veren/prompt-page'
 import type { AppRecord } from '@veren/app-registry'
-import { createPageSession, resolvePageTarget } from './runtime.ts'
+import { createPageSession, deprecatePrevious, resolvePageTarget } from './runtime.ts'
 import type { PageRuntimePorts, PageSessionPort } from './runtime.ts'
 
 /** 投递链硬上限（跳数）：A→B→C→D 允许，第 5 跳拒绝 / the hard hop cap */
@@ -65,6 +65,28 @@ export interface DeliveryResult {
   readonly created: boolean
   /** true = 投递途中指针易主，消息补投给了当前活会话（废弃竞态） */
   readonly redirected: boolean
+  /** true = 应武装回执：唤醒投递 + 调用方在席 + 非自投（service 据此 arm；
+   * 目标唤醒回合结束时，其最终回答以 PAGE-RECEIPT 落回调用方日志）*/
+  readonly receipt: boolean
+}
+
+/** 回执判据（三个返回点共用）/ the receipt verdict (shared by all three returns) */
+function receiptOf(
+  sessionId: string,
+  url: PageInstanceKey,
+  created: boolean,
+  options: DeliverPageOptions,
+  redirected: boolean,
+): DeliveryResult {
+  return {
+    sessionId,
+    url,
+    created,
+    redirected,
+    receipt: options.wake !== false
+      && options.callerSessionId !== undefined
+      && sessionId !== options.callerSessionId,
+  }
 }
 
 /**
@@ -122,13 +144,28 @@ export async function deliverToPageUrl(
   let lastSessionId = ''
   for (let attempt = 1; attempt <= MAX_DELIVERY_ATTEMPTS; attempt++) {
     const row = await index.lookup(key)
-    if (row === undefined || row.state !== 'live') {
-      // 无活会话：新建（同 openUrl 创建路径；不 focus——投递不是导航）
-      // No live session: create (the openUrl path; no focus — not navigation)
+    // 活行还要"会话在场"：重启后所有旧会话都未激活，append 会以
+    // "found no active agent" 失败——视为无活会话，走新建路径（旧行经
+    // openUrl 同款废弃收编，墓碑照写）。真机反例：投给重启前的 t-3 详情
+    // 页两次均失败，发送方只拿到错误。
+    // A live row also needs its session PRESENT: after a restart every old
+    // session is inactive and append fails with "found no active agent" —
+    // treat that as no live session and create (the old row retires through
+    // the same openUrl path, tombstone included). Live counter-example:
+    // delivering to a pre-restart detail page failed twice with that error.
+    if (row === undefined || row.state !== 'live' || !ports.sessions.exists(row.sessionId)) {
+      // 无活会话：新建（同 openUrl 创建路径；不 focus——投递不是导航）。占了
+      // URL 的"活行但会话不在场"旧行先经正规废弃腾位（retire 失败不阻断、墓碑
+      // 必写），否则 reserve 撞 page/index-conflict。
+      // No live session: create (the openUrl path; no focus — not navigation).
+      // A stale "live row, absent session" must first free the url through the
+      // regular deprecation (retire failures never block, the tombstone always
+      // lands), or reserve hits page/index-conflict.
+      await deprecatePrevious(index, ports, key)
       const created = await createPageSession(index, ports, key, app, match, { focus: false })
       ledger.record(created.sessionId, nextDepth)
       await ports.sessions.appendUserMessage(created.sessionId, options.message, PAGE_SEND_SOURCE, { wake: options.wake })
-      return { sessionId: created.sessionId, url: key, created: true, redirected }
+      return receiptOf(created.sessionId, key, true, options, redirected)
     }
     lastSessionId = row.sessionId
     // 续链：目标链深至少是 caller+1（既有的浅会话被更深的链投递时抬升）
@@ -139,11 +176,11 @@ export async function deliverToPageUrl(
     // Deprecation race: re-consult after appending; pointer moved → re-deliver
     const current = await index.lookup(key)
     if (current !== undefined && current.state === 'live' && current.sessionId === row.sessionId) {
-      return { sessionId: row.sessionId, url: key, created: false, redirected }
+      return receiptOf(row.sessionId, key, false, options, redirected)
     }
     redirected = true
   }
   // 补投次数用尽：最后一次投递保留在它落地的会话，如实回报 redirected
   // Attempts exhausted: the last append stands where it landed; report honestly
-  return { sessionId: lastSessionId, url: key, created: false, redirected }
+  return receiptOf(lastSessionId, key, false, options, redirected)
 }

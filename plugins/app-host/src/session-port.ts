@@ -469,6 +469,8 @@ declare module '@deepseek-ai/dsh-llm' {
     'task-center/notice': { kind: 'task-center/notice' }
     /** A page_send delivery message (wake or wake=false log-only). @persistenceSource user */
     'page/send': { kind: 'page/send' }
+    /** A PAGE-RECEIPT: the target page session's final answer landing back in the sender's log (wake:false). @persistenceSource user */
+    'page/receipt': { kind: 'page/receipt' }
   }
 }
 

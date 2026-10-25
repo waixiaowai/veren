@@ -168,6 +168,11 @@ describe('应用可被发现与解析', () => {
   it('页面工具对外名带 task_workbench__ 前缀（工具不再走应用目录，全名在创建处拼定）', () => {
     const externalNames = testTools.map((tool) => tool.name)
     expect(externalNames).toEqual([
+      // 只读对（盘点/本页读取）在前：真机反例是委托来的只读盘点无工具可兑
+      // / the read-only pair first: the live miss was a delegated read-only
+      // inventory with no tool to honor it
+      'task_workbench__list_tasks',
+      'task_workbench__get_page_task',
       'task_workbench__take_task',
       'task_workbench__take_page_task',
       'task_workbench__complete_task',
@@ -196,6 +201,54 @@ function harness(parentMissing = false): {
     }
     return { ...fake, store, toolOf }
 }
+
+describe('只读对（list_tasks / get_page_task）', () => {
+  it('list_tasks：计数/根/全量条目齐全，且零改动（真机反例：委托的只读盘点曾无工具可兑）', async () => {
+    const h = harness()
+    const before = h.store.getState().map((item) => item.status).join(',')
+    const view = await h.toolOf('list_tasks').execute({}, {} as never) as Record<string, unknown>
+    expect(view).toMatchObject({ ok: true, open: 3, taken: 0, done: 0 })
+    expect(view.roots).toHaveLength(3)
+    expect(view.items).toHaveLength(3)
+    // 只读纪律：盘点前后状态一字不差 / the read-only discipline: statuses unchanged
+    expect(h.store.getState().map((item) => item.status).join(',')).toBe(before)
+  })
+
+  it('get_page_task：页面作用域读取（本页那条 + 子树），零改动；不在详情页则稳定拒绝', async () => {
+    const store = new TaskStore(makeList(2))
+    // 造一棵带子任务的树：接取 t-1 后拆出一条子任务
+    // / grow a tree: take t-1, then split one subtask under it
+    const channel = createTaskChannel(fakeTaskCenter().contract as never)
+    const scope = {
+      liveDetailTaskOf: async (sessionId: string) => sessionId === 'detail-session'
+        ? { taskId: 't-1', url: '/apps/task-workbench/task/t-1' }
+        : undefined,
+    }
+    const tools = createAppTools(store, channel, scope)
+      // 全名拼法与 index.ts 的装配同一（测试同款映射）/ the same full-name
+      // spelling index.ts's wiring applies
+      .map((tool) => ({ ...tool, name: `task_workbench__${tool.name}` }))
+    const toolOf = (local: string) => {
+      const found = tools.find((tool) => tool.name === `task_workbench__${local}`)
+      if (found === undefined) throw new Error(`tool ${local} missing`)
+      return found
+    }
+    await toolOf('take_task').execute({ task_id: 't-1' }, {} as never)
+    await toolOf('split_task').execute({ task_id: 't-1', title: '子步骤' }, {} as never)
+    const exec = { agent: { session: { id: 'detail-session' } } } as never
+    const view = await toolOf('get_page_task').execute({}, exec) as Record<string, unknown>
+    expect(view).toMatchObject({ ok: true, task: { id: 't-1', status: 'taken', progress: '0/2' } })
+    // 子树只列后代（根在 task 里，§4.7.8 同口径）/ the subtree lists descendants
+    // only (the root rides in `task` — the §4.7.8 projection)
+    expect(view.subtree).toEqual([
+      expect.objectContaining({ title: '子步骤', status: 'open', depth: 1 }),
+    ])
+    // 零改动 + 稳定拒绝面 / zero mutation plus the stable refusal face
+    expect(store.getState().map((item) => item.status).join(',')).toBe('taken,open,open')
+    expect(await toolOf('get_page_task').execute({}, { agent: { session: { id: 'elsewhere' } } } as never))
+      .toMatchObject({ ok: false, code: 'page-task-unresolvable' })
+  })
+})
 
 describe('任务接缝', () => {
   it('装配中途失败（第三页镜像抛错）→ 应用、已镜像页面整组回滚，不留半接线', async () => {

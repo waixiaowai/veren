@@ -21,8 +21,10 @@
 import type { TaskDraft, TaskRecord, TaskId } from '@veren/task-center'
 import type { PageParams } from '@veren/prompt-page'
 import type { TaskChannel } from './app.ts'
+import { rootsOf, subtreeProgress, subtaskTree } from './store.ts'
 import type { TaskStore } from './store.ts'
 import type { PageTaskScope, ToolCallContext, ToolOutcome } from './types.ts'
+import type { TaskItem } from './types.ts'
 
 /** 页面作用域接取缺省租约时长（与 task-center 全局工具同口径）/ the default lease span (same as task-center's global tools) */
 const LEASE_MINUTES = 30
@@ -157,6 +159,77 @@ function claimLocal(store: TaskStore, taskId: string, sessionId: string): ToolOu
 /** 页面作用域拒绝（稳定 code，模型能推出下一步：这不是能接任务的那一页）/ the page-scope refusal */
 function pageScopeRefusal(detail: string): ToolOutcome {
   return { ok: false, code: 'page-task-unresolvable', detail }
+}
+
+/**
+ * 只读盘点（list_tasks 的动作体）：当前全部根任务（带子树进度）+ 全量条目 + 计数。
+ * 零改动——真机反例：页面正文只是打开时刻的快照，委托来的"只读盘点"曾因无只读
+ * 工具而无法兑现（模型如实拒绝，或被诱导用写工具凑数）。
+ * The read-only inventory (list_tasks's body): every current root (with subtree
+ * progress) + all items + counts. Zero mutation — live counter-example: the page
+ * body is only the open-time snapshot, and a delegated read-only inventory could
+ * not be honored without a read tool (the model honestly refused, or risked
+ * being nudged into mutating tools to fake one).
+ */
+export function listTasksView(store: TaskStore): Record<string, unknown> {
+  const items = store.getState()
+  const count = (status: TaskItem['status']): number => items.filter((item) => item.status === status).length
+  return {
+    ok: true,
+    open: count('open'),
+    taken: count('taken'),
+    done: count('done'),
+    roots: rootsOf(items).map((item) => ({
+      id: item.id,
+      title: item.title,
+      status: item.status,
+      progress: subtreeProgress(items, item.id).label,
+    })),
+    items: items.map((item) => ({
+      id: item.id,
+      title: item.title,
+      status: item.status,
+      ...(item.parentId === undefined ? {} : { parentId: item.parentId }),
+      ...(item.ownerId === undefined ? {} : { ownerId: item.ownerId }),
+    })),
+  }
+}
+
+/**
+ * 页面作用域只读（get_page_task 的动作体）：本页那条的当前字段 + 子任务树。
+ * 零改动；作用域与 take_page_task 同一口径（URL 里的 taskId，无参数可伪造）。
+ * The page-scoped read (get_page_task's body): this page's current task fields
+ * and subtree. Zero mutation; the scope matches take_page_task exactly (the
+ * taskId from the url — no forgeable parameter).
+ */
+export async function getPageTask(
+  store: TaskStore,
+  scope: PageTaskScope,
+  exec: ToolCallContext,
+): Promise<ToolOutcome | Record<string, unknown>> {
+  const sessionId = exec.agent?.session?.id
+  if (sessionId === undefined) return pageScopeRefusal('the tool ran outside any page session')
+  const page = await scope.liveDetailTaskOf(sessionId)
+  if (page === undefined) return pageScopeRefusal('the calling session is not a live task-workbench detail page')
+  const items = store.getState()
+  const task = items.find((item) => item.id === page.taskId)
+  if (task === undefined) return { ok: false, code: 'task-not-found', detail: 'no such task' }
+  return {
+    ok: true,
+    task: {
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      ...(task.ownerId === undefined ? {} : { ownerId: task.ownerId }),
+      progress: subtreeProgress(items, task.id).label,
+    },
+    subtree: subtaskTree(items, task.id).map((node) => ({
+      id: node.item.id,
+      title: node.item.title,
+      status: node.item.status,
+      depth: node.depth,
+    })),
+  }
 }
 
 /** 租约到期时刻 / the lease deadline */
