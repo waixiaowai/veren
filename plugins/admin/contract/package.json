@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-contract",
   "displayName": "Admin Contract",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "description": "Use when a package needs the stable Host capability contract of the DSH admin platform: it declares the capability names, provider manifests, structured errors, the data port, the unified API route vocabulary, and the auth/access/navigation/audit/settings/docs interfaces that consumers depend on, so every consumer can ignore which provider implements them; skip it when you only need the browser-side UI contract.",
   "type": "module",
   "main": "./dist/index.js",

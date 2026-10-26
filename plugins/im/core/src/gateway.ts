@@ -29,6 +29,11 @@ import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 // 类型-only：拉取 ctx.workspaceRegistry 的 declaration merging（会话 cwd 归属解析）
 // / type-only: pulls the ctx.workspaceRegistry declaration merging (session cwd membership)
 import type {} from '@deepseek-ai/dsh-workspace'
+// 类型-only：拉取 ctx.agentDefaultModel 的 declaration merging（部署默认模型选型，
+// 会话创建时回填 agentOptions.model 以注册 {{model}} 提示变量）
+// / type-only: pulls the ctx.agentDefaultModel declaration merge (the deployment
+// default model, applied at session creation to register the {{model}} prompt variable)
+import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { ImError } from './contract.ts'
 import type { ImBindingSettings } from './contract.ts'
@@ -99,19 +104,29 @@ export class DshSessionGateway implements ImSessionGateway {
     }
     const id = brandString<SessionId>(`session-${randomUUID()}`)
     try {
-    await this.ctx.agents.create({
-      sessionId: id,
-      // cwd 是会话的工作区归属（GUI 侧栏与历史加载按头 cwd 解析作用域）：缺省
-      // 会话落进 _no-cwd，GUI 打开即 session/not-found（真机反例）。默认工作区
-      // 解析与 app-host 同构：registry 缺席退回进程 cwd。
-      // cwd is the session's workspace membership (the GUI sidebar and history
-      // loading resolve scope from the header cwd): without it sessions land in
-      // _no-cwd and the GUI fails them with session/not-found (live
-      // counter-example). The default-workspace resolution mirrors app-host,
-      // falling back to the process cwd when the registry is absent.
-      meta: { cwd: await imSessionWorkspace(this.ctx), ...(request.settings.presetId === undefined ? {} : { agentPreset: request.settings.presetId }) },
-      ...agentOptionsOf(request.settings),
-    })
+      // agentOptions.model 来自部署默认模型（agentDefaultModel）：agent-loop 用
+      // agent.options.model 注册 {{model}} 提示变量——不给模型，deployment persona
+      // 段的 {{model}} 插值在首回合就失败（真机反例：IM 会话首轮"本轮运行失败
+      // prompt variable {{model}} has no value"）。与 app-host / webhook 会话创建
+      // 同一条选型路径；settings 显式给了 model 时以 settings 为准。
+      // agentOptions.model comes from the deployment default model
+      // (agentDefaultModel): the agent loop registers the {{model}} prompt
+      // variable from agent.options.model — without one, the deployment persona
+      // section's {{model}} interpolation fails on the first turn (live
+      // counter-example: an IM session's first turn failed with "prompt
+      // variable {{model}} has no value"). Same selection path as app-host and
+      // the webhook session creation; explicit settings win when present.
+      const fallback = request.settings.model === undefined
+        ? this.ctx.agentDefaultModel.currentSelection()
+        : undefined
+      await this.ctx.agents.create({
+        sessionId: id,
+        meta: { cwd: await imSessionWorkspace(this.ctx), ...(request.settings.presetId === undefined ? {} : { agentPreset: request.settings.presetId }) },
+        ...agentOptionsOf(request.settings),
+        ...(fallback === undefined || request.settings.model !== undefined ? {} : {
+          agentOptions: { provider: fallback.provider, model: fallback.model },
+        }),
+      })
       return { sessionId: id, created: true }
     } catch (error: unknown) {
       throw new ImError('IM_INTERNAL', `session could not be created: ${errorMessage(error)}`)
@@ -157,7 +172,18 @@ export class DshSessionGateway implements ImSessionGateway {
         // IM_NOT_FOUND (live counter-example: WeChat messages after a restart
         // vanished). Only a failed resume rejects with its own error.
         void this.ctx.agents
-          .resume({ resumeSessionId: brandString<SessionId>(request.sessionId) })
+          .resume({
+            resumeSessionId: brandString<SessionId>(request.sessionId),
+            // 恢复路径同样回填部署默认模型：旧绑定的会话创建于修复前，缺
+            // agentOptions.model，首回合 {{model}} 插值即失败（同 beginBind 修复）。
+            // / the resume path applies the deployment default model too: older
+            // bindings were created before the fix and lack agentOptions.model
+            // (same first-turn {{model}} failure as the beginBind fix).
+            agentOptions: {
+              provider: this.ctx.agentDefaultModel.currentSelection().provider,
+              model: this.ctx.agentDefaultModel.currentSelection().model,
+            },
+          })
           .then(() => {
             const resumed = this.ctx.agents.get(brandString<SessionId>(request.sessionId))
             if (resumed === undefined) {
@@ -280,7 +306,7 @@ async function imSessionWorkspace(ctx: Context): Promise<string> {
     const registry = ctx.workspaceRegistry
     const workspaces = registry.list()
     if (workspaces.length === 0) return process.cwd()
-    const preferred = registry.initializeDefault(async () => {
+    const preferred = await registry.initializeDefault(async () => {
       throw new Error('im: the default workspace already exists; the resolver must not run')
     }).catch(() => undefined)
     return preferred?.path ?? workspaces[workspaces.length - 1]!.path
