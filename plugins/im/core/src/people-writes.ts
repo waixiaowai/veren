@@ -86,6 +86,38 @@ export class PeopleMutations {
         + ' referenced a missing person; the address will be reattached',
       )
     }
+    // 同一外部人换了 bot 账号（重新扫码授权产生新 accountId）时，精确三元组落空
+    // 会创建重复的人（真机反例：同一位用户被录成两条，采集提问重复发）。回落：
+    // 同 provider 同 externalId 的旧地址归并到本次观察——地址行跟随新 accountId 漂移，
+    // 人保持唯一。
+    // When the exact triple misses because the human now talks through a
+    // different bot account (a fresh QR authorization mints a new accountId),
+    // fall back to the same provider+externalId address and let it drift to the
+    // new account instead of minting a duplicate person.
+    const merged = existing === undefined
+      ? this.store.personAddresses().find(candidate =>
+          candidate.provider === address.provider
+          && candidate.external_id === address.externalId
+          && candidate.account_id !== address.accountId)
+      : undefined
+    if (merged !== undefined) {
+      const mergedPerson = this.store.getPerson(merged.person_id)
+      if (mergedPerson === undefined) {
+        // 悬挂地址（人已消失）：放弃归并，按全新地址登记 / a dangling address
+        // (person gone): skip the merge and register fresh
+        this.logger.warn(
+          `[im:people] address ${merged.provider}/${merged.account_id}/${merged.external_id}`
+          + ' referenced a missing person; the merge was skipped',
+        )
+      } else {
+        this.logger.info?.(
+          `[im:people] ${address.provider}/${address.externalId} moved from account`
+          + ` ${merged.account_id} to ${address.accountId}; person ${merged.person_id} kept`,
+        )
+        const person = await this.refreshAddress(merged, mergedPerson, address, displayName, now)
+        return viewOfPerson(this.store, person.id)
+      }
+    }
     const person = existing !== undefined && existingPerson !== undefined
       ? await this.refreshAddress(existing, existingPerson, address, displayName, now)
       : await this.registerAddress(address, displayName, now)

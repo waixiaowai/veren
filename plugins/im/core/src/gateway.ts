@@ -26,6 +26,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
+// 类型-only：拉取 ctx.workspaceRegistry 的 declaration merging（会话 cwd 归属解析）
+// / type-only: pulls the ctx.workspaceRegistry declaration merging (session cwd membership)
+import type {} from '@deepseek-ai/dsh-workspace'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { ImError } from './contract.ts'
 import type { ImBindingSettings } from './contract.ts'
@@ -96,13 +99,19 @@ export class DshSessionGateway implements ImSessionGateway {
     }
     const id = brandString<SessionId>(`session-${randomUUID()}`)
     try {
-      await this.ctx.agents.create({
-        sessionId: id,
-        ...(request.settings.presetId === undefined
-          ? {}
-          : { meta: { agentPreset: request.settings.presetId } }),
-        ...agentOptionsOf(request.settings),
-      })
+    await this.ctx.agents.create({
+      sessionId: id,
+      // cwd 是会话的工作区归属（GUI 侧栏与历史加载按头 cwd 解析作用域）：缺省
+      // 会话落进 _no-cwd，GUI 打开即 session/not-found（真机反例）。默认工作区
+      // 解析与 app-host 同构：registry 缺席退回进程 cwd。
+      // cwd is the session's workspace membership (the GUI sidebar and history
+      // loading resolve scope from the header cwd): without it sessions land in
+      // _no-cwd and the GUI fails them with session/not-found (live
+      // counter-example). The default-workspace resolution mirrors app-host,
+      // falling back to the process cwd when the registry is absent.
+      meta: { cwd: await imSessionWorkspace(this.ctx), ...(request.settings.presetId === undefined ? {} : { agentPreset: request.settings.presetId }) },
+      ...agentOptionsOf(request.settings),
+    })
       return { sessionId: id, created: true }
     } catch (error: unknown) {
       throw new ImError('IM_INTERNAL', `session could not be created: ${errorMessage(error)}`)
@@ -140,7 +149,31 @@ export class DshSessionGateway implements ImSessionGateway {
     return new Promise<string | undefined>((resolve, reject) => {
       const agent = this.ctx.agents.get(brandString<SessionId>(request.sessionId))
       if (agent === undefined) {
-        reject(new ImError('IM_NOT_FOUND', `session is not live: ${request.sessionId}`))
+        // 宿主重启后磁盘会话没有活 agent：先从持久化恢复再投递，否则每条消息都
+        // 以 IM_NOT_FOUND 静默死亡（真机反例：重启用微信发消息石沉大海）。恢复
+        // 失败才以原始错误拒绝。
+        // A disk session has no live agent after a host restart: resume it from
+        // persistence before delivering, or every message dies silently with
+        // IM_NOT_FOUND (live counter-example: WeChat messages after a restart
+        // vanished). Only a failed resume rejects with its own error.
+        void this.ctx.agents
+          .resume({ resumeSessionId: brandString<SessionId>(request.sessionId) })
+          .then(() => {
+            const resumed = this.ctx.agents.get(brandString<SessionId>(request.sessionId))
+            if (resumed === undefined) {
+              reject(new ImError('IM_NOT_FOUND', `session did not resume: ${request.sessionId}`))
+              return
+            }
+            this.armReply(request, resolve, reject)
+            try {
+              resumed.followup(promptMessageOf(request))
+            } catch (error: unknown) {
+              this.settle(request.sessionId, { error })
+            }
+          })
+          .catch((error: unknown) => {
+            reject(new ImError('IM_NOT_FOUND', `session could not be resumed: ${error instanceof Error ? error.message : String(error)}`))
+          })
         return
       }
       this.armReply(request, resolve, reject)
@@ -232,6 +265,27 @@ export class DshSessionGateway implements ImSessionGateway {
     return next.finally(() => {
       if (this.chains.get(sessionId) === tail) this.chains.delete(sessionId)
     })
+  }
+}
+
+/**
+ * Resolve the default workspace path for new IM sessions — the same shape as
+ * app-host's pageSessionWorkspace: the durable default when present, else the
+ * oldest workspace; no registry or empty registry falls back to process.cwd().
+ * 为新 IM 会话解析默认工作区路径——与 app-host 的 pageSessionWorkspace 同构：
+ * 有持久默认用默认，否则取最早创建的工作区；无 registry 或空 registry 退回进程 cwd。
+ */
+async function imSessionWorkspace(ctx: Context): Promise<string> {
+  try {
+    const registry = ctx.workspaceRegistry
+    const workspaces = registry.list()
+    if (workspaces.length === 0) return process.cwd()
+    const preferred = registry.initializeDefault(async () => {
+      throw new Error('im: the default workspace already exists; the resolver must not run')
+    }).catch(() => undefined)
+    return preferred?.path ?? workspaces[workspaces.length - 1]!.path
+  } catch {
+    return process.cwd()
   }
 }
 
