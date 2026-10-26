@@ -240,10 +240,13 @@ export class ImRegistry extends Service {
   /**
    * @param ctx - owning Cordis context.
    * @param onMessage - router callback receiving every inbound message.
+   * @param onRegistered - fired after a provider joins; the startup
+   *   reconciliation of account rows keys off this moment.
    */
   constructor(
     ctx: Context,
     private readonly onMessage: ImMessageHandler,
+    private readonly onRegistered?: (provider: ImProvider) => void,
   ) {
     super(ctx, ImToken)
   }
@@ -258,6 +261,10 @@ export class ImRegistry extends Service {
     }
     const unlisten = provider.service.listen(message => this.onMessage(provider.id, message))
     this.providers.set(provider.id, { provider, unlisten })
+    // 注册即对账触发点：provider 就绪的瞬间补上启动自愈的最后一块拼图。
+    // Registration doubles as the reconciliation trigger: a provider becoming
+    // ready completes the startup self-heal.
+    this.onRegistered?.(provider)
     return () => {
       const entry = this.providers.get(provider.id)
       if (entry === undefined) return

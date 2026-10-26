@@ -1,7 +1,7 @@
 {
   "name": "@veren/sub2api-admin-bundle",
   "displayName": "Sub2API Admin Bundle",
-  "version": "2.1.6",
+  "version": "2.1.7",
   "icon": "./icon.svg",
   "description": "Use when a DSH profile should carry the whole Sub2API operations stack (model-facing admin tools and their metadata) installed and composed in one step: it is a configuration-only bundle whose patch inserts the tool plugin row, while the member plugin ships as a plain dependency without a bundle declaration of its own; skip it when you want to compose the tool row row-by-row in your own patch.",
   "type": "module",

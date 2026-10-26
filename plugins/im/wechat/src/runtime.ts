@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import QRCode from 'qrcode'
 import { ImError } from '@veren/im'
-import { normalizeBaseUrl } from './api.ts'
+import { WechatApi, WechatTimeoutError, normalizeBaseUrl } from './api.ts'
 import type { ImAccount } from '@veren/im'
 import type { WechatLoginStatus, WechatMessage, WechatSecretStore, WechatSecrets, WechatState, WechatStore } from './state.ts'
 
@@ -58,7 +58,7 @@ export async function writeQrImage(path: string, url: string): Promise<void> {
 export async function storeConfirmedAccount(
   response: WechatLoginStatus,
   label: string | undefined,
-  options: { baseUrl: string; store: WechatStore; secrets: WechatSecretStore },
+  options: { baseUrl: string; store: WechatStore; secrets: WechatSecretStore; logger?: WechatRetireLogger },
 ): Promise<{ state: WechatState; secrets: WechatSecrets; account: ImAccount }> {
   const token = response.bot_token?.trim()
   const accountId = response.ilink_bot_id?.trim()
@@ -91,10 +91,47 @@ export async function storeConfirmedAccount(
   // two permanently offline).
   for (const other of options.store.states()) {
     if (other.accountId === accountId || other.ownerId !== ownerId) continue
+    await recordRetiredVerdict(options, other.accountId)
     await options.store.deleteState(other.accountId).catch(() => undefined)
     await options.secrets.remove(other.accountId).catch(() => undefined)
   }
   return { state, secrets, account: { id: accountId, displayName, ownerId, status: 'offline' } }
+}
+
+/** The logging seam the retirement verdict needs; all levels optional. */
+/** 退役裁决需要的日志接缝；全部可选。 */
+export interface WechatRetireLogger {
+  info?(message: string): void
+  warn?(message: string): void
+}
+
+/**
+ * Ask the server itself whether one retired token is really dead, and record
+ * the verdict — `-14` proves death; a clean batch means the server STILL honors
+ * the token, which would overturn the one-live-bot assumption and must be loud.
+ * 向服务器本身求证一条已退役 token 是否真的死了，并记录裁决——`-14` 证明已死；
+ * 干净的空批次意味着服务器仍认这条 token，将推翻「单活 bot」假设，必须大声报告。
+ */
+async function recordRetiredVerdict(
+  options: { baseUrl: string; secrets: WechatSecretStore; logger?: WechatRetireLogger },
+  accountId: string,
+): Promise<void> {
+  if (options.logger === undefined) return
+  try {
+    const secrets = await options.secrets.read(accountId)
+    if (secrets === undefined) return
+    const api = new WechatApi({ baseUrl: options.baseUrl, longPollTimeoutMs: 8_000 })
+    await api.getUpdates(secrets.token, '')
+    options.logger.warn?.(
+      `[im:wechat] ACCOUNT_RETIRED_VERDICT account=${accountId} verdict=ALIVE`
+      + ' — the server still honors a retired token; the one-live-bot assumption needs review',
+    )
+  } catch (error: unknown) {
+    const verdict = error instanceof ImError && error.code === 'IM_AUTH_REQUIRED'
+      ? 'dead'
+      : error instanceof WechatTimeoutError ? 'unreachable' : 'error'
+    options.logger.info?.(`[im:wechat] ACCOUNT_RETIRED_VERDICT account=${accountId} verdict=${verdict}`)
+  }
 }
 
 /** Split text at the UTF-16 code-unit limit without cutting a surrogate pair. */

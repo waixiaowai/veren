@@ -21,6 +21,7 @@ import z from '@deepseek-ai/schemastery'
 import { DshWechatSecrets, openWechatStore } from './state.ts'
 import { WEIXIN_BASE_URL, WEIXIN_BOT_TYPE } from './api.ts'
 import { WEIXIN_FEATURES, WechatProvider } from './provider.ts'
+import { captureFromEnv } from './capture.ts'
 
 export { WEIXIN_BASE_URL, WEIXIN_BOT_TYPE, WEIXIN_LONG_POLL_MS } from './api.ts'
 export { WechatApi, WechatTimeoutError, normalizeBaseUrl, normalizeQrUrl } from './api.ts'
@@ -74,6 +75,10 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
     baseUrl: config.baseUrl,
     logger: ctx.logger,
     secrets: new DshWechatSecrets(ctx.credentials),
+    // 取证仪表（非功能）：设 DSH_IM_WECHAT_CAPTURE=<file> 时记录脱敏原始流量。
+    // Evidence instrumentation (not a feature): set DSH_IM_WECHAT_CAPTURE=<file>
+    // to record the redacted raw traffic.
+    fetchImpl: captureFromEnv(process.env.DSH_IM_WECHAT_CAPTURE),
   })
   ctx.effect(() => ctx.im.register({
     id: 'wechat',

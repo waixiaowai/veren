@@ -253,6 +253,7 @@ export class WechatProvider implements ImService {
       baseUrl: this.baseUrl,
       store: this.store,
       secrets: this.secrets,
+      logger: this.logger,
     })
     this.runtimes.set(stored.state.accountId, {
       state: stored.state,

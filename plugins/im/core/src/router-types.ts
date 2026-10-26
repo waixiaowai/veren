@@ -22,6 +22,7 @@ import type {
 import type { ImBindingsOptions } from './bindings.ts'
 import type { ImCredentialStore } from './runtime-seams.ts'
 import type { ImPeople } from './people.ts'
+import type { ImBindingStore, ImPersonStore } from './store.ts'
 
 /** One account removal result. */
 export interface ImUnbindAccountResult {
@@ -44,6 +45,12 @@ export interface ImRouterConfig {
 
 /** Router construction options. */
 export interface ImRouterOptions extends ImBindingsOptions {
+  /**
+   * The router touches people rows too (startup account reconciliation), so
+   * its store carries both seams; the binding seam alone is not enough.
+   * 路由层也要碰人员表（启动账号对账），因此它的存储同时携带两条接缝；仅绑定接缝不够。
+   */
+  store: ImBindingStore & ImPersonStore
   credentials: ImCredentialStore
   /** Durable, provider-neutral people directory. */
   people: ImPeople

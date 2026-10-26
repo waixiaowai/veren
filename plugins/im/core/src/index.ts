@@ -27,7 +27,7 @@ import type { ImMessage } from './contract.ts'
 import { ImStorage } from './store.ts'
 import { ImPeople, ImPeopleToken } from './people.ts'
 import { consolidatePeople } from './people-merge.ts'
-import { retireOwnerAccounts as retireAccounts } from './account-replace.ts'
+import { reconcileProviderAccounts, retireOwnerAccounts as retireAccounts } from './account-replace.ts'
 import { ImRouter, ImRouterToken } from './router.ts'
 import type { ImRouterOptions } from './router-types.ts'
 import { errorMessage } from './runtime-seams.ts'
@@ -131,6 +131,14 @@ function wireRouter(ctx: Context, options: Omit<ImRouterOptions, 'registry'>): v
       return
     }
     void live.handle(providerId, message)
+  }, provider => {
+    // Provider 就绪即对账：崩溃或清理失手窗口留下的同主死账号行，以服务器的活名单为裁决自愈。
+    // Reconcile the moment a provider is ready: same-owner rows left by a crash
+    // or a missed cleanup heal against the server's own live-account list.
+    void reconcileProviderAccounts({ store: options.store, logger: options.logger }, provider.id, provider.service)
+      .catch((error: unknown) => options.logger.warn(
+        `[im:bindings] account reconciliation failed: ${errorMessage(error)}`,
+      ))
   })
   router = new ImRouter({ ...options, registry })
   const liveRouter = router

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { retireOwnerAccounts } from '../src/account-replace.ts'
+import { reconcileProviderAccounts, retireOwnerAccounts } from '../src/account-replace.ts'
 import type { ImBinding } from '../src/contract.ts'
 import type { ImAccountRow, ImConversationRow, ImPersonAddressRow } from '../src/store.ts'
 import { MemoryStore } from './memory-store.ts'
@@ -105,5 +105,50 @@ describe('retireOwnerAccounts', () => {
 
     expect(retired).toEqual([])
     expect(store.accounts().length).toBe(1)
+  })
+
+  it('reconciles a polluted store against the provider live list', async () => {
+    const store = new MemoryStore()
+    await putAccount(store, 'ghost-1', 'owner-1')
+    await putAccount(store, 'ghost-2', 'owner-1')
+    await putAccount(store, 'live', 'owner-1')
+    await putConversation(store, 'ghost-1', 'p2p:human')
+    await putBinding(store, 'bind-1', 'ghost-2', 'p2p:human')
+    await putAddress(store, 'person-1', 'ghost-1', 'human@im.wechat')
+
+    const retired = await reconcileProviderAccounts({ store, logger }, 'wechat', {
+      accounts: async () => [account('live', 'owner-1')],
+    })
+
+    expect(retired).toEqual(['ghost-1', 'ghost-2'])
+    expect(store.accounts().map(row => row.id)).toEqual(['live'])
+    expect(store.bindings()[0]).toMatchObject({ accountId: 'live', active: true })
+  })
+
+  it('keeps every live account even when one owner holds two', async () => {
+    const store = new MemoryStore()
+    await putAccount(store, 'live-a', 'owner-1')
+    await putAccount(store, 'live-b', 'owner-1')
+
+    const retired = await reconcileProviderAccounts({ store, logger }, 'wechat', {
+      accounts: async () => [account('live-a', 'owner-1'), account('live-b', 'owner-1')],
+    })
+
+    expect(retired).toEqual([])
+    expect(store.accounts().map(row => row.id)).toEqual(['live-a', 'live-b'])
+  })
+
+  it('skips reconciliation when the provider is unreachable', async () => {
+    const store = new MemoryStore()
+    await putAccount(store, 'ghost-1', 'owner-1')
+
+    const retired = await reconcileProviderAccounts({ store, logger }, 'wechat', {
+      accounts: async () => {
+        throw new Error('network down')
+      },
+    })
+
+    expect(retired).toEqual([])
+    expect(store.accounts().map(row => row.id)).toEqual(['ghost-1'])
   })
 })

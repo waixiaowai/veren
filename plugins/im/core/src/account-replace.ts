@@ -18,6 +18,7 @@
  */
 
 import type { ImAccount } from './contract.ts'
+import { errorMessage } from './runtime-seams.ts'
 import type { ImLogger } from './runtime-seams.ts'
 import type { ImBindingStore, ImPersonStore } from './store.ts'
 
@@ -31,14 +32,18 @@ export interface ImRetireOptions {
 /**
  * Retire every same-owner same-provider account except the new one, moving
  * their conversations, active bindings, and person addresses onto it.
- * Returns the retired account ids.
+ * `protectedIds` lists accounts that must survive even when they share the
+ * owner (the reconciliation path passes every live account). Returns the
+ * retired account ids.
  * 除新账号外退役全部同 owner 同 provider 的账号，把它们的会话、active 绑定与人员地址
- * 改挂到新账号上。返回被退役的账号 id。
+ * 改挂到新账号上。`protectedIds` 列出即使同 owner 也必须存活的账号（对账路径传入全部
+ * 活账号）。返回被退役的账号 id。
  */
 export async function retireOwnerAccounts(
   options: ImRetireOptions,
   providerId: string,
   account: ImAccount,
+  protectedIds: ReadonlySet<string> = new Set(),
 ): Promise<string[]> {
   // owner 未知就无从谈起同主替换；保持原状，让既有的人工移除面兜底。
   // Without an owner there is nothing to match; leave the rows to the manual removal face.
@@ -47,7 +52,8 @@ export async function retireOwnerAccounts(
   const others = options.store.accounts()
     .filter(row => row.provider === providerId
       && row.owner_id === account.ownerId
-      && row.id !== account.id)
+      && row.id !== account.id
+      && !protectedIds.has(row.id))
     .sort((left, right) => left.id.localeCompare(right.id))
   const claimed = new Set<string>()
   for (const other of others) {
@@ -62,6 +68,45 @@ export async function retireOwnerAccounts(
       `[im:bindings] owner ${account.ownerId} re-paired onto ${account.id};`
       + ` retired ${retired.length} dead account(s): ${retired.join(', ')}`,
     )
+  }
+  return retired
+}
+
+/**
+ * Startup reconciliation: the provider's own live-account list is the server's
+ * verdict on which bots are alive. Every same-owner durable row outside that
+ * list is a leftover from a crash or missed cleanup and is retired onto its
+ * live sibling. Runs when a provider registers, so a restart heals without
+ * waiting for the next authorization.
+ * 启动对账：provider 自己的活账号名单就是服务器对「哪些 bot 活着」的裁决。名单之外的
+ * 同 owner 持久化行都是崩溃或清理失手窗口的遗留，退役改挂到同主的活账号上。它在 provider
+ * 注册时运行，因此重启即自愈，不必等下一次授权。
+ */
+export async function reconcileProviderAccounts(
+  options: ImRetireOptions,
+  providerId: string,
+  service: { accounts(): Promise<ImAccount[]> },
+): Promise<string[]> {
+  let live: ImAccount[]
+  try {
+    live = await service.accounts()
+  } catch (error: unknown) {
+    options.logger.warn(
+      `[im:bindings] account reconciliation skipped: provider ${providerId} is unreachable: ${errorMessage(error)}`,
+    )
+    return []
+  }
+  const protectedIds = new Set(live.map(account => account.id))
+  const retired: string[] = []
+  for (const account of live) {
+    if (account.ownerId === undefined || account.ownerId === '') continue
+    try {
+      retired.push(...await retireOwnerAccounts(options, providerId, account, protectedIds))
+    } catch (error: unknown) {
+      options.logger.warn(
+        `[im:bindings] account reconciliation failed for ${account.id}: ${errorMessage(error)}`,
+      )
+    }
   }
   return retired
 }
