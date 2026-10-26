@@ -9,6 +9,7 @@
 - 在编写子包时，使用pnpm cli list name 查看这个包的依赖的第三方工具包
 - 编写插件必须使用"@deepseek-ai/schemastery"定义config
 - 插件的 DSH 依赖只写 peerDependencies+devDependencies，版本契约只写 engines.dsh；`dependencies` 里出现 cordis/dsh-* 会装出第二份实例（门禁 `pnpm check:plugins`，规则见 docs/dsh-plugin-versions.cn.md）
+- 版本号规范：`@veren/*` 单版本线统一升位（SemVer，MAJOR=契约/数据破坏、MINOR=新能力、PATCH=其余一切——registry 不可变，任何内容变更先 bump 再发布，禁撞号禁跳号）；MAJOR 必须走 `-rc.N` 预发布先过预发布环境；提交成笔 `chore(release): X.Y.Z - 主题` 并打 tag `vX.Y.Z`（规范见 docs/versioning.cn.md）
 - vendor目录下的内容禁止修改，存放一些第三方的源码
 - 比较重要的Service自定义生命周期：Service.init/Service.check/Service.invoke，调试用Service.tracker
 - 插件类型支持Plugin.Function<T> 禁止 default export |Plugin.Constructor<T> export default class X extends Service |Plugin.Object<T>，注意inject依赖的是能力(Service)
