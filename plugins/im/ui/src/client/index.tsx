@@ -87,6 +87,7 @@ const PanelPlugin = {
         onLink: im.link,
         onUnbindBinding: im.unbindBinding,
         onUnbindAccount: im.unbindAccount,
+        onRenamePerson: im.renamePerson,
         onRefresh: im.refresh,
       }),
     }, ImPanel))
@@ -109,6 +110,7 @@ function createImSource(api: ImRemoteApi): {
   readonly link: (conversationId: string) => void
   readonly unbindBinding: (bindingId: string) => void
   readonly unbindAccount: (accountId: string) => void
+  readonly renamePerson: (personId: string, displayName: string) => void
   readonly refresh: () => void
 } {
   let snapshot: ImSnapshot = {
@@ -214,6 +216,9 @@ function createImSource(api: ImRemoteApi): {
     },
     unbindAccount: (accountId) => {
       void api.unbindAccount({ accountId }).then(() => { stopBindTimer(); load() })
+    },
+    renamePerson: (personId, displayName) => {
+      void api.renamePerson({ personId, displayName }).then(load)
     },
     refresh: () => { load() },
   }

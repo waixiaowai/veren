@@ -97,6 +97,10 @@ export class TestStore implements ImBindingStore, ImPersonStore {
     this.personRows.set(row.id, row)
   }
 
+  async deletePerson(id: string): Promise<void> {
+    this.personRows.delete(id)
+  }
+
   getPersonAddress(provider: string, accountId: string, externalId: string): ImPersonAddressRow | undefined {
     return this.addressRows.get(personAddressKey(provider, accountId, externalId))
   }
@@ -125,5 +129,14 @@ export class TestStore implements ImBindingStore, ImPersonStore {
 
   async putIntake(row: ImPersonIntakeRow): Promise<void> {
     this.intakeRows.set(row.person_id, row)
+  }
+
+  async deleteIntake(personId: string): Promise<void> {
+    this.intakeRows.delete(personId)
+  }
+
+  /** 会话作用域的 active 绑定（跨账号查询，2.1.4 起进入存储接缝）。 */
+  activeBindingOfConversation(conversationId: string): ImBinding | undefined {
+    return this.bindings().find(item => item.conversationId === conversationId && item.active)
   }
 }

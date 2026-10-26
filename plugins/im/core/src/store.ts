@@ -46,6 +46,8 @@ export interface ImPersonStore {
   getPerson(id: string): ImPersonRow | undefined
   people(): ImPersonRow[]
   putPerson(row: ImPersonRow): Promise<void>
+  /** Drop one person's profile; their addresses and intake are callers' business. */
+  deletePerson(id: string): Promise<void>
   /** One address, looked up by the provider's own user id. */
   getPersonAddress(provider: string, accountId: string, externalId: string): ImPersonAddressRow | undefined
   personAddresses(): ImPersonAddressRow[]
@@ -57,6 +59,8 @@ export interface ImPersonStore {
   /** Every automatic-intake record, for the audit view. */
   intakes(): ImPersonIntakeRow[]
   putIntake(row: ImPersonIntakeRow): Promise<void>
+  /** Drop one person's automatic-intake record. */
+  deleteIntake(personId: string): Promise<void>
 }
 
 /** Storage seam the router needs; tests provide an in-memory implementation. */

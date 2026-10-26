@@ -102,6 +102,10 @@ export class ImStorage {
     await this.table('people').put(row.id, row)
   }
 
+  async deletePerson(id: string): Promise<void> {
+    await this.table('people').delete(id)
+  }
+
   getPersonAddress(provider: string, accountId: string, externalId: string): ImPersonAddressRow | undefined {
     return this.table('person_addresses').get(personAddressKey(provider, accountId, externalId))
   }
@@ -134,6 +138,10 @@ export class ImStorage {
 
   async putIntake(row: ImPersonIntakeRow): Promise<void> {
     await this.table('person_intakes').put(row.person_id, row)
+  }
+
+  async deleteIntake(personId: string): Promise<void> {
+    await this.table('person_intakes').delete(personId)
   }
 
   getBinding(id: string): ImBinding | undefined {

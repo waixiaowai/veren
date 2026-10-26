@@ -1,7 +1,7 @@
 {
   "name": "@veren/core",
   "displayName": "Veren Core",
-  "version": "2.1.4",
+  "version": "2.1.5",
   "description": "Use when several packages must share typed services through one Cordis context: it is the dependency-injection foundation of the @veren TypeScript toolchain and the base of every other @veren package.",
   "type": "module",
   "main": "./dist/index.js",

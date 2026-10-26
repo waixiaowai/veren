@@ -66,7 +66,7 @@ function ImBody(props: ImBodyProps) {
           </nav>
           {tab === 'accounts' && <AccountsView state={state} t={t} actions={actions} />}
           {tab === 'bindings' && <BindingsView state={state} t={t} actions={actions} />}
-          {tab === 'people' && <PeopleView state={state} t={t} />}
+          {tab === 'people' && <PeopleView state={state} t={t} actions={actions} />}
           {tab === 'intake' && <IntakeView state={state} t={t} />}
         </>
       )}

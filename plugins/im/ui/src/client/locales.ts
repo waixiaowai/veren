@@ -26,6 +26,7 @@ export type ImKey =
   | 'bindings' | 'noBindings' | 'bindingsHint' | 'conversation' | 'session' | 'active' | 'inactive'
   | 'unbindBinding' | 'unbindAccount' | 'confirmUnbindAccount' | 'unlinked' | 'noUnlinked'
   | 'unlinkedHint' | 'connect' | 'people' | 'noPeople' | 'peopleHint' | 'unverifiedClaim'
+  | 'unnamedPerson' | 'rename' | 'renamePlaceholder' | 'save' | 'cancel'
   | 'intake' | 'intakeOn' | 'intakeOff' | 'intakeCounts' | 'intakeRecent' | 'noIntakeRows'
   | 'askedAt' | 'intakePerson' | 'errorPrefix'
 
@@ -77,6 +78,11 @@ export const zh: Record<ImKey, string> = {
   noPeople: '还没有人员记录。',
   peopleHint: '发来消息的陌生人会自动收录；名字与联系方式可由采集对话或手动补全。',
   unverifiedClaim: '自称',
+  unnamedPerson: '微信用户',
+  rename: '备注',
+  renamePlaceholder: '填一个你认得出的名字',
+  save: '保存',
+  cancel: '取消',
   intake: '陌生人采集',
   intakeOn: '已开启：陌生人第一次发消息会收到一条询问',
   intakeOff: '已关闭：不发询问，也不写采集记录',
@@ -136,6 +142,11 @@ export const en: Record<ImKey, string> = {
   noPeople: 'No person recorded yet.',
   peopleHint: 'Strangers who message in are recorded automatically; names and contacts fill in through the intake chat or by hand.',
   unverifiedClaim: 'claims',
+  unnamedPerson: 'WeChat user',
+  rename: 'Rename',
+  renamePlaceholder: 'A name you will recognize',
+  save: 'Save',
+  cancel: 'Cancel',
   intake: 'Stranger intake',
   intakeOn: 'On: a first-time stranger receives one question',
   intakeOff: 'Off: no question, no intake record',

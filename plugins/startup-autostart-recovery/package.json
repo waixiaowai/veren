@@ -1,7 +1,7 @@
 {
   "name": "@veren/startup-autostart-recovery",
   "displayName": "Startup Autostart Recovery",
-  "version": "2.1.4",
+  "version": "2.1.5",
   "icon": "./icon.svg",
   "description": "Use when work interrupted by an unclean DeepSeek Harness shutdown should resume by itself: the plugin keeps an on-disk clean-exit flag, detects the crash on the next start, looks up the real cause in the desktop crash-log directory, and delivers one recovery prompt to the last active session; it can also register a Windows logon-autostart entry (off by default, one call to enable, one call to remove). Skip it when restarts are always graceful or recovery prompts are not wanted.",
   "type": "module",

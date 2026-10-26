@@ -1,7 +1,7 @@
 {
   "name": "@veren/startup-autostart-bundle",
   "displayName": "Startup Autostart Bundle",
-  "version": "2.1.4",
+  "version": "2.1.5",
   "icon": "./icon.svg",
   "description": "Use when a DSH profile needs the whole Startup Autostart stack (host service, model-facing tools, bundled guidance skill, and Web UI) installed and composed in one step: it is a configuration-only bundle whose patch inserts the four loader rows in dependency order - the host always on, the tools always on, the guidance skill that teaches when and how to use them, and the UI - while the member plugins ship as plain dependencies without bundle declarations of their own, so this patch is the stack's only profile layer; skip it when you want only the headless host, or prefer composing these plugins row by row in your own patch.",
   "type": "module",

@@ -83,6 +83,7 @@ export interface ImPanelInjected {
   readonly onLink: (conversationId: string) => void
   readonly onUnbindBinding: (bindingId: string) => void
   readonly onUnbindAccount: (accountId: string) => void
+  readonly onRenamePerson: (personId: string, displayName: string) => void
   readonly onRefresh: () => void
 }
 
@@ -108,6 +109,10 @@ export interface ImRemoteApi {
     readonly reasoning?: string
   }) => Promise<ImRemoteResult<{ readonly binding: ImBinding }>>
   readonly people: (request: { readonly query?: string }) => Promise<ImRemoteResult<{ readonly people: readonly ImPersonView[] }>>
+  readonly renamePerson: (request: {
+    readonly personId: string
+    readonly displayName: string
+  }) => Promise<ImRemoteResult<{ readonly person: ImPersonView }>>
   readonly intakeStatus: (request: { readonly limit?: number }) => Promise<ImRemoteResult<{ readonly intake: ImIntakeStatusView }>>
 }
 
@@ -133,6 +138,7 @@ const SETTINGS_REQUEST = z.looseObject({
   reasoning: z.string().optional(),
 })
 const PEOPLE_REQUEST = z.looseObject({ query: z.string().optional() })
+const RENAME_REQUEST = z.looseObject({ personId: z.string(), displayName: z.string() })
 const INTAKE_REQUEST = z.looseObject({ limit: z.number().optional() })
 
 const ACCOUNT_SCHEMA = z.looseObject({
@@ -169,6 +175,7 @@ const BIND_SCHEMA = z.looseObject({
 })
 const LINK_RESULT = z.looseObject({ binding: BINDING_SCHEMA })
 const PEOPLE_RESULT = z.looseObject({ people: z.array(PERSON_SCHEMA) })
+const RENAME_RESULT = z.looseObject({ person: PERSON_SCHEMA })
 const INTAKE_RESULT = z.looseObject({ intake: INTAKE_SCHEMA })
 
 /** One strict codec over a Zod factory. */
@@ -231,6 +238,9 @@ export const imRemote = createTypertRemoteInfo({
     ...method('people', 'List or search the people directory.', 'people', [
       parameter('request', 'im:people:request', () => PEOPLE_REQUEST),
     ], () => PEOPLE_RESULT),
+    ...method('renamePerson', 'Set one person display name (manual completion).', 'renamePerson', [
+      parameter('request', 'im:renamePerson:request', () => RENAME_REQUEST),
+    ], () => RENAME_RESULT),
     ...method('intakeStatus', 'Read the stranger-intake switch, counts, and audit.', 'intakeStatus', [
       parameter('request', 'im:intakeStatus:request', () => INTAKE_REQUEST),
     ], () => INTAKE_RESULT),

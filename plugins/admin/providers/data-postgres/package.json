@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-data-postgres",
   "displayName": "Admin Data (PostgreSQL)",
-  "version": "2.1.4",
+  "version": "2.1.5",
   "description": "Use when an admin deployment needs the recommended production data backend: it implements the AdminDatabase port over PostgreSQL with veren_-prefixed tables, idempotent startup schema bootstrap under an advisory lock, write-through in-memory reads (the port is synchronous), and real multi-record transactions; skip it for embedded or zero-config deployments that should keep the DSH storage-domain JSON backend.",
   "type": "module",
   "main": "./dist/index.js",

@@ -26,6 +26,7 @@ import { ImRegistry, ImToken, imCredentialKey } from './contract.ts'
 import type { ImMessage } from './contract.ts'
 import { ImStorage } from './store.ts'
 import { ImPeople, ImPeopleToken } from './people.ts'
+import { consolidatePeople } from './people-merge.ts'
 import { ImRouter, ImRouterToken } from './router.ts'
 import type { ImRouterOptions } from './router-types.ts'
 import { errorMessage } from './runtime-seams.ts'
@@ -178,6 +179,10 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
     error: message => ctx.logger.error(message),
   }
   const people = new ImPeople({ store: storage, logger })
+  // 先归并存量重复档案再播种：归并回退只防新增，重启时的存量修复在这里。
+  // Consolidate stored duplicates before seeding: the runtime fallback only
+  // prevents new ones; the stored repair happens here, once per activation.
+  await consolidatePeople(storage, logger)
   await seedPeople(people, storage, logger)
   ctx.effect(() => ctx.provide(ImPeopleToken, people), 'im:people')
   ctx.logger.info(

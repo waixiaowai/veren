@@ -262,3 +262,28 @@
   color: var(--im-text);
   font-size: 13px;
 }
+
+/* The quiet rename button and its inline editor row on people cards. */
+/* 人员卡片上安静的备注按钮与它的行内编辑行。 */
+.im-link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--im-accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.im-rename-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+/* Overrides .im-input's flex: 1 — placed after it on purpose (equal specificity). */
+/* 覆盖 .im-input 的 flex: 1——刻意放在它之后（同特异性）。 */
+.im-rename-input {
+  flex: 0 1 260px;
+  min-width: 0;
+}

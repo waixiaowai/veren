@@ -101,6 +101,10 @@ export class MemoryStore implements ImBindingStore, ImPersonStore {
     this.personRows.set(row.id, row)
   }
 
+  async deletePerson(id: string): Promise<void> {
+    this.personRows.delete(id)
+  }
+
   getPersonAddress(provider: string, accountId: string, externalId: string): ImPersonAddressRow | undefined {
     return this.addressRows.get(personAddressKey(provider, accountId, externalId))
   }
@@ -129,5 +133,9 @@ export class MemoryStore implements ImBindingStore, ImPersonStore {
 
   async putIntake(row: ImPersonIntakeRow): Promise<void> {
     this.intakeRows.set(row.person_id, row)
+  }
+
+  async deleteIntake(personId: string): Promise<void> {
+    this.intakeRows.delete(personId)
   }
 }

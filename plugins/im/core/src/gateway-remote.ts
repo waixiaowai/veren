@@ -148,6 +148,17 @@ export class ImGatewayService extends TypertRemoteService {
     return { people: this.router.listPeople(request.query === undefined ? {} : { query: request.query }) }
   }
 
+  /** Set one person's display name — the panel's manual completion of the directory. */
+  @Remote('renamePerson')
+  async renamePerson(request: { readonly personId: string; readonly displayName: string }) {
+    return {
+      person: await this.router.savePerson({
+        personId: request.personId,
+        displayName: request.displayName,
+      }),
+    }
+  }
+
   /** Read the stranger-intake switch, counts, and recent audit records. */
   @Remote('intakeStatus')
   async intakeStatus(request: { readonly limit?: number }) {
