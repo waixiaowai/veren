@@ -63,8 +63,8 @@ describe('im bundle metadata', () => {
 describe('im bundle patch rows', () => {
   it('inserts exactly the three member rows in dependency order', () => {
     const rows = insertedRows()
-    expect(rows.map(row => row.id)).toEqual(['im', 'im-wechat', 'im-tool'])
-    expect(rows.map(row => row.name)).toEqual(['@veren/im', '@veren/im-wechat', '@veren/im-tool'])
+    expect(rows.map(row => row.id)).toEqual(['im', 'im-wechat', 'im-tool', 'im-ui'])
+    expect(rows.map(row => row.name)).toEqual(['@veren/im', '@veren/im-wechat', '@veren/im-tool', '@veren/im-ui'])
   })
 
   it('inserts no disabled rows: the bundle switches as one', () => {
@@ -80,6 +80,7 @@ describe('install closure', () => {
     expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual([
       '@veren/im',
       '@veren/im-tool',
+      '@veren/im-ui',
       '@veren/im-wechat',
     ])
   })

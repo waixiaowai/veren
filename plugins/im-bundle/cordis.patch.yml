@@ -19,9 +19,11 @@
 - insert:
     # The core: durable accounts, conversations, bindings, the people directory,
     # stranger intake with its audit trail, and the active-binding router that
-    # feeds inbound messages into DSH Sessions.
+    # feeds inbound messages into DSH Sessions. Also owns the `im` Remote
+    # namespace the web panel reads (gateway-remote.ts).
     # 核心：持久化的账号、会话、绑定，人员目录，带审计的陌生人采集，以及把入站
-    # 消息喂进 DSH 会话的 active-binding 路由。
+    # 消息喂进 DSH 会话的 active-binding 路由。同时拥有 Web 面板读取的 `im` 远端
+    # 命名空间（gateway-remote.ts）。
     - id: im
       name: '@veren/im'
     # The WeChat channel: iLink QR authorization, long-poll inbound, text send.
@@ -34,3 +36,10 @@
     # 面向模型的 `im_*` 工具：账号、人员与绑定的操作面。
     - id: im-tool
       name: '@veren/im-tool'
+    # The web panel: sidebar entry, in-page QR bind wizard, bindings, people,
+    # and intake audit. It injects the mounted `remote.im` namespace, so it
+    # stays last.
+    # Web 面板：侧栏入口、页面内扫码绑定向导、绑定、人员与采集审计。它注入挂载好
+    # 的 `remote.im` 命名空间，因此排在最后。
+    - id: im-ui
+      name: '@veren/im-ui'

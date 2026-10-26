@@ -1,0 +1,66 @@
+{
+  "name": "@veren/im-ui",
+  "displayName": "IM UI",
+  "version": "2.1.0",
+  "icon": "./icon.svg",
+  "description": "Use when the @veren/im core is installed and a person needs a human face for instant messaging: authorize a WeChat account by scanning the QR right in the page, see accounts, bindings, and unlinked conversations at a glance, link or unlink with one click, and read the stranger-intake audit. Skip it for headless, ACP, or SDK profiles, where the im_* tools already cover every operation.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "locale/*.json",
+    "dist/*.js",
+    "lib/client.js",
+    "README.md",
+    "README.cn.md",
+    "icon.svg"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  },
+  "scripts": {
+    "bundle": "node scripts/bundle.mjs",
+    "build": "node scripts/bundle.mjs",
+    "prepack": "pnpm run build",
+    "typecheck": "node scripts/typecheck.mjs",
+    "test": "vitest run --no-fsModuleCache"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-api-remotes": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-connection": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-locale": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-layout": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@veren/platform-modules": "workspace:*",
+    "esbuild": "^0.28.2",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}

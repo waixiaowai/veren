@@ -1,0 +1,188 @@
+/*
+ * The IM panel's stylesheet. One sheet, hand-prefixed `.im-*`, colors only from
+ * the shared `--dsw-*` semantic tokens so every theme applies untouched.
+ *
+ * IM 面板样式表。单张样式表、手工 `.im-*` 前缀，颜色全部取自共享的 `--dsw-*`
+ * 语义 token，任何主题都无需改动即可生效。
+ */
+
+.im-page {
+  --im-canvas: var(--dsw-alias-bg-module-platform);
+  --im-surface: var(--dsw-alias-bg-layer-1);
+  --im-text: var(--dsw-alias-label-primary);
+  --im-muted: var(--dsw-alias-label-secondary);
+  --im-accent: var(--dsw-alias-state-business-primary);
+  --im-danger: var(--dsw-alias-state-error-primary);
+  --im-line: var(--dsw-alias-border-secondary);
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 20px 24px 48px;
+  color: var(--im-text);
+  font-family: var(--dsw-font-family);
+  background: var(--im-canvas);
+  box-sizing: border-box;
+}
+
+.im-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.im-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.im-subtitle {
+  margin: 4px 0 0;
+  color: var(--im-muted);
+  font-size: 13px;
+}
+
+.im-section { margin-top: 20px; }
+
+.im-heading {
+  margin: 14px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.im-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.im-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.im-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--im-surface);
+  border: 1px solid var(--im-line);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.im-strong { font-weight: 600; }
+.im-muted { color: var(--im-muted); }
+.im-arrow { color: var(--im-muted); }
+
+.im-error {
+  margin: 8px 0;
+  color: var(--im-danger);
+  font-size: 13px;
+}
+
+.im-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--im-line);
+  color: var(--im-muted);
+  font-size: 12px;
+}
+
+.im-badge-on {
+  color: var(--im-accent);
+  border-color: var(--im-accent);
+}
+
+.im-status {
+  font-size: 12px;
+  color: var(--im-muted);
+}
+
+.im-status-online { color: var(--im-accent); }
+
+.im-button {
+  padding: 5px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--im-line);
+  background: var(--im-surface);
+  color: var(--im-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.im-button:hover { border-color: var(--im-accent); }
+.im-button:disabled { opacity: 0.5; cursor: default; }
+
+.im-button-primary {
+  background: var(--im-accent);
+  border-color: var(--im-accent);
+  color: var(--dsw-alias-label-on-business-primary, #fff);
+}
+
+.im-button-danger:hover {
+  border-color: var(--im-danger);
+  color: var(--im-danger);
+}
+
+.im-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 18px;
+  border-bottom: 1px solid var(--im-line);
+}
+
+.im-tab {
+  padding: 7px 16px;
+  border: none;
+  background: none;
+  color: var(--im-muted);
+  font-size: 14px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.im-tab-active {
+  color: var(--im-text);
+  font-weight: 600;
+  border-bottom-color: var(--im-accent);
+}
+
+.im-wizard {
+  margin-top: 14px;
+  padding: 14px 16px;
+  background: var(--im-surface);
+  border: 1px solid var(--im-line);
+  border-radius: 10px;
+}
+
+.im-qr {
+  display: block;
+  width: 200px;
+  height: 200px;
+  margin: 10px 0;
+  border-radius: 8px;
+  border: 1px solid var(--im-line);
+}
+
+.im-bindstatus { margin: 6px 0; font-size: 14px; }
+.im-bindstatus-bound { color: var(--im-accent); font-weight: 600; }
+.im-bindstatus-expired, .im-bindstatus-failed { color: var(--im-danger); }
+
+.im-input {
+  flex: 1;
+  max-width: 240px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--im-line);
+  background: var(--im-surface);
+  color: var(--im-text);
+  font-size: 13px;
+}

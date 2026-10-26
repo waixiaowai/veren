@@ -1,7 +1,7 @@
 {
   "name": "@veren/commander-bundle",
   "displayName": "Veren Commander Bundle",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Use when a DSH profile should expose the veren commander commands (`list`, `build`, `doc`, `help`, `tests`) through `dsh --profile commander ...`: it declares the profile bundle patch that inserts the command registry, project and discovery services, every command plugin, and the startup dispatcher over dsh-base; skip it when you compose your own command profile.",
   "private": true,
   "type": "module",

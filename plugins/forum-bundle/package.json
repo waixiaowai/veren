@@ -1,7 +1,7 @@
 {
   "name": "@veren/forum-bundle",
   "displayName": "Forum Bundle",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "icon": "./icon.svg",
   "description": "Use when a DSH profile needs the whole Forum stack (the durable Host service with its model-facing `forum_*` tools and the Web page) installed and composed in one step: it is a configuration-only bundle whose patch inserts the Host and Web-page rows in dependency order, it declares @veren/app-host-bundle as a dependency so the application framework's loader rows stay owned by that single bundle (never double-inserted when several application bundles coexist), and its member plugins ship as plain dependencies without bundle declarations of their own; skip it when you want only the Host service, or prefer composing these plugins row by row in your own patch.",
   "type": "module",

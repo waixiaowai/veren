@@ -1,7 +1,7 @@
 {
   "name": "@veren/device-id-linux",
   "displayName": "Veren Device ID (Linux)",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Use on Linux only as the platform plugin for @veren/device-id: it collects the stable-tier hardware fingerprint from DMI (/sys/class/dmi/id product_uuid, product_serial, board_serial; root may be required) and keeps a best-effort anchor file in ~/.local/state/veren; /etc/machine-id is excluded from the fingerprint because an OS reinstall regenerates it; skip it on non-Linux hosts.",
   "type": "module",
   "main": "./dist/index.js",

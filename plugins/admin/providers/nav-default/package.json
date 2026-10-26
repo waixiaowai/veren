@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-navigation-default",
   "displayName": "Admin Navigation Default",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Use when a DSH admin deployment needs the default menu registry behind the navigation capability: it holds an in-memory contribution map with idempotent disposers, rejects duplicate ids, ships the dashboard/users/roles/audit/capabilities entries, and filters plus orders the tree per principal permission; skip it when the deployment replaces navigation policy with its own provider or needs persisted menus.",
   "type": "module",
   "main": "./dist/index.js",

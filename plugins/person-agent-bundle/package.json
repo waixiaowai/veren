@@ -1,7 +1,7 @@
 {
   "name": "@veren/person-agent-bundle",
   "displayName": "管家",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "icon": "./icon.svg",
   "description": "Use when a DSH profile needs the Person Agent installed and composed in one step: it is a configuration-only bundle whose patch inserts the single person-agent-app row - the bridge persona, the page-scoped session/workspace tools and the renhua skill all live inside the app's page sessions, so there are no toggles; the application framework (app registry, page registry, task center, app-host) rides in through the @veren/app-host-bundle dependency, and the member plugins ship as plain dependencies without bundle declarations of their own, so this patch is the stack's only profile layer; skip it when you want to compose the app row by row in your own patch.",
   "type": "module",

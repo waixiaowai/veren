@@ -30,6 +30,7 @@ import { ImRouter, ImRouterToken } from './router.ts'
 import type { ImRouterOptions } from './router-types.ts'
 import { errorMessage } from './runtime-seams.ts'
 import type { ImCredentialStore, ImLogger } from './runtime-seams.ts'
+import { ImGatewayService } from './gateway-remote.ts'
 import { DshSessionGateway } from './gateway.ts'
 import { STRANGER_INTAKE_ASK, STRANGER_INTAKE_DEFAULTS } from './intake.ts'
 import type { ImStrangerIntakeConfig } from './intake.ts'
@@ -196,4 +197,10 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
       strangerIntake: config.strangerIntake,
     },
   })
+  // Web 面板的后端：`im` 远端命名空间（QR data URL、目录/绑定/采集的读写面）。
+  // router 由注入解析，挂载顺序无关。
+  // The web panel's backend: the `im` remote namespace (QR data URLs plus the
+  // read/write faces for catalog, bindings, and intake). The router resolves
+  // by injection, so mount order is irrelevant.
+  ctx.plugin(ImGatewayService)
 }
