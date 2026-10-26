@@ -96,10 +96,18 @@ export class ImBindings {
     this.attempts.set(attempt.bindId, { providerId, attempt })
     return attempt
   }
-  /** Read one attempt and persist its account once bound. */
+  /** Read one attempt and persist its account once bound; evict terminal attempts. */
   async pollBind(bindId: string): Promise<ImBindPollResult> {
     const entry = this.attempts.get(bindId)
     if (entry === undefined) throw new ImError('IM_NOT_FOUND', `unknown bind attempt: ${bindId}`)
+    // bound 落账号；expired/failed 是终态——读一次后同样驱逐（后续 poll 明确报
+    // IM_NOT_FOUND），否则死尝试会永远钉在 Map 里（10-24 review 的 P3 泄漏面）。
+    // bound persists the account; expired/failed are terminal — evict after the
+    // one readable poll too (later polls fail loudly), or dead attempts pin the
+    // map forever (the 10-24 review's P3 leak).
+    if (entry.attempt.status === 'expired' || entry.attempt.status === 'failed') {
+      this.attempts.delete(bindId)
+    }
     if (entry.attempt.status !== 'bound') return { attempt: entry.attempt }
     // The account is persisted exactly once; the entry is dropped so later polls
     // fail loudly and a terminal attempt cannot leak memory.
@@ -108,6 +116,16 @@ export class ImBindings {
     const account = await entry.attempt.wait()
     await this.persistAccount(entry.providerId, account)
     return { attempt: entry.attempt, account }
+  }
+  /** Submit a verification code for an attempt in the needs-code state, then poll. */
+  async submitBindCode(bindId: string, code: string): Promise<ImBindPollResult> {
+    const entry = this.attempts.get(bindId)
+    if (entry === undefined) throw new ImError('IM_NOT_FOUND', `unknown bind attempt: ${bindId}`)
+    if (entry.attempt.submitCode === undefined) {
+      throw new ImError('IM_INVALID_REQUEST', `bind attempt ${bindId} does not take a verification code`)
+    }
+    await entry.attempt.submitCode(code)
+    return this.pollBind(bindId)
   }
   /** Bind or re-bind one conversation to one Session. */
   async link(request: ImLinkRequest): Promise<ImBinding> {

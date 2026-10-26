@@ -10,139 +10,293 @@
   "metadata": {
     "categories": {
       "automation": {
-        "title": { "en": "Automation", "zh": "自动化" }
+        "title": {
+          "en": "Automation",
+          "zh": "自动化"
+        }
       },
       "assistant": {
-        "title": { "en": "Assistant", "zh": "助手" }
+        "title": {
+          "en": "Assistant",
+          "zh": "助手"
+        }
       },
       "collaboration": {
-        "title": { "en": "Collaboration", "zh": "协作" }
+        "title": {
+          "en": "Collaboration",
+          "zh": "协作"
+        }
       },
       "knowledge": {
-        "title": { "en": "Knowledge", "zh": "知识" }
+        "title": {
+          "en": "Knowledge",
+          "zh": "知识"
+        }
       },
       "platform": {
-        "title": { "en": "Platform", "zh": "平台" }
+        "title": {
+          "en": "Platform",
+          "zh": "平台"
+        }
       },
       "security": {
-        "title": { "en": "Security", "zh": "安全" }
+        "title": {
+          "en": "Security",
+          "zh": "安全"
+        }
       },
       "integration": {
-        "title": { "en": "Integration", "zh": "集成" }
+        "title": {
+          "en": "Integration",
+          "zh": "集成"
+        }
       },
       "session": {
-        "title": { "en": "Session", "zh": "会话" }
+        "title": {
+          "en": "Session",
+          "zh": "会话"
+        }
       }
     },
     "labels": {
       "official": {
-        "title": { "en": "Official", "zh": "官方" }
+        "title": {
+          "en": "Official",
+          "zh": "官方"
+        }
       },
       "experimental": {
-        "title": { "en": "Experimental", "zh": "实验性" }
+        "title": {
+          "en": "Experimental",
+          "zh": "实验性"
+        }
       }
     }
   },
   "plugins": {
     "@veren/startup-autostart-bundle": {
-      "title": { "en": "Startup Autostart", "zh": "启动自启动" },
+      "title": {
+        "en": "Startup Autostart",
+        "zh": "启动自启动"
+      },
       "description": {
         "en": "Runs work at every DSH start: a resident host service, model-facing tools for adding and changing startup items, the matching guidance skill, and the Web UI, installed as one profile layer.",
         "zh": "让任务在每次 DSH 启动时自动执行：常驻的宿主服务、供模型增删改启动项的工具、配套的使用指南和 Web 界面，一次装齐。"
       },
       "category": "automation",
-      "labels": ["official"],
-      "keywords": ["startup", "autostart", "boot", "启动项"]
+      "labels": [
+        "official"
+      ],
+      "keywords": [
+        "startup",
+        "autostart",
+        "boot",
+        "启动项"
+      ]
     },
     "@veren/sub2api-admin-bundle": {
-      "title": { "en": "Sub2API Operations", "zh": "Sub2API 运营" },
+      "title": {
+        "en": "Sub2API Operations",
+        "zh": "Sub2API 运营"
+      },
       "description": {
         "en": "Runs a Sub2API instance from DSH: an ops-console home page plus channels, groups, users, subscriptions, finance, redeem/promo codes, accounts, and usage pages, with eleven model-facing admin tools sharing one credential config.",
         "zh": "在 DSH 里运营 Sub2API 实例：指挥台首页加渠道、分组、用户、订阅、资金、卡密、账号、用量九个页面，配十一个共凭据的管理工具。装好后按插件 README 配置 baseUrl 与管理员凭据即可用。"
       },
       "category": "platform",
-      "labels": ["official"],
-      "keywords": ["sub2api", "operations", "admin", "运营"]
+      "labels": [
+        "official"
+      ],
+      "keywords": [
+        "sub2api",
+        "operations",
+        "admin",
+        "运营"
+      ]
     },
     "@veren/app-host-bundle": {
-      "title": { "en": "App Host", "zh": "应用框架" },
+      "title": {
+        "en": "App Host",
+        "zh": "应用框架"
+      },
       "description": {
         "en": "Installs the whole Veren application framework in one step: a configuration-only bundle that inserts the app registry, page registry, and task center plus the app-host assembly row in dependency order, so app plugins work without manual cross-service wiring.",
         "zh": "一步装齐 Veren 应用框架：纯配置组合包，按依赖顺序插入应用注册表、页面注册表、任务中心三个宿主服务和 app-host 装配行，应用插件无需手工跨服务接线。"
       },
       "category": "platform",
-      "labels": ["official"],
-      "keywords": ["app-host", "apps", "pages", "task-center", "应用框架"]
+      "labels": [
+        "official"
+      ],
+      "keywords": [
+        "app-host",
+        "apps",
+        "pages",
+        "task-center",
+        "应用框架"
+      ]
+    },
+    "@veren/im-bundle": {
+      "title": {
+        "en": "IM (WeChat)",
+        "zh": "即时消息（微信）"
+      },
+      "description": {
+        "en": "Instant messaging for the host: authorize a WeChat account by QR code, receive inbound messages into DSH Sessions through active-binding routing, and let the agent send on the user's behalf with exact-match, fail-closed addressing. Includes the people directory with stranger intake and the im_* model tools.",
+        "zh": "宿主的即时消息能力：扫码授权微信账号，入站消息经 active-binding 路由接进 DSH 会话，agent 以精确匹配、失败即拒绝的寻址代用户发送。包含人员目录、陌生人采集与 im_* 模型工具。"
+      },
+      "category": "integration",
+      "labels": [
+        "official"
+      ],
+      "keywords": [
+        "im",
+        "wechat",
+        "messaging",
+        "chat",
+        "即时消息",
+        "微信"
+      ]
     },
     "@veren/person-agent-bundle": {
-      "title": { "en": "Person Agent", "zh": "管家" },
+      "title": {
+        "en": "Person Agent",
+        "zh": "管家"
+      },
       "description": {
         "en": "An assistant that works as your personal agent: a delegating bridge persona exposed as an application, with a workbench overview (workspaces, presets, models), page-scoped session and workspace maintenance tools, and a writing skill — all inside the app's page sessions.",
         "zh": "以管家身份工作的助手：把派活桥梁人格暴露为一个应用，带工作台概览（工作区/预设/模型）、页面级会话与工作区维护工具和写作技能——全部活在应用的页面会话里。"
       },
       "category": "assistant",
-      "labels": ["official"],
-      "keywords": ["person-agent", "app", "subagent", "管家"]
+      "labels": [
+        "official"
+      ],
+      "keywords": [
+        "person-agent",
+        "app",
+        "subagent",
+        "管家"
+      ]
     },
     "@veren/forum-bundle": {
-      "title": { "en": "Forum", "zh": "论坛" },
+      "title": {
+        "en": "Forum",
+        "zh": "论坛"
+      },
       "description": {
         "en": "Discussion inside DSH: a durable forum service with model-facing post and comment tools, plus the Web page people read and reply on.",
         "zh": "在 DSH 里发起讨论：持久化的论坛服务和供模型读写帖子、评论的工具，外加供人浏览和回复的 Web 页面。"
       },
       "category": "collaboration",
-      "labels": ["official"],
-      "keywords": ["forum", "board", "post", "论坛"]
+      "labels": [
+        "official"
+      ],
+      "keywords": [
+        "forum",
+        "board",
+        "post",
+        "论坛"
+      ]
     },
     "@veren/notebook-bundle": {
-      "title": { "en": "Notebook", "zh": "笔记本" },
+      "title": {
+        "en": "Notebook",
+        "zh": "笔记本"
+      },
       "description": {
         "en": "Private notes inside DSH: a durable notebook service with model-facing note tools, plus the Web page where a person reads and edits them.",
         "zh": "在 DSH 里保存私人笔记：持久化的笔记本服务和供模型读写笔记的工具，外加供人查看和编辑的 Web 页面。"
       },
       "category": "knowledge",
-      "labels": ["official"],
-      "keywords": ["notebook", "notes", "笔记"]
+      "labels": [
+        "official"
+      ],
+      "keywords": [
+        "notebook",
+        "notes",
+        "笔记"
+      ]
     },
     "@veren/admin-app": {
-      "title": { "en": "Admin Console", "zh": "管理台" },
+      "title": {
+        "en": "Admin Console",
+        "zh": "管理台"
+      },
       "description": {
         "en": "Turns a DSH profile into a general AI admin console: kernel, gateway, data, authentication, access control, navigation, audit, docs, and the default UI, installed as one profile layer.",
         "zh": "把 DSH profile 变成通用的 AI 管理后台：内核、网关、数据层、认证、权限、导航、审计、文档和默认界面，一次装齐。"
       },
       "category": "platform",
-      "labels": ["official", "experimental"],
-      "keywords": ["admin", "console", "rbac", "audit", "管理台"]
+      "labels": [
+        "official",
+        "experimental"
+      ],
+      "keywords": [
+        "admin",
+        "console",
+        "rbac",
+        "audit",
+        "管理台"
+      ]
     },
     "@veren/web-login-gate": {
-      "title": { "en": "Web Login Gate", "zh": "Web 登录门禁" },
+      "title": {
+        "en": "Web Login Gate",
+        "zh": "Web 登录门禁"
+      },
       "description": {
         "en": "Puts a named-user login in front of the DSH Web GUI: Better Auth username/email plus password, with the SPA entry and every API request gated until a valid session exists.",
         "zh": "给 DSH Web 界面加上实名登录：用 Better Auth 做用户名/邮箱加密码认证，未登录时 SPA 入口和所有 API 请求一律拦下。"
       },
       "category": "security",
-      "labels": ["official"],
-      "keywords": ["login", "auth", "better-auth", "登录"]
+      "labels": [
+        "official"
+      ],
+      "keywords": [
+        "login",
+        "auth",
+        "better-auth",
+        "登录"
+      ]
     },
     "@veren/cms-bridge": {
-      "title": { "en": "CMS Bridge", "zh": "CMS 桥接" },
+      "title": {
+        "en": "CMS Bridge",
+        "zh": "CMS 桥接"
+      },
       "description": {
         "en": "Keeps a long-lived WebSocket link from DSH to a CMS server: dispatches server commands to locally registered actions, queues and replays events while offline, and ships a connection-status and API-key panel.",
         "zh": "让 DSH 与 CMS 服务端保持长连接：把服务端指令派发到本机已注册的动作，断线时排队、恢复后重放事件，附带连接状态与 API Key 配置面板。"
       },
       "category": "integration",
-      "labels": ["official"],
-      "keywords": ["cms", "websocket", "bridge", "桥接"]
+      "labels": [
+        "official"
+      ],
+      "keywords": [
+        "cms",
+        "websocket",
+        "bridge",
+        "桥接"
+      ]
     },
     "@imeep/dsh-session-fork-enhanced": {
-      "title": { "en": "Session Fork Enhanced", "zh": "会话分叉增强" },
+      "title": {
+        "en": "Session Fork Enhanced",
+        "zh": "会话分叉增强"
+      },
       "description": {
         "en": "Forks a session with explicit options: choose the agent preset and/or provider model for the new branch, so several approaches can run side by side.",
         "zh": "带选项地分叉会话：为新分支指定助手预设和/或模型提供方，方便并行试几种不同做法。"
       },
       "category": "session",
-      "labels": ["experimental"],
-      "keywords": ["session", "fork", "preset", "分叉"]
+      "labels": [
+        "experimental"
+      ],
+      "keywords": [
+        "session",
+        "fork",
+        "preset",
+        "分叉"
+      ]
     }
   }
 }

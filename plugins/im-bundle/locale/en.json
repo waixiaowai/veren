@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "IM Bundle",
+    "description": "Enables the IM core (accounts/people/routing), the model tools, and the WeChat channel as one configuration bundle."
+  }
+}

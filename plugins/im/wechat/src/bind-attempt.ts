@@ -21,6 +21,7 @@
  * @module @veren/im-wechat/bind-attempt
  */
 
+import { rm } from 'node:fs/promises'
 import { ImError } from '@veren/im'
 import type { LoggerService } from '@deepseek-ai/cordis'
 import type { ImAccount, ImBindAttempt, ImBindChallenge, ImBindStatus } from '@veren/im'
@@ -130,6 +131,9 @@ export class WechatBindAttempt implements ImBindAttempt {
               const account = await this.activate(response)
               this.account = account
               this.bindStatus = 'bound'
+              // 绑定成功：QR 已无用，立即清掉（临时目录不再堆积）。
+              // Bound: the QR is dead weight now — remove it at once (no temp litter).
+              void this.removeQrImage()
               this.settleWaiters(account)
               return
             } catch (error: unknown) {
@@ -199,6 +203,7 @@ export class WechatBindAttempt implements ImBindAttempt {
     if (this.bindStatus === 'bound') return
     this.bindStatus = 'expired'
     this.controller.abort()
+    void this.removeQrImage()
     this.settleWaiters(undefined, new ImError('IM_BIND_EXPIRED', 'the WeChat bind attempt was cancelled'))
   }
 
@@ -206,8 +211,22 @@ export class WechatBindAttempt implements ImBindAttempt {
   private finish(status: ImBindStatus, error: ImError): void {
     this.bindStatus = status
     this.controller.abort()
+    void this.removeQrImage()
     this.settleWaiters(undefined, error)
     this.logger.warn(`[im:wechat] bind ${this.bindId} ended as ${status}: ${error.message}`)
+  }
+
+  /**
+   * Delete the local QR PNG once it can no longer be scanned (bound/expired/
+   * failed/cancelled). Best effort: a missing or locked file is not an error —
+   * the OS temp dir is cleaned on its own schedule anyway.
+   * QR 无法再被扫描后（成功/过期/失败/取消）删除本地 PNG。尽力而为：文件缺失或被
+   * 占用都不是错误——系统临时目录本来就有自己的清理节奏。
+   */
+  private async removeQrImage(): Promise<void> {
+    const path = this.challenge.imagePath
+    if (path === undefined) return
+    await rm(path, { force: true }).catch(() => undefined)
   }
 
   /** Settle every waiter exactly once. */

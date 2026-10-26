@@ -166,6 +166,10 @@ export class ImRouter {
   pollBind(bindId: string): Promise<ImBindPollResult> {
     return this.bindings.pollBind(bindId)
   }
+  /** Submit a verification code for a needs-code attempt, then poll. */
+  submitBindCode(bindId: string, code: string): Promise<ImBindPollResult> {
+    return this.bindings.submitBindCode(bindId, code)
+  }
   /** Bind or re-bind one conversation to one Session. */
   async link(request: ImLinkRequest): Promise<ImBinding> {
     const binding = await this.bindings.link(request)

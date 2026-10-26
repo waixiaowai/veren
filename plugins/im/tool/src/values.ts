@@ -15,11 +15,13 @@
 
 import { readFile, stat } from 'node:fs/promises'
 import { basename, extname } from 'node:path'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { ImError } from '@veren/im'
 import type {
   ImAccount,
   ImBindAttempt,
+  ImBindRequest,
   ImBinding,
   ImBindingSettings,
   ImMessageContent,
@@ -33,6 +35,44 @@ export function jsonOf(value: Record<string, unknown>): JsonValue {
 /** Wrap a successful payload. */
 export function ok(value: Record<string, unknown>): JsonValue {
   return jsonOf({ ok: true, ...value })
+}
+
+/** One canonical tool value as model text. */
+export function renderValue(_args: unknown, value: unknown): ContentBlock[] {
+  return [{ type: 'text', text: JSON.stringify(value) }]
+}
+
+/** The shared output face: one JSON value as model text. */
+export const OUTPUT = { schema: { type: 'json' }, render: renderValue } as const
+
+/**
+ * Build the method-specific bind request, rejecting missing credentials.
+ * 构造按方法区分的授权请求，缺凭据即拒绝。
+ */
+export function bindRequestOf(
+  method: 'qrcode' | 'oauth' | 'token' | 'password',
+  args: {
+    token?: string
+    username?: string
+    password?: string
+    label?: string
+  },
+): ImBindRequest {
+  const label = args.label === undefined ? {} : { label: args.label }
+  switch (method) {
+    case 'qrcode':
+    case 'oauth':
+      return { method, ...label }
+    case 'token':
+      return { method, token: requireString(args.token, 'token'), ...label }
+    case 'password':
+      return {
+        method,
+        username: requireString(args.username, 'username'),
+        password: requireString(args.password, 'password'),
+        ...label,
+      }
+  }
 }
 
 /** Turn any failure into the stable failure result. */

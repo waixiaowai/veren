@@ -1,0 +1,36 @@
+# IM bundle: mounts the whole instant-messaging stack in one profile layer.
+# IM 组合包：用一个 profile 层装好整个即时消息技术栈。
+#
+# The bundle carries zero runtime code. Each `insert` row resolves by package
+# name from the bundle's own dependencies (pnpm installs them into the profile
+# alongside this bundle), so the three @veren plugins travel together as one
+# installable unit and can be toggled as one from the plugin manager.
+# 组合包零运行时代码。每条 `insert` 行按包名从组合包自身的 dependencies 解析
+# （pnpm 会把它们和组合包一起装进 profile），三个 @veren 插件因此作为一个可
+# 安装单元随行，并在插件管理页作为一个开关整体启停。
+#
+# Row order matters: the core first (it provides the `im`, `imRouter`, and
+# `imPeople` services the other two inject), then the channel provider, then
+# the tools. Missing services never half-activate: a row whose inject cannot
+# resolve stays pending, loudly visible in the plugin page and boot logs.
+# 行顺序有讲究：先装核心（它提供另外两个包注入的 `im` / `imRouter` / `imPeople`
+# 服务），再装渠道 provider，最后是工具。服务缺失绝不会半激活：inject 解析不到
+# 的行保持 pending——在插件页与启动日志里响亮可见。
+- insert:
+    # The core: durable accounts, conversations, bindings, the people directory,
+    # stranger intake with its audit trail, and the active-binding router that
+    # feeds inbound messages into DSH Sessions.
+    # 核心：持久化的账号、会话、绑定，人员目录，带审计的陌生人采集，以及把入站
+    # 消息喂进 DSH 会话的 active-binding 路由。
+    - id: im
+      name: '@veren/im'
+    # The WeChat channel: iLink QR authorization, long-poll inbound, text send.
+    # It registers itself into the registry provided by the core row above.
+    # 微信渠道：iLink 扫码授权、长轮询入站、文本发送。它把自己注册进上一行核心
+    # 提供的注册表。
+    - id: im-wechat
+      name: '@veren/im-wechat'
+    # The model-facing `im_*` tools over accounts, people, and bindings.
+    # 面向模型的 `im_*` 工具：账号、人员与绑定的操作面。
+    - id: im-tool
+      name: '@veren/im-tool'

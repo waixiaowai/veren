@@ -1,6 +1,6 @@
 {
   "name": "@veren/test-support",
-  "version": "2.0.10",
+  "version": "2.1.0",
   "description": "Use when a spec must mount a Cordis application host (app/page registries with the mirror seam, the real task center, fake agent sessions with per-session tool scopes) or a throwaway storage domain and wants the wiring, the degrade-path toggles, and the pairing registration/cleanup to come from one shared toolkit instead of being re-copied per spec. Not for starting a real DSH profile — use the loader-smoke infrastructure for that.",
   "private": true,
   "type": "module",

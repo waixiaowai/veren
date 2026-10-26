@@ -1,7 +1,7 @@
 {
   "name": "@veren/web-login-gate",
   "displayName": "Veren Web Login Gate",
-  "version": "2.0.10",
+  "version": "2.1.0",
   "description": "Use when the dsh Web GUI must require a named user login before any page or API access: it mounts Better Auth (username/email + password) over a dsh storage domain, gates the SPA entry and every /api request behind a valid Better Auth session, and only then lets the official launch-token exchange mint its browser cookies; skip it when the anonymous per-process launch-token gate is enough.",
   "type": "module",
   "main": "./dist/index.js",

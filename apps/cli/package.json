@@ -1,6 +1,6 @@
 {
   "name": "@veren/cli",
-  "version": "2.0.10",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "description": "Use when you want to run the veren CLI (`pnpm cli <command>`): it is the executable shell that assembles the plugin manifest (YAML parsing, the command registry, the project service, the discovery service, list/doc/help) and dispatches argv through the registry service; depend on @veren/commander-core and the individual plugin packages instead when you compose your own runtime.",

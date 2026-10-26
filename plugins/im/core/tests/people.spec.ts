@@ -56,7 +56,8 @@ describe('ImPeople resolution', () => {
     })
     expect(people.resolve('yang_mingming')).toMatchObject({
       status: 'matched',
-      match: { matchedBy: 'contact', matchedValue: 'wechat:yang_mingming' },
+      // 证据=用户原始输入（P3b）：电话容错会让存储值偏离所打内容，展示依据必须是用户认得的那个
+      match: { matchedBy: 'contact', matchedValue: 'yang_mingming' },
     })
     expect(people.resolve('p2p:wxid-yang')).toMatchObject({
       status: 'matched',

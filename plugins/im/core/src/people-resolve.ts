@@ -62,8 +62,8 @@ export function exactMatch(
 ): ImPersonMatch | undefined {
   return identityMatchOf(view, raw, normalized)
     ?? aliasMatchOf(view, normalized)
-    ?? contactMatchOf(view, view.contacts, normalized, 'contact')
-    ?? claimMatchOf(view, normalized)
+    ?? contactMatchOf(view, view.contacts, normalized, 'contact', raw)
+    ?? claimMatchOf(view, normalized, raw)
     ?? addressMatchOf(view, normalized)
 }
 
@@ -89,27 +89,37 @@ function aliasMatchOf(view: ImPersonView, normalized: string): ImPersonMatch | u
   return undefined
 }
 
-/** Match by one contact of the given field, authoritative or self-reported. */
+/**
+ * Match by one contact of the given field, authoritative or self-reported.
+ * The evidence is the caller's raw input, not the stored value: the phone
+ * matcher tolerates separators, country prefixes, and suffix matches, so the
+ * stored string can name a different identifier than the one the user typed —
+ * and the evidence shown to the user must be the one they recognize.
+ * 按给定联系字段匹配（权威或自述）。证据用调用方的原始输入而非存储值：电话匹配
+ * 容忍分隔符、国家前缀与后缀命中，存储字符串指认的可能是用户没打过的标识符——
+ * 展示依据必须是用户认得的那一个。
+ */
 function contactMatchOf(
   view: ImPersonView,
   contacts: ImPersonContact[],
   normalized: string,
   matchedBy: 'contact' | 'claimedContact',
+  raw: string,
 ): ImPersonMatch | undefined {
   for (const contact of contacts) {
     if (contactMatches(contact, normalized)) {
-      return { person: view, matchedBy, matchedValue: `${contact.kind}:${contact.value}` }
+      return { person: view, matchedBy, matchedValue: raw }
     }
   }
   return undefined
 }
 
 /** Match by the unverified self-report: its name first, then its contacts. */
-function claimMatchOf(view: ImPersonView, normalized: string): ImPersonMatch | undefined {
+function claimMatchOf(view: ImPersonView, normalized: string, raw: string): ImPersonMatch | undefined {
   if (view.claimedName !== undefined && normalizeText(view.claimedName) === normalized) {
     return { person: view, matchedBy: 'claimedName', matchedValue: view.claimedName }
   }
-  return contactMatchOf(view, view.claimedContacts, normalized, 'claimedContact')
+  return contactMatchOf(view, view.claimedContacts, normalized, 'claimedContact', raw)
 }
 
 /** Match by one provider address: its external id or its conversation id. */

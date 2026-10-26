@@ -45,6 +45,9 @@ export type {
 
 const HOUR_MS = 3_600_000
 const RECENT_LIMIT = 100
+/** Cap for the in-memory ask-once guard; pruned against the durable rows. */
+/** 进程内 ask-once 闸门的上限；对照持久化行收缩。 */
+const ASKED_CAP = 512
 
 /**
  * The automatic stranger-intake service. It never routes messages and never
@@ -164,6 +167,7 @@ export class ImStrangerIntake {
       const sent = await this.deliverQuestion(providerId, message)
       if (sent === undefined) return
       this.asked.add(person.id)
+      this.pruneAsked()
       await this.recordAsk(providerId, message, person, sent)
     } finally {
       this.asking.delete(person.id)
@@ -230,7 +234,10 @@ export class ImStrangerIntake {
   private allow(providerId: string, accountId: string): boolean {
     const now = this.now()
     const recent = (this.askTimes.get(accountId) ?? []).filter(at => now - at < HOUR_MS)
-    this.askTimes.set(accountId, recent)
+    // 空槽位直接删键，Map 不随账号数无界增长。
+    // An empty slot deletes the key, so the map never grows with the account count.
+    if (recent.length === 0) this.askTimes.delete(accountId)
+    else this.askTimes.set(accountId, recent)
     if (recent.length >= Math.max(1, this.config.maxAsksPerHour)) {
       this.logger.warn(`[im:${providerId}] stranger intake skipped for ${accountId}: hourly cap reached`)
       return false
@@ -244,7 +251,22 @@ export class ImStrangerIntake {
     // both observe the same free slot.
     // 在 send await 之前同步预留，两个会话不会同时看到同一个空位。
     recent.push(now)
+    this.askTimes.set(accountId, recent)
     return true
+  }
+
+  /**
+   * Shrink the in-memory ask-once guard: every id with a durable intake row is
+   * already re-derivable from storage (the row check runs first in askOnce), so
+   * only write-failure survivors need to stay in memory.
+   * 收缩进程内 ask-once 闸门：有持久化行的 id 已可从存储再推导（askOnce 的第一道检查），
+   * 内存里只需保留写入失败的幸存者。
+   */
+  private pruneAsked(): void {
+    if (this.asked.size <= ASKED_CAP) return
+    for (const id of this.asked) {
+      if (this.people.intakeOf(id) !== undefined) this.asked.delete(id)
+    }
   }
 
   /** Per-status tally used by the audit view. */

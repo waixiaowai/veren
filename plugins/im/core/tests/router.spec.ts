@@ -29,10 +29,18 @@ const FEATURES: ImFeatures = {
 
 class TestAttempt implements ImBindAttempt {
   readonly bindId = 'bind-1'
-  status: 'pending' | 'bound' = 'pending'
+  status: 'pending' | 'bound' | 'failed' = 'pending'
   challenge = { kind: 'qrcode' as const }
   cancels = 0
-  async submitCode(): Promise<void> {}
+  readonly codes: string[] = []
+  /** When true, submitting a code advances the attempt to bound. */
+  submitMarksBound = false
+  /** When true, the attempt accepts no code at all (submitCode absent). */
+  noSubmitCode = false
+  submitCode: ((code: string) => Promise<void>) | undefined = async (code: string): Promise<void> => {
+    this.codes.push(code)
+    if (this.submitMarksBound) this.status = 'bound'
+  }
   async wait(): Promise<ImAccount> {
     return { id: 'acc', displayName: 'Account', status: 'online' }
   }
@@ -47,6 +55,8 @@ class TestService implements ImService {
   stopped = 0
   bindCalls = 0
   lastAttempt: TestAttempt | undefined
+  /** Options for the next created attempt (status / submit behavior). */
+  nextAttempt: { status?: 'pending' | 'bound' | 'failed'; submitMarksBound?: boolean; noSubmitCode?: boolean } = {}
   readonly sent: ImSendRequest[] = []
   #handler: ((message: ImMessage) => void | Promise<void>) | undefined
 
@@ -62,6 +72,9 @@ class TestService implements ImService {
   async bind(_request: ImBindRequest): Promise<ImBindAttempt> {
     this.bindCalls += 1
     const attempt = new TestAttempt()
+    if (this.nextAttempt.status !== undefined) attempt.status = this.nextAttempt.status
+    attempt.submitMarksBound = this.nextAttempt.submitMarksBound === true
+    if (this.nextAttempt.noSubmitCode === true) attempt.submitCode = undefined
     this.lastAttempt = attempt
     return attempt
   }
@@ -174,6 +187,42 @@ describe('ImRouter', () => {
     router.dispose()
     await expect(router.pollBind(attempt.bindId)).rejects.toMatchObject({ code: 'IM_NOT_FOUND' })
     expect(service.lastAttempt?.cancels).toBe(0)
+  })
+
+  it('submitBindCode forwards the code and persists once bound', async () => {
+    const { router, service, store } = setup()
+    service.nextAttempt = { submitMarksBound: true }
+    const attempt = await router.beginBind('fake', { method: 'qrcode' })
+    // needs-code 死锁的回归：code 必须能从工具层一路到达 attempt.submitCode
+    // / regression for the needs-code deadlock: a code must reach
+    // attempt.submitCode from the tool layer
+    const polled = await router.submitBindCode(attempt.bindId, '424242')
+    expect(polled.account?.id).toBe('acc')
+    expect(service.lastAttempt?.codes).toEqual(['424242'])
+    expect(store.getAccount('acc')).toBeDefined()
+    // bound 后条目已驱逐：重复 poll 明确报错
+    // / the bound entry is evicted: a repeat poll fails loudly
+    await expect(router.pollBind(attempt.bindId)).rejects.toMatchObject({ code: 'IM_NOT_FOUND' })
+  })
+
+  it('submitBindCode refuses an attempt that takes no code', async () => {
+    const { router, service } = setup()
+    service.nextAttempt = { noSubmitCode: true }
+    const attempt = await router.beginBind('fake', { method: 'qrcode' })
+    await expect(router.submitBindCode(attempt.bindId, '424242'))
+      .rejects.toMatchObject({ code: 'IM_INVALID_REQUEST' })
+    expect(service.lastAttempt?.codes).toEqual([])
+  })
+
+  it('evicts a failed bind attempt after one readable poll', async () => {
+    const { router, service } = setup()
+    service.nextAttempt = { status: 'failed' }
+    const attempt = await router.beginBind('fake', { method: 'qrcode' })
+    const polled = await router.pollBind(attempt.bindId)
+    expect(polled.attempt.status).toBe('failed')
+    // 终态读一次即驱逐：死尝试不常驻内存（P3a）
+    // / a terminal attempt is readable once, then evicted (P3a)
+    await expect(router.pollBind(attempt.bindId)).rejects.toMatchObject({ code: 'IM_NOT_FOUND' })
   })
 
   it('replies to the conversation that produced the turn', async () => {
