@@ -1,7 +1,7 @@
 {
   "name": "@veren/commander-tests",
   "displayName": "Veren Commander Tests",
-  "version": "2.1.3",
+  "version": "2.1.4",
   "description": "Use when you need the veren CLI's `tests` command group or isolated DSH training grounds as a standard Cordis plugin module (name/inject/Config/apply): it creates per-plugin DSH_HOME directories under the repository's deepseek/.dsh, copies keys and model configuration from the global ~/.dsh, initializes the target profile, and lists, inspects, starts or removes grounds only with explicit authorization; skip it when you manage DSH homes with your own scripts.",
   "private": true,
   "type": "module",

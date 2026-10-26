@@ -168,6 +168,10 @@ export class ImStorage {
     )
   }
 
+  activeBindingOfConversation(conversationId: string): ImBinding | undefined {
+    return this.bindings().find(binding => binding.conversationId === conversationId && binding.active)
+  }
+
   /** Resolve the open domain or fail loudly. */
   private table<K extends 'accounts' | 'conversations' | 'bindings' | 'people' | 'person_addresses' | 'person_intakes'>(name: K) {
     const domain = this.domain

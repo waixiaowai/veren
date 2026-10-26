@@ -81,6 +81,19 @@ export async function storeConfirmedAccount(
   const secrets: WechatSecrets = { token }
   await options.store.putState(state)
   await options.secrets.write(accountId, secrets)
+  // 同一微信号只允许一个活 bot 会话：新配对确认后，同 owner 的旧账号凭据已被
+  // 服务端作废——删除其状态行（credential 一并删），账号列表不再积累死行
+  // （真机反例：三次扫码留下三条 WeChat 记录，两条永久"离线"）。
+  // iLink allows one live bot session per WeChat account: once the new pairing
+  // confirms, the old accounts of the same owner are dead server-side — drop
+  // their state rows (and credentials) so the account list stops accumulating
+  // offline ghosts (live counter-example: three scans left three WeChat rows,
+  // two permanently offline).
+  for (const other of options.store.states()) {
+    if (other.accountId === accountId || other.ownerId !== ownerId) continue
+    await options.store.deleteState(other.accountId).catch(() => undefined)
+    await options.secrets.remove(other.accountId).catch(() => undefined)
+  }
   return { state, secrets, account: { id: accountId, displayName, ownerId, status: 'offline' } }
 }
 

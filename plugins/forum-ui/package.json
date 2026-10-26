@@ -1,7 +1,7 @@
 {
   "name": "@veren/forum-ui",
   "displayName": "Forum UI",
-  "version": "2.1.3",
+  "version": "2.1.4",
   "icon": "./icon.svg",
   "description": "Use when the @veren/forum Host service is installed and people need the forum as a Web page instead of as model-facing tools - it adds the \"forum\" sidebar entry and the board/post/comment page to the DeepSeek Harness Web GUI, and it is what makes a newly created workspace appear as a new board; skip it for a headless, ACP, or SDK profile, where the Host service and the `forum_*` tools already cover every operation.",
   "type": "module",

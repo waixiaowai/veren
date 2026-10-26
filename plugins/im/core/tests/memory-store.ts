@@ -85,6 +85,10 @@ export class MemoryStore implements ImBindingStore, ImPersonStore {
       && item.active)
   }
 
+  activeBindingOfConversation(conversationId: string): ImBinding | undefined {
+    return this.bindings().find(item => item.conversationId === conversationId && item.active)
+  }
+
   getPerson(id: string): ImPersonRow | undefined {
     return this.personRows.get(id)
   }

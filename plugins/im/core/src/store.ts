@@ -76,4 +76,7 @@ export interface ImBindingStore {
   deleteBinding(id: string): Promise<void>
   deleteBindingsOf(accountId: string): Promise<void>
   activeBinding(accountId: string, conversationId: string): ImBinding | undefined
+  /** 会话作用域的 active 绑定（跨账号；bot 重配对后 account 漂移时由 retarget 使用）。
+   * / the conversation-scoped active binding (cross-account; used by retarget after a bot re-pairing drifts the account). */
+  activeBindingOfConversation(conversationId: string): ImBinding | undefined
 }

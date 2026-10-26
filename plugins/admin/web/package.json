@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-web",
   "displayName": "Admin Web",
-  "version": "2.1.3",
+  "version": "2.1.4",
   "description": "Use when an admin deployment must serve its browser SPA: it mounts the same-origin shell with a strict content security policy, serves static assets and registered UI pack files without escaping their roots, publishes the bootstrap payload joining identity, permissions, navigation and feature flags, and enforces the essential-capability boot gate; skip it when the deployment is API-only.",
   "type": "module",
   "main": "./dist/index.js",

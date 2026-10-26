@@ -120,6 +120,15 @@ export class RouterInbound {
   private async bindingFor(providerId: string, message: ImMessage): Promise<ImBinding | undefined> {
     const existing = this.bindings.activeBinding(message.accountId, message.conversationId)
     if (existing !== undefined) return existing
+    // bot 重配对（重新扫码）后 account 漂移：按会话回落找回绑定并把账号迁移到
+    // 新账号，老绑定的路由在重配对后依然活着（真机反例：二次绑定后老账号名下
+    // 的绑定永失路由）。
+    // After a bot re-pairing (fresh QR scan) the account drifts: fall back to
+    // the conversation-scoped binding and migrate it to the new account, so the
+    // old binding keeps routing (live counter-example: a second bind orphaned
+    // every binding owned by the kicked account).
+    const migrated = await this.bindings.retargetAccount(message.conversationId, message.accountId)
+    if (migrated !== undefined) return migrated
     if (!this.config.autoCreateSession) {
       this.logger.warn(
         `[im:${providerId}] no active binding for ${message.accountId}/${message.conversationId}; message ignored`,

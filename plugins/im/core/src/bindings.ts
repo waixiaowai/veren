@@ -191,6 +191,19 @@ export class ImBindings {
   activeBinding(accountId: string, conversationId: string): ImBinding | undefined {
     return this.store.activeBinding(accountId, conversationId)
   }
+  /**
+   * 把一条会话的 active 绑定迁移到新 bot 账号（账号重配对后 account 漂移）。
+   * Migrate a conversation's active binding to a re-paired bot account.
+   */
+  async retargetAccount(conversationId: string, accountId: string): Promise<ImBinding | undefined> {
+    return this.write(async () => {
+      const binding = this.store.activeBindingOfConversation(conversationId)
+      if (binding === undefined || binding.accountId === accountId) return binding
+      const updated: ImBinding = { ...binding, accountId }
+      await this.store.putBinding(updated)
+      return updated
+    })
+  }
   /** Read one account row. */
   account(accountId: string): ImAccountRow | undefined {
     return this.store.getAccount(accountId)

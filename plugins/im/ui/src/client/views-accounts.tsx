@@ -73,7 +73,9 @@ function BindWizard(props: {
       <p className="im-muted">{t('bindScanHint')}</p>
       {bind.qrDataUrl !== undefined
         ? <img className="im-qr" src={bind.qrDataUrl} alt="WeChat QR" />
-        : <p className="im-error">{t('bindQrMissing')}</p>}
+        : (bind.status === 'pending' || bind.status === 'scanned' || bind.status === 'needs-code')
+          ? <p className="im-error">{t('bindQrMissing')}</p>
+          : null}
       <p className={`im-bindstatus im-bindstatus-${bind.status}`}>{statusText}</p>
       {bind.status === 'needs-code' && (
         <div className="im-row">

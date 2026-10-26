@@ -81,6 +81,51 @@ describe('WeChat QR authorization', () => {
 
     await provider.stop()
   })
+
+  it('drops stale same-owner accounts when a fresh pairing confirms (one live bot per WeChat account)', async () => {
+    // 预置同 owner 的旧账号：服务端已作废其 token，但本地行还在
+    // / pre-seed a stale same-owner account: the server killed its token, the
+    // local row remains
+    const { provider, store, secrets } = await setup((url, init) => {
+      if (url.pathname.endsWith('/get_bot_qrcode')) {
+        return jsonResponse({ qrcode: 'qr-2', qrcode_img_content: 'https://ilinkai.weixin.qq.com/qr' })
+      }
+      if (url.pathname.endsWith('/get_qrcode_status')) {
+        return jsonResponse({
+          status: 'confirmed',
+          bot_token: 'token-2',
+          ilink_bot_id: 'acc-2',
+          ilink_user_id: 'owner-1',
+          baseurl: 'https://ilinkai.weixin.qq.com/',
+        })
+      }
+      if (url.pathname.endsWith('/notifystart')) return jsonResponse({ ret: 0 })
+      if (url.pathname.endsWith('/getupdates')) return hangUntilAbort(init)
+      if (url.pathname.endsWith('/notifystop')) return jsonResponse({ ret: 0 })
+      return jsonResponse({})
+    })
+
+    await store.putState({
+      accountId: 'stale-bot',
+      displayName: 'WeChat stale-bot',
+      ownerId: 'owner-1',
+      baseUrl: 'https://ilinkai.weixin.qq.com/',
+      cursor: '',
+      seen: [],
+    })
+    await secrets.write('stale-bot', { token: 'dead-token' })
+
+    const attempt = await provider.bind({ method: 'qrcode' })
+    await attempt.wait()
+
+    // 同 owner 旧账号行与凭据一并清除；新账号保留
+    // / the stale same-owner row and its credential are gone; the new account stays
+    expect(store.states().map(state => state.accountId)).toEqual(['acc-2'])
+    expect(await secrets.read('stale-bot')).toBeUndefined()
+    expect((await secrets.read('acc-2'))?.token).toBe('token-2')
+
+    await provider.stop()
+  })
 })
 
 describe('WeChat sending', () => {
