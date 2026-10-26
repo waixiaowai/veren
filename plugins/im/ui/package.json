@@ -1,7 +1,7 @@
 {
   "name": "@veren/im-ui",
   "displayName": "IM UI",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "icon": "./icon.svg",
   "description": "Use when the @veren/im core is installed and a person needs a human face for instant messaging: authorize a WeChat account by scanning the QR right in the page, see accounts, bindings, and unlinked conversations at a glance, link or unlink with one click, and read the stranger-intake audit. Skip it for headless, ACP, or SDK profiles, where the im_* tools already cover every operation.",
   "type": "module",

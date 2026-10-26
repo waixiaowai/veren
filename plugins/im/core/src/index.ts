@@ -27,6 +27,7 @@ import type { ImMessage } from './contract.ts'
 import { ImStorage } from './store.ts'
 import { ImPeople, ImPeopleToken } from './people.ts'
 import { consolidatePeople } from './people-merge.ts'
+import { retireOwnerAccounts as retireAccounts } from './account-replace.ts'
 import { ImRouter, ImRouterToken } from './router.ts'
 import type { ImRouterOptions } from './router-types.ts'
 import { errorMessage } from './runtime-seams.ts'
@@ -197,6 +198,11 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
     credentials: new DshCredentialStore(ctx),
     people,
     logger,
+    // 一个微信号 = 一只活 bot：新授权确认时把同 owner 死账号的行整体迁移过来。
+    // One WeChat, one live bot: a fresh confirmation migrates the owner's dead
+    // accounts' rows onto the new account before it is persisted.
+    retireOwnerAccounts: (providerId, account) =>
+      retireAccounts({ store: storage, logger }, providerId, account).then(() => undefined),
     config: {
       autoCreateSession: config.autoCreateSession,
       strangerIntake: config.strangerIntake,

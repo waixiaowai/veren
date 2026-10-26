@@ -1,7 +1,7 @@
 {
   "name": "@veren/commander-project",
   "displayName": "Veren Commander Project",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "description": "Use when a Cordis plugin needs the veren project root and its .veren.yaml scan config as a context service (verenCliProject): it locates the project root, loads the config through the YAML parser service and provides both; skip it when you parse config yourself.",
   "private": true,
   "type": "module",

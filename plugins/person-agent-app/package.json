@@ -1,7 +1,7 @@
 {
   "name": "@veren/person-agent-app",
   "displayName": "管家-应用",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "icon": "./icon.svg",
   "description": "Use when a DSH deployment hosts the Person Agent bridge and needs it visible as a first-class Veren application: registers the person-agent app (a personal workbench overview page plus a workspace browser page under /apps/person-agent) in the host app catalog, renders the live workspace list, agent preset roster and model catalog in the overview body, mounts the full session/workspace maintenance tool face and the renhua writing skill into each page session's agent scope, and declares the bridge persona in the app instructions; skip it when the Person Agent should not appear as an app.",
   "type": "module",

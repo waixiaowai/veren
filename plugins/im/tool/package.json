@@ -1,7 +1,7 @@
 {
   "name": "@veren/im-tool",
   "displayName": "Veren IM Tools",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "description": "Use when a DSH agent must operate IM accounts, people, and bindings through model-facing tools: it registers im_bind, im_link, im_unbind, im_send, im_people, im_person_save, im_intake, im_settings, and im_list over @veren/im; account authorization and conversation binding stay separate, sends by person are fail-closed on ambiguity or a missing match, and failures carry stable IM_* codes with structured details.",
   "type": "module",
   "main": "./dist/index.js",

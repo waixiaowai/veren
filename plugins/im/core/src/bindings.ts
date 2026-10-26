@@ -71,6 +71,14 @@ export interface ImBindingsOptions {
   gateway: ImSessionGateway
   logger: ImLogger
   newId?: (prefix: string) => string
+  /**
+   * Same-owner replacement on a fresh authorization: move the dead accounts'
+   * rows onto the new one before it is persisted. Needs the full storage, so
+   * the router wires it — the binding seam alone cannot reach person rows.
+   * 新授权确认时的同 owner 替换：把死账号的行迁移到新账号后再落新行。人员表不在本接缝，
+   * 因此由 router 持完整存储接线。
+   */
+  retireOwnerAccounts?: (providerId: string, account: ImAccount) => Promise<void>
 }
 
 /** Binding table operations shared by the router and tools. */
@@ -80,6 +88,7 @@ export class ImBindings {
   private readonly gateway: ImSessionGateway
   private readonly logger: ImLogger
   private readonly newId: (prefix: string) => string
+  private readonly retireOwnerAccounts?: (providerId: string, account: ImAccount) => Promise<void>
   private readonly attempts = new Map<string, { providerId: string; attempt: ImBindAttempt }>()
   private writeChain: Promise<unknown> = Promise.resolve()
   constructor(options: ImBindingsOptions) {
@@ -88,6 +97,7 @@ export class ImBindings {
     this.gateway = options.gateway
     this.logger = options.logger
     this.newId = options.newId ?? (prefix => `${prefix}_${randomUUID()}`)
+    this.retireOwnerAccounts = options.retireOwnerAccounts
   }
   /** Start one authorization attempt and remember it for polling. */
   async beginBind(providerId: string, request: ImBindRequest): Promise<ImBindAttempt> {
@@ -249,6 +259,11 @@ export class ImBindings {
   }
   /** Persist one authorized account. */
   private async persistAccount(providerId: string, account: ImAccount): Promise<void> {
+    // 先退役同 owner 的死账号（行迁移到新 id），再落新账号行——顺序保证迁移读到的
+    // accounts 表里还没有新行，不会把自己当成退役对象。
+    // Retire the owner's dead accounts (rows move to the new id) before the new
+    // row lands, so the migration never sees — and retires — the new row itself.
+    await this.retireOwnerAccounts?.(providerId, account)
     const row: ImAccountRow = {
       id: account.id,
       provider: providerId,

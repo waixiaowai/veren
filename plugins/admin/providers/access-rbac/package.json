@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-access-rbac",
   "displayName": "Admin Access RBAC",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "description": "Use when an admin deployment needs the default role-based authorization provider: it owns the role catalog and user-to-role bindings, derives permissions for an authenticated identity, enforces anti-lockout so the last owner cannot be stripped, and registers the role-binding routes; skip it when authorization comes from an external directory service.",
   "type": "module",
   "main": "./dist/index.js",

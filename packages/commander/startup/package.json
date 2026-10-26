@@ -1,7 +1,7 @@
 {
   "name": "@veren/commander-startup",
   "displayName": "Veren Commander Startup",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "description": "Use when a DSH profile must expose the veren commander command registry as `dsh --profile commander ...`: it injects the command registry, waits for the Loader to settle every row, dispatches ctx.cmdlineArgs through the registry, and requests the launcher exit code; skip it when you compose your own argv dispatcher.",
   "private": true,
   "type": "module",
