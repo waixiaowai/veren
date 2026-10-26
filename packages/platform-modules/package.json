@@ -1,7 +1,7 @@
 {
   "name": "@veren/platform-modules",
   "displayName": "Veren Platform Modules",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Use when a Web-shell plugin build (tsdown config or esbuild bundling script) must mark the shell's frozen baseline modules as externals from one shared table instead of copying the specifier list into every plugin; it is build-time data with no runtime code and no build step.",
   "private": true,
   "type": "module",

@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-icons-default",
   "displayName": "Admin Icons Default",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Use when an admin deployment needs the neutral 24x24 stroke icon set that navigation, toolbars and dialogs look up by name; skip it when the deployment ships a brand icon set, because the SPA references icon names only and a pack is replaced rather than edited.",
   "type": "module",
   "main": "./index.js",

@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-ui-kernel",
   "displayName": "Admin UI Kernel",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Use when an admin deployment must serve replaceable browser packs: it registers UI packs from their manifests, negotiates the UI contract range, publishes the pre-login and post-login manifests, and resolves pack assets while refusing paths outside a pack directory; skip it when the deployment serves no browser UI.",
   "type": "module",
   "main": "./dist/index.js",

@@ -72,7 +72,7 @@ async function emitClientHalf() {
     },
     define: {
       'process.env.NODE_ENV': '"production"',
-      __NOTEBOOK_CSS__: JSON.stringify(panelCss),
+      __IM_CSS__: JSON.stringify(panelCss),
     },
   })
   const envelope = [

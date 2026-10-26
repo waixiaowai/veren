@@ -1,6 +1,6 @@
 {
   "name": "@veren/compiler-program",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Use when a build stage needs a ts.Program (AST, module graph and type checker) built from services already in the context, rather than constructing ts.createProgram by hand.",
   "private": true,
   "type": "module",

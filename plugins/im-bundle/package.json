@@ -1,7 +1,7 @@
 {
   "name": "@veren/im-bundle",
   "displayName": "IM Bundle",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "icon": "./icon.svg",
   "description": "Use when a DSH host needs instant-messaging capability: this configuration-only bundle mounts the provider-neutral IM core (accounts, people directory, stranger intake, active-binding routing), the model-facing im_* tools, the WeChat iLink channel, and the web panel (in-page QR bind, bindings, people, intake audit) as one installable profile layer.",
   "type": "module",

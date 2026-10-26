@@ -67,8 +67,11 @@ export class ImGatewayService extends TypertRemoteService {
   @Remote('pollBind')
   async pollBind(request: { readonly bindId: string }) {
     const polled = await this.router.pollBind(request.bindId)
+    // presentAttempt 是 async：必须 await 再合并——spread 一个 Promise 得到 {}
+    // / presentAttempt is async: await before merging — spreading a Promise yields {}
+    const presented = await presentAttempt(polled.attempt.bindId, polled.attempt.status, polled.attempt.challenge)
     return {
-      ...presentAttempt(polled.attempt.bindId, polled.attempt.status, polled.attempt.challenge),
+      ...presented,
       ...(polled.account === undefined ? {} : { account: polled.account }),
     }
   }
@@ -77,8 +80,9 @@ export class ImGatewayService extends TypertRemoteService {
   @Remote('submitBindCode')
   async submitBindCode(request: { readonly bindId: string; readonly code: string }) {
     const polled = await this.router.submitBindCode(request.bindId, request.code)
+    const presented = await presentAttempt(polled.attempt.bindId, polled.attempt.status, polled.attempt.challenge)
     return {
-      ...presentAttempt(polled.attempt.bindId, polled.attempt.status, polled.attempt.challenge),
+      ...presented,
       ...(polled.account === undefined ? {} : { account: polled.account }),
     }
   }

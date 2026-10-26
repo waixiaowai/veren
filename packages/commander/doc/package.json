@@ -1,7 +1,7 @@
 {
   "name": "@veren/commander-doc",
   "displayName": "Veren Commander Doc",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Use when you want the veren CLI's `doc` command as a standard Cordis plugin module (name/inject/Config/apply): it injects the command registry and the Discovery service, registers the doc command that prints a unit's bilingual README verbatim with configurable language flags and fallback; skip it when you read README files yourself.",
   "private": true,
   "type": "module",

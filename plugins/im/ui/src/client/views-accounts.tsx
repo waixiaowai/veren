@@ -1,16 +1,8 @@
 /**
- * The accounts tab: the authorized list plus the QR bind wizard.
+ * The accounts tab: authorized accounts as contact cards, plus the QR bind
+ * wizard.
  *
- * The wizard is fully view-side stateless: the observable's `bind` field is the
- * whole state machine (pending/scanned/needs-code/bound/expired/failed), the
- * QR arrives as a data URL, and the poll loop runs in the source while the
- * panel has subscribers.
- *
- * 账号页签：已授权列表与二维码绑定向导。
- *
- * 向导刻意无组件态：可观察对象的 `bind` 字段就是整个状态机
- * （pending/scanned/needs-code/bound/expired/failed），二维码以 data URL 到达，
- * 轮询循环在源里随订阅运行。
+ * 账号页签：已授权账号以名片呈现，外加二维码绑定向导。
  *
  * @module @veren/im-ui/client/views-accounts
  */
@@ -35,20 +27,25 @@ export function AccountsView(props: ImBodyProps): React.JSX.Element {
       {state.catalog.accounts.length === 0 && <p className="im-muted">{t('noAccounts')}</p>}
       <ul className="im-list">
         {state.catalog.accounts.map(account => (
-          <li key={account.id} className="im-item">
-            <span className="im-strong">{account.displayName}</span>
-            <span className="im-muted">{account.id}</span>
-            <span className="im-badge">{account.provider}</span>
-            <span className={account.status === 'online' ? 'im-status im-status-online' : 'im-status'}>
-              {account.status === 'online' ? t('statusOnline') : t('statusOffline')}
-            </span>
-            <button
-              type="button"
-              className="im-button im-button-danger"
-              onClick={() => { if (window.confirm(t('confirmUnbindAccount'))) actions.onUnbindAccount(account.id) }}
-            >
-              {t('unbindAccount')}
-            </button>
+          <li key={account.id} className="im-card">
+            <span className="im-avatar">{initialOf(account.displayName)}</span>
+            <div className="im-card-body">
+              <div className="im-name-row">
+                <span className="im-strong">{account.displayName}</span>
+                <span className="im-badge">{account.provider}</span>
+                <span className={account.status === 'online' ? 'im-badge im-badge-on' : 'im-badge'}>
+                  {account.status === 'online' ? t('statusOnline') : t('statusOffline')}
+                </span>
+                <button
+                  type="button"
+                  className="im-button im-button-danger"
+                  onClick={() => { if (window.confirm(t('confirmUnbindAccount'))) actions.onUnbindAccount(account.id) }}
+                >
+                  {t('unbindAccount')}
+                </button>
+              </div>
+              <div className="im-id-mono">{account.id}</div>
+            </div>
           </li>
         ))}
       </ul>
@@ -112,4 +109,9 @@ function statusOf(status: string, t: (key: ImKey) => string): string {
     case 'expired': return t('bindExpired')
     default: return t('bindFailed')
   }
+}
+
+/** The avatar's single character. */
+function initialOf(name: string): string {
+  return Array.from(name.trim())[0]?.toUpperCase() ?? '?'
 }
