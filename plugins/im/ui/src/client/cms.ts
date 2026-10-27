@@ -121,6 +121,16 @@ async function call<T>(session: CmsSession, path: string, init?: RequestInit): P
   return body.data
 }
 
+/** 401/expired check: call() flags the expired shape on the error object. 401/过期判定：call() 把过期形态标记在错误对象上。 */
+export function isExpired(cause: unknown): boolean {
+  return (cause as { expired?: boolean } | undefined)?.expired === true
+}
+
+/** 404 check: the target CMS instance has no imhub user plane. 404 判定：目标 CMS 实例没有 imhub 用户面。 */
+export function isNotFound(cause: unknown): boolean {
+  return (cause as { notFound?: boolean } | undefined)?.notFound === true
+}
+
 /** 用户面概览：会话存活 + 消息/人员计数。 */
 export function overview(session: CmsSession): Promise<CmsOverview> {
   return call<CmsOverview>(session, '/v1/im/user/overview')

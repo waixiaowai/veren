@@ -60,7 +60,7 @@ function ImBody(props: ImBodyProps) {
             <TabButton active={tab === 'cloud'} label={t('tabCloud')} onClick={() => setTab('cloud')} />
             <TabButton active={tab === 'intake'} label={t('tabIntake')} onClick={() => setTab('intake')} />
           </nav>
-          {tab === 'cloud' && <CloudView state={state} t={key => t(key as ImKey)} />}
+          {tab === 'cloud' && <CloudView t={key => t(key as ImKey)} />}
           {tab === 'intake' && <IntakeView state={state} t={t} actions={actions} />}
         </>
       )}

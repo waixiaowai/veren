@@ -55,7 +55,12 @@ async function emitNodeHalf() {
 
 /** Emit the browser half inside the module-loader envelope. */
 async function emitClientHalf() {
-  const panelCss = readFileSync(join(root, 'src/client/panel.css'), 'utf8')
+  // The page stylesheet: the shared dialect plus the intake tab's additions.
+  // 页面样式表：共享方言 + 采集页签增量。
+  const panelCss = [
+    readFileSync(join(root, 'src/client/panel.css'), 'utf8'),
+    readFileSync(join(root, 'src/client/intake.css'), 'utf8'),
+  ].join('\n')
   const result = await build({
     entryPoints: [join(root, 'src/client/index.tsx')],
     absWorkingDir: root,

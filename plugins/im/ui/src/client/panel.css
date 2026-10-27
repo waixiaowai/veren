@@ -1,9 +1,14 @@
 /*
  * The IM panel's stylesheet. One sheet, hand-prefixed `.im-*`, colors only from
  * the shared `--dsw-*` semantic tokens so every theme applies untouched.
+ * Dialect contract: spacing on the 4px grid (1-2px nudges inside pills only),
+ * type {12,13,15,20}, radius {8,10} + 999 pills, no raw colors — the full text
+ * lives with its auditor, tests/panel-dialect.spec.ts.
  *
- * IM 面板样式表。单张样式表、手工 `.im-*` 前缀，颜色全部取自共享的 `--dsw-*`
- * 语义 token，任何主题都无需改动即可生效。
+ * IM 面板样式表。单张样式表、手工 `.im-*` 前缀，颜色全部取自共享 `--dsw-*` 语义
+ * token，任何主题无需改动即可生效。方言契约：间距走 4px 网格（仅药丸允许 1-2px
+ * 微调）、字阶 {12,13,15,20}、圆角 {8,10} 与药丸 999、零裸色值——契约全文与其
+ * 审计者 tests/panel-dialect.spec.ts 同住。
  */
 
 .im-page {
@@ -15,7 +20,7 @@
   --im-danger: var(--dsw-alias-state-error-primary);
   --im-line: var(--dsw-alias-border-secondary);
   width: 100%;
-  padding: 20px 24px 48px;
+  padding: 24px 24px 48px;
   color: var(--im-text);
   font-family: var(--dsw-font-family);
   background: var(--im-canvas);
@@ -41,10 +46,10 @@
   font-size: 13px;
 }
 
-.im-section { margin-top: 20px; }
+.im-section { margin-top: 24px; }
 
 .im-heading {
-  margin: 14px 0 8px;
+  margin: 16px 0 8px;
   font-size: 15px;
   font-weight: 600;
 }
@@ -53,7 +58,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
 
 .im-list {
@@ -62,7 +67,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .im-item {
@@ -77,14 +82,13 @@
   font-size: 13px;
 }
 
-/* ---- address-book contact cards ---- */
-/* ---- 通讯录名片 ---- */
+/* ---- 通讯录名片 / contact cards ---- */
 
 .im-card {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 12px 16px;
   background: var(--im-surface);
   border: 1px solid var(--im-line);
   border-radius: 10px;
@@ -92,6 +96,9 @@
 }
 
 .im-card:hover { border-color: var(--im-accent); }
+
+/* 激活漏斗卡不经悬停即保持强调边框 / keeps the accent border without hover. */
+.im-card-hot { border-color: var(--im-accent); }
 
 .im-card-body {
   flex: 1;
@@ -108,29 +115,11 @@
   gap: 8px;
 }
 
-.im-name-row .im-button { margin-left: auto; }
-
-.im-avatar {
-  flex: none;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--dsw-alias-label-on-business-primary, #fff);
-  background: var(--im-accent);
-}
-
-.im-avatar-verified { outline: 2px solid var(--im-accent); outline-offset: 2px; }
-
 .im-chip-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
 .im-chip {
@@ -142,11 +131,9 @@
   font-size: 12px;
 }
 
-.im-chip-addr { color: var(--im-muted); }
-
 .im-id-mono {
   font-family: ui-monospace, monospace;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--im-muted);
   opacity: 0.75;
   overflow: hidden;
@@ -154,9 +141,7 @@
   white-space: nowrap;
 }
 
-.im-strong { font-weight: 600; }
-.im-muted { color: var(--im-muted); }
-.im-arrow { color: var(--im-muted); }
+.im-strong { font-weight: 600; } .im-muted { color: var(--im-muted); }
 
 .im-error {
   margin: 8px 0;
@@ -178,14 +163,60 @@
 }
 
 .im-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   color: var(--im-muted);
 }
 
 .im-status-online { color: var(--im-accent); }
 
+/* ---- 通道状态条：圆点 + 标签 + 统计 + 安静动作 / the channel status bar ---- */
+
+.im-statusbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 8px 12px;
+  background: var(--im-surface);
+  border: 1px solid var(--im-line);
+  border-radius: 8px;
+}
+
+.im-statusbar-meta {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--im-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.im-statusbar-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 通道圆点：等待保持灰，在线与出错各取 token / pending muted; ok and error take tokens. */
+.im-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--im-muted);
+}
+
+.im-dot-ok { background: var(--im-accent); }
+.im-dot-error { background: var(--im-danger); }
+
 .im-button {
-  padding: 5px 14px;
+  padding: 4px 12px;
   border-radius: 8px;
   border: 1px solid var(--im-line);
   background: var(--im-surface);
@@ -203,24 +234,19 @@
   color: var(--dsw-alias-label-on-business-primary, #fff);
 }
 
-.im-button-danger:hover {
-  border-color: var(--im-danger);
-  color: var(--im-danger);
-}
-
 .im-tabs {
   display: flex;
   gap: 4px;
-  margin-top: 18px;
+  margin-top: 16px;
   border-bottom: 1px solid var(--im-line);
 }
 
 .im-tab {
-  padding: 7px 16px;
+  padding: 8px 16px;
   border: none;
   background: none;
   color: var(--im-muted);
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
   border-bottom: 2px solid transparent;
 }
@@ -231,31 +257,10 @@
   border-bottom-color: var(--im-accent);
 }
 
-.im-wizard {
-  margin-top: 14px;
-  padding: 14px 16px;
-  background: var(--im-surface);
-  border: 1px solid var(--im-line);
-  border-radius: 10px;
-}
-
-.im-qr {
-  display: block;
-  width: 200px;
-  height: 200px;
-  margin: 10px 0;
-  border-radius: 8px;
-  border: 1px solid var(--im-line);
-}
-
-.im-bindstatus { margin: 6px 0; font-size: 14px; }
-.im-bindstatus-bound { color: var(--im-accent); font-weight: 600; }
-.im-bindstatus-expired, .im-bindstatus-failed { color: var(--im-danger); }
-
 .im-input {
   flex: 1;
   max-width: 240px;
-  padding: 6px 10px;
+  padding: 4px 12px;
   border-radius: 8px;
   border: 1px solid var(--im-line);
   background: var(--im-surface);
@@ -263,8 +268,7 @@
   font-size: 13px;
 }
 
-/* The quiet rename button and its inline editor row on people cards. */
-/* 人员卡片上安静的备注按钮与它的行内编辑行。 */
+/* 安静的链接式按钮：状态条动作与行内编辑 / quiet link-style buttons. */
 .im-link-button {
   padding: 0;
   border: none;
@@ -274,15 +278,22 @@
   cursor: pointer;
 }
 
+.im-link-button:hover { text-decoration: underline; }
+
+.im-link-muted { color: var(--im-muted); }
+.im-link-muted:hover { color: var(--im-accent); text-decoration: underline; }
+
+/* The inline rename/note editor row on people cards. */
+/* 人员卡片上的行内改名/备注编辑行。 */
 .im-rename-row {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
   margin-top: 8px;
 }
 
-/* Overrides .im-input's flex: 1 — placed after it on purpose (equal specificity). */
-/* 覆盖 .im-input 的 flex: 1——刻意放在它之后（同特异性）。 */
+/* 覆盖 .im-input 的 flex: 1——刻意放在它之后（同特异性）/ overrides .im-input's flex: 1. */
 .im-rename-input {
   flex: 0 1 260px;
   min-width: 0;

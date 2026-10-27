@@ -22,8 +22,12 @@ export type ImKey =
   | 'tabAccounts' | 'tabConversations' | 'tabPeople' | 'tabIntake' | 'tabCloud'
   | 'cloudSubtitle' | 'cloudOrigin' | 'cloudEmail' | 'cloudPassword'
   | 'cloudLogin' | 'cloudLoggingIn' | 'cloudLogout' | 'cloudSessionExpired'
-  | 'cloudCredentialNote' | 'cloudOnline' | 'cloudUnauthorized'
-  | 'cloudEmptyDirectory' | 'cloudNotePlaceholder' | 'cloudSelfReported'
+  | 'cloudCredentialNote' | 'cloudOnline'
+  | 'cloudSignInHeading' | 'cloudRefresh' | 'cloudChecking'
+  | 'cloudUnauthorizedTitle' | 'cloudUnauthorizedHint' | 'cloudOpenAdmin'
+  | 'cloudEmptyTitle' | 'cloudEmptyHint' | 'cloudGapTitle' | 'cloudGapLine' | 'cloudGapHint'
+  | 'cloudStatMessages' | 'cloudStatPeople'
+  | 'cloudNotePlaceholder' | 'cloudSelfReported'
   | 'cloudRenameNote' | 'cloudSave' | 'cloudCancel' | 'cloudNote'
   | 'accounts' | 'noAccounts' | 'provider' | 'statusOnline' | 'statusOffline' | 'bindWechat'
   | 'bindTitle' | 'bindScanHint' | 'bindPending' | 'bindScanned' | 'bindNeedsCode' | 'bindBound'
@@ -33,8 +37,14 @@ export type ImKey =
   | 'statusQueued' | 'statusConsuming' | 'statusReplied' | 'statusFailed' | 'statusDead'
   | 'people' | 'noPeople' | 'peopleHint' | 'unverifiedClaim'
   | 'unnamedPerson' | 'rename' | 'renamePlaceholder' | 'save' | 'cancel'
-  | 'intake' | 'intakeOn' | 'intakeOff' | 'intakeCounts' | 'intakeRecent' | 'noIntakeRows'
-  | 'askedAt' | 'intakePerson' | 'errorPrefix'
+  | 'intake' | 'intakeOn' | 'intakeOff' | 'intakeRecent'
+  | 'intakePipe' | 'statusAsked' | 'statusAnswered' | 'statusDeclined' | 'statusExpired'
+  | 'intakeWaiting' | 'intakeWaitingHint' | 'intakeDeadline' | 'intakeSettledAt'
+  | 'intakeAskPreview' | 'boundsReplyWindow' | 'boundsMaxAsks' | 'boundsMinGap'
+  | 'unitMinutes' | 'unitSeconds' | 'intakeOutcomeName' | 'intakeOutcomeContact' | 'intakeOutcomeBoth'
+  | 'intakeEmptyTitle' | 'intakeEmptyHint' | 'intakeAuditEmpty' | 'intakeStale'
+  | 'intakeNoData' | 'intakeNoDataHint'
+  | 'askedAt' | 'errorPrefix'
 
 /** Chinese dictionary. */
 export const zh: Record<ImKey, string> = {
@@ -49,8 +59,19 @@ export const zh: Record<ImKey, string> = {
   cloudSessionExpired: "登录已过期，请重新登录。",
   cloudCredentialNote: "登录凭据只保存在本页签（sessionStorage），不会写入宿主配置。",
   cloudOnline: "通道在线",
-  cloudUnauthorized: "通道未授权：请到 CMS 管理面扫码授权。",
-  cloudEmptyDirectory: "云端目录为空：设备观察到发送者后会上报至此。",
+  cloudSignInHeading: "登录 CMS",
+  cloudRefresh: "刷新云端",
+  cloudChecking: "正在连接 CMS…",
+  cloudUnauthorizedTitle: "通道未授权",
+  cloudUnauthorizedHint: "到 CMS 管理面扫码授权后，消息与人员目录才开始同步到这里。",
+  cloudOpenAdmin: "打开 CMS 管理面",
+  cloudEmptyTitle: "云端目录为空",
+  cloudEmptyHint: "设备观察到发送者后会上报至此。",
+  cloudGapTitle: "该 CMS 实例还没有 IM 用户面",
+  cloudGapLine: "登录成功，但 imhub 模块未部署。",
+  cloudGapHint: "部署 2.3.0 后此页即可用；或登出后把 CMS 地址改回本地实例。",
+  cloudStatMessages: "消息",
+  cloudStatPeople: "人员",
   cloudNotePlaceholder: "备注",
   cloudSelfReported: "自称：",
   cloudRenameNote: "改名/备注",
@@ -108,11 +129,32 @@ export const zh: Record<ImKey, string> = {
   intake: '陌生人采集',
   intakeOn: '已开启：陌生人第一次发消息会收到一条询问',
   intakeOff: '已关闭：不发询问，也不写采集记录',
-  intakeCounts: '询问中',
   intakeRecent: '最近记录',
-  noIntakeRows: '还没有采集记录。',
+  intakePipe: '采集管道',
+  statusAsked: '询问中',
+  statusAnswered: '已回答',
+  statusDeclined: '已婉拒',
+  statusExpired: '已过期',
+  intakeWaiting: '等待答复',
+  intakeWaitingHint: '这些陌生人已收到询问；对方的回复会自动收尾，无需操作。',
+  intakeDeadline: '截止',
+  intakeSettledAt: '收尾于',
+  intakeAskPreview: '陌生人会收到：',
+  boundsReplyWindow: '回复窗口',
+  boundsMaxAsks: '每小时上限',
+  boundsMinGap: '两次间隔',
+  unitMinutes: '分钟',
+  unitSeconds: '秒',
+  intakeOutcomeName: '拿到称呼',
+  intakeOutcomeContact: '拿到联系方式',
+  intakeOutcomeBoth: '称呼+联系方式',
+  intakeEmptyTitle: '还没有采集记录',
+  intakeEmptyHint: '开启采集后，陌生人第一次发消息会收到一条询问；对方的回答会自动收尾成一条记录。',
+  intakeAuditEmpty: '审计窗口内没有记录。',
+  intakeStale: '以下为最后一次成功读取的数据。',
+  intakeNoData: '还没有读到过采集数据。',
+  intakeNoDataHint: '宿主通道出错（见页首错误行）。点「刷新」重试。',
   askedAt: '询问于',
-  intakePerson: '人员',
   errorPrefix: '出错',
 }
 
@@ -129,8 +171,19 @@ export const en: Record<ImKey, string> = {
   cloudSessionExpired: "Session expired, please sign in again.",
   cloudCredentialNote: "Credentials stay in this tab (sessionStorage) and never enter the host config.",
   cloudOnline: "Channel online",
-  cloudUnauthorized: "Channel not authorized: scan the QR on the CMS admin face.",
-  cloudEmptyDirectory: "The cloud directory is empty: devices push senders here as they observe them.",
+  cloudSignInHeading: "Sign in to CMS",
+  cloudRefresh: "Refresh cloud",
+  cloudChecking: "Connecting to CMS…",
+  cloudUnauthorizedTitle: "Channel not authorized",
+  cloudUnauthorizedHint: "Scan the QR on the CMS admin face to authorize; messages and the people directory start syncing here.",
+  cloudOpenAdmin: "Open the CMS admin face",
+  cloudEmptyTitle: "The cloud directory is empty",
+  cloudEmptyHint: "Devices push senders here as they observe them.",
+  cloudGapTitle: "This CMS instance has no IM user plane",
+  cloudGapLine: "Signed in, but the imhub module is not deployed.",
+  cloudGapHint: "Available after 2.3.0 is deployed; or sign out and point the CMS origin back at the local instance.",
+  cloudStatMessages: "messages",
+  cloudStatPeople: "people",
   cloudNotePlaceholder: "note",
   cloudSelfReported: "self-reported: ",
   cloudRenameNote: "rename/note",
@@ -188,10 +241,31 @@ export const en: Record<ImKey, string> = {
   intake: 'Stranger intake',
   intakeOn: 'On: a first-time stranger receives one question',
   intakeOff: 'Off: no question, no intake record',
-  intakeCounts: 'Asking',
   intakeRecent: 'Recent records',
-  noIntakeRows: 'No intake records yet.',
+  intakePipe: 'Pipeline',
+  statusAsked: 'Waiting',
+  statusAnswered: 'Answered',
+  statusDeclined: 'Declined',
+  statusExpired: 'Expired',
+  intakeWaiting: 'Awaiting replies',
+  intakeWaitingHint: 'These strangers received the question; their replies settle the records automatically — nothing to do.',
+  intakeDeadline: 'deadline',
+  intakeSettledAt: 'settled at',
+  intakeAskPreview: 'Strangers receive: ',
+  boundsReplyWindow: 'Reply window',
+  boundsMaxAsks: 'Hourly cap',
+  boundsMinGap: 'Ask gap',
+  unitMinutes: 'min',
+  unitSeconds: 's',
+  intakeOutcomeName: 'name',
+  intakeOutcomeContact: 'contact',
+  intakeOutcomeBoth: 'name + contact',
+  intakeEmptyTitle: 'No intake records yet',
+  intakeEmptyHint: 'With intake on, a first-time stranger receives one question; their answer settles into a record here automatically.',
+  intakeAuditEmpty: 'No rows in the audit window.',
+  intakeStale: 'Showing the last successful read.',
+  intakeNoData: 'No intake data has been read yet.',
+  intakeNoDataHint: 'The host channel errored (see the error line at the top); press Refresh to retry.',
   askedAt: 'asked at',
-  intakePerson: 'Person',
   errorPrefix: 'Error',
 }

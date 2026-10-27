@@ -1,0 +1,87 @@
+/*
+ * The intake tab's additions to the panel dialect. Colors only from the shared
+ * tokens; sizes reuse the dialect's scale (radius 8/10, type 12/13/20) so every
+ * theme applies untouched.
+ *
+ * 采集页签对方言的增量。颜色只取共享 token；尺寸沿用方言刻度（圆角 8/10，字号 12/13/20），
+ * 任何主题都无需改动即可生效。
+ */
+
+/* ---- the four-cell funnel strip ---- */
+/* ---- 四格漏斗条 ---- */
+
+.im-funnel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.im-funnel-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 96px;
+  padding: 10px 14px;
+  background: var(--im-surface);
+  border: 1px solid var(--im-line);
+  border-radius: 8px;
+}
+
+.im-funnel-label {
+  font-size: 12px;
+  color: var(--im-muted);
+}
+
+.im-funnel-num {
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The waiting head is the only cell allowed to glow, and only when hot. */
+/* 等待头部是唯一允许发亮的格子，且只在有量时发亮。 */
+.im-funnel-hot { border-color: var(--im-accent); }
+
+.im-funnel-hot .im-funnel-num,
+.im-funnel-hot .im-funnel-label {
+  color: var(--im-accent);
+}
+
+/* ---- waiting rows and quoted facts ---- */
+/* ---- 等待行与引用事实 ---- */
+
+.im-item-hot { border-color: var(--im-accent); }
+
+.im-quote {
+  margin: 4px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--im-line);
+  color: var(--im-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* ---- the designed empty block ---- */
+/* ---- 专门设计的空态 ---- */
+
+.im-empty {
+  margin-top: 8px;
+  padding: 28px 16px;
+  text-align: center;
+  background: var(--im-surface);
+  border: 1px solid var(--im-line);
+  border-radius: 10px;
+}
+
+.im-empty-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.im-empty .im-muted {
+  margin: 6px 0 0;
+  font-size: 12px;
+}

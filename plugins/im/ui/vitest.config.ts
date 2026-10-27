@@ -1,11 +1,12 @@
 /**
- * Vitest configuration for the notebook Web package.
+ * Vitest configuration for the im Web package.
  *
- * The only unit test here checks the two dictionaries against the typed key
- * union; the browser half itself is exercised in the live Web GUI.
+ * The unit tests cover the two dictionaries against the typed key union and
+ * the intake tab's pure derivations; the browser half itself is exercised in
+ * the live Web GUI.
  *
- * 记事本 Web 包的 Vitest 配置。这里的单元测试只检查两份词典与类型化键联合是否一致；浏览器
- * 半边本身在真实 Web GUI 中验证。
+ * IM Web 包的 Vitest 配置。单元测试覆盖两份词典与类型化键联合的一致性，以及采集页签的
+ * 纯派生逻辑；浏览器半边本身在真实 Web GUI 中验证。
  */
 
 import { defineConfig } from 'vitest/config'

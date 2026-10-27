@@ -56,8 +56,8 @@ describe('im-ui remote contribution', () => {
     const methods = (imRemote as { methods: Record<string, { service: string }> }).methods
     const names = Object.keys(methods).sort()
     expect(names).toEqual([
-      'im/beginBind', 'im/catalog', 'im/intakeStatus', 'im/link', 'im/people',
-      'im/pollBind', 'im/settings', 'im/submitBindCode', 'im/unbindAccount', 'im/unbindBinding',
+      'im/beginBind', 'im/catalog', 'im/intakeStatus', 'im/people',
+      'im/pollBind', 'im/renamePerson', 'im/submitBindCode', 'im/unbindAccount',
     ])
     for (const name of names) expect(methods[name]!.service).toBe('imGateway')
   })
