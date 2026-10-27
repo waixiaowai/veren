@@ -64,7 +64,7 @@ function ImBody(props: ImBodyProps) {
             <TabButton active={tab === 'conversations'} label={t('tabConversations')} onClick={() => setTab('conversations')} />
             <TabButton active={tab === 'people'} label={t('tabPeople')} onClick={() => setTab('people')} />
             <TabButton active={tab === 'intake'} label={t('tabIntake')} onClick={() => setTab('intake')} />
-            <TabButton active={tab === 'cloud'} label="云端" onClick={() => setTab('cloud')} />
+            <TabButton active={tab === 'cloud'} label={t('tabCloud')} onClick={() => setTab('cloud')} />
           </nav>
           {tab === 'accounts' && <AccountsView state={state} t={t} actions={actions} />}
           {tab === 'conversations' && <ConversationsView state={state} t={t} actions={actions} />}

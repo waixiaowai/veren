@@ -102,6 +102,12 @@ async function call<T>(session: CmsSession, path: string, init?: RequestInit): P
     headers: { authorization: `Bearer ${session.token}`, 'content-type': 'application/json', ...init?.headers },
   })
   const body = await response.json() as Envelope<T>
+  // 401/1003 = 登录过期：标记在错误对象上，视图据此回流登录卡（常规态非异常）。
+  // 401/1003 means an expired sign-in: flagged on the error so the view flows
+  // back to the sign-in card as a normal state, not an exception.
+  if (response.status === 401 || body.code === 1003) {
+    throw Object.assign(new Error(body.message ?? '登录已过期'), { expired: true })
+  }
   if (body.code !== 0 || body.data === undefined) {
     throw new Error(body.message ?? `CMS ${path} 失败（${body.code}）`)
   }

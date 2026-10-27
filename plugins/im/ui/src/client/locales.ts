@@ -19,7 +19,12 @@ export const NS = 'im'
 /** Every key the IM page can render. */
 export type ImKey =
   | 'panel' | 'panelSubtitle' | 'refresh' | 'loading' | 'failed' | 'retry'
-  | 'tabAccounts' | 'tabConversations' | 'tabPeople' | 'tabIntake'
+  | 'tabAccounts' | 'tabConversations' | 'tabPeople' | 'tabIntake' | 'tabCloud'
+  | 'cloudSubtitle' | 'cloudOrigin' | 'cloudEmail' | 'cloudPassword'
+  | 'cloudLogin' | 'cloudLoggingIn' | 'cloudLogout' | 'cloudSessionExpired'
+  | 'cloudCredentialNote' | 'cloudOnline' | 'cloudUnauthorized'
+  | 'cloudEmptyDirectory' | 'cloudNotePlaceholder' | 'cloudSelfReported'
+  | 'cloudRenameNote' | 'cloudSave' | 'cloudCancel' | 'cloudNote'
   | 'accounts' | 'noAccounts' | 'provider' | 'statusOnline' | 'statusOffline' | 'bindWechat'
   | 'bindTitle' | 'bindScanHint' | 'bindPending' | 'bindScanned' | 'bindNeedsCode' | 'bindBound'
   | 'bindExpired' | 'bindFailed' | 'bindQrMissing' | 'codePlaceholder' | 'submitCode' | 'closeWizard'
@@ -33,6 +38,25 @@ export type ImKey =
 
 /** Chinese dictionary. */
 export const zh: Record<ImKey, string> = {
+  tabCloud: "云端",
+  cloudSubtitle: "登录 CMS 后查看该账号的全部 IM 信息（消息日志与人员目录归云）。",
+  cloudOrigin: "CMS 地址",
+  cloudEmail: "邮箱",
+  cloudPassword: "密码",
+  cloudLogin: "登录",
+  cloudLoggingIn: "登录中…",
+  cloudLogout: "登出",
+  cloudSessionExpired: "登录已过期，请重新登录。",
+  cloudCredentialNote: "登录凭据只保存在本页签（sessionStorage），不会写入宿主配置。",
+  cloudOnline: "通道在线",
+  cloudUnauthorized: "通道未授权：请到 CMS 管理面扫码授权。",
+  cloudEmptyDirectory: "云端目录为空：设备观察到发送者后会上报至此。",
+  cloudNotePlaceholder: "备注",
+  cloudSelfReported: "自称：",
+  cloudRenameNote: "改名/备注",
+  cloudSave: "保存",
+  cloudCancel: "取消",
+  cloudNote: "备注：",
   panel: '消息',
   panelSubtitle: '微信账号、会话绑定与人员目录，一页看全。',
   refresh: '刷新',
@@ -94,6 +118,25 @@ export const zh: Record<ImKey, string> = {
 
 /** English dictionary. */
 export const en: Record<ImKey, string> = {
+  tabCloud: "Cloud",
+  cloudSubtitle: "Sign in to CMS to see all IM data of this account (message log and people live on the cloud).",
+  cloudOrigin: "CMS origin",
+  cloudEmail: "Email",
+  cloudPassword: "Password",
+  cloudLogin: "Sign in",
+  cloudLoggingIn: "Signing in…",
+  cloudLogout: "Sign out",
+  cloudSessionExpired: "Session expired, please sign in again.",
+  cloudCredentialNote: "Credentials stay in this tab (sessionStorage) and never enter the host config.",
+  cloudOnline: "Channel online",
+  cloudUnauthorized: "Channel not authorized: scan the QR on the CMS admin face.",
+  cloudEmptyDirectory: "The cloud directory is empty: devices push senders here as they observe them.",
+  cloudNotePlaceholder: "note",
+  cloudSelfReported: "self-reported: ",
+  cloudRenameNote: "rename/note",
+  cloudSave: "Save",
+  cloudCancel: "Cancel",
+  cloudNote: "note: ",
   panel: 'Messages',
   panelSubtitle: 'WeChat accounts, session bindings, and the people directory on one page.',
   refresh: 'Refresh',
