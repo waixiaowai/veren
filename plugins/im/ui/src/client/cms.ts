@@ -174,9 +174,12 @@ export function overview(session: CmsSession): Promise<CmsOverview> {
   return call<CmsOverview>(session, '/v1/im/user/overview')
 }
 
-/** 人员目录（含地址绑定）。 */
-export function people(session: CmsSession): Promise<{ people: CmsPerson[]; addresses: Record<string, CmsAddress[]> }> {
-  return call(session, '/v1/im/user/people')
+/** 人员目录（含地址绑定）；Go 的 nil 切片序列化为 null，统一归一成空数组。 */
+export async function people(session: CmsSession): Promise<{ people: CmsPerson[]; addresses: Record<string, CmsAddress[]> }> {
+  const data = await call<{ people?: CmsPerson[] | null; addresses?: Record<string, CmsAddress[]> | null }>(
+    session, '/v1/im/user/people',
+  )
+  return { people: data.people ?? [], addresses: data.addresses ?? {} }
 }
 
 /** 改名/备注（空串 = 保持原值）。 */
