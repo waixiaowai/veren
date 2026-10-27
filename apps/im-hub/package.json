@@ -1,0 +1,26 @@
+{
+  "name": "@veren/im-hub",
+  "displayName": "Veren IM Hub",
+  "version": "2.1.8",
+  "description": "Use when one WeChat account must reach several DSH devices: this standalone cloud gateway holds the only iLink session (QR authorization, getupdates long polling, sendmessage), routes inbound messages to a default device, and serves registered devices an outbound long-poll API (register / poll / reply) with a durable per-device queue so offline devices catch up by cursor; run it with `authorize` to mint the session and `start` to serve.",
+  "type": "module",
+  "main": "./src/main.ts",
+  "scripts": {
+    "authorize": "node --import tsx/esm src/main.ts authorize",
+    "start": "node --import tsx/esm src/main.ts serve",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@veren/im": "workspace:*",
+    "@veren/im-wechat": "workspace:*",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/qrcode": "^1.5.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.3"
+  },
+  "license": "MIT"
+}
