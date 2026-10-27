@@ -25,6 +25,9 @@ export type ImKey =
   | 'cloudCredentialNote' | 'cloudOnline'
   | 'cloudSignInHeading' | 'cloudRefresh' | 'cloudChecking'
   | 'cloudUnauthorizedTitle' | 'cloudUnauthorizedHint' | 'cloudOpenAdmin'
+  | 'cloudAuthStart' | 'cloudAuthStarting' | 'cloudAuthScan' | 'cloudAuthVerifyHint'
+  | 'cloudAuthCodePlaceholder' | 'cloudAuthVerifySubmit' | 'cloudAuthExpired'
+  | 'cloudAuthConfirmed' | 'cloudAuthManageDenied'
   | 'cloudEmptyTitle' | 'cloudEmptyHint' | 'cloudGapTitle' | 'cloudGapLine' | 'cloudGapHint'
   | 'cloudStatMessages' | 'cloudStatPeople'
   | 'cloudNotePlaceholder' | 'cloudSelfReported'
@@ -48,6 +51,15 @@ export type ImKey =
 
 /** Chinese dictionary. */
 export const zh: Record<ImKey, string> = {
+  cloudAuthStart: "发起授权",
+  cloudAuthStarting: "发起中…",
+  cloudAuthScan: "用微信扫下面的码，并在手机上点确认（约 2 分钟有效）：",
+  cloudAuthVerifyHint: "手机上显示了验证码，输入后提交：",
+  cloudAuthCodePlaceholder: "验证码",
+  cloudAuthVerifySubmit: "提交验证码",
+  cloudAuthExpired: "二维码已过期，请重新发起。",
+  cloudAuthConfirmed: "授权成功，通道已接管。",
+  cloudAuthManageDenied: "当前账号没有 imhub:manage 权限——请用 admin 账号，或给该角色勾选「IM Hub 管理面」。",
   tabCloud: "云端",
   cloudSubtitle: "登录 CMS 后查看该账号的全部 IM 信息（消息日志与人员目录归云）。",
   cloudOrigin: "CMS 地址",
@@ -160,6 +172,15 @@ export const zh: Record<ImKey, string> = {
 
 /** English dictionary. */
 export const en: Record<ImKey, string> = {
+  cloudAuthStart: "Start authorization",
+  cloudAuthStarting: "Starting…",
+  cloudAuthScan: "Scan with WeChat and confirm on the phone (~2 min validity):",
+  cloudAuthVerifyHint: "The phone shows a verify code — enter it here:",
+  cloudAuthCodePlaceholder: "verify code",
+  cloudAuthVerifySubmit: "Submit code",
+  cloudAuthExpired: "The QR expired — start again.",
+  cloudAuthConfirmed: "Authorized — the channel is now owned by the cloud.",
+  cloudAuthManageDenied: "This account lacks imhub:manage — sign in as admin or grant the role the IM Hub manage permission.",
   tabCloud: "Cloud",
   cloudSubtitle: "Sign in to CMS to see all IM data of this account (message log and people live on the cloud).",
   cloudOrigin: "CMS origin",

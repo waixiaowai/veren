@@ -22,11 +22,13 @@
  * @module @veren/im-ui/client/cloud-home
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import QRCode from 'qrcode'
 import type { ImKey } from './locales.ts'
 import {
-  forgetSession, isExpired, isNotFound, overview, patchPerson, people,
-  type CmsAddress, type CmsOverview, type CmsPerson, type CmsSession,
+  authorizeStart, authorizeStatus, authorizeVerify,
+  forgetSession, isExpired, isForbidden, isNotFound, overview, patchPerson, people,
+  type CmsAddress, type CmsAuthorizeState, type CmsOverview, type CmsPerson, type CmsSession,
 } from './cms.ts'
 
 /** The dictionary face the cloud views render through. */
@@ -108,7 +110,7 @@ export function CloudHome(props: {
           ? <Directory t={t} rows={rows} onSave={savePerson} />
           : info === undefined
             ? <EmptyBlock title={t('loading')} />
-            : <FunnelCard t={t} origin={session.origin} />}
+            : <AuthorizeFunnel t={t} session={session} onAuthorized={() => void refresh()} onExpired={props.onExpired} />}
     </section>
   )
 }
@@ -143,19 +145,127 @@ function StatusBar(props: {
   )
 }
 
-/** The activation funnel: the unauthorized channel's one job is to get authorized. */
-function FunnelCard(props: { readonly t: Translate; readonly origin: string }): React.JSX.Element {
-  const { t, origin } = props
+/**
+ * The activation funnel: the unauthorized channel's one job is to get
+ * authorized — start the QR attempt here (delegates to imhub:manage on the
+ * server), render the QR for the phone, poll until a terminal state, collect
+ * the verify code when asked, and hand back to the refreshed home on success.
+ * 激活漏斗：未授权通道的唯一任务是被授权——就在这里发起 QR 尝试（服务端转
+ * imhub:manage），出二维码供手机扫，轮询到终态，需要时收验证码，成功后回到刷新后的主页。
+ */
+function AuthorizeFunnel(props: {
+  readonly t: Translate
+  readonly session: CmsSession
+  readonly onAuthorized: () => void
+  readonly onExpired: () => void
+}): React.JSX.Element {
+  const { t, session } = props
+  const [phase, setPhase] = useState<'idle' | 'qr' | 'verify' | 'done'>('idle')
+  const [qrData, setQrData] = useState<string | undefined>()
+  const [code, setCode] = useState('')
+  const [note, setNote] = useState<string | undefined>()
+  const [denied, setDenied] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const timer = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
+
+  /** 3s 轮询到终态；confirmed 收口，need_verifycode 转 verify，expired 回 idle。 */
+  const poll = useCallback(async (): Promise<void> => {
+    try {
+      const state = await authorizeStatus(session)
+      if (state.session_authorized) {
+        clearInterval(timer.current)
+        setPhase('done')
+        props.onAuthorized()
+        return
+      }
+      if (!state.active) {
+        clearInterval(timer.current)
+        setPhase('idle')
+        setNote(t('cloudAuthExpired'))
+        return
+      }
+      if (state.status === 'need_verifycode') setPhase('verify')
+    } catch (cause) {
+      if (isExpired(cause)) {
+        clearInterval(timer.current)
+        forgetSession(session.origin)
+        props.onExpired()
+      }
+      // 瞬时网络抖动不打断轮询 / a transient network blip never stops the poll
+    }
+  }, [props, session, t])
+
+  useEffect(() => () => clearInterval(timer.current), [])
+
+  const start = useCallback(async (): Promise<void> => {
+    setBusy(true); setNote(undefined); setDenied(false)
+    try {
+      await authorizeStart(session)
+      const state = await authorizeStatus(session)
+      if (state.qr_url !== '') setQrData(await QRCode.toDataURL(state.qr_url, { width: 260, margin: 1 }))
+      setPhase('qr')
+      clearInterval(timer.current)
+      timer.current = setInterval(() => void poll(), 3000)
+    } catch (cause) {
+      if (isForbidden(cause)) setDenied(true)
+      else setNote(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setBusy(false)
+    }
+  }, [poll, session, t])
+
+  const submitCode = useCallback(async (): Promise<void> => {
+    if (code.trim() === '') return
+    setBusy(true)
+    try {
+      await authorizeVerify(session, code.trim())
+      setNote(undefined)
+      await poll()
+    } catch (cause) {
+      setNote(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setBusy(false)
+    }
+  }, [code, poll, session])
+
+  if (phase === 'done') return <EmptyBlock title={t('cloudAuthConfirmed')} />
   return (
     <div className="im-card im-card-hot">
       <div className="im-card-body">
         <span className="im-strong">{t('cloudUnauthorizedTitle')}</span>
-        <p className="im-muted">{t('cloudUnauthorizedHint')}</p>
-        <div>
-          <a className="im-button im-button-primary" href={origin} target="_blank" rel="noreferrer">
-            {t('cloudOpenAdmin')}
-          </a>
-        </div>
+        {phase === 'idle' && (
+          <>
+            <p className="im-muted">{t('cloudUnauthorizedHint')}</p>
+            {denied && <p className="im-error" role="alert">{t('cloudAuthManageDenied')}</p>}
+            {note !== undefined && <p className="im-error" role="alert">{note}</p>}
+            <div>
+              <button type="button" className="im-button im-button-primary" disabled={busy}
+                onClick={() => void start()}>{busy ? t('cloudAuthStarting') : t('cloudAuthStart')}</button>
+              <a className="im-link-button im-link-muted" href={session.origin} target="_blank" rel="noreferrer">
+                {t('cloudOpenAdmin')}
+              </a>
+            </div>
+          </>
+        )}
+        {phase === 'qr' && (
+          <>
+            <p className="im-muted">{t('cloudAuthScan')}</p>
+            {qrData !== undefined && <img className="im-qr" src={qrData} alt="QR" width={260} height={260} />}
+            {note !== undefined && <p className="im-error" role="alert">{note}</p>}
+          </>
+        )}
+        {phase === 'verify' && (
+          <>
+            <p className="im-muted">{t('cloudAuthVerifyHint')}</p>
+            <div className="im-rename-row">
+              <input className="im-input" value={code} inputMode="numeric" placeholder={t('cloudAuthCodePlaceholder')}
+                onChange={event => setCode(event.target.value)} />
+              <button type="button" className="im-button im-button-primary" disabled={busy || code.trim() === ''}
+                onClick={() => void submitCode()}>{t('cloudAuthVerifySubmit')}</button>
+            </div>
+            {note !== undefined && <p className="im-error" role="alert">{note}</p>}
+          </>
+        )}
       </div>
     </div>
   )

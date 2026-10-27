@@ -115,6 +115,13 @@ async function call<T>(session: CmsSession, path: string, init?: RequestInit): P
   if (response.status === 404 || body.code === 404) {
     throw Object.assign(new Error(body.message ?? '资源不存在'), { notFound: true })
   }
+  // 3003 = RBAC 权限不足（RequirePermission 拒绝）：授权漏斗据此区分
+  // 「缺管理权限」与普通失败。
+  // 3003 = RBAC permission denied: the funnel separates a missing manage
+  // permission from an ordinary failure.
+  if (response.status === 403 || body.code === 3003) {
+    throw Object.assign(new Error(body.message ?? 'permission denied'), { forbidden: true })
+  }
   if (body.code !== 0 || body.data === undefined) {
     throw new Error(body.message ?? `CMS ${path} 失败（${body.code}）`)
   }
@@ -129,6 +136,37 @@ export function isExpired(cause: unknown): boolean {
 /** 404 check: the target CMS instance has no imhub user plane. 404 判定：目标 CMS 实例没有 imhub 用户面。 */
 export function isNotFound(cause: unknown): boolean {
   return (cause as { notFound?: boolean } | undefined)?.notFound === true
+}
+
+/** 403 check: the signed-in account lacks imhub:manage. 403 判定：账号缺 imhub:manage。 */
+export function isForbidden(cause: unknown): boolean {
+  return (cause as { forbidden?: boolean } | undefined)?.forbidden === true
+}
+
+/** One authorize-attempt projection (the manage-guarded user-plane delegate). 授权尝试投影（管理面权限经用户面代理）。 */
+export interface CmsAuthorizeState {
+  readonly active: boolean
+  readonly status: string // wait | scaned | need_verifycode | confirmed | expired | verify_code_blocked | failed
+  readonly qr_url: string
+  readonly session_authorized: boolean
+}
+
+/** 发起一次 QR 授权（转管理面权限 imhub:manage）。 */
+export function authorizeStart(session: CmsSession): Promise<CmsAuthorizeState> {
+  return call<CmsAuthorizeState>(session, '/v1/im/user/authorize', { method: 'POST' })
+}
+
+/** 读当前授权尝试状态（含会话态）。 */
+export function authorizeStatus(session: CmsSession): Promise<CmsAuthorizeState> {
+  return call<CmsAuthorizeState>(session, '/v1/im/hub/authorize/status')
+}
+
+/** 提交手机验证码到当前授权尝试。 */
+export function authorizeVerify(session: CmsSession, code: string): Promise<void> {
+  return call(session, '/v1/im/hub/authorize/verify', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  }).then(() => undefined)
 }
 
 /** 用户面概览：会话存活 + 消息/人员计数。 */
