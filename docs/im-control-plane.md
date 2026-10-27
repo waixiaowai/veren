@@ -14,7 +14,7 @@ After the WeChat channel moved to the CMS cloud (2.2.0), the control-plane facts
 |---|------|------|----------------|----------------|
 | 1 | Authorization session (bot token / QR flow / -14 liveness) | **CMS** (ruled in 2.2.0) | device plane (indirect), user plane | CMS poller |
 | 2 | Message log (each inbound text + seq + routing outcome) | **CMS** | user plane, device (long poll) | CMS poller |
-| 3 | Conversation map (p2p conversation <-> sender <-> context token) | **CMS** | device (reply addressing) | CMS |
+| 3 | Conversation map (p2p conversation ↔ sender ↔ context token) | **CMS** | device (reply addressing) | CMS |
 | 4 | People identity (person, display/claimed/note, address binding) | **CMS** (added this train) | device (read cache for prompts), user plane | device upserts + one-time import + user-plane rename |
 | 5 | Device registry (device name, cursor) | **CMS** (device column exists since 2.2.0) | CMS, user plane | device long poll |
 | 6 | Intake records (stranger-ask issued/expired/answered history) | **device** | this device's intake tab | this device's intake flow |
@@ -30,47 +30,47 @@ The IM overview views (accounts/conversations/people/intake tabs) are hosted by 
 
 | Credential | Plane | Carrier |
 |------|----|------|
-| Device API Key ( with ) | device plane  | DSH plugin config (unchanged) |
-| Admin/operator () | admin face + bulk import | CMS session/JWT |
-| **User plane (new )** |  | panel login:  exchanges credentials for a Bearer JWT (cross-origin ready, existing T22 facility) |
+| Device API Key (`cmsk_…` granted `imhub:read`) | device plane `/v1/im/hub/*` | DSH plugin config (unchanged) |
+| Admin/operator (`imhub:manage`) | admin face + bulk import | CMS session/JWT |
+| **User plane (new `imhub:view`)** | `/v1/im/user/*` | panel login: `POST /v1/auth/jwt` exchanges credentials for a Bearer JWT (cross-origin ready, existing T22 facility) |
 
-The three tracks never cross: a device key on the user plane -> denied; a JWT on the device plane -> denied; a user without  -> 403/empty.
+The three tracks never cross: a device key on the user plane → denied; a JWT on the device plane → denied; a user without `imhub:view` → 403/empty.
 
 ## CMS user-plane endpoints (read-first; the write face has exactly two items)
 
 | Endpoint | Guard | Meaning |
 |------|------|------|
-|  | auth tri-state +  | session state (bot liveness/owner) + message/people counts |
-|  | same | message log (newest first, limit) |
-|  | same | people directory (with address bindings) |
-|  | same | rename display name / note (mirrors the device renamePerson semantics) |
-|  | auth tri-state +  | re-authorization trigger (delegates to the manage permission) |
+| `GET /v1/im/user/overview` | auth tri-state + `imhub:view` | session state (bot liveness/owner) + message/people counts |
+| `GET /v1/im/user/messages` | same | message log (newest first, limit) |
+| `GET /v1/im/user/people` | same | people directory (with address bindings) |
+| `PATCH /v1/im/user/people/{id}` | same | rename display name / note (mirrors the device renamePerson semantics) |
+| `POST /v1/im/user/authorize` | auth tri-state + `imhub:manage` | re-authorization trigger (delegates to the manage permission) |
 
-Device-plane additions (guards unchanged, ):
+Device-plane additions (guards unchanged, `imhub:read`):
 
 | Endpoint | Meaning |
 |------|------|
-|  | devices push observed/self-reported identity deltas (idempotent, keyed by address) |
-|  | devices pull the directory (read cache for prompt building) |
-|  | **admin face** (): one-time bulk import of a local directory |
+| `POST /v1/im/hub/people/upsert` | devices push observed/self-reported identity deltas (idempotent, keyed by address) |
+| `GET /v1/im/hub/people` | devices pull the directory (read cache for prompt building) |
+| `POST /v1/im/hub/people/import` | **admin face** (`imhub:manage`): one-time bulk import of a local directory |
 
 ## Device-side adaptation
 
--  core gains an optional remote-directory seam : when registered (provided by the hub plugin) people observation goes push + read-cache; when absent behavior stays local-only (the direct-WeChat single-machine shape does not regress).
-- The im-ui tabs fetch per the home table: accounts tab reads user-plane session state (the local bind wizard retires — authorization lives on the cloud); conversations tab reads the message log from the cloud + the pending column locally; people tab reads the cloud (rename via the user plane); intake tab stays local.
-- The local directory enters the cloud through the import endpoint (, dry-run by default).
+- `@veren/im` core gains an optional remote-directory seam `ImDirectoryRemote`: when registered (provided by the hub plugin) people observation goes push + read-cache; when absent behavior stays local-only (the direct-WeChat single-machine shape does not regress).
+- The im-ui tabs fetch per the home table: the accounts tab reads user-plane session state (the local bind wizard retires — authorization lives on the cloud); the conversations tab reads the message log from the cloud + the pending column locally; the people tab reads the cloud (rename via the user plane); the intake tab stays local.
+- The local directory enters the cloud through the import endpoint (`scripts/import-im-directory.mjs`, dry-run by default).
 
 ## Acceptance (the ADR acceptance section)
 
 1. **Two-device consistency**: a second device signed in to the same CMS user — identical people/conversation views, no second intake for the same sender, send/receive works.
 2. **The cloud is the fact source**: kill and restart CMS — the user-plane views rehydrate from the database; meanwhile device messages queue without loss.
-3. **Permission probes**: a user without  gets 403; a device key on  is denied; a JWT on  is denied.
-4. **Two-sided terminal audit**: every row of  is visible on the user plane AND has a device-side outcome (messages table or queue state).
+3. **Permission probes**: a user without `imhub:view` gets 403; a device key on `/v1/im/user/*` is denied; a JWT on `/v1/im/hub/messages` is denied.
+4. **Two-sided terminal audit**: every row of `im_hub_messages` is visible on the user plane AND has a device-side outcome (messages table or queue state).
 
 ## Explicitly out of scope (this train)
 
-Cloud-side message execution (agents stay on devices), multi-tenant CMS, content routing, device-management UI, the /device switch command (separate task for the official release).
+Cloud-side message execution (agents stay on devices), multi-tenant CMS, content routing, device-management UI, the `/device` switch command (a separate task for the official release).
 
 ## Version
 
-The  line moves to **2.3.0** (MINOR: the CMS user plane + the remote-directory seam are new capabilities); the CMS keeps its own version line.
+The `@veren` line moves to **2.3.0** (MINOR: the CMS user plane + the remote-directory seam are new capabilities); the CMS keeps its own version line.
