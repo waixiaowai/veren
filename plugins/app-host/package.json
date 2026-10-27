@@ -1,7 +1,7 @@
 {
   "name": "@veren/app-host",
   "description": "Use when a DSH profile needs the Veren application framework wired in one place: this host-assembly plugin binds the app registry, page registry, and task center together (app resolver, page mirror, real agent-scoped session port, focus seam) so that installing an app plugin requires no manual cross-service wiring; skip it only when you compose the three services by hand in tests.",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {

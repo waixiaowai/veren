@@ -31,18 +31,18 @@ export const provide = [] as const
 
 /** Plugin configuration. */
 export interface Config {
-  /** The cloud hub's base URL. */
+  /** The CMS origin serving the im-hub module. */
   hubBaseUrl: string
-  /** The shared device token; empty disables the channel entirely. */
-  deviceToken: string
+  /** The device's CMS API Key (imhub:read granted); empty disables the channel. */
+  apiKey: string
   /** This device's registration name at the hub. */
   deviceId: string
 }
 
 /** Configuration schema. */
 export const Config: z<Config> = z.object({
-  hubBaseUrl: z.string().default('http://127.0.0.1:8787'),
-  deviceToken: z.string().default(''),
+  hubBaseUrl: z.string().default('http://127.0.0.1:8080'),
+  apiKey: z.string().default(''),
   deviceId: z.string().default('main'),
 })
 
@@ -55,15 +55,15 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   // misconfiguration fails loud：没令牌就是没通道，静默跳过只会让消息石沉大海。
   // Misconfiguration fails loud: no token means no channel; skipping silently
   // would only make messages vanish.
-  if (config.deviceToken.trim() === '') {
-    throw new Error('[im:hub] deviceToken is required — set the shared hub secret')
+  if (config.apiKey.trim() === '') {
+    throw new Error('[im:hub] apiKey is required — create a CMS API Key with imhub:read granted')
   }
   const cursor = new DomainHubCursorStore(ctx)
   await cursor.open()
   ctx.effect(() => () => cursor.close(), 'im-hub:storage')
   const provider = new HubProvider({
     hubBaseUrl: config.hubBaseUrl,
-    deviceToken: config.deviceToken,
+    apiKey: config.apiKey,
     deviceId: config.deviceId,
     logger: ctx.logger,
     cursor,

@@ -1,7 +1,7 @@
 {
   "name": "@veren/commander-build",
   "displayName": "Veren Commander Build",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Use when you want the veren CLI's `build` command as a standard Cordis plugin module (name/inject/Config/apply): it injects the command registry, the Discovery service and ctx.fs, classifies each unit (frontend plugin bundle, backend plugin tsc-style build, cargo build for Cargo.toml units) and runs the per-kind command in the unit directory; skip it when you build units with your own tooling.",
   "private": true,
   "type": "module",

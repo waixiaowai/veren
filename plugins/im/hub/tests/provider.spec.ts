@@ -31,14 +31,14 @@ async function fakeHub(handlers: {
 }): Promise<{ url: string; close: () => Promise<void>; replies: Array<Record<string, unknown>> }> {
   const replies: Array<Record<string, unknown>> = []
   const server = createServer((request, response) => {
-    if (request.method === 'POST' && request.url === '/hub/replies') {
+    if (request.method === 'POST' && request.url === '/v1/im/hub/replies') {
       const chunks: Buffer[] = []
       request.on('data', chunk => chunks.push(chunk as Buffer))
       request.on('end', () => {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
         replies.push(body)
         response.writeHead(200, { 'content-type': 'application/json' })
-        response.end('{"ok":true}')
+        response.end('{"code":0,"message":"ok","data":null}')
       })
       return
     }
@@ -46,7 +46,7 @@ async function fakeHub(handlers: {
     const after = Number(url.searchParams.get('after') ?? '0')
     const scripted = handlers.onPoll?.(after) ?? { messages: [], tail: 0 }
     response.writeHead(200, { 'content-type': 'application/json' })
-    response.end(JSON.stringify(scripted))
+    response.end(JSON.stringify({ code: 0, message: 'ok', data: scripted }))
   })
   const port = await new Promise<number>(resolve => {
     server.listen(0, '127.0.0.1', () => resolve((server.address() as { port: number }).port))
@@ -62,7 +62,7 @@ async function fakeHub(handlers: {
 function makeProvider(hubUrl: string, cursor: HubCursorStore): HubProvider {
   return new HubProvider({
     hubBaseUrl: hubUrl,
-    deviceToken: 'secret',
+    apiKey: 'secret',
     deviceId: 'main',
     logger: { warn() {}, info() {}, error() {} } as never,
     cursor,
@@ -93,7 +93,7 @@ describe('HubProvider', () => {
           return { messages: [], tail: 0 }
         }
         return after < 1
-          ? { messages: [{ seq: 1, id: 'm1', conversationId: 'p2p:human', sender: 'human@im.wechat', text: '你好', sentAt: Date.now() }], tail: 1 }
+          ? { messages: [{ seq: 1, message_id: 'm1', conversation_id: 'p2p:human', sender: 'human@im.wechat', text: '你好', sent_at: Date.now() }], tail: 1 }
           : { messages: [], tail: 1 }
       },
     })
@@ -109,10 +109,10 @@ describe('HubProvider', () => {
     hubProvider.stop()
   })
 
-  it('skips history on a fresh device (cursor=0 jumps to the hub tail)', async () => {
+  it('consumes whatever the hub delivers (freshness filtered CMS-side)', async () => {
     const hub = await fakeHub({
       onPoll: after => after < 9
-        ? { messages: [{ seq: 9, id: 'old', conversationId: 'p2p:human', sender: 's', text: '历史', sentAt: 1 }], tail: 9 }
+        ? { messages: [{ seq: 9, message_id: 'old', conversation_id: 'p2p:human', sender: 's', text: '历史', sent_at: 1 }], tail: 9 }
         : { messages: [], tail: 9 },
     })
     stopServer = hub.close
@@ -121,7 +121,8 @@ describe('HubProvider', () => {
     const received: ImMessage[] = []
     const unlisten = hubProvider.listen(message => { received.push(message) })
     await until(() => cursor.after('main') === 9)
-    expect(received.length).toBe(0)
+    expect(received.length).toBe(1)
+    expect(received[0]).toMatchObject({ id: 'old' })
     unlisten()
     hubProvider.stop()
   })
@@ -137,7 +138,7 @@ describe('HubProvider', () => {
     })
 
     expect(hub.replies.length).toBe(1)
-    expect(hub.replies[0]).toMatchObject({ conversationId: 'p2p:human', text: '回答' })
+    expect(hub.replies[0]).toMatchObject({ conversation_id: 'p2p:human', text: '回答' })
   })
 
   it('refuses bind: authorization lives on the cloud hub', async () => {

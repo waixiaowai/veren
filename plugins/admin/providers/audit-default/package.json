@@ -1,7 +1,7 @@
 {
   "name": "@veren/admin-audit-default",
   "displayName": "Admin Audit Default",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Use when a DSH admin deployment needs the append-only audit capability backed by the shared data port: it appends entries with generated ids and UTC timestamps, trims by entry cap and retention window without dropping a newer row before an older one, serves filtered newest-first pages with opaque cursors, and exposes GET /api/admin/v1/audit; skip it when the deployment only needs the audit contract types or already ships a different audit provider.",
   "type": "module",
   "main": "./dist/index.js",

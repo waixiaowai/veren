@@ -1,7 +1,7 @@
 {
   "name": "@veren/forum-app",
   "displayName": "Forum-应用",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Use when a DSH deployment hosts the forum service and wants it visible as a first-class application: registers the forum app (a board/post catalog entry page plus a post detail page under /apps/forum) in the host app catalog, defines the forum tools built by the @veren/forum builders into the app catalog, and mounts them into page sessions via meta.tools - since 0.2 this package is the only registration face for forum tools (ordinary sessions carry none), so skip it when agents should never touch the forum; the headless host package works alone and this package needs the application framework to activate.",
   "type": "module",
   "main": "./dist/index.js",

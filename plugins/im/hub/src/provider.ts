@@ -1,12 +1,15 @@
 /**
  * The hub provider: one `ImService` that receives WeChat messages from the
- * cloud hub by outbound long polling and delivers replies back to it. It holds
- * no iLink session itself — the hub does — so `bind` refuses and `accounts`
- * reports the single device-side account.
+ * CMS im-hub module by outbound long polling and delivers replies back to it.
+ * It holds no iLink session itself — the hub does — so `bind` refuses and
+ * `accounts` reports the single device-side account.
  *
- * hub provider：一个 `ImService`，通过出站长轮询从云端 hub 接收微信消息，并把回复
- * 交回 hub。它自身不持有 iLink 会话——那是 hub 的事——因此 `bind` 拒绝，`accounts`
- * 只报告唯一的设备侧账号。
+ * hub provider：一个 `ImService`，通过出站长轮询从 CMS im-hub 模块接收微信消息，
+ * 并把回复交回 hub。它自身不持有 iLink 会话——那是 hub 的事——因此 `bind` 拒绝，
+ * `accounts` 只报告唯一的设备侧账号。
+ *
+ * 对接面 = cms 信封 API（`/v1/im/hub/*`，Bearer API Key，`{code,message,data}`，
+ * data 内 snake_case）；新鲜度过滤在 CMS 侧完成（after=0 只回 5 分钟内消息）。
  *
  * @module @veren/im-hub/provider
  */
@@ -30,27 +33,43 @@ export const HUB_FEATURES: ImFeatures = {
   limits: { textChars: 1_800 },
 }
 
-/** One routed message from the hub's device queue. */
+/** One routed message from the hub's device queue (CMS envelope data shape). */
 export interface HubDeviceMessage {
   seq: number
-  id: string
-  conversationId: string
+  message_id: string
+  conversation_id: string
   sender: string
   text: string
-  sentAt: number
+  sent_at: number
+}
+
+/** The CMS envelope wrapper (code=0 success; non-zero carries message). */
+export interface HubEnvelope<T> {
+  code: number
+  message: string
+  data: T
+}
+
+/** GET /v1/im/hub/messages 的 data 形状。 */
+export interface HubMessagesData {
+  messages: HubDeviceMessage[]
+  tail: number
 }
 
 /** Provider construction options. */
 export interface HubProviderOptions {
+  /** The CMS origin serving the im-hub module. */
   hubBaseUrl: string
-  deviceToken: string
+  /** The device's CMS API Key (imhub:read granted). */
+  apiKey: string
+  /** This device's registration name at the hub. */
   deviceId: string
   logger: LoggerService
   cursor: HubCursorStore
   fetchImpl?: typeof fetch
 }
 
-/** The device-side provider backed by the cloud hub's device API. */
+/** The device-side provider backed by the CMS im-hub module. */
 export class HubProvider {
   readonly features = HUB_FEATURES
   private readonly fetch: typeof fetch
@@ -92,64 +111,59 @@ export class HubProvider {
     throw new ImError('IM_UNSUPPORTED', 'authorization lives on the cloud hub, not on this device')
   }
 
-  /** Deliver one reply through the hub. */
+  /** 信封解包：code≠0 视为宿主结构化拒绝。 */
+  private async envelope<T>(response: Response): Promise<T> {
+    const body = (await response.json()) as HubEnvelope<T>
+    if (body.code !== 0) {
+      throw new ImError('IM_INTERNAL', `hub refused: ${body.message} (code=${body.code})`)
+    }
+    return body.data
+  }
+
+  /** Deliver one reply through the hub (CMS envelope). */
   async send(request: ImSendRequest): Promise<ImSendResult> {
     const text = request.content.type === 'text' || request.content.type === 'markdown'
       ? request.content.text
       : ''
-    const response = await this.fetch(`${this.options.hubBaseUrl}/hub/replies`, {
+    const response = await this.fetch(`${this.options.hubBaseUrl}/v1/im/hub/replies`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-hub-token': this.options.deviceToken },
-      body: JSON.stringify({
-        conversationId: request.target.conversationId,
-        text,
-        ...(request.replyToMessageId === undefined ? {} : { replyTo: request.replyToMessageId }),
-      }),
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${this.options.apiKey}`,
+      },
+      body: JSON.stringify({ conversation_id: request.target.conversationId, text }),
       signal: this.controller.signal,
     })
     if (!response.ok) throw new ImError('IM_SEND_REJECTED', `hub refused the reply: HTTP ${response.status}`)
+    await this.envelope(response)
     return { id: `hub-${Date.now()}`, sentAt: Date.now() }
   }
 
-  /** The long-poll loop: claim batches, emit, advance the cursor per batch. */
+  /** The long-poll loop: claim batches, emit, advance the cursor per batch.
+   *  新鲜度过滤在 CMS 侧完成（after=0 只回 5 分钟内消息）——设备侧零重复实现。 */
   private async loop(): Promise<void> {
-    const { hubBaseUrl, deviceToken, deviceId, cursor, logger } = this.options
+    const { hubBaseUrl, apiKey, deviceId, cursor, logger } = this.options
     while (!this.controller.signal.aborted) {
       try {
         const response = await this.fetch(
-          `${hubBaseUrl}/hub/poll?device=${encodeURIComponent(deviceId)}&after=${cursor.after(deviceId)}`,
-          { headers: { 'x-hub-token': deviceToken }, signal: this.controller.signal },
+          `${hubBaseUrl}/v1/im/hub/messages?device=${encodeURIComponent(deviceId)}&after=${cursor.after(deviceId)}`,
+          { headers: { authorization: `Bearer ${apiKey}` }, signal: this.controller.signal },
         )
         if (!response.ok) throw new ImError('IM_INTERNAL', `hub poll failed: HTTP ${response.status}`)
-        const body = (await response.json()) as { messages?: HubDeviceMessage[]; tail?: number }
-        // 全新设备（cursor=0）只消费新鲜消息：更早的按历史跳过（游标直接越过），
-        // 5 分钟内的照常投递——注册后立刻发消息的用户不能被当成历史吞掉。
-        // A brand-new device (cursor=0) consumes only fresh messages: older ones
-        // are skipped as history (the cursor jumps past them); anything within
-        // five minutes is delivered — a user messaging right after registering
-        // must not be swallowed as history.
-        const batch = body.messages ?? []
-        if (cursor.after(deviceId) === 0 && batch.length > 0) {
-          const staleCutoff = Date.now() - 300_000
-          const stale = batch.filter(message => message.sentAt <= staleCutoff)
-          if (stale.length > 0) {
-            await cursor.save(deviceId, Math.max(...stale.map(message => message.seq)))
-            if (stale.length === batch.length) continue
-          }
-        }
-        for (const message of batch) {
+        const data = await this.envelope<HubMessagesData>(response)
+        for (const message of data.messages ?? []) {
           const normalized: ImMessage = {
-            id: message.id,
+            id: message.message_id,
             accountId: deviceId,
-            conversationId: message.conversationId,
+            conversationId: message.conversation_id,
             sender: { id: message.sender },
-            sentAt: message.sentAt,
+            sentAt: message.sent_at,
             content: { type: 'text', text: message.text },
           }
           for (const handler of [...this.handlers]) await handler(normalized)
           await cursor.save(deviceId, message.seq)
         }
-        if ((body.messages ?? []).length === 0) {
+        if ((data.messages ?? []).length === 0) {
           await new Promise(resolve => setTimeout(resolve, 300))
         }
       } catch (error: unknown) {

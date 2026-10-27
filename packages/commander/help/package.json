@@ -1,7 +1,7 @@
 {
   "name": "@veren/commander-help",
   "displayName": "Veren Commander Help",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Use when you want the veren CLI's `help` command as a standard Cordis plugin module (name/inject/Config/apply): it injects the command registry, registers the help command whose bilingual usage listing is generated entirely from the registry, with a configurable program name; skip it when you render your own help.",
   "private": true,
   "type": "module",
