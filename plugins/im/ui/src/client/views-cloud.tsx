@@ -122,6 +122,7 @@ function CloudHome(props: {
   const [info, setInfo] = useState<CmsOverview | undefined>()
   const [rows, setRows] = useState<{ people: CmsPerson[]; addresses: Record<string, CmsAddress[]> } | undefined>()
   const [error, setError] = useState<string | undefined>()
+  const [missingModule, setMissingModule] = useState(false)
   const [expired, setExpired] = useState(props.expired)
   const [editing, setEditing] = useState<{ id: string; displayName: string; note: string } | undefined>()
 
@@ -130,11 +131,16 @@ function CloudHome(props: {
       setInfo(await overview(props.session))
       setRows(await people(props.session))
       setError(undefined)
+      setMissingModule(false)
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause)
       if (isExpired(cause)) {
         setExpired(true)
         props.onExpired()
+        return
+      }
+      if (isNotFound(cause)) {
+        setMissingModule(true)
         return
       }
       setError(message)
@@ -163,6 +169,15 @@ function CloudHome(props: {
       <section className="im-section">
         <p className="im-muted">{t('cloudSessionExpired' as CloudKey)}</p>
         <button type="button" className="im-button" onClick={() => setExpired(false)}>{t('cloudLogin' as CloudKey)}</button>
+      </section>
+    )
+  }
+  if (missingModule) {
+    return (
+      <section className="im-section">
+        <p className="im-muted">登录成功，但该 CMS 实例还没有 IM 用户面（imhub 模块未部署）。</p>
+        <p className="im-muted">部署 2.3.0 后此页即可用；或登出后把 CMS 地址改回本地实例。</p>
+        <button type="button" className="im-button" onClick={props.onLogout}>{t('cloudLogout' as CloudKey)}</button>
       </section>
     )
   }
@@ -232,4 +247,9 @@ function CloudHome(props: {
 /** 401/过期判定：cms.call 把过期形态标记在错误对象上。 */
 function isExpired(cause: unknown): boolean {
   return (cause as { expired?: boolean } | undefined)?.expired === true
+}
+
+/** 404 判定：目标 CMS 实例没有 imhub 用户面。 */
+function isNotFound(cause: unknown): boolean {
+  return (cause as { notFound?: boolean } | undefined)?.notFound === true
 }

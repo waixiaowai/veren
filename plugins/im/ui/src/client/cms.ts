@@ -108,6 +108,13 @@ async function call<T>(session: CmsSession, path: string, init?: RequestInit): P
   if (response.status === 401 || body.code === 1003) {
     throw Object.assign(new Error(body.message ?? '登录已过期'), { expired: true })
   }
+  // 404 = 该 CMS 实例还没有 imhub 用户面（2.3.0 未部署）：与普通失败分开标记，
+  // 视图据此给解释性状态（部署指引）而非裸错误。
+  // 404 means this CMS instance lacks the imhub user plane (2.3.0 not deployed):
+  // flagged distinctly so the view explains the deployment gap instead of a bare error.
+  if (response.status === 404 || body.code === 404) {
+    throw Object.assign(new Error(body.message ?? '资源不存在'), { notFound: true })
+  }
   if (body.code !== 0 || body.data === undefined) {
     throw new Error(body.message ?? `CMS ${path} 失败（${body.code}）`)
   }
