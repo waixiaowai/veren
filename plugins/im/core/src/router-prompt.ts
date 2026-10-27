@@ -16,6 +16,19 @@
 import { ImError } from './contract.ts'
 import type { ImMessage, ImMessageContent, ImProvider } from './contract.ts'
 
+/** The reply contract every rendered turn must carry: the model's own text
+ *  output IS the channel reply — narration or send-tool calls are never needed.
+ *  每个渲染回合都必须携带的回复契约：模型自己的文本输出就是渠道回复——
+ *  无需复述投递状态，也无需调用发送工具。 */
+const REPLY_CONTRACT = [
+  '[Reply contract]',
+  '你本轮输出的全部文本会被原样作为渠道消息自动回发给对方，此外没有别的回信机制。',
+  '直接输出给对方看的回答内容；不要复述投递状态，不要调用发送工具。',
+  'All text you output this turn is delivered verbatim to the sender as the channel',
+  'reply — there is no other send mechanism. Answer directly; do not narrate',
+  'delivery status and do not call send tools.',
+].join('\n')
+
 /** Turn renderer: source section first, message body second. */
 export function renderPrompt(providerId: string, message: ImMessage, knownName?: string): string {
   const sender = knownName === undefined || knownName === message.sender.id
@@ -27,10 +40,12 @@ export function renderPrompt(providerId: string, message: ImMessage, knownName?:
     `account: ${message.accountId}`,
     `conversation: ${message.conversationId}`,
     `sender: ${sender}`,
-    `time: new Date(message.sentAt).toISOString()`,
+    `time: ${new Date(message.sentAt).toISOString()}`,
     '',
     '[Message]',
     contentToPrompt(message.content),
+    '',
+    REPLY_CONTRACT,
   ].join('\n')
 }
 
