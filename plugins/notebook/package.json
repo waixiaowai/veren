@@ -1,7 +1,7 @@
 {
   "name": "@veren/notebook",
   "displayName": "Notebook",
-  "version": "2.1.8",
+  "version": "2.2.0",
   "icon": "./icon.svg",
   "description": "Use when a DSH deployment needs the notebook domain itself: one private durable notebook per agent preset, served to people over the notebook Remote namespace and to models through exported tool builders that a mounter registers; this package registers no tools itself - install @veren/notebook-app to expose the notebook under /apps/notebook with notebook__* page tools (the replacement for the global notebook_* tools retired in 0.2.0). Skip it when agents need no private scratchpad.",
   "type": "module",

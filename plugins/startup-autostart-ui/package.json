@@ -1,7 +1,7 @@
 {
   "name": "@veren/startup-autostart-ui",
   "displayName": "Startup Autostart UI",
-  "version": "2.1.8",
+  "version": "2.2.0",
   "icon": "./icon.svg",
   "description": "Use when the startup-autostart Host service is installed and people need a Web page to see, edit, run, and delete startup items without asking a model - it adds the \"startup items\" sidebar entry and page to the DeepSeek Harness Web GUI; skip it for a headless, ACP, or SDK profile, where the Host service and the separate tool plugin already cover every operation.",
   "type": "module",

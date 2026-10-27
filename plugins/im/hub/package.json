@@ -1,7 +1,7 @@
 {
   "name": "@veren/im-hub",
   "displayName": "Veren IM Hub Device",
-  "version": "2.1.8",
+  "version": "2.2.0",
   "description": "Use when this DSH device should receive WeChat messages through the cloud im-hub gateway instead of holding an iLink session itself: the plugin long-polls the hub's device API outbound (no inbound port, shared device token), feeds inbound messages into the provider-neutral registry so the durable queue, private sessions, people directory, and stranger intake all keep working unchanged, and posts replies back to the hub for delivery; pair it with the @veren/im-hub app running on the CMS host — one authorized WeChat per owner serves every registered device.",
   "type": "module",
   "main": "./dist/index.js",

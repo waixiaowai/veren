@@ -1,7 +1,7 @@
 {
   "name": "@veren/im",
   "displayName": "Veren IM Core",
-  "version": "2.1.8",
+  "version": "2.2.0",
   "description": "Use when a DSH host needs the provider-neutral IM contract and routing layer: it owns ImService, ImRegistry, ImError, the account/conversation/binding store, the durable people directory with strict name resolution and unverified self-reports, the automatic stranger-intake question with its audit trail, active-binding routing, and the DSH Session gateway; concrete channels such as wechat register through ImProvider, while the im_* tools live in @veren/im-tool.",
   "type": "module",
   "main": "./dist/index.js",

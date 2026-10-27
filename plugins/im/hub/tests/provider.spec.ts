@@ -25,10 +25,10 @@ class MemoryCursor implements HubCursorStore {
 }
 
 /** The fake hub: scripted poll responses plus a recorded replies log. */
-function fakeHub(handlers: {
+async function fakeHub(handlers: {
   onPoll?: (after: number) => { messages: Array<Record<string, unknown>>; tail: number }
   onReply?: (body: Record<string, unknown>) => void
-}): { url: string; close: () => Promise<void>; replies: Array<Record<string, unknown>> } {
+}): Promise<{ url: string; close: () => Promise<void>; replies: Array<Record<string, unknown>> }> {
   const replies: Array<Record<string, unknown>> = []
   const server = createServer((request, response) => {
     if (request.method === 'POST' && request.url === '/hub/replies') {
@@ -48,8 +48,9 @@ function fakeHub(handlers: {
     response.writeHead(200, { 'content-type': 'application/json' })
     response.end(JSON.stringify(scripted))
   })
-  server.listen(0, '127.0.0.1')
-  const port = (server.address() as { port: number }).port
+  const port = await new Promise<number>(resolve => {
+    server.listen(0, '127.0.0.1', () => resolve((server.address() as { port: number }).port))
+  })
   return {
     url: `http://127.0.0.1:${port}`,
     replies,
@@ -82,12 +83,17 @@ afterAll(async () => { await stopServer?.() })
 
 describe('HubProvider', () => {
   it('emits polled messages and advances the cursor per batch', async () => {
-    let polls = 0
-    const hub = fakeHub({
+    // 设备注册后才到第一条消息：空日志（tail=0）不触发跳队尾。
+    // The first message arrives after registration: an empty log (tail=0) does not trigger the tail skip.
+    let served = 0
+    const hub = await fakeHub({
       onPoll: after => {
-        polls += 1
-        return after === 0
-          ? { messages: [{ seq: 1, id: 'm1', conversationId: 'p2p:human', sender: 'human@im.wechat', text: '你好', sentAt: 1 }], tail: 1 }
+        if (after === 0 && served === 0) {
+          served += 1
+          return { messages: [], tail: 0 }
+        }
+        return after < 1
+          ? { messages: [{ seq: 1, id: 'm1', conversationId: 'p2p:human', sender: 'human@im.wechat', text: '你好', sentAt: Date.now() }], tail: 1 }
           : { messages: [], tail: 1 }
       },
     })
@@ -95,23 +101,25 @@ describe('HubProvider', () => {
     const cursor = new MemoryCursor()
     const hubProvider = makeProvider(hub.url, cursor)
     const received: ImMessage[] = []
-    const unlisten = provider.listen(message => { received.push(message) })
+    const unlisten = hubProvider.listen(message => { received.push(message) })
     await until(() => cursor.after('main') === 1)
-    expect(received.length).toBe(1)
+    await until(() => received.length === 1)
     expect(received[0]).toMatchObject({ id: 'm1', conversationId: 'p2p:human' })
     unlisten()
     hubProvider.stop()
   })
 
   it('skips history on a fresh device (cursor=0 jumps to the hub tail)', async () => {
-    const hub = fakeHub({
-      onPoll: () => ({ messages: [{ seq: 9, id: 'old', conversationId: 'p2p:human', sender: 's', text: '历史', sentAt: 1 }], tail: 9 }),
+    const hub = await fakeHub({
+      onPoll: after => after < 9
+        ? { messages: [{ seq: 9, id: 'old', conversationId: 'p2p:human', sender: 's', text: '历史', sentAt: 1 }], tail: 9 }
+        : { messages: [], tail: 9 },
     })
     stopServer = hub.close
     const cursor = new MemoryCursor()
     const hubProvider = makeProvider(hub.url, cursor)
     const received: ImMessage[] = []
-    const unlisten = provider.listen(message => { received.push(message) })
+    const unlisten = hubProvider.listen(message => { received.push(message) })
     await until(() => cursor.after('main') === 9)
     expect(received.length).toBe(0)
     unlisten()
@@ -119,7 +127,7 @@ describe('HubProvider', () => {
   })
 
   it('posts replies to the hub with the conversation and text', async () => {
-    const hub = fakeHub({})
+    const hub = await fakeHub({})
     stopServer = hub.close
     const hubProvider = makeProvider(hub.url, new MemoryCursor())
 
@@ -133,7 +141,7 @@ describe('HubProvider', () => {
   })
 
   it('refuses bind: authorization lives on the cloud hub', async () => {
-    const hub = fakeHub({})
+    const hub = await fakeHub({})
     stopServer = hub.close
     const hubProvider = makeProvider(hub.url, new MemoryCursor())
 

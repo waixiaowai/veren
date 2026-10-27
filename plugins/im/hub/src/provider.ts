@@ -122,13 +122,22 @@ export class HubProvider {
         )
         if (!response.ok) throw new ImError('IM_INTERNAL', `hub poll failed: HTTP ${response.status}`)
         const body = (await response.json()) as { messages?: HubDeviceMessage[]; tail?: number }
-        // 全新设备（cursor=0）跳过历史：从 hub 的队尾开始，只消费新消息。
-        // A brand-new device (cursor=0) skips history: start at the hub's tail.
-        if (cursor.after(deviceId) === 0 && typeof body.tail === 'number' && body.tail > 0) {
-          await cursor.save(deviceId, body.tail)
-          continue
+        // 全新设备（cursor=0）只消费新鲜消息：更早的按历史跳过（游标直接越过），
+        // 5 分钟内的照常投递——注册后立刻发消息的用户不能被当成历史吞掉。
+        // A brand-new device (cursor=0) consumes only fresh messages: older ones
+        // are skipped as history (the cursor jumps past them); anything within
+        // five minutes is delivered — a user messaging right after registering
+        // must not be swallowed as history.
+        const batch = body.messages ?? []
+        if (cursor.after(deviceId) === 0 && batch.length > 0) {
+          const staleCutoff = Date.now() - 300_000
+          const stale = batch.filter(message => message.sentAt <= staleCutoff)
+          if (stale.length > 0) {
+            await cursor.save(deviceId, Math.max(...stale.map(message => message.seq)))
+            if (stale.length === batch.length) continue
+          }
         }
-        for (const message of body.messages ?? []) {
+        for (const message of batch) {
           const normalized: ImMessage = {
             id: message.id,
             accountId: deviceId,
@@ -139,6 +148,9 @@ export class HubProvider {
           }
           for (const handler of [...this.handlers]) await handler(normalized)
           await cursor.save(deviceId, message.seq)
+        }
+        if ((body.messages ?? []).length === 0) {
+          await new Promise(resolve => setTimeout(resolve, 300))
         }
       } catch (error: unknown) {
         if (this.controller.signal.aborted) return

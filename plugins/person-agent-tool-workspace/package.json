@@ -1,7 +1,7 @@
 {
   "name": "@veren/person-agent-tool-workspace",
   "displayName": "管家-工作区",
-  "version": "2.1.8",
+  "version": "2.2.0",
   "icon": "./icon.svg",
   "description": "Use when the Person Agent app must build its workspace tool face: pure builders (no plugin row) for workspace_create, workspace_rename and workspace_session_list over ctx.workspaceRegistry, so the page session can register a directory as a new workspace, retitle an existing one, or search a workspace's accounted sessions; skip this package when you only need a host-global workspace tool plugin.",
   "type": "module",
