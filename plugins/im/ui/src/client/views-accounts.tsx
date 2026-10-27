@@ -32,7 +32,6 @@ export function AccountsView(props: ImBodyProps): React.JSX.Element {
             <div className="im-card-body">
               <div className="im-name-row">
                 <span className="im-strong">{account.displayName}</span>
-                <span className="im-badge">{account.provider}</span>
                 <span className={account.status === 'online' ? 'im-badge im-badge-on' : 'im-badge'}>
                   {account.status === 'online' ? t('statusOnline') : t('statusOffline')}
                 </span>

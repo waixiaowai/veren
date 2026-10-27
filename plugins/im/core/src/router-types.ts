@@ -14,15 +14,16 @@
  * @module @veren/im/router-types
  */
 
-import type { ImMessageContent, ImPersonContact, ImSendResult } from './contract.ts'
+import type { ImAccountView, ImMessageContent, ImPersonContact, ImSendResult } from './contract.ts'
 import type { ImStrangerIntakeConfig } from './intake.ts'
 import type {
   ImPersonIdentityStatus, ImPersonMatchField,
 } from './people-types.ts'
 import type { ImBindingsOptions } from './bindings.ts'
-import type { ImCredentialStore } from './runtime-seams.ts'
+import type { ImCredentialStore, ImSessionGateway } from './runtime-seams.ts'
 import type { ImPeople } from './people.ts'
-import type { ImBindingStore, ImPersonStore } from './store.ts'
+import type { ImCoreStore, ImPersonStore } from './store.ts'
+import type { ImConversationQueueView } from './queue.ts'
 
 /** One account removal result. */
 export interface ImUnbindAccountResult {
@@ -31,10 +32,15 @@ export interface ImUnbindAccountResult {
   warning?: string
 }
 
+/** Read-only list result: accounts and per-conversation queue state. */
+/** 只读列表结果：账号与按会话的队列状态。 */
+export interface ImListResult {
+  accounts?: ImAccountView[]
+  conversations?: ImConversationQueueView[]
+}
+
 /** Router configuration. */
 export interface ImRouterConfig {
-  /** Create a Session and an active binding when an inbound conversation has none. */
-  autoCreateSession: boolean
   /**
    * Automatic stranger-intake question. Omitted means disabled: a router built
    * without this option sends no unsolicited question.
@@ -50,7 +56,8 @@ export interface ImRouterOptions extends ImBindingsOptions {
    * its store carries both seams; the binding seam alone is not enough.
    * 路由层也要碰人员表（启动账号对账），因此它的存储同时携带两条接缝；仅绑定接缝不够。
    */
-  store: ImBindingStore & ImPersonStore
+  store: ImCoreStore & ImPersonStore
+  gateway: ImSessionGateway
   credentials: ImCredentialStore
   /** Durable, provider-neutral people directory. */
   people: ImPeople

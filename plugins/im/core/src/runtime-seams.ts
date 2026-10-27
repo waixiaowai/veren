@@ -51,9 +51,8 @@ export interface ImSessionGateway {
   }): Promise<string | undefined>
 }
 
-/** One router-level send request; exactly one target form is allowed. */
+/** One router-level send request; targets an account + conversation pair. */
 export interface ImRouterSendRequest {
-  bindingId?: string
   accountId?: string
   conversationId?: string
   content: ImMessageContent

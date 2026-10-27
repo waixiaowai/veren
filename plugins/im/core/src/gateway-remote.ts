@@ -36,32 +36,16 @@ export class ImGatewayService extends TypertRemoteService {
     this.router = getOrThrow(ctx, ImRouterToken)
   }
 
-  /** One snapshot for the panel: accounts, bindings, conversations, people, intake. */
+  /** One snapshot for the panel: accounts, conversations, people, intake. */
   @Remote('catalog')
   async catalog(request: { readonly intakeLimit?: number }) {
     const listed = await this.router.list()
-    // 未接入盲区修复：conversation 行只在接入/自动开会话时创建，纯入站消息只在
-    // 人员地址上留痕——把地址里见过但未绑定的会话并入列表，绑定向导才能看见它们。
-    // Unlinked-blind-spot fix: conversation rows only exist once linked or
-    // auto-created, while pure inbound messages leave traces on people
-    // addresses — merge address-seen, unbound conversations into the list so
-    // the bind tab can offer them.
-    const bound = new Set((listed.bindings ?? []).map(binding => binding.conversationId))
-    const addressConversations = new Map<string, { accountId: string; id: string; kind: string }>()
-    for (const person of this.router.listPeople() ?? []) {
-      for (const address of person.addresses) {
-        if (bound.has(address.conversationId) || addressConversations.has(address.conversationId)) continue
-        addressConversations.set(address.conversationId, {
-          accountId: address.accountId,
-          id: address.conversationId,
-          kind: 'direct',
-        })
-      }
-    }
     return {
       accounts: listed.accounts,
-      bindings: listed.bindings,
-      conversations: [...(listed.conversations ?? []), ...addressConversations.values()],
+      // 绑定删除后的会话视图：每会话一行队列状态（排队数/最新结局）。
+      // The post-binding conversation view: one row per conversation with its
+      // queue state (pending count / latest outcome).
+      conversations: listed.conversations ?? [],
       people: this.router.listPeople(),
       intake: this.router.intakeStatus(request?.intakeLimit ?? 10),
     }
@@ -105,41 +89,10 @@ export class ImGatewayService extends TypertRemoteService {
     }
   }
 
-  /** Bind or switch one conversation to one Session. */
-  @Remote('link')
-  async link(request: {
-    readonly accountId: string
-    readonly conversationId: string
-    readonly sessionId?: string
-    readonly active?: boolean
-  }) {
-    return { binding: await this.router.link(request) }
-  }
-
-  /** Remove one conversation binding. */
-  @Remote('unbindBinding')
-  async unbindBinding(request: { readonly bindingId: string }) {
-    await this.router.unbindBinding(request.bindingId)
-    return { unbound: 'binding' as const }
-  }
-
-  /** Remove an account with its credential and bindings. */
+  /** Remove an account with its credential and wechat state. */
   @Remote('unbindAccount')
   async unbindAccount(request: { readonly accountId: string }) {
     return { unbound: 'account' as const, ...await this.router.unbindAccount(request.accountId) }
-  }
-
-  /** Change one binding's agent settings. */
-  @Remote('settings')
-  async settings(request: {
-    readonly bindingId: string
-    readonly presetId?: string
-    readonly provider?: string
-    readonly model?: string
-    readonly reasoning?: string
-  }) {
-    const { bindingId, ...settings } = request
-    return { binding: await this.router.settings(bindingId, settings) }
   }
 
   /** List or search the people directory. */

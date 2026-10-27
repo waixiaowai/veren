@@ -1,7 +1,7 @@
 {
   "name": "@veren/im-testkit",
   "displayName": "Veren IM Testkit",
-  "version": "2.1.7",
+  "version": "2.1.8",
   "description": "Use when an IM provider must be proven against the @veren/im contract without a real account: it ships a programmable fake provider (listen, QR bind state machine, send capture, deduplication) and one reusable conformance suite that asserts those behaviors for any provider driver.",
   "type": "module",
   "main": "./dist/index.js",

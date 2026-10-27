@@ -20,12 +20,12 @@
 import type { ImAccount } from './contract.ts'
 import { errorMessage } from './runtime-seams.ts'
 import type { ImLogger } from './runtime-seams.ts'
-import type { ImBindingStore, ImPersonStore } from './store.ts'
+import type { ImCoreStore, ImPersonStore } from './store.ts'
 
 /** Storage and logging seams for the replacement. */
 /** 替换所需的存储与日志接缝。 */
 export interface ImRetireOptions {
-  readonly store: ImBindingStore & ImPersonStore
+  readonly store: ImCoreStore & ImPersonStore
   readonly logger: ImLogger
 }
 
@@ -55,10 +55,9 @@ export async function retireOwnerAccounts(
       && row.id !== account.id
       && !protectedIds.has(row.id))
     .sort((left, right) => left.id.localeCompare(right.id))
-  const claimed = new Set<string>()
   for (const other of others) {
     await migrateConversations(options.store, other.id, account.id)
-    await migrateBindings(options.store, other.id, account.id, claimed)
+    await migrateMessages(options.store, other.id, account.id)
     await migrateAddresses(options.store, other.id, account.id)
     await options.store.deleteAccount(other.id)
     retired.push(other.id)
@@ -114,7 +113,7 @@ export async function reconcileProviderAccounts(
 /** Move one dead account's conversation rows onto the new account. */
 /** 把一个死账号的会话行改挂到新账号。 */
 async function migrateConversations(
-  store: ImBindingStore & ImPersonStore,
+  store: ImCoreStore & ImPersonStore,
   oldId: string,
   newId: string,
 ): Promise<void> {
@@ -125,25 +124,19 @@ async function migrateConversations(
 }
 
 /**
- * Move active bindings onto the new account; everything else about a dead
- * account is history without a future and is dropped. One conversation keeps
- * exactly one active binding: later duplicates are deleted, not stacked.
- * 把 active 绑定改挂到新账号；死账号的其余行是没有未来的历史，直接删除。一个会话只保留
- * 一条 active 绑定：后来的重复删除而不是叠放。
+ * Move one dead account's in-flight messages onto the new account. The
+ * message key excludes the account id, so each row updates in place; the
+ * private session map is keyed by conversation id alone and needs nothing.
+ * 把一个死账号的在途消息改挂到新账号。消息键不含账号 id，每行原位更新；私有会话映射
+ * 只按会话 id 键控，无需任何动作。
  */
-async function migrateBindings(
-  store: ImBindingStore & ImPersonStore,
+async function migrateMessages(
+  store: ImCoreStore & ImPersonStore,
   oldId: string,
   newId: string,
-  claimed: Set<string>,
 ): Promise<void> {
-  for (const binding of store.bindings().filter(entry => entry.accountId === oldId)) {
-    if (!binding.active || claimed.has(binding.conversationId)) {
-      await store.deleteBinding(binding.id)
-      continue
-    }
-    await store.putBinding({ ...binding, accountId: newId })
-    claimed.add(binding.conversationId)
+  for (const row of store.messages().filter(entry => entry.account_id === oldId)) {
+    await store.putMessage({ ...row, account_id: newId })
   }
 }
 
@@ -155,7 +148,7 @@ async function migrateBindings(
  * 再删除死账号的全部旧键行。
  */
 async function migrateAddresses(
-  store: ImBindingStore & ImPersonStore,
+  store: ImCoreStore & ImPersonStore,
   oldId: string,
   newId: string,
 ): Promise<void> {

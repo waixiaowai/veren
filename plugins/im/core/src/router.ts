@@ -1,5 +1,5 @@
 /**
- * Active-binding routing and session hand-off. 活跃绑定路由与会话交接。
+ * Message routing and session hand-off over the durable queue. 持久化队列上的消息路由与会话交接。
  *
  * This file keeps the public face: the `ImRouter` facade, its token, and the
  * unchanged re-export surface. By responsibility the module is split into
@@ -16,8 +16,6 @@
 import { defineToken } from '@veren/core'
 import { ImError } from './contract.ts'
 import type {
-  ImBinding,
-  ImBindingSettings,
   ImBindAttempt,
   ImBindRequest,
   ImMessage,
@@ -39,7 +37,8 @@ import type {
   ImPersonSaveRequest,
   ImPersonView,
 } from './people-types.ts'
-import { observePerson, RouterInbound } from './router-inbound.ts'
+import { RouterInbound } from './router-inbound.ts'
+import { ImMessageQueue } from './queue.ts'
 import { RouterSend } from './router-send.ts'
 import type {
   ImPersonSaveInput,
@@ -48,22 +47,24 @@ import type {
   ImRouterOptions,
   ImUnbindAccountResult,
 } from './router-types.ts'
-import type { ImBindPollResult, ImLinkRequest, ImListResult } from './bindings.ts'
+import type { ImBindPollResult } from './bindings.ts'
+import type { ImListResult } from './router-types.ts'
+import type { ImMessageRow } from './store.ts'
 import type {
   ImCredentialStore, ImLogger, ImRouterSendRequest,
 } from './runtime-seams.ts'
 export { ImBindings } from './bindings.ts'
+export { ImMessageQueue } from './queue.ts'
 export type {
   ImBindPollResult,
   ImCredentialStore,
-  ImLinkRequest,
-  ImListResult,
   ImLogger,
   ImPromptSource,
   ImRouterSendRequest,
   ImSessionGateway,
 } from './bindings.ts'
 export type {
+  ImListResult,
   ImPersonRecipient, ImPersonSaveInput, ImPersonSendRequest, ImPersonSendResult,
   ImRouterConfig, ImRouterOptions, ImUnbindAccountResult,
 } from './router-types.ts'
@@ -95,7 +96,7 @@ function saveBaseOf(request: ImPersonSaveInput): ImPersonSaveRequest {
   }
 }
 
-/** Route inbound messages and expose the binding/tool operations. */
+/** Route inbound messages through the durable queue and expose the tool operations. */
 export class ImRouter {
   private readonly registry: ImRegistry
   private readonly credentials: ImCredentialStore
@@ -103,6 +104,7 @@ export class ImRouter {
   private readonly bindings: ImBindings
   private readonly people: ImPeople
   private readonly intake: ImStrangerIntake
+  private readonly queue: ImMessageQueue
   private readonly inbound: RouterInbound
   private readonly sender: RouterSend
   /**
@@ -114,6 +116,7 @@ export class ImRouter {
     this.logger = options.logger
     this.people = options.people
     this.bindings = new ImBindings(options)
+    this.queue = new ImMessageQueue({ store: options.store, ...(options.now === undefined ? {} : { now: options.now }) })
     this.sender = new RouterSend({
       bindings: this.bindings,
       registry: this.registry,
@@ -134,13 +137,12 @@ export class ImRouter {
       ...(options.now === undefined ? {} : { now: options.now }),
     })
     this.inbound = new RouterInbound({
-      bindings: this.bindings,
       gateway: options.gateway,
       registry: this.registry,
       people: this.people,
       intake: this.intake,
+      queue: this.queue,
       logger: this.logger,
-      config: options.config,
     })
   }
   /** One registered provider, by id. */
@@ -169,12 +171,6 @@ export class ImRouter {
   /** Submit a verification code for a needs-code attempt, then poll. */
   submitBindCode(bindId: string, code: string): Promise<ImBindPollResult> {
     return this.bindings.submitBindCode(bindId, code)
-  }
-  /** Bind or re-bind one conversation to one Session. */
-  async link(request: ImLinkRequest): Promise<ImBinding> {
-    const binding = await this.bindings.link(request)
-    await observePerson(this.bindings, this.people, this.logger, binding.accountId, binding.conversationId)
-    return binding
   }
   /** List or search the people directory; never sends. */
   listPeople(request: ImPersonQuery = {}): ImPersonView[] {
@@ -258,10 +254,6 @@ export class ImRouter {
   sendToPerson(request: ImPersonSendRequest): Promise<ImPersonSendResult> {
     return this.sender.sendToPerson(request)
   }
-  /** Remove one conversation binding. */
-  unbindBinding(bindingId: string): Promise<void> {
-    return this.bindings.unbindBinding(bindingId)
-  }
   /** Remove an account, its runtime state, credential, and rows. */
   unbindAccount(accountId: string): Promise<ImUnbindAccountResult> {
     return removeAccount({
@@ -280,17 +272,24 @@ export class ImRouter {
   dispose(): void {
     this.bindings.dispose()
   }
-  /** Replace fields of one binding's settings. */
-  settings(bindingId: string, patch: ImBindingSettings): Promise<ImBinding> {
-    return this.bindings.settings(bindingId, patch)
-  }
   /** Send one content block to an explicit target; see `router-send.ts`. */
   send(request: ImRouterSendRequest): Promise<ImSendResult> {
     return this.sender.send(request)
   }
-  /** Read accounts, bindings, or conversations. */
-  list(type?: 'accounts' | 'bindings' | 'conversations'): Promise<ImListResult> {
-    return this.bindings.list(type)
+  /** Read accounts, or the per-conversation queue state. */
+  async list(type?: 'accounts' | 'conversations'): Promise<ImListResult> {
+    if (type === 'conversations') return { conversations: this.queue.conversationSummaries() }
+    if (type === undefined) {
+      return {
+        accounts: await this.bindings.listAccounts(),
+        conversations: this.queue.conversationSummaries(),
+      }
+    }
+    return { accounts: await this.bindings.listAccounts() }
+  }
+  /** The recent queue rows, for the audit view. */
+  messages(): ImMessageRow[] {
+    return this.queue.recent()
   }
   /** Route one inbound message; see `router-inbound.ts`. */
   handle(providerId: string, message: ImMessage): Promise<void> {

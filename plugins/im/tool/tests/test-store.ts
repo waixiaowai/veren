@@ -1,20 +1,22 @@
 import type {
   ImAccountRow,
-  ImBinding,
-  ImBindingStore,
+  ImCoreStore,
   ImConversationRow,
+  ImConversationSessionRow,
+  ImMessageRow,
   ImPersonAddressRow,
   ImPersonIntakeRow,
   ImPersonRow,
   ImPersonStore,
 } from '@veren/im'
-import { conversationKey, personAddressKey } from '@veren/im'
+import { conversationKey, messageKey, personAddressKey } from '@veren/im'
 
 /** Minimal in-memory store for tool tests. */
-export class TestStore implements ImBindingStore, ImPersonStore {
+export class TestStore implements ImCoreStore, ImPersonStore {
   readonly accountRows = new Map<string, ImAccountRow>()
   readonly conversationRows = new Map<string, ImConversationRow>()
-  readonly bindingRows = new Map<string, ImBinding>()
+  readonly messageRows = new Map<string, ImMessageRow>()
+  readonly sessionRows = new Map<string, ImConversationSessionRow>()
   readonly personRows = new Map<string, ImPersonRow>()
   readonly addressRows = new Map<string, ImPersonAddressRow>()
   readonly intakeRows = new Map<string, ImPersonIntakeRow>()
@@ -55,34 +57,6 @@ export class TestStore implements ImBindingStore, ImPersonStore {
     for (const [key, row] of [...this.conversationRows]) {
       if (row.account_id === accountId) this.conversationRows.delete(key)
     }
-  }
-
-  getBinding(id: string): ImBinding | undefined {
-    return this.bindingRows.get(id)
-  }
-
-  bindings(): ImBinding[] {
-    return [...this.bindingRows.values()]
-  }
-
-  async putBinding(binding: ImBinding): Promise<void> {
-    this.bindingRows.set(binding.id, binding)
-  }
-
-  async deleteBinding(id: string): Promise<void> {
-    this.bindingRows.delete(id)
-  }
-
-  async deleteBindingsOf(accountId: string): Promise<void> {
-    for (const [id, binding] of [...this.bindingRows]) {
-      if (binding.accountId === accountId) this.bindingRows.delete(id)
-    }
-  }
-
-  activeBinding(accountId: string, conversationId: string): ImBinding | undefined {
-    return this.bindings().find(item => item.accountId === accountId
-      && item.conversationId === conversationId
-      && item.active)
   }
 
   getPerson(id: string): ImPersonRow | undefined {
@@ -135,8 +109,27 @@ export class TestStore implements ImBindingStore, ImPersonStore {
     this.intakeRows.delete(personId)
   }
 
-  /** 会话作用域的 active 绑定（跨账号查询，2.1.4 起进入存储接缝）。 */
-  activeBindingOfConversation(conversationId: string): ImBinding | undefined {
-    return this.bindings().find(item => item.conversationId === conversationId && item.active)
+  getMessage(provider: string, messageId: string): ImMessageRow | undefined {
+    return this.messageRows.get(messageKey(provider, messageId))
+  }
+
+  messages(): ImMessageRow[] {
+    return [...this.messageRows.values()]
+  }
+
+  async putMessage(row: ImMessageRow): Promise<void> {
+    this.messageRows.set(messageKey(row.provider, row.message_id), row)
+  }
+
+  getConversationSession(conversationId: string): ImConversationSessionRow | undefined {
+    return this.sessionRows.get(conversationId)
+  }
+
+  conversationSessions(): ImConversationSessionRow[] {
+    return [...this.sessionRows.values()]
+  }
+
+  async putConversationSession(row: ImConversationSessionRow): Promise<void> {
+    this.sessionRows.set(row.conversation_id, row)
   }
 }

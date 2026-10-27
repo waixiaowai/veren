@@ -27,6 +27,7 @@ import type { ImMessage } from './contract.ts'
 import { ImStorage } from './store.ts'
 import { ImPeople, ImPeopleToken } from './people.ts'
 import { consolidatePeople } from './people-merge.ts'
+import { ImMessageQueue } from './queue.ts'
 import { reconcileProviderAccounts, retireOwnerAccounts as retireAccounts } from './account-replace.ts'
 import { ImRouter, ImRouterToken } from './router.ts'
 import type { ImRouterOptions } from './router-types.ts'
@@ -42,14 +43,18 @@ export * from './people.ts'
 export * from './router.ts'
 export * from './intake.ts'
 export {
-  IM_DOMAIN_NAME, ImStorage, conversationKey, imDomain, parseSettings, personAddressKey,
+  IM_DOMAIN_NAME, ImStorage, conversationKey, imDomain, messageKey, personAddressKey,
 } from './store.ts'
+export { ImMessageQueue, MAX_MESSAGE_ATTEMPTS } from './queue.ts'
 export type {
   ImAccountRow,
   ImBindingRow,
-  ImBindingStore,
   ImConversationRow,
+  ImConversationSessionRow,
+  ImCoreStore,
   ImIntakeStatus,
+  ImMessageRow,
+  ImMessageStatus,
   ImPersonAddressRow,
   ImPersonIntakeRow,
   ImPersonRow,
@@ -200,6 +205,14 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   )
   const gateway = new DshSessionGateway(ctx, config.replyTimeoutMs)
   ctx.effect(() => () => gateway.dispose(), 'im:gateway')
+  // 重启恢复：消费中的行回到排队（至少一次契约），消息绝不因崩溃而消失。
+  // Restart recovery: consuming rows return to queued (the at-least-once
+  // contract); a crash never makes a message vanish.
+  const queue = new ImMessageQueue({ store: storage })
+  const recovered = await queue.recoverStuck()
+  if (recovered > 0) {
+    ctx.logger.warn(`im: ${recovered} in-flight message(s) returned to the queue after the restart`)
+  }
   wireRouter(ctx, {
     store: storage,
     gateway,
@@ -212,7 +225,6 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
     retireOwnerAccounts: (providerId, account) =>
       retireAccounts({ store: storage, logger }, providerId, account).then(() => undefined),
     config: {
-      autoCreateSession: config.autoCreateSession,
       strangerIntake: config.strangerIntake,
     },
   })

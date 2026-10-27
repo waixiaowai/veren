@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { reconcileProviderAccounts, retireOwnerAccounts } from '../src/account-replace.ts'
 import type { ImAccount } from '../src/contract.ts'
-import type { ImAccountRow, ImConversationRow } from '../src/store.ts'
+import type { ImAccountRow, ImConversationRow, ImMessageRow } from '../src/store.ts'
 import { MemoryStore } from './memory-store.ts'
 
 /**
  * Property-style lifecycle check: seeded random interleavings of pairing,
- * restarting, and inbound traffic must keep the account invariants. A failure
- * prints its seed so the exact scenario can be replayed.
- * 属性式生命周期检查：配对、重启与入站流量的种子化随机交错必须保住账号不变式。
+ * restarting, and inbound traffic must keep the account and queue invariants.
+ * A failure prints its seed so the exact scenario can be replayed.
+ * 属性式生命周期检查：配对、重启与入站流量的种子化随机交错必须保住账号与队列不变式。
  * 失败时打印种子，精确场景可以重放。
  */
 
@@ -44,6 +44,28 @@ async function putConversation(store: MemoryStore, accountId: string, conversati
   await store.putConversation(row)
 }
 
+/** Build one queued message row. */
+async function putMessage(
+  store: MemoryStore,
+  id: string,
+  accountId: string,
+  conversationId: string,
+): Promise<void> {
+  const row: ImMessageRow = {
+    message_id: id,
+    provider: 'wechat',
+    account_id: accountId,
+    conversation_id: conversationId,
+    sender: 'human@im.wechat',
+    text: '你好',
+    received_at: 1,
+    status: 'queued',
+    attempts: 0,
+    updated_at: 1,
+  }
+  await store.putMessage(row)
+}
+
 /** The account shape a provider hands to persistAccount. */
 function account(id: string, ownerId: string): ImAccount {
   return { id, displayName: 'WeChat', ownerId, status: 'offline' }
@@ -54,16 +76,8 @@ function assertInvariants(store: MemoryStore, live: ReadonlySet<string>, scenari
   for (const row of store.accounts()) {
     expect(live.has(row.id), `${scenario}: account ${row.id} is durable but not server-live`).toBe(true)
   }
-  for (const binding of store.bindings()) {
-    expect(live.has(binding.accountId), `${scenario}: binding ${binding.id} points at a dead account`).toBe(true)
-  }
-  const activePerConversation = new Map<string, number>()
-  for (const binding of store.bindings()) {
-    if (!binding.active) continue
-    activePerConversation.set(binding.conversationId, (activePerConversation.get(binding.conversationId) ?? 0) + 1)
-  }
-  for (const [conversation, count] of activePerConversation) {
-    expect(count, `${scenario}: conversation ${conversation} has ${count} active bindings`).toBeLessThanOrEqual(1)
+  for (const message of store.messages()) {
+    expect(live.has(message.account_id), `${scenario}: message ${message.message_id} sits on a dead account`).toBe(true)
   }
   const addressKeys = new Set<string>()
   for (const address of store.personAddresses()) {
@@ -94,7 +108,7 @@ describe('account lifecycle invariants under seeded interleavings', () => {
       for (let step = 0; step < 24; step += 1) {
         const owner = owners[Math.floor(random() * owners.length)]!
         const roll = random()
-        if (roll < 0.5) {
+        if (roll < 0.4) {
           // 重新扫码授权：新 bot 确认，旧 bot 退役迁移（生产路径 persistAccount 的序列）。
           counter += 1
           const freshBot = `bot-fresh-${counter}@im.bot`
@@ -105,15 +119,16 @@ describe('account lifecycle invariants under seeded interleavings', () => {
           liveIds.delete(owner.liveBot)
           liveIds.add(freshBot)
           owner.liveBot = freshBot
-        } else if (roll < 0.75) {
+        } else if (roll < 0.65) {
           // 重启：以 provider 活名单为裁决对账（自愈路径）。
           await reconcileProviderAccounts({ store, logger }, 'wechat', {
             accounts: async () => owners.map(entry => account(entry.liveBot, entry.ownerId)),
           })
         } else {
-          // 入站流量：在活账号上产生一条会话行（地址观察的最粗粒度代理）。
+          // 入站流量：在活账号上产生一条排队消息（队列的最粗粒度代理）。
           const conversation = owner.conversations[Math.floor(random() * owner.conversations.length)]!
-          await putConversation(store, owner.liveBot, conversation)
+          counter += 1
+          await putMessage(store, `m-${counter}`, owner.liveBot, conversation)
         }
         assertInvariants(store, liveIds, `${scenario} step=${step}`)
       }

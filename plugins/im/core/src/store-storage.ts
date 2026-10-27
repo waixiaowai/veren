@@ -16,12 +16,13 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { ImError } from './contract.ts'
-import { IM_DOMAIN_NAME, conversationKey, imDomain, personAddressKey, toBinding, toRow } from './store-rows.ts'
-import type {
-  ImAccountRow, ImConversationRow, ImPersonAddressRow, ImPersonIntakeRow,
-  ImPersonRow, ImStore,
+import {
+  IM_DOMAIN_NAME, conversationKey, imDomain, messageKey, personAddressKey,
 } from './store-rows.ts'
-import type { ImBinding } from './contract.ts'
+import type {
+  ImAccountRow, ImConversationRow, ImConversationSessionRow, ImMessageRow, ImPersonAddressRow,
+  ImPersonIntakeRow, ImPersonRow, ImStore,
+} from './store-rows.ts'
 
 /** Durable store over the `im` storage domain. */
 export class ImStorage {
@@ -144,44 +145,34 @@ export class ImStorage {
     await this.table('person_intakes').delete(personId)
   }
 
-  getBinding(id: string): ImBinding | undefined {
-    const row = this.table('bindings').get(id)
-    return row === undefined ? undefined : toBinding(row)
+  getMessage(provider: string, messageId: string): ImMessageRow | undefined {
+    return this.table('messages').get(messageKey(provider, messageId))
   }
 
-  bindings(): ImBinding[] {
-    return [...this.table('bindings').entries()].map(([, row]) => toBinding(row))
+  messages(): ImMessageRow[] {
+    return [...this.table('messages').entries()].map(([, row]) => row)
   }
 
-  async putBinding(binding: ImBinding): Promise<void> {
-    await this.table('bindings').put(binding.id, toRow(binding))
+  async putMessage(row: ImMessageRow): Promise<void> {
+    await this.table('messages').put(messageKey(row.provider, row.message_id), row)
   }
 
-  async deleteBinding(id: string): Promise<void> {
-    await this.table('bindings').delete(id)
+  getConversationSession(conversationId: string): ImConversationSessionRow | undefined {
+    return this.table('conversation_sessions').get(conversationId)
   }
 
-  async deleteBindingsOf(accountId: string): Promise<void> {
-    const table = this.table('bindings')
-    for (const [key, row] of [...table.entries()]) {
-      if (row.account_id === accountId) await table.delete(key)
-    }
+  conversationSessions(): ImConversationSessionRow[] {
+    return [...this.table('conversation_sessions').entries()].map(([, row]) => row)
   }
 
-  activeBinding(accountId: string, conversationId: string): ImBinding | undefined {
-    return this.bindings().find(
-      binding => binding.accountId === accountId
-        && binding.conversationId === conversationId
-        && binding.active,
-    )
-  }
-
-  activeBindingOfConversation(conversationId: string): ImBinding | undefined {
-    return this.bindings().find(binding => binding.conversationId === conversationId && binding.active)
+  async putConversationSession(row: ImConversationSessionRow): Promise<void> {
+    await this.table('conversation_sessions').put(row.conversation_id, row)
   }
 
   /** Resolve the open domain or fail loudly. */
-  private table<K extends 'accounts' | 'conversations' | 'bindings' | 'people' | 'person_addresses' | 'person_intakes'>(name: K) {
+  private table<K extends
+    'accounts' | 'conversations' | 'messages' | 'conversation_sessions'
+    | 'people' | 'person_addresses' | 'person_intakes'>(name: K) {
     const domain = this.domain
     if (domain === undefined) {
       throw new ImError('IM_INTERNAL', 'IM storage is not open')

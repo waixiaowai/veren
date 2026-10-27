@@ -19,6 +19,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
@@ -84,8 +85,6 @@ const PanelPlugin = {
         onStartBind: im.startBind,
         onCloseBind: im.closeBind,
         onSubmitCode: im.submitCode,
-        onLink: im.link,
-        onUnbindBinding: im.unbindBinding,
         onUnbindAccount: im.unbindAccount,
         onRenamePerson: im.renamePerson,
         onRefresh: im.refresh,
@@ -107,14 +106,12 @@ function createImSource(api: ImRemoteApi): {
   readonly startBind: () => void
   readonly closeBind: () => void
   readonly submitCode: (code: string) => void
-  readonly link: (conversationId: string) => void
-  readonly unbindBinding: (bindingId: string) => void
   readonly unbindAccount: (accountId: string) => void
   readonly renamePerson: (personId: string, displayName: string) => void
   readonly refresh: () => void
 } {
   let snapshot: ImSnapshot = {
-    catalog: { accounts: [], bindings: [], conversations: [], intake: emptyIntake() },
+    catalog: { accounts: [], conversations: [], people: [], intake: emptyIntake() },
     status: 'loading', settled: false, error: '', bind: undefined,
   }
   let epoch = 0
@@ -162,7 +159,7 @@ function createImSource(api: ImRemoteApi): {
   return {
     source: {
       getSnapshot: () => snapshot,
-      subscribe(listener) {
+      subscribe(listener: () => void) {
         listeners.add(listener)
         if (listeners.size === 1) {
           load()
@@ -206,14 +203,6 @@ function createImSource(api: ImRemoteApi): {
         publish({ bind: result.value })
       })()
     },
-    link: (conversationId) => {
-      const account = snapshot.catalog.accounts.find(entry => entry.provider === 'wechat') ?? snapshot.catalog.accounts[0]
-      if (account === undefined) return
-      void api.link({ accountId: account.id, conversationId }).then(load)
-    },
-    unbindBinding: (bindingId) => {
-      void api.unbindBinding({ bindingId }).then(load)
-    },
     unbindAccount: (accountId) => {
       void api.unbindAccount({ accountId }).then(() => { stopBindTimer(); load() })
     },
@@ -226,7 +215,15 @@ function createImSource(api: ImRemoteApi): {
 
 /** The intake view shape before the first catalog lands. */
 function emptyIntake(): ImSnapshot['catalog']['intake'] {
-  return { enabled: false, counts: {}, recent: [] }
+  return {
+    enabled: false,
+    askText: '',
+    replyWindowMs: 120_000,
+    maxAsksPerHour: 10,
+    minAskIntervalMs: 0,
+    counts: { asked: 0, answered: 0, declined: 0, expired: 0 },
+    recent: [],
+  }
 }
 
 /**

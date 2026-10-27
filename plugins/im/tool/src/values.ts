@@ -22,7 +22,6 @@ import type {
   ImAccount,
   ImBindAttempt,
   ImBindRequest,
-  ImBinding,
   ImBindingSettings,
   ImMessageContent,
 } from '@veren/im'
@@ -136,17 +135,6 @@ export function accountView(account: ImAccount): Record<string, unknown> {
   }
 }
 
-/** Project one binding onto the tool view. */
-export function bindingView(binding: ImBinding): Record<string, unknown> {
-  return {
-    id: binding.id,
-    accountId: binding.accountId,
-    conversationId: binding.conversationId,
-    sessionId: binding.sessionId,
-    active: binding.active,
-    settings: binding.settings,
-  }
-}
 
 /**
  * Project one bind attempt onto the tool view.

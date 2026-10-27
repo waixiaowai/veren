@@ -133,19 +133,8 @@ export class RouterSend {
     }
   }
 
-  /** Resolve a send target from the exactly-one target form. */
+  /** Resolve a send target from the explicit pair form. */
   private targetOf(request: ImRouterSendRequest): { accountId: string; conversationId: string } {
-    const hasBinding = request.bindingId !== undefined
-    const hasPair = request.accountId !== undefined || request.conversationId !== undefined
-    if (hasBinding === hasPair) {
-      throw new ImError('IM_INVALID_REQUEST', 'specify bindingId or accountId + conversationId, exactly one')
-    }
-    const bindingId = request.bindingId
-    if (bindingId !== undefined) {
-      const binding = this.bindings.binding(bindingId)
-      if (binding === undefined) throw new ImError('IM_NOT_FOUND', `unknown binding: ${bindingId}`)
-      return { accountId: binding.accountId, conversationId: binding.conversationId }
-    }
     if (request.accountId === undefined || request.conversationId === undefined) {
       throw new ImError('IM_INVALID_REQUEST', 'accountId and conversationId are both required')
     }

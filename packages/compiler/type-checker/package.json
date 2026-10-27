@@ -1,6 +1,6 @@
 {
   "name": "@veren/compiler-type-checker",
-  "version": "2.1.7",
+  "version": "2.1.8",
   "description": "Use when a build stage must resolve full type information from AST nodes and the checker has to stay from the same source as the program.",
   "private": true,
   "type": "module",

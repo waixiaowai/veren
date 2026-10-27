@@ -1,20 +1,22 @@
-import type { ImBinding } from '../src/contract.ts'
 import type {
   ImAccountRow,
-  ImBindingStore,
   ImConversationRow,
+  ImConversationSessionRow,
+  ImCoreStore,
+  ImMessageRow,
   ImPersonAddressRow,
   ImPersonIntakeRow,
   ImPersonRow,
   ImPersonStore,
 } from '../src/store.ts'
-import { conversationKey, personAddressKey } from '../src/store.ts'
+import { conversationKey, messageKey, personAddressKey } from '../src/store.ts'
 
-/** In-memory store used by router and people specs. */
-export class MemoryStore implements ImBindingStore, ImPersonStore {
+/** In-memory store used by router, queue, and people specs. */
+export class MemoryStore implements ImCoreStore, ImPersonStore {
   readonly accountRows = new Map<string, ImAccountRow>()
   readonly conversationRows = new Map<string, ImConversationRow>()
-  readonly bindingRows = new Map<string, ImBinding>()
+  readonly messageRows = new Map<string, ImMessageRow>()
+  readonly sessionRows = new Map<string, ImConversationSessionRow>()
   readonly personRows = new Map<string, ImPersonRow>()
   readonly addressRows = new Map<string, ImPersonAddressRow>()
   readonly intakeRows = new Map<string, ImPersonIntakeRow>()
@@ -57,36 +59,28 @@ export class MemoryStore implements ImBindingStore, ImPersonStore {
     }
   }
 
-  getBinding(id: string): ImBinding | undefined {
-    return this.bindingRows.get(id)
+  getMessage(provider: string, messageId: string): ImMessageRow | undefined {
+    return this.messageRows.get(messageKey(provider, messageId))
   }
 
-  bindings(): ImBinding[] {
-    return [...this.bindingRows.values()]
+  messages(): ImMessageRow[] {
+    return [...this.messageRows.values()]
   }
 
-  async putBinding(binding: ImBinding): Promise<void> {
-    this.bindingRows.set(binding.id, binding)
+  async putMessage(row: ImMessageRow): Promise<void> {
+    this.messageRows.set(messageKey(row.provider, row.message_id), row)
   }
 
-  async deleteBinding(id: string): Promise<void> {
-    this.bindingRows.delete(id)
+  getConversationSession(conversationId: string): ImConversationSessionRow | undefined {
+    return this.sessionRows.get(conversationId)
   }
 
-  async deleteBindingsOf(accountId: string): Promise<void> {
-    for (const [id, binding] of [...this.bindingRows]) {
-      if (binding.accountId === accountId) this.bindingRows.delete(id)
-    }
+  conversationSessions(): ImConversationSessionRow[] {
+    return [...this.sessionRows.values()]
   }
 
-  activeBinding(accountId: string, conversationId: string): ImBinding | undefined {
-    return this.bindings().find(item => item.accountId === accountId
-      && item.conversationId === conversationId
-      && item.active)
-  }
-
-  activeBindingOfConversation(conversationId: string): ImBinding | undefined {
-    return this.bindings().find(item => item.conversationId === conversationId && item.active)
+  async putConversationSession(row: ImConversationSessionRow): Promise<void> {
+    this.sessionRows.set(row.conversation_id, row)
   }
 
   getPerson(id: string): ImPersonRow | undefined {

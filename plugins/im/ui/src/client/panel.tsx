@@ -1,5 +1,5 @@
 /**
- * The IM panel: one shell, four tabs (accounts / bindings / people / intake).
+ * The IM panel: one shell, four tabs (accounts / conversations / people / intake).
  *
  * A presentation component fed by one observable and the inject face's
  * callbacks; it holds only view state and never touches `ctx`.
@@ -16,7 +16,7 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 import type { ImKey } from './locales.ts'
 import type { ImPanelInjected, ImSnapshot } from './remote.ts'
 import { AccountsView } from './views-accounts.tsx'
-import { BindingsView } from './views-bindings.tsx'
+import { ConversationsView } from './views-conversations.tsx'
 import { IntakeView } from './views-intake.tsx'
 import { PeopleView } from './views-people.tsx'
 
@@ -33,11 +33,11 @@ export interface ImBodyProps {
 }
 
 /** The tabs the panel switches between. */
-type Tab = 'accounts' | 'bindings' | 'people' | 'intake'
+type Tab = 'accounts' | 'conversations' | 'people' | 'intake'
 
 /** Render the page shell and resolve the framework seat once. */
 export function ImPanel(props: ImPanelProps) {
-  const state = props.useIm(snapshot => snapshot)
+  const state = props.useIm((snapshot: ImSnapshot) => snapshot)
   return <ImBody state={state} t={props.t} actions={props} />
 }
 
@@ -60,14 +60,14 @@ function ImBody(props: ImBodyProps) {
         <>
           <nav className="im-tabs" role="tablist">
             <TabButton active={tab === 'accounts'} label={t('tabAccounts')} onClick={() => setTab('accounts')} />
-            <TabButton active={tab === 'bindings'} label={t('tabBindings')} onClick={() => setTab('bindings')} />
+            <TabButton active={tab === 'conversations'} label={t('tabConversations')} onClick={() => setTab('conversations')} />
             <TabButton active={tab === 'people'} label={t('tabPeople')} onClick={() => setTab('people')} />
             <TabButton active={tab === 'intake'} label={t('tabIntake')} onClick={() => setTab('intake')} />
           </nav>
           {tab === 'accounts' && <AccountsView state={state} t={t} actions={actions} />}
-          {tab === 'bindings' && <BindingsView state={state} t={t} actions={actions} />}
+          {tab === 'conversations' && <ConversationsView state={state} t={t} actions={actions} />}
           {tab === 'people' && <PeopleView state={state} t={t} actions={actions} />}
-          {tab === 'intake' && <IntakeView state={state} t={t} />}
+          {tab === 'intake' && <IntakeView state={state} t={t} actions={actions} />}
         </>
       )}
     </div>

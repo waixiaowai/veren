@@ -4,32 +4,30 @@
  * `im` domain (`store-rows.ts`), and the `ImStorage` implementation
  * (`store-storage.ts`).
  *
- * The active-pointer invariant is enforced by the router inside one serialized
- * write, because the KV domain has no partial unique index.
- *
  * 持久化的 IM 表：路由与人员目录面向编程的存储接缝，外加行形状、`im` 域（`store-rows.ts`）
  * 与 `ImStorage` 实现（`store-storage.ts`）的原样再导出面。
- *
- * active 指针不变量由路由层在同一个串行写事务里维护，因为 KV 域没有部分唯一索引。
  *
  * @module @veren/im/store
  */
 
-import type { ImBinding } from './contract.ts'
 import type {
-  ImAccountRow, ImConversationRow, ImPersonAddressRow, ImPersonIntakeRow, ImPersonRow,
+  ImAccountRow, ImConversationRow, ImConversationSessionRow, ImMessageRow, ImPersonAddressRow,
+  ImPersonIntakeRow, ImPersonRow,
 } from './store-rows.ts'
 
 // ---- unchanged export surface (rows/domain moved to store-rows.ts) ----
 // ---- 导出面不变（行形状与域移至 store-rows.ts）----
 export {
-  IM_DOMAIN_NAME, conversationKey, imDomain, parseSettings, personAddressKey,
+  IM_DOMAIN_NAME, conversationKey, imDomain, messageKey, personAddressKey,
 } from './store-rows.ts'
 export type {
   ImAccountRow,
   ImBindingRow,
   ImConversationRow,
+  ImConversationSessionRow,
   ImIntakeStatus,
+  ImMessageRow,
+  ImMessageStatus,
   ImPersonAddressRow,
   ImPersonIntakeRow,
   ImPersonRow,
@@ -39,8 +37,8 @@ export { ImStorage } from './store-storage.ts'
 
 /**
  * Storage seam for the people directory. Kept separate from
- * {@link ImBindingStore} so binding tests do not implement people persistence.
- * 人员目录的存储缝隙。与 {@link ImBindingStore} 分开，绑定测试无需实现人员持久化。
+ * {@link ImCoreStore} so queue tests do not implement people persistence.
+ * 人员目录的存储缝隙。与 {@link ImCoreStore} 分开，队列测试无需实现人员持久化。
  */
 export interface ImPersonStore {
   getPerson(id: string): ImPersonRow | undefined
@@ -63,8 +61,15 @@ export interface ImPersonStore {
   deleteIntake(personId: string): Promise<void>
 }
 
-/** Storage seam the router needs; tests provide an in-memory implementation. */
-export interface ImBindingStore {
+/**
+ * Storage seam for accounts, conversations, the inbound message queue, and the
+ * private conversation → session map. Renamed from `ImBindingStore` when the
+ * binding mechanism was deleted (2.1.8): the queue and the session map are the
+ * residents now.
+ * 账号、会话、入站消息队列与私有会话映射的存储接缝。绑定机制删除（2.1.8）时由
+ * `ImBindingStore` 更名而来：如今的住户是队列与会话映射。
+ */
+export interface ImCoreStore {
   getAccount(id: string): ImAccountRow | undefined
   accounts(): ImAccountRow[]
   putAccount(row: ImAccountRow): Promise<void>
@@ -74,13 +79,12 @@ export interface ImBindingStore {
   putConversation(row: ImConversationRow): Promise<void>
   deleteConversation(accountId: string, conversationId: string): Promise<void>
   deleteConversationsOf(accountId: string): Promise<void>
-  getBinding(id: string): ImBinding | undefined
-  bindings(): ImBinding[]
-  putBinding(binding: ImBinding): Promise<void>
-  deleteBinding(id: string): Promise<void>
-  deleteBindingsOf(accountId: string): Promise<void>
-  activeBinding(accountId: string, conversationId: string): ImBinding | undefined
-  /** 会话作用域的 active 绑定（跨账号；bot 重配对后 account 漂移时由 retarget 使用）。
-   * / the conversation-scoped active binding (cross-account; used by retarget after a bot re-pairing drifts the account). */
-  activeBindingOfConversation(conversationId: string): ImBinding | undefined
+  /** One queued message by its provider-scoped id. */
+  getMessage(provider: string, messageId: string): ImMessageRow | undefined
+  messages(): ImMessageRow[]
+  putMessage(row: ImMessageRow): Promise<void>
+  /** The private conversation → session map, keyed by conversation id alone. */
+  getConversationSession(conversationId: string): ImConversationSessionRow | undefined
+  conversationSessions(): ImConversationSessionRow[]
+  putConversationSession(row: ImConversationSessionRow): Promise<void>
 }

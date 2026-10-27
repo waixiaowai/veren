@@ -122,7 +122,6 @@ function setup(options: {
     people,
     logger: silent,
     config: {
-      autoCreateSession: false,
       strangerIntake: {
         enabled: options.enabled ?? true,
         replyWindowMs: options.replyWindowMs ?? 120_000,

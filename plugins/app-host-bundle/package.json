@@ -1,7 +1,7 @@
 {
   "name": "@veren/app-host-bundle",
   "displayName": "App Host Bundle",
-  "version": "2.1.7",
+  "version": "2.1.8",
   "description": "Use when a DSH profile needs the whole Veren application framework installed and composed in one step: this configuration-only bundle inserts the three host services (app registry, page registry, task center) and the app-host assembly row in dependency order, and its member plugins ship as plain dependencies without bundle declarations of their own, so this patch is the stack's only profile layer. Skip it when you prefer composing these loader rows in your own patch.",
   "type": "module",
   "engines": {

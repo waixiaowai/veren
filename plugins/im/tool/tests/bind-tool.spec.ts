@@ -40,7 +40,7 @@ function setup() {
     credentials: { async remove() {} },
     people,
     logger,
-    config: { autoCreateSession: false },
+    config: {},
   })
   const tools = new ToolTable()
   ctx.provide('tools', tools)

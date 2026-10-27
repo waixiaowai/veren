@@ -15,7 +15,7 @@
 import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
-import type { ImBinding, ImBindingSettings, ImConversation, ImPersonClaim, ImPersonContact } from './contract.ts'
+import type { ImConversation, ImPersonClaim, ImPersonContact } from './contract.ts'
 
 /** One `im_accounts` row. `status` is intentionally absent. */
 export interface ImAccountRow {
@@ -109,6 +109,45 @@ export interface ImPersonIntakeRow {
   reply_excerpt?: string
 }
 
+/**
+ * One `im_messages` row: the durable inbound queue. `message_id` is unique per
+ * provider; the row is the idempotency key, the ordering record, and the audit
+ * trail — every message reaches a terminal state (`replied` / `failed` /
+ * `dead`) and none is ever silently dropped.
+ * 一行 `im_messages`：持久化的入站队列。`message_id` 在 provider 内唯一；这一行既是幂等键，
+ * 也是顺序记录与审计轨迹——每条消息都到达终态（`replied` / `failed` / `dead`），绝无静默丢弃。
+ */
+export interface ImMessageRow {
+  message_id: string
+  provider: string
+  account_id: string
+  conversation_id: string
+  sender: string
+  text: string
+  received_at: number
+  status: ImMessageStatus
+  attempts: number
+  updated_at: number
+  /** One-line excerpt of the reply, kept for the audit view. */
+  reply_excerpt?: string
+}
+
+/** Lifecycle of one queued inbound message. */
+export type ImMessageStatus = 'queued' | 'consuming' | 'replied' | 'failed' | 'dead'
+
+/**
+ * One `im_conversation_sessions` row: the private conversation → session map.
+ * Keyed by conversation id alone — the account drifts on a bot re-pairing while
+ * the conversation id stays stable, so this map needs no migration.
+ * 一行 `im_conversation_sessions`：私有的会话 → Session 映射。只按 conversation_id 键控——
+ * bot 重配对时 account 漂移而会话 id 稳定，因此这张表无需迁移。
+ */
+export interface ImConversationSessionRow {
+  conversation_id: string
+  session_id: string
+  updated_at: number
+}
+
 const accountSchema = z.object({
   id: z.string().min(1),
   provider: z.string().min(1),
@@ -124,12 +163,37 @@ const conversationSchema = z.object({
 })
 
 const bindingSchema = z.object({
+  // 休眠表：绑定机制已删除（2.1.8），定义保留只为打开含此表的旧存储文件不报错；
+  // 没有任何代码路径再读写它。
+  // Dormant table: the binding mechanism is gone (2.1.8); the definition stays
+  // only so older storage files that carry the table still open. No code path
+  // reads or writes it anymore.
   id: z.string().min(1),
   account_id: z.string().min(1),
   conversation_id: z.string().min(1),
   session_id: z.string().min(1),
   active: z.boolean(),
   settings_json: z.string(),
+})
+
+const messageSchema = z.object({
+  message_id: z.string().min(1),
+  provider: z.string().min(1),
+  account_id: z.string().min(1),
+  conversation_id: z.string().min(1),
+  sender: z.string(),
+  text: z.string(),
+  received_at: z.number(),
+  status: z.enum(['queued', 'consuming', 'replied', 'failed', 'dead']),
+  attempts: z.number(),
+  updated_at: z.number(),
+  reply_excerpt: z.string().optional(),
+})
+
+const conversationSessionSchema = z.object({
+  conversation_id: z.string().min(1),
+  session_id: z.string().min(1),
+  updated_at: z.number(),
 })
 
 const contactSchema = z.object({
@@ -203,6 +267,8 @@ export const imDomain = defineDomain({
     accounts: domainTable<string, ImAccountRow>(accountSchema),
     conversations: domainTable<string, ImConversationRow>(conversationSchema),
     bindings: domainTable<string, ImBindingRow>(bindingSchema),
+    messages: domainTable<string, ImMessageRow>(messageSchema),
+    conversation_sessions: domainTable<string, ImConversationSessionRow>(conversationSessionSchema),
     people: domainTable<string, ImPersonRow>(personSchema),
     person_addresses: domainTable<string, ImPersonAddressRow>(personAddressSchema),
     person_intakes: domainTable<string, ImPersonIntakeRow>(intakeSchema),
@@ -230,48 +296,8 @@ export function personAddressKey(provider: string, accountId: string, externalId
   return `${provider}\u0000${accountId}\u0000${externalId}`
 }
 
-/**
- * Parse stored settings without letting a malformed row break the router.
- * @param json - serialized settings.
- * @returns the settings object, or an empty object.
- */
-export function parseSettings(json: string): ImBindingSettings {
-  try {
-    const value: unknown = JSON.parse(json)
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
-    const record = value as Record<string, unknown>
-    const settings: ImBindingSettings = {}
-    for (const key of ['presetId', 'provider', 'model', 'reasoning'] as const) {
-      const field = record[key]
-      if (typeof field === 'string' && field.length > 0) settings[key] = field
-    }
-    return settings
-  } catch {
-    // A malformed settings row degrades to defaults instead of hiding the binding.
-    return {}
-  }
-}
-
-/** Project one storage row onto the public binding model. */
-export function toBinding(row: ImBindingRow): ImBinding {
-  return {
-    id: row.id,
-    accountId: row.account_id,
-    conversationId: row.conversation_id,
-    sessionId: row.session_id,
-    active: row.active,
-    settings: parseSettings(row.settings_json),
-  }
-}
-
-/** Serialize the public binding model into one storage row. */
-export function toRow(binding: ImBinding): ImBindingRow {
-  return {
-    id: binding.id,
-    account_id: binding.accountId,
-    conversation_id: binding.conversationId,
-    session_id: binding.sessionId,
-    active: binding.active,
-    settings_json: JSON.stringify(binding.settings),
-  }
+/** Stable key for one queued message: provider-scoped message ids. */
+/** 一条排队消息的稳定键：message_id 在 provider 内唯一。 */
+export function messageKey(provider: string, messageId: string): string {
+  return `${provider}\u0000${messageId}`
 }

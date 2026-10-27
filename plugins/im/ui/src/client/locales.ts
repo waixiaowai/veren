@@ -19,13 +19,14 @@ export const NS = 'im'
 /** Every key the IM page can render. */
 export type ImKey =
   | 'panel' | 'panelSubtitle' | 'refresh' | 'loading' | 'failed' | 'retry'
-  | 'tabAccounts' | 'tabBindings' | 'tabPeople' | 'tabIntake'
+  | 'tabAccounts' | 'tabConversations' | 'tabPeople' | 'tabIntake'
   | 'accounts' | 'noAccounts' | 'provider' | 'statusOnline' | 'statusOffline' | 'bindWechat'
   | 'bindTitle' | 'bindScanHint' | 'bindPending' | 'bindScanned' | 'bindNeedsCode' | 'bindBound'
   | 'bindExpired' | 'bindFailed' | 'bindQrMissing' | 'codePlaceholder' | 'submitCode' | 'closeWizard'
-  | 'bindings' | 'noBindings' | 'bindingsHint' | 'conversation' | 'session' | 'active' | 'inactive'
-  | 'unbindBinding' | 'unbindAccount' | 'confirmUnbindAccount' | 'unlinked' | 'noUnlinked'
-  | 'unlinkedHint' | 'connect' | 'people' | 'noPeople' | 'peopleHint' | 'unverifiedClaim'
+  | 'unbindAccount' | 'confirmUnbindAccount'
+  | 'conversations' | 'noConversations' | 'conversationsHint' | 'pendingSuffix'
+  | 'statusQueued' | 'statusConsuming' | 'statusReplied' | 'statusFailed' | 'statusDead'
+  | 'people' | 'noPeople' | 'peopleHint' | 'unverifiedClaim'
   | 'unnamedPerson' | 'rename' | 'renamePlaceholder' | 'save' | 'cancel'
   | 'intake' | 'intakeOn' | 'intakeOff' | 'intakeCounts' | 'intakeRecent' | 'noIntakeRows'
   | 'askedAt' | 'intakePerson' | 'errorPrefix'
@@ -39,7 +40,7 @@ export const zh: Record<ImKey, string> = {
   failed: '读取失败',
   retry: '重试',
   tabAccounts: '账号',
-  tabBindings: '绑定',
+  tabConversations: '会话',
   tabPeople: '人员',
   tabIntake: '采集',
   accounts: '账号',
@@ -60,20 +61,17 @@ export const zh: Record<ImKey, string> = {
   codePlaceholder: '手机上显示的验证码',
   submitCode: '提交验证码',
   closeWizard: '收起',
-  bindings: '会话绑定',
-  noBindings: '还没有会话绑定。',
-  bindingsHint: '一条绑定把一个微信会话接进一个 DSH 会话；同会话的旧绑定自动让位。',
-  conversation: '微信会话',
-  session: 'DSH 会话',
-  active: '接收中',
-  inactive: '已停用',
-  unbindBinding: '解绑',
   unbindAccount: '移除账号',
-  confirmUnbindAccount: '再点一次确认移除（连同凭据与全部绑定）',
-  unlinked: '未接入的会话',
-  noUnlinked: '所有见过的会话都已接入。',
-  unlinkedHint: '接入后会自动新建一个 DSH 会话，微信消息随之进来。',
-  connect: '接入',
+  confirmUnbindAccount: '再点一次确认移除（连同凭据与会话记录）',
+  conversations: '会话',
+  noConversations: '还没有会话记录。',
+  conversationsHint: '每个微信会话由网关私有一个 DSH 会话；消息排队处理，按序回复。',
+  pendingSuffix: '条排队中',
+  statusQueued: '排队中',
+  statusConsuming: '处理中',
+  statusReplied: '已回复',
+  statusFailed: '重试中',
+  statusDead: '已放弃',
   people: '人员目录',
   noPeople: '还没有人员记录。',
   peopleHint: '发来消息的陌生人会自动收录；名字与联系方式可由采集对话或手动补全。',
@@ -103,7 +101,7 @@ export const en: Record<ImKey, string> = {
   failed: 'Failed to load',
   retry: 'Retry',
   tabAccounts: 'Accounts',
-  tabBindings: 'Bindings',
+  tabConversations: 'Conversations',
   tabPeople: 'People',
   tabIntake: 'Intake',
   accounts: 'Accounts',
@@ -124,20 +122,17 @@ export const en: Record<ImKey, string> = {
   codePlaceholder: 'Code shown on the phone',
   submitCode: 'Submit code',
   closeWizard: 'Close',
-  bindings: 'Conversation bindings',
-  noBindings: 'No conversation binding yet.',
-  bindingsHint: 'One binding wires one WeChat conversation into one DSH Session; older bindings on the same conversation step aside automatically.',
-  conversation: 'WeChat conversation',
-  session: 'DSH Session',
-  active: 'receiving',
-  inactive: 'inactive',
-  unbindBinding: 'Unbind',
   unbindAccount: 'Remove account',
-  confirmUnbindAccount: 'Press again to confirm (credential and all bindings go too)',
-  unlinked: 'Unlinked conversations',
-  noUnlinked: 'Every conversation seen so far is linked.',
-  unlinkedHint: 'Linking creates a DSH Session automatically; WeChat messages then flow in.',
-  connect: 'Link',
+  confirmUnbindAccount: 'Press again to confirm (credential and conversation records go too)',
+  conversations: 'Conversations',
+  noConversations: 'No conversation recorded yet.',
+  conversationsHint: 'The gateway privately holds one DSH session per WeChat conversation; messages queue up and are answered in order.',
+  pendingSuffix: 'queued',
+  statusQueued: 'queued',
+  statusConsuming: 'processing',
+  statusReplied: 'replied',
+  statusFailed: 'retrying',
+  statusDead: 'given up',
   people: 'People directory',
   noPeople: 'No person recorded yet.',
   peopleHint: 'Strangers who message in are recorded automatically; names and contacts fill in through the intake chat or by hand.',

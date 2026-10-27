@@ -149,22 +149,16 @@ export interface ImSendResult {
   uncertain?: boolean
 }
 
-/** Per-binding agent settings. */
-export interface ImBindingSettings {
+/**
+ * Per-conversation agent settings. Bindings are gone (2.1.8): the shape stays
+ * because session creation and the model tools still speak it.
+ * 按会话的 agent 设置。绑定已删除（2.1.8）：会话创建与模型工具仍使用该形状，故类型保留。
+ */
+export type ImBindingSettings = {
   presetId?: string
   provider?: string
   model?: string
   reasoning?: string
-}
-
-/** One conversation-to-session binding. */
-export interface ImBinding {
-  id: string
-  accountId: string
-  conversationId: string
-  sessionId: string
-  active: boolean
-  settings: ImBindingSettings
 }
 
 /**

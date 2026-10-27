@@ -6,7 +6,6 @@
  * @module @veren/im-ui/client/views-intake
  */
 
-import type { ImKey } from './locales.ts'
 import type { ImBodyProps } from './panel.tsx'
 
 /** The intake tab body. */
