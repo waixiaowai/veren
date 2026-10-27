@@ -16,7 +16,7 @@ import type { CmsAddress, CmsOverview, CmsPerson, CmsSession } from './cms.ts'
 import { forgetSession, login, overview, patchPerson, people, restoreSession } from './cms.ts'
 
 /** 默认 CMS 源（本机开发形态；正式部署填公网源）。 */
-const DEFAULT_ORIGIN = 'http://127.0.0.1:8080'
+const DEFAULT_ORIGIN = 'https://veren.top'
 
 type Translate = (key: CloudKey) => string
 
