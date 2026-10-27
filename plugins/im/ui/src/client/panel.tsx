@@ -42,7 +42,7 @@ export function ImPanel(props: ImPanelProps) {
 /** The page body: title, refresh, error line, tab bar, and the active view. */
 function ImBody(props: ImBodyProps) {
   const { state, t, actions } = props
-  const [tab, setTab] = useState<Tab>('accounts')
+  const [tab, setTab] = useState<Tab>('cloud')
   return (
     <div className="im-page">
       <header className="im-head">
