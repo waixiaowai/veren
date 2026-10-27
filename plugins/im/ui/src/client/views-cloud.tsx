@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import type { ImSnapshot } from './remote.ts'
 import type { CmsAddress, CmsOverview, CmsPerson, CmsSession } from './cms.ts'
 import { forgetSession, login, overview, patchPerson, people, restoreSession } from './cms.ts'
 
@@ -37,8 +38,9 @@ type SignInState = {
 }
 
 /** The cloud tab view: sign-in card or the signed-in home. */
-export function CloudView(props: { t: Translate }): JSX.Element {
+export function CloudView(props: { state: ImSnapshot; t: Translate }): JSX.Element {
   const t = props.t
+  const pending = props.state.catalog.conversations.reduce((sum, entry) => sum + entry.pending, 0)
   const [origin, setOrigin] = useState(DEFAULT_ORIGIN)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -62,6 +64,7 @@ export function CloudView(props: { t: Translate }): JSX.Element {
       <section className="im-section">
         <h3 className="im-heading">{t('cloudLogin' as CloudKey) === '' ? '' : t('cloudSubtitle' as CloudKey)}</h3>
         <p className="im-muted">{t('cloudCredentialNote' as CloudKey)}</p>
+        <p className="im-muted">设备队列 pending：{pending}</p>
         <form
           className="im-card"
           onSubmit={event => { event.preventDefault(); if (!state.submitting) void submit() }}
@@ -174,6 +177,7 @@ function CloudHome(props: {
   return (
     <section className="im-section">
       <div className="im-row">
+        <span className="im-status">设备队列 pending：{props.pending} · </span>
         <span className="im-status">
           {info === undefined
             ? '…'
