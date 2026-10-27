@@ -39,36 +39,56 @@ export interface HubRouted {
   contextToken?: string
 }
 
-/** Run the QR authorization flow and persist the confirmed credentials. */
+/** How many QR rounds the authorize flow mints before giving up. */
+/** 授权流程最多刷新的二维码张数。 */
+const MAX_QR_ROUNDS = 12
+
+/**
+ * Run the QR authorization flow and persist the confirmed credentials. An
+ * expired QR mints a fresh one automatically — the user scans whenever they
+ * are ready instead of racing a 3-minute window.
+ * 运行二维码授权流程并持久化确认后的凭据。过期的二维码自动换新——用户随时扫，
+ * 不用抢 3 分钟窗口。
+ */
 export async function authorize(config: HubConfig): Promise<HubCredentials> {
   const api = new WechatApi({ baseUrl: config.baseUrl })
-  const login = await api.beginLogin()
-  const png = join(config.dataDir, 'qr.png')
-  await qrcode.toFile(png, login.qrUrl)
-  console.log(`二维码已写出：${png} —— 用微信扫一扫并在手机上确认`)
-  let code: string | undefined
-  for (;;) {
-    let status
-    try {
-      status = await api.pollLogin(login.qrcode, code)
-    } catch (error: unknown) {
-      if (error instanceof WechatTimeoutError) continue
-      throw error
+  for (let round = 1; round <= MAX_QR_ROUNDS; round += 1) {
+    const login = await api.beginLogin()
+    const png = join(config.dataDir, 'qr.png')
+    await qrcode.toFile(png, login.qrUrl)
+    console.log(`[${new Date().toISOString()}] 二维码已刷新（第 ${round}/${MAX_QR_ROUNDS} 张）：${png}`)
+    let code: string | undefined
+    for (;;) {
+      let status
+      try {
+        status = await api.pollLogin(login.qrcode, code)
+      } catch (error: unknown) {
+        if (error instanceof WechatTimeoutError) continue
+        throw error
+      }
+      if (status.status === 'need_verifycode') {
+        code = prompt('手机上显示了验证码，输入后回车：')
+        continue
+      }
+      if (status.status === 'confirmed') {
+        const credentials = confirmedOf(status)
+        writeCredentials(credentialsFile(config), credentials)
+        console.log(`授权成功：bot=${credentials.ilinkBotId} owner=${credentials.ownerId}`)
+        return credentials
+      }
+      if (status.status === 'expired') {
+        console.log('二维码已过期，自动换新…')
+        break
+      }
+      if (status.status === 'verify_code_blocked') {
+        throw new ImError('IM_AUTH_REQUIRED', '验证码被拒绝，请稍后重试')
+      }
+      if (status.status === 'binded_redirect') {
+        throw new ImError('IM_AUTH_REQUIRED', '该微信已绑定到别处（一号一会话）')
+      }
     }
-    if (status.status === 'need_verifycode') {
-      code = prompt('手机上显示了验证码，输入后回车：')
-      continue
-    }
-    if (status.status === 'confirmed') {
-      const credentials = confirmedOf(status)
-      writeCredentials(credentialsFile(config), credentials)
-      console.log(`授权成功：bot=${credentials.ilinkBotId} owner=${credentials.ownerId}`)
-      return credentials
-    }
-    if (status.status === 'expired') throw new ImError('IM_BIND_EXPIRED', '二维码已过期，请重新执行 authorize')
-    if (status.status === 'verify_code_blocked') throw new ImError('IM_AUTH_REQUIRED', '验证码被拒绝，请稍后重试')
-    if (status.status === 'binded_redirect') throw new ImError('IM_AUTH_REQUIRED', '该微信已绑定到别处（一号一会话）')
   }
+  throw new ImError('IM_BIND_EXPIRED', `二维码连续 ${MAX_QR_ROUNDS} 张过期，放弃授权`)
 }
 
 /** Start the long-poll loop; returns a stop function. */
