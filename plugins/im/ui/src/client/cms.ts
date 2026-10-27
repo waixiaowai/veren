@@ -1,0 +1,127 @@
+/**
+ * Browser-side client for the CMS user plane (`/v1/im/user/*`).
+ *
+ * Credentials never touch the Host: the panel exchanges email+password for a
+ * Bearer JWT at `POST /v1/auth/jwt` (T22 facility) and keeps it in
+ * sessionStorage — the credential tracks stay separated (device key on the
+ * device plane inside the Host config; user JWT here only).
+ *
+ * 浏览器侧 CMS 用户面客户端。
+ *
+ * 凭据不经宿主：面板以邮箱+密码在 `POST /v1/auth/jwt`（T22 既有设施）换 Bearer JWT，
+ * 存 sessionStorage——凭据分轨（设备 Key 留在宿主 config 走设备面；用户 JWT 只在这里）。
+ *
+ * @module @veren/im-ui/client/cms
+ */
+
+/** One person row as the user plane returns it. */
+export interface CmsPerson {
+  readonly id: string
+  readonly owner_id: string
+  readonly display_name: string
+  readonly claimed_name: string
+  readonly identity_status: string
+  readonly note: string
+  readonly updated_at: number
+}
+
+/** One address binding row. */
+export interface CmsAddress {
+  readonly person_id: string
+  readonly provider: string
+  readonly external_id: string
+  readonly display_name: string
+  readonly updated_at: number
+}
+
+/** GET /v1/im/user/overview projection. */
+export interface CmsOverview {
+  readonly session_authorized: boolean
+  readonly bot_id: string
+  readonly owner_id: string
+  readonly messages: number
+  readonly people: number
+}
+
+/** The signed-in session: origin + token (sessionStorage-backed). */
+export interface CmsSession {
+  readonly origin: string
+  readonly token: string
+}
+
+const storageKey = (origin: string) => `im-cms-token:${origin}`
+
+/** Restore a stored token for this origin, if any. */
+export function restoreSession(origin: string): CmsSession | undefined {
+  try {
+    const token = sessionStorage.getItem(storageKey(origin))
+    return token === null ? undefined : { origin, token }
+  } catch {
+    return undefined
+  }
+}
+
+export function forgetSession(origin: string): void {
+  try {
+    sessionStorage.removeItem(storageKey(origin))
+  } catch {
+    // sessionStorage 不可用（隐私模式）即无处可恢复 / nothing to restore without sessionStorage
+  }
+}
+
+/** Exchange email+password for a Bearer JWT and remember it. */
+export async function login(origin: string, email: string, password: string): Promise<CmsSession> {
+  const response = await fetch(`${origin.replace(/\/+$/, '')}/v1/auth/jwt`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  const body = await response.json() as { code: number; message?: string; data?: { access_token?: string } }
+  if (body.code !== 0 || body.data?.access_token === undefined) {
+    throw new Error(body.message ?? `登录失败（${body.code}）`)
+  }
+  const session = { origin: origin.replace(/\/+$/, ''), token: body.data.access_token }
+  try {
+    sessionStorage.setItem(storageKey(session.origin), session.token)
+  } catch {
+    // 存不了就只在内存里用到页面关闭 / memory-only when storage is unavailable
+  }
+  return session
+}
+
+/** CMS 平台信封的窄投影。 */
+interface Envelope<T> {
+  code: number
+  message?: string
+  data?: T
+}
+
+async function call<T>(session: CmsSession, path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${session.origin}${path}`, {
+    ...init,
+    headers: { authorization: `Bearer ${session.token}`, 'content-type': 'application/json', ...init?.headers },
+  })
+  const body = await response.json() as Envelope<T>
+  if (body.code !== 0 || body.data === undefined) {
+    throw new Error(body.message ?? `CMS ${path} 失败（${body.code}）`)
+  }
+  return body.data
+}
+
+/** 用户面概览：会话存活 + 消息/人员计数。 */
+export function overview(session: CmsSession): Promise<CmsOverview> {
+  return call<CmsOverview>(session, '/v1/im/user/overview')
+}
+
+/** 人员目录（含地址绑定）。 */
+export function people(session: CmsSession): Promise<{ people: CmsPerson[]; addresses: Record<string, CmsAddress[]> }> {
+  return call(session, '/v1/im/user/people')
+}
+
+/** 改名/备注（空串 = 保持原值）。 */
+export function patchPerson(session: CmsSession, personId: string, patch: { displayName?: string; note?: string }): Promise<void> {
+  return call(session, `/v1/im/user/people/${encodeURIComponent(personId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ display_name: patch.displayName ?? '', note: patch.note ?? '' }),
+  }).then(() => undefined)
+}

@@ -18,6 +18,7 @@ import type { ImPanelInjected, ImSnapshot } from './remote.ts'
 import { AccountsView } from './views-accounts.tsx'
 import { ConversationsView } from './views-conversations.tsx'
 import { IntakeView } from './views-intake.tsx'
+import { CloudView } from './views-cloud.tsx'
 import { PeopleView } from './views-people.tsx'
 
 /** Props of {@link ImPanel}, derived from the framework shares. */
@@ -33,7 +34,7 @@ export interface ImBodyProps {
 }
 
 /** The tabs the panel switches between. */
-type Tab = 'accounts' | 'conversations' | 'people' | 'intake'
+type Tab = 'accounts' | 'conversations' | 'people' | 'intake' | 'cloud'
 
 /** Render the page shell and resolve the framework seat once. */
 export function ImPanel(props: ImPanelProps) {
@@ -63,10 +64,12 @@ function ImBody(props: ImBodyProps) {
             <TabButton active={tab === 'conversations'} label={t('tabConversations')} onClick={() => setTab('conversations')} />
             <TabButton active={tab === 'people'} label={t('tabPeople')} onClick={() => setTab('people')} />
             <TabButton active={tab === 'intake'} label={t('tabIntake')} onClick={() => setTab('intake')} />
+            <TabButton active={tab === 'cloud'} label="云端" onClick={() => setTab('cloud')} />
           </nav>
           {tab === 'accounts' && <AccountsView state={state} t={t} actions={actions} />}
           {tab === 'conversations' && <ConversationsView state={state} t={t} actions={actions} />}
           {tab === 'people' && <PeopleView state={state} t={t} actions={actions} />}
+          {tab === 'cloud' && <CloudView t={key => t(key as ImKey)} />}
           {tab === 'intake' && <IntakeView state={state} t={t} actions={actions} />}
         </>
       )}
