@@ -15,10 +15,12 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { DomainHubCursorStore } from './store.ts'
+import { HubDirectory } from './directory.ts'
 import { HubProvider, HUB_FEATURES } from './provider.ts'
 
 export { HUB_FEATURES, HubProvider } from './provider.ts'
 export { DomainHubCursorStore, hubDomain } from './store.ts'
+export { HubDirectory } from './directory.ts'
 
 /** Plugin name. */
 export const name = 'imHub'
@@ -74,6 +76,13 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
     features: HUB_FEATURES,
     service: provider,
   }), 'im-hub:register')
+  // 人员身份归云（归属表第 4 行）：挂云端目录缝——观察上报 + 首拉采纳进本地缓存。
+  // People identity lives on the cloud (data-home row 4): attach the cloud
+  // directory seam — observations push upstream, the first pull adopts locally.
+  ctx.effect(() => ctx.im.attachDirectory(
+    new HubDirectory({ hubBaseUrl: config.hubBaseUrl, apiKey: config.apiKey }),
+    { provider: 'hub', accountId: config.deviceId },
+  ), 'im-hub:directory')
   ctx.effect(() => {
     void provider.start()
     return () => provider.stop()

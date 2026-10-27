@@ -1,3 +1,4 @@
+import type { ImPeople } from './people.ts'
 /**
  * Provider-neutral IM contract and registry.
  * Providers implement ImService and register one ImProvider; the host routes
@@ -223,6 +224,50 @@ export function imCredentialKey(accountId: string): CredentialKey {
 }
 
 /**
+ * The cloud directory seam (data-home ADR row 4): people identity lives on the
+ * hub; a device pushes observations upstream and adopts the snapshot into its
+ * local cache. Optional — absent, the directory stays device-local (the
+ * direct-WeChat single-machine shape).
+ * 云端目录缝（归属表第 4 行）：人员身份归 hub；设备把观察上报上游并把快照采纳进本地
+ * 缓存。可选——缺席时目录保持设备本地（直连微信单机形态不回归）。
+ */
+export interface ImDirectoryUpsert {
+  provider: string
+  externalId: string
+  displayName?: string
+  claimedName?: string
+  identityStatus?: string
+  note?: string
+}
+
+/** The hub wire shapes (snake_case, mirrored from the CMS user/device plane). */
+export interface ImDirectorySnapshot {
+  people: Array<{
+    id: string
+    owner_id: string
+    display_name: string
+    claimed_name: string
+    identity_status: string
+    note: string
+    updated_at: number
+  }>
+  addresses: Record<string, Array<{
+    person_id: string
+    provider: string
+    external_id: string
+    display_name: string
+    updated_at: number
+  }>>
+}
+
+export interface ImDirectoryRemote {
+  /** Push one observation upstream; idempotent by (provider, externalId). */
+  upsert(entry: ImDirectoryUpsert): Promise<void>
+  /** Pull the whole directory snapshot (device read-cache refresh). */
+  pull(): Promise<ImDirectorySnapshot>
+}
+
+/**
  * Registry of provider descriptors.
  *
  * `register` also subscribes the provider's inbound listener to the router; the
@@ -231,6 +276,7 @@ export function imCredentialKey(accountId: string): CredentialKey {
 export class ImRegistry extends Service {
   static provide = ImToken
   private readonly providers = new Map<string, { provider: ImProvider; unlisten: () => void }>()
+  private directory?: ImDirectoryRemote
   /**
    * @param ctx - owning Cordis context.
    * @param onMessage - router callback receiving every inbound message.
@@ -241,8 +287,46 @@ export class ImRegistry extends Service {
     ctx: Context,
     private readonly onMessage: ImMessageHandler,
     private readonly onRegistered?: (provider: ImProvider) => void,
+    private readonly people?: ImPeople,
   ) {
     super(ctx, ImToken)
+  }
+  /**
+   * Attach the cloud directory (the hub-backed `ImDirectoryRemote`): people
+   * observation pushes upstream, and the pulled snapshot is adopted into the
+   * local people cache (when the registry was built with the people layer).
+   * The disposer detaches — uninstall runs it in reverse order.
+   * 挂接云端目录（hub 提供的 `ImDirectoryRemote`）：人员观察上报上游，拉到的快照由
+   * 人员层采纳进本地缓存（registry 以 people 层构建时）。解除器即卸载——逆序清理。
+   */
+  attachDirectory(
+    remote: ImDirectoryRemote,
+    channel: { provider: string; accountId: string },
+  ): Disposable {
+    this.directory = remote
+    void remote.pull()
+      .then(async snapshot => {
+        const adopted = await this.people?.adoptRemote(snapshot, channel)
+        this.ctx.logger?.info?.(
+          `[im:directory] snapshot adopted: ${adopted ?? 0} address(es) on ${channel.provider}/${channel.accountId}`,
+        )
+      })
+      .catch((error: unknown) => {
+        // 首拉失败不打断通道，但必须留痕——静默吞掉只会变成查不到的悬案。
+        // A failed first pull never blocks the channel, but it must leave a
+        // trace — swallowing it silently only creates an unsolvable mystery.
+        this.ctx.logger?.warn?.(
+          `[im:directory] first pull failed (observations still push upstream): ${
+            error instanceof Error ? error.message : String(error)}`,
+        )
+      })
+    return () => {
+      if (this.directory === remote) this.directory = undefined
+    }
+  }
+  /** The attached cloud directory, when a hub plugin provided one. */
+  directoryRemote(): ImDirectoryRemote | undefined {
+    return this.directory
   }
   /**
    * Register one provider and subscribe its listener.

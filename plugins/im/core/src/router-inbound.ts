@@ -80,8 +80,11 @@ export class RouterInbound {
     void this.ackIfBusy(key, providerId, message)
     await this.serialize(key, async () => {
       // Directory bookkeeping must never drop a message: a storage failure is
-      // reported, then routing proceeds.
-      // 目录记账绝不能丢消息：存储失败只记日志，路由继续。
+      // reported, then routing proceeds. When a cloud directory is attached the
+      // observation also pushes upstream (fire-and-forget — a hub failure never
+      // blocks the inbound path; the local store stays the read cache).
+      // 目录记账绝不能丢消息：存储失败只记日志，路由继续。挂了云端目录时观察同时
+      // 上报（fire-and-forget——hub 故障绝不阻塞入站路径；本地存储仍是读缓存）。
       let person: ImPersonView | undefined
       try {
         person = await this.people.observeMessage(providerId, message)
@@ -89,6 +92,18 @@ export class RouterInbound {
         this.logger.error(
           `[im:${providerId}] inbound sender could not be recorded in the people directory: ${errorMessage(error)}`,
         )
+      }
+      const remote = this.registry.directoryRemote()
+      if (remote !== undefined && person !== undefined) {
+        void remote.upsert({
+          provider: providerId,
+          externalId: message.sender.id,
+          displayName: person.displayName,
+          ...(person.claimedName === undefined ? {} : { claimedName: person.claimedName }),
+          ...(person.identityStatus === undefined ? {} : { identityStatus: person.identityStatus }),
+        }).catch((error: unknown) => {
+          this.logger.warn(`[im:${providerId}] directory upsert failed: ${errorMessage(error)}`)
+        })
       }
       // Intake runs before the drain and owns its own failure containment: the
       // fixed question is not an agent turn.

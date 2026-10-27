@@ -34,7 +34,7 @@
 
 import { defineToken } from '@veren/core'
 import { ImError } from './contract.ts'
-import type { ImMessage } from './contract.ts'
+import type { ImDirectorySnapshot, ImMessage } from './contract.ts'
 import { capCandidates, exactMatch, keepBestMatch, suggestions } from './people-resolve.ts'
 import {
   addressMatches, byName, clampLimit, hasFilter, matchesQuery, toAddressView, viewOf, withFilteredAddresses,
@@ -158,6 +158,45 @@ export class ImPeople {
   /** Register the sender of one inbound message and return their person. */
   observeMessage(providerId: string, message: ImMessage): Promise<ImPersonView | undefined> {
     return this.mutations.observeMessage(providerId, message)
+  }
+
+  /**
+   * Adopt a cloud directory snapshot into the local cache: only entries on the
+   * device's own channel are imported (the identity of a person observed by
+   * another provider stays hub-only), and the display name rides the same
+   * idempotent observe path — nothing is force-overwritten.
+   * 把云端目录快照采纳进本地缓存：只导入本设备通道的条目（别的 provider 观察到的人
+   * 仍只归云），显示名走同一条幂等观察路径——不强行覆盖任何本地值。
+   */
+  async adoptRemote(snapshot: ImDirectorySnapshot, channel: { provider: string; accountId: string }): Promise<number> {
+    const byId = new Map(snapshot.people.map(person => [person.id, person]))
+    let adopted = 0
+    for (const [personId, addresses] of Object.entries(snapshot.addresses)) {
+      const person = byId.get(personId)
+      if (person === undefined) continue
+      for (const address of addresses) {
+        if (address.provider !== channel.provider) continue
+        const view = await this.mutations.observeConversation({
+          provider: address.provider,
+          accountId: channel.accountId,
+          conversationId: `p2p:${address.external_id}`,
+          externalId: address.external_id,
+          displayName: person.display_name !== '' ? person.display_name : address.display_name,
+        })
+        // 原 id 显示名不是人工编辑：云端的策展名可以覆盖它（本设备陈旧缓存升级，
+        // 真机反例 2026-10-27：导入后本地仍显示原 id）。人工改过的名字不动。
+        // A raw-id display is not a human edit: the curated cloud name may
+        // replace it (stale local cache, live counter-example 2026-10-27). A
+        // manually renamed display is left alone.
+        if (view.displayName === address.external_id
+          && person.display_name !== ''
+          && person.display_name !== view.displayName) {
+          await this.mutations.save({ personId: view.id, displayName: person.display_name })
+        }
+        adopted += 1
+      }
+    }
+    return adopted
   }
 
   /**
