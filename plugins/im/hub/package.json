@@ -1,0 +1,48 @@
+{
+  "name": "@veren/im-hub",
+  "displayName": "Veren IM Hub Device",
+  "version": "2.1.8",
+  "description": "Use when this DSH device should receive WeChat messages through the cloud im-hub gateway instead of holding an iLink session itself: the plugin long-polls the hub's device API outbound (no inbound port, shared device token), feeds inbound messages into the provider-neutral registry so the durable queue, private sessions, people directory, and stranger intake all keep working unchanged, and posts replies back to the hub for delivery; pair it with the @veren/im-hub app running on the CMS host — one authorized WeChat per owner serves every registered device.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**/*.js",
+    "src/**/*.ts",
+    "README.md",
+    "README.cn.md"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {},
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/im": "workspace:*"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-storage-domain": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-storage-domain": "0.2.1-rc.2",
+    "@types/node": "^26.6.5",
+    "typescript": "^5.8.3",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}
