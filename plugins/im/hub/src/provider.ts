@@ -152,6 +152,17 @@ export class HubProvider {
         if (!response.ok) throw new ImError('IM_INTERNAL', `hub poll failed: HTTP ${response.status}`)
         const data = await this.envelope<HubMessagesData>(response)
         for (const message of data.messages ?? []) {
+          // 防御：空 message_id 一旦入库就是启动开库都过不了的毒行（真机缺陷
+          // 2026-10-27：旧网关不下发该字段）。跳过并推进游标，不让一条坏载荷
+          // 堵死整条通道。
+          // Defense: an empty message_id becomes a poison row that fails the
+          // domain at open (live defect 2026-10-27: an older gateway omitted
+          // the field). Skip it, advance the cursor, keep the channel alive.
+          if (message.message_id === undefined || message.message_id === '') {
+            logger.warn(`[im:hub] message seq ${message.seq} has no message_id — skipped`)
+            await cursor.save(deviceId, message.seq)
+            continue
+          }
           const normalized: ImMessage = {
             id: message.message_id,
             accountId: deviceId,

@@ -107,8 +107,16 @@ async function seedPeople(people: ImPeople, storage: ImStorage, logger: ImLogger
 
 /** Plugin name. */
 export const name = 'im'
-/** Host services the core needs. */
-export const inject = ['storageDomain', 'credentials', 'agents'] as const
+/**
+ * Host services the core needs. `agentDefaultModel` and `workspaceRegistry`
+ * back the session gateway's create/resume paths — missing either used to
+ * throw (or silently fall back to cwd) inside ensureSession, killing every
+ * inbound message with three instant retries (live defect, 2026-10-27).
+ * 核心依赖的宿主服务。`agentDefaultModel` 与 `workspaceRegistry` 支撑会话网关的
+ * 创建/恢复路径——缺了任何一个，ensureSession 内部就会抛错（或静默退回 cwd），
+ * 每条入站消息三次立死（真机缺陷，2026-10-27）。
+ */
+export const inject = ['storageDomain', 'credentials', 'agents', 'agentDefaultModel', 'workspaceRegistry'] as const
 /** Services this plugin provides. */
 export const provide = [ImToken, ImRouterToken, ImPeopleToken] as const
 
