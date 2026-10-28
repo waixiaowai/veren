@@ -1,0 +1,15 @@
+# OpenCode Go 订阅桥接插件的 profile overlay 示例。
+# Profile overlay example for the OpenCode Go subscription bridge plugin.
+#
+# 在 web profile 之上叠加： dsh web --patch plugins/opencode-go/cordis.patch.yml
+# Apply on the web profile: dsh web --patch plugins/opencode-go/cordis.patch.yml
+#
+# 插件挂载即注册 `opencode-go` 路由与引导式登录流；未登录时路由不提供任何
+# 模型（Models 页为空），登录后无需重启即可用。
+# Mounting registers the `opencode-go` route and the guided sign-in flow.
+# Signed out, the route advertises no models (the Models page stays empty);
+# after sign-in no restart is needed.
+- insert:
+    - id: opencode-go
+      name: '@veren/opencode-go'
+      config: {}
