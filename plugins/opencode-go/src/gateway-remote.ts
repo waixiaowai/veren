@@ -52,7 +52,7 @@ function webInteraction(state: {
 
 /** OpenCode Go 登录网关。The OpenCode Go sign-in gateway. */
 export class OpencodeGoGatewayService extends TypertRemoteService {
-  static inject = ['authorization']
+  static inject = ['authorization', 'credentials']
 
   private readonly host: Context
   private notices: AuthorizationNotice[] = []
@@ -148,5 +148,16 @@ export class OpencodeGoGatewayService extends TypertRemoteService {
   async cancel() {
     this.host.authorization.cancel(OPENCODE_GO_RECORD)
     return { cancelled: true }
+  }
+
+  /** 退出登录：删除本插件持有的凭据记录（对齐原生行的删除动作）。Signs out: deletes this plugin's credential record (parity with the native rows' delete). */
+  @Remote('signOut')
+  async signOut() {
+    await this.host.credentials.deleteRecord(OPENCODE_GO_RECORD)
+    this.notices = []
+    this.pending = undefined
+    this.settled = undefined
+    this.running = false
+    return { signedOut: true }
   }
 }

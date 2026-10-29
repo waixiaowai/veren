@@ -1,33 +1,72 @@
-/* OpenCode Go 登录卡片：贴设置页的平面方言，不自带配色主题。
-   The OpenCode Go sign-in card: flat shapes matching the settings page, no
-   color theme of its own. */
+/* OpenCode Go 登录卡片：完全采用设置→模型页的原生行方言（rowCard 材质、
+   accountStatus 徽标、紧凑按钮），零硬编码色值，全部走 shell 令牌——明暗
+   主题由令牌承担。
+   The OpenCode Go sign-in card: the Models page's native row dialect verbatim
+   (rowCard material, accountStatus badge, compact buttons), zero hardcoded
+   colors — shell tokens carry light/dark themes. */
 
 .og-card {
-  border: 1px solid var(--dsw-border, #e8eaed);
-  border-radius: 8px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  background: var(--dsw-alias-settings-card-fill);
+  border-radius: var(--dsw-radius-xl);
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .og-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
-.og-badge {
-  font-size: 12px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--dsw-border, #e8eaed);
-  color: var(--dsw-text-dim, #5f6368);
+.og-identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
-.og-badge-ok {
-  color: var(--dsw-ok, #1a7f37);
-  border-color: var(--dsw-ok, #1a7f37);
+.og-name {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.og-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.og-status-ok {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.og-dot {
+  box-sizing: border-box;
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.og-dot-missing {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.og-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
 }
 
 .og-methods {
@@ -37,17 +76,45 @@
   align-items: flex-start;
 }
 
-.og-primary {
-  padding: 6px 16px;
-  border-radius: 6px;
-  border: none;
+.og-button {
+  padding: 3px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
   cursor: pointer;
-  background: var(--dsw-accent, #1c00cf);
-  color: #fff;
-  text-align: left;
 }
 
+.og-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.og-danger {
+  border: none;
+  background: none;
+  padding: 3px 10px;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.og-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* 登录进行中的展开区：内嵌 fill + 上分隔线，模拟编辑器的 inset 姿态。 */
 .og-flight {
+  border-top: 0.5px solid var(--dsw-alias-border-l3);
+  padding-top: 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -56,11 +123,14 @@
 .og-notice {
   margin: 0;
   font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
   word-break: break-all;
 }
 
 .og-notice a {
   margin-left: 6px;
+  color: var(--dsw-alias-state-business-primary);
 }
 
 .og-answer {
@@ -69,45 +139,36 @@
   gap: 6px;
 }
 
-.og-answer label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.og-answer span {
   font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
 }
 
 .og-answer input {
-  padding: 6px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--dsw-border, #e8eaed);
-}
-
-.og-answer button,
-.og-primary {
-  font-size: 13px;
-}
-
-.og-link {
-  border: none;
-  background: none;
-  color: var(--dsw-accent, #1c00cf);
-  cursor: pointer;
-  padding: 0;
+  padding: 5px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
   font-size: 13px;
 }
 
 .og-error {
   margin: 0;
   font-size: 13px;
-  color: var(--dsw-danger, #c5221f);
+  line-height: 20px;
+  color: var(--dsw-alias-state-error-primary);
   word-break: break-all;
 }
 
 .og-settle {
   margin: 0;
   font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
 }
 
 .og-settle-ok {
-  color: var(--dsw-ok, #1a7f37);
+  color: var(--dsw-alias-state-success-primary);
 }

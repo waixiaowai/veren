@@ -37,6 +37,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
       poll(): Promise<OgRemoteResult<OgPoll>>
       answer(request: { readonly value: string }): Promise<OgRemoteResult<{ readonly answered: boolean }>>
       cancel(): Promise<OgRemoteResult<{ readonly cancelled: boolean }>>
+      signOut(): Promise<OgRemoteResult<{ readonly signedOut: boolean }>>
     }
   }
 }
@@ -88,21 +89,24 @@ function installCardStyles(ctx: Context): void {
 /** 组合 describe+poll 的单一可观察状态与动作。Composes describe+poll into one observable state plus actions. */
 function createOgSource(api: Context['remote']['opencodeGo']): {
   readonly source: HostObservable<OgCardSnapshot>
-  readonly start: (method: string | undefined) => void
+  readonly start: (method: string) => void
+  readonly attach: () => void
   readonly answer: (value: string) => void
   readonly cancel: () => void
   readonly dismiss: () => void
+  readonly signOut: () => void
 } {
   let describe: OgDescribe | undefined
   let poll: OgPoll | undefined
   let error = ''
+  let errorCode: string | undefined
   // useSyncExternalStore 的 getSnapshot 必须返回稳定引用：状态保持在
   // `current` 里，变更整对象替换后再 notify——每次调用新建对象会触发
   // React #185（Maximum update depth）。
   // useSyncExternalStore's getSnapshot must return a stable reference: state
   // lives in `current` and is replaced whole on change — building a fresh
   // object per call trips React #185 (Maximum update depth).
-  let current: OgCardSnapshot = { describe: undefined, poll: undefined, error: '' }
+  let current: OgCardSnapshot = { describe: undefined, poll: undefined, error: '', errorCode: undefined }
   const listeners = new Set<() => void>()
   const source: HostObservable<OgCardSnapshot> = {
     getSnapshot: () => current,
@@ -130,12 +134,20 @@ function createOgSource(api: Context['remote']['opencodeGo']): {
     if (state.ok) {
       poll = state.value
       error = ''
+      errorCode = undefined
       if (!state.value.inFlight) stopPolling()
     } else {
       error = state.error.message
+      errorCode = state.error.code
       stopPolling()
     }
-    commit({ describe, poll, error })
+    commit({ describe, poll, error, errorCode })
+  }
+  /** 启动轮询循环（begin 成功与重接共用）。Starts the poll loop (shared by begin success and re-attach). */
+  const startPolling = async (): Promise<void> => {
+    await readOnce()
+    stopPolling()
+    timer = setInterval(() => { void readOnce() }, POLL_MS)
   }
   // 挂载即取一次状态：卡片首帧就有登录态与方法列表。
   // One fetch at mount: the card's first frame already knows sign-in state and methods.
@@ -144,23 +156,40 @@ function createOgSource(api: Context['remote']['opencodeGo']): {
     source,
     start: (method) => {
       void (async () => {
-        error = ''
-        commit({ error })
-        const started = await api.begin(method === undefined ? {} : { method })
-        if (!started.ok) {
-          error = started.error.message
-          commit({ error })
+        // inFlight 时 begin 必被缝拒绝——重接是唯一正解，错误态不可表达。
+        // With inFlight the seam refuses begin — re-attach is the only right
+        // answer; the error state must not be expressible.
+        if (describe?.inFlight === true) {
+          error = ''
+          errorCode = undefined
+          await startPolling()
           return
         }
-        await readOnce()
-        stopPolling()
-        timer = setInterval(() => { void readOnce() }, POLL_MS)
+        error = ''
+        errorCode = undefined
+        commit({ error, errorCode })
+        const started = await api.begin({ method })
+        if (!started.ok) {
+          error = started.error.message
+          errorCode = started.error.code
+          commit({ error, errorCode })
+          return
+        }
+        await startPolling()
       })()
+    },
+    attach: () => {
+      error = ''
+      errorCode = undefined
+      void startPolling()
     },
     answer: (value) => {
       void api.answer({ value }).then((result) => {
-        if (!result.ok) error = result.error.message
-        commit({ error })
+        if (!result.ok) {
+          error = result.error.message
+          errorCode = result.error.code
+          commit({ error, errorCode })
+        }
       })
     },
     cancel: () => {
@@ -172,6 +201,12 @@ function createOgSource(api: Context['remote']['opencodeGo']): {
     dismiss: () => {
       poll = poll === undefined ? undefined : { ...poll, settled: undefined }
       commit({ poll })
+    },
+    signOut: () => {
+      void api.signOut().then((result) => {
+        if (!result.ok) error = result.error.message
+        void readOnce()
+      })
     },
   }
 }
@@ -189,9 +224,11 @@ const CardPlugin = {
     const injected = (): OgCardInjected => ({
       hooks: { og: og.source },
       onStart: (method) => og.start(method),
+      onAttach: () => og.attach(),
       onAnswer: (value) => og.answer(value),
       onCancel: () => og.cancel(),
       onDismiss: () => og.dismiss(),
+      onSignOut: () => og.signOut(),
     })
     ctx.slots.inject('settings.models.footer', () => ctx.slots.register({
       name: 'settings.models.footer',

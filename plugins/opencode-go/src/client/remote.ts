@@ -92,6 +92,7 @@ const POLL_RESULT = z.looseObject({
 const BEGIN_RESULT = z.looseObject({ status: z.string() })
 const ANSWER_RESULT = z.looseObject({ answered: z.boolean() })
 const CANCEL_RESULT = z.looseObject({ cancelled: z.boolean() })
+const SIGNOUT_RESULT = z.looseObject({ signedOut: z.boolean() })
 
 /** 浏览器侧挂载的 `opencodeGo` contribution。The browser-mounted `opencodeGo` contribution. */
 export const opencodeGoRemote = createTypertRemoteInfo({
@@ -106,5 +107,6 @@ export const opencodeGoRemote = createTypertRemoteInfo({
       parameter('request', 'opencodeGo:answer:request', () => ANSWER_REQUEST),
     ], () => ANSWER_RESULT),
     ...method('cancel', 'Withdraw the running attempt.', 'cancel', [], () => CANCEL_RESULT),
+    ...method('signOut', 'Delete the stored credential record.', 'signOut', [], () => SIGNOUT_RESULT),
   } as Record<string, never>,
 }, z)
