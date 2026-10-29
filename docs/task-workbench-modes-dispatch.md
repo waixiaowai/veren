@@ -161,6 +161,20 @@ Dispatch target validation (shared by publish/requeue): target_app must be in `c
 
 Before (2026-10-29, `--home deepseek/.dsh`): full numbers in the acceptance-record appendix of the landing commit; key rows — historical `firedWriteFirstTurn`, the `generations` split. After-numbers update this section; verdict: the new note generation (G6-gate) has zero first-turn writes.
 
+**After (same day, v2 live on 3080 with the live checklist complete)**: pageSessions 53 → **56** (3 new v2-era page sessions); `firedWriteFirstTurn` **10 → 10 (zero new)** — the old counter-example class (a first-screen autonomous turn taking and completing) is extinct under the gate; skeleton completeness `pageNote` 56/56. The historical generation split (G1–G5) is legacy wording stock and no longer grows.
+
+**Live-checklist verdicts (2026-10-29, the 3080 stable node, DeepSeek V4.1 Flash)**:
+
+- **#8 drive turn** ✅: the user names a task → the log reads verbatim `drive_begin → publish_task → take_task → (work) → complete_task → list_tasks → drive_end`, with the one-sentence confirmation on record (order t-8, deliverable tool-matrix.md really written, +119 lines).
+- **#9 zero first-screen writes** ✅: a fresh list session writes nothing on turn one; on a delivery turn the model states "this delivery names no pending task… no writes"; the audit CLI's write count gains nothing.
+- **#10 dispatch loop** ✅: publish{target_app: person-agent} → open_task_page → the person-agent page session completes the order with **its own tools** (schedule/pwsh) plus the global task_take/task_complete → the record reads `appId=person-agent`, `status=done`, back in the list strategy view (row t-9).
+- **#11 return** ✅: task_fail creates a failed order → requeue_task → the old record stays as history (failure.code readable), the new record is open, lane=takeable, attempts=2 (§3.3's two-step consistency re-enacted live).
+- **#12 cross-app map inquiry** ✅: a zero-tool layered answer — the map rows quoted verbatim with the template substitution yielding the detail url, the cross-app catalog row quoted for the person-agent entry, and the model explicitly marking "the landing-spot association comes from the queue body, not the PAGE block — I do not count it as PAGE-block evidence".
+- **Persistence** ✅: the host was externally restarted mid-verification (unplanned); task-center records (t-6..t-10), page sessions, and remounts all survived; the interrupted person-agent order resumed on its own and delivered.
+- **Old seven items** ✅: scenarios 1–10 all green in the automated acceptance (42 tests); the live delivery loop (notice / TASK block / detail-page take) re-verified on the node.
+
+**Matrix amendment driven by the live verification**: publish_task now also mounts on the list page (§4 previously had the publish page only) — when a user names a publish at the entry, page_send forwarding to the publish page cannot pass the gate (a relay is not user consent), so the entry session needs the tool in hand; after the amendment the publish succeeded first try.
+
 ## 9. Versioning & release
 
 `@veren/task-center` and `@veren/task-workbench` changed → the line moves to **2.3.0** (MINOR = new capability); registry publishing rides the promotion pipeline (outside this task's acceptance).

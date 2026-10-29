@@ -161,6 +161,20 @@
 
 改前（2026-10-29，`--home deepseek/.dsh`）：pageSessions 等全量数字见提交时的验收记录附录；关键行——`firedWriteFirstTurn` 历史值、`generations` 分档。改后数字在本节更新，判定：新说明句代际（G6-gate）零首回合写。
 
+**改后终值（同日，v2 上 3080 并完成真机清单后）**：pageSessions 53 → **56**（v2 期新增 3 个页面会话）；`firedWriteFirstTurn` **10 → 10（零新增）**——旧反例（首屏自主回合接取+完成）在门下绝迹；骨架完整度 `pageNote` 56/56。历史代际分档（G1–G5）是旧措辞会话的存量，不再增长。
+
+**真机清单结论（2026-10-29，3080 稳定节点，DeepSeek V4.1 Flash）**：
+
+- **#8 drive 回合** ✅：用户点名推进 → 日志逐字 `drive_begin → publish_task → take_task → （干活）→ complete_task → list_tasks → drive_end`，一句话确认在案（工作单 t-8、交付物 tool-matrix.md 真实落盘 +119 行）。
+- **#9 首屏零写** ✅：新开 list 会话首回合零写；投递回合模型自述"这条投递没有点名任何待处理任务……不做写操作"；审计 CLI 写操作计数零新增。
+- **#10 派发回环** ✅：publish{target_app: person-agent} → open_task_page 打开目标页 → person-agent 页面会话用**自有工具**（schedule/pwsh）+ 全局 task_take/task_complete 完成 → 记录 `appId=person-agent`、`status=done` 回传列表策略视图（t-9 行）。
+- **#11 退回** ✅：task_fail 造 failed → requeue_task → 旧记录保留为历史（failure.code 可读）、新记录 open、lane=takeable、attempts=2（§3.3 两步一致性的真机复刻）。
+- **#12 跨应用地图问询** ✅：零工具分层作答——【能力地图 map】原文代入模板得详情 URL、【跨应用目录】原文引用 person-agent 入口、并主动声明"落点关联来自队列真身而非 PAGE 块，不算 PAGE 块证据"。
+- **持久性** ✅：验证中途宿主被外部重启一次（非计划），任务中心记录（t-6..t-10）、页面会话、重挂恢复全部存活；被中断的 person-agent 任务恢复后自行补齐并交付。
+- **旧七条回归** ✅：场景 1–10 自动化验收全绿（42 测试）；真机复测投递闭环（通知/TASK 块/详情页接取）正常。
+
+**真机验收驱动的矩阵修正**：publish_task 补挂列表页（原 §4 只挂 publish 页）——用户在入口点名发布时，page_send 转投发布页过不了同意门（中继 ≠ 用户同意），入口会话必须有发布工具；修正后发布一次成功。
+
 ## 9. 版本与发布
 
 `@veren/task-center`、`@veren/task-workbench` 内容变更 → 统一升位 **2.3.0**（MINOR=新能力）；registry 发布走晋升流水线（不在本任务验收内）。
