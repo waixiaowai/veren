@@ -22,8 +22,7 @@ import type { ResolvedConfig } from './config.js'
 import { OPENCODE_GO_RECORD, commitStoredKey } from './credential.js'
 import type { GoCatalog } from './catalog.js'
 
-/** 本机 opencode CLI 登录产物的只读路径。The read-only path of the local opencode CLI's login artifact. */
-const LOCAL_CLI_AUTH_JSON = join(homedir(), '.local', 'share', 'opencode', 'auth.json')
+import { LOCAL_CLI_AUTH_JSON } from './watch-auth-file.js'
 
 /** 授权流注册；流随插件卸载自动注销（registerFlow 自带 dispose）。Registers the flow; it unregisters with plugin unload (registerFlow disposes itself). */
 export function registerOpencodeGoFlow(ctx: Context, config: ResolvedConfig, catalog: GoCatalog): void {

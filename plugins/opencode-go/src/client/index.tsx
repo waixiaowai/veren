@@ -34,6 +34,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     opencodeGo: {
       describe(): Promise<OgRemoteResult<OgDescribe>>
       begin(request: { readonly method?: string }): Promise<OgRemoteResult<{ readonly status: string }>>
+      beginAuto(): Promise<OgRemoteResult<{ readonly started: boolean; readonly timeoutMs?: number }>>
       poll(): Promise<OgRemoteResult<OgPoll>>
       answer(request: { readonly value: string }): Promise<OgRemoteResult<{ readonly answered: boolean }>>
       cancel(): Promise<OgRemoteResult<{ readonly cancelled: boolean }>>
@@ -89,24 +90,27 @@ function installCardStyles(ctx: Context): void {
 /** 组合 describe+poll 的单一可观察状态与动作。Composes describe+poll into one observable state plus actions. */
 function createOgSource(api: Context['remote']['opencodeGo']): {
   readonly source: HostObservable<OgCardSnapshot>
+  readonly startAuto: () => void
   readonly start: (method: string) => void
   readonly attach: () => void
   readonly answer: (value: string) => void
   readonly cancel: () => void
   readonly dismiss: () => void
   readonly signOut: () => void
+  readonly togglePaste: () => void
 } {
   let describe: OgDescribe | undefined
   let poll: OgPoll | undefined
   let error = ''
   let errorCode: string | undefined
+  let pasteOpen = false
   // useSyncExternalStore 的 getSnapshot 必须返回稳定引用：状态保持在
   // `current` 里，变更整对象替换后再 notify——每次调用新建对象会触发
   // React #185（Maximum update depth）。
   // useSyncExternalStore's getSnapshot must return a stable reference: state
   // lives in `current` and is replaced whole on change — building a fresh
   // object per call trips React #185 (Maximum update depth).
-  let current: OgCardSnapshot = { describe: undefined, poll: undefined, error: '', errorCode: undefined }
+  let current: OgCardSnapshot = { describe: undefined, poll: undefined, error: '', errorCode: undefined, pasteOpen: false }
   const listeners = new Set<() => void>()
   const source: HostObservable<OgCardSnapshot> = {
     getSnapshot: () => current,
@@ -126,22 +130,31 @@ function createOgSource(api: Context['remote']['opencodeGo']): {
   }
   let timer: ReturnType<typeof globalThis.setInterval> | undefined
   const readOnce = async (): Promise<void> => {
-    const [description, state] = await Promise.all([
-      api.describe(),
-      api.poll(),
-    ])
-    if (description.ok) describe = description.value
-    if (state.ok) {
-      poll = state.value
-      error = ''
-      errorCode = undefined
-      if (!state.value.inFlight) stopPolling()
-    } else {
-      error = state.error.message
-      errorCode = state.error.code
+    try {
+      const [description, state] = await Promise.all([
+        api.describe(),
+        api.poll(),
+      ])
+      if (description.ok) describe = description.value
+      if (state.ok) {
+        poll = state.value
+        error = ''
+        errorCode = undefined
+        if (!state.value.inFlight) stopPolling()
+      } else {
+        error = state.error.message
+        errorCode = state.error.code
+        stopPolling()
+      }
+      commit({ describe, poll, error, errorCode })
+    } catch {
+      // 传输层失败（节点重启窗口等）：人话 + 重试，不与授权错误混淆。
+      // A transport failure (node restart window and alike): human copy +
+      // retry, never conflated with authorization errors.
+      errorCode = 'TRANSPORT'
       stopPolling()
+      commit({ errorCode })
     }
-    commit({ describe, poll, error, errorCode })
   }
   /** 启动轮询循环（begin 成功与重接共用）。Starts the poll loop (shared by begin success and re-attach). */
   const startPolling = async (): Promise<void> => {
@@ -154,6 +167,23 @@ function createOgSource(api: Context['remote']['opencodeGo']): {
   void readOnce()
   return {
     source,
+    startAuto: () => {
+      window.open('https://opencode.ai/auth', '_blank', 'noopener')
+      void (async () => {
+        const started = await api.beginAuto()
+        if (!started.ok) {
+          error = started.error.message
+          errorCode = started.error.code
+          commit({ error, errorCode })
+          return
+        }
+        await startPolling()
+      })()
+    },
+    togglePaste: () => {
+      pasteOpen = !pasteOpen
+      commit({ pasteOpen })
+    },
     start: (method) => {
       void (async () => {
         // inFlight 时 begin 必被缝拒绝——重接是唯一正解，错误态不可表达。
@@ -223,12 +253,14 @@ const CardPlugin = {
     const og = createOgSource(api)
     const injected = (): OgCardInjected => ({
       hooks: { og: og.source },
+      onStartAuto: () => og.startAuto(),
       onStart: (method) => og.start(method),
       onAttach: () => og.attach(),
       onAnswer: (value) => og.answer(value),
       onCancel: () => og.cancel(),
       onDismiss: () => og.dismiss(),
       onSignOut: () => og.signOut(),
+      onTogglePaste: () => og.togglePaste(),
     })
     ctx.slots.inject('settings.models.footer', () => ctx.slots.register({
       name: 'settings.models.footer',

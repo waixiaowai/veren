@@ -1,11 +1,12 @@
 /**
  * 设置 → 模型 页脚的 OpenCode Go 登录卡片。组件只吃框架派生 props（铁律
- * 八/十）；五态状态机驱动：未登录 / 登录中 / 终局 / 错误，每态至多一个
- * 主动作；视觉完全采用原生提供商行方言，颜色全走 shell 令牌。
+ * 八/十）；五态状态机驱动，每态至多一个主动作；主按钮 = 自动获取（开浏览器
+ * + 监听本机 CLI），粘贴为次级链接；视觉完全采用原生提供商行方言。
  * The OpenCode Go sign-in card in the Models settings footer. Framework-derived
- * props only (iron laws eight/ten); a five-state machine drives the card —
- * signed out / signing in / settled / error — at most one primary action per
- * state, native provider-row dialect, shell tokens only.
+ * props only (iron laws eight/ten); a five-state machine drives the card with
+ * at most one primary action per state; the main button is the auto path
+ * (browser + local-CLI watch) with paste demoted to a secondary link; the
+ * native provider-row dialect throughout.
  *
  * @module @veren/opencode-go/client/card
  */
@@ -17,16 +18,19 @@ import type { OgDescribe, OgPoll } from './remote.ts'
 /** owner site 注入面。The owner-site inject face. */
 export interface OgCardInjected {
   hooks: {
-    /** describe+poll 合成的单一可观察状态。One observable over describe+poll. */
     og: HostObservable<OgCardSnapshot>
   }
+  /** 主路径：开浏览器 + 宿主自动监听导入。The auto path: browser + host-side watch. */
+  onStartAuto: () => void
+  /** 手动方法的某一次（粘贴 / 本机导入）。One manual method (paste / local import). */
   onStart: (method: string) => void
-  /** 重接一次已在进行的尝试（ALREADY_IN_FLIGHT 的唯一正解）。Re-attaches to a running attempt (the only right answer to ALREADY_IN_FLIGHT). */
+  /** 重接尝试或恢复传输轮询。Re-attaches to a running attempt or restores polling. */
   onAttach: () => void
   onAnswer: (value: string) => void
   onCancel: () => void
   onDismiss: () => void
   onSignOut: () => void
+  onTogglePaste: () => void
 }
 
 /** 卡片的合成状态。The card's composed snapshot. */
@@ -35,14 +39,15 @@ export interface OgCardSnapshot {
   readonly poll: OgPoll | undefined
   readonly error: string
   readonly errorCode: string | undefined
+  readonly pasteOpen: boolean
 }
 
-/** Props of {@link OpencodeGoCard}, derived from the framework shares. */
+/** Props of {@link} OpencodeGoCard, derived from the framework shares. */
 export type OgCardProps = PropsRuntime<'settings.models.footer'>
   & InjectFace<OgCardInjected>
   & PropsLocale<'opencode-go'>
 
-/** 卡片本体。状态机：未登录 → 方法按钮；登录中 → 通知+提问+取消；终局 → 横幅；错误 → 人话+继续。 */
+/** 卡片本体。状态机：未登录（自动主按钮+粘贴次级）→ 登录中（通知+提问+取消）→ 终局/失败/超时。 */
 export function OpencodeGoCard(props: OgCardProps) {
   const snapshot = props.useOg((state: OgCardSnapshot) => state)
   const t = props.t
@@ -51,8 +56,11 @@ export function OpencodeGoCard(props: OgCardProps) {
   const inFlight = poll?.inFlight === true
   const settled = poll?.settled
   const prompt = poll?.prompt
-  const errorText = humanizeSignInError(snapshot.errorCode, snapshot.error, t) ?? snapshot.error
+  const failed = poll?.failed
   const signedIn = describe?.signedIn === true
+  const errorText = snapshot.errorCode === 'TRANSPORT'
+    ? t('transportDown')
+    : humanizeSignInError(failed?.code, failed?.message ?? snapshot.error, t) ?? snapshot.error
 
   return (
     <section className="og-card" data-state={inFlight ? 'in-flight' : signedIn ? 'signed-in' : 'signed-out'}>
@@ -60,12 +68,9 @@ export function OpencodeGoCard(props: OgCardProps) {
         <div className="og-identity">
           <span className="og-name">{describe?.label ?? 'OpenCode Go'}</span>
           {!inFlight && !signedIn && <span className="og-dot og-dot-missing" />}
-          {!inFlight && (
-            <span className={signedIn ? 'og-status og-status-ok' : 'og-status'}>
-              {inFlight ? t('signingIn') : signedIn ? t('signedIn') : t('notSignedIn')}
-            </span>
-          )}
-          {inFlight && <span className="og-status">{t('signingIn')}</span>}
+          <span className={inFlight ? 'og-status' : signedIn ? 'og-status og-status-ok' : 'og-status'}>
+            {inFlight ? t('signingIn') : signedIn ? t('signedIn') : t('notSignedIn')}
+          </span>
         </div>
         <div className="og-actions">
           {inFlight && <button type="button" className="og-button" onClick={() => props.onCancel()}>{t('cancel')}</button>}
@@ -74,22 +79,45 @@ export function OpencodeGoCard(props: OgCardProps) {
           )}
         </div>
       </header>
-      {!inFlight && settled === undefined && !signedIn && (
-        <div className="og-methods">
-          {(describe?.methods ?? []).map((entry) => (
-            <button key={entry.id} type="button" className="og-button" onClick={() => props.onStart(entry.id)}>
-              {methodCopy(entry.id, t)}
-            </button>
-          ))}
-        </div>
-      )}
-      {snapshot.error.length > 0 && (
+      {snapshot.errorCode === 'TRANSPORT' && (
         <p className="og-error">
           {errorText}
-          {snapshot.errorCode === 'ALREADY_IN_FLIGHT' && (
-            <button type="button" className="og-link" onClick={() => props.onAttach()}>{t('continueAttach')}</button>
-          )}
+          {' '}
+          <button type="button" className="og-link" onClick={() => props.onAttach()}>{t('retry')}</button>
         </p>
+      )}
+      {poll?.autoTimedOut === true && !inFlight && (
+        <p className="og-notice">{t('autoTimedOut')}</p>
+      )}
+      {failed !== undefined && !inFlight && (
+        <p className="og-error">
+          {humanizeSignInError(failed.code, failed.message, t) ?? failed.message}
+        </p>
+      )}
+      {settled !== undefined && (
+        <p className={settled.status === 'authorized' ? 'og-settle og-settle-ok' : 'og-settle'}>
+          {settled.status === 'authorized'
+            ? (poll?.autoImported === true ? t('autoImported') : t('authorizedDone'))
+            : t('cancelledDone')}
+          {' '}
+          <button type="button" className="og-link" onClick={() => props.onDismiss()}>{t('close')}</button>
+        </p>
+      )}
+      {!inFlight && settled === undefined && !signedIn && (
+        <div className="og-methods">
+          <button type="button" className="og-button og-primary" onClick={() => props.onStartAuto()}>
+            {t('signIn')}
+          </button>
+          {snapshot.pasteOpen ? (
+            (describe?.methods ?? []).map((entry) => (
+              <button key={entry.id} type="button" className="og-button" onClick={() => props.onStart(entry.id)}>
+                {methodCopy(entry.id, t)}
+              </button>
+            ))
+          ) : (
+            <button type="button" className="og-link" onClick={() => props.onTogglePaste()}>{t('pasteManually')}</button>
+          )}
+        </div>
       )}
       {inFlight && (
         <div className="og-flight">
@@ -99,6 +127,7 @@ export function OpencodeGoCard(props: OgCardProps) {
               {notice.url !== undefined && <a href={notice.url} target="_blank" rel="noreferrer">{notice.url}</a>}
             </p>
           ))}
+          {poll?.autoWaiting === true && <p className="og-notice">{t('waitingBrowser')}</p>}
           {prompt !== undefined && (
             <form className="og-answer" onSubmit={(event) => {
               event.preventDefault()
@@ -119,18 +148,11 @@ export function OpencodeGoCard(props: OgCardProps) {
           )}
         </div>
       )}
-      {settled !== undefined && (
-        <p className={settled.status === 'authorized' ? 'og-settle og-settle-ok' : 'og-settle'}>
-          {settled.status === 'authorized' ? t('authorizedDone') : t('cancelledDone')}
-          {' '}
-          <button type="button" className="og-link" onClick={() => props.onDismiss()}>{t('close')}</button>
-        </p>
-      )}
     </section>
   )
 }
 
-/** method.id → 客户端文案（locale 持有归属权）；未知 id 回退流程标签由调用侧处理。 */
+/** method.id → 客户端文案（locale 持有归属权）；未知 id 回退「登录」。 */
 function methodCopy(id: string, t: (key: OgKey) => string): string {
   if (id === 'console-key') return t('methodConsoleKey')
   if (id === 'import-local-cli') return t('methodImportLocal')

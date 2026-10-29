@@ -81,6 +81,10 @@ const DESCRIBE_RESULT = z.looseObject({
 })
 const POLL_RESULT = z.looseObject({
   notices: z.array(z.looseObject({ message: z.string(), url: z.string().optional() })),
+  failed: z.looseObject({ code: z.string().optional(), message: z.string() }).optional(),
+  autoWaiting: z.boolean(),
+  autoTimedOut: z.boolean(),
+  autoImported: z.boolean(),
   prompt: z.looseObject({
     kind: z.enum(['text', 'secret', 'select']),
     message: z.string(),
@@ -93,6 +97,7 @@ const BEGIN_RESULT = z.looseObject({ status: z.string() })
 const ANSWER_RESULT = z.looseObject({ answered: z.boolean() })
 const CANCEL_RESULT = z.looseObject({ cancelled: z.boolean() })
 const SIGNOUT_RESULT = z.looseObject({ signedOut: z.boolean() })
+const BEGINAUTO_RESULT = z.looseObject({ started: z.boolean(), timeoutMs: z.number().optional() })
 
 /** 浏览器侧挂载的 `opencodeGo` contribution。The browser-mounted `opencodeGo` contribution. */
 export const opencodeGoRemote = createTypertRemoteInfo({
@@ -102,6 +107,7 @@ export const opencodeGoRemote = createTypertRemoteInfo({
     ...method('begin', 'Start one sign-in attempt, optionally naming a method.', 'begin', [
       parameter('request', 'opencodeGo:begin:request', () => METHOD_REQUEST),
     ], () => BEGIN_RESULT),
+    ...method('beginAuto', 'Start the auto watch: import as soon as the local CLI artifact changes.', 'beginAuto', [], () => BEGINAUTO_RESULT),
     ...method('poll', 'Poll one attempt: notices, the open prompt, the settlement.', 'poll', [], () => POLL_RESULT),
     ...method('answer', 'Answer the open prompt (the key enters one way).', 'answer', [
       parameter('request', 'opencodeGo:answer:request', () => ANSWER_REQUEST),

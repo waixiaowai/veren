@@ -32,6 +32,12 @@ export const zh = {
   keyInvalid: 'key 未通过校验，请重试',
   quotaExhausted: '套餐配额已用尽',
   failed: '登录失败',
+  pasteManually: '手动粘贴 key',
+  waitingBrowser: '已在浏览器打开 opencode.ai/auth；若本机 CLI 已登录将自动获取 key',
+  autoTimedOut: '未检测到本机 CLI 登录。可先运行 opencode auth login opencode，或改用手动粘贴',
+  autoImported: '已自动获取 key（来自本机 CLI）',
+  transportDown: '连接宿主中断',
+  retry: '重试',
 } as const
 
 export type OgKey = keyof typeof zh
@@ -57,6 +63,12 @@ export const en: Record<OgKey, string> = {
   keyInvalid: 'The key was rejected — try again',
   quotaExhausted: 'The plan quota is exhausted',
   failed: 'Sign-in failed',
+  pasteManually: 'Paste a key manually',
+  waitingBrowser: 'Opened opencode.ai/auth in your browser; the key imports automatically once this machine\u2019s CLI is signed in',
+  autoTimedOut: 'No CLI login detected. Run opencode auth login opencode first, or paste manually',
+  autoImported: 'Key imported automatically (from the local CLI)',
+  transportDown: 'Connection to the host dropped',
+  retry: 'Retry',
 }
 
 /**
