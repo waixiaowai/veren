@@ -113,9 +113,12 @@ function joinText(content: readonly ContentBlock[]): string {
 
 /**
  * HTTP 错误 → 结构化 LlmError：401 KEY_INVALID（不清登录）、402 配额尽、
- * 403 路由拒绝、其余 UPSTREAM_ERROR 带 status。
+ * 403 路由拒绝、429 RATE_LIMIT（携带网关要求的等待毫秒，llm-retry 据此
+ * 原样排程）、5xx SERVER、其余 UPSTREAM_ERROR 带 status。
  * HTTP error → structured LlmError: 401 KEY_INVALID (sign-in kept), 402 quota
- * exhausted, 403 route refused, everything else UPSTREAM_ERROR with status.
+ * exhausted, 403 route refused, 429 RATE_LIMIT carrying the gateway-requested
+ * delay (llm-retry schedules it verbatim), 5xx SERVER, everything else
+ * UPSTREAM_ERROR with status.
  */
 export async function wireError(response: Response, what: string): Promise<LlmError> {
   const detail = await response.text().catch(() => '')
@@ -124,6 +127,28 @@ export async function wireError(response: Response, what: string): Promise<LlmEr
   const code = response.status === 401 ? 'KEY_INVALID'
     : response.status === 402 ? 'QUOTA_EXCEEDED'
     : response.status === 403 ? 'ROUTE_FORBIDDEN'
+    : response.status === 429 ? 'RATE_LIMIT'
+    : response.status >= 500 ? 'SERVER'
     : 'UPSTREAM_ERROR'
-  return new LlmError(message, code, { status: response.status })
+  const retryAfterMs = parseRetryAfterMs(response, detail)
+  return new LlmError(message, code, {
+    status: response.status,
+    ...(retryAfterMs === undefined ? {} : { providerRetryAfterMs: retryAfterMs }),
+  })
+}
+
+/**
+ * 解析网关要求的等待时间：优先 Retry-After 头（秒），回退响应体里的
+ * `(after 26 s)` 措辞（go 容量拒绝的实际载体，实测形态）。
+ * Parses the gateway-requested delay: the Retry-After header (seconds) first,
+ * then the body's `(after 26 s)` wording — the actual carrier of go capacity
+ * refusions, verified live.
+ */
+function parseRetryAfterMs(response: Response, body: string): number | undefined {
+  const header = response.headers.get('retry-after')
+  const headerSeconds = header !== null && /^\d+$/.test(header.trim()) ? Number(header.trim()) : undefined
+  if (headerSeconds !== undefined && headerSeconds > 0) return headerSeconds * 1000
+  const bodySeconds = body.match(/after\s+(\d+)\s*s/)?.[1]
+  const parsed = bodySeconds === undefined ? undefined : Number(bodySeconds)
+  return parsed !== undefined && parsed > 0 ? parsed * 1000 : undefined
 }

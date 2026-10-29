@@ -101,4 +101,13 @@ describe('OpencodeGoAdapter against the mock gateway', () => {
     // The adapter path never writes the credential record; removal stays an explicit user action.
     expect(ctx.writes).toHaveLength(0)
   })
+
+  it('go 路由声明 normal 重试策略，退避上限 30s 覆盖网关 26s 容量指令', async () => {
+    gateway = await startMockGateway()
+    const { adapter } = adapterWith('sk-live', gateway)
+    const policy = adapter.providerRetryPolicy('opencode-go')
+    expect(policy).toMatchObject({ mode: 'normal', maxRetries: 5, maxDelayMs: 30_000 })
+    expect(policy?.retryableCodes).toContain('RATE_LIMIT')
+    expect(adapter.providerRetryPolicy('other-route')).toBeUndefined()
+  })
 })

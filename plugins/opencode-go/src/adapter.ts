@@ -10,7 +10,7 @@
  * @module @veren/opencode-go
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { GenerateOptions, LlmModelInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelInfo, LlmResolvedModelInfo, ResolvedRetryPolicy, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { ResolvedConfig } from './config.js'
 import { OPENCODE_GO_PROVIDER, type GoCatalog } from './catalog.js'
@@ -34,6 +34,27 @@ export class OpencodeGoAdapter extends LlmAdapter {
   /** 路由展示名。The route's display name. */
   providerInfo(provider: string): { id: string; name: string } {
     return provider === OPENCODE_GO_PROVIDER ? { id: provider, name: 'OpenCode Go' } : { id: provider, name: provider }
+  }
+
+  /**
+   * go 路由的重试策略：normal 五次，退避上限 30s——网关容量拒绝（429
+   * `ttft_admission_refused`，实测 "after 26 s" 形态）给出的 Retry-After
+   * 恰好落在界内，被 llm-retry 原样采用而不是封顶截断。
+   * The go route's retry policy: normal five attempts, backoff capped at 30s —
+   * the gateway's capacity rejections (429 ttft_admission_refused, observed
+   * as "after 26 s") carry a Retry-After that fits these bounds and is
+   * honored verbatim by llm-retry instead of being clipped.
+   */
+  providerRetryPolicy(provider: string): ResolvedRetryPolicy | undefined {
+    if (provider !== OPENCODE_GO_PROVIDER) return undefined
+    return {
+      mode: 'normal',
+      maxRetries: 5,
+      retryableCodes: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'],
+      initialDelayMs: 1000,
+      maxDelayMs: 30_000,
+      jitterRatio: 0.2,
+    }
   }
 
   /**

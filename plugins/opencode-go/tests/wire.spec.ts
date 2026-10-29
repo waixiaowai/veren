@@ -79,7 +79,7 @@ describe('buildRequestHeaders', () => {
 })
 
 describe('wireError', () => {
-  it.each([[401, 'KEY_INVALID'], [402, 'QUOTA_EXCEEDED'], [403, 'ROUTE_FORBIDDEN'], [500, 'UPSTREAM_ERROR']])(
+  it.each([[401, 'KEY_INVALID'], [402, 'QUOTA_EXCEEDED'], [403, 'ROUTE_FORBIDDEN'], [500, 'SERVER'], [503, 'SERVER']])(
     'HTTP %i → %s', async (status, code) => {
       const response = new Response('{"error":{"message":"no"}}', { status })
       const error = await wireError(response, 'model x')
@@ -87,4 +87,24 @@ describe('wireError', () => {
       expect(error.message).toContain(`HTTP ${status}`)
     },
   )
+
+  it('429 → RATE_LIMIT，Retry-After 头换算为毫秒', async () => {
+    const response = new Response('{"error":{"message":"busy"}}', { status: 429, headers: { 'retry-after': '26' } })
+    const error = await wireError(response, 'model x')
+    expect(error.code).toBe('RATE_LIMIT')
+    expect(error.failure.providerRetryAfterMs).toBe(26_000)
+  })
+
+  it('429 无头时回退解析响应体的 "(after 26 s)"（go 容量拒绝实测形态）', async () => {
+    const body = '{"error":{"message":"Upstream request failed: [ttft_admission_refused] The cell is at capacity, retry shortly (after 26 s)"}}'
+    const error = await wireError(new Response(body, { status: 429 }), 'model x')
+    expect(error.code).toBe('RATE_LIMIT')
+    expect(error.failure.providerRetryAfterMs).toBe(26_000)
+  })
+
+  it('无 Retry-After 事实时不虚构等待', async () => {
+    const error = await wireError(new Response('{"error":{"message":"busy"}}', { status: 429 }), 'model x')
+    expect(error.code).toBe('RATE_LIMIT')
+    expect(error.failure.providerRetryAfterMs).toBeUndefined()
+  })
 })
