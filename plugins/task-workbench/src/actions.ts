@@ -1,42 +1,32 @@
 /**
- * 工具动作实现（app.ts 的工具定义只声明，动作体都在这里）。
- * Tool-action bodies (the definitions in app.ts declare; the bodies live here).
+ * 工具动作体：共享助手 + 页面作用域动作（get_page_task / take_page_task /
+ * split_task）。队列动作在 actions-queue.ts（单一职责：本文件只管"本页那条"）。
+ * Tool-action bodies: shared helpers plus the page-scoped actions
+ * (get_page_task / take_page_task / split_task). Queue actions live in
+ * actions-queue.ts (single responsibility: this file owns "this page's task").
  *
- * 本文件的重点是 {@link takePageTask}：详情页的页面作用域接取（§3.10.1 把
- * "接取"划给详情页；§5.3 的闭环在"投递 → 详情页接取"这一步断裂过——详情页
- * 曾按矩阵没有接取工具，任务落 failed/task-not-taken）。接取的形态不是把
- * 带参 take_task 加回来：URL 里已有 taskId（§3.10.3 参数进上下文），接取被
- * {@link PageTaskScope} 天然限定在"本页那条"，模型没有可伪造的任意 id 参数；
- * 防抢由任务中心的 CAS + 租约承担（§4.4），不是矩阵的职责。
- * The centerpiece is {@link takePageTask}: the detail page's page-scoped take
- * (§3.10.1 assigns "take" to the detail archetype; the §5.3 loop once broke at
- * "delivered → the detail page takes it" because the matrix gave the page no
- * take tool and the task landed failed/task-not-taken). The form is NOT the
- * parametered take_task re-added: the url already carries the taskId (§3.10.3),
- * so {@link PageTaskScope} naturally scopes the take to "this page's task" and
- * the model has no forgeable arbitrary-id parameter; anti-contention belongs to
- * the task center's CAS + lease (§4.4), never to the tool matrix.
+ * 写动作的统一前置是同意门（§2）：先切片同意、再 drive 台账、后范围覆盖；
+ * 互斥权威在任务中心租约（§4.4），本文件的门槛只管"谁授权的这一轮"。
+ * Every write action is fronted by the consent gate (§2): slice consent, then
+ * the drive ledger, then scope cover. The mutex authority is the task center's
+ * lease (§4.4); this file's gate only answers "who authorized this turn".
  * @module @veren/task-workbench
  */
-import type { TaskDraft, TaskRecord, TaskId } from '@veren/task-center'
 import type { PageParams } from '@veren/prompt-page'
-import type { TaskChannel } from './app.ts'
-import { rootsOf, subtreeProgress, subtaskTree } from './store.ts'
-import type { TaskStore } from './store.ts'
+import type { TaskId, TaskRecord } from '@veren/task-center'
+import { gateWrite } from './consent.ts'
+import type { ConsentBook, DriveLedger } from './consent.ts'
+import { itemKeyOf, subtreeProgressLabel } from './strategy.ts'
+import type { TaskChannel } from './channel.ts'
 import type { PageTaskScope, ToolCallContext, ToolOutcome } from './types.ts'
-import type { TaskItem } from './types.ts'
+import type { TaskStore } from './store.ts'
 
-/** 页面作用域接取缺省租约时长（与 task-center 全局工具同口径）/ the default lease span (same as task-center's global tools) */
-const LEASE_MINUTES = 30
+/** 页面作用域接取缺省租约时长（与 task-center 全局工具同口径）/ the default lease span (same as the center's global tools) */
+export const LEASE_MINUTES = 30
 
 /** 详情页 URL / the detail-page url for one task */
 export function detailUrl(params: PageParams): string {
   return `/apps/task-workbench/task/${String(params.taskId ?? '')}`
-}
-
-/** 入口 URL（应用下拉 / 任务通知共用）/ the entry url */
-export function entryUrlOf(pages: readonly { name: string; url: string }[], entry: string): string | undefined {
-  return pages.find((page) => page.name === entry)?.url
 }
 
 /** 校验 task_id 参数 / validate the task_id argument */
@@ -46,13 +36,12 @@ export function requireTaskId(args: { task_id?: string }): string {
   return id
 }
 
-/** 把 store 迁移结果翻成 ToolOutcome / map a Transition to a ToolOutcome */
-export async function runGuarded(run: () => 'ok' | 'not-found' | 'bad-state'): Promise<ToolOutcome> {
-  const outcome = run()
+/** 把本地校验结果翻成 ToolOutcome / map a local verdict to a ToolOutcome */
+export function outcomeOf(outcome: 'ok' | 'not-found' | 'bad-state', detail?: string): ToolOutcome {
   if (outcome === 'ok') return { ok: true }
   return outcome === 'not-found'
-    ? { ok: false, code: 'task-not-found', detail: 'no such task' }
-    : { ok: false, code: 'bad-task-state', detail: 'task is not in the required state' }
+    ? { ok: false, code: 'task-not-found', detail: detail ?? 'no such task' }
+    : { ok: false, code: 'bad-task-state', detail: detail ?? 'task is not in the required state' }
 }
 
 /** 通用 pending 卡片 / the generic pending card */
@@ -60,75 +49,82 @@ export function presentTaskCall(title: string, args?: unknown): { card: 'generic
   return { card: 'generic' as const, title, kind: 'other' as const, ...(args === undefined ? {} : { rawInput: args }) }
 }
 
-/** 拆分：本地 store 记树形事实，任务中心同步建真正的子任务 / split: local facts plus a real subtask */
-export async function splitTask(
-  store: TaskStore,
-  channel: TaskChannel,
-  args: { task_id?: string; title?: string },
-  exec: ToolCallContext,
-): Promise<ToolOutcome> {
-  const parentId = requireTaskId({ task_id: args?.task_id })
-  const title = typeof args?.title === 'string' ? args.title.trim() : ''
-  if (title.length === 0) return { ok: false, code: 'draft-invalid', detail: 'title is required' }
-  // 本地门槛：只有被接取的节点能拆（工具跑在接取者页面会话里，即树级互斥下的唯一活跃者）
-  // / local gate: only a taken node splits (the tool runs in the claimant's page
-  // session — the tree mutex's one active claimant)
-  const local = store.splitTask(parentId, title)
-  if (local.outcome !== 'ok') {
-    return local.outcome === 'not-found'
-      ? { ok: false, code: 'task-not-found', detail: 'no such task' }
-      : { ok: false, code: 'bad-task-state', detail: 'only a taken task can be split' }
-  }
-  // 任务中心是硬 inject：addSubtask 失败（上限/互斥等）原样抛给工具执行器。
-  // taskCenter is a hard inject: addSubtask failures (limits, mutex) propagate
-  // to the tool executor.
-  await channel.addSubtask(parentId, title, {
-    claimantSessionId: exec.agent?.session?.id,
-  })
-  return { ok: true }
+/** 租约到期时刻 / the lease deadline */
+export function leaseAhead(): string {
+  return new Date(Date.now() + LEASE_MINUTES * 60_000).toISOString()
 }
 
-/** 发布：先落本地列表，再投递任务中心；失败原样抛出（fail loud）/ publish locally then forward; failures propagate */
-export async function publishTask(store: TaskStore, channel: TaskChannel, args: { title: string }): Promise<ToolOutcome> {
-  const title = typeof args?.title === 'string' ? args.title.trim() : ''
-  if (title.length === 0) return { ok: false, code: 'draft-invalid', detail: 'title is required' }
-  const item = store.publishLocal(title)
-  await channel.send({
-    kind: 'task-workbench/publish' as TaskDraft['kind'],
-    title,
-    target: {
-      url: detailUrl({ taskId: item.id }) as TaskDraft['target']['url'],
-      appId: 'task-workbench',
-      page: 'detail',
-      params: { taskId: item.id },
-    },
-  })
-  return { ok: true }
+/** 会话 id（工具执行上下文里的接取者身份）/ the session id (the claimant identity) */
+export function sessionIdOf(exec: ToolCallContext): string | undefined {
+  return exec.agent?.session?.id as string | undefined
+}
+
+/** 页面作用域拒绝（稳定 code，模型能推出下一步：这不是能接任务的那一页）/ the page-scope refusal */
+export function pageScopeRefusal(detail: string): ToolOutcome {
+  return { ok: false, code: 'page-task-unresolvable', detail }
 }
 
 /**
- * 页面作用域接取（take_page_task 的动作体）：解析"本页那条"→ 先问任务中心
- * （互斥权威在租约，§4.4）→ 同步本地投影 → open 记录接 30 分钟租约。
- * The page-scoped take (take_page_task's body): resolve "this page's task" →
- * consult the task center first (the mutex authority is the lease, §4.4) →
- * sync the local projection → lease an open record for 30 minutes.
+ * 只读读取本页那条（get_page_task 动作体）：中心优先——按目标 URL 找根记录，
+ * 返回记录字段 + 中心子树进度；没有中心记录时如实返回 not-found。
+ * The page-scoped read (get_page_task's body): center-first — find the root
+ * record by target url, return its fields plus the center subtree progress;
+ * no record renders as an honest not-found.
+ */
+export async function getPageTask(
+  channel: TaskChannel,
+  scope: PageTaskScope,
+  exec: ToolCallContext,
+): Promise<ToolOutcome | Record<string, unknown>> {
+  const sessionId = sessionIdOf(exec)
+  if (sessionId === undefined) return pageScopeRefusal('the tool ran outside any page session')
+  const page = await scope.liveDetailTaskOf(sessionId)
+  if (page === undefined) return pageScopeRefusal('the calling session is not a live task-workbench detail page')
+  const record = await channel.findByTarget(page.url)
+  if (record === undefined) return { ok: false, code: 'task-not-found', detail: 'no task-center record targets this page' }
+  const records = await channel.list()
+  return {
+    ok: true,
+    task: {
+      id: record.id,
+      workOrderId: itemKeyOf(record),
+      title: record.title,
+      status: record.status,
+      ...(record.claimedBy?.sessionId === undefined ? {} : { ownerId: record.claimedBy.sessionId }),
+      progress: subtreeProgressLabel(records, record.id),
+    },
+    subtree: records
+      .filter((entry) => entry.ancestorIds.includes(record.id))
+      .map((entry) => ({ id: entry.id, title: entry.title, status: entry.status, depth: entry.ancestorIds.length })),
+  }
+}
+
+/**
+ * 页面作用域接取（take_page_task 动作体）：同意门 → 解析"本页那条"→ 先问
+ * 任务中心（互斥权威在租约，§4.4）→ 同步投影 → 接 30 分钟租约。
+ * The page-scoped take (take_page_task's body): the consent gate → resolve
+ * "this page's task" → consult the center first (the mutex authority is the
+ * lease, §4.4) → sync the projection → lease for 30 minutes.
  */
 export async function takePageTask(
   store: TaskStore,
   channel: TaskChannel,
   scope: PageTaskScope,
+  book: ConsentBook,
+  ledger: DriveLedger,
   exec: ToolCallContext,
 ): Promise<ToolOutcome> {
-  const sessionId = exec.agent?.session?.id
+  const sessionId = sessionIdOf(exec)
   if (sessionId === undefined) return pageScopeRefusal('the tool ran outside any page session')
-  // 页面作用域的唯一事实：本会话在详情页上绑定的那条实例（无需、也不收参数）
-  // / the one page-scope fact: the detail instance this session is bound to
-  // (no parameter needed, none accepted)
   const page = await scope.liveDetailTaskOf(sessionId)
   if (page === undefined) return pageScopeRefusal('the calling session is not a live task-workbench detail page')
-  // 先问任务中心：被别的会话持有着就原样拒绝，不动本地投影 / ask the task
-  // center first: refuse verbatim when another session holds it
+  // 同意门在解析出具体任务之后跑：投递同意按记录 id 收窄（§2）
+  // / the gate runs after the concrete task is resolved: delivery consent narrows by record id (§2)
   const record = await channel.findByTarget(page.url)
+  const gated = gateWrite(book, ledger, exec.agent, record?.id, 'take_page_task')
+  if (gated !== undefined) return gated
+  // 先问任务中心：被别的会话持有着就原样拒绝，不动投影 / ask the center first:
+  // refuse verbatim when another session holds it, never touching the projection
   if (record !== undefined && record.status === 'taken' && record.claimedBy?.sessionId !== sessionId) {
     return {
       ok: false,
@@ -136,111 +132,55 @@ export async function takePageTask(
       detail: `task ${record.id} is held by session ${record.claimedBy?.sessionId ?? 'unknown'}`,
     }
   }
-  const local = claimLocal(store, page.taskId, sessionId)
-  if (local !== undefined) return local
+  if (record === undefined) {
+    // 无中心记录的纯本地工作单：只动投影（权威缺席时互斥退化为本地）
+    // / a pure-local order with no center record: projection only (the mutex degrades locally when the authority is absent)
+    store.claimLocal(page.taskId, sessionId)
+    return { ok: true, detail: 'local work order taken; no task-center record targets this page' }
+  }
   // open → 首次接取；taken（到此必是本会话持有）→ 续租（§4.4：每次调任务工具续租）
-  // / open → first take; taken (by this session only, others refused above) → renew
-  // the lease (§4.4: every task-tool call renews it)
-  if (record !== undefined && (record.status === 'open' || record.status === 'taken')) {
-    await channel.take(record.id, { sessionId, leaseUntil: leaseAhead() })
+  if (record.status === 'open' || record.status === 'taken') {
+    const leased = await channel.take(record.id, { sessionId, leaseUntil: leaseAhead() })
+    store.syncRecord(leased)
   }
   return { ok: true, detail: outcomeDetail(record) }
 }
 
-/** 本地投影同步到 taken（幂等）；本地没有这条（外部投来的 id）→ 只走任务中心 */
-function claimLocal(store: TaskStore, taskId: string, sessionId: string): ToolOutcome | undefined {
-  if (!store.getState().some((entry) => entry.id === taskId)) return undefined
-  const claimed = store.claimTask(taskId, sessionId)
-  return claimed === 'ok'
-    ? undefined
-    : { ok: false, code: 'bad-task-state', detail: 'task is already done' }
-}
-
-/** 页面作用域拒绝（稳定 code，模型能推出下一步：这不是能接任务的那一页）/ the page-scope refusal */
-function pageScopeRefusal(detail: string): ToolOutcome {
-  return { ok: false, code: 'page-task-unresolvable', detail }
-}
-
-/**
- * 只读盘点（list_tasks 的动作体）：当前全部根任务（带子树进度）+ 全量条目 + 计数。
- * 零改动——真机反例：页面正文只是打开时刻的快照，委托来的"只读盘点"曾因无只读
- * 工具而无法兑现（模型如实拒绝，或被诱导用写工具凑数）。
- * The read-only inventory (list_tasks's body): every current root (with subtree
- * progress) + all items + counts. Zero mutation — live counter-example: the page
- * body is only the open-time snapshot, and a delegated read-only inventory could
- * not be honored without a read tool (the model honestly refused, or risked
- * being nudged into mutating tools to fake one).
- */
-export function listTasksView(store: TaskStore): Record<string, unknown> {
-  const items = store.getState()
-  const count = (status: TaskItem['status']): number => items.filter((item) => item.status === status).length
-  return {
-    ok: true,
-    open: count('open'),
-    taken: count('taken'),
-    done: count('done'),
-    roots: rootsOf(items).map((item) => ({
-      id: item.id,
-      title: item.title,
-      status: item.status,
-      progress: subtreeProgress(items, item.id).label,
-    })),
-    items: items.map((item) => ({
-      id: item.id,
-      title: item.title,
-      status: item.status,
-      ...(item.parentId === undefined ? {} : { parentId: item.parentId }),
-      ...(item.ownerId === undefined ? {} : { ownerId: item.ownerId }),
-    })),
-  }
-}
-
-/**
- * 页面作用域只读（get_page_task 的动作体）：本页那条的当前字段 + 子任务树。
- * 零改动；作用域与 take_page_task 同一口径（URL 里的 taskId，无参数可伪造）。
- * The page-scoped read (get_page_task's body): this page's current task fields
- * and subtree. Zero mutation; the scope matches take_page_task exactly (the
- * taskId from the url — no forgeable parameter).
- */
-export async function getPageTask(
-  store: TaskStore,
-  scope: PageTaskScope,
-  exec: ToolCallContext,
-): Promise<ToolOutcome | Record<string, unknown>> {
-  const sessionId = exec.agent?.session?.id
-  if (sessionId === undefined) return pageScopeRefusal('the tool ran outside any page session')
-  const page = await scope.liveDetailTaskOf(sessionId)
-  if (page === undefined) return pageScopeRefusal('the calling session is not a live task-workbench detail page')
-  const items = store.getState()
-  const task = items.find((item) => item.id === page.taskId)
-  if (task === undefined) return { ok: false, code: 'task-not-found', detail: 'no such task' }
-  return {
-    ok: true,
-    task: {
-      id: task.id,
-      title: task.title,
-      status: task.status,
-      ...(task.ownerId === undefined ? {} : { ownerId: task.ownerId }),
-      progress: subtreeProgress(items, task.id).label,
-    },
-    subtree: subtaskTree(items, task.id).map((node) => ({
-      id: node.item.id,
-      title: node.item.title,
-      status: node.item.status,
-      depth: node.depth,
-    })),
-  }
-}
-
-/** 租约到期时刻 / the lease deadline */
-function leaseAhead(): string {
-  return new Date(Date.now() + LEASE_MINUTES * 60_000).toISOString()
-}
-
 /** 成功详情如实区分三条路径 / the honest success detail across three paths */
-function outcomeDetail(record: TaskRecord | undefined): string {
-  if (record === undefined) return 'local task taken; no task-center record targets this page'
-  if (record.status === 'open') return 'task taken locally and leased in the task center (30 min)'
-  if (record.status === 'taken') return 'task-center lease renewed (30 min); local projection synced'
-  return `task-center record already ${record.status}; local projection synced`
+function outcomeDetail(record: TaskRecord): string {
+  if (record.status === 'open') return 'task taken and leased in the task center (30 min)'
+  if (record.status === 'taken') return 'task-center lease renewed (30 min)'
+  return `task-center record already ${record.status}`
+}
+
+/**
+ * 拆分（split_task 动作体）：同意门 → 本地门槛（只有被接取的任务能拆）→
+ * 任务中心建真正的子任务（target 继承受中心校验）→ 投影同步子任务行。
+ * Split (split_task's body): the consent gate → the local gate (only a taken
+ * order splits) → a real center subtask (target inheritance center-validated)
+ * → the subtask row synced into the projection.
+ */
+export async function splitTask(
+  store: TaskStore,
+  channel: TaskChannel,
+  book: ConsentBook,
+  ledger: DriveLedger,
+  exec: ToolCallContext,
+  args: { task_id?: string; title?: string },
+): Promise<ToolOutcome> {
+  const workOrderId = requireTaskId({ task_id: args?.task_id })
+  const title = typeof args?.title === 'string' ? args.title.trim() : ''
+  if (title.length === 0) return { ok: false, code: 'draft-invalid', detail: 'title is required' }
+  const records = await channel.list()
+  const parent = records.find((record) => record.parentId === undefined && itemKeyOf(record) === workOrderId)
+    ?? records.find((record) => record.id === workOrderId)
+  if (parent === undefined) return outcomeOf('not-found')
+  const gated = gateWrite(book, ledger, exec.agent, parent.id, 'split_task')
+  if (gated !== undefined) return gated
+  if (parent.status !== 'taken') return outcomeOf('bad-state', 'only a taken task can be split')
+  const subtask = await channel.addSubtask(parent.id, title, { claimantSessionId: sessionIdOf(exec) })
+  // 子任务行带父链（ancestorIds），整表重建是唯一不出错的投影路径
+  // / a subtask row carries the parent chain; a whole-table rebuild is the one projection path that cannot err
+  store.rebuildFrom(await channel.list())
+  return { ok: true, detail: `subtask ${subtask.id} created under ${parent.id}` }
 }

@@ -812,6 +812,9 @@ importers:
       '@veren/page-registry':
         specifier: workspace:^
         version: link:../../plugins/page-registry
+      '@veren/prompt-page':
+        specifier: workspace:^
+        version: link:../prompt-page
       '@veren/task-center':
         specifier: workspace:^
         version: link:../../plugins/task-center
@@ -837,9 +840,6 @@ importers:
       '@veren/prompt-core':
         specifier: workspace:^
         version: link:../prompt-core
-      '@veren/prompt-page':
-        specifier: workspace:^
-        version: link:../prompt-page
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
@@ -1681,6 +1681,12 @@ importers:
       '@veren/page-registry':
         specifier: workspace:^
         version: link:../page-registry
+      '@veren/task-center':
+        specifier: workspace:^
+        version: link:../task-center
+      '@veren/test-support':
+        specifier: workspace:^
+        version: link:../../packages/test-support
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
@@ -2108,6 +2114,12 @@ importers:
       '@veren/prompt-page':
         specifier: workspace:^
         version: link:../../packages/prompt-page
+      '@veren/task-center':
+        specifier: workspace:^
+        version: link:../task-center
+      '@veren/test-support':
+        specifier: workspace:^
+        version: link:../../packages/test-support
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
@@ -2303,6 +2315,9 @@ importers:
       '@veren/task-center':
         specifier: workspace:^
         version: link:../task-center
+      '@veren/test-support':
+        specifier: workspace:^
+        version: link:../../packages/test-support
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
@@ -2702,6 +2717,9 @@ importers:
       '@veren/prompt-page':
         specifier: workspace:^
         version: link:../../packages/prompt-page
+      '@veren/test-support':
+        specifier: workspace:^
+        version: link:../../packages/test-support
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
@@ -2763,13 +2781,25 @@ importers:
       '@veren/prompt-core':
         specifier: workspace:^
         version: link:../../packages/prompt-core
+      '@veren/prompt-page':
+        specifier: workspace:^
+        version: link:../../packages/prompt-page
+      '@veren/task-center':
+        specifier: workspace:^
+        version: link:../task-center
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
         version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.10)(@deepseek-ai/cordis-plugin-loader@1.0.6)
+      '@deepseek-ai/dsh-agent':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(77aa00311ccd1db3f3706cf88c30da0a)
       '@deepseek-ai/dsh-llm':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-session':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-scope@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))
       '@deepseek-ai/dsh-storage':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
@@ -2788,12 +2818,6 @@ importers:
       '@veren/page-registry':
         specifier: workspace:^
         version: link:../page-registry
-      '@veren/prompt-page':
-        specifier: workspace:^
-        version: link:../../packages/prompt-page
-      '@veren/task-center':
-        specifier: workspace:^
-        version: link:../task-center
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
@@ -2813,6 +2837,58 @@ importers:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
         version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.10)(@deepseek-ai/cordis-plugin-loader@1.0.6)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^5.0.4
+        version: 5.0.4(@types/node@26.6.5)(vite@7.3.7(@types/node@26.6.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1))
+
+  tests/page-delivery-dryrun:
+    dependencies:
+      '@veren/app-registry':
+        specifier: workspace:^
+        version: link:../../plugins/app-registry
+      '@veren/forum':
+        specifier: workspace:^
+        version: link:../../plugins/forum
+      '@veren/forum-app':
+        specifier: workspace:^
+        version: link:../../plugins/forum-app
+      '@veren/notebook':
+        specifier: workspace:^
+        version: link:../../plugins/notebook
+      '@veren/notebook-app':
+        specifier: workspace:^
+        version: link:../../plugins/notebook-app
+      '@veren/page-registry':
+        specifier: workspace:^
+        version: link:../../plugins/page-registry
+      '@veren/prompt-page':
+        specifier: workspace:^
+        version: link:../../packages/prompt-page
+      '@veren/task-center':
+        specifier: workspace:^
+        version: link:../../plugins/task-center
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.5
+        version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.10)(@deepseek-ai/cordis-plugin-loader@1.0.6)
+      '@deepseek-ai/dsh-llm':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-storage':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-storage@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))
+      '@deepseek-ai/dsh-storage-json':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-storage@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))
+      '@deepseek-ai/dsh-tools':
+        specifier: '>=0.2.1-rc.2 <0.3.0'
+        version: 0.2.1-rc.2(39679b028ccad1643d383935c6a869a6)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

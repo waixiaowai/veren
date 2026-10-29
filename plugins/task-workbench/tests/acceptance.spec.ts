@@ -41,6 +41,10 @@ interface SessionFile {
   sessions: Record<string, { title: string; messages: string[]; alive: boolean }>
 }
 
+/** 注入的 session/event 发射器（boot 接线：消息落目录时同步喂同意门折叠）
+ * / the injected session/event emitter (wired by boot: every append feeds the consent fold) */
+export type SessionEventEmit = (session: object, event: object) => void
+
 /** 会话目录：JSON 文件落盘；agent.followup 追加消息并立即写回。 */
 class FileSessionStore {
   private readonly data: SessionFile = { sessions: {} }
@@ -50,6 +54,11 @@ class FileSessionStore {
   /** 各会话的登记面（agentOf 假 agent 写它，toolFace 快照读它）
    * / each session's registration face (the agentOf fake writes it; toolFace snapshots read it) */
   readonly #toolFaces = new Map<string, PageToolEntry[]>()
+  /** 稳定会话对象（同意门按对象键：exec.agent.session 必须与事件桥同一对象）
+   * / stable session objects (the consent gate keys on the object: exec.agent.session must be the same object the event bridge emits) */
+  readonly #sessionFaces = new Map<string, { readonly id: string }>()
+  /** session/event 发射器（boot 注入）/ the session/event emitter (injected by boot) */
+  emitSessionEvent: SessionEventEmit = () => undefined
 
   constructor(readonly file: string, private readonly tools: Map<string, ToolDefinition>) {
     if (existsSync(file)) this.data.sessions = JSON.parse(readFileSync(file, 'utf8')) as SessionFile['sessions']
@@ -95,6 +104,15 @@ class FileSessionStore {
       : undefined),
   }
 
+  /** 会话的稳定对象（工具执行与事件桥共用）/ the session's stable object (shared by tool execs and the event bridge) */
+  sessionFace(id: string): { readonly id: string } {
+    const existing = this.#sessionFaces.get(id)
+    if (existing !== undefined) return existing
+    const face = { id }
+    this.#sessionFaces.set(id, face)
+    return face
+  }
+
   /** 摘掉一个会话登记的全部页面工具（废弃/销毁路径共用）：名字来自登记面快照
    * / strip every page tool a session registered (shared by deprecate & destroy): names come from the registration face */
   releaseToolsOf(id: string): void {
@@ -132,19 +150,39 @@ class FileSessionStore {
               return () => undefined
             },
           },
-          effect: () => async () => undefined,
+          // effect 真跑（异步首屏生命周期：重建投影 + followup 送达），fire-and-forget
+          // / effects really run (the async first-screen lifecycle: rebuild + followup), fire-and-forget
+          effect: (callback: () => unknown) => {
+            void Promise.resolve().then(callback).catch(() => undefined)
+            return () => undefined
+          },
           on: () => () => undefined,
         },
-        session: { id },
+        // followup：页面自推消息直接落会话日志（与宿主 agents.followup 同语义）
+        // / followup: the page's own messages land straight in the session log (same semantics as the host agents.followup)
+        followup: (message: { content: ReadonlyArray<{ type: string; text?: string }> }) => {
+          const text = message.content.map((block) => block.text ?? '').join('')
+          this.data.sessions[id]?.messages.push(text)
+          this.save()
+        },
+        session: this.sessionFace(id),
       } as never
     },
     // 快照必须拷贝：活引用会让 before/after 同数组、差集恒空
     // / the snapshot must copy: a live reference makes before/after one array and the delta permanently empty
     toolFace: (id) => [...(this.#toolFaces.get(id) ?? [])],
     retire: async (id) => { this.releaseToolsOf(id) },
-    appendUserMessage: async (id, text) => {
+    appendUserMessage: async (id, text, source) => {
       this.data.sessions[id]?.messages.push(text)
       this.save()
+      // session/event 桥：注入消息（PAGE 块/通知/TASK 块）同步喂同意门折叠
+      // / the session/event bridge: injected messages (PAGE block / notice / TASK block) feed the consent fold
+      if (source !== undefined) {
+        this.emitSessionEvent(this.sessionFace(id), {
+          type: 'user/message',
+          data: { message: { source: { kind: source }, content: [{ type: 'text', text }] } },
+        })
+      }
     },
     focus: async () => undefined,
     destroy: async (id) => {
@@ -199,6 +237,9 @@ async function boot(root: string): Promise<Boot & { stop(): Promise<void> }> {
   // 工具注册表替身：register 记录，disposer 摘除（真实释放语义）
   const tools = new Map<string, ToolDefinition>()
   const store = new FileSessionStore(join(root, 'sessions.json'), tools)
+  // session/event 桥：目录的注入消息同步喂给插件纤维上的同意门观察器
+  // / the session/event bridge: the store's injected messages feed the consent observer on the plugin fiber
+  store.emitSessionEvent = (session, event) => { ctx.emit('session/event', session as never, event as never) }
   provideStub(ctx, 'tools', {
     register: (tool: ToolDefinition) => {
       tools.set(tool.name, tool)
@@ -269,6 +310,11 @@ function open(pages: PageRegistryService, taskId: string, options: { taskId?: st
   return pages.openUrl(`/apps/task-workbench/task/${taskId}` as PageInstanceKey, options)
 }
 
+/** 等异步首屏生命周期落定（effect fire-and-forget 后的存储写与 followup）/ let the async first-screen lifecycle settle (storage writes and the followup after fire-and-forget effects) */
+async function flush(): Promise<void> {
+  for (let i = 0; i < 10; i += 1) await new Promise((resolve) => setTimeout(resolve, 5))
+}
+
 const errorCode = (promise: Promise<unknown>): Promise<string> => promise.then(
   () => { throw new Error('expected rejection') },
   (error: { code?: string }) => error.code ?? `NO_CODE:${String(error)}`,
@@ -296,17 +342,26 @@ describe('场景 1：装示例应用 → 可发现、入口可解析、预设零
 
 describe('场景 2：/task/1 → 会话 A；/task/2 → 会话 B；A 原样保留', () => {
   it('两条 URL 两条会话；A 的工具和消息不被 B 影响', async () => {
-    const { pages, tools, store } = await boot(tempRoot())
+    const { pages, tasks, tools, store } = await boot(tempRoot())
+    // v2 队列权威在中心：先落一条工作单，详情页首屏消息才能携带它
+    // / v2 keeps the queue's authority in the center: seed one order so the detail first-screen message can carry it
+    await tasks.send({
+      kind: 'task-workbench/publish' as never,
+      title: '示例任务 1',
+      target: { url: '/apps/task-workbench/task/t-1' as PageInstanceKey, appId: 'task-workbench', page: 'detail', params: { taskId: 't-1' } },
+    })
     const a = await open(pages, 't-1')
     const b = await open(pages, 't-2')
     expect(a.sessionId).not.toBe(b.sessionId)
     expect(store.titles()).toContain('任务 #t-1')
     // A 的工具仍挂着（键 = task_workbench__* 且带会话分组的实现按名字记录）
     expect([...tools.keys()].filter((name) => name.startsWith('task_workbench__')).length).toBeGreaterThan(0)
-    // A 的 PAGE 块还在，且首屏正文含 store 首条数据（不被 setSnapshot(null) 清空）
+    // A 的 PAGE 块还在，且首屏消息携带中心真身（含标题；投影正文随重建对齐）
+    // / A's PAGE block is intact, and the first-screen message carries the center's real body (title included)
     const pageBlockA = store.messages(a.sessionId).find((m) => m.startsWith('PAGE task-workbench/detail'))
     expect(pageBlockA).toBeDefined()
-    expect(pageBlockA).toContain('t-1 示例任务 1')
+    await flush()
+    expect(store.messages(a.sessionId).some((m) => m.includes('中心真身') && m.includes('示例任务 1'))).toBe(true)
   })
 })
 
@@ -316,6 +371,12 @@ describe('场景 3：整机重启（真实落盘）→ 索引仍指向最新活�
   it('销毁整个 Context（含存储栈）后重开同一目录：索引指针跨重启保留、指向最新活会话；再开一次新建且旧会话标废弃', async () => {
     const root = tempRoot()
     const first = await boot(root)
+    // 先落一条工作单（顺带证明记录跨重启持久）/ seed one order (also proves records survive the restart)
+    await first.tasks.send({
+      kind: 'task-workbench/publish' as never,
+      title: '示例任务 1',
+      target: { url: '/apps/task-workbench/task/t-1' as PageInstanceKey, appId: 'task-workbench', page: 'detail', params: { taskId: 't-1' } },
+    })
     const a = await open(first.pages, 't-1')
     await first.stop() // 真实销毁：存储域关闭、fiber 逆序卸载
 
@@ -332,10 +393,12 @@ describe('场景 3：整机重启（真实落盘）→ 索引仍指向最新活�
     expect(after.find((row) => row.url === '/apps/task-workbench/task/t-1' && row.state === 'live')?.sessionId).toBe(b.sessionId)
     const deprecatedRow = after.find((row) => row.state === 'deprecated' && row.sessionId === a.sessionId)
     expect(deprecatedRow?.state).toBe('deprecated')
-    // 新会话的 PAGE 块与页面工具照常；正文含 store 首条数据
+    // 新会话的 PAGE 块与页面工具照常；首屏消息携带中心真身
+    // / the fresh session's PAGE block and tools are in place; the first-screen message carries the center's real body
     const pageBlockB = second.store.messages(b.sessionId).find((m) => m.startsWith('PAGE task-workbench/detail'))
     expect(pageBlockB).toBeDefined()
-    expect(pageBlockB).toContain('t-1 示例任务 1')
+    await flush()
+    expect(second.store.messages(b.sessionId).some((m) => m.includes('中心真身') && m.includes('示例任务 1'))).toBe(true)
     expect([...second.tools.keys()].filter((name) => name.startsWith('task_workbench__')).length).toBeGreaterThan(0)
   })
 })
@@ -488,10 +551,11 @@ describe('场景 8：卸载 → 工具摘掉、会话保留、任务 orphaned；
     const rows = await second.pages.instances.listByApp('task-workbench')
     expect(rows.find((row) => row.url === '/apps/task-workbench/task/t-1' && row.state === 'live')?.sessionId).toBe(reopened.sessionId)
     expect(rows.some((row) => row.state === 'deprecated' && row.sessionId === a.sessionId)).toBe(true)
-    // 旧会话消息仍可读，PAGE 块正文含 store 首条数据
+    // 旧会话消息仍可读（PAGE 块在；首屏消息带过中心真身）
+    // / the old session's log stays readable (the PAGE block is there; the first-screen message carried the center's real body)
     const pageBlockOld = second.store.messages(a.sessionId).find((m) => m.startsWith('PAGE task-workbench/detail'))
     expect(pageBlockOld).toBeDefined()
-    expect(pageBlockOld).toContain('t-1 示例任务 1')
+    expect(first.store.messages(a.sessionId).some((m) => m.includes('中心真身'))).toBe(true)
     // 新会话的页面工具照常挂载
     expect(second.tools.has('task_workbench__complete_task')).toBe(true)
   })
@@ -543,11 +607,22 @@ describe('场景 10：page_send 投递 → 详情页 take_page_task 接取 → �
     // / the broken shape: delivered, session alive, nobody took it, no TASK block
     expect((await tasks.get(record.id))?.status).toBe('open')
     expect(store.messages(delivered.sessionId).some((m) => m.startsWith('TASK '))).toBe(false)
-    // 矩阵修复：详情页挂着页面作用域接取（无参数，接的就是本页那条）
-    // / the matrix fix: the detail page mounts the page-scoped take (no parameter)
+    // v2 投递闭环（§5 分解）：通知先进会话（投递同意按记录 id 收窄）→ drive_begin
+    // 声明范围 → take_page_task 接取本页那条 → complete_task 提交。
+    // / the v2 delivery loop (§5's decomposition): the notice lands first (delivery
+    // consent narrowed to the record id) → drive_begin declares the scope →
+    // take_page_task takes this page's order → complete_task submits.
+    await flush()
     const take = tools.get('task_workbench__take_page_task')
     expect(take).toBeDefined()
-    const exec = { agent: { session: { id: delivered.sessionId } } } as never
+    const session = store.sessionFace(delivered.sessionId)
+    const exec = { agent: { session } } as never
+    // 门未声明时先拒绝：先 take 会被 consent/drive-required 挡住
+    // / with no declared drive the take is refused first: consent/drive-required
+    expect(await take!.execute({}, exec)).toMatchObject({ ok: false, code: 'consent/drive-required' })
+    const drive = tools.get('task_workbench__drive_begin')
+    expect(await drive!.execute({ reason: '处理投递来的任务', scope: 'tasks', task_ids: [record.id] }, exec))
+      .toMatchObject({ ok: true })
     expect(await take!.execute({}, exec)).toMatchObject({ ok: true })
     // 接取者就是本页会话（租约）；同会话重复接取幂等（§4.4）
     // / the claimant is this page session (the lease); re-take by the same session is idempotent (§4.4)
@@ -555,13 +630,10 @@ describe('场景 10：page_send 投递 → 详情页 take_page_task 接取 → �
     expect(taken?.status).toBe('taken')
     expect(taken?.claimedBy?.sessionId).toBe(delivered.sessionId)
     expect(await take!.execute({}, exec)).toMatchObject({ ok: true })
-    // 本地投影同步翻 taken：complete_task（要求 taken）现在走得通
-    // / the local projection flipped to taken: complete_task (taken-only) now goes through
-    expect(await tools.get('task_workbench__complete_task')!.execute({ task_id: 't-1' }, {} as never))
-      .toMatchObject({ ok: true })
     // 接取者提交 → 终态 done，而不是 failed/task-not-taken
     // / the claimant submits → terminal done, not failed/task-not-taken
-    await tasks.complete(record.id, { summary: '闭环完成' })
+    expect(await tools.get('task_workbench__complete_task')!.execute({ task_id: 't-1', summary: '闭环完成' }, exec))
+      .toMatchObject({ ok: true })
     expect((await tasks.get(record.id))?.status).toBe('done')
   })
 
@@ -578,7 +650,7 @@ describe('场景 10：page_send 投递 → 详情页 take_page_task 接取 → �
   })
 
   it('重开同 URL（旧会话废弃、租约释放）后，新会话依然接得了本页那条（§3.5.3 收敛）', async () => {
-    const { pages, tasks, tools } = await boot(tempRoot())
+    const { pages, tasks, tools, store } = await boot(tempRoot())
     const record = await tasks.send({
       kind: 'task-workbench/publish' as never,
       title: '废弃后要能被新会话接走的任务',
@@ -588,8 +660,17 @@ describe('场景 10：page_send 投递 → 详情页 take_page_task 接取 → �
     expect((await tasks.get(record.id))?.claimedBy?.sessionId).toBe(first.sessionId)
     const reopened = await open(pages, 't-1')
     expect(reopened.sessionId).not.toBe(first.sessionId)
-    const take = tools.get('task_workbench__take_page_task')!
-    expect(await take.execute({}, { agent: { session: { id: reopened.sessionId } } } as never))
+    // §3.5.3 收敛在门内验证：旧会话废弃释放租约后，新会话经"用户点名 + drive"接走本页那条
+    // / the §3.5.3 convergence inside the gate: after the deprecated session's lease
+    // is released, the fresh session takes the order via a user turn + drive
+    const session = store.sessionFace(reopened.sessionId)
+    const exec = { agent: { session } } as never
+    await flush()
+    store.emitSessionEvent(session, { type: 'turn/start' })
+    store.emitSessionEvent(session, { type: 'user/message', data: { message: { source: { kind: 'user' }, content: [{ type: 'text', text: '接了它' }] } } })
+    expect(await tools.get('task_workbench__drive_begin')!.execute({ reason: '用户点名接取' }, exec))
+      .toMatchObject({ ok: true })
+    expect(await tools.get('task_workbench__take_page_task')!.execute({}, exec))
       .toMatchObject({ ok: true })
     const after = await tasks.get(record.id)
     expect(after?.status).toBe('taken')

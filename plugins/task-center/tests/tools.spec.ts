@@ -105,5 +105,8 @@ describe('task_* tools', () => {
     expect(text).toContain('task_take')
     expect(text).toContain('page_send')
     expect(text).not.toContain('app_open 打开')
+    // 任务 id 单独成行：投递同意按它收窄（工作台同意门的 §2 投递指令面）
+    // / the task id on its own line: delivery consent narrows by it (the workbench gate's §2 delivery face)
+    expect(text).toContain(`任务：${task.id}`)
   })
 })

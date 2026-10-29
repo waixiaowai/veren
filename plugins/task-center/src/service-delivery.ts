@@ -86,6 +86,10 @@ export async function markDelivered(
 export function noticeText(task: TaskRecord): string {
   const lines = [
     `[task-center] ${task.title}`,
+    // 任务 id 单独成行：工作台同意门按它把投递同意收窄到被点名任务（§2 投递指令）
+    // / the task id on its own line: the workbench consent gate narrows delivery
+    // consent to the named task by it (§2 delivery instruction)
+    `任务：${task.id}`,
     `来源：${task.appId} · kind ${task.kind}`,
     `页面：${task.target.url}`,
     `参数：${JSON.stringify(task.target.params)}`,

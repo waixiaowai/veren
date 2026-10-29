@@ -11,12 +11,19 @@ The reference Veren **application**: it registers the `task-workbench` app (id, 
 | App id | `task-workbench` (tool prefix `task_workbench`) |
 | Entry page | `list` → `/apps/task-workbench/list` |
 | Pages | `/apps/task-workbench/list`, `/apps/task-workbench/task/:taskId`, `/apps/task-workbench/publish` |
-| Tools | `task_workbench__take_task`, `__take_page_task`, `__complete_task`, `__abandon_task`, `__publish_task`, `__split_task` |
+| Tools | 12 tools (`task_workbench__*`): `list_tasks`, `take_task`, `complete_task`, `abandon_task`, `publish_task`, `requeue_task`, `get_page_task`, `take_page_task`, `split_task`, `drive_begin`, `drive_end`, `open_task_page` |
+| Consent gate | browse/drive modes: a write tool needs this turn's user message or a delivery naming the task, plus a `drive_begin` scope declaration (stable `consent/*` codes) |
 | Task channel | `ctx.taskCenter` (a declared hard inject, G13); publish/split failures propagate (fail loud) |
 
 Pages carry no preset. Each page declares `instructions` (a note to the model, not a system prompt) and `instanceTitle` (e.g. `任务 #1` for `/task/:id`). The pages are **one-shot module-level components**: the body runs exactly once on the page session's real Agent — it registers the page's tools via `agent.ctx.tools.register` (full names, living and dying with the agent fiber) and reads the authoritative store directly (a synchronous in-memory face), so the PAGE block body is the store's state at open time. The page never renders again: later changes reach the model as tool-call results, not page refreshes.
 
 The tool matrix follows the page archetypes (§3.10.1): the parametered `take_task` (an arbitrary id) sits on the list page — the browsing entry's intake duty; the detail page mounts `take_page_task`, a **page-scoped take with no parameters** that claims exactly the task the page instance is bound to (the url's `taskId`, resolved through the page-registry instance index) and, when a task-center record targets that page, takes its 30-minute lease too. That is what closes the delivery loop: a task delivered to a detail page can be claimed by that page's own session instead of dying as `failed/task-not-taken`.
+
+**The three concepts (v2; design frozen in `docs/task-workbench-modes-dispatch.md`)**:
+
+- **Drive (browse/drive + consent gate)** — the queue's authority is the task center (persists across restarts); the list page's first screen is a strategy view (takeable/dispatched/held/completed/returned + wait times + needs-confirmation flags), and sample orders are lazily seeded by idempotency key (never re-sown). Every write tool passes the consent gate: this turn carries a `kind:'user'` human message or a delivery instruction naming the task (`task-center/notice` / a TASK block), and `drive_begin` declared the scope and reason; the grant is per-turn, out-of-scope targets refuse with `consent/scope-exceeded`. The gate is a mechanism, not phrasing: signals come from an incremental fold over `session/event` (a real log proves `turn/start` precedes the turn's user messages), the ledger is reclaimed with the agent object, and unobserved sessions fail closed.
+- **Dispatch (targets from the registry catalog)** — `publish_task`'s `target_app` is validated against `ctx.apps.catalog()` (active apps; the entry page is the landing spot; `:param` pages refuse); `requeue_task` returns failed/orphaned orders to the open queue or re-files them at another app (the new record is sent before the old vehicle is cancelled). The target app works with the global `task_take`/`task_complete`; completion flows back through the task center into the list page's strategy view.
+- **Navigation (with a receipt)** — `open_task_page` goes through the `pageRegistry.openUrl` front door (returns the `{sessionId,url,title}` receipt; passing taskId makes the target page take the task and receive the TASK block; same-url self-open returns idempotently via the host guard). The list page body carries cross-app catalog rows (source = the registry, each with its entry url and a one-line purpose).
 
 ## Tests
 
@@ -39,4 +46,4 @@ Task structure (§4.7): task items carry `parentId` (written once at creation, i
 
 Rules that make it an *app* rather than a plugin: ids and tool prefixes are globally unique and validated fail-loud; pages are namespaced under `/apps/<appId>/`; lifecycle is bound to your fiber (register disposers with `ctx.effect` in reverse-safe order); the user's preset choice is never touched.
 
-See `docs/application-concept.cn.md` (§2–§4, §7.1, §8.1) for the design rationale.
+See `docs/application-concept.cn.md` (§2–§4, §7.1, §8.1) for the design rationale, and `docs/task-workbench-modes-dispatch.md` for the v2 three concepts (the state-transition table + the §3.10.1 matrix extension table).

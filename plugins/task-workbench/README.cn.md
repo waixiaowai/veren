@@ -11,12 +11,19 @@ Veren **应用**的参考实现：在 `@veren/app-registry`、`@veren/page-regis
 | 应用 id | `task-workbench`（工具前缀 `task_workbench`） |
 | 入口页面 | `list` → `/apps/task-workbench/list` |
 | 页面 | `/apps/task-workbench/list`、`/apps/task-workbench/task/:taskId`、`/apps/task-workbench/publish` |
-| 工具 | `task_workbench__take_task`、`__take_page_task`、`__complete_task`、`__abandon_task`、`__publish_task`、`__split_task` |
+| 工具 | 12 个（`task_workbench__*`）：`list_tasks`、`take_task`、`complete_task`、`abandon_task`、`publish_task`、`requeue_task`、`get_page_task`、`take_page_task`、`split_task`、`drive_begin`、`drive_end`、`open_task_page` |
+| 同意门 | browse/drive 两模式：写工具需要本回合用户消息或点名任务的投递指令 + `drive_begin` 声明范围（稳定 code `consent/*`） |
 | 任务通道 | `ctx.taskCenter`（声明的硬 inject，G13）；发布/拆分失败原样抛出（fail loud） |
 
 页面不再绑定预设。每页声明 `instructions`（给模型的说明，不是系统提示词）与 `instanceTitle`（如 `/task/:id` 实例化为「任务 #1」）。三个页面都是**一次性渲染的模块级组件**：组件体在页面会话的真实 Agent 上执行恰好一次——经 `agent.ctx.tools.register` 登记本页工具（全名，随 agent fiber 生灭），直读权威 store（同步内存面），正文即打开时刻的 store 状态。此后页面不再渲染：变化以工具调用的结果进上下文，不经页面刷新。
 
 工具矩阵跟随页面原型（§3.10.1）：带参的 `take_task`（任意 id）挂在列表页——浏览入口的接取职责；详情页挂的是 `take_page_task`——**无参数的页面作用域接取**，接的恰好是该页面实例绑定的那条任务（URL 里的 `taskId`，经 page-registry 实例索引解析），且当任务中心有记录以该页为目标时同时接取其 30 分钟租约。投递闭环由此闭合：被投递给详情页的任务能被该页自己的会话接走，而不是落成 `failed/task-not-taken`。
+
+**三概念（v2，设计定稿见 `docs/task-workbench-modes-dispatch.cn.md`）**：
+
+- **推进（browse/drive + 同意门）**——队列权威在任务中心（重启持久），列表页首屏是策略视图（可接取/已派发/被持有/已完成/已退回 + 等待时长 + 需确认标记），种子示例按幂等键懒播（不重播）。写工具统一过同意门：本回合有 `kind:'user'` 的人类消息或点名任务的投递指令（`task-center/notice` / TASK 块），且先 `drive_begin` 声明范围与理由；逐轮生效，未声明范围拒绝 `consent/scope-exceeded`。门是机制不是措辞：信号来自 `session/event` 的增量折叠（真机实证 `turn/start` 先于本回合 user 消息），台账随 agent 对象回收，未观察过的会话 fail-closed。
+- **派发（target 来自注册表目录）**——`publish_task` 的 `target_app` 从 `ctx.apps.catalog()` 校验（active 应用、entry 页为落点、带 `:param` 的页拒绝）；`requeue_task` 把 failed/orphaned 退回 open 队列或改派到别的应用（先发新记录再撤旧载体）。目标应用用全局 `task_take`/`task_complete` 干活，完成态经任务中心记录回传列表页策略视图。
+- **导航（带回执）**——`open_task_page` 走 `pageRegistry.openUrl` 正门（返回 `{sessionId,url,title}` 回执；taskId 传入即目标页接取并收 TASK 块；同 URL 自开由宿主守卫幂等返回）。列表页正文带跨应用目录行（来源 = 注册表，逐条入口 URL + 一句话用途）。
 
 ## 测试
 
@@ -39,4 +46,4 @@ pnpm --filter @veren/task-workbench typecheck
 
 让它成为「应用」而不是「插件」的规则：id 与工具前缀全宿主唯一、校验 fail loud；页面统一收在 `/apps/<appId>/` 命名空间下；生命周期绑定你的 fiber（用 `ctx.effect` 按可逆序登记清理）；永远不碰用户自选的预设。
 
-设计依据见 `docs/application-concept.cn.md`（§2–§4、§7.1、§8.1）。
+设计依据见 `docs/application-concept.cn.md`（§2–§4、§7.1、§8.1）与 `docs/task-workbench-modes-dispatch.cn.md`（v2 三概念：状态迁移表 + §3.10.1 矩阵扩展表）。

@@ -1,53 +1,49 @@
 /**
- * 子任务树（§4.7.8）：整树进度、子任务树投影、split_task 的守卫与降级、
- * 父指针不可变（环结构上不可能）。
- * Subtask trees (§4.7.8): whole-subtree progress, the subtask-tree projection,
- * split_task guards and degrade, and the immutable parent pointer (cycles are
- * structurally impossible).
+ * 子任务树（§4.7.8）：整树进度、子任务树投影是纯函数（条目直接构造）；
+ * store.rebuildFrom 的分组与父链（队列权威搬家的投影路径，§1.1）。
+ * Subtask trees (§4.7.8): whole-subtree progress and the subtask-tree
+ * projection are pure functions (items constructed directly); store.rebuildFrom's
+ * grouping and parent chain (the queue-authority move's projection path, §1.1).
  */
-
 import { describe, expect, it } from 'vitest'
+import type { TaskRecord } from '@veren/task-center'
 import { rootsOf, subtreeProgress, subtaskTree, TaskStore } from '../src/store.ts'
 import type { TaskItem } from '../src/types.ts'
 
-/** 建 R → C1/C2 → G 三层树 / build one R → C1/C2 → G three-level tree */
-function grow(): { store: TaskStore; items: TaskItem[] } {
-  const store = new TaskStore([
-    { id: 't-1', title: '根', status: 'open' },
-  ])
-  store.takeTask('t-1', 'model')
-  store.splitTask('t-1', '子 1')
-  store.splitTask('t-1', '子 2')
-  store.takeTask('t-3', 'model')
-  store.splitTask('t-3', '孙 1')
-  return { store, items: store.getState() }
+/** 建 R → C1/C2 → G 三层树的条目 / build one R → C1/C2 → G three-level item tree */
+function grow(): TaskItem[] {
+  return [
+    { id: 't-1', title: '根', status: 'taken', ownerId: 'model' },
+    { id: 't-2', title: '子 1', status: 'open', parentId: 't-1' },
+    { id: 't-3', title: '子 2', status: 'taken', parentId: 't-1', ownerId: 'model' },
+    { id: 't-4', title: '孙 1', status: 'open', parentId: 't-3' },
+  ]
 }
 
 describe('整树进度（§4.7.8 第 1 条）', () => {
   it('进度按整棵子树口径（含根），非终态即 active', () => {
-    const { items } = grow()
+    const items = grow()
     const progress = subtreeProgress(items, 't-1')
     expect(progress.label).toBe('0/4')
     expect(progress.active).toBe(true)
     // 完成 G（t-4）后整树 1/4 / after finishing G the tree is 1/4
-    store_progress_after_done(items)
+    const done: TaskItem[] = items.map((item) =>
+      item.id === 't-4' ? { ...item, status: 'done' as const } : item)
+    expect(subtreeProgress(done, 't-1').label).toBe('1/4')
+    // failed 也算终态（与任务中心同口径）/ failed counts as terminal too (same as the center)
+    const failed: TaskItem[] = items.map((item) =>
+      item.id === 't-4' ? { ...item, status: 'failed' as const } : item)
+    expect(subtreeProgress(failed, 't-1').label).toBe('1/4')
   })
 
-  it('列表口径只出根任务 / the list view shows roots only', () => {
-    const { items } = grow()
-    expect(rootsOf(items).map((item) => item.id)).toEqual(['t-1'])
+  it('列表口径只出根工作单 / the list view shows root orders only', () => {
+    expect(rootsOf(grow()).map((item) => item.id)).toEqual(['t-1'])
   })
 })
 
-function store_progress_after_done(items: TaskItem[]): void {
-  const done: TaskItem[] = items.map((item) =>
-    item.id === 't-4' ? { ...item, status: 'done' as const } : item)
-  expect(subtreeProgress(done, 't-1').label).toBe('1/4')
-}
-
 describe('子任务树投影（§4.7.8 第 2 条）', () => {
   it('逐层列出后代，活跃分支默认展开，带各层进度', () => {
-    const { items } = grow()
+    const items = grow()
     const nodes = subtaskTree(items, 't-1')
     expect(nodes.map((node) => node.item.id)).toEqual(['t-2', 't-3', 't-4'])
     expect(nodes.map((node) => node.depth)).toEqual([1, 1, 2])
@@ -57,21 +53,70 @@ describe('子任务树投影（§4.7.8 第 2 条）', () => {
   })
 })
 
-describe('split（§4.7.6）', () => {
-  it('只能拆 taken 节点；只创建新记录，父指针一次定型', () => {
-    const store = new TaskStore([{ id: 't-1', title: '根', status: 'open' }])
-    expect(store.splitTask('t-1', '不许拆').outcome).toBe('bad-state')
-    expect(store.splitTask('ghost', '不存在').outcome).toBe('not-found')
-    store.takeTask('t-1', 'model')
-    const first = store.splitTask('t-1', '子')
-    expect(first.outcome).toBe('ok')
-    const again = store.splitTask('t-1', '另一个子')
-    expect(again.outcome).toBe('ok')
-    // “把根挂到自己后代下”只会长出新叶子，root.parentId 永不改写
-    // / "attaching the root under its descendant" only grows a new leaf
-    store.takeTask(first.item!.id, 'model')
-    const underChild = store.splitTask(first.item!.id, '孙')
-    expect(underChild.item!.parentId).toBe(first.item!.id)
-    expect((store.getState().find((item) => item.id === 't-1'))?.parentId).toBeUndefined()
+// ---- rebuildFrom：中心记录 → 投影（§1.1）/ rebuildFrom: center records → projection ----
+
+/** 最小记录构造（只带投影需要的字段）/ a minimal record (only the fields the projection reads) */
+function recordOf(id: string, overrides: Partial<TaskRecord> = {}): TaskRecord {
+  return {
+    id: id as TaskRecord['id'],
+    appId: 'task-workbench',
+    kind: 'task-workbench/publish' as TaskRecord['kind'],
+    title: `单 ${id}`,
+    target: { url: '/apps/task-workbench/task/t-1', appId: 'task-workbench', page: 'detail', params: { taskId: 't-1' } },
+    appVersion: '0.0.0',
+    assignee: 'local',
+    status: 'open',
+    revision: 1,
+    createdAt: '2026-10-29T00:00:00.000Z',
+    updatedAt: '2026-10-29T00:00:00.000Z',
+    ancestorIds: [],
+    schemaVersion: 2,
+    ...overrides,
+  } as TaskRecord
+}
+
+describe('rebuildFrom（队列权威在中心的投影）', () => {
+  it('根按工作单 id 分组（入站参数优先），子任务按父链挂行，attempts 数根级记录', () => {
+    const store = new TaskStore()
+    store.rebuildFrom([
+      recordOf('task-1'),
+      recordOf('task-9', { updatedAt: '2026-10-29T01:00:00.000Z' }),
+      recordOf('task-2', { parentId: 'task-1' as TaskRecord['id'], ancestorIds: ['task-1' as TaskRecord['id']] }),
+    ])
+    const items = store.getState()
+    // 同工作单 id 的两条根记录合成一个条目，活跃载体 = 最新 updatedAt 的 open 记录
+    // / two root records of one work order merge into one item; the active vehicle = the latest open record
+    expect(rootsOf(items).map((item) => item.id)).toEqual(['t-1'])
+    expect(rootsOf(items)[0]?.activeRecordId).toBe('task-9')
+    expect(rootsOf(items)[0]?.attempts).toBe(2)
+    // 子任务行带父链 / the subtask row carries the parent chain
+    expect(items.find((item) => item.id === 'wb-task-2')).toMatchObject({ parentId: 't-1', status: 'open' })
+  })
+
+  it('出站记录（幂等键内嵌工作单 id）入组并翻 dispatchedTo；终态组仍保留为历史行', () => {
+    const store = new TaskStore()
+    store.rebuildFrom([
+      recordOf('task-out', {
+        appId: 'person-agent',
+        title: '派出去的单',
+        target: { url: '/apps/person-agent/overview', appId: 'person-agent', page: 'overview', params: {} } as TaskRecord['target'],
+        idempotencyKey: 'task-workbench/t-7/person-agent-a1',
+      }),
+      recordOf('task-done', { status: 'done' }),
+    ])
+    const roots = rootsOf(store.getState())
+    expect(roots.find((item) => item.id === 't-7')).toMatchObject({ dispatchedTo: 'person-agent', status: 'open' })
+    expect(roots.find((item) => item.id === 't-1')).toMatchObject({ status: 'done', activeRecordId: 'task-done' })
+  })
+
+  it('nextItemId 从现有条目推大；claimLocal 只动投影且 done 拒绝', () => {
+    const store = new TaskStore()
+    store.rebuildFrom([recordOf('task-1')])
+    expect(store.nextItemId()).toBe('t-2')
+    store.claimLocal('t-1', 'model')
+    expect(store.getState()[0]).toMatchObject({ status: 'taken', ownerId: 'model' })
+    store.rebuildFrom([recordOf('task-1', { status: 'done' })])
+    store.claimLocal('t-1', 'model')
+    expect(store.getState()[0]?.status).toBe('done')
   })
 })
