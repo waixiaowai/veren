@@ -110,7 +110,7 @@
 | `complete_task` | list+detail | 是 | gate + 接取者校验 | 升级：中心 complete（摘要必填参数）+ 投影同步 |
 | `abandon_task` | detail | 是 | gate + 接取者校验 | 升级：中心 release（回 open 队列） |
 | `split_task` | detail | 是 | gate + 接取者校验 | 保留（addSubtask，target 继承受中心校验） |
-| `publish_task` | publish | 是 | gate | 升级：`target_app?`/`page?` 来自注册表目录；缺省 = 本应用详情页（旧行为） |
+| `publish_task` | publish+list | 是 | gate | 升级：`target_app?`/`page?` 来自注册表目录；缺省 = 本应用详情页（旧行为） |
 | `requeue_task` | list+detail | 是 | gate + returned lane 守卫 | **新增**：退回/改派（§3.3 两步一致性） |
 | `drive_begin` | list+detail+publish | 否（状态） | 内验切片同意 | **新增**：声明本回合范围与理由 |
 | `drive_end` | list+detail+publish | 否 | — | **新增**：显式收回（可选卫生动作） |

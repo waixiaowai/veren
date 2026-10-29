@@ -110,7 +110,7 @@ Two layers — records (task center, authoritative) and work orders (workbench p
 | `complete_task` | list+detail | yes | gate + claimant check | upgraded: center complete (summary required) + projection sync |
 | `abandon_task` | detail | yes | gate + claimant check | upgraded: center release (back to the open queue) |
 | `split_task` | detail | yes | gate + claimant check | kept (addSubtask; target inheritance validated by the center) |
-| `publish_task` | publish | yes | gate | upgraded: `target_app?`/`page?` from the registry catalog; default = own detail page (old behavior) |
+| `publish_task` | publish+list | yes | gate | upgraded: `target_app?`/`page?` from the registry catalog; default = own detail page (old behavior) |
 | `requeue_task` | list+detail | yes | gate + returned-lane guard | **new**: return / re-file (§3.3 two-step consistency) |
 | `drive_begin` | list+detail+publish | no (state) | validates slice consent internally | **new**: declare this turn's scope and reason |
 | `drive_end` | list+detail+publish | no | — | **new**: explicit withdrawal (optional hygiene) |
