@@ -114,6 +114,11 @@ export function apply(ctx: Context): void { ... }
     7. 能力地图进 PAGE 块（§3.10.2 一等数据，2026-10-21 加）：打开 `/apps/task-workbench/list` 会话，先看日志里 PAGE 块有 `map:（能力地图…` 头行与 `- /apps/task-workbench/task/:taskId → …` 逐条行，再问该会话 agent"要处理某条任务应打开哪个 URL，你是从哪里知道的"；看什么——回答含详情页 URL，且**来源自述为"本页 PAGE 块的 map"**，而不是"根据任务记录的 target.url 推断"（本轮真机抓到的假 PASS 正是后者）；通过标准——模板与用途能被模型引用作答，会话挂载的工具含 `task_workbench__*` 而模型不再依赖推断。顺带复核：person-agent `/apps/person-agent/overview` 会话挂有 `person_agent__workspace_session_list`（此前一个工具都没挂，承诺落空）。
   - 多环境体系（2026-10-25 起）：本节定义的是**测试环境**；**预发布环境**在 `deepseek\.dsh-staging`（3100，registry 精确 pin，发布演练与验收签发的舞台，用 `node scripts/env-init.mjs` 创建）；**正式环境**=桌面应用 `~/.dsh`（只许读、禁止任何写，升级只走用户的市场操作）。职责边界、晋升流水线与搭建方法见 `docs/environments.cn.md`——新环境一律用该脚本初始化，违反三隔离铁律（独立 home / 独立 store / 凭据只出不进）的搭建一律不合法。
 
+## cms 服务端项目（部分插件的服务端实现）
+- 源码位置: `D:\cms`（独立 git 仓库，不在本工作区内）——单二进制 Go 服务（chi + SQLite WAL + sqlc）。该仓库有自己的 AGENTS.md 与 README.md，进入开发前先读它们
+- 定位: 本工作区部分插件的服务端实现。插件侧对接入口是 `plugins\cms-bridge`（长连 WebSocket 命令通道 + 事件上报）；IM 云端控制面/多设备中枢在 `D:\cms\internal\imhub`。生产部署在 veren.top（/opt/cms，应用绑 18081），部署链见该仓库 `deploy\` 目录
+- 何时需要它: 排查插件的云端行为（鉴权/命令下发/事件上报/内容路由/协议网关等）或需要服务端配置时，去 `D:\cms` 看源码与配置；不要在本工作区里猜服务端逻辑
+
 ## 注意
 - 跨包共享用 import type，行为走注入的 Cordis 服务，UI 走 slots
 - 跨平台最佳实践示例
