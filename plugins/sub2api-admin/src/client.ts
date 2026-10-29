@@ -85,14 +85,27 @@ function renderValue(_args: unknown, value: unknown): ContentBlock[] {
  * Build one admin tool: execute calls `run`, wraps its data in `{ result }`,
  * and fires the optional `after` hook on success (store-slice refresh).
  * 构造管理工具：execute 调 run、把数据包进 `{ result }`，成功后触发可选
- * `after` 钩子（用于 store 切片刷新）。
+ * `after` 钩子（用于 store 切片刷新）。run 收到工具执行上下文（无人值守
+ * 分级门从它的 session 投影读本回合同意信号）。
+ * run receives the tool execution context (the unattended level gate reads the
+ * turn's consent signal from its session projection).
  */
+/** 工具执行上下文里本包需要的最小结构面（真实 defineTool exec 结构兼容）
+ * / the minimal structural face this package needs from the tool execution context (the real defineTool exec is structurally compatible) */
+export interface GateExec {
+  readonly agent?: {
+    readonly session?: {
+      readonly deriveMessages?: () => readonly import('@deepseek-ai/dsh-llm').Message[]
+    }
+  }
+}
+
 export function adminTool(options: {
   name: string
   description: string
   parameters: ParameterSchemaSpec
   timeoutMs?: number
-  run: (args: AdminArgs) => Promise<unknown>
+  run: (args: AdminArgs, exec: GateExec) => Promise<unknown>
   after?: (args: AdminArgs) => void
 }) {
   return defineTool({
@@ -101,8 +114,10 @@ export function adminTool(options: {
     parameters: options.parameters,
     ...options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs },
     output: { schema: OUTPUT_SCHEMA, render: renderValue },
-    async execute(args) {
-      const value = { result: asObject(await options.run((args ?? {}) as AdminArgs)) as Record<string, JsonValue> }
+    async execute(args, exec) {
+      // exec 缺省成空面：无会话投影 = 无人 = L2 门 fail-closed 拒绝
+      // / exec defaults to an empty face: no session projection = unattended = the L2 gate refuses fail-closed
+      const value = { result: asObject(await options.run((args ?? {}) as AdminArgs, (exec ?? {}) as GateExec)) as Record<string, JsonValue> }
       options.after?.((args ?? {}) as AdminArgs)
       // The output schema pins `result` to an object; asObject guarantees that shape.
       return value

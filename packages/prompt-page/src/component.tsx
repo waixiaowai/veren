@@ -47,6 +47,30 @@ import type { ElementInput } from '@veren/prompt-core'
 export type PageFC<P extends Record<string, unknown> = Record<string, unknown>> =
   (props: P, agent: Agent) => ElementInput
 
+/**
+ * 无人值守工作面契约（docs/unattended-page-contract.cn.md §2）：一页一声明——
+ * 服务哪类投递任务、动作级上限、完成证据形态、失败出路。纯类型面：缺省 = 本页
+ * 不参与无人值守面，达标检查器（@veren/test-support 的 assertUnattendedPage）
+ * 对它沉默。
+ * The unattended work-face contract (docs/unattended-page-contract.md §2): one
+ * declaration per page — the kind of delivered tasks it serves, the action-level
+ * ceiling, the completion-evidence shape, the failure escape. Type-face only:
+ * absent = the page does not join the unattended face and the compliance
+ * checker (@veren/test-support's assertUnattendedPage) stays silent.
+ */
+export interface UnattendedContract {
+  /** 本页服务哪类投递任务（一句话）/ the kind of delivered tasks this page serves */
+  readonly serves: string
+  /** 本页动作级上限：L0 只读 / L1 可逆写 / L2 破坏性或对外副作用 / the action-level ceiling */
+  readonly level: 'L0' | 'L1' | 'L2'
+  /** 完成证据形态（L0 填 'read-only'）/ the completion-evidence shape (L0 fills 'read-only') */
+  readonly evidence: string
+  /** 失败出路（L0 填 'none-needed'；L2 必须点名稳定拒绝码或回滚路）/ the failure escape (L2 must name the stable refusal code or rollback path) */
+  readonly escape: string
+  /** 自主预算一句话（缺省 = 租约即上界）/ the autonomy budget in one line (default: the lease is the bound) */
+  readonly budget?: string
+}
+
 /** 组件页契约面（适配器并成 PageDefinition 时并入）/ the component page's contract face (merged into the PageDefinition by the adapter) */
 export interface ComponentPageMeta<P extends Record<string, unknown> = Record<string, unknown>> {
   /** 页面唯一名；缺省取 URL 末段 / the unique page name; defaults to the last url segment */
@@ -59,6 +83,8 @@ export interface ComponentPageMeta<P extends Record<string, unknown> = Record<st
   readonly instructions?: string
   /** 会话列表标题（§3.6.1）；缺省用 description / the session-list title (§3.6.1); defaults to description */
   readonly instanceTitle?: (params: P & PageParams) => string
+  /** 无人值守工作面契约（docs/unattended-page-contract.cn.md §2）；缺省 = 不参与 / the unattended work-face contract; absent = not participating */
+  readonly unattended?: UnattendedContract
 }
 
 /** 组件页注册形状：app-registry 的 registrar 检测 PageFC（函数）+ meta 后调用 defineComponentPage

@@ -34,6 +34,7 @@ import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as NotebookApp from '../src/index.ts'
 import { APP_DEFINITION, APP_ID, Config as AppConfig } from '../src/index.ts'
 import { createAppTools } from '../src/app.ts'
+import { buildPageTaskTools } from '@veren/task-center'
 import { bindNotebookServices, ListMeta, ListPage, NoteMeta, NotePage } from '../src/pages.tsx'
 import { defineComponentPage } from '@veren/prompt-page'
 import type { NoteSummary, NoteView } from '@veren/notebook'
@@ -77,9 +78,18 @@ async function mount(): Promise<{
     list: async () => [],
     composedPreset: (agentContext: { preset?: string }) => agentContext.preset,
   })
+  // 任务中心声明 inject ['storageDomain','tools']：宿主工具注册表的最小替身
+  // / task center declares inject ['storageDomain','tools']: a minimal host tool-registry stand-in
+  ctx.provide('tools', {
+    register: () => () => undefined,
+  })
   await ctx.plugin(Storage.default)
   await ctx.plugin(StorageJson, { root: tempRoot() })
   await ctx.plugin(StorageDomain, { backend: 'json' })
+  // 真实任务中心：页面作用域完成回报面（task_take/task_complete/task_fail）从它构建
+  // / the real task center: the page-scoped completion face builds on it
+  const TaskCenter = (await import('@veren/task-center')).default
+  fibers.push(await ctx.plugin(TaskCenter))
   // 宿主服务，配置按插件管理器的方式解析（0.2.0 起无配置项）。
   // The host service, config resolved the way the plugin manager resolves it (no options since 0.2.0).
   fibers.push(await ctx.plugin(NotebookService, HostConfig({})))
@@ -267,21 +277,36 @@ describe('§3.9 承诺对齐：登记 = 说明点名 / registration = instructio
   /** 两页组件体登记的本地名（一次性渲染的登记面）：先绑槽位再挂模块级组件
    * / local names the two bodies register (the one-shot face): bind the slot first, then mount the module-level components */
   function registeredLocal(ctx: Context, tools: readonly ToolDefinition[]) {
-    bindNotebookServices(() => ctx.notebook.toolsPort(), tools)
+    bindNotebookServices(() => ctx.notebook.toolsPort(), tools, () =>
+    buildPageTaskTools(() => ctx.taskCenter, {
+      urlOfSession: async (sessionId: string) => {
+        const rows = await ctx.pageRegistry.instances.listByApp(APP_ID)
+        return rows.find((row) => row.state === 'live' && row.sessionId === sessionId)?.url
+      },
+    }))
     const list = mountPage(ListPage, ListMeta, tools)
     const note = mountPage(NotePage, NoteMeta, tools)
     const local = (page: { registered: string[] }): string[] => page.registered.map((fullName) => fullName.split('__').pop() ?? fullName)
     return { list: local(list), note: local(note), listMeta: ListMeta, noteMeta: NoteMeta }
   }
 
-  it('登记=目录：五个工具恰好被两页登记，且每工具恰好归属一页', async () => {
+  it('登记=目录：五个目录工具恰好被两页登记，且每工具恰好归属一页；task 三件两页同挂', async () => {
     const { ctx, fiber } = await mount()
     const tools = createAppTools(ctx, () => ctx.notebook.toolsPort())
     const { list, note } = registeredLocal(ctx, tools)
-    // 登记面 = 工具面：不多收编、不少登记；工具不跨页重叠（每个工具恰好归属一页）
-    // / the registered face equals the tool face: nothing extra, nothing missing; no tool on two pages
-    expect([...list, ...note].sort()).toEqual([...TOOL_NAMES].sort())
-    expect(new Set([...list, ...note]).size).toBe(list.length + note.length)
+    // 登记面 = 工具面（目录工具）：不多收编、不少登记、不跨页重叠。
+    // task_take/task_complete/task_fail 是页面作用域投递回报面（§6），刻意两页同挂、
+    // 不在应用目录里（名字与宿主全局面一致）。
+    // / The registered face equals the tool face for the CATALOG tools: nothing
+    // extra, nothing missing, no catalog tool on two pages. The task trio is the
+    // page-scoped delivery-report face (§6) — deliberately on both pages and not
+    // in the app catalog (names match the host global face).
+    const catalog = (names: readonly string[]) => names.filter((name) => !name.startsWith('task_'))
+    const trio = (names: readonly string[]) => names.filter((name) => name.startsWith('task_')).sort()
+    expect([...catalog(list), ...catalog(note)].sort()).toEqual([...TOOL_NAMES].sort())
+    expect(new Set([...catalog(list), ...catalog(note)]).size).toBe(catalog(list).length + catalog(note).length)
+    expect(trio(list)).toEqual(['task_complete', 'task_fail', 'task_take'])
+    expect(trio(note)).toEqual(['task_complete', 'task_fail', 'task_take'])
 
     await fiber.dispose()
   })
@@ -349,7 +374,13 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全 / the
     // 模块槽位是进程级单例：本用例开头重绑自己的 ctx，防其他用例的绑定漂移
     // / the module slot is a process-level singleton: rebind this test's own ctx
     // up front so other tests' bindings cannot drift it
-    bindNotebookServices(() => ctx.notebook.toolsPort(), createAppTools(ctx, () => ctx.notebook.toolsPort()))
+    bindNotebookServices(() => ctx.notebook.toolsPort(), createAppTools(ctx, () => ctx.notebook.toolsPort()), () =>
+    buildPageTaskTools(() => ctx.taskCenter, {
+      urlOfSession: async (sessionId: string) => {
+        const rows = await ctx.pageRegistry.instances.listByApp(APP_ID)
+        return rows.find((row) => row.state === 'live' && row.sessionId === sessionId)?.url
+      },
+    }))
     // 归属未知（会话头无 preset）→ 消息里如实说明，不编造
     // / unknown owner (no preset in the session header) → stated honestly in the message, never faked
     const unknown = fakeAgent()
@@ -378,7 +409,13 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全 / the
 
   it('详情页首屏：归属对得上才给，别人的笔记如实找不到（按参数取该条记录）', async () => {
     const { ctx, fiber } = await mount()
-    bindNotebookServices(() => ctx.notebook.toolsPort(), createAppTools(ctx, () => ctx.notebook.toolsPort()))
+    bindNotebookServices(() => ctx.notebook.toolsPort(), createAppTools(ctx, () => ctx.notebook.toolsPort()), () =>
+    buildPageTaskTools(() => ctx.taskCenter, {
+      urlOfSession: async (sessionId: string) => {
+        const rows = await ctx.pageRegistry.instances.listByApp(APP_ID)
+        return rows.find((row) => row.state === 'live' && row.sessionId === sessionId)?.url
+      },
+    }))
     const exec = execution('ada')
     const toolOf = (name: string): AppTool => createAppTools(ctx, () => ctx.notebook.toolsPort()).find((tool) => tool.name === `notebook__${name}`)!
     const created = toolValue<{ note: NoteView }>(await toolOf('write_note').execute({ title: 'Plan', body: 'x' }, exec))
@@ -401,7 +438,13 @@ describe('§3.10 页面信息组织：首页必须把该给的信息给全 / the
 describe('页面 = 信息 + 工具，缺一不可 / a page is its information plus its tools, neither optional', () => {
   it('正文是打开时刻的静态框：不留白、如实宣告首屏随后以消息送达', async () => {
     const { ctx, fiber } = await mount()
-    bindNotebookServices(() => ctx.notebook.toolsPort(), createAppTools(ctx, () => ctx.notebook.toolsPort()))
+    bindNotebookServices(() => ctx.notebook.toolsPort(), createAppTools(ctx, () => ctx.notebook.toolsPort()), () =>
+    buildPageTaskTools(() => ctx.taskCenter, {
+      urlOfSession: async (sessionId: string) => {
+        const rows = await ctx.pageRegistry.instances.listByApp(APP_ID)
+        return rows.find((row) => row.state === 'live' && row.sessionId === sessionId)?.url
+      },
+    }))
     const { agent } = fakeAgent('ada')
     const body = defineComponentPage(ListPage, ListMeta).live.mount({}, agent)
     // 正文是静态框：宿主不等首屏，数据由组件体经 followup 送达——框绝不留白。

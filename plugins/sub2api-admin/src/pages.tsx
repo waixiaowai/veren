@@ -97,6 +97,8 @@ interface ListPageConfig {
   /** 本页挂载的工具（本地名；组件体登记）/ this page's tools (local names; the body registers them) */
   readonly tools: readonly string[]
   readonly pick: (state: Sub2ApiState) => readonly Record<string, unknown>[]
+  /** 无人值守契约（docs/unattended-page-contract.cn.md §2）/ the unattended contract */
+  readonly unattended: ComponentPageMeta['unattended']
 }
 
 /** 通用列表页：标题 + 配套工具行 + 错误位 + keyed 列表 / generic list page: header + tool line + error + one keyed list */
@@ -123,6 +125,8 @@ function listPage(config: ListPageConfig): { readonly Page: PageFC; readonly Met
     url: config.url,
     description: config.description,
     instructions: config.instructions,
+    writes: true,
+    unattended: config.unattended,
   }
   return { Page, Meta }
 }
@@ -157,7 +161,8 @@ export const HomePage: PageFC = (_props, agent) => {
       </ul>
       <blockquote>
         {'待办指引：异常账号>0 → accounts 页 clear_error/set_status；待处理订单>0 → finance 页 payment orders；账号不可用 → channels/groups 页查配置。'}
-        {'AI 操作指引：充值=users balance；封禁=users update {"status":"banned"}；生成兑换码=redeem_codes generate；创建优惠码=promo_codes create；开通订阅=subscriptions assign；新建渠道=channels create；调整倍率=groups set_rates。所有写入前先向用户确认。'}
+        {'AI 操作指引：充值=users balance；封禁=users update {"status":"banned"}；生成兑换码=redeem_codes generate；创建优惠码=promo_codes create；开通订阅=subscriptions assign；新建渠道=channels create；调整倍率=groups set_rates。'}
+        {'读写与常规运营写自主执行，完成后用一句话点名产物回报；退款/删套餐/删码（L2）无人值守会被工具拒绝（unattended/l2-refused），改走可逆替代或如实转述用户。'}
       </blockquote>
       {state.error === undefined ? null : <blockquote>store.error：{String(state.error)}</blockquote>}
     </>
@@ -168,16 +173,22 @@ export const HomeMeta: ComponentPageMeta = {
   name: 'home',
   url: `${URL_PREFIX}/home`,
   description: 'Sub2API 运营指挥台：核心经营指标（收入/成本/毛利/活跃/新增/今日消耗）+ 待办信号 + 操作指引',
-  instructions: '这是运营指挥台（首页）。指标经正文同步：'
+  unattended: {
+    serves: '经营盘面问询与"该去哪页办什么事"的派发入口（本页只读，不办事）',
+    level: 'L0',
+    evidence: 'read-only',
+    escape: 'none-needed',
+  },
+  instructions: '这是运营指挥台（首页，只读）。指标经正文同步：'
     + '收入/成本/毛利/活跃/新增/总用户/今日请求/tokens/待处理订单/异常/限流/过载账号。'
-    + '数据过期用 overview 工具刷新。具体操作去对应页面：'
+    + '数据过期用 overview 工具刷新；本页不执行写操作——具体操作去对应页面：'
     + '渠道管理 /apps/sub2api-admin/channels（工具 channels）；分组与倍率 /apps/sub2api-admin/groups（groups）；'
     + '用户与充值 /apps/sub2api-admin/users（users）；订阅 /apps/sub2api-admin/subscriptions（subscriptions）；'
     + '订单与套餐 /apps/sub2api-admin/finance（payment）；兑换码与优惠码 /apps/sub2api-admin/codes（redeem_codes / promo_codes）；'
     + '账号 /apps/sub2api-admin/accounts（accounts）；用量 /apps/sub2api-admin/usage（usage）。'
     + '常见操作：给用户充值→users balance；封禁→users update {"status":"banned"}；生成兑换码→redeem_codes generate；'
     + '创建优惠码→promo_codes create；开通订阅→subscriptions assign；新建渠道→channels create；调整倍率→groups set_rates。'
-    + '所有写入前先向用户确认。',
+    + '各页读写与常规运营写自主执行并带证据回报；退款/删套餐/删码（L2）无人值守会被拒绝（unattended/l2-refused）。',
   instanceTitle: () => 'Sub2API 运营指挥台',
 }
 
@@ -188,10 +199,17 @@ const channels = listPage({
   url: `${URL_PREFIX}/channels`,
   description: '渠道管理页：上游渠道列表，支持开通（create）/编辑（update）/下架（delete）',
   title: 'Sub2API 运营 · 渠道管理',
-  instructions: '渠道经 channels 列表同步。用 channels 工具：create/update 传 payload（字段先 GET 一条对照）；delete 下架。'
-    + '渠道测活/监控用 request 工具走 /admin/channel-monitors 端点（本页已挂载该透传工具）。写前先向用户确认。',
+  instructions: '渠道经 channels 列表同步。用 channels 工具：create/update 传 payload（字段先 GET 一条对照）；delete 下架（可重建，L1 自主执行）。'
+    + '渠道测活/监控用 request 工具走 /admin/channel-monitors 端点（本页已挂载该透传工具；非 GET 无人值守会被拒）。'
+    + '写成功后用一句话点名产物（渠道 id 与关键字段前后值）回报。',
   tools: ['channels', 'request'],
   pick: state => state.channels ?? [],
+  unattended: {
+    serves: '渠道开通/改配/下架类投递任务与盘面问询',
+    level: 'L1',
+    evidence: '一句话点名渠道 id 与字段前后值（工具返回值）',
+    escape: '上游不可达时如实回报 SUB2API_* 错误并停在该任务，不悬置不重试轰炸',
+  },
 })
 export const ChannelsPage = channels.Page
 export const ChannelsMeta = channels.Meta
@@ -202,10 +220,16 @@ const groups = listPage({
   description: '分组管理页：分组列表（倍率/平台/订阅类型/限额），创建/编辑/删除/模型倍率批量设置',
   title: 'Sub2API 运营 · 分组管理',
   instructions: '分组经 groups 列表同步（含 rate_multiplier/subscription_type/daily_limit_usd）。'
-    + '用 groups 工具：create/update 传 payload；set_rates（id+payload，如 {"gpt-4":1.5}）批量设模型倍率；clear_rates 清除。'
-    + '绑定账号在 accounts 页改账号的 group_ids。写前先向用户确认。',
+    + '用 groups 工具：create/update 传 payload；set_rates（id+payload，如 {"gpt-4":1.5}）批量设模型倍率；clear_rates 清除；delete 可重建（L1 自主执行）。'
+    + '绑定账号在 accounts 页改账号的 group_ids。写成功后用一句话点名分组 id 与变更字段回报。',
   tools: ['groups'],
   pick: state => state.groups ?? [],
+  unattended: {
+    serves: '分组创建/倍率调整类投递任务与盘面问询',
+    level: 'L1',
+    evidence: '一句话点名分组 id 与倍率/限额前后值（工具返回值）',
+    escape: '上游不可达时如实回报 SUB2API_* 错误并停在该任务，不悬置不重试轰炸',
+  },
 })
 export const GroupsPage = groups.Page
 export const GroupsMeta = groups.Meta
@@ -216,11 +240,17 @@ const users = listPage({
   description: '用户管理页：用户列表（余额/分组/状态），开通、充值/扣减、封禁、换组',
   title: 'Sub2API 运营 · 用户管理',
   instructions: '用户经 users 列表同步（含 balance/status/allowed_groups）。用 users 工具：'
-    + 'create（payload {"email","password"}）开通；balance（id,balance,operation add|subtract|set）充值/扣减；'
-    + 'update（fields {"status":"banned"}）封禁；replace_group 换组；api_keys/usage/balance_history 查明细。'
-    + '订阅分配在 subscriptions 页。写前先向用户确认。',
+    + 'create（payload {"email","password"}）开通；balance（id,balance,operation add|subtract|set）充值/扣减——扣减带 idempotency_key 防重放；'
+    + 'update（fields {"status":"banned"}）封禁（可解封，L1）；replace_group 换组；api_keys/usage/balance_history 查明细。'
+    + '订阅分配在 subscriptions 页。写成功后用一句话点名用户 id 与余额/状态前后值回报。',
   tools: ['users'],
   pick: state => state.users ?? [],
+  unattended: {
+    serves: '开通/充值/封禁/换组类投递任务与盘面问询',
+    level: 'L1',
+    evidence: '一句话点名用户 id 与余额/状态前后值（工具返回值）',
+    escape: '上游不可达时如实回报 SUB2API_* 错误并停在该任务；扣减类改动带 idempotency_key 可安全重试',
+  },
 })
 export const UsersPage = users.Page
 export const UsersMeta = users.Meta
@@ -231,10 +261,16 @@ const subscriptions = listPage({
   description: '订阅管理页：用户订阅列表，分配/续期/重置额度/撤销/恢复',
   title: 'Sub2API 运营 · 订阅管理',
   instructions: '订阅经 subscriptions 列表同步。用 subscriptions 工具：assign/bulk_assign（payload）分配；'
-    + 'extend（id+payload {"days":30}）续期；reset_quota 重置额度；revoke/restore 撤销/恢复；progress 看进度；'
-    + 'by_user/by_group 按用户/分组查。套餐 CRUD 在 finance 页。写前先向用户确认。',
+    + 'extend（id+payload {"days":30}）续期；reset_quota 重置额度；revoke/restore 撤销/恢复（互为反向，L1 自主执行）；progress 看进度；'
+    + 'by_user/by_group 按用户/分组查。套餐 CRUD 在 finance 页。写成功后用一句话点名订阅 id 与状态前后值回报。',
   tools: ['subscriptions'],
   pick: state => state.subscriptions ?? [],
+  unattended: {
+    serves: '订阅分配/续期/撤销类投递任务与盘面问询',
+    level: 'L1',
+    evidence: '一句话点名订阅 id 与状态/额度前后值（工具返回值）',
+    escape: 'revoke 误操作用 restore 即时回退；上游不可达时如实回报 SUB2API_* 错误并停在该任务',
+  },
 })
 export const SubscriptionsPage = subscriptions.Page
 export const SubscriptionsMeta = subscriptions.Meta
@@ -245,10 +281,16 @@ const accounts = listPage({
   description: '账号管理页：上游账号列表（平台/类型/状态/可调度），状态/调度/清错/配额/批量运维',
   title: 'Sub2API 运营 · 账号管理',
   instructions: '账号经 accounts 列表同步。用 accounts 工具做查询与运维：'
-    + 'set_status/set_schedulable/clear_error/clear_rate_limit/reset_quota/refresh/test/bulk_update。'
-    + '异常账号清错用 clear_error；停用用 set_status {"status":"paused"}。写前先向用户确认。',
+    + 'set_status/set_schedulable/clear_error/clear_rate_limit/reset_quota/refresh/test/bulk_update——全部是可逆状态翻转（L1 自主执行）。'
+    + '异常账号清错用 clear_error；停用用 set_status {"status":"paused"}。写成功后用一句话点名账号 id 与状态前后值回报。',
   tools: ['accounts'],
   pick: state => state.accounts ?? [],
+  unattended: {
+    serves: '异常账号清错/停用/调度翻转类投递任务（首页待办的主出口）',
+    level: 'L1',
+    evidence: '一句话点名账号 id 与状态前后值（工具返回值）',
+    escape: '全部动作可逆（set_status/set_schedulable 翻回即回滚）；上游不可达时如实回报 SUB2API_* 错误并停在该任务',
+  },
 })
 export const AccountsPage = accounts.Page
 export const AccountsMeta = accounts.Meta
@@ -277,10 +319,19 @@ export const FinanceMeta: ComponentPageMeta = {
   name: 'finance',
   url: `${URL_PREFIX}/finance`,
   description: '资金管理页：支付订单列表 + 订阅套餐列表 + 收入汇总',
+  writes: true,
+  unattended: {
+    serves: '订单排查/异常单处理/套餐维护类投递任务与盘面问询',
+    level: 'L2',
+    evidence: '一句话点名订单/套餐 id 与状态前后值（工具返回值）',
+    escape: '退款（order_refund）与删套餐（plan_delete）无人值守被工具拒绝（unattended/l2-refused）——改走 order_cancel/order_retry 等可逆替代或如实转述用户，绝不重试',
+  },
   instructions: '订单经 orders 列表、套餐经 plans 列表同步，收入汇总经 payment.summary 同步。'
-    + '用 payment 工具：dashboard 看收入；orders 查单；order_cancel/order_retry/order_refund 处理异常单；'
-    + 'plan_create/plan_update/plan_delete 维护套餐。本页也挂了 overview 工具：'
-    + '正文顶部的收入汇总来自首页支付切片，过期时用 overview 刷新。写前先向用户确认。',
+    + '用 payment 工具：dashboard 看收入；orders 查单；order_cancel/order_retry 处理异常单（L1 自主执行）；'
+    + 'plan_create/plan_update 维护套餐（L1 自主执行）；order_refund 退款与 plan_delete 删套餐是 L2——'
+    + '本回合没有人类消息时会被工具以 unattended/l2-refused 拒绝，此时不要重试，改走可逆替代或如实转述用户。'
+    + '本页也挂了 overview 工具：正文顶部的收入汇总来自首页支付切片，过期时用 overview 刷新。'
+    + '写成功后用一句话点名订单/套餐 id 与状态前后值回报。',
   instanceTitle: () => 'Sub2API 运营 · 资金管理',
 }
 
@@ -308,9 +359,19 @@ export const CodesMeta: ComponentPageMeta = {
   name: 'codes',
   url: `${URL_PREFIX}/codes`,
   description: '卡密页：兑换码（生成/核销/过期/删除）+ 优惠码（创建/编辑/删除/用例）+ 兑换统计',
+  writes: true,
+  unattended: {
+    serves: '兑换码生成/过期、优惠码维护类投递任务与盘面问询',
+    level: 'L2',
+    evidence: '一句话点名码 id/批次与状态前后值（工具返回值）',
+    escape: '删除类（delete/batch_delete）无人值守被工具拒绝（unattended/l2-refused）——改走 expire（可逆的软过期）或如实转述用户，绝不重试',
+  },
   instructions: '兑换码经 redeem 列表、统计经 redeem_stats、优惠码经 promo 列表同步。'
-    + '用 redeem_codes 工具生成/核销/清理（支付流传 idempotency_key）；用 promo_codes 工具维护优惠码（usages 看核销）。'
-    + '写前先向用户确认。',
+    + '用 redeem_codes 工具生成/核销/过期清理（支付流传 idempotency_key；expire 是可逆替代的软过期，L1 自主执行）；'
+    + '用 promo_codes 工具维护优惠码（usages 看核销；create/update L1 自主执行）。'
+    + '删除类（redeem_codes delete/batch_delete、promo_codes delete）是 L2——本回合没有人类消息时会被工具以 '
+    + 'unattended/l2-refused 拒绝，此时不要重试，改走 expire 或如实转述用户。'
+    + '写成功后用一句话点名码 id/批次与状态回报。',
   instanceTitle: () => 'Sub2API 运营 · 卡密',
 }
 
@@ -338,8 +399,14 @@ export const UsageMeta: ComponentPageMeta = {
   name: 'usage',
   url: `${URL_PREFIX}/usage`,
   description: '用量分析页：近 7 日趋势、模型维度统计、区间汇总（成本/毛利口径见指挥台）',
+  unattended: {
+    serves: '用量/成本分析类投递任务与盘面问询',
+    level: 'L0',
+    evidence: 'read-only',
+    escape: 'none-needed',
+  },
   instructions: '区间汇总经 usage.range、近 7 日趋势经 usage.trend、模型维度经 usage.models 同步。'
     + '需要其他口径（自定义区间/按用户/按 Key/用户排行）用 usage 工具查询；'
-    + '成本与毛利在首页（today_actual_cost 与支付收入之差）。',
+    + '成本与毛利在首页（today_actual_cost 与支付收入之差）。本页只读，不执行任何写操作。',
   instanceTitle: () => 'Sub2API 运营 · 用量分析',
 }

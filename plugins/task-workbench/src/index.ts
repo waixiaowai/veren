@@ -43,7 +43,12 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
-  listSize: z.number().default(5).description('队列为空时懒播种的示例工作单数量 / sample orders lazily seeded when the queue is empty'),
+  // 缺省 0 = 不播种：空队列如实说"队列为空"（空态不说谎，docs/unattended-page-contract
+  // §5 行 16）；示例数据只属于测试，要演示的部署显式给 listSize。
+  // / Default 0 = never seed: an empty queue honestly says so (no fake data;
+  // docs/unattended-page-contract.md §5 row 16). Sample data is test-only; a
+  // demo deployment opts in explicitly.
+  listSize: z.number().default(0).description('队列为空时懒播种的示例工作单数量（0 = 不播种，空态如实显示） / sample orders lazily seeded when the queue is empty (0 = never; the empty state renders honestly)'),
 })
 
 /** 三个服务依赖全部显式声明：本插件就是应用，任务中心是发布/接取的必经面 */

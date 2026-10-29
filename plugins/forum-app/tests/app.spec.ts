@@ -173,6 +173,10 @@ async function mount(): Promise<{
   await ctx.plugin(Storage.default)
   await ctx.plugin(StorageJson, { root: tempRoot() })
   await ctx.plugin(StorageDomain, { backend: 'json' })
+  // 真实任务中心：页面作用域完成回报面（task_take/task_complete/task_fail）从它构建
+  // / the real task center: the page-scoped completion face builds on it
+  const TaskCenter = (await import('@veren/task-center')).default
+  await ctx.plugin(TaskCenter)
 
   // The host service, resolved the way the plugin manager resolves config.
   // 宿主服务，配置按插件管理器的方式解析。
@@ -238,15 +242,19 @@ describe('forum app discovery and resolution / 应用可发现与可解析', () 
   it('page tools carry the forum__ external-name prefix (bodies register full names in the one render)', async () => {
     const { ctx, fiber, port } = await mount()
     const fixture = makeFixture(ctx, port)
-    // 按页断言：入口页三件；详情页四件（inbox 两页都挂——处理主题的会话也要读通知）
-    // / per-page asserts: the catalog page's three; the post page's four (inbox
-    // rides both pages — a session working one post still reads its notices)
+    // 按页断言：入口页三件 + 投递回报三件；详情页四件 + 投递回报三件（inbox 两页
+    // 都挂——处理主题的会话也要读通知；task_* 页面作用域随两页挂载，§6 完成路径）
+    // / per-page asserts: the catalog page's three + the delivery trio; the post
+    // page's four + the trio (inbox rides both pages; the page-scoped task_*
+    // rides both too — the §6 completion path)
     const catalogRegistration = defineComponentPage(CatalogPage, CatalogMeta)
     catalogRegistration.live.mount({}, fixture.agent)
-    expect(fixture.registered.map((entry) => entry.name)).toEqual(['forum__list', 'forum__post', 'forum__inbox'])
+    expect(fixture.registered.slice(0, 3).map((entry) => entry.name)).toEqual(['forum__list', 'forum__post', 'forum__inbox'])
+    expect(fixture.registered.slice(3).map((entry) => entry.name)).toEqual(['task_take', 'task_complete', 'task_fail'])
     const postRegistration = defineComponentPage(PostPage, PostMeta)
     postRegistration.live.mount({ postId: 'p-1' }, fixture.agent)
-    expect(fixture.registered.slice(3).map((entry) => entry.name)).toEqual(['forum__read', 'forum__comment', 'forum__vote', 'forum__inbox'])
+    expect(fixture.registered.slice(6, 10).map((entry) => entry.name)).toEqual(['forum__read', 'forum__comment', 'forum__vote', 'forum__inbox'])
+    expect(fixture.registered.slice(10).map((entry) => entry.name)).toEqual(['task_take', 'task_complete', 'task_fail'])
 
     await fiber.dispose()
   })
@@ -312,9 +320,13 @@ describe('forum app lifecycle / 生命周期', () => {
 })
 
 describe('挂载 = 说明 两方可核对 / mount = instructions', () => {
-  /** Pull the `forum__*` names an instruction text promises. 从说明文本里提取它承诺的 forum__* 工具名。 */
+  /** Pull the tool names an instruction text promises: the `forum__*` page tools
+   *  plus the page-scoped task trio (task_take/task_complete/task_fail, the
+   *  delivery-report face whose names deliberately match the global face).
+   *  从说明文本里提取它承诺的工具名：forum__* 页面工具 + 页面作用域 task 三件
+   *  （投递回报面，名字刻意与全局面一致）。 */
   function namedTools(text: string | undefined): Set<string> {
-    return new Set(text?.match(/forum__[a-z_]+/g) ?? [])
+    return new Set([...(text?.match(/forum__[a-z_]+/g) ?? []), ...(text?.match(/task_(?:take|complete|fail)\b/g) ?? [])])
   }
 
   /** The external names one page's body registers. 一个页面组件体登记的外部名。 */

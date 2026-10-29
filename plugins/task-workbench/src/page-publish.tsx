@@ -36,6 +36,14 @@ export const PublishMeta: ComponentPageMeta<{ draftTitle?: string }> = {
   url: `${URL_PREFIX}/publish`,
   description: '发布工作单页：填写草稿并确认发布（投递到宿主任务中心，可选目标应用）',
   writes: true,
+  // 无人值守契约（docs/unattended-page-contract.cn.md §5 行 18）
+  // / the unattended contract (docs/unattended-page-contract.md §5 row 18)
+  unattended: {
+    serves: '把新工作单发布/派发到任务中心（可选跨应用 target，注册表目录校验）',
+    level: 'L1',
+    evidence: '发布回执：任务中心记录 id 与 target URL（幂等键去重，重复发布返回同一记录）',
+    escape: 'target 不合法时 dispatch/target-invalid 拒绝；误发布由队列收口（记录不删除，cancel 留痕）',
+  },
   instructions: '这是任务发布页：草稿标题见正文。用 publish_task 确认发布；标题为空时不要调用。'
     + 'target_app 缺省 = 本应用详情页；要派给别的应用时从正文目录里选 id（落点是该应用的 entry 页；'
     + '带 :param 的页会被 dispatch/target-invalid 拒绝）。'

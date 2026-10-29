@@ -1,0 +1,30 @@
+{
+  "name": "@veren-test/page-delivery-dryrun",
+  "version": "0.0.0",
+  "description": "Use when verifying the unattended page-delivery loop end to end across apps: a task delivered to a forum or notebook page session is taken, executed with that page's own tools, and closed with machine-checkable evidence (task_complete) or a stable-code failure (task_fail) — no human in the loop. Not a unit suite; it boots the real registries, task center, and both app plugins over in-memory sessions.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@veren/app-registry": "workspace:^",
+    "@veren/forum": "workspace:^",
+    "@veren/forum-app": "workspace:^",
+    "@veren/notebook": "workspace:^",
+    "@veren/notebook-app": "workspace:^",
+    "@veren/page-registry": "workspace:^",
+    "@veren/prompt-page": "workspace:^",
+    "@veren/task-center": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-storage": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-storage-domain": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-storage-json": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.4"
+  }
+}

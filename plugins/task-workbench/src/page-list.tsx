@@ -16,14 +16,17 @@ import type { QueueLane } from './types.ts'
 import { externalName, followupText, requireRuntime, refreshQueue, STRINGS, toolOf, tLane, tProgress, URL_PREFIX } from './pages.tsx'
 
 /**
- * 本页工具（§3.10.1 矩阵的行）：盘点/接取/完成/退回 + drive 两件 + 导航。
- * 写工具的合法触发见页面说明（同意门是机制，不是措辞）。
- * This page's matrix rows: list/take/complete/requeue + the two drive tools +
- * navigation. The write tools' legal triggers are in the page note (the gate is
- * a mechanism, not phrasing).
+ * 本页工具（§3.10.1 矩阵的行）：盘点/接取/完成/退回/发布 + drive 两件 + 导航。
+ * publish_task 挂列表页是真机验收的修正：用户在入口点名发布时，本会话必须有
+ * 发布工具——page_send 把指令转投发布页过不了同意门（中继 ≠ 用户同意）。
+ * This page's matrix rows: list/take/complete/requeue/publish + the two drive
+ * tools + navigation. Mounting publish_task here is a live-verification fix: a
+ * user naming a publish at the entry needs the tool in-session — page_send
+ * forwarding to the publish page cannot pass the gate (a relay is not user
+ * consent).
  */
 function registerPageTools(agent: Agent): void {
-  for (const localName of ['list_tasks', 'take_task', 'complete_task', 'requeue_task', 'open_task_page', 'drive_begin', 'drive_end']) {
+  for (const localName of ['list_tasks', 'take_task', 'complete_task', 'publish_task', 'requeue_task', 'open_task_page', 'drive_begin', 'drive_end']) {
     agent.ctx.tools.register(toolOf(localName))
   }
 }
@@ -97,6 +100,17 @@ export const ListMeta: ComponentPageMeta = {
   name: 'list',
   url: `${URL_PREFIX}/list`,
   description: '任务工作台列表页：队列策略视图、跨应用目录，接取/完成/退回工作单，打开目标应用页面',
+  // 本页挂载写工具（take/complete/requeue/open），如实声明写意图（§3.9/§3.10.1 规则 3）
+  // / this page mounts write tools (take/complete/requeue/open); declare the intent honestly
+  writes: true,
+  // 无人值守契约（docs/unattended-page-contract.cn.md §5 行 16）
+  // / the unattended contract (docs/unattended-page-contract.md §5 row 16)
+  unattended: {
+    serves: '投递任务的队列视图与推进/派发（browse/drive 两模式；写工具过同意门，投递同意按任务 id 收窄）',
+    level: 'L1',
+    evidence: 'complete_task 的 summary + 任务中心记录终态（result/failure 可机查，task-center/completed 可订阅）',
+    escape: '做不完用 abandon_task 回 open 队列或 requeue_task 退回/改派——绝不悬置；租约到期由中心懒回收兜底',
+  },
   instructions: '这是任务工作台的首页（队列）。正文给出策略视图（每条工作单带 lane：可接取/已派发/被持有/已完成/已退回）'
     + '与跨应用目录（来源 = 注册表；要打开别的应用先查这里，再调用 open_task_page 或按目录 URL 走宿主正门）。'
     + '只读盘点、询问类请求用 list_tasks 直接回答。写工具（take_task/complete_task/requeue_task/publish_task/open_task_page）'

@@ -81,6 +81,17 @@ export const DetailMeta: ComponentPageMeta<{ taskId: string }> = {
   url: `${URL_PREFIX}/task/:taskId`,
   description: '任务详情页：读取本页任务当前状态（get_page_task，无参数），接取本页任务（take_page_task，无参数），处理该任务的状态/负责人与子任务树',
   writes: true,
+  // 无人值守契约（docs/unattended-page-contract.cn.md §5 行 17）：完成路径页面自足
+  // ——complete_task 直接结算任务中心记录（取证结论：页面会话不可达宿主全局 task_*）。
+  // / The unattended contract (docs/unattended-page-contract.md §5 row 17): the
+  // completion face is page-sufficient — complete_task settles the task-center
+  // record directly (the §6 verdict: host-global task_* are unreachable here).
+  unattended: {
+    serves: '投递到本页 URL 的单条任务的执行与结算（接取/完成/拆分/退回，投递回合按记录 id 收窄同意）',
+    level: 'L1',
+    evidence: 'complete_task 的 summary + 任务中心记录终态（result/failure 可机查）',
+    escape: '做不下去用 abandon_task 回 open 队列、requeue_task 退回/改派——绝不挂起等用户；租约到期中心懒回收兜底',
+  },
   // 实例化后显示「任务 #1」——会话列表标题始终是根任务标识（§4.7.4）
   // / the instance shows 「任务 #1」 — the session-list title stays the root order's identifier (§4.7.4)
   instanceTitle: (params) => `任务 #${params.taskId}`,

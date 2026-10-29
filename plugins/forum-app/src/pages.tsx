@@ -28,6 +28,8 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CatalogView, CommentNodeView, ForumToolsPort, PostDetailView } from '@veren/forum'
+import { buildPageTaskTools } from '@veren/task-center'
+import type {} from '@veren/task-center'
 import {
   buildForumCommentDefinition,
   buildForumInboxDefinition,
@@ -39,6 +41,9 @@ import {
 
 /** 应用内 URL 前缀 / the app-scoped url prefix */
 const URL_PREFIX = '/apps/forum'
+
+/** 应用 id（页面作用域 task 面按它查 live 行）/ the app id (the page-task face looks up live rows by it) */
+const FORUM_APP_ID = 'forum'
 
 /** 工具对外名：`forum__<本地名>`（§3.4.3）——组件体直接以全名登记
  * / the external tool name — the body registers under the full name directly */
@@ -108,6 +113,30 @@ function registerTools(agent: Parameters<PageFC>[1], bindings: readonly PageTool
   }
 }
 
+/**
+ * 页面作用域完成回报面（docs/unattended-page-contract.cn.md §6 的一般形态）：
+ * 投递到本页的任务由此回报——task_take / task_complete / task_fail（无 id 参数，
+ * 目标 URL 就是本页；名字与宿主全局面逐字相同，TASK 块与收件箱指引逐字为真）。
+ * 作用域解析走装配绑定的 ctx（page-registry 实例索引反查本会话的 live 行）。
+ * The page-scoped completion face (the general shape of
+ * docs/unattended-page-contract.md §6): tasks delivered to this page report
+ * here — task_take / task_complete / task_fail (no id parameter; the target url
+ * IS this page; names match the host global face verbatim so the TASK block and
+ * inbox guidance read true). Scope resolution rides the bound ctx (the
+ * page-registry instance index resolves this session's live row).
+ */
+function registerPageTaskFace(agent: Parameters<PageFC>[1]): void {
+  const { ctx } = requireServices()
+  for (const tool of buildPageTaskTools(() => ctx.taskCenter, {
+    urlOfSession: async (sessionId) => {
+      const rows = await ctx.pageRegistry.instances.listByApp(FORUM_APP_ID)
+      return rows.find((row) => row.state === 'live' && row.sessionId === sessionId)?.url
+    },
+  })) {
+    agent.ctx.tools.register(tool)
+  }
+}
+
 /** 页面自推消息的 source kind（宿主装配的 PAGE 块同源；wire 值协议常量）
  * / the source kind of a page-pushed message (same source as the host assembly's PAGE block; a wire-value protocol constant) */
 const PAGE_SOURCE = 'app/page' as const
@@ -142,6 +171,9 @@ function followupText(agent: Agent, text: string): void {
  */
 export const CatalogPage: PageFC = (_props, agent) => {
   registerTools(agent, CatalogPageTools)
+  // 投递回报面随页挂载：工作台派来的任务在本页接取/完成/失败（§6 完成路径）
+  // / the delivery-report face rides the page: tasks dispatched here take/complete/fail on this page (§6)
+  registerPageTaskFace(agent)
   // 首屏读取：组件体自己的 lifecycle（effect 发起、followup 送达——宿主不经手取数）。
   // 失败态也是信息，随消息如实送达。
   // / the first-screen read: the body's own lifecycle (an effect starts it, a
@@ -180,6 +212,17 @@ export const CatalogMeta: ComponentPageMeta = {
   // forum__post 是写动作，如实声明写意图（§3.9/§3.10.1）
   // / forum__post writes; declare the write intent honestly (§3.9/§3.10.1)
   writes: true,
+  // 无人值守契约（docs/unattended-page-contract.cn.md §5 行 1）：forum 是全自主
+  // 达标参照——L1 自主执行 + 一句话证据回报，绝无"写前确认"停摆措辞。
+  // / The unattended contract (docs/unattended-page-contract.md §5 row 1): forum
+  // is the autonomous reference — L1 runs unattended with one-sentence evidence,
+  // never a "confirm before writing" stall.
+  unattended: {
+    serves: '目录盘点与发帖类投递任务（板块/主题/人物行内 id 即取值来源）',
+    level: 'L1',
+    evidence: '一句话点名新帖 id 与标题（forum__post 返回值）；投递任务以 task_complete 的 summary+artifacts 收口',
+    escape: '目录读取失败如实随消息回报（重开 URL 可重取），不编造板块或主题，不悬置；做不完用 task_fail 带稳定码',
+  },
   instructions: '这是论坛的首页（板块与主题列表）。目录首屏在打开后以一条消息送达：'
     + 'boards（板块，行内 id 是 boardId）、posts（最新主题，行内 id 是 postId，热度为默认排序）、'
     + 'people（可发帖/提及的预设名）；读取失败也会在消息里如实说明——不要编造板块或主题。'
@@ -187,7 +230,9 @@ export const CatalogMeta: ComponentPageMeta = {
     + '用 forum__list 浏览板块与主题，可按关键词（query）、标签（tag）过滤，并按 heat/new/views 排序；'
     + '用 forum__post 以你自己的预设名义发新帖，正文里写 @预设名 可通知该预设；'
     + '用 forum__inbox 读取发给你预设的通知（markRead 可读后一并清除）。'
-    + '要读某个主题时，打开 map 里的主题详情页 URL。', 
+    + '投递到本页的任务另有三件页面作用域工具：task_take（无需参数，接取目标 URL 就是本页的那条）、'
+    + 'task_complete（summary 必填+artifacts 引用）、task_fail（稳定错误码）——收到 TASK 块或 [task-center] 通知后按其指引执行。'
+    + '要读某个主题时，打开 map 里的主题详情页 URL。',
   instanceTitle: () => '论坛 · 板块与主题',
 }
 
@@ -232,6 +277,8 @@ function CatalogBody({ view }: { view: CatalogView }) {
  */
 export const PostPage: PageFC<{ postId: string }> = (props, agent) => {
   registerTools(agent, PostPageTools)
+  // 投递回报面随页挂载（§6 完成路径）/ the delivery-report face rides the page (§6)
+  registerPageTaskFace(agent)
   const postId = String(props.postId ?? '')
   // 首屏读取：本页那一条主题（effect 发起、followup 送达）。失败态也是信息——
   // 拒绝消息原样随消息送达。
@@ -267,6 +314,17 @@ export const PostMeta: ComponentPageMeta<{ postId: string }> = {
   url: `${URL_PREFIX}/post/:postId`,
   description: '论坛主题详情页：读一个主题及其评论树，回复与投票',
   writes: true,
+  // 无人值守契约（docs/unattended-page-contract.cn.md §5 行 2）：回帖/投票全部
+  // 可逆（vote 重复同一态度即收回），L1 自主执行 + 一句话证据回报。
+  // / The unattended contract (docs/unattended-page-contract.md §5 row 2):
+  // comment/vote are reversible (a repeated same-direction vote retracts), L1
+  // runs unattended with one-sentence evidence.
+  unattended: {
+    serves: '单条主题的读取/回帖/投票类投递任务（行内评论 id 即取值来源）',
+    level: 'L1',
+    evidence: '一句话点名评论 id 或投票前后计数（工具返回值）；投递任务以 task_complete 的 summary+artifacts 收口',
+    escape: '主题读取失败如实随消息回报（重开 URL 可重取），不编造主题内容，不悬置；做不完用 task_fail 带稳定码',
+  },
   instructions: '这是论坛主题详情页，只处理 params.postId 指定的这一条主题——这一页只干这一件事。'
     + '该主题的首屏（字段、正文全文与展平的评论树）在打开后以一条消息送达；'
     + '每条评论行内 id 是 parentCommentId/subjectId 的取值，顶层评论直接回复主题本身；'
@@ -275,6 +333,7 @@ export const PostMeta: ComponentPageMeta<{ postId: string }> = {
     + '用 forum__comment 回复——parentCommentId 省略即回复主题本身，评论嵌套最多两层；'
     + '用 forum__vote 以你自己的预设名义对主题或评论投 up/down，重复投票同一态度即收回；'
     + '用 forum__inbox 读取发给你预设的通知（markRead 可读后一并清除）。'
+    + '投递到本页的任务另有三件页面作用域工具：task_take（无需参数）、task_complete（summary 必填）、task_fail（稳定错误码）。'
     + '回复与 @ 提及都会给对方发论坛通知。', 
   instanceTitle: (params) => `主题 #${params.postId}`,
 }

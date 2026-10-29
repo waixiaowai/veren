@@ -10,9 +10,10 @@
  */
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { ApplicationDefinition, AppId, PageKey } from '@veren/app-registry'
-import type { AdminArgs, Sub2AdminClient } from './client.ts'
+import type { AdminArgs, GateExec, Sub2AdminClient } from './client.ts'
 import { adminTool, argNumber, argObject, argString, idList, integer, numberParam, objParam, oneOf, str, toQuery } from './client.ts'
 import type { Sub2ApiStore } from './store.ts'
+import { assertAllowedUnattended, assertRawAllowedUnattended } from './unattended.ts'
 
 // ---- 应用定义 / the application definition ----
 
@@ -27,7 +28,10 @@ export const APP_DEFINITION: ApplicationDefinition = {
   instructions: 'Sub2API 运营应用覆盖运营全流程：home 是指挥台（经营指标+待办+操作指引），'
     + 'channels 渠道、groups 分组与倍率、users 用户与余额、subscriptions 订阅、finance 订单与套餐、'
     + 'codes 兑换码与优惠码、accounts 上游账号、usage 用量分析。'
-    + '页面数据由 sub2api_admin__* 工具读写，正文是打开时刻的首屏——此后的变化以工具返回的结果为准；写操作前先向用户确认。',
+    + '页面数据由 sub2api_admin__* 工具读写，正文是打开时刻的首屏——此后的变化以工具返回的结果为准。'
+    + '读写与常规运营写（L1）自主执行，完成后用一句话点名产物（id/字段前后值）回报；'
+    + '真破坏性动作（退款/删套餐/删码，L2）在本回合没有人类消息时会被工具以 unattended/l2-refused 拒绝——'
+    + '此时不要重试，改走可逆替代或如实转述用户。',
   toolPrefix: 'sub2api_admin',
 }
 
@@ -152,10 +156,12 @@ const ACCOUNT_ACTIONS: ActionTable = {
   bulk_update: a => ep('POST', '/admin/accounts/bulk-update', { account_ids: a.ids ?? [], ...(a.patch ?? {}) }),
 }
 
-/** 执行动作表里的一次调用 / run one action through its table */
-function runTable(client: Sub2AdminClient, table: ActionTable, args: AdminArgs): Promise<unknown> {
-  const build = table[argString(args, 'action') ?? '']
-  if (build === undefined) throw new Error(`Unknown action: ${argString(args, 'action') ?? ''}`)
+/** 执行动作表里的一次调用（过无人值守分级门）/ run one action through its table (past the unattended level gate) */
+function runTable(client: Sub2AdminClient, table: ActionTable, args: AdminArgs, exec: GateExec, tool: string): Promise<unknown> {
+  const action = argString(args, 'action') ?? ''
+  const build = table[action]
+  if (build === undefined) throw new Error(`Unknown action: ${action}`)
+  assertAllowedUnattended(tool, action, exec)
   const endpoint = build(args)
   return client.request(endpoint.method, endpoint.path, endpoint.body, endpoint.headers)
 }
@@ -243,19 +249,19 @@ function tableTool(client: Sub2AdminClient, name: string, table: ActionTable, de
       idempotency_key: str('Stable idempotency key header for payment flows'),
       days: integer('History days (accounts stats, default 30)'),
     },
-    run: args => runWithIdempotency(client, table, args),
+    run: (args, exec) => runWithIdempotency(client, name, table, args, exec),
     after: onDone,
   })
 }
 
-/** 透传 Idempotency-Key 头（支付/充值流）/ forward the idempotency key header */
-function runWithIdempotency(client: Sub2AdminClient, table: ActionTable, args: AdminArgs): Promise<unknown> {
+/** 透传 Idempotency-Key 头（支付/充值流）；过无人值守分级门 / forward the idempotency key header; past the unattended level gate */
+function runWithIdempotency(client: Sub2AdminClient, tool: string, table: ActionTable, args: AdminArgs, exec: GateExec): Promise<unknown> {
   const key = argString(args, 'idempotency_key')
   const wrapped: ActionTable = Object.fromEntries(Object.entries(table).map(([action, build]) => [action, (a: AdminArgs) => {
     const endpoint = build(a)
     return { ...endpoint, ...(key === undefined ? {} : { headers: { 'Idempotency-Key': key } }) }
   }]))
-  return runTable(client, wrapped, args)
+  return runTable(client, wrapped, args, exec, tool)
 }
 
 /** accounts：上游账号运维（含 15 动作） */
@@ -301,34 +307,42 @@ function usageTool(client: Sub2AdminClient, onDone: () => void): ToolDefinition 
   })
 }
 
-/** request：未封装端点直通（仅 /api/v1/admin/**） */
+/** request：未封装端点直通（仅 /api/v1/admin/**；非 GET 过无人值守门） */
 function rawRequestTool(client: Sub2AdminClient): ToolDefinition {
   return adminTool({
     name: 'request',
-    description: 'Raw passthrough to any Sub2API admin endpoint not covered by the dedicated tools (channel monitors, ops alerts, announcements, settings...). path starts with /admin/ or /api/v1/admin/; body is the JSON payload. Prefer read-only GET first; destructive calls need user confirmation.',
+    description: 'Raw passthrough to any Sub2API admin endpoint not covered by the dedicated tools (channel monitors, ops alerts, announcements, settings...). path starts with /admin/ or /api/v1/admin/; body is the JSON payload. Prefer read-only GET first; non-GET is L2 — refused unattended (unattended/l2-refused) and allowed only with a human message this turn.',
     parameters: {
       method: { type: 'string', enum: ['GET', 'POST', 'PUT', 'DELETE'], description: 'HTTP method' },
       path: str('Admin path, e.g. /admin/announcements'),
       body: objParam('JSON request body'),
     },
-    run: (args) => {
+    run: (args, exec) => {
       const raw = argString(args, 'path') ?? ''
       const path = raw.startsWith('/api/v1/admin') || raw.startsWith('/admin')
         ? raw
         : `/admin/${raw.replace(/^\/+/, '')}`
-      return client.request(argString(args, 'method') ?? 'GET', path, args.body)
+      const method = argString(args, 'method') ?? 'GET'
+      assertRawAllowedUnattended(method, exec)
+      return client.request(method, path, args.body)
     },
   })
 }
 
-/** 共享的写参数说明片段 / shared write-hint fragment */
-const CONFIRM = 'Writes need user confirmation first; list/get before writing.'
+/**
+ * 共享的读写条款片段（docs/unattended-page-contract.cn.md §1/§3）：L1 自主
+ * 执行 + 一句话证据回报；不再有"写前先向用户确认"（那是无人停摆措辞）。
+ * The shared read/write clause (docs/unattended-page-contract.md §1/§3): L1
+ * runs autonomously and reports one sentence of evidence; no "confirm before
+ * writing" (that is unattended-stall wording).
+ */
+const POLICY = '读后写；写成功后用一句话点名产物（id 与关键字段前后值）回报。'
 
-const CHANNEL_DESC = 'Manage upstream channels: list/get/create/update/delete. create/update take a payload object (backend-defined fields; GET a channel first to copy field names). ' + CONFIRM
-const GROUP_DESC = 'Manage groups: list/get/create/update/delete, set_rates (id + payload, e.g. {"gpt-4":1.5}), clear_rates (id). rate_multiplier on the group payload adjusts billing multiplier. ' + CONFIRM
-const USER_DESC = 'Manage users: list/get/create (payload e.g. {"email":"a@b.c","password":"..."}), update, delete, balance (id, balance, operation add|subtract|set), replace_group (id, group_id), api_keys, usage, balance_history. ' + CONFIRM
-const SUB_DESC = 'Manage subscriptions: list/get/progress, assign/bulk_assign/bulk_action (payload), extend (id + payload e.g. {"days":30}), reset_quota/revoke/restore (id), by_user/by_group (id). ' + CONFIRM
-const PAYMENT_DESC = 'Money operations: dashboard (revenue today/total), orders (list: page/page_size/status/search), order (id), order_cancel/order_retry/order_refund (id; refund takes payload), plans CRUD (plan_create/plan_update with payload, plan_delete). ' + CONFIRM
-const PROMO_DESC = 'Manage promo codes: list/get/create/update/delete (create/update take a payload), usages (id). ' + CONFIRM
-const REDEEM_DESC = 'Manage redeem codes (types balance/concurrency/subscription/invitation): list/get/stats, generate (count/type/value; subscription needs group_id+validity_days), create_and_redeem (code/type/value/user_id), expire/delete/batch_delete/batch_update. Use idempotency_key for payment flows. ' + CONFIRM
-const ACCOUNT_DESC = 'Manage upstream accounts: list/get/usage/stats/today_stats/models, set_status/set_schedulable/clear_error/clear_rate_limit/recover_state/reset_quota/refresh/test, bulk_update (ids+patch). ' + CONFIRM
+const CHANNEL_DESC = 'Manage upstream channels: list/get/create/update/delete. create/update take a payload object (backend-defined fields; GET a channel first to copy field names). delete 是可重建的下架（L1）。' + POLICY
+const GROUP_DESC = 'Manage groups: list/get/create/update/delete, set_rates (id + payload, e.g. {"gpt-4":1.5}), clear_rates (id). rate_multiplier on the group payload adjusts billing multiplier. delete 是可重建的删除（L1）。' + POLICY
+const USER_DESC = 'Manage users: list/get/create (payload e.g. {"email":"a@b.c","password":"..."}), update, delete, balance (id, balance, operation add|subtract|set), replace_group (id, group_id), api_keys, usage, balance_history. balance 扣减要带 idempotency_key 防重放。' + POLICY
+const SUB_DESC = 'Manage subscriptions: list/get/progress, assign/bulk_assign/bulk_action (payload), extend (id + payload e.g. {"days":30}), reset_quota/revoke/restore (id), by_user/by_group (id). revoke 有 restore 反向操作（L1）。' + POLICY
+const PAYMENT_DESC = 'Money operations: dashboard (revenue today/total), orders (list: page/page_size/status/search), order (id), order_cancel/order_retry (id), order_refund (id; refund takes payload — L2: refused unattended with unattended/l2-refused, human message this turn required), plans CRUD (plan_create/plan_update with payload, plan_delete — L2 同上). ' + POLICY
+const PROMO_DESC = 'Manage promo codes: list/get/create/update/delete (create/update take a payload; delete 是 L2——无人值守被拒), usages (id). ' + POLICY
+const REDEEM_DESC = 'Manage redeem codes (types balance/concurrency/subscription/invitation): list/get/stats, generate (count/type/value; subscription needs group_id+validity_days), create_and_redeem (code/type/value/user_id), expire/delete/batch_delete/batch_update (delete/batch_delete 是 L2——无人值守被拒). Use idempotency_key for payment flows. ' + POLICY
+const ACCOUNT_DESC = 'Manage upstream accounts: list/get/usage/stats/today_stats/models, set_status/set_schedulable/clear_error/clear_rate_limit/recover_state/reset_quota/refresh/test, bulk_update (ids+patch). 全部是可逆状态翻转（L1）。' + POLICY

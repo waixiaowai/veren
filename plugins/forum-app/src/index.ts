@@ -31,6 +31,11 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@veren/forum'
 import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
+// 任务中心类型面：页面作用域完成回报面（task_take/task_complete/task_fail）从
+// 它构建——投递到论坛页的任务由此收口（docs/unattended-page-contract §6）。
+// Task-center type face: the page-scoped completion face builds on it — tasks
+// delivered to forum pages close here (docs/unattended-page-contract §6).
+import type {} from '@veren/task-center'
 import { registerForumApp } from './app.ts'
 
 // Re-exported so consumers (bundle metadata tests) can pin the definition
@@ -54,7 +59,7 @@ export const Config: z<Config> = z.object({}).description('Reserved; no app-laye
 // plugin IS the application layer and stays pending without either — never a
 // runtime probe. callerOf also reads agentPresets / workingDirectory /
 // workspaceRegistry to resolve the caller; declared just as explicitly.
-export const inject = ['apps', 'forum', 'agentPresets', 'workingDirectory', 'workspaceRegistry']
+export const inject = ['apps', 'forum', 'agentPresets', 'workingDirectory', 'workspaceRegistry', 'taskCenter', 'pageRegistry']
 export const provide = []
 
 export const apply = (ctx: Context): void => {

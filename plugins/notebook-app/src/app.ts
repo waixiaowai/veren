@@ -34,6 +34,8 @@ import type { ApplicationDefinition, AppId, PageKey } from '@veren/app-registry'
 // 仅类型导入：把 `ctx.apps` / `ctx.pageRegistry` 的声明拉进本文件。
 import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
+import type {} from '@veren/task-center'
+import { buildPageTaskTools } from '@veren/task-center'
 import {
   buildNotebookDeleteDefinition, buildNotebookListDefinition, buildNotebookReadDefinition,
   buildNotebookRewriteDefinition, buildNotebookWriteDefinition,
@@ -109,10 +111,19 @@ export function registerNotebookApp(ctx: Context, port: () => NotebookToolsPort)
       const tools = createAppTools(ctx, port)
       // 2.5) 绑定页面模块的装配期槽位：选中预挂渲染与组件体的 requireServices
       //      从这里取服务面——绑定必须先于任何页面打开，否则选中即 fail loud。
+      //      第三项是页面作用域完成回报面（task_take/task_complete/task_fail，
+      //      docs/unattended-page-contract §6）：投递到本页的任务由此收口。
       // 2.5) Bind the pages module's assembly-time slot: the staged pick's
       //      preview render and the bodies' requireServices read the face from
       //      here — the bind must precede any page open, or picking fails loud.
-      bindNotebookServices(port, tools)
+      //      The third item is the page-scoped completion face (the §6 delivery
+      //      loop's last link): tasks delivered to these pages report through it.
+      bindNotebookServices(port, tools, () => buildPageTaskTools(() => ctx.taskCenter, {
+        urlOfSession: async (sessionId) => {
+          const rows = await ctx.pageRegistry.instances.listByApp(APP_ID)
+          return rows.find((row) => row.state === 'live' && row.sessionId === sessionId)?.url
+        },
+      }))
       // 3) 页面注册（一次性渲染形态）：工厂产出的 PageFC + meta 直接注册，
       //    单入口内部自动镜像进 page-registry（可被 openUrl 解析）。
       //    Page registration (one-shot form): the factory's PageFC + meta pairs

@@ -2818,6 +2818,9 @@ importers:
       '@veren/page-registry':
         specifier: workspace:^
         version: link:../page-registry
+      '@veren/test-support':
+        specifier: workspace:^
+        version: link:../../packages/test-support
       typescript:
         specifier: ^5.6.0
         version: 5.9.3

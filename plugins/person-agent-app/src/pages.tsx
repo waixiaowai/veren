@@ -328,8 +328,19 @@ export const OverviewPage: PageFC = (_props, agent) => {
     url: `${URL_PREFIX}/overview`,
     description: '个人工作台概览：看清部署的应用、工作区、预设与模型，处理待办任务，并可新建/派发/归档会话',
     // 十件工具都是写动作，如实声明写意图
-    // / all ten tools are writes; declare the intent honestly
+    // / all ten tools are writes; declare the write intent honestly
     writes: true,
+    // 无人值守契约（docs/unattended-page-contract.cn.md §5 行 3）：派发结算范本——
+    // 反被动自查 + session_dispatch 派发 + never poll。
+    // / The unattended contract (docs/unattended-page-contract.md §5 row 3): the
+    // dispatch-settlement template — anti-passivity check, session_dispatch, never poll.
+    unattended: {
+      serves: '工作派发与个人会话/工作区编排类投递任务（反被动：连续查看即停手改派发）',
+      level: 'L1',
+      evidence: 'session_dispatch 的派发回执 + 结算看守送达的收尾输出（目标会话收尾时自动回到本会话）',
+      escape: '结算看守到期结清（WATCH_DEFAULTS 上界）——回报不悬空；三节读取失败各自如实标注，不编造数字',
+      budget: '派发后即返回不轮询；看守上界 = app.ts 的 WATCH_DEFAULTS',
+    },
     instructions: '这是 Person Agent 的首页（个人工作台概览）。正文即真实状态：'
       + 'apps 区来自应用目录（正文直读），Workspace List 来自工作区注册表（正文直读，每行带工作区 id 与会话账目）。'
       + 'Agent Preset List、Model Catalog 与待办任务三节在打开后以一条消息送达（每行带 id）；'
@@ -393,6 +404,14 @@ export const WorkspacesPage: PageFC = (_props, agent) => {
     // 本页登记的四个工具都是写动作，如实声明写意图
     // / all four registered tools are writes; declare the write intent honestly
     writes: true,
+    // 无人值守契约（docs/unattended-page-contract.cn.md §5 行 4）。
+    // / The unattended contract (docs/unattended-page-contract.md §5 row 4).
+    unattended: {
+      serves: '工作区盘点/建会话/登记目录类投递任务',
+      level: 'L1',
+      evidence: '一句话点名 workspace/session id（工具返回值）',
+      escape: '数据源不可用时如实说明；登记/改名可逆（rename 可改回），不悬置',
+    },
     instructions: '这是工作区浏览页。正文每行是一个工作区：标题（展示名）、id: 后的完整工作区 id、会话账目数。'
       + '本页挂载四个工具：workspace_session_list（查某工作区的会话明细，session id 从它的结果里查）、'
       + 'session_create（在该工作区新建会话，标题可选）、'

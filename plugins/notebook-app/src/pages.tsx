@@ -32,21 +32,34 @@ const URL_PREFIX = '/apps/notebook'
 
 /**
  * 装配期绑定的模块级槽位：组件体的工具登记与首屏读从这里取工具定义与服务面。
- * 注册一定先于任何页面打开；未绑定即取 = 装配错误 fail loud。
+ * `taskFace` 是页面作用域完成回报面（task_take/task_complete/task_fail，名字与
+ * 宿主全局面逐字相同——TASK 块与收件箱指引逐字为真；docs/unattended-page-contract
+ * §6）。注册一定先于任何页面打开；未绑定即取 = 装配错误 fail loud。
  * The module-level slot bound at assembly time: the bodies' tool registrations
  * and first-screen reads take the tool definitions and the service face from
- * here. Registration always precedes any page open; reading unbound is an
+ * here. `taskFace` is the page-scoped completion face (task_take /
+ * task_complete / task_fail — names matching the host global face verbatim so
+ * the TASK block and inbox guidance read true; docs/unattended-page-contract
+ * §6). Registration always precedes any page open; reading unbound is an
  * assembly error and fails loud.
  */
-let services: { readonly port: () => NotebookToolsPort; readonly tools: readonly ToolDefinition[] } | undefined
+let services: {
+  readonly port: () => NotebookToolsPort
+  readonly tools: readonly ToolDefinition[]
+  readonly taskFace: () => readonly ToolDefinition[]
+} | undefined
 
 /** 装配时绑定（app.ts 的单入口注册调用一次）/ bind at assembly time (called once by app.ts's registration) */
-export function bindNotebookServices(port: () => NotebookToolsPort, tools: readonly ToolDefinition[]): void {
-  services = { port, tools }
+export function bindNotebookServices(
+  port: () => NotebookToolsPort,
+  tools: readonly ToolDefinition[],
+  taskFace: () => readonly ToolDefinition[],
+): void {
+  services = { port, tools, taskFace }
 }
 
 /** 取绑定的服务面；未绑定 = 装配错误 fail loud / read the bound face; unbound = assembly error, fail loud */
-function requireServices(): { readonly port: () => NotebookToolsPort; readonly tools: readonly ToolDefinition[] } {
+function requireServices(): { readonly port: () => NotebookToolsPort; readonly tools: readonly ToolDefinition[]; readonly taskFace: () => readonly ToolDefinition[] } {
   if (services === undefined) {
     throw new Error('[notebook-app] notebook services are not bound; registerNotebookApp must run before pages open')
   }
@@ -167,11 +180,18 @@ async function noteFirstScreenText(agent: Agent, noteId: string): Promise<string
   }
 }
 
+/** 页面作用域完成回报面登记（两页同挂；§6 投递闭环的最后一环）/ register the page-scoped completion face (both pages; the delivery loop's last link, §6) */
+function registerPageTaskFace(agent: Parameters<PageFC>[1]): void {
+  for (const tool of requireServices().taskFace()) agent.ctx.tools.register(tool)
+}
+
 // ---- 列表页（首页 home / entry，笔记列表）---- List page (the home page / entry, the note list) ----
 
 export const ListPage: PageFC = (_props, agent) => {
   agent.ctx.tools.register(toolOf('list_notes'))
   agent.ctx.tools.register(toolOf('write_note'))
+  // 投递回报面随页挂载 / the delivery-report face rides the page
+  registerPageTaskFace(agent)
   // 首屏读取：组件体自己的 lifecycle（effect 发起、followup 送达——宿主不经手取数）
   // / the first-screen read: the body's own lifecycle (an effect starts it, a followup delivers it — the host touches no data)
   agent.ctx.effect(async () => {
@@ -192,10 +212,18 @@ export const ListMeta: ComponentPageMeta = {
   // 本页登记了写工具（write_note），如实声明写意图
   // / this page registers a write tool (write_note); declare the intent honestly
   writes: true,
+  unattended: {
+    serves: '笔记新建与列表盘点类投递任务（归属 = 会话头预设）',
+    level: 'L1',
+    evidence: '一句话点名新笔记的 id 与标题（write_note 返回值）；投递任务以 task_complete 的 summary+artifacts 收口',
+    escape: '归属未知或存储失败时如实回报并停在该任务，不悬置；列表为空就如实说空；投递任务做不完用 task_fail 带稳定码',
+  },
   instructions: '这是记事本的首页（笔记列表）。首屏列表在打开后以一条消息送达：owner（归属预设）与 notes（该预设的笔记，id/title/excerpt/updatedAt）；'
     + '归属未知或读取失败会在消息里如实说明——不要编造笔记。'
     + '此后变化以你调用工具返回的结果为准。'
-    + '用 list_notes 刷新列表，用 write_note 新建笔记；新建后报出笔记标题即可。'
+    + '用 list_notes 刷新列表，用 write_note 新建笔记；新建后报出笔记 id 与标题（一句话证据回报），列表为空时如实说明。'
+    + '投递到本页的任务另有三件页面作用域工具：task_take（无需参数，接取目标 URL 就是本页的那条）、'
+    + 'task_complete（summary 必填+artifacts 引用）、task_fail（稳定错误码）——收到 TASK 块或 [task-center] 通知后按其指引执行。'
     + '要读/改/删某一条笔记时，打开 map 里的笔记详情页 URL。',
   instanceTitle: () => '笔记列表',
 }
@@ -206,6 +234,8 @@ export const NotePage: PageFC<{ noteId: string }> = (props, agent) => {
   agent.ctx.tools.register(toolOf('read_note'))
   agent.ctx.tools.register(toolOf('rewrite_note'))
   agent.ctx.tools.register(toolOf('delete_note'))
+  // 投递回报面随页挂载 / the delivery-report face rides the page
+  registerPageTaskFace(agent)
   const noteId = String(props.noteId ?? '')
   // 首屏读取：本页那一条笔记（effect 发起、followup 送达）
   // / the first-screen read: this page's one note (an effect starts it, a followup delivers it)
@@ -223,10 +253,18 @@ export const NoteMeta: ComponentPageMeta<{ noteId: string }> = {
   url: `${URL_PREFIX}/note/:noteId`,
   description: '笔记详情页：查看并改写单条笔记的标题与正文，或删除它',
   writes: true,
+  unattended: {
+    serves: '单条笔记读取/改写类投递任务（归属 = 会话头预设）',
+    level: 'L2',
+    evidence: '一句话点名笔记 id 与改写后字段（工具返回值；rewrite 带 expectedUpdatedAt 防覆盖）；投递任务以 task_complete 的 summary+artifacts 收口',
+    escape: '删除（delete_note）是 L2：投递指令点名删除即视为显式确认，否则拒绝执行并回报 unattended/l2-refused，绝不挂起等确认；投递任务做不完用 task_fail 带稳定码',
+  },
   instructions: '这是笔记详情页，只处理 params.noteId 指定的这一条笔记——这一页只干这一件事。'
     + '该笔记的首屏（字段与全文）在打开后以一条消息送达；消息说"不存在或归属未知"时不要凭空操作。'
     + '此后变化以你调用工具返回的结果为准。'
     + '用 read_note 读取全文；用 rewrite_note 改写，携带读到的 updatedAt 作 expectedUpdatedAt 防覆盖；'
-    + 'delete_note 永久删除，删除前先向用户确认。',
+    + 'delete_note 永久删除（本页唯一的 L2 动作）：投递指令点名删除这条笔记时视为已获显式确认、直接执行；'
+    + '无人值守且无投递指令时不要删除——如实回报 unattended/l2-refused 并停在该任务，绝不挂起等确认。'
+    + '投递到本页的任务另有三件页面作用域工具：task_take（无需参数）、task_complete（summary 必填）、task_fail（稳定错误码）。',
   instanceTitle: (params) => `笔记 #${params.noteId ?? ''}`,
 }

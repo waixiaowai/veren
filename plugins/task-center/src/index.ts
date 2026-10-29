@@ -16,6 +16,8 @@ export type { AppResolver, AppSnapshot, TaskCenterConfig } from './service.ts'
 export { TASK_CENTER_DOMAIN_NAME, taskCenterDomain } from './storage.ts'
 export type { DeliveryRecord, InboxNotice, TaskCenterStore } from './storage.ts'
 export * from './types.ts'
+export { buildPageTaskTools } from './page-face.ts'
+export type { PageTaskScope } from './page-face.ts'
 export type { TaskCenterService as TaskCenterServiceType } from './service.ts'
 
 declare module '@deepseek-ai/cordis' {

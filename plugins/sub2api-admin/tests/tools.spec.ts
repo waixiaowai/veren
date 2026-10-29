@@ -28,8 +28,15 @@ function mockFetch(handler: (url: string, init: RequestInit) => { status?: numbe
 }
 
 /** Call a built tool without a real execution context. */
-function runTool(tool: ToolDefinition, args: Record<string, unknown>): Promise<{ result: unknown }> {
-  return (tool.execute as (a: Record<string, unknown>) => Promise<{ result: unknown }>)(args)
+function runTool(tool: ToolDefinition, args: Record<string, unknown>, exec?: unknown): Promise<{ result: unknown }> {
+  return (tool.execute as (a: Record<string, unknown>, e: unknown) => Promise<{ result: unknown }>)(args, exec)
+}
+
+/** 带本回合人类消息的假 exec（L2 门放行形态）/ a fake exec carrying a human message this turn (the L2 gate's allow shape) */
+function consentedExec(): unknown {
+  return { agent: { session: { deriveMessages: () => [
+    { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '把订单 7 退款' }] },
+  ] } } }
 }
 
 /** Build the catalog and pick one local tool. */
@@ -181,9 +188,35 @@ describe('app tools', () => {
     ['request', { method: 'GET', path: '/admin/proxies/all' }, '/admin/proxies/all'],
   ])('maps %s %o to %s', async (name, args, expectedPath) => {
     const calls = mockFetch(() => ({ body: {} }))
-    const { result } = await runTool(toolOf(name, client), args)
+    // L2 行（refund）带本回合人类消息的 exec 才放行；其余行 exec 缺席照常直通
+    // / the L2 row (refund) rides a consented exec; the rest pass without one
+    const exec = name === 'payment' && (args as { action: string }).action === 'order_refund' ? consentedExec() : undefined
+    const { result } = await runTool(toolOf(name, client), args, exec)
     expect(calls[0]?.url).toBe(`https://x.example.com/api/v1${expectedPath}`)
     expect(result).toEqual({})
+  })
+
+  it('unattended gate: L2 without a human message this turn is refused with the stable code', async () => {
+    mockFetch(() => ({ body: {} }))
+    // 无人形态：exec 缺席（无会话投影）→ fail-closed 拒绝
+    // / the unattended shape: no exec (no session projection) → fail-closed refusal
+    await expect(runTool(toolOf('payment', client), { action: 'order_refund', id: 7, payload: { amount: 1 } }))
+      .rejects.toThrow(/unattended\/l2-refused/)
+    await expect(runTool(toolOf('redeem_codes', client), { action: 'batch_delete', ids: [1] }))
+      .rejects.toThrow(/unattended\/l2-refused/)
+    await expect(runTool(toolOf('request', client), { method: 'DELETE', path: '/admin/promo-codes/1' }))
+      .rejects.toThrow(/unattended\/l2-refused/)
+    // 有人在场形态：本回合有 kind:'user' 消息 → 放行
+    // / the human-present shape: a kind:'user' message this turn → allowed
+    const calls = mockFetch(() => ({ body: {} }))
+    await runTool(toolOf('payment', client), { action: 'order_refund', id: 7, payload: { amount: 1 } }, consentedExec())
+    expect(calls[0]?.url).toContain('/admin/payment/orders/7/refund')
+  })
+
+  it('unattended gate: L1 writes run autonomously with no session face at all', async () => {
+    const calls = mockFetch(() => ({ body: {} }))
+    await runTool(toolOf('channels', client), { action: 'delete', id: 4 })
+    expect(calls[0]?.url).toContain('/admin/channels/4')
   })
 
   it('overview joins stats, payment, and availability', async () => {

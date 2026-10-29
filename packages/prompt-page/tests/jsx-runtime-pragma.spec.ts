@@ -35,10 +35,15 @@ import { describe, expect, it } from 'vitest'
 const packageDir = dirname(dirname(fileURLToPath(import.meta.url)))
 const repoRoot = resolve(packageDir, '..', '..')
 
-/** 宿主侧 tsx 源文件（不含 client 构建面与测试；减法后 prompt-page/page.tsx 已无 JSX，移出清单）
- * / host-side tsx sources (no client build face, no tests; after the subtraction prompt-page/page.tsx has no JSX and leaves the list) */
+/** 宿主侧 tsx 源文件（不含 client 构建面与测试；减法后 prompt-page/page.tsx 已无 JSX，移出清单；
+ * task-workbench 的页面拆为 page-*.tsx 三件，全部入清单）
+ * / host-side tsx sources (no client build face, no tests; after the subtraction
+ * prompt-page/page.tsx has no JSX and leaves the list; task-workbench's pages
+ * split into the three page-*.tsx files, all listed) */
 const HOST_TSX_SOURCES = [
-  'plugins/task-workbench/src/pages.tsx',
+  'plugins/task-workbench/src/page-list.tsx',
+  'plugins/task-workbench/src/page-detail.tsx',
+  'plugins/task-workbench/src/page-publish.tsx',
   'plugins/sub2api-admin/src/pages.tsx',
   'plugins/forum-app/src/pages.tsx',
   'plugins/person-agent-app/src/pages.tsx',
@@ -66,8 +71,8 @@ describe.skipIf(!existsSync(harnessTsxEntry))('page component executes under the
       const work = mkdtempSync(join(tmpdir(), 'veren-jsx-pragma-'))
       try {
         const entry = join(work, 'entry.mjs')
-        const pagesUrl = pathToFileURL(join(repoRoot, 'plugins', 'task-workbench', 'src', 'pages.tsx')).href
-        const storeUrl = pathToFileURL(join(repoRoot, 'plugins', 'task-workbench', 'src', 'store.ts')).href
+        const pagesUrl = pathToFileURL(join(repoRoot, 'plugins', 'task-workbench', 'src', 'page-list.tsx')).href
+        const runtimeUrl = pathToFileURL(join(repoRoot, 'plugins', 'task-workbench', 'src', 'pages.tsx')).href
         const fakeAgentUrl = pathToFileURL(join(work, 'agent.mjs')).href
         writeFileSync(join(work, 'agent.mjs'), [
           'export const agent = {',
@@ -81,22 +86,27 @@ describe.skipIf(!existsSync(harnessTsxEntry))('page component executes under the
           '',
         ].join('\n'), 'utf8')
         writeFileSync(entry, [
-          `const pages = await import(${JSON.stringify(pagesUrl)})`,
-          `const { TaskStore, makeList } = await import(${JSON.stringify(storeUrl)})`,
+          `const list = await import(${JSON.stringify(pagesUrl)})`,
+          `const pages = await import(${JSON.stringify(runtimeUrl)})`,
           `const { agent } = await import(${JSON.stringify(fakeAgentUrl)})`,
-          'const store = new TaskStore(makeList(2))',
           // 组件页：实例化组件并执行（组件体是 JSX——classic 编译在此抛错）。
-          // 模块级组件 + 装配期绑定：先 bind 再跑 ListPage。
+          // 模块级组件 + 装配期绑定（新形态：单参数 runtime 槽位；store 只需要有
+          // getState 的最小面——本探针只验 JSX 编译，不验队列语义）。
           // / component pages: instantiate the component and run it (the body is
           // JSX — classic compilation fails here). Module-level components +
-          // assembly-time binding: bind first, then run ListPage.
-          'const tools = [',
-          '  { name: "task_workbench__list_tasks" },',
-          '  { name: "task_workbench__take_task" },',
-          '  { name: "task_workbench__complete_task" },',
-          ']',
-          'pages.bindWorkbenchRuntime(store, tools)',
-          "const nodes = pages.ListPage({}, agent)",
+          // assembly-time binding (the new one-argument runtime slot; the store
+          // only needs a getState minimal face — this probe pins JSX compilation,
+          // not queue semantics).
+          'const runtime = {',
+          '  store: { getState: () => [], subscribe: () => () => undefined },',
+          '  tools: ["list_tasks", "take_task", "complete_task", "requeue_task", "open_task_page", "drive_begin", "drive_end"]'
+          + '    .map((local) => ({ name: "task_workbench__" + local })),',
+          '  catalog: () => [],',
+          '  channel: {},',
+          '  seedSize: 0,',
+          '}',
+          'pages.bindWorkbenchRuntime(runtime)',
+          "const nodes = list.ListPage({}, agent)",
           "process.stdout.write('TREE_OK ' + (nodes !== undefined))",
           '',
         ].join('\n'), 'utf8')
