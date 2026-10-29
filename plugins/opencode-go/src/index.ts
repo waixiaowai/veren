@@ -19,6 +19,7 @@ import { GoCatalog, OPENCODE_GO_PROVIDER } from './catalog.js'
 import { resolveConfig, type Config as ConfigShape } from './config.js'
 import { registerOpencodeGoFlow } from './auth-flow.js'
 import { ListingClient } from './listing.js'
+import { OpencodeGoGatewayService } from './gateway-remote.js'
 
 /** Cordis 插件名。The Cordis plugin name. */
 export const name = 'opencode-go'
@@ -46,7 +47,7 @@ export const inject = ['llm', 'credentials', 'authorization']
 /** 本插件不提供服务面。This plugin provides no service face. */
 export const provide = []
 
-/** 插件入口：注册路由与登录流；两者都随插件卸载逆序清理。Plugin entry: registers the route and the sign-in flow; both clean up in reverse order on unload. */
+/** 插件入口：注册路由、登录流与 Web 网关；都随插件卸载逆序清理。Plugin entry: registers the route, the sign-in flow, and the web gateway; all unwind in reverse order on unload. */
 export const apply = (ctx: Context, config: Config): void => {
   const resolved = resolveConfig(config)
   const listing = new ListingClient(resolved)
@@ -55,4 +56,5 @@ export const apply = (ctx: Context, config: Config): void => {
   const adapter = new OpencodeGoAdapter({ ctx, config: resolved, catalog })
   const disposeRoutes = ctx.llm.registerAdapter([OPENCODE_GO_PROVIDER], adapter)
   ctx.effect(() => disposeRoutes, 'opencode-go.registerAdapter')
+  ctx.plugin(OpencodeGoGatewayService)
 }
