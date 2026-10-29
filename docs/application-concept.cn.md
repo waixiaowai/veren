@@ -730,6 +730,8 @@ flowchart LR
 
 **落地状态（读 `plugins/page-registry/src/runtime.ts` 的 `componentPageBlock`）**：PAGE 块由 page-registry 在会话创建时拼好、以 followup 用户消息追加一次，之后不再重写。减法之后所有页面都是组件页，块的形状是：定位行 + map（注册表推导）+ tools 行 + 说明 + **组件渲染出的 Markdown 正文**——**没有 `params:` / `data:` JSON 行**（URL 本身表达 params；首屏数据经 `meta.load` → `useSnapshot` 由组件渲染进正文）：
 
+> **实测对账（2026-10-29）**：这个形状是"规范形态"，不是"每次都在场"。64 个任务工作台页面会话里 map 行 47 次、tools 行 50 次、应用说明 41 次、页面说明 52 次；页面身份段只覆盖 10 个会话。数值、口径与复算命令见 [task-workbench-page-context.cn.md](./task-workbench-page-context.cn.md)。
+
 ```text
 PAGE task-workbench/list /apps/task-workbench/list
 map:（能力地图——本应用可去的页面；把模板里的 :参数 替换为实际值即为可打开 URL）

@@ -28,3 +28,4 @@
 - [场景预设设计（草案）](./scene-preset-design.cn.md)：面向 DSH 插件开发者与 Agent 产品设计者；预备知识：Cordis、Agent Preset、系统提示词、工具注册。
 - [DSH 插件市场索引源](./plugin-market-source.cn.md)：面向负责发布与分发的插件开发者、部署运维；预备知识：DSH profile/bundle、pnpm workspace、nginx 静态站点。
 - [应用（Application）概念设计（草案）](./application-concept.cn.md)：面向 DSH 插件开发者、页面运行时维护者与 Agent 产品设计者；预备知识：Cordis 插件与 Service、Agent Preset、DSH Session、`@veren/prompt-page` 页面模型、组合包安装。
+- [任务工作台的页面上下文：字节级规格与实测](./task-workbench-page-context.cn.md)：面向页面/提示词作者与上下文成本负责人；预备知识：PAGE 块与 `@veren/prompt-page`、多帧 zstd 会话日志、`scripts/audit-page-context.mjs` 的判定口径。
