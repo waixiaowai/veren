@@ -1,0 +1,57 @@
+{
+  "name": "@veren/imagegen",
+  "description": "Use when a dsh composition must give its agents raster image generation and editing: two model-facing tools (imagegen__generate / imagegen__edit) backed by any OpenAI-compatible Images API endpoint, a bundled skill that carries the prompting discipline (use-case taxonomy, structured prompt schema, augmentation policy, raster-vs-vector gate), a chroma-key transparency fallback for models without true alpha, and a guided paste sign-in flow that keeps the API key in the credential store; skip it when the deployment never asks for generated bitmap assets.",
+  "version": "2.2.1",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "assets",
+    "cordis.patch.yml",
+    "README.md",
+    "README.cn.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "prepack": "pnpm run build",
+    "test": "vitest run --no-fsModuleCache",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
+  },
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-attachment": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-authorization": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-credentials": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-llm": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-skill": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-attachment": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-agent": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-authorization": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-credentials": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-scope": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-session": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-skill": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@types/node": "^26.6.5",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.4"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
