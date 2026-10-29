@@ -38,6 +38,7 @@ export interface Config extends ConfigShape {}
 export const Config: z<Config> = z.object({
   enabled: z.boolean().description('Paid-call gate; tools refuse with IMAGEGEN_DISABLED while false'),
   baseURL: z.string().role('url').description('OpenAI-compatible Images API root'),
+  apiKey: z.string().description('Optional plaintext Images API key; wins over the credential record. Sits in the profile config file in plaintext - prefer the sign-in flow if that bothers you'),
   model: z.string().description('Default image model, e.g. gpt-image-2'),
   requestTimeoutMs: z.number().description('Per-request timeout in milliseconds'),
   maxAttempts: z.number().description('Maximum attempts for transient failures'),

@@ -13,6 +13,7 @@
  * @module @veren/imagegen
  */
 import type { RasterImage } from './png.js'
+import { ImagegenError } from './errors.js'
 
 /** RGB 三元组。An RGB triple. */
 export interface Rgb {
@@ -44,11 +45,13 @@ export interface ChromaResult {
 /** Dominance threshold: a key channel clearly above the rest marks key color (raw material's value, 16). */
 const DOMINANCE_THRESHOLD = 16
 
-/** 解析 `#rrggbb` 十六进制键色。Parses a `#rrggbb` hex key color. */
+/** 解析 `#rrggbb` 十六进制键色；违规即稳定码 IMAGEGEN_CHROMA_INVALID。 */
+/** Parses a `#rrggbb` hex key color; violations carry the stable IMAGEGEN_CHROMA_INVALID code. */
 export function parseHexColor(raw: string): Rgb {
   const match = /^#?([0-9a-fA-F]{6})$/.exec(raw.trim())
   if (match === null) {
-    throw new Error(`chroma: key color must be hex RGB like #00ff00, got ${JSON.stringify(raw)}`)
+    throw new ImagegenError('IMAGEGEN_CHROMA_INVALID',
+      `key color must be hex RGB like #00ff00, got ${JSON.stringify(raw)}`, { key: raw })
   }
   const hex = match[1]
   return { r: parseInt(hex.slice(0, 2), 16), g: parseInt(hex.slice(2, 4), 16), b: parseInt(hex.slice(4, 6), 16) }

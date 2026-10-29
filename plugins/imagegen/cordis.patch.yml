@@ -4,6 +4,14 @@
 # 在 web profile 之上叠加： dsh web --patch plugins/imagegen/cordis.patch.yml
 # Apply on the web profile: dsh web --patch plugins/imagegen/cordis.patch.yml
 #
+# 配置就写在 profile 的 cordis.patch.yml 这一行 config 块里（YAML，即改即
+# 所见——重启宿主生效）。apiKey 是可选项：明文落在 profile 配置文件里，
+# 优先于登录流存的凭据记录；介意明文就省略它、走授权流。
+# Configuration lives in this profile cordis.patch.yml config block (YAML —
+# what you write is what you get, effective after a host restart). apiKey is
+# optional and sits in the profile config file in plaintext, winning over the
+# credential record; omit it and use the sign-in flow if that bothers you.
+#
 # 插件挂载即注册两个模型工具（imagegen__generate / imagegen__edit）、
 # `image-generation` 技能与粘贴式登录流；`enabled` 默认 false——
 # 不在配置里显式打开前，工具一律以 IMAGEGEN_DISABLED 拒绝调用（付费门）。
@@ -16,3 +24,6 @@
       name: '@veren/imagegen'
       config:
         enabled: false
+        # baseURL: https://api.openai.com/v1     # 任意 OpenAI 兼容 Images API 根 / any compatible Images API root
+        # apiKey: sk-...                          # 可选明文 key，优先于凭据记录 / optional plaintext key, wins over the credential record
+        # model: gpt-image-2                      # 缺省图像模型 / default image model

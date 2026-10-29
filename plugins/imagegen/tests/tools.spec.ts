@@ -214,3 +214,77 @@ describe('credential record', () => {
     expect(credentialKey('imagegen', 'account')).toBe(IMAGEGEN_RECORD)
   })
 })
+
+describe('key resolution precedence', () => {
+  it('config apiKey wins even with no credential record', async () => {
+    const world = fakeWorld({ apiKey: 'sk-config' })
+    world.credentials = fakeCredentials(new Map())
+    const { fetch, calls } = fakeFetch(keyedPng())
+    vi.stubGlobal('fetch', fetch)
+    const value = await runGenerate(world, 'session-1', { prompt: 'p', outputPath: 'k.png' })
+    expect(value.kind).toBe('saved')
+    const auth = (calls[0]?.init.headers as Record<string, string>).authorization
+    expect(auth).toBe('Bearer sk-config')
+  })
+
+  it('falls back to the credential record when config has no key', async () => {
+    const world = fakeWorld()
+    const { fetch, calls } = fakeFetch(keyedPng())
+    vi.stubGlobal('fetch', fetch)
+    await runGenerate(world, 'session-1', { prompt: 'p', outputPath: 'k2.png' })
+    expect((calls[0]?.init.headers as Record<string, string>).authorization).toBe('Bearer sk-test')
+  })
+
+  it('reports IMAGEGEN_NO_KEY when neither source has a key', async () => {
+    const world = fakeWorld({ apiKey: '   ' })
+    world.credentials = fakeCredentials(new Map())
+    await expect(runGenerate(world, 'session-1', { prompt: 'p' })).rejects.toMatchObject({
+      code: 'IMAGEGEN_NO_KEY',
+    })
+  })
+})
+
+describe('background and fidelity parameters', () => {
+  it('maps background to the outbound generate body', async () => {
+    const world = fakeWorld({ apiKey: 'sk-c', model: 'gpt-image-1.5' })
+    const { fetch, calls } = fakeFetch(keyedPng())
+    vi.stubGlobal('fetch', fetch)
+    await runGenerate(world, 'session-1', { prompt: 'p', outputPath: 'bg.png', background: 'transparent', outputFormat: 'png' })
+    const body = JSON.parse(String(calls[0]?.init.body))
+    expect(body.background).toBe('transparent')
+  })
+
+  it('gpt-image-2 refuses transparent with the stable code', async () => {
+    const world = fakeWorld()
+    await expect(runGenerate(world, 'session-1', { prompt: 'p', background: 'transparent' })).rejects.toMatchObject({
+      code: 'IMAGEGEN_TRANSPARENCY_UNSUPPORTED',
+    })
+  })
+
+  it('maps background and input_fidelity onto the edits multipart', async () => {
+    const world = fakeWorld({ apiKey: 'sk-c', model: 'gpt-image-1.5' })
+    const root = world.workspaceOf('session-1')!
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(join(root, 'in.png'), Buffer.from(keyedPng()))
+    const recorded = recordingFetch(() => new Response(
+      JSON.stringify({ data: [{ b64_json: Buffer.from(keyedPng()).toString('base64') }] }),
+      { status: 200 },
+    ))
+    vi.stubGlobal('fetch', recorded.fetch)
+    await runEdit(world, 'session-1', {
+      prompt: 'p', inputPaths: ['in.png'], background: 'transparent', inputFidelity: 'high',
+    })
+    const form = recorded.calls[0]?.init.body as FormData
+    expect(form.get('background')).toBe('transparent')
+    expect(form.get('input_fidelity')).toBe('high')
+  })
+})
+
+describe('chroma invalid key code', () => {
+  it('reports IMAGEGEN_CHROMA_INVALID for a non-hex key', async () => {
+    const world = fakeWorld()
+    await expect(runGenerate(world, 'session-1', { prompt: 'p', chromaKey: 'green' })).rejects.toMatchObject({
+      code: 'IMAGEGEN_CHROMA_INVALID',
+    })
+  })
+})

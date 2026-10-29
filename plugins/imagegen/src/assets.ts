@@ -42,6 +42,12 @@ export interface CommonArgs {
   readonly size?: string
   readonly quality?: 'low' | 'medium' | 'high' | 'auto'
   readonly outputFormat?: 'png' | 'webp' | 'jpeg'
+  /** API 背景控制（legacy 模型可真透明；gpt-image-2 拒绝 transparent）。 */
+  /** The API background control (legacy models can be truly transparent; gpt-image-2 refuses transparent). */
+  readonly background?: 'transparent' | 'opaque' | 'auto'
+  /** 编辑输入保真度（gpt-image-2 恒为 high，不收此参）。 */
+  /** The edit input fidelity (gpt-image-2 is always high and refuses this). */
+  readonly inputFidelity?: 'low' | 'high'
   readonly outputPath?: string
   readonly chromaKey?: string
 }
@@ -52,6 +58,20 @@ export function ensureEnabled(config: ResolvedConfig): void {
     throw new ImagegenError('IMAGEGEN_DISABLED',
       'image generation is disabled in this deployment; ask the user to enable it in the imagegen plugin config (paid API calls)')
   }
+}
+
+/**
+ * key 解析序：配置里的 apiKey（部署显式声明，优先）→ 凭据记录（登录流
+ * 所存）。两处都没有就是响亮的 IMAGEGEN_NO_KEY，不静默、不回退。
+ * The key resolution order: the config apiKey (explicit deployment intent,
+ * wins) → the credential record (stored by the sign-in flow). Neither present
+ * is a loud IMAGEGEN_NO_KEY — no silent fallback.
+ */
+export async function resolveApiKey(world: ImagegenWorld): Promise<string> {
+  if (world.config.apiKey !== undefined && world.config.apiKey.length > 0) {
+    return world.config.apiKey
+  }
+  return requireStoredKey(world.credentials)
 }
 
 /** 组装 wire 客户端。Builds the wire client. */
@@ -72,6 +92,8 @@ export function requestFaceOf(world: ImagegenWorld, args: CommonArgs): RequestFa
     size: args.size ?? 'auto',
     quality: args.quality ?? 'low',
     outputFormat: args.outputFormat ?? 'png',
+    ...(args.background === undefined ? {} : { background: args.background }),
+    ...(args.inputFidelity === undefined ? {} : { inputFidelity: args.inputFidelity }),
   }
 }
 
@@ -168,12 +190,14 @@ export async function readInputImage(path: string): Promise<{ bytes: Uint8Array;
   }
 }
 
-/** 校验矩阵 + prompt 非空的前置闸门。The front gate: validation matrix plus a non-empty prompt. */
-export function gateRequest(face: RequestFace, prompt: string): void {
+/** 前置闸门：校验矩阵 + prompt 非空 + 键色可解析（全部在付费调用之前 fail loud）。 */
+/** The front gate: validation matrix, non-empty prompt, and a parseable key color — all fail loud before the paid call. */
+export function gateRequest(face: RequestFace, prompt: string, chromaKey?: string): void {
   if (prompt.trim().length === 0) {
     throw new ImagegenError('IMAGEGEN_PROMPT_EMPTY', 'prompt must not be empty')
   }
   validateRequest(face)
+  if (chromaKey !== undefined) parseHexColor(chromaKey)
 }
 
 /** base64 → 字节。base64 → bytes. */
@@ -195,8 +219,8 @@ export async function runGenerate(
   const chroma = args.chromaKey !== undefined
   const format = chroma ? 'png' : args.outputFormat ?? 'png'
   const face: RequestFace = { ...requestFaceOf(world, args), outputFormat: format }
-  gateRequest(face, args.prompt)
-  const client = wireClientOf(world, await requireStoredKey(world.credentials))
+  gateRequest(face, args.prompt, args.chromaKey)
+  const client = wireClientOf(world, await resolveApiKey(world))
   const result = await generateImage(client, { ...face, prompt: args.prompt }, signal)
   const processed = postProcess(decodeBase64(result.b64Json), args.chromaKey)
   const path = resolveSavePath(world, sessionId, args.outputPath, format)
@@ -232,8 +256,8 @@ export async function runEdit(
   const chroma = args.chromaKey !== undefined
   const format = chroma ? 'png' : args.outputFormat ?? 'png'
   const face: RequestFace = { ...requestFaceOf(world, args), outputFormat: format }
-  gateRequest(face, args.prompt)
-  const client = wireClientOf(world, await requireStoredKey(world.credentials))
+  gateRequest(face, args.prompt, args.chromaKey)
+  const client = wireClientOf(world, await resolveApiKey(world))
   const workspace = world.workspaceOf(sessionId)
   const result = await editImage(client, {
     model: face.model,
@@ -241,6 +265,7 @@ export async function runEdit(
     images: await editInputs(world, sessionId, args.inputPaths),
     ...(args.maskPath === undefined ? {} : { mask: await readInputImage(againstWorkspace(workspace, args.maskPath)) }),
     size: face.size,
+    ...(face.background === undefined ? {} : { background: face.background }),
     ...(face.inputFidelity === undefined ? {} : { inputFidelity: face.inputFidelity }),
   }, signal)
   const processed = postProcess(decodeBase64(result.b64Json), args.chromaKey)

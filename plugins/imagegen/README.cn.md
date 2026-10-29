@@ -39,12 +39,30 @@ pnpm --dir deepseek\deepseek-harness dsh plugin --profile web add plugins\imageg
 
 然后走授权流登录一次（设置 → 凭据，或流 key `imagegen/account`）。
 
+## 在哪里配置
+
+就一个地方：profile 的 `cordis.patch.yml` 里本插件的 config 行（纯 YAML，schemastery 启动时校验，重启宿主生效）。带注释的示例见本包 `cordis.patch.yml`。
+
+```yaml
+- insert:
+    - id: imagegen
+      name: '@veren/imagegen'
+      config:
+        enabled: true
+        baseURL: https://api.openai.com/v1
+        # apiKey: sk-...   # 可选；优先级见下
+        model: gpt-image-2
+```
+
+**API key 优先级**：配置行里非空的 `apiKey` **优先于登录流存的凭据记录**。配置键会明文落在 profile 配置文件里——这就是它的已声明代价；不想要明文就走授权流（设置 → 凭据，或流 key `imagegen/account`）。两处都没有时，调用报 `IMAGEGEN_NO_KEY`。
+
 ## 配置参考
 
 | 字段 | 缺省 | 含义 |
 | --- | --- | --- |
 | `enabled` | `false` | 付费门；关闭时报 `IMAGEGEN_DISABLED` |
 | `baseURL` | `https://api.openai.com/v1` | OpenAI 兼容 Images API 根 |
+| `apiKey` | — | 可选明文 key；**优先于凭据记录** |
 | `model` | `gpt-image-2` | 缺省图像模型 |
 | `requestTimeoutMs` | `600000` | 单请求超时（生成可达数分钟） |
 | `maxAttempts` | `3` | 瞬态失败尝试次数（429/5xx；遵循 Retry-After） |

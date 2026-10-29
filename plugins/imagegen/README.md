@@ -39,12 +39,30 @@ Config row (profile overlay example lives in `cordis.patch.yml`):
 
 Then sign in once through the authorization flow (Settings → credentials, or the flow key `imagegen/account`).
 
+## Where to configure
+
+One place: the plugin's config row in the profile's `cordis.patch.yml` (plain YAML, schemastery-validated at boot, effective after a host restart). See `cordis.patch.yml` in this package for a commented example.
+
+```yaml
+- insert:
+    - id: imagegen
+      name: '@veren/imagegen'
+      config:
+        enabled: true
+        baseURL: https://api.openai.com/v1
+        # apiKey: sk-...   # optional; see precedence below
+        model: gpt-image-2
+```
+
+**API key precedence**: a non-empty `apiKey` in the config row **wins over the credential record** stored by the sign-in flow. The config key sits in the profile config file in plaintext — that is its documented trade-off; prefer the sign-in flow (Settings → credentials, or flow key `imagegen/account`) when you don't want that. With neither present, calls fail with `IMAGEGEN_NO_KEY`.
+
 ## Config reference
 
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | `false` | Paid-call gate; off → `IMAGEGEN_DISABLED` |
 | `baseURL` | `https://api.openai.com/v1` | OpenAI-compatible Images API root |
+| `apiKey` | — | Optional plaintext key; **wins over the credential record** |
 | `model` | `gpt-image-2` | Default image model |
 | `requestTimeoutMs` | `600000` | Per-request timeout (generation can take minutes) |
 | `maxAttempts` | `3` | Transient-failure attempts (429/5xx; Retry-After honored) |

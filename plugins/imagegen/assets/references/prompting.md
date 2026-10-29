@@ -68,7 +68,7 @@ Do not add:
 - Prefer one targeted follow-up at a time over rewriting the whole prompt.
 
 ## Transparent images
-- The chroma-key workflow is the portable path: generate on a flat key-color background, pass `chroma_key`, and the tool converts it to real alpha (PNG output is forced).
+- Two paths, by model capability. Models that accept it: pass `background: 'transparent'` with png/webp output for real alpha. Models that refuse it (e.g. gpt-image-2 returns `IMAGEGEN_TRANSPARENCY_UNSUPPORTED`): the chroma-key workflow — generate on a flat key-color background, pass `chroma_key`, and the tool converts it to real alpha (PNG output is forced).
 - Pick a key color far from the subject's palette (chroma green or magenta) and state the flat backdrop in the prompt.
 - Inspect the result for halo or leftover spill before delivering.
 
@@ -91,7 +91,7 @@ Edit:
 - identity-preserve: Lock identity (face, body, pose, hair, expression); change only the specified elements; match lighting and shadows.
 - precise-object-edit: Specify exactly what to remove/replace; preserve surrounding texture and lighting; keep everything else unchanged.
 - lighting-weather: Change only environmental conditions (light, shadows, atmosphere, precipitation); keep geometry, framing, and subject identity.
-- background-extraction: Generate/cut out with the chroma-key workflow; preserve fine edges and label text; no halos or restyling.
+- background-extraction: Model-supported `background: 'transparent'` first (png/webp output); chroma-key workflow otherwise. Preserve fine edges and label text; no halos or restyling.
 - style-transfer: Specify style cues to preserve (palette, texture, brushwork) and what must change; add `no extra elements` to prevent drift.
 - compositing: Reference inputs by index; specify what moves where; match lighting, perspective, and scale; keep the base framing unchanged.
 - sketch-to-render: Preserve layout, proportions, and perspective; choose materials and lighting that support the supplied sketch without adding new elements.

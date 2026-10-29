@@ -11,7 +11,7 @@ When adapting a user's prompt:
 
 The labeled lines are prompt scaffolding, not a closed schema. `Asset type` and `Input images` are prompt-only scaffolding; the tools take `input_paths` (edit targets) and `mask_path` as parameters.
 
-Execution details such as `quality`, `size`, `output_format`, `chroma_key`, and `output_path` are tool parameters. Iterate at `quality: low` and escalate for final assets. For transparency use the chroma-key workflow (flat key-color backdrop + `chroma_key`); the model matrix rejects true-alpha parameters where unsupported.
+Execution details such as `quality`, `size`, `output_format`, `background`, `input_fidelity` (edit), `mask_path` (edit), `chroma_key`, and `output_path` are tool parameters. Iterate at `quality: low` and escalate for final assets. For transparency use model-supported `background: 'transparent'` (png/webp output) first, and the chroma-key workflow (flat key-color backdrop + `chroma_key`) on models that refuse it.
 
 For prompting principles (structure, specificity, invariants, iteration), see `prompting.md`.
 

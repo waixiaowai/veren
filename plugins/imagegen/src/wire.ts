@@ -43,6 +43,7 @@ export interface EditRequest {
   readonly images: ReadonlyArray<{ readonly bytes: Uint8Array; readonly name: string }>
   readonly mask?: { readonly bytes: Uint8Array; readonly name: string }
   readonly size: string
+  readonly background?: 'transparent' | 'opaque' | 'auto'
   readonly inputFidelity?: 'low' | 'high'
 }
 
@@ -179,6 +180,7 @@ export async function editImage(
   if (request.mask !== undefined) {
     form.append('mask', new Blob([new Uint8Array(request.mask.bytes)], { type: 'image/png' }), request.mask.name)
   }
+  if (request.background !== undefined) form.append('background', request.background)
   if (request.inputFidelity !== undefined) form.append('input_fidelity', request.inputFidelity)
   if (!isGptImageFamily(request.model)) form.append('response_format', 'b64_json')
   const response = await fetchWithRetry(client, `${client.baseURL}/images/edits`, {

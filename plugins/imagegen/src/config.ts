@@ -15,6 +15,14 @@ export interface Config {
   enabled?: boolean
   /** OpenAI 兼容 Images API 根。OpenAI-compatible Images API root. */
   baseURL?: string
+  /**
+   * 明文 key（可选项）：写在配置行/YAML 里的部署级声明，**优先于凭据记录**；
+   * 它会明文落在 profile 配置文件里——介意明文就走登录流存凭据库。
+   * A plaintext key (optional): a deployment-level declaration in the config
+   * row/YAML that **wins over the credential record**; it sits in the profile
+   * config file in plaintext — use the sign-in flow instead if that bothers you.
+   */
+  apiKey?: string
   /** 缺省图像模型。Default image model. */
   model?: string
   /** 单次请求超时（图像生成可达数分钟）。Per-request timeout (image generation can take minutes). */
@@ -39,6 +47,8 @@ export const DEFAULT_QUALITY = 'low'
 export interface ResolvedConfig {
   enabled: boolean
   baseURL: string
+  /** 去空白后的配置 key；未配置为 undefined（回退凭据记录）。The trimmed config key; undefined falls back to the credential record. */
+  apiKey?: string
   model: string
   requestTimeoutMs: number
   maxAttempts: number
@@ -50,6 +60,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
   const resolved: ResolvedConfig = {
     enabled: config.enabled ?? false,
     baseURL: config.baseURL?.replace(/\/+$/, '') || DEFAULT_BASE_URL,
+    ...(config.apiKey?.trim() ? { apiKey: config.apiKey.trim() } : {}),
     model: config.model || 'gpt-image-2',
     requestTimeoutMs: config.requestTimeoutMs ?? 600_000,
     maxAttempts: config.maxAttempts ?? 3,

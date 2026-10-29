@@ -63,11 +63,12 @@ Execution strategy:
 
 ## Transparent image requests
 
-The configured model may not support true alpha (for example `gpt-image-2` rejects transparent backgrounds; asking for one returns `IMAGEGEN_TRANSPARENCY_UNSUPPORTED`). The portable workflow:
+Two paths, decided by the configured model's capability:
 
-1. Prompt for the subject on a flat key-color background — classic chroma green `#00ff00` or magenta `#ff00ff`; pick a color far from the subject's palette, and state the flat backdrop in the prompt.
-2. Pass `chroma_key` with that same color; the tool converts it to a real alpha channel and forces PNG output.
-3. Inspect the result for halo or leftover spill before delivering.
+1. **Model supports true transparency** (e.g. `gpt-image-1.5`/`gpt-image-1`): pass `background: 'transparent'` with `png` or `webp` output and ask the model for an isolated subject on nothing. Real alpha comes back directly.
+2. **Model refuses true alpha** (`gpt-image-2` rejects transparent backgrounds; asking returns `IMAGEGEN_TRANSPARENCY_UNSUPPORTED`): the chroma workflow — prompt for the subject on a flat key-color background (classic chroma green `#00ff00` or magenta `#ff00ff`; pick a color far from the subject's palette, and state the flat backdrop in the prompt), then pass `chroma_key` with that same color; the tool converts it to a real alpha channel and forces PNG output.
+
+Either way, inspect the result for halo, leftover spill, or half-transparent edges before delivering. For `background-extraction` edits, preserve fine edges and label text; no halos, no restyling.
 
 ## Prompt augmentation
 
@@ -113,7 +114,7 @@ Edit:
 - identity-preserve — try-on, person-in-scene; lock face/body/pose.
 - precise-object-edit — remove/replace a specific element (including interior swaps).
 - lighting-weather — time-of-day/season/atmosphere changes only.
-- background-extraction — transparent background / clean cutout (use the chroma-key workflow above).
+- background-extraction — transparent background / clean cutout (model-supported `background: 'transparent'` first; chroma workflow otherwise — see Transparent image requests).
 - style-transfer — apply reference style while changing subject/scene.
 - compositing — multi-image insert/merge with matched lighting/perspective.
 - sketch-to-render — drawing/line art to photoreal render.

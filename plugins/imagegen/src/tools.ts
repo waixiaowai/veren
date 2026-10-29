@@ -16,22 +16,25 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { toErrorValue } from './errors.js'
 import { pendingCard, renderValue } from './result.js'
 
-/** 参数：两个工具共享的执行面。Parameters: the execution face shared by both tools. */const EXECUTION_PARAMS = {
+/** 参数：两个工具共享的执行面。Parameters: the execution face shared by both tools. */
+const EXECUTION_PARAMS = {
   model: { type: 'string', description: 'Image model override; default is the deployment-configured model' },
   size: { type: 'string', description: 'Image size: auto, or WIDTHxHEIGHT obeying the model matrix (gpt-image-2: edges multiple of 16px, max edge 3840, ratio <= 3:1)' },
   quality: { type: 'string', enum: ['low', 'medium', 'high', 'auto'], description: 'Rendering quality; low suits drafts and iteration, high suits final assets and dense text' },
   output_format: { type: 'string', enum: ['png', 'webp', 'jpeg'], description: 'Output format; png is the default' },
+  background: { type: 'string', enum: ['transparent', 'opaque', 'auto'], description: 'Background control: transparent yields real alpha but needs png/webp output and a model that supports it (gpt-image-2 refuses with IMAGEGEN_TRANSPARENCY_UNSUPPORTED - use the chroma_key workflow there instead)' },
   output_path: { type: 'string', description: 'Where to save inside the workspace (relative) or an absolute path; never overwrites - a collided name becomes name-v2.ext' },
   chroma_key: { type: 'string', description: 'Hex RGB key color (e.g. #00ff00) to convert to transparency after generation; forces png output' },
 } as const
 
-/** 编辑专属参数：输入图与蒙版。Edit-only parameters: input images and the mask. */
+/** 编辑专属参数：输入图、蒙版与输入保真度。Edit-only parameters: input images, the mask, and input fidelity. */
 const EDIT_PARAMS = {
   input_paths: {
     type: 'array', required: true, items: { type: 'string' },
     description: 'Workspace or absolute paths of the images to edit (first is the base)',
   },
   mask_path: { type: 'string', description: 'Optional PNG mask: transparent areas are replaced' },
+  input_fidelity: { type: 'string', enum: ['low', 'high'], description: 'Fidelity for the input images on models that accept it; gpt-image-2 always uses high and refuses this parameter (IMAGEGEN_OPTION_UNSUPPORTED)' },
 } as const
 
 /** saved 规范值的 schema 面。The schema face of the saved canonical value. */
@@ -86,6 +89,8 @@ const OUTPUT_SCHEMA = { oneOf: [SAVED_SCHEMA, ERROR_SCHEMA] } as const
 interface ToolArgs extends CommonArgs {
   readonly prompt: string
   readonly output_format?: 'png' | 'webp' | 'jpeg'
+  readonly background?: 'transparent' | 'opaque' | 'auto'
+  readonly input_fidelity?: 'low' | 'high'
   readonly output_path?: string
   readonly chroma_key?: string
   readonly input_paths?: readonly string[]
@@ -100,6 +105,8 @@ function orchestrationArgs(args: ToolArgs): CommonArgs & { readonly prompt: stri
     size: args.size,
     quality: args.quality,
     outputFormat: args.output_format,
+    background: args.background,
+    inputFidelity: args.input_fidelity,
     outputPath: args.output_path,
     chromaKey: args.chroma_key,
   }
@@ -144,7 +151,7 @@ export function registerImagegenTools(ctx: Context, world: ImagegenWorld): () =>
   const disposers = [
     ctx.tools.register(defineTool({
       name: 'imagegen__generate',
-      description: 'Generate one raster image with an image model and save it into the workspace. Returns the saved file path plus the image itself so you can inspect it. One call produces one image; request several assets by calling once per asset. For transparency without model support, generate on a flat key-color background and pass chroma_key.',
+      description: 'Generate one raster image with an image model and save it into the workspace. Returns the saved file path plus the image itself so you can inspect it. One call produces one image; request several assets by calling once per asset. For transparency: models that support it take background=transparent (png/webp output); on models without true alpha (gpt-image-2), generate on a flat key-color background and pass chroma_key.',
       parameters: { prompt: { type: 'string', required: true, description: 'The full image prompt: scene, subject, style, composition, lighting, exact quoted text, constraints and avoid list' }, ...EXECUTION_PARAMS },
       output: { schema: OUTPUT_SCHEMA, render: renderValue },
       timeoutMs: 600_000,
