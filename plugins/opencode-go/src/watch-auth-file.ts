@@ -74,6 +74,17 @@ export function watchAuthFile(options: AuthFileWatchOptions): AuthFileWatch {
 
   try {
     watcher = watch(options.path, onTick)
+    // Windows 上被监视文件被重写/删除的瞬间 watch 会发 error（EPERM）；
+    // EventEmitter 的 error 无监听=进程崩溃。降级为轮询而非吞掉。
+    // On Windows, a rewritten/deleted watched file makes watch emit error
+    // (EPERM); an unhandled EventEmitter error crashes the process — degrade
+    // to polling instead of swallowing.
+    watcher.on('error', () => {
+      if (stopped) return
+      watcher?.close()
+      watcher = undefined
+      if (fallback === undefined) fallback = globalThis.setInterval(onTick, 2_000)
+    })
   } catch {
     // 文件尚不存在：回退为存在性+哈希轮询（与 watch 同语义）。
     // The file does not exist yet: fall back to existence+hash polling (same semantics as watch).
