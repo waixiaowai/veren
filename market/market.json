@@ -319,6 +319,52 @@
         "preset",
         "分叉"
       ]
+    },
+    "@veren/workbuddy-auth": {
+      "title": {
+        "en": "WorkBuddy Sign-in",
+        "zh": "WorkBuddy 登录"
+      },
+      "description": {
+        "en": "Serves WorkBuddy (CN, copilot.tencent.com) and WorkBuddy AI (international, workbuddy.ai) subscriptions as one first-class model route: plugin-owned OAuth device-code sign-in for both regions, a multi-account pool with rotation-safe refresh and per-failure cooling, and in-process wire translation with no gateway process. Skip it when the deployment has no WorkBuddy account.",
+        "zh": "把 WorkBuddy（中国区 copilot.tencent.com）与国际版 WorkBuddy AI（workbuddy.ai）接成一个一等模型路由：插件自持的 OAuth 设备码登录覆盖两区域，多账号池带轮换安全刷新与按故障类型冷却，协议翻译在适配器进程内完成、无网关进程。没有 WorkBuddy 账号的部署可跳过。"
+      },
+      "category": "integration",
+      "labels": [
+        "official"
+      ],
+      "keywords": [
+        "workbuddy",
+        "workbuddy-ai",
+        "codebuddy",
+        "oauth",
+        "sign-in",
+        "登录",
+        "模型路由",
+        "腾讯"
+      ]
+    },
+    "@veren/opencode-go": {
+      "title": {
+        "en": "OpenCode Go Sign-in",
+        "zh": "OpenCode Go 登录"
+      },
+      "description": {
+        "en": "Serves the OpenCode Go subscription plan as a first-class model route: a dedicated provider adapter on the OpenAI-compatible gateway at opencode.ai/inference/go, with a guided sign-in that validates the plan key online before storing it — or imports it read-only from a signed-in local opencode CLI. Skip it when the deployment has no OpenCode Go subscription.",
+        "zh": "把 OpenCode Go 订阅套餐接成一个一等模型路由：专用 provider 适配器走 opencode.ai/inference/go 的 OpenAI 兼容网关，引导式登录先在线校验套餐 key 再入库，也可从已登录的本地 opencode CLI 只读导入。没有 OpenCode Go 订阅的部署可跳过。"
+      },
+      "category": "integration",
+      "labels": [
+        "official"
+      ],
+      "keywords": [
+        "opencode",
+        "opencode-go",
+        "opencode ai",
+        "sign-in",
+        "登录",
+        "模型路由"
+      ]
     }
   }
 }
