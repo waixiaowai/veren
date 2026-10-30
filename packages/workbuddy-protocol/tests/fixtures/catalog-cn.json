@@ -1,0 +1,49 @@
+{
+  "_comment": "CN /v3/config 信封形状（源自卷宗 catalog.ts 2026-09-23 复核快照，裁剪为 3 行 + cli 花名册；token/uid 均无）。Envelope shape of the CN /v3/config document (from the dossier's 2026-09-23 re-verified snapshot, trimmed to 3 rows + cli roster; no tokens/uids).",
+  "code": 0,
+  "msg": "",
+  "data": {
+    "models": [
+      {
+        "id": "glm-5.3-flash",
+        "name": "GLM-5.3-Flash",
+        "maxInputTokens": 1000000,
+        "maxOutputTokens": 131072,
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "onlyReasoning": true,
+        "reasoning": { "supportedEfforts": ["low", "high", "max"], "defaultEffort": "high", "canDisableThinking": true },
+        "credits": "x0.06 credits",
+        "tags": []
+      },
+      {
+        "id": "deepseek-v4.1-flash",
+        "name": "Deepseek-V4.1-Flash",
+        "maxInputTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "onlyReasoning": true,
+        "reasoning": { "effort": "high", "canDisableThinking": false },
+        "credits": "x0.03 credits",
+        "tags": []
+      },
+      {
+        "id": "hy3",
+        "name": "Hy3",
+        "maxInputTokens": 192000,
+        "maxOutputTokens": 64000,
+        "supportsImages": true,
+        "disabled": true,
+        "supportsReasoning": true,
+        "onlyReasoning": true,
+        "reasoning": { "defaultEffort": "high", "canDisableThinking": false },
+        "credits": "x0.00 credits",
+        "tags": []
+      }
+    ],
+    "agents": [
+      { "name": "cli", "models": ["glm-5.3-flash", "deepseek-v4.1-flash", "hy3", "retired-model"] }
+    ]
+  }
+}

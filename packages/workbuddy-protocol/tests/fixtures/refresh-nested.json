@@ -1,0 +1,13 @@
+{
+  "_comment": "刷新响应实测形状（卷宗 refresh.ts:114-134）：信封嵌套不稳定，{data:{...}} 与 {data:{data:{...}}} 都见过；本文件是双重嵌套形。The measured refresh shape (dossier refresh.ts:114-134): the envelope nests unstably — both {data:{...}} and {data:{data:{...}}} seen; this file is the double-nested form.",
+  "code": 0,
+  "msg": "",
+  "data": {
+    "data": {
+      "accessToken": "at-rotated",
+      "refreshToken": "rt-rotated",
+      "expiresIn": 86400,
+      "domain": "workbuddy.ai"
+    }
+  }
+}

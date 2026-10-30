@@ -38,7 +38,8 @@
     "@deepseek-ai/schemastery": "^3.18.4",
     "@veren/forum": "workspace:^",
     "@veren/prompt-core": "workspace:^",
-    "@veren/prompt-page": "workspace:^"
+    "@veren/prompt-page": "workspace:^",
+    "@veren/task-center": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",

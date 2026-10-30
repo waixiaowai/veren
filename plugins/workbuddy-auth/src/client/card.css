@@ -1,0 +1,197 @@
+/* WorkBuddy 登录/账号卡片：完全采用设置→模型页的原生行方言（卡片材质、
+   状态徽标、紧凑按钮），零硬编码色值，全部走 shell 令牌——明暗主题由令牌
+   承担。
+   The WorkBuddy sign-in/account card: the Models page's native row dialect
+   (card material, status badges, compact buttons), zero hardcoded colors —
+   shell tokens carry light/dark themes. */
+
+.wb-card {
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  background: var(--dsw-alias-settings-card-fill);
+  border-radius: var(--dsw-radius-xl);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wb-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.wb-identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wb-name {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.wb-status {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.wb-status-ok {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.wb-actions,
+.wb-methods,
+.wb-account-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wb-methods {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.wb-button {
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  border-radius: var(--dsw-radius-md);
+  padding: 4px 12px;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.wb-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.wb-primary {
+  background: var(--dsw-alias-action-primary-fill);
+  color: var(--dsw-alias-action-primary-label);
+  border-color: transparent;
+}
+
+.wb-link {
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-action-link-primary);
+  font-size: 13px;
+  line-height: 20px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.wb-error {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-state-danger-primary);
+}
+
+.wb-notice {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+  word-break: break-all;
+}
+
+.wb-notice a {
+  color: var(--dsw-alias-action-link-primary);
+  margin-inline-start: 6px;
+}
+
+.wb-settle {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.wb-settle-ok {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.wb-flight {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wb-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wb-accounts-title {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+}
+
+.wb-account {
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: var(--dsw-radius-lg);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wb-account-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.wb-account-name {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.wb-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 11px;
+  line-height: 18px;
+  background: var(--dsw-alias-fill-secondary, var(--dsw-alias-settings-card-fill));
+  color: var(--dsw-alias-label-secondary);
+}
+
+.wb-tag-warn {
+  color: var(--dsw-alias-state-warning-primary, var(--dsw-alias-label-secondary));
+}
+
+.wb-probe {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wb-probe-model {
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  border-radius: var(--dsw-radius-md);
+  padding: 3px 8px;
+  font-size: 12px;
+  line-height: 18px;
+  width: 180px;
+}

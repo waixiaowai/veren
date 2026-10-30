@@ -1,0 +1,5 @@
+{
+  "_comment": "实测（卷宗 oauth.ts:265-280，tools/login-probe.mjs）：未完成授权时 token 端点答 HTTP 200 + code 11217 + 无 data；旧形状曾以 4xx 呈现。两形态都必须映射为「等待」。Measured (dossier oauth.ts:265-280, tools/login-probe.mjs): while authorization is incomplete the token endpoint answers HTTP 200 + code 11217 with no data; an older shape used 4xx. Both must map to pending.",
+  "code": 11217,
+  "msg": "11217:login ing, please authorize in browser"
+}

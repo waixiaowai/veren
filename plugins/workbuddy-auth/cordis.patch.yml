@@ -1,0 +1,15 @@
+# WorkBuddy 双区域接入插件的 profile overlay 示例。
+# Profile overlay example for the WorkBuddy dual-region bridge plugin.
+#
+# 在 web profile 之上叠加： dsh web --patch plugins/workbuddy-auth/cordis.patch.yml
+# Apply on the web profile: dsh web --patch plugins/workbuddy-auth/cordis.patch.yml
+#
+# 挂载即注册单一 `workbuddy` 路由与两区域设备码授权流；未登录时路由不提供
+# 任何模型（Models 页为空），任一区域登录后无需重启即可用。
+# Mounting registers the single `workbuddy` route and both regions' device-code
+# flows. Signed out, the route advertises no models (the Models page stays
+# empty); after either region's sign-in no restart is needed.
+- insert:
+    - id: workbuddy-auth
+      name: '@veren/workbuddy-auth'
+      config: {}

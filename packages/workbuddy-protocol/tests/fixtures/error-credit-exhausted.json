@@ -1,0 +1,13 @@
+{
+  "_comment": "实测 2026-09-30（卷宗 upstream.ts:198-216）：真耗尽的 CN 账号答 HTTP 429 + code 14018，不是 402；分类器必须先查体标记再落状态码。Measured 2026-09-30 (dossier upstream.ts:198-216): a genuinely exhausted CN account answers HTTP 429 + code 14018, not 402; the classifier must check body markers before status fallbacks.",
+  "error": {
+    "data": {
+      "code": 14018,
+      "msg": "额度已用尽，请前往官网购买加量包后重试"
+    }
+  },
+  "displayMsg": {
+    "zh": "额度已用尽，请购买加量包",
+    "en": "Credit exhausted, please purchase more credits"
+  }
+}

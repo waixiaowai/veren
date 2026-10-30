@@ -1,0 +1,65 @@
+{
+  "_comment": "国际版 /v3/config 裸产品文档形状（无信封；源自卷宗 2026-09-11 App 形快照，裁剪 3 行；含 modelPromotions 时间盒促销）。Bare product-document shape of the international /v3/config (no envelope; from the dossier's 2026-09-11 App-form snapshot, trimmed to 3 rows; carries modelPromotions).",
+  "models": [
+    {
+      "id": "gpt-5.6-luna",
+      "name": "GPT-5.6-Luna",
+      "maxInputTokens": 1000000,
+      "maxOutputTokens": 128000,
+      "contextWindow": { "defaultLength": 1000000, "supportedLengths": [1000000] },
+      "supportsImages": true,
+      "supportsReasoning": true,
+      "onlyReasoning": true,
+      "reasoning": { "supportedEfforts": ["low", "medium", "high", "xhigh", "max"], "defaultEffort": "medium", "canDisableThinking": true },
+      "credits": "x3.47",
+      "tags": []
+    },
+    {
+      "id": "glm-5.3",
+      "name": "GLM-5.3",
+      "maxInputTokens": 1000000,
+      "maxOutputTokens": 48000,
+      "contextWindow": { "defaultLength": 1000000, "supportedLengths": [1000000] },
+      "supportsImages": true,
+      "supportsReasoning": true,
+      "onlyReasoning": true,
+      "reasoning": { "supportedEfforts": ["low", "high", "max"], "defaultEffort": "high", "canDisableThinking": true },
+      "credits": "x0.00",
+      "tags": []
+    },
+    {
+      "id": "fast-model",
+      "name": "Fast",
+      "maxInputTokens": 200000,
+      "maxOutputTokens": 32000,
+      "contextWindow": { "defaultLength": 200000 },
+      "supportsImages": true,
+      "supportsReasoning": true,
+      "onlyReasoning": true,
+      "reasoning": { "defaultEffort": "medium", "canDisableThinking": false },
+      "credits": "x0.34",
+      "tags": []
+    }
+  ],
+  "agents": [
+    { "name": "cli", "models": ["gpt-5.6-luna", "glm-5.3", "fast-model"] }
+  ],
+  "modelPromotions": [
+    {
+      "enabled": true,
+      "modelIds": ["glm-5.3"],
+      "priority": 1,
+      "badge": { "label": "Free now", "color": "#FF0000" },
+      "discount": { "displayMode": "replace", "factor": 0 },
+      "schedule": { "validFrom": "2026-01-01T00:00:00Z", "validUntil": "2030-01-01T00:00:00Z" }
+    },
+    {
+      "enabled": true,
+      "modelIds": ["fast-model"],
+      "priority": 1,
+      "badge": { "label": "Night discount", "color": "#1E90FF" },
+      "discount": { "displayMode": "replace", "factor": 0.5 },
+      "schedule": { "validFrom": "2020-01-01T00:00:00Z", "validUntil": "2021-01-01T00:00:00Z" }
+    }
+  ]
+}
