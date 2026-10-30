@@ -1,0 +1,157 @@
+{
+  "workloads": {
+    "giteaclone": {
+      "replicaCount": 1
+    }
+  },
+  "userspace": {
+    "appData": "/olares/rootfs/userspace/pvc-userspace-comilogic-inwblxkwgecjfbfh/Data/giteaclone"
+  },
+  "database": {
+    "image": "postgres:15.12-bookworm@sha256:4a5a6931e95a1c05d839d794460d6d084c90aa9ba0c2c378cb89cb3f30be4dea"
+  },
+  "restore": {
+    "configSecret": "clone-reviewed-gitea-config"
+  },
+  "gitea": {
+    "image": "docker.io/gitea/gitea:1.25.5@sha256:f846d26a4fc389c5806a580a765e00bfdd1fd181e6f2060da98ea2669d914472"
+  },
+  "receiver": {
+    "enabled": true,
+    "dnsOnly": false,
+    "startJob": true,
+    "writersQuiescedApproved": true,
+    "runId": "0f708b720e425540712b8dc193f3dd24",
+    "image": "docker.io/library/python@sha256:623674a14ef93d052bb9b0de4dbf5f28eb578a35263838941cc8aa43213c1487",
+    "pythonExecutable": "/usr/local/bin/python3",
+    "imagePullSecrets": [],
+    "scriptFile": "files/receiver-v2.py",
+    "scriptSha256": "1e639e276b1a672d64d9b4c860757962c8f83802afc6b7dc0317e75dbeecbb3a",
+    "bootstrapSha256": "7ad22268b53794bd5eb7d2e197d30771b909ee32d9d54481ed5cdf17edf7d712",
+    "requirementsSha256": "31f4e18a799f735655a9488f2cc42dc42b44518d01576b3c76c4df3480e65fad",
+    "stageSubPath": "incoming-production-1d3e6c9b862a4822a839886a374fd9b0",
+    "runtimeSubPath": "receiver-runtime-0f708b720e425540712b8dc193f3dd24",
+    "calicoApiVersion": "crd.projectcalico.org/v1",
+    "calicoTier": "default",
+    "policyOrder": 90,
+    "dnsResolverIPv4": "10.233.0.3",
+    "dnsPolicyIPv4": [
+      "10.233.0.3",
+      "10.233.98.130"
+    ],
+    "tosIPv4": [
+      "122.228.29.101"
+    ],
+    "activeDeadlineSeconds": 14400,
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+      },
+      "limits": {
+        "cpu": "1",
+        "memory": "1Gi"
+      }
+    }
+  },
+  "previousReceiver": {
+    "enabled": true,
+    "dnsOnly": false,
+    "startJob": true,
+    "writersQuiescedApproved": true,
+    "runId": "31074e659ffe49ef963526c2a2e084d3",
+    "image": "docker.io/library/python@sha256:623674a14ef93d052bb9b0de4dbf5f28eb578a35263838941cc8aa43213c1487",
+    "pythonExecutable": "/usr/local/bin/python3",
+    "imagePullSecrets": [],
+    "scriptFile": "files/receiver.py",
+    "scriptSha256": "4ca515e3ad34a26ad5d16c3c8b40ff213ca48b07288edf18b089cfb6515d6e7b",
+    "bootstrapSha256": "53780331bf318f89e9ad41b71aec08d46c2d3ff8e967d37131cdc82a120b59dd",
+    "requirementsSha256": "31f4e18a799f735655a9488f2cc42dc42b44518d01576b3c76c4df3480e65fad",
+    "stageSubPath": "incoming-production-1d3e6c9b862a4822a839886a374fd9b0",
+    "runtimeSubPath": "receiver-runtime-31074e659ffe49ef963526c2a2e084d3",
+    "calicoApiVersion": "crd.projectcalico.org/v1",
+    "calicoTier": "default",
+    "policyOrder": 90,
+    "dnsResolverIPv4": "10.233.0.3",
+    "dnsPolicyIPv4": [
+      "10.233.0.3",
+      "10.233.98.130"
+    ],
+    "tosIPv4": [
+      "122.228.29.101"
+    ],
+    "activeDeadlineSeconds": 14400,
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+      },
+      "limits": {
+        "cpu": "1",
+        "memory": "1Gi"
+      }
+    }
+  },
+  "secretTransfer": {
+    "enabled": true,
+    "scriptSha256": "e7430a33421b842497519cefbc0130f56a0a2bf46d9c31e20e95d9205fdafc91",
+    "feedSha256": "cf6ed5f53547b9d3d7ac30c77794568e7397cac9e2ef9ee667db742506606490"
+  },
+  "secondReceiver": {
+    "enabled": true,
+    "dnsOnly": false,
+    "startJob": true,
+    "writersQuiescedApproved": true,
+    "runId": "33a5d0d3c912150caaa9a62c8346b23b",
+    "image": "docker.io/library/python@sha256:623674a14ef93d052bb9b0de4dbf5f28eb578a35263838941cc8aa43213c1487",
+    "pythonExecutable": "/usr/local/bin/python3",
+    "imagePullSecrets": [],
+    "scriptFile": "files/receiver-v2.py",
+    "scriptSha256": "1e639e276b1a672d64d9b4c860757962c8f83802afc6b7dc0317e75dbeecbb3a",
+    "bootstrapSha256": "7ad22268b53794bd5eb7d2e197d30771b909ee32d9d54481ed5cdf17edf7d712",
+    "requirementsSha256": "31f4e18a799f735655a9488f2cc42dc42b44518d01576b3c76c4df3480e65fad",
+    "stageSubPath": "incoming-production-1d3e6c9b862a4822a839886a374fd9b0",
+    "runtimeSubPath": "receiver-runtime-33a5d0d3c912150caaa9a62c8346b23b",
+    "calicoApiVersion": "crd.projectcalico.org/v1",
+    "calicoTier": "default",
+    "policyOrder": 90,
+    "dnsResolverIPv4": "10.233.0.3",
+    "dnsPolicyIPv4": [
+      "10.233.0.3",
+      "10.233.98.130"
+    ],
+    "tosIPv4": [
+      "122.228.29.101"
+    ],
+    "activeDeadlineSeconds": 14400,
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+      },
+      "limits": {
+        "cpu": "1",
+        "memory": "1Gi"
+      }
+    }
+  },
+  "dbAuditEnabled": true,
+  "deltaDownloads": [
+    {
+      "name": "gitea-delta-db-20261029-r1",
+      "runtimeDir": "delta-db-20261029-r1",
+      "contractFile": "files/delta-db-contract.json"
+    },
+    {
+      "name": "gitea-delta-files-20261029-r1",
+      "runtimeDir": "delta-files-20261029-r1",
+      "contractFile": "files/delta-files-contract.json"
+    }
+  ],
+  "dbDeltaApplyEnabled": true,
+  "finalConfigEnabled": true,
+  "fileDeltaApplyEnabled": true,
+  "repositoryIsolationEnabled": true,
+  "runtimeEnabled": true,
+  "runtimeMeshEgressEnabled": true
+}

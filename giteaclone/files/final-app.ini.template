@@ -1,0 +1,259 @@
+APP_NAME = Independent Gitea Restore
+RUN_USER = git
+RUN_MODE = prod
+WORK_PATH = /runtime/work
+
+[server]
+DOMAIN = gitea.comilogic.olares.cn
+ROOT_URL = https://gitea.comilogic.olares.cn/
+PROTOCOL = http
+HTTP_ADDR = 127.0.0.1
+HTTP_PORT = 3000
+LOCAL_ROOT_URL = http://127.0.0.1:3000/
+APP_DATA_PATH = /runtime/data
+APP_TEMP_PATH = /runtime/tmp
+DISABLE_SSH = true
+START_SSH_SERVER = false
+OFFLINE_MODE = true
+LFS_START_SERVER = true
+LFS_ALLOW_PURE_SSH = false
+LFS_JWT_SECRET = __NEW_CLONE_BASE64URL_LFS_SECRET__
+
+[database]
+DB_TYPE = postgres
+HOST = /var/run/postgresql
+NAME = gitea_live_20261028_307ac94f2d6b
+USER = gitea_live_20261028_307ac94f2d6b_owner
+PASSWD = __EXISTING_RESTRICTED_CLONE_PASSWORD_PRIVATE_INJECTION__
+SSL_MODE = disable
+LOG_SQL = false
+
+[security]
+INSTALL_LOCK = true
+SECRET_KEY_URI = file:/reviewed/secret.key
+INTERNAL_TOKEN = __NEW_CLONE_INTERNAL_TOKEN_PRIVATE_INJECTION__
+DISABLE_GIT_HOOKS = true
+DISABLE_WEBHOOKS = true
+
+[repository]
+ROOT = /data/git/repositories
+DISABLE_MIGRATIONS = true
+
+[git]
+HOME_PATH = /runtime/git-home
+
+[service]
+DISABLE_REGISTRATION = true
+REQUIRE_SIGNIN_VIEW = true
+REGISTER_EMAIL_CONFIRM = false
+ENABLE_NOTIFY_MAIL = false
+
+[mailer]
+ENABLED = false
+
+[email.incoming]
+ENABLED = false
+
+[mirror]
+ENABLED = false
+
+[actions]
+ENABLED = false
+DEFAULT_ACTIONS_URL = self
+
+[packages]
+ENABLED = true
+STORAGE_TYPE = local
+PATH = /data/gitea/packages
+
+[lfs]
+STORAGE_TYPE = local
+PATH = /data/git/lfs
+
+[oauth2]
+ENABLED = false
+DEFAULT_APPLICATIONS =
+JWT_SIGNING_ALGORITHM = HS256
+JWT_SECRET = __NEW_CLONE_BASE64URL_GENERAL_SIGNING_SECRET__
+
+[oauth2_client]
+ENABLE_AUTO_REGISTRATION = false
+UPDATE_AVATAR = false
+
+[openid]
+ENABLE_OPENID_SIGNIN = false
+ENABLE_OPENID_SIGNUP = false
+
+[proxy]
+PROXY_ENABLED = false
+
+[picture]
+DISABLE_GRAVATAR = true
+ENABLE_FEDERATED_AVATAR = false
+
+[storage]
+STORAGE_TYPE = local
+PATH = /runtime/storage
+
+[attachment]
+STORAGE_TYPE = local
+PATH = /data/gitea/attachments
+
+[avatar]
+STORAGE_TYPE = local
+PATH = /data/gitea/avatars
+
+[repo-avatar]
+STORAGE_TYPE = local
+PATH = /data/gitea/repo-avatars
+
+[storage.actions_log]
+STORAGE_TYPE = local
+PATH = /runtime/actions_log
+
+[actions.artifacts]
+STORAGE_TYPE = local
+PATH = /data/gitea/actions_artifacts
+
+[queue]
+TYPE = level
+DATADIR = /runtime/queues/common
+CONN_STR =
+
+[cache]
+ADAPTER = memory
+
+[session]
+PROVIDER = file
+PROVIDER_CONFIG = /runtime/sessions
+COOKIE_NAME = gitea_clone_session
+COOKIE_SECURE = true
+SAME_SITE = lax
+
+[indexer]
+ISSUE_INDEXER_TYPE = bleve
+ISSUE_INDEXER_PATH = /runtime/indexers/issues.bleve
+REPO_INDEXER_ENABLED = false
+REPO_INDEXER_TYPE = bleve
+REPO_INDEXER_PATH = /runtime/indexers/repos.bleve
+
+[log]
+MODE = console
+LEVEL = Warn
+
+
+[cron.update_mirrors]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.repo_health_check]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.check_repo_stats]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.archive_cleanup]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.sync_external_users]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.deleted_branches_cleanup]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.update_migration_poster_id]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.cleanup_hook_task_table]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.cleanup_packages]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.sync_repo_licenses]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.delete_inactive_accounts]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.delete_repo_archives]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.git_gc_repos]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.resync_all_sshkeys]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.resync_all_sshprincipals]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.resync_all_hooks]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.reinit_missing_repos]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.delete_missing_repos]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.delete_generated_repository_avatars]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.delete_old_actions]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.update_checker]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.delete_old_system_notices]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.gc_lfs]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.rebuild_issue_indexer]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.stop_zombie_tasks]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.stop_endless_tasks]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.cancel_abandoned_jobs]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.start_schedule_tasks]
+ENABLED = false
+RUN_AT_START = false
+
+[cron.cleanup_actions]
+ENABLED = false
+RUN_AT_START = false

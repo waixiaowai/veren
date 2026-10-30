@@ -1,0 +1,54 @@
+olaresManifest.version: 0.12.0
+olaresManifest.type: app
+apiVersion: v3
+metadata:
+  name: giteaclone
+  appid: giteaclone
+  title: Gitea Migration Clone
+  description: Cold migration clone based on official chart 1.0.25, pinned Gitea 1.25.5
+    and PostgreSQL 15.12
+  icon: https://app.cdn.olares.com/appstore/gitea/icon.png
+  version: 0.1.7-restore.31
+  categories:
+  - Developer Tools
+entrances:
+- name: giteaclone
+  host: gitea-web-svc
+  port: 8080
+  title: Gitea Migration Clone
+  authLevel: public
+  openMethod: window
+spec:
+  versionName: 1.25.5
+  fullDescription: Private cold migration review derived from official Olares Gitea
+    1.0.25. Gitea 1.25.5 and dedicated PostgreSQL 15.12. Maintenance only until separately
+    approved restore and effective isolation verification. Native Git authentication;
+    not stock Gitea 1.27.3.
+  developer: CommitGo
+  website: https://gitea.com
+  sourceCode: https://github.com/go-gitea/gitea
+  submitter: Private
+  locale:
+  - en-US
+  doc: https://docs.gitea.com/
+  requiredMemory: 1Gi
+  limitedMemory: 10Gi
+  requiredDisk: 40Gi
+  limitedDisk: 100Gi
+  requiredCpu: 1
+  limitedCpu: 6
+  supportArch:
+  - amd64
+permission:
+  appData: true
+options:
+  apiTimeout: 0
+  allowedOutboundPorts:
+  - 7000
+  allowMultipleInstall: false
+  dependencies:
+  - name: olares
+    type: system
+    version: '>=1.12.7-0'
+workloadReplicas:
+  giteaclone: 1

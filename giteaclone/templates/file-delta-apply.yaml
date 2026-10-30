@@ -1,0 +1,78 @@
+{{- if not .Values.runtimeEnabled }}
+{{- if .Values.fileDeltaApplyEnabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitea-file-delta-apply-20261029-r1-code
+  namespace: {{ .Release.Namespace }}
+immutable: true
+data:
+  file-delta-apply.py: |
+{{ .Files.Get "files/file-delta-apply.py" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitea-file-delta-apply-20261029-r1
+  namespace: {{ .Release.Namespace }}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 0
+  activeDeadlineSeconds: 3600
+  template:
+    metadata:
+      labels:
+        migration.gitea.local/offline-step: gitea-file-delta-apply-20261029-r1
+      annotations:
+        config.linkerd.io/proxy-await: disabled
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      nodeSelector: {kubernetes.io/hostname: olares-worker, kubernetes.io/arch: amd64}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: file-delta-apply
+          image: {{ .Values.receiver.image | quote }}
+          command: [/usr/local/bin/python3, -B, /code/file-delta-apply.py]
+          env:
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts:
+            - {name: code, mountPath: /code, readOnly: true}
+            - {name: delta, mountPath: /delta}
+            - {name: receipts, mountPath: /base-receipts, readOnly: true}
+            {{- range $root := list "git/repositories" "git/lfs" "gitea/packages" "gitea/attachments" "gitea/avatars" "gitea/repo-avatars" "gitea/actions_artifacts" }}
+            - name: business
+              mountPath: {{ printf "/data/%s" $root | quote }}
+              subPath: {{ $root | quote }}
+            {{- end }}
+      volumes:
+        - name: code
+          configMap: {name: gitea-file-delta-apply-20261029-r1-code, defaultMode: 0444}
+        - name: delta
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/delta-files-20261029-r1" .Values.userspace.appData | quote }}
+            type: Directory
+        - name: receipts
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/receiver-runtime-0f708b720e425540712b8dc193f3dd24/queue/0f708b720e425540712b8dc193f3dd24" .Values.userspace.appData | quote }}
+            type: Directory
+        - name: business
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/incoming-production-1d3e6c9b862a4822a839886a374fd9b0" .Values.userspace.appData | quote }}
+            type: Directory
+{{- end }}
+
+{{- end }}

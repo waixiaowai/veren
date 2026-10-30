@@ -1,0 +1,80 @@
+{{- if not .Values.runtimeEnabled }}
+{{- if .Values.repositoryIsolationEnabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitea-repository-isolation-20261029-r1-code
+  namespace: {{ .Release.Namespace }}
+immutable: true
+data:
+  repository-isolation.py: |
+{{ .Files.Get "files/repository-isolation.py" | indent 4 }}
+  file-delta-apply.py: |
+{{ .Files.Get "files/file-delta-apply.py" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitea-repository-isolation-20261029-r1
+  namespace: {{ .Release.Namespace }}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 0
+  activeDeadlineSeconds: 3600
+  template:
+    metadata:
+      labels:
+        migration.gitea.local/offline-step: gitea-repository-isolation-20261029-r1
+      annotations:
+        config.linkerd.io/proxy-await: disabled
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      nodeSelector: {kubernetes.io/hostname: olares-worker, kubernetes.io/arch: amd64}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: repository-isolation
+          image: {{ .Values.receiver.image | quote }}
+          command: [/usr/local/bin/python3, -B, /code/repository-isolation.py]
+          env:
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts:
+            - {name: code, mountPath: /code, readOnly: true}
+            - {name: delta, mountPath: /delta, readOnly: true}
+            - {name: quarantine, mountPath: /quarantine}
+            {{- range $root := list "git/repositories" "git/lfs" "gitea/packages" "gitea/attachments" "gitea/avatars" "gitea/repo-avatars" "gitea/actions_artifacts" }}
+            - name: business
+              mountPath: {{ printf "/data/%s" $root | quote }}
+              subPath: {{ $root | quote }}
+            {{- end }}
+      volumes:
+        - name: quarantine
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/repository-quarantine-20261029-r1" .Values.userspace.appData | quote }}
+            type: Directory
+        - name: code
+          configMap: {name: gitea-repository-isolation-20261029-r1-code, defaultMode: 0444}
+        - name: delta
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/delta-files-20261029-r1" .Values.userspace.appData | quote }}
+            type: Directory
+        - name: business
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/incoming-production-1d3e6c9b862a4822a839886a374fd9b0" .Values.userspace.appData | quote }}
+            type: Directory
+{{- end }}
+
+{{- end }}

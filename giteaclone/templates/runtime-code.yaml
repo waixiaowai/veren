@@ -1,0 +1,41 @@
+{{- if .Values.runtimeEnabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitea-runtime-20261030-ssh-domain-code
+  namespace: {{ .Release.Namespace }}
+immutable: true
+data:
+  ssh-runtime-config.awk: |
+{{ .Files.Get "files/ssh-runtime-config.awk" | indent 4 }}
+  postgres-runtime.sh: |
+{{ .Files.Get "files/postgres-runtime.sh" | indent 4 }}
+  gitea-runtime.sh: |
+{{ .Files.Get "files/gitea-runtime.sh" | indent 4 }}
+  runtime-nginx.conf: |
+{{ .Files.Get "files/runtime-nginx.conf" | indent 4 }}
+  db-readonly-verify.sql: |
+{{ .Files.Get "files/db-readonly-verify.sql" | indent 4 }}
+  business-fingerprints.sql: |
+{{ .Files.Get "files/business-fingerprints.sql" | indent 4 }}
+  runtime-avatar-policy.sql: |
+{{ .Files.Get "files/runtime-avatar-policy.sql" | indent 4 }}
+  runtime-repository-inventory.sql: |
+{{ .Files.Get "files/runtime-repository-inventory.sql" | indent 4 }}
+  hook-pre-receive: |
+{{ .Files.Get "files/hook-pre-receive" | indent 4 }}
+  hook-pre-receive-delegate: |
+{{ .Files.Get "files/hook-pre-receive-delegate" | indent 4 }}
+  hook-update: |
+{{ .Files.Get "files/hook-update" | indent 4 }}
+  hook-update-delegate: |
+{{ .Files.Get "files/hook-update-delegate" | indent 4 }}
+  hook-post-receive: |
+{{ .Files.Get "files/hook-post-receive" | indent 4 }}
+  hook-post-receive-delegate: |
+{{ .Files.Get "files/hook-post-receive-delegate" | indent 4 }}
+  hook-proc-receive: |
+{{ .Files.Get "files/hook-proc-receive" | indent 4 }}
+  hook-proc-receive-delegate: |
+{{ .Files.Get "files/hook-proc-receive-delegate" | indent 4 }}
+{{- end }}

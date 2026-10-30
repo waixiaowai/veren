@@ -1,0 +1,7 @@
+apiVersion: v2
+appVersion: 1.25.5
+description: Offline migration clone derived from official Olares Gitea chart 1.0.25;
+  not stock 1.27.3
+name: giteaclone
+type: application
+version: 0.1.7-restore.31

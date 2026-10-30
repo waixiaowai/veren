@@ -1,0 +1,142 @@
+{{- if not .Values.runtimeEnabled }}
+{{- if and .Values.secondReceiver.enabled .Values.secondReceiver.startJob }}
+{{- $r := .Values.secondReceiver -}}
+{{- $image := required "receiver.image: approved Python3 image digest required" $r.image -}}
+{{- if not (regexMatch "^[^[:space:]]+@sha256:[a-f0-9]{64}$" $image) }}{{ fail "receiver.image must be digest pinned" }}{{ end -}}
+{{- $python := required "receiver.pythonExecutable: proven absolute executable required" $r.pythonExecutable -}}
+{{- if not (hasPrefix "/" $python) }}{{ fail "python executable must be absolute" }}{{ end -}}
+{{- if not (regexMatch "^[a-f0-9]{32}$" $r.runId) }}{{ fail "receiver.runId must be a fresh 32-hex run" }}{{ end -}}
+{{- if not $r.writersQuiescedApproved }}{{ fail "independent writer quiescence approval required" }}{{ end -}}
+{{- $bootstrap := required "offline bootstrap required" (.Files.Get "files/bootstrap-v2.py") -}}
+{{- if ne (sha256sum $bootstrap) $r.bootstrapSha256 }}{{ fail "bootstrap hash mismatch" }}{{ end -}}
+{{- $requirements := required "hashed offline dependency lock required" (.Files.Get "files/requirements.lock") -}}
+{{- if ne (sha256sum $requirements) $r.requirementsSha256 }}{{ fail "requirements hash mismatch" }}{{ end -}}
+{{- $script := required "public target-local receiver script must be supplied in chart" (.Files.Get $r.scriptFile) -}}
+{{- if ne (sha256sum $script) (required "receiver.scriptSha256 required" $r.scriptSha256) }}{{ fail "receiver script digest differs from reviewed code" }}{{ end -}}
+{{- $appData := required "existing userspace.appData required" .Values.userspace.appData -}}
+{{- if contains "UNRESOLVED" $appData }}{{ fail "resolve original appData without changing storage identity" }}{{ end -}}
+{{- if ne $r.stageSubPath "incoming-production-1d3e6c9b862a4822a839886a374fd9b0" }}{{ fail "unexpected receiver stage" }}{{ end -}}
+{{- if ne $r.runtimeSubPath (printf "receiver-runtime-%s" $r.runId) }}{{ fail "runtime must be unique and bound to fresh runId" }}{{ end -}}
+{{- $name := "gitea-receiver-20261029-r2" -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-code
+  namespace: {{ .Release.Namespace }}
+  labels:
+    migration.gitea.local/receiver-run: {{ $r.runId | quote }}
+immutable: true
+data:
+  receiver.py: |
+{{ $script | indent 4 }}
+  tests.py: |
+{{ .Files.Get "files/tests.py" | indent 4 }}
+  bootstrap.py: |
+{{ $bootstrap | indent 4 }}
+  requirements.lock: |
+{{ $requirements | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    migration.gitea.local/receiver-run: {{ $r.runId | quote }}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ $r.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        # Deliberately NO app:gitea label; never patch the Gitea Pod with this label.
+        migration.gitea.local/receiver-run: {{ $r.runId | quote }}
+      annotations:
+        config.linkerd.io/proxy-await: disabled
+        config.linkerd.io/skip-outbound-ports: "53,443"
+        receiver.gitea.local/code-sha256: {{ $r.scriptSha256 | quote }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      hostNetwork: false
+      hostPID: false
+      hostIPC: false
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - {{ required "exact resolver IPv4 required" $r.dnsResolverIPv4 | quote }}
+        searches: []
+        options:
+          - {name: ndots, value: "1"}
+          - {name: timeout, value: "2"}
+          - {name: attempts, value: "2"}
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        # No fsGroup: never trigger ownership traversal over the parent db hostPath.
+        seccompProfile: {type: RuntimeDefault}
+      {{- with $r.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      containers:
+        - name: receiver
+          image: {{ $image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: [{{ $python | quote }}, "-B", "/receiver/bootstrap.py"]
+          args: [{{ $r.runId | quote }}]
+          env:
+            - {name: PYTHONPATH, value: /runtime/vendor}
+            - {name: HOME, value: /runtime}
+            - {name: TMPDIR, value: /tmp}
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+            - {name: PYTHONUNBUFFERED, value: "1"}
+            - {name: HTTP_PROXY, value: ""}
+            - {name: HTTPS_PROXY, value: ""}
+            - {name: ALL_PROXY, value: ""}
+            - {name: http_proxy, value: ""}
+            - {name: https_proxy, value: ""}
+            - {name: all_proxy, value: ""}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+{{ toYaml $r.resources | indent 12 }}
+          volumeMounts:
+            - {name: receiver-code, mountPath: /receiver, readOnly: true}
+            - name: db
+              mountPath: /runtime/wheels
+              subPath: {{ printf "%s/wheels" $r.runtimeSubPath | quote }}
+              readOnly: true
+            - {name: receiver-tmp, mountPath: /tmp}
+            - name: db
+              mountPath: /runtime
+              subPath: {{ $r.runtimeSubPath | quote }}
+            {{- range $root := list "git/repositories" "git/lfs" "gitea/packages" "gitea/attachments" "gitea/avatars" "gitea/repo-avatars" "gitea/actions_artifacts" }}
+            - name: db
+              mountPath: {{ printf "/data/%s" $root | quote }}
+              subPath: {{ printf "%s/%s" $r.stageSubPath $root | quote }}
+            {{- end }}
+      volumes:
+        - name: db
+          hostPath:
+            # Exact existing chart storage identity; no parent mount inside the container.
+            path: {{ printf "%s/postgres-restore-candidate" $appData | quote }}
+            type: Directory
+        - name: receiver-code
+          configMap:
+            name: {{ $name }}-code
+            defaultMode: 0444
+        - name: receiver-tmp
+          emptyDir: {medium: Memory, sizeLimit: 128Mi}
+{{- end }}
+
+{{- end }}

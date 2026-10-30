@@ -1,0 +1,150 @@
+{{- if .Values.runtimeEnabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: giteaclone
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.workloads.giteaclone.replicaCount }}
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: gitea}
+  template:
+    metadata:
+      labels: {app: gitea, migration.gitea.local/clone-runtime: "20261029-r1"}
+      annotations:
+        clone.gitea.io/stage: verified-independent-clone
+        config.linkerd.io/proxy-await: disabled
+        config.linkerd.io/skip-outbound-ports: "443,7000"
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 60
+      nodeSelector: {kubernetes.io/hostname: olares-worker, kubernetes.io/arch: amd64}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: postgres
+          image: {{ .Values.database.image | quote }}
+          command: [/bin/bash, /code/postgres-runtime.sh]
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          readinessProbe:
+            exec: {command: [/bin/sh, -c, "test -f /var/run/postgresql/clone-db-ready && pg_isready -h /var/run/postgresql -U clone_restore_admin -d postgres >/dev/null"]}
+            periodSeconds: 5
+          volumeMounts:
+            - {name: code, mountPath: /code, readOnly: true}
+            - {name: pgdata, mountPath: /pgdata}
+            - {name: pg-guard, mountPath: /pg-guard}
+            - {name: socket, mountPath: /var/run/postgresql}
+            - {name: owner, mountPath: /credentials/owner-password, readOnly: true}
+            - {name: admin, mountPath: /credentials/admin-password, readOnly: true}
+        - name: gitea
+          image: {{ .Values.gitea.image | quote }}
+          command: [/bin/sh, /code/gitea-runtime.sh]
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "2", memory: 2Gi}
+          readinessProbe:
+            exec: {command: [/bin/sh, -c, "wget -q -O /dev/null http://127.0.0.1:3000/api/healthz"]}
+            periodSeconds: 5
+            timeoutSeconds: 3
+          volumeMounts:
+            - {name: code, mountPath: /code, readOnly: true}
+            - {name: socket, mountPath: /var/run/postgresql}
+            - {name: runtime, mountPath: /runtime}
+            - {name: gitea-tmp, mountPath: /tmp}
+            - {name: config, mountPath: /reviewed/app.ini, readOnly: true}
+            - {name: secret, mountPath: /reviewed/secret.key, readOnly: true}
+            - {name: isolation-result, mountPath: /isolation/result.json, readOnly: true}
+            - {name: isolation-configs, mountPath: /isolation/configs.sha256, readOnly: true}
+            - {name: file-result, mountPath: /file-result/result.json, readOnly: true}
+            {{- range $root := list "git/repositories" "git/lfs" "gitea/packages" "gitea/attachments" "gitea/avatars" "gitea/repo-avatars" "gitea/actions_artifacts" }}
+            - name: business
+              mountPath: {{ printf "/data/%s" $root | quote }}
+              subPath: {{ $root | quote }}
+            {{- end }}
+        - name: frpc
+          image: {{ .Values.gitea.image | quote }}
+          command: [/bin/sh, -ec]
+          args:
+            - |
+              umask 077
+              test "$(id -u)" = 1000
+              test "$(sha256sum /ssh-frp/frpc | cut -d ' ' -f1)" = 35c6054d4549bbcf2f02875543895fd9e44c2aae2925f61cd8ff5a693703c28b
+              chmod 700 /ssh-frp /ssh-frp/frpc
+              chmod 600 /ssh-frp/frpc-https.toml /ssh-frp/https-fullchain-r2.pem /ssh-frp/https-privkey-r2.pem
+              /ssh-frp/frpc verify -c /ssh-frp/frpc-https.toml
+              exec /ssh-frp/frpc -c /ssh-frp/frpc-https.toml
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 500m, memory: 128Mi}
+          volumeMounts:
+            - {name: ssh-frp, mountPath: /ssh-frp}
+        - name: nginx
+          image: docker.io/openresty/openresty:1.29.2.5-bookworm-fat@sha256:9a6de99c61e215c66fe3fc8d443e7a50b3f5483dfcc5f850f2d31dd9da62a662
+          command: [/usr/local/openresty/bin/openresty, -c, /code/runtime-nginx.conf, -g, "daemon off;"]
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe:
+            httpGet: {path: /api/healthz, port: 8080}
+            periodSeconds: 5
+            timeoutSeconds: 3
+          volumeMounts:
+            - {name: code, mountPath: /code, readOnly: true}
+            - {name: nginx-tmp, mountPath: /tmp}
+      volumes:
+        - name: ssh-frp
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/ssh-frp-20261030-r1" .Values.userspace.appData | quote }}
+            type: Directory
+        - name: code
+          configMap: {name: gitea-runtime-20261030-ssh-domain-code, defaultMode: 0444}
+        - name: socket
+          emptyDir: {medium: Memory, sizeLimit: 16Mi}
+        - name: gitea-tmp
+          emptyDir: {sizeLimit: 1Gi}
+        - name: nginx-tmp
+          emptyDir: {sizeLimit: 256Mi}
+        {{- range $name, $dir := dict "pgdata" "pgdata" "pg-guard" "postgres-runtime-guard-20261029-r1" "runtime" "gitea-runtime-20261029-r1" }}
+        - name: {{ $name }}
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/%s" $.Values.userspace.appData $dir | quote }}
+            type: Directory
+        {{- end }}
+        - name: business
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/incoming-production-1d3e6c9b862a4822a839886a374fd9b0" .Values.userspace.appData | quote }}
+            type: Directory
+        {{- range $name, $file := dict "owner" "incoming-production-1d3e6c9b862a4822a839886a374fd9b0/restore-gitea_live_20261028_307ac94f2d6b/owner-password" "admin" ".clone-bootstrap-password" "config" "final-config-20261029-r1/app.ini" "secret" "incoming-production-1d3e6c9b862a4822a839886a374fd9b0/secret-transfer-gitea-secret-20261029-f07c219d6eab/decrypt-v2/secret.key" "isolation-result" "repository-quarantine-20261029-r1/result.json" "isolation-configs" "repository-quarantine-20261029-r1/configs.sha256" "file-result" "delta-files-20261029-r1/apply-r1/result.json" }}
+        - name: {{ $name }}
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/%s" $.Values.userspace.appData $file | quote }}
+            type: File
+        {{- end }}
+{{- end }}

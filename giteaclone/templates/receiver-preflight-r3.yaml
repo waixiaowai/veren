@@ -1,0 +1,67 @@
+{{- if not .Values.runtimeEnabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitea-receiver-preflight-20261029-r3
+  namespace: {{ .Release.Namespace }}
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        migration.gitea.local/receiver-run: {{ .Values.previousReceiver.runId | quote }}
+      annotations:
+        config.linkerd.io/proxy-await: disabled
+        config.linkerd.io/skip-outbound-ports: "53,443"
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      hostNetwork: false
+      hostPID: false
+      hostIPC: false
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      dnsPolicy: None
+      dnsConfig:
+        nameservers: [{{ .Values.previousReceiver.dnsResolverIPv4 | quote }}]
+        searches: []
+        options: [{name: ndots, value: "1"}, {name: timeout, value: "2"}, {name: attempts, value: "2"}]
+      containers:
+        - name: preflight
+          image: {{ .Values.previousReceiver.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: [/usr/local/bin/python3, -B, /receiver/preflight.py]
+          env:
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+            - {name: PYTHONUNBUFFERED, value: "1"}
+            - {name: HOME, value: /tmp}
+            - {name: TMPDIR, value: /tmp}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts:
+            - {name: code, mountPath: /receiver, readOnly: true}
+            - {name: wheels, mountPath: /wheels, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: code
+          configMap: {name: gitea-receiver-preflight-20261029-code, defaultMode: 0444}
+        - name: wheels
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/%s/wheels" .Values.userspace.appData .Values.previousReceiver.runtimeSubPath | quote }}
+            type: Directory
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 512Mi}
+
+{{- end }}

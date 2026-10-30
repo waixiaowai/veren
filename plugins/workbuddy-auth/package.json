@@ -1,7 +1,7 @@
 {
   "name": "@veren/workbuddy-auth",
   "description": "Use when a dsh composition must serve WorkBuddy (CN, copilot.tencent.com) and WorkBuddy AI (international, workbuddy.ai) subscriptions as one first-class model route: it runs the plugin-owned OAuth device-code sign-in for both regions through the harness authorization seam, keeps a multi-account pool with rotating-refresh safety, and translates the harness message vocabulary onto the WorkBuddy wire in-process; skip it when the deployment has no WorkBuddy account.",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",

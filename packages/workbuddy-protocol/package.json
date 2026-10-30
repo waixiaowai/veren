@@ -1,9 +1,8 @@
 {
   "name": "@veren/workbuddy-protocol",
   "displayName": "Veren WorkBuddy Protocol",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "description": "Use when a plugin must speak the WorkBuddy / CodeBuddy upstream wire protocol (dual-region OAuth device-code sign-in, rotating token refresh, streaming chat, catalogs, billing, account pools) as a pure library with zero host dependencies.",
-  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -22,5 +21,10 @@
     "@types/node": "^26.6.5",
     "typescript": "^5.9.3",
     "vitest": "^5.0.4"
-  }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.cn.md"
+  ]
 }

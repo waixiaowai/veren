@@ -1,0 +1,308 @@
+{{- if not .Values.runtimeEnabled }}
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "giteaclone",
+    "namespace": {{ .Release.Namespace | quote }}
+  },
+  "spec": {
+    "replicas": {{ .Values.workloads.giteaclone.replicaCount }},
+    "strategy": {
+      "type": "Recreate"
+    },
+    "selector": {
+      "matchLabels": {
+        "app": "gitea"
+      }
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app": "gitea"
+        },
+        "annotations": {
+          "clone.gitea.io/stage": "unapproved-restore-candidate",
+          "checksum/maintenance": "c0bd7116022b5830a9f07c24925327c2789667ba5630e218239f1a99bd33fe7f"
+        }
+      },
+      "spec": {
+        "automountServiceAccountToken": false,
+        "enableServiceLinks": false,
+        "hostNetwork": false,
+        "hostPID": false,
+        "hostIPC": false,
+        "securityContext": {
+          "runAsUser": 1000,
+          "runAsGroup": 1000,
+          "fsGroup": 1000,
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
+        },
+        "nodeSelector": {
+          "kubernetes.io/arch": "amd64"
+        },
+        "containers": [
+          {
+            "name": "postgres",
+            "image": {{ .Values.database.image | quote }},
+            "args": [
+              "postgres",
+              "-c",
+              "listen_addresses=",
+              "-c",
+              "unix_socket_directories=/var/run/postgresql",
+              "-c",
+              "unix_socket_permissions=0700"
+            ],
+            "securityContext": {
+              "runAsUser": 1000,
+              "runAsGroup": 1000,
+              "runAsNonRoot": true,
+              "allowPrivilegeEscalation": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            },
+            "env": [
+              {
+                "name": "PGDATA",
+                "value": "/var/lib/postgresql/data/pgdata"
+              },
+              {
+                "name": "POSTGRES_USER",
+                "value": "clone_restore_admin"
+              },
+              {
+                "name": "POSTGRES_DB",
+                "value": "postgres"
+              },
+              {
+                "name": "POSTGRES_INITDB_ARGS",
+                "value": "--encoding=UTF8 --locale=C --auth-local=scram-sha-256 --auth-host=scram-sha-256"
+              },
+              {
+                "name": "PGHOST",
+                "value": "/var/run/postgresql"
+              },
+              {
+                "name": "PGUSER",
+                "value": "clone_restore_admin"
+              },
+              {
+                "name": "PGDATABASE",
+                "value": "postgres"
+              }
+            ],
+            "resources": {
+              "requests": {
+                "cpu": "250m",
+                "memory": "256Mi"
+              },
+              "limits": {
+                "cpu": "1",
+                "memory": "1Gi"
+              }
+            },
+            "volumeMounts": [
+              {
+                "name": "db",
+                "mountPath": "/var/lib/postgresql/data",
+                "readOnly": false
+              },
+              {
+                "name": "socket",
+                "mountPath": "/var/run/postgresql",
+                "readOnly": false
+              },
+              {
+                "name": "empty-init-scripts",
+                "mountPath": "/docker-entrypoint-initdb.d",
+                "readOnly": true
+              }
+            ],
+            "readinessProbe": {
+              "exec": {
+                "command": [
+                  "pg_isready",
+                  "-h",
+                  "/var/run/postgresql",
+                  "-U",
+                  "clone_restore_admin",
+                  "-d",
+                  "postgres"
+                ]
+              },
+              "periodSeconds": 5
+            },
+            "command": [
+              "/bin/bash",
+              "-ec",
+              "#!/bin/bash\nset -euo pipefail\numask 077\nexport LC_ALL=C\npassword_file=/var/lib/postgresql/data/.clone-bootstrap-password\nexpected_pgdata=/var/lib/postgresql/data/pgdata\nfail() { printf '%s\\n' 'Refusing unexpected clone bootstrap state.' >&2; exit 78; }\n[[ ${PGDATA:-} == \"$expected_pgdata\" ]] || fail\n[[ ! -L \"$PGDATA\" ]] || fail\nif [[ ! -e \"$password_file\" && ! -L \"$password_file\" ]]; then\n  [[ ! -e \"$PGDATA\" && ! -L \"$PGDATA\" ]] || fail\n  password=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \\n')\n  [[ \"$password\" =~ ^[0-9a-f]{64}$ ]] || fail\n  # Bash noclobber uses exclusive creation; no overwrite or recovery on failure.\n  (set -o noclobber; printf '%s\\n' \"$password\" > \"$password_file\") || fail\n  unset password\nfi\n[[ -f \"$password_file\" && ! -L \"$password_file\" ]] || fail\n[[ $(stat -c '%u:%g:%a:%s:%h' -- \"$password_file\") == '1000:1000:600:65:1' ]] || fail\nIFS= read -r password < \"$password_file\" || fail\n[[ \"$password\" =~ ^[0-9a-f]{64}$ ]] || fail\nunset password POSTGRES_PASSWORD\nexport POSTGRES_PASSWORD_FILE=\"$password_file\"\nexec /usr/local/bin/docker-entrypoint.sh \"$@\"\n",
+              "--"
+            ]
+          },
+          {
+            "name": "gitea",
+            "image": {{ .Values.gitea.image | quote }},
+            "command": [
+              "/bin/sh",
+              "-ec"
+            ],
+            "args": [
+              "printf '%s\\n' 'CANDIDATE ONLY: Gitea and native SSH disabled; reviewed startup revision required.' >&2\nexit 78\n"
+            ],
+            "securityContext": {
+              "runAsUser": 1000,
+              "runAsGroup": 1000,
+              "runAsNonRoot": true,
+              "allowPrivilegeEscalation": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            },
+            "env": [
+              {
+                "name": "GITEA__server__DISABLE_SSH",
+                "value": "true"
+              },
+              {
+                "name": "GITEA__server__START_SSH_SERVER",
+                "value": "false"
+              }
+            ],
+            "resources": {
+              "requests": {
+                "cpu": "10m",
+                "memory": "32Mi"
+              },
+              "limits": {
+                "cpu": "1",
+                "memory": "1Gi"
+              }
+            },
+            "volumeMounts": [
+              {
+                "name": "socket",
+                "mountPath": "/var/run/postgresql",
+                "readOnly": false
+              },
+              {
+                "name": "reviewed-config",
+                "mountPath": "/reviewed",
+                "readOnly": true
+              }
+            ]
+          },
+          {
+            "name": "nginx",
+            "image": "docker.io/openresty/openresty:1.29.2.5-bookworm-fat",
+            "command": [
+              "/usr/local/openresty/bin/openresty"
+            ],
+            "args": [
+              "-g",
+              "daemon off; pid /tmp/nginx.pid;"
+            ],
+            "securityContext": {
+              "runAsUser": 1000,
+              "runAsGroup": 1000,
+              "runAsNonRoot": true,
+              "allowPrivilegeEscalation": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            },
+            "ports": [
+              {
+                "name": "maintenance",
+                "containerPort": 8080
+              }
+            ],
+            "resources": {
+              "requests": {
+                "cpu": "10m",
+                "memory": "64Mi"
+              },
+              "limits": {
+                "cpu": "500m",
+                "memory": "500Mi"
+              }
+            },
+            "volumeMounts": [
+              {
+                "name": "nginx-config",
+                "mountPath": "/etc/nginx/conf.d/default.conf",
+                "subPath": "nginx.conf",
+                "readOnly": true
+              },
+              {
+                "name": "nginx-runtime",
+                "mountPath": "/var/run/openresty",
+                "readOnly": false
+              }
+            ],
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/healthz",
+                "port": 8080
+              },
+              "periodSeconds": 5
+            }
+          }
+        ],
+        "volumes": [
+          {
+            "name": "db",
+            "hostPath": {
+              "path": "{{ .Values.userspace.appData }}/postgres-restore-candidate",
+              "type": "Directory"
+            }
+          },
+          {
+            "name": "socket",
+            "emptyDir": {}
+          },
+          {
+            "name": "empty-init-scripts",
+            "emptyDir": {}
+          },
+          {
+            "name": "nginx-runtime",
+            "emptyDir": {}
+          },
+          {
+            "name": "reviewed-config",
+            "secret": {
+              "secretName": {{ .Values.restore.configSecret | quote }},
+              "optional": true,
+              "defaultMode": 288,
+              "items": [
+                {
+                  "key": "app.ini",
+                  "path": "app.ini"
+                }
+              ]
+            }
+          },
+          {
+            "name": "nginx-config",
+            "configMap": {
+              "name": "clone-maintenance-config",
+              "defaultMode": 292
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+
+{{- end }}

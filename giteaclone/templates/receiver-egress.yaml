@@ -1,0 +1,66 @@
+{{- if not .Values.runtimeEnabled }}
+{{- if .Values.receiver.enabled }}
+{{- $r := .Values.receiver -}}
+{{- $api := required "receiver.calicoApiVersion requires official live API/policy read-back" $r.calicoApiVersion -}}
+{{- if not (has $api (list "projectcalico.org/v3" "crd.projectcalico.org/v1")) }}{{ fail "unreviewed Calico API version" }}{{ end -}}
+{{- $tier := required "receiver.calicoTier must match reviewed live deny tier" $r.calicoTier -}}
+{{- if ne (int $r.policyOrder) 90 }}{{ fail "receiver policy order must remain 90" }}{{ end -}}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9-]{0,62}$" $r.runId) }}{{ fail "invalid unique receiver run label" }}{{ end -}}
+{{- $ipv4 := "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$" -}}
+{{- if not (regexMatch $ipv4 (required "exact resolver IPv4 required" $r.dnsResolverIPv4)) }}{{ fail "resolver must be one IPv4 address" }}{{ end -}}
+{{- if not $r.dnsPolicyIPv4 }}{{ fail "exact policy-observed DNS IPv4 destinations required" }}{{ end -}}
+{{- if and (not $r.dnsOnly) (not $r.tosIPv4) }}{{ fail "approved target-resolved TOS IPv4 list required" }}{{ end -}}
+{{- range concat $r.dnsPolicyIPv4 $r.tosIPv4 }}
+{{- if or (not (regexMatch $ipv4 .)) (eq . "0.0.0.0") (eq . "255.255.255.255") }}{{ fail "network destination must be an exact usable IPv4, never a CIDR/wildcard" }}{{ end -}}
+{{- end }}
+# REVIEW GATE: same tier as existing order-100 deny, no earlier allow/bypass,
+# verified selector and DNAT behavior. Creation order is NOT enforcement proof.
+# No deletion/modification of the existing deny policy or Gitea labels is allowed.
+# IP rules cannot distinguish services sharing a TOS IP: receiver must enforce
+# exact approved HTTPS hostname/TLS verification, deny redirects and ignore proxies.
+apiVersion: {{ $api }}
+kind: NetworkPolicy
+metadata:
+  name: gitea-receiver-20261029-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    migration.gitea.local/receiver-run: {{ $r.runId | quote }}
+spec:
+  tier: {{ $tier | quote }}
+  order: 90
+  selector: {{ printf "migration.gitea.local/receiver-run == '%s'" $r.runId | quote }}
+  types: [Ingress, Egress]
+  ingress:
+    - action: Deny
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        nets:
+          {{- range $r.dnsPolicyIPv4 }}
+          - {{ printf "%s/32" . | quote }}
+          {{- end }}
+        ports: [53]
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          {{- range $r.dnsPolicyIPv4 }}
+          - {{ printf "%s/32" . | quote }}
+          {{- end }}
+        ports: [53]
+    {{- if not $r.dnsOnly }}
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          {{- range $r.tosIPv4 }}
+          - {{ printf "%s/32" . | quote }}
+          {{- end }}
+        ports: [443]
+    {{- end }}
+    # Also closes egress if the old deny selector doesn't match the new Job.
+    - action: Deny
+{{- end }}
+
+{{- end }}

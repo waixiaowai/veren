@@ -1,0 +1,87 @@
+{{- if not .Values.runtimeEnabled }}
+{{- if .Values.dbAuditEnabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitea-db-audit-20261029-r1-code
+  namespace: {{ .Release.Namespace }}
+immutable: true
+data:
+  db-audit.sh: |
+{{ .Files.Get "files/db-audit.sh" | indent 4 }}
+  db-schema.sql: |
+{{ .Files.Get "files/db-schema.sql" | indent 4 }}
+  db-readonly-verify.sql: |
+{{ .Files.Get "files/db-readonly-verify.sql" | indent 4 }}
+  business-fingerprints.sql: |
+{{ .Files.Get "files/business-fingerprints.sql" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitea-db-audit-20261029-r1
+  namespace: {{ .Release.Namespace }}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 0
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        migration.gitea.local/db-audit: "20261029-r1"
+      annotations:
+        config.linkerd.io/proxy-await: disabled
+        audit.gitea.local/script-sha256: {{ .Files.Get "files/db-audit.sh" | sha256sum | quote }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      nodeSelector: {kubernetes.io/hostname: olares-worker, kubernetes.io/arch: amd64}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: db-audit
+          image: {{ .Values.database.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: [/bin/bash, /code/db-audit.sh]
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts:
+            - {name: code, mountPath: /code, readOnly: true}
+            - {name: pgdata, mountPath: /pgdata}
+            - {name: owner, mountPath: /credentials/owner-password, readOnly: true}
+            - {name: admin, mountPath: /credentials/admin-password, readOnly: true}
+            - {name: audit, mountPath: /audit}
+            - {name: socket, mountPath: /socket}
+      volumes:
+        - name: code
+          configMap: {name: gitea-db-audit-20261029-r1-code, defaultMode: 0444}
+        - name: pgdata
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/pgdata" .Values.userspace.appData | quote }}
+            type: Directory
+        - name: owner
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/incoming-production-1d3e6c9b862a4822a839886a374fd9b0/restore-gitea_live_20261028_307ac94f2d6b/owner-password" .Values.userspace.appData | quote }}
+            type: File
+        - name: admin
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/.clone-bootstrap-password" .Values.userspace.appData | quote }}
+            type: File
+        - name: audit
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/db-audit-20261029-r1" .Values.userspace.appData | quote }}
+            type: Directory
+        - name: socket
+          emptyDir: {medium: Memory, sizeLimit: 16Mi}
+{{- end }}
+
+{{- end }}

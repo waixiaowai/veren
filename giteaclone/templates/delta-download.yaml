@@ -1,0 +1,124 @@
+{{- if not .Values.runtimeEnabled }}
+{{- range $d := .Values.deltaDownloads }}
+{{- $root := $ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $d.name }}-code
+  namespace: {{ $root.Release.Namespace }}
+immutable: true
+data:
+  delta-download.py: |
+{{ $root.Files.Get "files/delta-download.py" | indent 4 }}
+  delta-download-contract.json: |
+{{ $root.Files.Get $d.contractFile | indent 4 }}
+  requirements.lock: |
+{{ $root.Files.Get "files/requirements.lock" | indent 4 }}
+  bootstrap.py: |
+    import os,subprocess,sys,resource
+    os.umask(0o077)
+    resource.setrlimit(resource.RLIMIT_CORE,(0,0))
+    subprocess.run([sys.executable,'-B','-m','pip','--isolated','install','--no-index','--find-links','/wheels','--target','/runtime/vendor','--require-hashes','--only-binary=:all:','--no-deps','--no-compile','--no-cache-dir','--disable-pip-version-check','-r','/code/requirements.lock'],check=True)
+    os.environ['PYTHONPATH']='/runtime/vendor'
+    os.execv(sys.executable,[sys.executable,'-B','/code/delta-download.py'])
+---
+apiVersion: crd.projectcalico.org/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $d.name }}-egress
+  namespace: {{ $root.Release.Namespace }}
+spec:
+  tier: default
+  order: 90
+  selector: "migration.gitea.local/delta-download == '{{ $d.name }}'"
+  types: [Ingress, Egress]
+  ingress: [{action: Deny}]
+  egress:
+    - action: Allow
+      protocol: TCP
+      destination: {nets: [122.228.29.101/32], ports: [443]}
+    - action: Deny
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $d.name }}
+  namespace: {{ $root.Release.Namespace }}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 0
+  activeDeadlineSeconds: 1800
+  template:
+    metadata:
+      labels:
+        migration.gitea.local/delta-download: {{ $d.name | quote }}
+      annotations:
+        config.linkerd.io/proxy-await: disabled
+        config.linkerd.io/skip-outbound-ports: "443"
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      nodeSelector: {kubernetes.io/hostname: olares-worker, kubernetes.io/arch: amd64}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: delta-download
+          image: {{ $root.Values.receiver.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: [/usr/local/bin/python3, -B, /code/bootstrap.py]
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          env:
+            - {name: HOME, value: /runtime}
+            - {name: TMPDIR, value: /tmp}
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          volumeMounts:
+            - {name: code, mountPath: /code, readOnly: true}
+            - {name: public, mountPath: /transport/public.pem, readOnly: true}
+            - {name: private, mountPath: /transport/private.pem, readOnly: true}
+            - {name: feed, mountPath: /feed/encrypted.json, readOnly: true}
+            - {name: delta, mountPath: /delta}
+            - {name: wheels, mountPath: /wheels, readOnly: true}
+            - {name: runtime, mountPath: /runtime}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: code
+          configMap: {name: {{ $d.name }}-code, defaultMode: 0444}
+        - name: public
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/incoming-production-1d3e6c9b862a4822a839886a374fd9b0/secret-transfer-gitea-secret-20261029-f07c219d6eab/public.pem" $root.Values.userspace.appData | quote }}
+            type: File
+        - name: private
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/incoming-production-1d3e6c9b862a4822a839886a374fd9b0/secret-transfer-gitea-secret-20261029-f07c219d6eab/private.pem" $root.Values.userspace.appData | quote }}
+            type: File
+        - name: feed
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/%s/encrypted-feed.json" $root.Values.userspace.appData $d.runtimeDir | quote }}
+            type: File
+        - name: delta
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/%s" $root.Values.userspace.appData $d.runtimeDir | quote }}
+            type: Directory
+        - name: wheels
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/receiver-runtime-33a5d0d3c912150caaa9a62c8346b23b/wheels" $root.Values.userspace.appData | quote }}
+            type: Directory
+        - name: runtime
+          emptyDir: {medium: Memory, sizeLimit: 128Mi}
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 64Mi}
+---
+{{- end }}
+
+{{- end }}

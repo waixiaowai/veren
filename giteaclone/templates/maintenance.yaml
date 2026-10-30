@@ -1,0 +1,14 @@
+{{- if not .Values.runtimeEnabled }}
+{
+  "apiVersion": "v1",
+  "kind": "ConfigMap",
+  "metadata": {
+    "name": "clone-maintenance-config",
+    "namespace": {{ .Release.Namespace | quote }}
+  },
+  "data": {
+    "nginx.conf": "server {\n  listen 8080;\n  client_body_temp_path /tmp/client_body;\n  access_log /dev/stdout;\n  error_log /dev/stderr;\n  location = /healthz {\n    default_type text/plain;\n    add_header Cache-Control \"no-store\" always;\n    return 200 \"maintenance-only\\n\";\n  }\n  location / {\n    default_type text/plain;\n    add_header Cache-Control \"no-store\" always;\n    add_header Retry-After \"3600\" always;\n    return 503 \"Restore candidate; Gitea disabled.\\n\";\n  }\n}\n"
+  }
+}
+
+{{- end }}

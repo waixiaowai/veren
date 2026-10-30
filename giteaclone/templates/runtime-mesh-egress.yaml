@@ -1,0 +1,41 @@
+{{- if and .Values.runtimeEnabled .Values.runtimeMeshEgressEnabled }}
+apiVersion: crd.projectcalico.org/v1
+kind: NetworkPolicy
+metadata:
+  name: giteaclone-runtime-mesh-only
+  namespace: {{ .Release.Namespace }}
+spec:
+  tier: default
+  order: 90
+  selector: "app == 'gitea' && migration.gitea.local/clone-runtime == '20261029-r1'"
+  types: [Egress]
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        nets: [10.233.0.3/32, 10.233.98.130/32]
+        ports: [53]
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets: [10.233.0.3/32, 10.233.98.130/32]
+        ports: [53]
+    - action: Allow
+      protocol: TCP
+      destination:
+        namespaceSelector: "kubernetes.io/metadata.name == 'os-mesh'"
+        selector: "linkerd.io/control-plane-component == 'identity'"
+        ports: [8080]
+    - action: Allow
+      protocol: TCP
+      destination:
+        namespaceSelector: "kubernetes.io/metadata.name == 'os-mesh'"
+        selector: "linkerd.io/control-plane-component == 'destination'"
+        ports: [8086, 8090]
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets: [150.5.133.87/32]
+        ports: [7000]
+    - action: Deny
+{{- end }}

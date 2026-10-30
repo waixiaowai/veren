@@ -83,20 +83,42 @@ export function translateRequest(options: GenerateOptions, upstreamId: string, e
   }
 }
 
-/** 消息序列翻译：role 分派 + 块级投影 + 区域系统提示改道。Message-sequence translation: role dispatch, per-block projection, region system routing. */
+/**
+ * 消息序列翻译：role 分派 + 块级投影 + 区域系统提示改道。
+ * 系统提示有两个可能入口——`options.system` **和** messages 里的 `system`
+ * 角色消息（harness 实测走的是后者）——两者都必须过 routeSystemForRegion，
+ * 否则真实提示会原样漏到 CN 线上被内容拦截（真机踩过）。
+ * Message-sequence translation: role dispatch, per-block projection, region
+ * system routing. The system prompt has TWO entry points — `options.system`
+ * and `system`-role messages inside `messages` (the harness uses the latter,
+ * live-measured) — both must go through routeSystemForRegion, or the real
+ * prompt leaks raw onto the CN wire and gets intercepted (a live-taught
+ * lesson).
+ */
 function translateMessages(messages: readonly RequestMessage[], system: string | undefined, region: WorkBuddyRegion): unknown[] {
-  const wire: unknown[] = []
-  const routed = routeSystemForRegion(region, system)
-  if (routed.systemOnWire.length > 0) wire.push({ role: 'system', content: routed.systemOnWire })
+  const parts: string[] = []
+  if (system !== undefined && system.trim() !== '') parts.push(system)
+  const passthrough: RequestMessage[] = []
   for (const message of messages) {
+    if (message.role === 'system') {
+      const text = joinText(message.content)
+      if (text.trim() !== '') parts.push(text)
+      continue
+    }
+    passthrough.push(message)
+  }
+  const routed = routeSystemForRegion(region, parts.length === 0 ? undefined : parts.join('\n\n'))
+  const wire: unknown[] = []
+  if (routed.systemOnWire.length > 0) wire.push({ role: 'system', content: routed.systemOnWire })
+  let contextAttached = false
+  for (const message of passthrough) {
     const translated = translateOne(message)
-    // CN 改道：完整系统提示包在 `<runtime_context>` 里随首条 user 消息投递
-    // （CN 网关对 system 角色的 agent 提示做内容级拦截，实测方言见协议库）。
-    // CN reroute: the full prompt rides in the first user message wrapped in
-    // <runtime_context> (the CN gateway content-intercepts agent system prompts).
-    if (routed.systemAsUserContext !== undefined && translated.length > 0
-      && (message as { role: string }).role === 'user') {
+    // CN 改道：完整系统提示包在 `<runtime_context>` 里随首条 user 消息投递。
+    // CN reroute: the full prompt rides in the first user message wrapped in <runtime_context>.
+    if (routed.systemAsUserContext !== undefined && !contextAttached && translated.length > 0
+      && message.role === 'user') {
       wire.push(...withUserContextPrefix(translated, routed.systemAsUserContext))
+      contextAttached = true
       continue
     }
     wire.push(...translated)
@@ -104,7 +126,7 @@ function translateMessages(messages: readonly RequestMessage[], system: string |
   // 没有任何 user 消息时改道内容无处附着：单独作为一条 user 注入（会话标题
   // 等辅助调用的形状）。
   // With no user message to attach to, the context rides alone (auxiliary calls like session titles).
-  if (routed.systemAsUserContext !== undefined && !wire.some(part => (part as { role: string }).role === 'user')) {
+  if (routed.systemAsUserContext !== undefined && !contextAttached) {
     wire.push({ role: 'user', content: [{ type: 'text', text: routed.systemAsUserContext }] })
   }
   return wire

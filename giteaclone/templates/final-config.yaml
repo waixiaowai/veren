@@ -1,0 +1,76 @@
+{{- if not .Values.runtimeEnabled }}
+{{- if .Values.finalConfigEnabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitea-final-config-20261029-r1-code
+  namespace: {{ .Release.Namespace }}
+immutable: true
+data:
+  final-config.py: |
+{{ .Files.Get "files/final-config.py" | indent 4 }}
+  final-app.ini.template: |
+{{ .Files.Get "files/final-app.ini.template" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitea-final-config-20261029-r1
+  namespace: {{ .Release.Namespace }}
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 0
+  activeDeadlineSeconds: 3600
+  template:
+    metadata:
+      labels:
+        migration.gitea.local/offline-step: gitea-final-config-20261029-r1
+      annotations:
+        config.linkerd.io/proxy-await: disabled
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      nodeSelector: {kubernetes.io/hostname: olares-worker, kubernetes.io/arch: amd64}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: final-config
+          image: {{ .Values.receiver.image | quote }}
+          command: [/usr/local/bin/python3, -B, /code/final-config.py]
+          env:
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts:
+            - {name: code, mountPath: /code, readOnly: true}
+            - {name: output, mountPath: /output}
+            - {name: owner, mountPath: /credentials/owner-password, readOnly: true}
+            - {name: secret, mountPath: /credentials/secret.key, readOnly: true}
+      volumes:
+        - name: code
+          configMap: {name: gitea-final-config-20261029-r1-code, defaultMode: 0444}
+        - name: output
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/final-config-20261029-r1" .Values.userspace.appData | quote }}
+            type: Directory
+        - name: owner
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/incoming-production-1d3e6c9b862a4822a839886a374fd9b0/restore-gitea_live_20261028_307ac94f2d6b/owner-password" .Values.userspace.appData | quote }}
+            type: File
+        - name: secret
+          hostPath:
+            path: {{ printf "%s/postgres-restore-candidate/incoming-production-1d3e6c9b862a4822a839886a374fd9b0/secret-transfer-gitea-secret-20261029-f07c219d6eab/decrypt-v2/secret.key" .Values.userspace.appData | quote }}
+            type: File
+{{- end }}
+
+{{- end }}
