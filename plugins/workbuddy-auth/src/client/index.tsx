@@ -104,8 +104,13 @@ function createWbSource(api: Context['remote']['workbuddyAuth']): {
   let error = ''
   let errorCode: string | undefined
   let timer: ReturnType<typeof globalThis.setInterval> | undefined
-  // 已自动打开的授权 URL：一次尝试只开一次，重接轮询不再弹窗。
-  // The authorization URL already opened: once per attempt; re-attached polling never re-opens.
+  // 自动打开只认**本页发起的**登录：begin 成功即武装，开过或尝试结束即解除。
+  // 页面刷新后未武装——宿主缓冲的旧授权 URL 绝不会把用户带离应用（真机教训）。
+  // Auto-open only arms for a sign-in THIS page started: armed at begin success,
+  // disarmed after opening or when the attempt ends. A refreshed page is never
+  // armed, so the host's buffered URL can never drag the user away (a live-taught
+  // lesson).
+  let armed = false
   let openedNoticeUrl: string | undefined
   let current: WbCardSnapshot = { describe: undefined, poll: undefined, error: '', errorCode: undefined, credits: {}, probe: {} }
   const listeners = new Set<() => void>()
@@ -140,6 +145,7 @@ function createWbSource(api: Context['remote']['workbuddyAuth']): {
         stopPolling()
       }
       commit({ describe, poll, error, errorCode })
+      disarmIfSettled()
       openAuthorizationUrl()
     } catch {
       // 传输层失败（节点重启窗口等）：人话 + 重试，不与授权错误混淆。
@@ -150,16 +156,22 @@ function createWbSource(api: Context['remote']['workbuddyAuth']): {
     }
   }
   /**
-   * 授权流一交出 URL 就跳系统浏览器/新标签（用户不该手动复制粘贴）；
-   * 同一 URL 只开一次。IAB/桌面壳的 window.open 都落在系统浏览器面。
+   * 授权流一交出 URL 就跳系统浏览器/新标签（用户不该手动复制粘贴）；仅在
+   * 武装窗口内开一次。IAB/桌面壳的 window.open 都落在系统浏览器面。
    * Jump to the system browser / a new tab as soon as the flow hands out the
-   * URL (copy-paste is not the user's job); one URL opens once.
+   * URL (copy-paste is not the user's job); opens once per armed window only.
    */
   const openAuthorizationUrl = (): void => {
+    if (!armed) return
     const url = poll?.notices.find(notice => notice.url !== undefined)?.url
-    if (url === undefined || url === openedNoticeUrl) return
+    if (url === undefined) return
+    armed = false
     openedNoticeUrl = url
     window.open(url, '_blank', 'noopener')
+  }
+  /** 尝试结束（终局/失败/取消）即解除武装。Disarms when the attempt settles. */
+  const disarmIfSettled = (): void => {
+    if (poll?.inFlight === false && (poll?.settled !== undefined || poll?.failed !== undefined)) armed = false
   }
   const startPolling = async (): Promise<void> => {
     await readOnce()
@@ -184,6 +196,10 @@ function createWbSource(api: Context['remote']['workbuddyAuth']): {
           commit({ error, errorCode })
           return
         }
+        // 本页发起的登录：武装自动打开（开过或终局即解除）。
+        // A sign-in this page started: arm auto-open (disarmed after opening or settlement).
+        armed = true
+        openedNoticeUrl = undefined
         await startPolling()
       })()
     },

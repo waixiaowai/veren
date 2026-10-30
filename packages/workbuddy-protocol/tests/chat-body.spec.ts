@@ -5,7 +5,7 @@
  * flattening, off dropping, the international leading-system prepend.
  */
 import { describe, expect, it } from 'vitest'
-import { prepareBodyForRegion, prepareCnChatBody, prepareInternationalChatBody, INTERNATIONAL_SYSTEM_PROMPT } from '../src/chat-body.ts'
+import { prepareBodyForRegion, prepareCnChatBody, prepareInternationalChatBody, routeSystemForRegion, CN_SYSTEM_STAND_IN, INTERNATIONAL_SYSTEM_PROMPT } from '../src/chat-body.ts'
 
 describe('公共方言 / common dialect', () => {
   it('stream:true 强制', () => {
@@ -63,5 +63,21 @@ describe('国际版前置条件 / international preconditions', () => {
     const source = '{"messages":[{"role":"user","content":"x"}]}'
     expect(prepareBodyForRegion('global', source)).toBe(prepareInternationalChatBody(source))
     expect(prepareBodyForRegion('cn', source)).toBe(prepareCnChatBody(source))
+  })
+})
+
+describe('CN 系统提示改道 / CN system rerouting (measured dialect)', () => {
+  it('CN：system 只发自有短句，完整提示包 runtime_context 走首条 user', () => {
+    const routed = routeSystemForRegion('cn', 'You are DSH, a long agent prompt…')
+    expect(routed.systemOnWire).toBe(CN_SYSTEM_STAND_IN)
+    expect(routed.systemAsUserContext).toContain('<runtime_context>')
+    expect(routed.systemAsUserContext).toContain('You are DSH, a long agent prompt…')
+  })
+
+  it('国际版维持直发；空提示两区域都原样', () => {
+    expect(routeSystemForRegion('global', 'prompt')).toEqual({ systemOnWire: 'prompt' })
+    expect(routeSystemForRegion('cn', undefined).systemOnWire).toBe('')
+    expect(routeSystemForRegion('cn', undefined).systemAsUserContext).toBeUndefined()
+    expect(routeSystemForRegion('cn', '   ').systemAsUserContext).toBeUndefined()
   })
 })

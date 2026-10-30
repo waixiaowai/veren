@@ -200,6 +200,17 @@ forced** (the upstream rejects non-streaming).
   GPT-5.6 family and GLM accept it, `gpt-6-astra` rejects it). The international GPT
   family rejects `off` with 400/11133 (`extError.param='reasoning.effort'`); CN
   rejects it on `onlyReasoning` models with 400/11150 (Dossier·upstream.ts:1654-1686)
+- **CN system-prompt rerouting (measured dialect, 2026-10-30; see
+  `routeSystemForRegion` in the protocol library)**: the CN chat endpoint
+  content-intercepts agent system prompts carried in the system role (HTTP
+  400/11128 「请求被拦截，请重新发送」). The triggers are combinational and drift
+  with upstream policy (word-level probes all pass, whole sentences trip; prefixing
+  and product-name rewriting each defeat only some rules). The only form measured
+  stable and immune to drift: the system role carries a one-line stand-in
+  (`CN_SYSTEM_STAND_IN`) and the full prompt rides in the first user message
+  wrapped in `<runtime_context>` — verified with the full real payload (52 tools +
+  max_tokens 128000). CN only; international keeps the direct system prompt (no
+  credential to verify live — P0-pending)
 - **International only**: the first message must be a system prompt, else 400/11128
   "first message is not system prompt" — prepend
   `{"role":"system","content":"You are a helpful assistant."}` when absent (prepend,

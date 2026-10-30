@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { composeModelId, parseModelId, translateEffort, translateRequest } from '../src/translate.ts'
+import { CN_SYSTEM_STAND_IN } from '@veren/workbuddy-protocol'
 
 describe('模型 id 面 / model-id face', () => {
   it('前缀往返：cn:/global: 组装与解析互逆，wire 拿裸上游 id', () => {
@@ -48,7 +49,7 @@ describe('请求体翻译 / request translation', () => {
         ] },
         { role: 'tool', toolCallId: 'c1' as never, content: [{ type: 'text', text: '内容' }] } as never,
       ],
-    }, 'glm-5.3', 'high') as {
+    }, 'glm-5.3', 'high', 'cn') as {
       model: string
       stream: boolean
       reasoning_effort?: string
@@ -57,8 +58,13 @@ describe('请求体翻译 / request translation', () => {
     expect(body.model).toBe('glm-5.3')
     expect(body.stream).toBe(true)
     expect(body.reasoning_effort).toBe('high')
-    expect(body.messages[0]).toEqual({ role: 'system', content: 'be brief' })
-    expect(body.messages[1]).toEqual({ role: 'user', content: [{ type: 'text', text: 'hi' }] })
+    // CN 方言：system 携带自有短句，完整提示包 runtime_context 走首条 user 前段。
+    expect(body.messages[0]).toEqual({ role: 'system', content: CN_SYSTEM_STAND_IN })
+    expect(body.messages[1]).toEqual({ role: 'user', content: [
+      { type: 'text', text: expect.stringContaining('<runtime_context>') },
+      { type: 'text', text: 'hi' },
+    ] })
+    expect(String((body.messages[1]!.content as { text: string }[])[0]!.text)).toContain('be brief')
     // reasoning 块不可回放，丢弃；tool_calls 挂在 assistant 上。
     expect(body.messages[2]!.role).toBe('assistant')
     expect(body.messages[2]!.tool_calls).toEqual([{ id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{"p":1}' } }])
@@ -75,7 +81,7 @@ describe('请求体翻译 / request translation', () => {
         { type: 'image', mime: 'image/png', data: '' } as never,
       ] }],
       tools: [{ name: 't1', description: 'd', parameters: {} }],
-    }, 'glm-5.3', undefined) as { messages: { content: { type: string; text: string }[] }[]; tools: unknown[] }
+    }, 'glm-5.3', undefined, 'global') as { messages: { content: { type: string; text: string }[] }[]; tools: unknown[] }
     expect(body.messages[0]!.content[1]).toEqual({ type: 'text', text: '[image omitted]' })
     expect(body.tools).toEqual([{ type: 'function', function: { name: 't1', description: 'd', parameters: {} } }])
   })

@@ -19,7 +19,7 @@ import {
 import { probeEffort } from '@veren/workbuddy-protocol'
 import { METHOD_CN, METHOD_GLOBAL, WORKBUDDY_RECORD, type WorkbuddyAccounts } from './state-store.ts'
 
-/** 卡片账号行的形状（uid 只出前 8 位，昵称出脱敏形）。One card account row (uid truncated to 8, nickname masked). */
+/** 卡片账号行的形状（uid 为完整寻址键，昵称出脱敏形）。One card account row (uid = the full addressing key, nickname masked). */
 export interface CardAccount {
   readonly uid: string
   readonly name: string
@@ -191,11 +191,12 @@ export class WorkbuddyGatewayService extends TypertRemoteService {
     return entry
   }
 
-  /** 卡片账号表（uid 截断、昵称脱敏、冷却剩余）。The card's account table. */
+  /** 卡片账号表：uid 出**完整值**（动作面 toggle/signOut/credits/probe 的寻址键；昵称已脱敏，uid 不参与展示）。 */
+  /** The card's account table: uid carries the FULL value (the addressing key of every action; nicknames are masked and the uid never renders). */
   private cardAccounts(document: WorkbuddyStateDocument): readonly CardAccount[] {
     const now = Date.now()
     return document.accounts.map(entry => ({
-      uid: entry.uid.slice(0, 8),
+      uid: entry.uid,
       name: displayNameOf(entry.nickname, entry.uid),
       region: regionOfDomain(entry.domain),
       disabled: document.disabled.includes(entry.uid),

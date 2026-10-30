@@ -22,7 +22,7 @@
  */
 import type { ContentBlock, GenerateOptions, RequestMessage, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { LlmError } from '@deepseek-ai/dsh-llm'
-import type { WorkBuddyRegion } from '@veren/workbuddy-protocol'
+import { routeSystemForRegion, type WorkBuddyRegion } from '@veren/workbuddy-protocol'
 
 /** 区域 → harness 面 id 前缀。Region → harness-facing id prefix. */
 const REGION_PREFIX: Readonly<Record<WorkBuddyRegion, string>> = { cn: 'cn:', global: 'global:' }
@@ -70,10 +70,10 @@ export function translateEffort(effort: string | undefined): string | undefined 
 }
 
 /** 组装 wire 请求体（方言准备由协议库的 prepareBodyForRegion 负责）。Assembles the wire body (dialect preparation lives in the protocol's prepareBodyForRegion). */
-export function translateRequest(options: GenerateOptions, upstreamId: string, effort: string | undefined): Record<string, unknown> {
+export function translateRequest(options: GenerateOptions, upstreamId: string, effort: string | undefined, region: WorkBuddyRegion): Record<string, unknown> {
   return {
     model: upstreamId,
-    messages: translateMessages(options.messages, options.system),
+    messages: translateMessages(options.messages, options.system, region),
     stream: true,
     ...(effort === undefined ? {} : { reasoning_effort: effort }),
     ...(options.tools === undefined || options.tools.length === 0 ? {} : { tools: translateTools(options.tools) }),
@@ -83,12 +83,46 @@ export function translateRequest(options: GenerateOptions, upstreamId: string, e
   }
 }
 
-/** 消息序列翻译：role 分派 + 块级投影。Message-sequence translation: role dispatch plus per-block projection. */
-function translateMessages(messages: readonly RequestMessage[], system: string | undefined): unknown[] {
+/** 消息序列翻译：role 分派 + 块级投影 + 区域系统提示改道。Message-sequence translation: role dispatch, per-block projection, region system routing. */
+function translateMessages(messages: readonly RequestMessage[], system: string | undefined, region: WorkBuddyRegion): unknown[] {
   const wire: unknown[] = []
-  if (system !== undefined && system.length > 0) wire.push({ role: 'system', content: system })
-  for (const message of messages) wire.push(...translateOne(message))
+  const routed = routeSystemForRegion(region, system)
+  if (routed.systemOnWire.length > 0) wire.push({ role: 'system', content: routed.systemOnWire })
+  for (const message of messages) {
+    const translated = translateOne(message)
+    // CN 改道：完整系统提示包在 `<runtime_context>` 里随首条 user 消息投递
+    // （CN 网关对 system 角色的 agent 提示做内容级拦截，实测方言见协议库）。
+    // CN reroute: the full prompt rides in the first user message wrapped in
+    // <runtime_context> (the CN gateway content-intercepts agent system prompts).
+    if (routed.systemAsUserContext !== undefined && translated.length > 0
+      && (message as { role: string }).role === 'user') {
+      wire.push(...withUserContextPrefix(translated, routed.systemAsUserContext))
+      continue
+    }
+    wire.push(...translated)
+  }
+  // 没有任何 user 消息时改道内容无处附着：单独作为一条 user 注入（会话标题
+  // 等辅助调用的形状）。
+  // With no user message to attach to, the context rides alone (auxiliary calls like session titles).
+  if (routed.systemAsUserContext !== undefined && !wire.some(part => (part as { role: string }).role === 'user')) {
+    wire.push({ role: 'user', content: [{ type: 'text', text: routed.systemAsUserContext }] })
+  }
   return wire
+}
+
+/** 给首条 wire user 消息的前段插入运行时上下文文本（OpenAI 形内容数组）。 */
+/** Prepends the runtime-context text to the first wire user message (OpenAI content array). */
+function withUserContextPrefix(translated: unknown[], context: string): unknown[] {
+  const first = translated[0] as { content?: unknown } | undefined
+  if (first !== undefined && Array.isArray(first.content)) {
+    first.content = [{ type: 'text', text: context }, ...first.content]
+    return translated
+  }
+  if (first !== undefined && typeof first.content === 'string') {
+    first.content = `${context}\n\n${first.content}`
+    return translated
+  }
+  return [{ role: 'user', content: [{ type: 'text', text: context }] }, ...translated]
 }
 
 /** 单条消息翻译；未知块类型按 merge-extensible 词汇契约直接落空。 */

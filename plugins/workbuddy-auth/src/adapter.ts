@@ -112,7 +112,7 @@ export class WorkbuddyAdapter extends LlmAdapter {
   override async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     const { region, upstreamId } = parseModelId(options.model)
     const entry = await this.requireCredential(region, options.sessionId === undefined ? undefined : String(options.sessionId))
-    const body = JSON.stringify(translateRequest(options, upstreamId, translateEffort(options.reasoningEffort)))
+    const body = JSON.stringify(translateRequest(options, upstreamId, translateEffort(options.reasoningEffort), region))
     const controller = new AbortController()
     const onAbort = (): void => controller.abort()
     options.signal?.addEventListener('abort', onAbort, { once: true })
