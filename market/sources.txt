@@ -12,5 +12,6 @@
 @veren/admin-app
 @veren/web-login-gate
 @veren/cms-bridge
+@veren/imagegen
 @imeep/dsh-session-fork-enhanced
 @veren/im-bundle

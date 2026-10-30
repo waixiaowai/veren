@@ -278,6 +278,28 @@
         "桥接"
       ]
     },
+    "@veren/imagegen": {
+      "title": {
+        "en": "Image Generation",
+        "zh": "图像生成"
+      },
+      "description": {
+        "en": "Lets the agent create and edit raster images over any OpenAI-compatible Images API: two model tools that never overwrite files and return vision-friendly image references, a ported prompting discipline, an online-validated key sign-in flow, and a chroma-key transparency fallback. Paid calls stay refused until `enabled` is turned on in config.",
+        "zh": "让 agent 会画图也会改图，走任何 OpenAI 兼容 Images API：两个永不覆盖文件、返回 vision 可回看图像引用的模型工具，配套移植的提示词纪律、在线校验的 key 登录流与 chroma-key 透明兜底。付费调用默认拒绝，须在配置里显式打开 `enabled`。"
+      },
+      "category": "assistant",
+      "labels": [
+        "official"
+      ],
+      "keywords": [
+        "imagegen",
+        "image",
+        "generate",
+        "edit",
+        "图像生成",
+        "画图"
+      ]
+    },
     "@imeep/dsh-session-fork-enhanced": {
       "title": {
         "en": "Session Fork Enhanced",
