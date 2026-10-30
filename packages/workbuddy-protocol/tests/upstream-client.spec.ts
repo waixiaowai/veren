@@ -37,8 +37,9 @@ describe('chat 头族 / chat header families', () => {
       expect(request?.headers['authorization']).toBe('Bearer at-1')
       expect(request?.headers['x-agent-intent']).toBe('craft')
       expect(request?.headers['x-agent-purpose']).toBe('conversation')
-      // CN 不发 X-Agent-Type: main（该不对称正是 CN 对同体不吭声的原因）。
-      expect(request?.headers['x-agent-type']).toBeUndefined()
+      // 2026-10-30 实测：CN 也要求完整三件套（只发 intent/purpose 被 11128 拦截）。
+      // Measured 2026-10-30: CN requires the full trio (intent/purpose alone gets 11128).
+      expect(request?.headers['x-agent-type']).toBe('main')
       expect(request?.headers['x-conversation-request-id']).toMatch(/^[0-9a-f]{32}$/)
       // 请求体已按区域备好方言。
       expect(JSON.parse(request?.body ?? '{}').stream).toBe(true)

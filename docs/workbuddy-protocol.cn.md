@@ -87,8 +87,11 @@ POST `<base>/v2/chat/completions`，OpenAI 兼容体，**强制 `stream:true`**�
 - 账号身份族：`X-User-Id`/`X-Enterprise-Id`/`X-Domain`——**缺哪个就发对应的 `X-No-<字段>: 1`**，不发空白头（空白头=向上游登记一个无身份设备，比不发更糟）（卷宗·upstream.ts:443-460，fingerprint.ts:91-101）
 - 设备指纹族：`X-Machine-ID`/`X-Session-ID` = `md5("wb2a:<purpose>:<uid>")`（32 hex 截断），按 uid 确定性派生——同账号恒定、跨账号隔离；空 uid 则整头不发。**只用于 chat/billing/task 端点**（§1 零指纹登录）（卷宗·fingerprint.ts 全文）
 - **X-Agent 身份族**（PR #1 实测：国际版缺它报 400/11128「请求被拦截，请重新发送」）：
-  - `X-Agent-Intent: craft` + `X-Agent-Purpose: conversation`——两区域都发（WorkBuddy 自己的客户端两种构建都发）
-  - `X-Agent-Type: main`——**仅国际版**。这个不对称正是 CN 端点对同体不吭声的原因；在 CN 上发它=声称一个该构建没有的身份（卷宗·upstream.ts:476-507）
+  - `X-Agent-Intent: craft` + `X-Agent-Purpose: conversation` + `X-Agent-Type: main`——**三件两区域都发**。
+  - **2026-10-30 本机真机实测偏离卷宗**：CN chat 端点对只有 intent/purpose 的请求同样回答
+    400/11128「请求被拦截，请重新发送」，补上 `X-Agent-Type: main` 后放行——CN 风控已与
+    国际版收敛。卷宗（2026-09 观测）"CN 不发 type" 的不对称已过时；三件套是当前唯一实测
+    皆过的形态（证据：本插件真机验收会话 + `tests/upstream-client.spec.ts` 的 CN 断言）。
 - **会话追踪族**（`withGatewayChatHeaders`，卷宗·upstream.ts:640-690）：
   - `X-Conversation-ID` = `sha256("<进程盐>|conversation|<会话键>")` 前 32 hex；会话键优先 harness 会话键，否则首条真实用户消息签名
   - `X-Conversation-Request-ID` = `sha256("<进程盐>|turn|<会话键>|<回合键>")` 前 32 hex；回合键 = 倒数第一条**真实**用户消息（跳过纯工具结果消息）的位置+内容签名
@@ -168,7 +171,8 @@ POST（billingBase）两形状，按账号类型选路（卷宗·upstream.ts:110
 3. 争议细节以 workbuddy2api-hub/panel + connect 观察到的行为为准
 4. 不承诺上游非公开接口的稳定性；本文档即接口稳定的唯一契约面
 
-**P0-待验清单**（本插件自己的探针轮次要复核的）：§1 全部端点形状与 11217 形态、§2 轮换语义与 X-Auth-Refresh-Source 判别、§3.1 头族在线接受度（尤其 X-Agent 族）、§4 两 UA 分流现状、§6 额度/限流错误形态、卷宗静态目录表 vs 当日在线目录。
+**P0-待验清单**（本插件自己的探针轮次要复核的）：§1 全部端点形状与 11217 形态、§2 轮换语义与 X-Auth-Refresh-Source 判别、§3.1 头族在线接受度、§4 两 UA 分流现状、§6 额度/限流错误形态、卷宗静态目录表 vs 当日在线目录。
+（已闭环一项：X-Agent 族两区域三件套——2026-10-30 真机实测 CN 11128，见 §3.1。）
 
 **宿主契约冲突裁定（有意偏离，已在案）**：DSH 宿主要求每个 provider 请求带
 `attributionHeaders()`（`user-agent: deepseek-harness/<ver> (+url)`），但该头会**覆盖**

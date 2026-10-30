@@ -122,7 +122,9 @@ describe('流面 / stream face', () => {
       expect(request?.path).toBe('/v2/chat/completions')
       expect(JSON.parse(request?.body ?? '{}').model).toBe('glm-5.3')
       expect(request?.headers['x-agent-intent']).toBe('craft')
-      expect(request?.headers['x-agent-type']).toBeUndefined()
+      // 2026-10-30 实测：CN 也发 X-Agent-Type: main（风控与国际版收敛）。
+      // Measured 2026-10-30: CN sends X-Agent-Type: main too (risk control converged).
+      expect(request?.headers['x-agent-type']).toBe('main')
       expect(request?.headers['origin']).toBe('https://www.codebuddy.cn')
       expect(config).toBeDefined()
     } finally {

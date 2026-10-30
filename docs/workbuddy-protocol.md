@@ -158,11 +158,15 @@ forced** (the upstream rejects non-streaming).
   zero-fingerprint) (Dossier·fingerprint.ts throughout)
 - **X-Agent identity family** (PR #1 measurement: the international gateway answers
   HTTP 400 / 11128 「请求被拦截，请重新发送」 without them):
-  - `X-Agent-Intent: craft` + `X-Agent-Purpose: conversation` — sent on **both**
-    regions (WorkBuddy's own client sends them on both builds)
-  - `X-Agent-Type: main` — **international only**. That asymmetry is the whole reason
-    the CN endpoint serves the same body without complaint; sending it on CN would
-    claim an identity that build does not have (Dossier·upstream.ts:476-507)
+  - `X-Agent-Intent: craft` + `X-Agent-Purpose: conversation` + `X-Agent-Type: main` —
+    the **full trio goes out on both regions**.
+  - **Measured divergence from the dossier, 2026-10-30 on the live wire**: the CN chat
+    endpoint answers 400/11128 「请求被拦截，请重新发送」 to a request carrying only
+    intent/purpose, and passes once `X-Agent-Type: main` is added — CN risk control has
+    converged with the international one. The dossier's (2026-09) CN asymmetry is
+    obsolete; the trio is the only form measured good everywhere today (evidence: this
+    plugin's live acceptance session + the CN assertion in
+    `tests/upstream-client.spec.ts`).
 - **Conversation-tracking family** (`withGatewayChatHeaders`,
   Dossier·upstream.ts:640-690):
   - `X-Conversation-ID` = first 32 hex of `sha256("<process salt>|conversation|<conversation key>")`;
@@ -356,7 +360,7 @@ does". `off` is never probed (disabling thinking is declared by the catalog's
 
 **P0-pending list** (what this plugin's own probe rounds must re-verify): §1 all
 endpoint shapes and the 11217 form, §2 rotation semantics and the
-X-Auth-Refresh-Source discriminator, §3.1 live acceptance of the header families
-(especially the X-Agent family), §4 current state of the two-UA split, §6
-credit/rate-limit error shapes, the dossier's static catalog tables vs the day's live
-roster.
+X-Auth-Refresh-Source discriminator, §3.1 live acceptance of the header families,
+§4 current state of the two-UA split, §6 credit/rate-limit error shapes, the
+dossier's static catalog tables vs the day's live roster.
+(Closed item: the X-Agent trio on both regions — measured live on CN, 2026-10-30; see §3.1.)

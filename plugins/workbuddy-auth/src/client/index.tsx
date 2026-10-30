@@ -104,6 +104,9 @@ function createWbSource(api: Context['remote']['workbuddyAuth']): {
   let error = ''
   let errorCode: string | undefined
   let timer: ReturnType<typeof globalThis.setInterval> | undefined
+  // 已自动打开的授权 URL：一次尝试只开一次，重接轮询不再弹窗。
+  // The authorization URL already opened: once per attempt; re-attached polling never re-opens.
+  let openedNoticeUrl: string | undefined
   let current: WbCardSnapshot = { describe: undefined, poll: undefined, error: '', errorCode: undefined, credits: {}, probe: {} }
   const listeners = new Set<() => void>()
   const source: HostObservable<WbCardSnapshot> = {
@@ -137,6 +140,7 @@ function createWbSource(api: Context['remote']['workbuddyAuth']): {
         stopPolling()
       }
       commit({ describe, poll, error, errorCode })
+      openAuthorizationUrl()
     } catch {
       // 传输层失败（节点重启窗口等）：人话 + 重试，不与授权错误混淆。
       // A transport failure: human copy + retry, never conflated with auth errors.
@@ -144,6 +148,18 @@ function createWbSource(api: Context['remote']['workbuddyAuth']): {
       stopPolling()
       commit({ errorCode })
     }
+  }
+  /**
+   * 授权流一交出 URL 就跳系统浏览器/新标签（用户不该手动复制粘贴）；
+   * 同一 URL 只开一次。IAB/桌面壳的 window.open 都落在系统浏览器面。
+   * Jump to the system browser / a new tab as soon as the flow hands out the
+   * URL (copy-paste is not the user's job); one URL opens once.
+   */
+  const openAuthorizationUrl = (): void => {
+    const url = poll?.notices.find(notice => notice.url !== undefined)?.url
+    if (url === undefined || url === openedNoticeUrl) return
+    openedNoticeUrl = url
+    window.open(url, '_blank', 'noopener')
   }
   const startPolling = async (): Promise<void> => {
     await readOnce()

@@ -27,22 +27,37 @@ export interface ChatRequestIdentity {
   readonly userAgent: string
 }
 
-/** 两条区域都发的 X-Agent 半族。The X-Agent half sent on both regions. */
-export const SHARED_AGENT_HEADERS: Readonly<Record<string, string>> = {
+/**
+ * X-Agent 身份族：intent/purpose/type 三件，**两区域都发**。
+ * The X-Agent identity family: intent/purpose/type, sent on **both** regions.
+ *
+ * 历史与实测（偏离记录在案）：PR #1 时代（2026-09）的观测是 `type: main` 仅
+ * 国际版发送、CN 发它会被拒；卷宗据此做了区域不对称。2026-10-30 本机真机实测
+ * 推翻：CN chat 端点对只有 intent/purpose 的请求回答 400/11128「请求被拦截，
+ * 请重新发送」，补上 `X-Agent-Type: main` 后放行——CN 风控已升级到与國际版同
+ * 一族。三件套是当前唯一实测皆过的形态，因此不再区分两个半族。
+ * History and measured divergence on record: PR #1 (2026-09) observed
+ * `type: main` as international-only, with CN rejecting it; the dossier encoded
+ * that asymmetry. A live measurement on 2026-10-30 overturns it: the CN chat
+ * endpoint answers 400/11128 「请求被拦截，请重新发送」 to a request carrying
+ * only intent/purpose, and passes once `X-Agent-Type: main` is added — CN risk
+ * control has converged with the international one. The full trio is the only
+ * form measured good everywhere today, so the two half-families are gone.
+ *
+ * 值是字面常量不是配置：它们命名调用方的种类，调用方自选值等于说谎。
+ * The values are literal constants, not configuration: they name the *kind* of
+ * client making the call; a caller-chosen value would be a caller lying.
+ */
+export const AGENT_HEADERS: Readonly<Record<string, string>> = {
   'X-Agent-Intent': 'craft',
   'X-Agent-Purpose': 'conversation',
-}
-
-/** 国际版专属的另一半（CN 发它=声称一个该构建没有的身份）。 */
-/** The international-only half (sending it on CN claims an identity that build does not have). */
-export const INTERNATIONAL_AGENT_HEADERS: Readonly<Record<string, string>> = {
-  ...SHARED_AGENT_HEADERS,
   'X-Agent-Type': 'main',
 }
 
-/** 按 X-Agent 族按区域取用。The X-Agent family for one region. */
-export function agentHeadersFor(region: WorkBuddyRegion): Readonly<Record<string, string>> {
-  return region === 'global' ? INTERNATIONAL_AGENT_HEADERS : SHARED_AGENT_HEADERS
+/** 按 X-Agent 族取用（两区域同形；保留区域参数以稳定调用点签名）。 */
+/** The X-Agent family for one region (identical across regions; the region parameter keeps call sites stable). */
+export function agentHeadersFor(_region: WorkBuddyRegion): Readonly<Record<string, string>> {
+  return AGENT_HEADERS
 }
 
 /** 每个上游请求共享的头。Headers every upstream request shares. */
