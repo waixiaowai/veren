@@ -15,3 +15,4 @@
 @veren/imagegen
 @imeep/dsh-session-fork-enhanced
 @veren/im-bundle
+@veren/workbuddy-auth
