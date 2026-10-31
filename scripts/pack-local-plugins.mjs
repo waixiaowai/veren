@@ -32,7 +32,6 @@
 
 import { execFileSync } from 'node:child_process'
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -45,17 +44,14 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-
-/**
- * Windows 上 PATH 里的 GNU tar（Git Bash）会把 `C:\...` 绝对路径当远程主机
- * （"Cannot connect to C:"）——固定用系统自带的 bsdtar（能处理盘符路径）。
- * On Windows the PATH-resolved GNU tar (Git Bash) treats `C:\...` as a remote
- * host ("Cannot connect to C:") — pin the bundled bsdtar, which handles drive
- * paths fine.
- */
-const tarBin = process.platform === 'win32'
-  ? join(process.env.SystemRoot ?? 'C:\Windows', 'System32', 'tar.exe')
-  : 'tar'
+import {
+  copyFileWithRetry,
+  entryPaths,
+  extractTarball,
+  readPackedManifest,
+  tarballName,
+  tarBin,
+} from './lib/packed-tarball.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -134,21 +130,6 @@ function offlineRequested() {
 const PENDING_SRC_ENTRY = new Set([])
 
 /**
- * 收集打包后清单声明的运行时入口 / collect the runtime entries of a packed manifest.
- *
- * @param {object} manifest - the packed manifest / 打包后的清单
- * @returns {string[]} entry paths relative to the package root / 相对包根的入口路径
- */
-function packedEntries(manifest) {
-  const entries = []
-  if (typeof manifest.main === 'string') entries.push(manifest.main)
-  const dot = manifest.exports?.['.']
-  if (typeof dot === 'string') entries.push(dot)
-  else if (typeof dot?.default === 'string') entries.push(dot.default)
-  return entries
-}
-
-/**
  * 验证 tarball 里真实带着入口文件：`files` 写漏 dist 时 pnpm pack 会静默产出
  * 一个装上即崩的空壳包，这里在打包当场报错。
  *
@@ -161,30 +142,19 @@ function packedEntries(manifest) {
  */
 function assertPackedEntries(tarball, name) {
   const work = mkdtempSync(join(tmpdir(), 'veren-pack-verify-'))
-  // Windows 上 pnpm pack 的子进程退出后写入可能仍在回写缓存，紧随其后的 tar 读取
-  // 偶发 "unexpected end of file"。先把 tarball 复制到临时目录（带重试），再从
-  // 本地副本解包——避开 tar 与写入方的竞态。
-  // On Windows pnpm pack's child process may exit while the write is still
-  // flushing; an immediate tar read can hit "unexpected end of file". Copy the
-  // tarball into the temp dir first (with retries), then untar the local copy —
-  // keeping tar out of the race with the writer.
-  const copyWithRetry = (attempts) => {
-    try {
-      copyFileSync(tarball, join(work, 'pack.tgz'))
-    } catch (error) {
-      if (attempts <= 1) throw error
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
-      copyWithRetry(attempts - 1)
-    }
-  }
-  const extract = () => {
-    execFileSync(tarBin, ['-xzf', join(work, 'pack.tgz'), '-C', work], { stdio: 'inherit' })
-  }
   try {
-    copyWithRetry(5)
-    extract()
+    // Windows 上 pnpm pack 的子进程退出后写入可能仍在回写，紧随其后的 tar 读取
+    // 偶发 "unexpected end of file"。先把 tarball 复制到临时目录（带重试），再从
+    // 本地副本解包——避开 tar 与写入方的竞态。
+    // On Windows pnpm pack's child process may exit while the write is still
+    // flushing; an immediate tar read can hit "unexpected end of file". Copy the
+    // tarball into the temp dir first (with retries), then untar the local copy —
+    // keeping tar out of the race with the writer.
+    const localCopy = join(work, 'pack.tgz')
+    copyFileWithRetry(tarball, localCopy)
+    extractTarball(localCopy, work)
     const manifest = JSON.parse(readFileSync(join(work, 'package', 'package.json'), 'utf8'))
-    const entries = packedEntries(manifest)
+    const entries = entryPaths(manifest)
     if (entries.length === 0) return
     if (PENDING_SRC_ENTRY.has(manifest.name)) {
       process.stdout.write(`warning: ${manifest.name} still packs a src entry (owned by in-flight work); it will not load from node_modules\n`)
@@ -199,11 +169,6 @@ function assertPackedEntries(tarball, name) {
   } finally {
     rmSync(work, { recursive: true, force: true })
   }
-}
-
-/** Turn a package name and version into pnpm's tarball file name / 生成 pnpm 的 tarball 文件名 */
-function tarballName(name, version) {
-  return `${name.replace('@', '').replace('/', '-')}-${version}.tgz`
 }
 
 /**
@@ -223,23 +188,6 @@ function clearPackedTarballs(outDir) {
 }
 
 /**
- * 只解出 tarball 里的 package/package.json 供清单级断言使用 / extract only package/package.json for manifest-level assertions.
- *
- * @param {string} tarball - packed tarball / 打包产物
- * @returns {object} the packed manifest / 打包后的清单
- */
-function packedManifest(tarball) {
-  const work = mkdtempSync(join(tmpdir(), 'veren-pack-read-'))
-  try {
-    // bsdtar 的 -C 必须写在成员模式之前 / bsdtar requires -C before the member patterns.
-    execFileSync(tarBin, ['-xzf', tarball, '-C', work, 'package/package.json'], { stdio: 'pipe' })
-    return JSON.parse(readFileSync(join(work, 'package', 'package.json'), 'utf8'))
-  } finally {
-    rmSync(work, { recursive: true, force: true })
-  }
-}
-
-/**
  * registry 模式断言：打包后清单里第一方依赖必须是 registry 可解析的区间，
  * `file:`/`workspace:`/`link:` 一律报错——这是防止再次退化成 file: 的那道闸。
  *
@@ -251,7 +199,7 @@ function packedManifest(tarball) {
  * @param {Set<string>} firstParty - first-party package names / 第一方包名集合
  */
 function assertRegistryDependencies(tarball, firstParty) {
-  const manifest = packedManifest(tarball)
+  const manifest = readPackedManifest(tarball)
   const problems = []
   for (const section of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
     for (const [name, spec] of Object.entries(manifest[section] ?? {})) {
@@ -276,7 +224,7 @@ function assertRegistryDependencies(tarball, firstParty) {
 function rewriteDependencies(tarball, outDir, siblings) {
   const work = mkdtempSync(join(tmpdir(), 'veren-pack-'))
   try {
-    execFileSync(tarBin, ['-xzf', tarball, '-C', work], { stdio: 'inherit' })
+    extractTarball(tarball, work)
     const manifestFile = join(work, 'package', 'package.json')
     const manifest = JSON.parse(readFileSync(manifestFile, 'utf8'))
     let changed = false
@@ -293,12 +241,38 @@ function rewriteDependencies(tarball, outDir, siblings) {
         + 'the committed manifest declares registry ranges.'
       writeFileSync(manifestFile, `${JSON.stringify(manifest, undefined, 2)}\n`)
       rmSync(tarball, { force: true })
-      execFileSync(tarBin, ['-czf', tarball, '-C', work, 'package'], { stdio: 'inherit' })
+      execFileSync(tarBin(), ['-czf', tarball, '-C', work, 'package'], { stdio: 'inherit' })
     }
     return changed
   } finally {
     rmSync(work, { recursive: true, force: true })
   }
+}
+
+/**
+ * 打一个包并按模式断言 / pack one package and assert per mode.
+ *
+ * @param {string} directory - package dir relative to the repo root / 相对仓库根的包目录
+ * @param {string} name - expected package name / 期望包名
+ * @param {{ outDir: string, offline: boolean, siblings: Map<string, string>, firstParty: Set<string> }} plan - run plan / 执行计划
+ */
+function packOne(directory, name, { outDir, offline, siblings, firstParty }) {
+  const cwd = join(root, directory)
+  const manifest = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'))
+  if (manifest.name !== name) throw new Error(`${directory}: expected ${name}, found ${manifest.name}`)
+  const tarball = join(outDir, tarballName(name, manifest.version))
+  rmSync(tarball, { force: true })
+  // 单字符串命令 + shell：Windows 上 pnpm 是 .cmd 垫片，必须走 shell；参数拼进
+  // 字符串也避开 DEP0190（args 数组 + shell 已被弃用）。
+  // Single-string command + shell: pnpm is a .cmd shim on Windows and needs the
+  // shell; inlining the argument also avoids DEP0190 (args array + shell is
+  // deprecated).
+  execFileSync(`pnpm pack --pack-destination "${outDir}"`, { cwd, stdio: 'inherit', shell: true })
+  if (!existsSync(tarball)) throw new Error(`${name}: pnpm pack produced no ${tarball}`)
+  assertPackedEntries(tarball, name)
+  if (offline) rewriteDependencies(tarball, outDir, siblings)
+  else assertRegistryDependencies(tarball, firstParty)
+  process.stdout.write(`packed ${name}@${manifest.version}${offline ? ' (offline siblings)' : ' (registry deps)'}\n`)
 }
 
 const outDir = outputDirectory()
@@ -309,25 +283,13 @@ const offline = offlineRequested()
 const firstParty = new Set(PACKAGES.map(([, name]) => name))
 process.stdout.write(`packing in ${offline ? 'offline (file: siblings for local smoke tests)' : 'registry (pnpm native)'} mode\n`)
 
-/** Package name -> its tarball file name, read from the source manifests. */
+/** Package name -> its tarball file name, read from the source manifests. 包名 -> tarball 文件名。 */
 const siblings = new Map()
 for (const [directory, name] of PACKAGES) {
   const manifest = JSON.parse(readFileSync(join(root, directory, 'package.json'), 'utf8'))
   siblings.set(name, tarballName(name, manifest.version))
 }
 
-for (const [directory, name] of PACKAGES) {
-  const cwd = join(root, directory)
-  const manifest = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'))
-  if (manifest.name !== name) throw new Error(`${directory}: expected ${name}, found ${manifest.name}`)
-  const tarball = join(outDir, tarballName(name, manifest.version))
-  rmSync(tarball, { force: true })
-  execFileSync('pnpm', ['pack', '--pack-destination', outDir], { cwd, stdio: 'inherit', shell: true })
-  if (!existsSync(tarball)) throw new Error(`${name}: pnpm pack produced no ${tarball}`)
-  assertPackedEntries(tarball, name)
-  if (offline) rewriteDependencies(tarball, outDir, siblings)
-  else assertRegistryDependencies(tarball, firstParty)
-  process.stdout.write(`packed ${name}@${manifest.version}${offline ? ' (offline siblings)' : ' (registry deps)'}\n`)
-}
+for (const [directory, name] of PACKAGES) packOne(directory, name, { outDir, offline, siblings, firstParty })
 
 process.stdout.write(`\n${PACKAGES.length} plugin tarballs in ${outDir}\n`)

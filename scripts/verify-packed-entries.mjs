@@ -31,6 +31,13 @@
  * artifacts too). The script only reads the workspace and only writes the
  * system temp directory; no DSH profile is touched.
  *
+ * tar 解包与加载原语走共享库 `scripts/lib/packed-tarball.mjs`（固定系统
+ * bsdtar——Git Bash PATH 里的 GNU tar 会把 `C:\...` 当远程主机）。
+ *
+ * Tar extraction and load primitives come from the shared library
+ * `scripts/lib/packed-tarball.mjs` (pinned system bsdtar — GNU tar resolved
+ * from a Git Bash PATH treats `C:\...` as a remote host).
+ *
  * Usage / 用法:
  *   node scripts/verify-packed-entries.mjs [packageDir ...]
  *   （缺省验证四个刚补齐的包 / defaults to the four newly finished packages）
@@ -49,8 +56,15 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  assertPluginShape,
+  extractTarball,
+  loadWithPlainNode,
+  resolvePackageRoot,
+  tarballName,
+} from './lib/packed-tarball.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -70,32 +84,6 @@ mkdirSync(modulesDir)
 
 /** 链接过的包名集合，避免重复 / names already linked into the fake root. */
 const linked = new Set()
-
-/** pnpm 的 tarball 文件名 / pnpm's tarball file name. */
-function tarballName(name, version) {
-  return `${name.replace('@', '').replace('/', '-')}-${version}.tgz`
-}
-
-/**
- * 从某个目录出发解析包名对应的真实包根（穿过 pnpm 的符号链接）。
- * Resolve a package name to its real package root, starting from `fromDir`
- * (resolution follows pnpm's symlinks, so the result is the physical package).
- *
- * @param {string} name - package name to resolve / 待解析包名
- * @param {string} fromDir - directory whose node_modules answers first / 起始解析目录
- * @returns {string} absolute package root / 包根绝对路径
- */
-function resolvePackageRoot(name, fromDir) {
-  const require = createRequire(join(fromDir, 'package.json'))
-  const entryFile = require.resolve(name)
-  let dir = dirname(entryFile)
-  while (!existsSync(join(dir, 'package.json'))) {
-    const parent = dirname(dir)
-    if (parent === dir) throw new Error(`no package.json above ${entryFile}`)
-    dir = parent
-  }
-  return dir
-}
 
 /**
  * 把一个运行时依赖链进假根：@veren/* 指向工作区兄弟目录，其余指向解析到的实体包。
@@ -147,14 +135,7 @@ function resolveWorkspaceSibling(name, fromDir) {
         const manifestFile = require.resolve(`${name}/package.json`)
         return relativeToRoot(dirname(manifestFile))
       } catch {
-        const entryFile = require.resolve(name)
-        let dir = dirname(entryFile)
-        while (!existsSync(join(dir, 'package.json'))) {
-          const parent = dirname(dir)
-          if (parent === dir) throw new Error(`no package.json above ${entryFile}`)
-          dir = parent
-        }
-        return relativeToRoot(dir)
+        return relativeToRoot(resolvePackageRoot(name, base))
       }
     } catch {
       // 换下一个起点再试 / try the next resolution base
@@ -165,7 +146,7 @@ function resolveWorkspaceSibling(name, fromDir) {
 
 /** Make a path relative to the repo root with forward slashes. 相对仓库根的正斜杠路径。 */
 function relativeToRoot(dir) {
-  return dir.slice(root.length + 1).replaceAll('\\', '/')
+  return relative(root, dir).replaceAll('\\', '/')
 }
 
 /**
@@ -195,32 +176,12 @@ function installPackedPackage(directory) {
   const installed = join(modulesDir, manifest.name)
   mkdirSync(installed, { recursive: true })
   try {
-    execFileSync('tar', ['--strip-components=1', '-xzf', tarball, '-C', installed], { stdio: 'pipe' })
+    extractTarball(tarball, installed, { strip: 1 })
     linked.add(manifest.name)
     return JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'))
   } finally {
     rmSync(tarball, { force: true })
   }
-}
-
-/**
- * 用普通 node 按包名 import 入口，返回导出的键名列表。
- * Import the entry by bare package name with plain node; return export keys.
- *
- * @param {string} name - package name to import / 待导入包名
- * @returns {string[]} exported keys / 导出的键名
- */
-function loadWithPlainNode(name) {
-  const script = [
-    `const mod = await import(${JSON.stringify(name)})`,
-    'process.stdout.write(JSON.stringify(Object.keys(mod).sort()))',
-  ].join('\n')
-  const stdout = execFileSync(
-    process.execPath,
-    ['--input-type=module', '--eval', script],
-    { cwd: fakeRoot, stdio: ['ignore', 'pipe', 'pipe'] },
-  ).toString('utf8')
-  return JSON.parse(stdout)
 }
 
 const failures = []
@@ -234,20 +195,11 @@ for (const directory of targets) {
         linkRuntimeDependency(name, join(root, directory))
       }
     }
-    const keys = loadWithPlainNode(manifest.name)
+    const keys = loadWithPlainNode(manifest.name, fakeRoot)
     if (keys.length === 0) throw new Error('entry module exports nothing')
     if (manifest.dsh !== undefined && typeof manifest.dsh === 'object') {
       const require = createRequire(join(modulesDir, manifest.name, 'package.json'))
-      const source = require(manifest.name)
-      // 两种合法插件形态：Plugin.Object（apply 函数）与
-      // Plugin.Constructor（default 导出 Service 子类）。
-      // Both legal plugin shapes: Plugin.Object (an apply function) and
-      // Plugin.Constructor (a default-exported Service subclass).
-      const objectShape = typeof source.apply === 'function' && typeof source.name === 'string'
-      const classShape = typeof source.default === 'function'
-      if (!objectShape && !classShape) {
-        throw new Error('plugin entry is neither Plugin.Object (apply+name) nor Plugin.Constructor (default class)')
-      }
+      assertPluginShape(require(manifest.name))
     }
     process.stdout.write(`ok       ${manifest.name}@${manifest.version} (${label}) exports: ${keys.join(', ')}\n`)
   } catch (error) {
