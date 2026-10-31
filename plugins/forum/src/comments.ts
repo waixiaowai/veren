@@ -145,41 +145,50 @@ export function requireComment(tables: ForumTables, commentId: string): CommentR
 }
 
 /**
- * Fold one flat comment list into the two-level tree the panel renders.
+ * Build one comment node, with its vote counters attached and replies empty.
+ * 构建一个评论节点：附上投票计数，回复先留空。
+ * @param record - the stored comment.
+ * @param replies - the node's direct replies (empty until they are attached).
+ * @param counters - supplies the comment's vote counters.
+ * @returns the view node.
+ */
+function toCommentNode(
+  record: CommentRecord,
+  replies: readonly CommentNodeView[],
+  counters: (comment: CommentRecord) => SubjectCounters,
+): CommentNodeView {
+  const counts = counters(record)
+  return {
+    id: record.id,
+    postId: record.postId,
+    parentId: record.parentId,
+    parentKind: record.parentKind,
+    depth: record.depth,
+    author: record.author,
+    body: record.body,
+    mentions: record.mentions,
+    foldable: record.body.length > LONG_BODY_CHARS,
+    createdAt: record.createdAt,
+    up: counts.up,
+    down: counts.down,
+    ...counts.myVote === undefined ? {} : { myVote: counts.myVote },
+    replies,
+  }
+}
+
+/**
+ * Attach every reply to its root, dropping replies whose parent is absent.
  *
- * A reply whose parent is missing is dropped rather than re-attached: the tree
- * must show what was written, and inventing a parent would misreport the
+ * Every node is built before any is attached, so a reply whose parent is
+ * missing can be dropped instead of inventing a place for it: the tree must
+ * show what was written, and inventing a parent would misreport the
  * conversation.
- * @param records - one post's comments, oldest first.
- * @param counters - supplies each comment's vote counters.
+ * 把每条回复挂到根评论，父评论缺失的回复直接丢弃——所有节点先构建后挂接，树只呈现真实
+ * 写下的话，凭空补一个父评论会错报对话。
+ * @param nodes - every comment of one post as flat nodes.
  * @returns the depth-1 nodes, each carrying its direct replies.
  */
-export function buildTree(
-  records: readonly CommentRecord[],
-  counters: (comment: CommentRecord) => SubjectCounters,
-): readonly CommentNodeView[] {
-  const node = (record: CommentRecord, replies: readonly CommentNodeView[]): CommentNodeView => {
-    const counts = counters(record)
-    return {
-      id: record.id,
-      postId: record.postId,
-      parentId: record.parentId,
-      parentKind: record.parentKind,
-      depth: record.depth,
-      author: record.author,
-      body: record.body,
-      mentions: record.mentions,
-      foldable: record.body.length > LONG_BODY_CHARS,
-      createdAt: record.createdAt,
-      up: counts.up,
-      down: counts.down,
-      ...counts.myVote === undefined ? {} : { myVote: counts.myVote },
-      replies,
-    }
-  }
-  // Every node is built before any is attached, so a reply whose parent is
-  // absent can be dropped instead of inventing a place for it.
-  const nodes = records.map(record => node(record, []))
+function attachReplies(nodes: readonly CommentNodeView[]): readonly CommentNodeView[] {
   const byId = new Map(nodes.map(item => [item.id, item]))
   const roots: CommentNodeView[] = []
   const replies = new Map<string, CommentNodeView[]>()
@@ -194,4 +203,18 @@ export function buildTree(
     replies.set(item.parentId, siblings)
   }
   return roots.map(root => ({ ...root, replies: replies.get(root.id) ?? [] }))
+}
+
+/**
+ * Fold one flat comment list into the two-level tree the panel renders.
+ * @param records - one post's comments, oldest first.
+ * @param counters - supplies each comment's vote counters.
+ * @returns the depth-1 nodes, each carrying its direct replies.
+ */
+export function buildTree(
+  records: readonly CommentRecord[],
+  counters: (comment: CommentRecord) => SubjectCounters,
+): readonly CommentNodeView[] {
+  const nodes = records.map(record => toCommentNode(record, [], counters))
+  return attachReplies(nodes)
 }

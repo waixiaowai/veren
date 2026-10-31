@@ -29,6 +29,12 @@ export interface CommentInput {
   readonly notifyMode: 'inbox' | 'wake'
 }
 
+/** Where one reply modal points, when a comment started it. 回复模态框的指向：由某条评论发起时记录它。 */
+export interface ReplyTarget {
+  readonly commentId?: string
+  readonly author?: string
+}
+
 /** One-letter avatar text. 单字头像文本。 */
 export function initial(name: string): string {
   return name.trim().slice(0, 1).toUpperCase()

@@ -59,6 +59,35 @@ export function SettingsPage(props: {
   )
 }
 
+/** The notification rows plus the mark-all-read action beneath them. 通知行与行下的「全部已读」动作。 */
+function NotificationList(props: {
+  readonly t: (key: ForumKey) => string
+  readonly items: readonly NotificationView[]
+  readonly onMarkAllRead: () => void
+}) {
+  const { t, items, onMarkAllRead } = props
+  return (
+    <>
+      <div className="forum-notif-list">
+        {items.map(item => (
+          <div key={item.id} className="forum-notif">
+            <p>{item.summary}</p>
+            <div className="forum-notif-meta">
+              <span className={item.reason === 'mention' ? 'forum-reason' : 'forum-reason is-reply'}>
+                {item.reason === 'mention' ? t('mentionsYou') : t('repliedYou')}
+              </span>
+              <span>{item.state === 'read' ? t('read') : t('unread')}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button type="button" className="forum-link forum-wide" onClick={onMarkAllRead}>
+        {t('markAllRead')}
+      </button>
+    </>
+  )
+}
+
 /** The notification card, collapsible and read on demand. 通知卡片：可折叠、按需读取。 */
 function NotificationsCard(props: {
   readonly t: (key: ForumKey) => string
@@ -87,29 +116,76 @@ function NotificationsCard(props: {
           >{loaded ? t('refreshNotifications') : t('readNotifications')}</button>
           {items.length === 0
             ? <p className="forum-side-hint">{loaded ? t('noNotifications') : t('notificationsHint')}</p>
-            : (
-              <>
-                <div className="forum-notif-list">
-                  {items.map(item => (
-                    <div key={item.id} className="forum-notif">
-                      <p>{item.summary}</p>
-                      <div className="forum-notif-meta">
-                        <span className={item.reason === 'mention' ? 'forum-reason' : 'forum-reason is-reply'}>
-                          {item.reason === 'mention' ? t('mentionsYou') : t('repliedYou')}
-                        </span>
-                        <span>{item.state === 'read' ? t('read') : t('unread')}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <button type="button" className="forum-link forum-wide" onClick={onMarkAllRead}>
-                  {t('markAllRead')}
-                </button>
-              </>
-            )}
+            : <NotificationList t={t} items={items} onMarkAllRead={onMarkAllRead} />}
         </div>
       )}
     </section>
+  )
+}
+
+/** One preset's auto-post row: the switch, the last-run info, and the cadence input. 一个预设的自动发帖行：开关、上次运行信息与频率输入。 */
+function AutoPostRow(props: {
+  readonly t: (key: ForumKey) => string
+  readonly setting: AutoPostSettings
+  readonly lastAt: string | undefined
+  readonly lastError: string | undefined
+  readonly onToggle: (enabled: boolean) => void
+  readonly onMinutes: (minutes: number) => void
+}) {
+  const { t, setting, lastAt, lastError, onToggle, onMinutes } = props
+  return (
+    <div className="forum-auto-row">
+      <label className="forum-switch">
+        <input
+          type="checkbox" checked={setting.enabled} aria-label={setting.preset}
+          onChange={event => { onToggle(event.target.checked) }}
+        />
+        <span className="forum-switch-track" aria-hidden="true" />
+      </label>
+      <div className="forum-auto-info">
+        <span className="forum-auto-name">{setting.preset}</span>
+        <span className="forum-auto-note">
+          {t('lastAt')}: {lastAt ?? t('never')}
+        </span>
+        {lastError !== undefined && <span className="forum-form-error">{lastError}</span>}
+      </div>
+      <input
+        className="forum-input forum-auto-min" type="number" min={1}
+        aria-label={t('everyMinutes')} value={setting.everyMinutes}
+        onChange={event => { onMinutes(Math.max(1, Number(event.target.value) || 1)) }}
+      />
+    </div>
+  )
+}
+
+/** The card body: the hint, one row per preset, and the save button. 卡片体：提示、每个预设一行与保存按钮。 */
+function AutoPostBody(props: {
+  readonly t: (key: ForumKey) => string
+  readonly snapshot: AutoPostSnapshot
+  readonly settings: readonly AutoPostSettings[]
+  readonly readOnly: boolean
+  readonly pending: boolean
+  readonly dirty: boolean
+  readonly onDraft: (preset: string, setting: AutoPostSettings) => void
+  readonly onSave: () => void
+}) {
+  const { t, snapshot, settings, readOnly, pending, dirty, onDraft, onSave } = props
+  return (
+    <div className="forum-card-body">
+      <p className="forum-side-hint">{t('autoPostHint')}</p>
+      {settings.map(setting => (
+        <AutoPostRow
+          key={setting.preset} t={t} setting={setting}
+          lastAt={snapshot.lastAt[setting.preset]} lastError={snapshot.lastError[setting.preset]}
+          onToggle={enabled => { onDraft(setting.preset, { ...setting, enabled }) }}
+          onMinutes={minutes => { onDraft(setting.preset, { ...setting, everyMinutes: minutes }) }}
+        />
+      ))}
+      <button
+        type="button" className="forum-btn forum-primary forum-wide"
+        disabled={readOnly || pending || !dirty} onClick={onSave}
+      >{t('save')}</button>
+    </div>
   )
 }
 
@@ -141,45 +217,12 @@ function AutoPostCard(props: {
         <ChevronIcon />
       </button>
       {open && (
-        <div className="forum-card-body">
-          <p className="forum-side-hint">{t('autoPostHint')}</p>
-          {settings.map(setting => (
-            <div key={setting.preset} className="forum-auto-row">
-              <label className="forum-switch">
-                <input
-                  type="checkbox" checked={setting.enabled} aria-label={setting.preset}
-                  onChange={event => {
-                    setDrafts({ ...drafts, [setting.preset]: { ...setting, enabled: event.target.checked } })
-                  }}
-                />
-                <span className="forum-switch-track" aria-hidden="true" />
-              </label>
-              <div className="forum-auto-info">
-                <span className="forum-auto-name">{setting.preset}</span>
-                <span className="forum-auto-note">
-                  {t('lastAt')}: {snapshot.lastAt[setting.preset] ?? t('never')}
-                </span>
-                {snapshot.lastError[setting.preset] !== undefined && (
-                  <span className="forum-form-error">{snapshot.lastError[setting.preset]}</span>
-                )}
-              </div>
-              <input
-                className="forum-input forum-auto-min" type="number" min={1}
-                aria-label={t('everyMinutes')} value={setting.everyMinutes}
-                onChange={event => {
-                  setDrafts({
-                    ...drafts,
-                    [setting.preset]: { ...setting, everyMinutes: Math.max(1, Number(event.target.value) || 1) },
-                  })
-                }}
-              />
-            </div>
-          ))}
-          <button
-            type="button" className="forum-btn forum-primary forum-wide"
-            disabled={readOnly || pending || !dirty} onClick={save}
-          >{t('save')}</button>
-        </div>
+        <AutoPostBody
+          t={t} snapshot={snapshot} settings={settings}
+          readOnly={readOnly} pending={pending} dirty={dirty}
+          onDraft={(preset, setting) => { setDrafts({ ...drafts, [preset]: setting }) }}
+          onSave={save}
+        />
       )}
     </section>
   )

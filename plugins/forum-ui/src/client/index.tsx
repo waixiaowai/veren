@@ -29,9 +29,10 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import { createForumCatalog } from './catalog.ts'
+import type { ForumCatalog } from './catalog.ts'
 import { en, NS, zh, type ForumKey } from './locales.ts'
 import { ForumPanel, type ForumPanelInjected } from './panel.tsx'
-import { forumRemote, type AutoPostSnapshot, type ForumRemoteApi } from './remote.ts'
+import { forumRemote, type AutoPostSnapshot, type ForumRemoteApi, type PostDetailView } from './remote.ts'
 import { installPanelStyles } from './styles.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -50,6 +51,50 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 
 /** Sidebar and main-panel identity of the page. */
 const PANEL_ID = 'forum' as MainPanelId
+
+/**
+ * Build the panel's inject face over the mounted namespace: the two
+ * observables plus one callback per write endpoint, each translating the
+ * Remote result into the plain value or the thrown error the page expects.
+ * Only plain data and callbacks return here — the apply-closure facts the slot
+ * render fibers can never reach on their own.
+ * 基于已挂载命名空间构建面板注入面：两个可观察对象，加每个写入端点一个回调——各自把
+ * 远端结果翻译成页面期望的普通值或抛出的错误。这里只返回普通数据与回调——正是 slot 渲染
+ * fiber 自己触达不到的 apply 闭包事实。
+ * @param api - the mounted `remote.forum` namespace.
+ * @param catalog - the page's catalog observable and refresh.
+ * @param autoPost - the auto-post observable.
+ * @returns the inject face the main-panel slot resolves.
+ */
+function forumInjectFace(
+  api: ForumRemoteApi, catalog: ForumCatalog, autoPost: { readonly source: HostObservable<AutoPostSnapshot> },
+): ForumPanelInjected {
+  const openPost = async (postId: string): Promise<PostDetailView> => {
+    const r = await api.post({ postId })
+    if (!r.ok) throw new Error(r.error.message)
+    return r.value
+  }
+  return {
+    hooks: { catalog: catalog.source, autoPost: autoPost.source },
+    onRefresh: catalog.refresh,
+    onEnsureBoard: async (workspaceId: string, path: string) => {
+      const r = await api.ensureBoard({ workspaceId, path })
+      if (!r.ok) throw new Error(r.error.message)
+    },
+    onOpenPost: openPost,
+    onPublish: async (input) => { const r = await api.publish(input); if (!r.ok) throw new Error(r.error.message) },
+    onComment: async (input) => { const r = await api.comment(input); if (!r.ok) throw new Error(r.error.message) },
+    onVote: async (input) => { const r = await api.vote(input); if (!r.ok) throw new Error(r.error.message) },
+    onPin: async (input) => { const r = await api.pin(input); if (!r.ok) throw new Error(r.error.message) },
+    onReadInbox: async (recipient: string) => {
+      const r = await api.inbox({ recipient })
+      if (!r.ok) throw new Error(r.error.message)
+      return r.value
+    },
+    onMarkAllRead: async (recipient: string) => { const r = await api.markRead({ recipient, all: true }); if (!r.ok) throw new Error(r.error.message) },
+    onSaveAutoPost: async (settings) => { const r = await api.autoPost({ settings }); if (!r.ok) throw new Error(r.error.message) },
+  }
+}
 
 /**
  * Client services of the entry plugin. `remote.forum` must NOT be declared
@@ -85,24 +130,11 @@ const PanelPlugin = {
     const t = ctx.locale.bind(NS)
     const catalog = createForumCatalog(api)
     const autoPost = createAutoPostSource(api)
-    const openPost = async (postId: string) => { const r = await api.post({ postId }); if (!r.ok) throw new Error(r.error.message); return r.value }
     ctx.slots.inject('main', () => ctx.slots.register({
       name: 'main',
       key: PANEL_ID,
       locale: NS,
-      inject: (): ForumPanelInjected => ({
-        hooks: { catalog: catalog.source, autoPost: autoPost.source },
-        onRefresh: catalog.refresh,
-        onEnsureBoard: async (workspaceId: string, path: string) => { const r = await api.ensureBoard({ workspaceId, path }); if (!r.ok) throw new Error(r.error.message) },
-        onOpenPost: openPost,
-        onPublish: async (input) => { const r = await api.publish(input); if (!r.ok) throw new Error(r.error.message) },
-        onComment: async (input) => { const r = await api.comment(input); if (!r.ok) throw new Error(r.error.message) },
-        onVote: async (input) => { const r = await api.vote(input); if (!r.ok) throw new Error(r.error.message) },
-        onPin: async (input) => { const r = await api.pin(input); if (!r.ok) throw new Error(r.error.message) },
-        onReadInbox: async (recipient: string) => { const r = await api.inbox({ recipient }); if (!r.ok) throw new Error(r.error.message); return r.value },
-        onMarkAllRead: async (recipient: string) => { const r = await api.markRead({ recipient, all: true }); if (!r.ok) throw new Error(r.error.message) },
-        onSaveAutoPost: async (settings) => { const r = await api.autoPost({ settings }); if (!r.ok) throw new Error(r.error.message) },
-      }),
+      inject: () => forumInjectFace(api, catalog, autoPost),
     }, ForumPanel))
     ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
       name: 'sidebar.panellist',

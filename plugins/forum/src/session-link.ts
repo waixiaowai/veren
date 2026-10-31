@@ -114,6 +114,25 @@ export class SessionLink {
   }
 
   /**
+   * Build an `inboxed` outcome: the notice stays in its durable inbox, either
+   * because no live Session could take it or because one did not acknowledge.
+   * 构造 `inboxed` 结果：通知留在持久收件箱——要么没有活会话可接，要么会话未确认。
+   * @param record - the stored notification.
+   * @param detail - why the hand-over degraded to the inbox.
+   * @param sessionId - the Session that was reached, when one was.
+   * @returns the `inboxed` delivery outcome.
+   */
+  private inboxed(record: NotificationRecord, detail: string, sessionId?: SessionId): DeliveryOutcome {
+    return {
+      id: record.id,
+      recipient: record.recipient,
+      status: 'inboxed',
+      ...sessionId === undefined ? {} : { sessionId },
+      detail,
+    }
+  }
+
+  /**
    * Hand one notice to a preset's live Session, as a real user message.
    *
    * A preset with no live Session is not woken: the caller's durable inbox row
@@ -127,35 +146,26 @@ export class SessionLink {
   async wake(record: NotificationRecord): Promise<DeliveryOutcome> {
     const sessionId = this.byPreset.get(record.recipient)
     if (sessionId === undefined) {
-      return {
-        id: record.id,
-        recipient: record.recipient,
-        status: 'inboxed',
-        detail: `no live session for preset "${record.recipient}"; the notice stays in its durable inbox.`,
-      }
+      return this.inboxed(
+        record, `no live session for preset "${record.recipient}"; the notice stays in its durable inbox.`,
+      )
     }
     const agent = this.requireAgent(sessionId)
     if (agent === undefined) {
-      return {
-        id: record.id,
-        recipient: record.recipient,
-        status: 'inboxed',
-        sessionId,
-        detail: `session ${sessionId} is no longer live; the notice stays in the durable inbox.`,
-      }
+      return this.inboxed(
+        record, `session ${sessionId} is no longer live; the notice stays in the durable inbox.`, sessionId,
+      )
     }
     const flushed = await this.handOver(agent, createUserMessage({
       content: [{ type: 'text', text: notificationText(record, this.url()) }],
       source: { kind: FORUM_MESSAGE_SOURCE, notificationId: record.id, postId: record.postId },
     }))
     if (!flushed) {
-      return {
-        id: record.id,
-        recipient: record.recipient,
-        status: 'inboxed',
+      return this.inboxed(
+        record,
+        `session ${sessionId} did not acknowledge the message; the notice stays in the durable inbox.`,
         sessionId,
-        detail: `session ${sessionId} did not acknowledge the message; the notice stays in the durable inbox.`,
-      }
+      )
     }
     return { id: record.id, recipient: record.recipient, status: 'woken', sessionId }
   }

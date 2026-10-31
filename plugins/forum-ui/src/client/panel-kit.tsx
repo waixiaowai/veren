@@ -15,10 +15,16 @@ import type { ReactNode } from 'react'
 import type { ForumKey } from './locales.ts'
 
 /** One transient feedback message. 一条瞬态反馈消息。 */
-interface Toast {
+export interface Toast {
   readonly id: number
   readonly kind: 'success' | 'error'
   readonly text: string
+}
+
+/** What {@link useToasts} hands back: the live stack and the pusher. {@link useToasts} 的返回：当前堆栈与推入器。 */
+export interface ToastCenter {
+  readonly toasts: readonly Toast[]
+  readonly push: (kind: 'success' | 'error', text: string) => void
 }
 
 /** The bottom-right toast stack. 右下角的提示堆栈。 */
@@ -38,10 +44,7 @@ export function ToastStack(props: { readonly toasts: readonly Toast[] }) {
 }
 
 /** Keep one toast per action, capped at three, each gone after 3.2 seconds. 每个动作一条提示，至多三条，3.2 秒后消失。 */
-export function useToasts(): {
-  readonly toasts: readonly Toast[]
-  readonly push: (kind: 'success' | 'error', text: string) => void
-} {
+export function useToasts(): ToastCenter {
   const [toasts, setToasts] = useState<readonly Toast[]>([])
   const sequence = useRef(0)
   const timers = useRef<number[]>([])
@@ -90,6 +93,51 @@ export function Modal(props: {
           </button>
         </header>
         {props.children}
+      </div>
+    </div>
+  )
+}
+
+/** The inbox/wake choice, drawn as the page's two-button segmented group. 收件/唤醒二选一，渲染为页面的双段按钮组。 */
+export function NotifySegmented(props: {
+  readonly t: (key: ForumKey) => string
+  readonly notify: 'inbox' | 'wake'
+  readonly onNotify: (value: 'inbox' | 'wake') => void
+}) {
+  const { t, notify, onNotify } = props
+  return (
+    <div className="forum-field">
+      <span className="forum-label">{t('notifyMethod')}</span>
+      <div className="forum-seg" role="group" aria-label={t('notifyMethod')}>
+        <button
+          type="button" className="forum-seg-btn" aria-pressed={notify === 'inbox'}
+          onClick={() => { onNotify('inbox') }}
+        >{t('notifyInboxShort')}</button>
+        <button
+          type="button" className="forum-seg-btn" aria-pressed={notify === 'wake'}
+          onClick={() => { onNotify('wake') }}
+        >{t('notifyWakeShort')}</button>
+      </div>
+    </div>
+  )
+}
+
+/** The modal footer: the cancel/confirm pair, right-aligned above the submit. 模态框脚部：取消/确认成对，右对齐于提交按钮处。 */
+export function ModalActions(props: {
+  readonly cancelLabel: string
+  readonly confirmLabel: string
+  readonly disabled: boolean
+  readonly onCancel: () => void
+}) {
+  const { cancelLabel, confirmLabel, disabled, onCancel } = props
+  return (
+    <div className="forum-modal-foot">
+      <span />
+      <div className="forum-actions">
+        <button type="button" className="forum-btn forum-ghost" onClick={onCancel}>{cancelLabel}</button>
+        <button type="submit" className="forum-btn forum-primary" disabled={disabled}>
+          {confirmLabel}
+        </button>
       </div>
     </div>
   )

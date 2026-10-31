@@ -39,6 +39,19 @@ import { POST_SORTS } from './types.ts'
 import { jsonOf } from './views.ts'
 import type { ForumToolsPort } from './ports.ts'
 
+/** The `list` tool's static description, hoisted out of the builder. `list` 工具的静态描述，从构建器中提出。 */
+const LIST_DESCRIPTION = 'List the forum boards and one board\'s posts with vote/view/comment counters. '
+  + 'Filter by keyword or tag; sort by heat (default), new, or views. '
+  + '浏览论坛板块与主题列表。Parameters: boardId?, query?, tag?, sort?.'
+
+/** The `list` tool's static parameter schema, hoisted out of the builder. `list` 工具的静态参数模式，从构建器中提出。 */
+const LIST_PARAMETERS = {
+  boardId: { type: 'string', description: 'Board id from an earlier call; omit for the first board.' },
+  query: { type: 'string', description: 'Keyword matched against title, body, tags, and author.' },
+  tag: { type: 'string', description: 'Exact tag to filter by.' },
+  sort: { type: 'string', enum: [...POST_SORTS], description: 'Ordering.' },
+} as const
+
 /**
  * Build the `list` tool definition (unregistered): the boards and one board's
  * posts, with the counters and the known presets.
@@ -49,15 +62,8 @@ import type { ForumToolsPort } from './ports.ts'
 export function buildForumListDefinition(_ctx: Context, port: () => ForumToolsPort): ToolDefinition {
   return defineTool({
     name: 'list',
-    description: 'List the forum boards and one board\'s posts with vote/view/comment counters. '
-      + 'Filter by keyword or tag; sort by heat (default), new, or views. '
-      + '浏览论坛板块与主题列表。Parameters: boardId?, query?, tag?, sort?.',
-    parameters: {
-      boardId: { type: 'string', description: 'Board id from an earlier call; omit for the first board.' },
-      query: { type: 'string', description: 'Keyword matched against title, body, tags, and author.' },
-      tag: { type: 'string', description: 'Exact tag to filter by.' },
-      sort: { type: 'string', enum: [...POST_SORTS], description: 'Ordering.' },
-    },
+    description: LIST_DESCRIPTION,
+    parameters: LIST_PARAMETERS,
     output: { schema: LIST_VIEW_SCHEMA, render: renderValue },
     async execute(args) {
       try {
@@ -108,6 +114,20 @@ export function buildForumReadDefinition(ctx: Context, port: () => ForumToolsPor
   })
 }
 
+/** The `post` tool's static description, hoisted out of the builder. `post` 工具的静态描述，从构建器中提出。 */
+const POST_DESCRIPTION = 'Publish one forum post in your own preset name; `@name` in the body notifies that preset. '
+  + 'The board defaults to the workspace this session works in. '
+  + '以你自己的预设名义发表一个论坛主题；正文 @预设名 会通知它。Parameters: title, body, tags?, boardId?, notify?.'
+
+/** The `post` tool's static parameter schema, hoisted out of the builder. `post` 工具的静态参数模式，从构建器中提出。 */
+const POST_PARAMETERS = {
+  title: { type: 'string', required: true, description: 'Post title.' },
+  body: { type: 'string', required: true, description: 'Post body; `@preset` mentions notify that preset.' },
+  tags: { type: 'array', items: { type: 'string' }, description: 'Topic tags.' },
+  boardId: { type: 'string', description: 'Board to post in; omit for this session\u2019s workspace.' },
+  notify: { type: 'string', enum: ['inbox', 'wake'], description: 'Whether to wake a live session or leave the notice in its inbox.' },
+} as const
+
 /**
  * Build the `post` tool definition (unregistered): publish one post in the
  * caller's own preset name, mentions notified.
@@ -116,16 +136,8 @@ export function buildForumReadDefinition(ctx: Context, port: () => ForumToolsPor
 export function buildForumPostDefinition(ctx: Context, port: () => ForumToolsPort): ToolDefinition {
   return defineTool({
     name: 'post',
-    description: 'Publish one forum post in your own preset name; `@name` in the body notifies that preset. '
-      + 'The board defaults to the workspace this session works in. '
-      + '以你自己的预设名义发表一个论坛主题；正文 @预设名 会通知它。Parameters: title, body, tags?, boardId?, notify?.',
-    parameters: {
-      title: { type: 'string', required: true, description: 'Post title.' },
-      body: { type: 'string', required: true, description: 'Post body; `@preset` mentions notify that preset.' },
-      tags: { type: 'array', items: { type: 'string' }, description: 'Topic tags.' },
-      boardId: { type: 'string', description: 'Board to post in; omit for this session\u2019s workspace.' },
-      notify: { type: 'string', enum: ['inbox', 'wake'], description: 'Whether to wake a live session or leave the notice in its inbox.' },
-    },
+    description: POST_DESCRIPTION,
+    parameters: POST_PARAMETERS,
     output: { schema: WRITE_SCHEMA, render: renderValue },
     async execute(args, exec) {
       const caller = callerOf(ctx, exec.agent)

@@ -14,6 +14,47 @@ import type { BoardView, PersonView } from './remote.ts'
 import type { ForumKey } from './locales.ts'
 import { ChatIcon, GearIcon, PlusIcon } from './panel-kit.tsx'
 
+/** The header's right side: the acting-as picker and the config/new-post actions. 页头右侧：身份选择器与配置/发帖两个动作。 */
+function HeaderActions(props: {
+  readonly t: (key: ForumKey) => string
+  readonly people: readonly PersonView[]
+  readonly active: string | undefined
+  readonly configOpen: boolean
+  readonly onActor: (value: string) => void
+  readonly onToggleConfig: () => void
+  readonly onOpenComposer: () => void
+}) {
+  const { t, people, active, configOpen, onActor, onToggleConfig, onOpenComposer } = props
+  return (
+    <div className="forum-header-actions">
+      {people.length > 0 && (
+        <label className="forum-actor">
+          <span>{t('actingAs')}</span>
+          <select
+            value={active ?? ''} aria-label={t('actingAs')}
+            onChange={event => { onActor(event.target.value) }}
+          >
+            {people.map(person => <option key={person.name} value={person.name}>{person.name}</option>)}
+          </select>
+        </label>
+      )}
+      <button
+        type="button"
+        className={configOpen ? 'forum-btn forum-primary forum-cta' : 'forum-btn forum-cta'}
+        aria-pressed={configOpen}
+        onClick={onToggleConfig}
+      >
+        <GearIcon />
+        {t('config')}
+      </button>
+      <button type="button" className="forum-btn forum-primary forum-cta" onClick={onOpenComposer}>
+        <PlusIcon />
+        {t('newPost')}
+      </button>
+    </div>
+  )
+}
+
 /** The page header: title, acting-as picker, and the config/new-post actions. 页头：标题、身份选择器与配置/发帖两个动作。 */
 export function PageHeader(props: {
   readonly t: (key: ForumKey) => string
@@ -34,32 +75,10 @@ export function PageHeader(props: {
         </div>
         <p>{t('panelSubtitle')}</p>
       </div>
-      <div className="forum-header-actions">
-        {people.length > 0 && (
-          <label className="forum-actor">
-            <span>{t('actingAs')}</span>
-            <select
-              value={active ?? ''} aria-label={t('actingAs')}
-              onChange={event => { onActor(event.target.value) }}
-            >
-              {people.map(person => <option key={person.name} value={person.name}>{person.name}</option>)}
-            </select>
-          </label>
-        )}
-        <button
-          type="button"
-          className={configOpen ? 'forum-btn forum-primary forum-cta' : 'forum-btn forum-cta'}
-          aria-pressed={configOpen}
-          onClick={onToggleConfig}
-        >
-          <GearIcon />
-          {t('config')}
-        </button>
-        <button type="button" className="forum-btn forum-primary forum-cta" onClick={onOpenComposer}>
-          <PlusIcon />
-          {t('newPost')}
-        </button>
-      </div>
+      <HeaderActions
+        t={t} people={people} active={active} configOpen={configOpen}
+        onActor={onActor} onToggleConfig={onToggleConfig} onOpenComposer={onOpenComposer}
+      />
     </header>
   )
 }
