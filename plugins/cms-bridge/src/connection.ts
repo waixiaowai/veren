@@ -1,36 +1,35 @@
 /**
- * 连接层:WebSocket 长连接生命周期 + CmsBridgeService 门面。
- * 状态机:idle → connecting → connected;断线 → reconnecting(退避重连);
- * 凭证失效 → awaiting-credential(停靠);卸载 → disposed。
- * The connection layer: the WebSocket lifecycle plus the CmsBridgeService
- * facade. State machine: idle → connecting → connected; drop → reconnecting
- * (backoff); invalid credential → awaiting-credential; unload → disposed.
+ * 连接层：WebSocket 长连接生命周期。
+ * 状态机：idle → connecting → connected；断线 → reconnecting（退避重连）；
+ * 凭证失效 → awaiting-credential（停靠）；卸载 → disposed。
+ * The connection layer: the WebSocket lifecycle. State machine: idle →
+ * connecting → connected; drop → reconnecting (backoff); invalid credential →
+ * awaiting-credential (parked); unload → disposed.
+ *
+ * 身份事实在 ./identity.ts，对外门面在 ./service.ts；本模块再导出它们，因此
+ * `./connection.js` 的既有导入面不变。
+ * Identity facts live in ./identity.ts and the public facade in ./service.ts;
+ * this module re-exports both so the import surface of `./connection.js` is
+ * unchanged.
  */
 
 import type { Context, LoggerType } from '@deepseek-ai/cordis';
-import { Service } from '@deepseek-ai/cordis';
-import { Dispatcher } from './dispatcher.js';
 import type { BridgeState, BridgeStatus, SocketFactory, SocketLike } from './protocol.js';
-import { CREDENTIAL_INVALID, CmsBridge, isCredentialFailure, parseServerFrame, serializeClientFrame } from './protocol.js';
-import { EventReporter } from './reporter.js';
+import { CREDENTIAL_INVALID, isCredentialFailure, parseServerFrame, serializeClientFrame } from './protocol.js';
+import type { Dispatcher } from './dispatcher.js';
+import type { EventReporter } from './reporter.js';
+import { IDENTITY_EVENT, type NodeIdentity } from './identity.js';
 
-/** 事件契约:状态变更广播。@mode emit(纯通知) */
+/** 事件契约：状态变更广播。@mode emit(纯通知) */
 /** The event contract: status-change broadcasts. @mode emit (notification only). */
 declare module '@deepseek-ai/cordis' {
-    interface Events {
-        'cms-bridge/status': (status: BridgeStatus) => void;
-    }
+  interface Events {
+    'cms-bridge/status': (status: BridgeStatus) => void;
+  }
 }
 
-/** 节点身份:随连接上报给 cms,可在 Web UI 自定义 / the node identity: reported to cms on connect, editable in the Web UI */
-export interface NodeIdentity {
-  /** 稳定 uuid;首次启动自动生成 / stable uuid; auto-generated on first boot */
-  nodeId: string;
-  nodeName: string;
-  nodeDescription: string;
-  /** 图标:emoji、短字符或图片 URL / icon: an emoji, a short glyph or an image URL */
-  nodeIcon: string;
-}
+export { IDENTITY_EVENT, type NodeIdentity } from './identity.js';
+export { CmsBridgeService } from './service.js';
 
 /** 连接层配置(归一化后)/ the normalized connection-layer config */
 export interface ConnectionConfig extends NodeIdentity {
@@ -42,10 +41,7 @@ export interface ConnectionConfig extends NodeIdentity {
   credentialCloseCodes: number[];
 }
 
-/** 身份上报事件名 / the identity report event name */
-export const IDENTITY_EVENT = 'node.identity';
-
-/** 连接管理器:收发、重连、凭证失效停试、状态快照 / owns send/receive, reconnection, credential parking and status */
+/** 连接管理器：收发、重连、凭证失效停试、状态快照 / owns send/receive, reconnection, credential parking and status */
 export class ConnectionManager {
   private socket: SocketLike | null = null;
   private state: BridgeState = 'idle';
@@ -68,7 +64,7 @@ export class ConnectionManager {
   }
 
   /**
-   * 设备 ID:由 @veren/device-id 解析的稳定机器标识;解析完成前为空字符串。
+   * 设备 ID：由 @veren/device-id 解析的稳定机器标识；解析完成前为空字符串。
    * The device id: the stable machine identifier resolved by
    * @veren/device-id; an empty string until resolution finishes.
    */
@@ -79,7 +75,7 @@ export class ConnectionManager {
     this.open('connecting');
   }
 
-  /** 当前状态快照(可观测);node 携带身份供 Web UI 展示 / the status snapshot; node carries the identity for the Web UI */
+  /** 当前状态快照(可观测)；node 携带身份供 Web UI 展示 / the status snapshot; node carries the identity for the Web UI */
   status(): BridgeStatus {
     return {
       state: this.state,
@@ -106,7 +102,7 @@ export class ConnectionManager {
   }
 
   /**
-   * 更新身份:改内存配置;连接中立即重新上报一次(离线时入队自动补报)。
+   * 更新身份：改内存配置；连接中立即重新上报一次(离线时入队自动补报)。
    * Updates the identity in memory; while connected it re-reports at once
    * (queued automatically when offline).
    */
@@ -122,7 +118,7 @@ export class ConnectionManager {
   }
 
   /**
-   * 换新凭证:仅当处于等待重配置状态时触发重连(P3 的恢复路径)。
+   * 换新凭证：仅当处于等待重配置状态时触发重连(P3 的恢复路径)。
    * Applies a fresh credential; reconnects only from the awaiting-credential
    * parked state (the recovery path of P3).
    */
@@ -135,7 +131,7 @@ export class ConnectionManager {
     }
   }
 
-  /** 逆序清理:停定时器、关 socket、落 disposed 状态 / cleanup: stop timers, close the socket, mark disposed */
+  /** 逆序清理：停定时器、关 socket、落 disposed 状态 / cleanup: stop timers, close the socket, mark disposed */
   dispose(): void {
     this.disposed = true;
     if (this.retryTimer) clearTimeout(this.retryTimer);
@@ -169,7 +165,7 @@ export class ConnectionManager {
     });
   }
 
-  /** 连接成功:归零重试计数,接入上报器,上报身份并补报积压 / on open: reset attempts, announce identity and flush the backlog */
+  /** 连接成功：归零重试计数，接入上报器，上报身份并补报积压 / on open: reset attempts, announce identity and flush the backlog */
   private onOpen(socket: SocketLike): void {
     if (this.disposed || this.socket !== socket) return;
     this.attempts = 0;
@@ -178,14 +174,14 @@ export class ConnectionManager {
     this.setState('connected');
     this.log('info', 'connected');
     this.reporter.setConnected(socket);
-    // 每次连接成功都上报一次身份(设备 ID + 节点身份;离线期间产生的上报按序补报)
+    // 每次连接成功都上报一次身份(设备 ID + 节点身份；离线期间产生的上报按序补报)
     // Announce the identity on every successful connect (device id + node
     // identity; offline reports replay in order automatically).
     this.reporter.report(IDENTITY_EVENT, { ...this.reportIdentity() });
   }
 
   /**
-   * 断线:凭证失效 close code 停试停靠,其余退避重连;仅当前 socket 的关闭生效
+   * 断线：凭证失效 close code 停试停靠，其余退避重连；仅当前 socket 的关闭生效
    * (迟到/被顶替的 onClose 忽略)。 On close: a credential close code parks
    * the bridge; only the current socket's close counts (late/replaced ones
    * are ignored so no reconnect is scheduled twice).
@@ -205,7 +201,7 @@ export class ConnectionManager {
     this.scheduleReconnect(`connection closed (code ${code})`);
   }
 
-  /** 收到服务端报文:指令交给分发器并把回执发回去 / on frame: dispatch commands and send results back */
+  /** 收到服务端报文：指令交给分发器并把回执发回去 / on frame: dispatch commands and send results back */
   private onMessage(text: string): void {
     const frame = parseServerFrame(text);
     if (!frame) {
@@ -213,32 +209,43 @@ export class ConnectionManager {
       return;
     }
     if (frame.type === 'command') {
-      this.log('info', `command ${frame.id} received: ${frame.action}`);
-      void this.dispatcher.dispatch(frame.id, frame.action, frame.payload).then((result) => {
-        this.log('info', `command ${frame.id} ${result.ok ? 'succeeded' : `failed (${result.code})`}`);
-        this.socket?.send(serializeClientFrame(result));
-      });
+      this.dispatchCommand(frame.id, frame.action, frame.payload);
       return;
     }
     if (frame.type === 'error' && isCredentialFailure(frame.code, this.credentialCodes)) {
-      // 服务端以应用层报文拒绝凭证:先脱手 socket 再 close,否则随之而来的
-      // onClose 会被当成普通断线再排一次重连。
-      // An app-level credential rejection: detach the socket before closing —
-      // otherwise the resulting onClose reads as a normal drop.
-      this.lastError = frame.message ?? CREDENTIAL_INVALID;
-      this.setState('awaiting-credential');
-      const socket = this.socket;
-      this.socket = null;
-      this.reporter.setConnected(null);
-      socket?.close(4000);
-      this.log('error', `credential rejected by server: ${this.lastError}; parked`);
+      this.parkCredential(frame.message ?? CREDENTIAL_INVALID);
       return;
     }
-    // event_ack 等其余报文当前无消费方,记录即可 / no consumer for event_ack yet; just log
+    // event_ack 等其余报文当前无消费方，记录即可 / no consumer for event_ack yet; just log
     this.log('debug', `frame handled: ${frame.type}`);
   }
 
-  /** 指数退避安排重连;退避到点发起新尝试(状态回到 connecting) */
+  /** 指令帧：交给分发器并把回执发回去 / command frame: dispatch and send the result back */
+  private dispatchCommand(id: string, action: string, payload: unknown): void {
+    this.log('info', `command ${id} received: ${action}`);
+    void this.dispatcher.dispatch(id, action, payload).then((result) => {
+      this.log('info', `command ${id} ${result.ok ? 'succeeded' : `failed (${result.code})`}`);
+      this.socket?.send(serializeClientFrame(result));
+    });
+  }
+
+  /**
+   * 服务端以应用层报文拒绝凭证：先脱手 socket 再 close，否则随之而来的
+   * onClose 会被当成普通断线再排一次重连。
+   * An app-level credential rejection: detach the socket before closing —
+   * otherwise the resulting onClose reads as a normal drop.
+   */
+  private parkCredential(reason: string): void {
+    this.lastError = reason;
+    this.setState('awaiting-credential');
+    const socket = this.socket;
+    this.socket = null;
+    this.reporter.setConnected(null);
+    socket?.close(4000);
+    this.log('error', `credential rejected by server: ${this.lastError}; parked`);
+  }
+
+  /** 指数退避安排重连；退避到点发起新尝试(状态回到 connecting) */
   /** schedules a reconnect with exponential backoff; a fresh attempt returns the state to connecting */
   private scheduleReconnect(reason: string): void {
     if (this.disposed || this.retryTimer) return;
@@ -256,7 +263,7 @@ export class ConnectionManager {
     }, delay);
   }
 
-  /** 状态变更:留痕并广播 / on state change: log and broadcast locally */
+  /** 状态变更：留痕并广播 / on state change: log and broadcast locally */
   private setState(state: BridgeState): void {
     if (this.state === state) return;
     this.state = state;
@@ -264,10 +271,10 @@ export class ConnectionManager {
   }
 
   /**
-   * 纯文本日志出口:dispose 阶段绕过可能失效的 ctx 代理直读 logger。 The plain-text log sink: dispose runs where the ctx proxy may be gone; read the logger directly.
+   * 纯文本日志出口：dispose 阶段绕过可能失效的 ctx 代理直读 logger。 The plain-text log sink: dispose runs where the ctx proxy may be gone; read the logger directly.
    *
-   * `ctx.get('logger', false)` 即 cordis 的非严格读取:服务不在场时给 undefined
-   * 而不是抛 without-inject,类型仍来自声明合并（不再用 Record 索引强转）。
+   * `ctx.get('logger', false)` 即 cordis 的非严格读取：服务不在场时给 undefined
+   * 而不是抛 without-inject，类型仍来自声明合并（不再用 Record 索引强转）。
    * `ctx.get('logger', false)` is cordis's non-strict read: undefined instead of a
    * without-inject throw, still typed by the declaration merge (no Record cast).
    */
@@ -278,59 +285,5 @@ export class ConnectionManager {
       return;
     }
     logger[type]('cms-bridge: %s', message);
-  }
-}
-
-/**
- * 对外服务门面:其他插件注入 CmsBridge 令牌即可注册 action、上报事件、查询
- * 运行状态、更换凭证与更新节点身份。构造即注册为 'cmsBridge' 服务。
- * The public facade: other plugins inject the CmsBridge token to register
- * actions, report events, read status, rotate the credential and update the
- * node identity. Constructing registers the 'cmsBridge' service.
- */
-export class CmsBridgeService extends Service {
-  constructor(ctx: Context, readonly manager: ConnectionManager) {
-    super(ctx, CmsBridge);
-  }
-
-  /** 注册一个 action 映射 / declares one action mapping */
-  registerAction(action: string, entry: Parameters<Dispatcher['register']>[1]): void {
-    this.manager.dispatcher.register(action, entry);
-    this.ctx.logger.info('cms-bridge: action registered: %s', action);
-  }
-
-  /** 注销一个 action 映射 / removes one action mapping */
-  unregisterAction(action: string): boolean {
-    return this.manager.dispatcher.unregister(action);
-  }
-
-  /** 主动上报一条事件(断线自动补报)/ reports one event (auto-replayed when offline) */
-  report(name: string, payload?: unknown): { queued: boolean; id: string } {
-    return this.manager.reporter.report(name, payload);
-  }
-
-  /** 运行状态快照 / the runtime status snapshot */
-  status(): BridgeStatus {
-    return this.manager.status();
-  }
-
-  /** 更换凭证(等待重配置状态下会自动恢复连接)/ applies a new credential (auto-resumes from the parked state) */
-  setCredential(token: string): void {
-    this.manager.setCredential(token);
-  }
-
-  /** 当前节点身份 / the current node identity */
-  identity(): NodeIdentity {
-    return this.manager.identity();
-  }
-
-  /** 更新节点身份(连接中立即重新上报)/ updates the node identity (re-reports immediately while connected) */
-  setIdentity(identity: NodeIdentity): void {
-    this.manager.setIdentity(identity);
-  }
-
-  /** 只读配置视图 / the readonly config view */
-  connectionConfig(): Readonly<ConnectionConfig> {
-    return this.manager.connectionConfig;
   }
 }

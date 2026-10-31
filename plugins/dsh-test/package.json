@@ -16,6 +16,10 @@
   "files": [
     "dist/index.js",
     "dist/index.d.ts",
+    "dist/config.js",
+    "dist/config.d.ts",
+    "dist/instance.js",
+    "dist/instance.d.ts",
     "dist/port.js",
     "dist/port.d.ts",
     "dist/process.js",

@@ -4,22 +4,21 @@
  * The kernel owns three decisions and nothing else: which provider serves a
  * capability, whether the contract version admits it, and whether the platform
  * may serve traffic at all. It imports no provider, so replacing one never
- * touches kernel code.
+ * touches kernel code. Catalog projection lives in `./catalog.ts`, plugin
+ * configuration in `./config.ts`; this module only composes them.
  *
- * `@veren/admin-kernel` — provider 注册表与稳定能力 façade。内核只负责三个决定：
- * 哪个 provider 服务某个能力、契约版本是否接纳它、平台是否可以对外提供服务。它不
- * import 任何 provider，因此替换实现永远不需要改动内核代码。
+ * `@veren/admin-kernel` — provider 注册表与稳定能力 façade。内核只负责三个决定：哪个
+ * provider 服务某个能力、契约版本是否接纳它、平台是否可以对外服务。它不 import 任何
+ * provider，因此替换实现永远不需要改内核代码。目录投影在 `./catalog.ts`，插件配置在
+ * `./config.ts`；本模块只负责组装。
  *
  * @module @veren/admin-kernel
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
-import z from '@deepseek-ai/schemastery'
 import {
   ADMIN_CONTRACT_VERSION,
   AdminError,
-  ESSENTIAL_CAPABILITIES,
-  OPTIONAL_CAPABILITIES,
   type AdminAccess,
   type AdminAudit,
   type AdminAuth,
@@ -30,15 +29,17 @@ import {
   type CapabilityCatalog,
   type CapabilityFeatures,
   type CapabilityName,
-  type CapabilityState,
   type HealthReport,
   type ProviderManifest,
 } from '@veren/admin-contract'
 import { createFacade } from './facades.ts'
 import { CapabilityRegistry, probeHealth, readinessOf } from './registry.ts'
+import { CAPABILITY_ORDER, featuresOf, type AdminHealthSnapshot } from './catalog.ts'
+import { resolveEssential, type Config } from './config.ts'
 
-/** Every capability in catalog order: essentials first, then optionals. 目录顺序的全部能力：先必需后可选。 */
-export const CAPABILITY_ORDER: readonly CapabilityName[] = [...ESSENTIAL_CAPABILITIES, ...OPTIONAL_CAPABILITIES]
+export { CAPABILITY_ORDER } from './catalog.ts'
+export type { AdminHealthSnapshot } from './catalog.ts'
+export { Config, resolveEssential } from './config.ts'
 
 /** Service name this plugin provides. 本插件提供的服务名。 */
 export const name = 'admin'
@@ -53,31 +54,6 @@ export const name = 'admin'
  * 并发挂载各行，也会排在 provider 行之后加载。
  */
 export const ADMIN_READINESS_SERVICE = 'adminReadiness' as const
-
-/** Kernel configuration. 内核配置。 */
-export interface Config {
-  /**
-   * Additional capability names this deployment treats as essential. An unknown
-   * name fails at load, so a typo cannot silently weaken the boot gate.
-   *
-   * 本部署额外视为必需的能力名。未知名称在加载时失败，因此拼写错误不会静默削弱启动门禁。
-   */
-  essential?: string[]
-}
-
-export const Config: z<Config> = z.object({
-  essential: z.array(z.string()).default([]),
-})
-
-/** One health snapshot of the whole platform. 整个平台的一次健康快照。 */
-export interface AdminHealthSnapshot {
-  /** Contract version negotiated at boot. 启动时协商的契约版本。 */
-  readonly contractVersion: string
-  /** Per-capability state with the latest probe verdict. 带最新探测结论的逐能力状态。 */
-  readonly capabilities: readonly CapabilityState[]
-  /** Backend component health, `data` first. 后端组件健康，`data` 在前。 */
-  readonly backends: readonly { readonly name: string; readonly health: HealthReport }[]
-}
 
 /**
  * The kernel service (`ctx.admin`).
@@ -280,37 +256,6 @@ export class AdminKernel extends Service {
     mount<AdminSettings>('adminSettings', 'settings')
     mount<AdminDocs>('adminDocs', 'docs')
   }
-}
-
-/**
- * Validate configured essential capability names and merge them with the
- * contract's own essential set.
- *
- * @param configured - names from plugin config 插件配置中的名称
- * @returns the effective essential set, contract essentials first 生效的必需集合，契约必需项在前
- * @throws Error naming the unknown capability 命名未知能力的错误
- */
-function resolveEssential(configured: readonly string[]): readonly CapabilityName[] {
-  const unknown = configured.filter((entry) => !(CAPABILITY_ORDER as readonly string[]).includes(entry))
-  if (unknown.length > 0) {
-    throw new Error(
-      `admin-kernel: config.essential names unknown capabilities: ${unknown.join(', ')}`
-      + ` (known: ${CAPABILITY_ORDER.join(', ')})`,
-    )
-  }
-  return [...new Set<CapabilityName>([...ESSENTIAL_CAPABILITIES, ...(configured as CapabilityName[])])]
-}
-
-/**
- * Project catalog states into availability flags.
- *
- * @param states - catalog states 目录状态
- * @returns one boolean per capability 每个能力一个布尔值
- */
-function featuresOf(states: readonly CapabilityState[]): CapabilityFeatures {
-  const features = {} as Record<CapabilityName, boolean>
-  for (const state of states) features[state.capability] = state.active !== null
-  return features
 }
 
 /**

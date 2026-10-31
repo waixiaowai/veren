@@ -4,11 +4,14 @@
  *
  * One gateway owns the order of these steps so a new endpoint cannot skip CSRF,
  * a permission check, or an audit row. Providers register routes and handlers;
- * they never touch a request directly.
+ * they never touch a request directly. The steps live in their own modules —
+ * configuration, rate limiting, cross-site protection, access control,
+ * validation and the audit writers — and this class only sequences them.
  *
  * 统一 API 网关：注册、认证、授权、校验、限流、审计、错误映射与 OpenAPI。一个网关
  * 独占这些步骤的顺序，因此新端点不可能绕过 CSRF、权限校验或审计行。provider 只注册
- * 路由与 handler，绝不直接触碰请求。
+ * 路由与 handler，绝不直接触碰请求。各步骤归各自的模块——配置、限流、跨站防护、
+ * 访问控制、校验与审计写入器——本类只负责编排。
  *
  * @module @veren/admin-api-kernel
  */
@@ -16,92 +19,47 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
-import z from '@deepseek-ai/schemastery'
 import {
-  ADMIN_CSRF_COOKIE,
-  ADMIN_CSRF_HEADER,
-  ADMIN_SESSION_COOKIE,
   AdminError,
   toAdminError,
-  type AdminAccess,
-  type AdminAudit,
-  type AdminAuth,
-  type AdminIdentity,
   type AdminRequest,
   type AdminRoute,
   type AdminRouteContext,
-  type AdminSchema,
   type AuthenticatedPrincipal,
 } from '@veren/admin-contract'
-import type {} from '@veren/admin-kernel'
+import { resolveConfig, Config, type ResolvedConfig } from './config.ts'
+import { assertCsrf, assertTrustedOrigin, corsHeaders } from './cross-site.ts'
 import { readJsonBody, requestFacts, ResponseCollector, sendEmpty, sendJson, type RequestFacts } from './http.ts'
+import { assertPermission, assertScopes, principalOf, resolveCaller } from './access-control.ts'
+import { auditFailure, auditRequest } from './audit-writer.ts'
+import { FixedWindowLimiter } from './limiter.ts'
 import { buildOpenApi } from './openapi.ts'
-import { RouteTable, routePath, type RouteMatch } from './router.ts'
+import { RouteTable, type RouteMatch } from './router.ts'
+import { validate } from './validation.ts'
+
+export { resolveConfig, Config } from './config.ts'
+export type { ResolvedConfig } from './config.ts'
 
 /** Methods that may change state and therefore need CSRF and audit. 可能改变状态、因此需要 CSRF 与审计的方法。 */
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
-/** Plugin configuration. 插件配置。 */
-export interface Config {
-  /** Path the gateway mounts on. 网关挂载路径。 */
-  mountPath?: string
-  /** Maximum accepted JSON body size. 可接受的最大 JSON 体积。 */
-  maxBodyBytes?: number
-  /** Baseline rate limit. 基线限流。 */
-  rateLimit?: { window?: number; max?: number }
-  /** Extra browser origins allowed to call the API. 允许调用 API 的额外浏览器来源。 */
-  trustedOrigins?: string[]
-  /** Advertised URL used by generated OpenAPI. 生成的 OpenAPI 使用的对外 URL。 */
-  publicUrl?: string
-}
-
-export const Config: z<Config> = z.object({
-  mountPath: z.string().default('/api'),
-  maxBodyBytes: z.natural().default(1_048_576),
-  rateLimit: z.object({
-    window: z.natural().default(60),
-    max: z.natural().default(120),
-  }).default(undefined as never),
-  trustedOrigins: z.array(z.string()).default([]),
-  publicUrl: z.string().default(''),
-})
-
-/** Validated configuration with every default applied. 已应用全部默认值的配置。 */
-export interface ResolvedConfig {
-  /** Mount path. 挂载路径。 */
-  readonly mountPath: string
-  /** Body ceiling in bytes. 请求体上限（字节）。 */
-  readonly maxBodyBytes: number
-  /** Baseline rate limit. 基线限流。 */
-  readonly rateLimit: { readonly window: number; readonly max: number }
-  /** Trusted browser origins. 受信浏览器来源。 */
-  readonly trustedOrigins: readonly string[]
-  /** Advertised URL, or an empty string. 对外 URL，或空串。 */
-  readonly publicUrl: string
-}
-
 /**
- * Apply defaults to a validated config.
+ * Mutable facts of one request, threaded through the pipeline so the failure
+ * path can audit what the success path had resolved.
  *
- * @param config - validated plugin config 已校验插件配置
- * @returns the resolved configuration 解析后的配置
+ * 单请求的可变事实，贯穿管线，使失败路径能审计成功路径已解析的内容。
  */
-export function resolveConfig(config: Config): ResolvedConfig {
-  return {
-    mountPath: config.mountPath ?? '/api',
-    maxBodyBytes: config.maxBodyBytes ?? 1_048_576,
-    rateLimit: { window: config.rateLimit?.window ?? 60, max: config.rateLimit?.max ?? 120 },
-    trustedOrigins: config.trustedOrigins ?? [],
-    publicUrl: config.publicUrl ?? '',
-  }
-}
-
-/** One bucket of the fixed-window limiter. 固定窗口限流器的单个桶。 */
-interface Bucket {
-  /** Window start, epoch milliseconds. 窗口起点（毫秒）。 */
-  start: number
-  /** Hits inside the window. 窗口内命中次数。 */
-  count: number
+interface RequestScope {
+  /** Correlation id minted at entry. 入口生成的关联 id。 */
+  readonly requestId: string
+  /** Immutable request facts. 不可变的请求事实。 */
+  readonly facts: RequestFacts
+  /** Matched route, set by {@link AdminApi.admit}. 匹配到的路由，由 {@link AdminApi.admit} 写入。 */
+  route?: AdminRoute
+  /** Resolved principal, set by {@link AdminApi.admit}. 已解析主体，由 {@link AdminApi.admit} 写入。 */
+  principal?: AuthenticatedPrincipal | undefined
+  /** Parsed unsafe-method body, set by {@link AdminApi.admit}. 已解析的非安全方法请求体。 */
+  body?: unknown | undefined
 }
 
 /**
@@ -113,11 +71,14 @@ export class AdminApi extends Service {
   /** Route table. 路由表。 */
   private readonly table = new RouteTable()
 
-  /** Rate-limit buckets keyed by caller and route. 按调用方与路由索引的限流桶。 */
-  private readonly buckets = new Map<string, Bucket>()
+  /** Fixed-window limiter over caller and route. 按调用方与路由的固定窗口限流器。 */
+  private readonly limiter: FixedWindowLimiter
 
   /** Resolved configuration. 解析后的配置。 */
   readonly config: ResolvedConfig
+
+  /** Path parameters of the last match, read while building the request. 最近一次匹配的路径参数。 */
+  private lastParams: Readonly<Record<string, string>> = {}
 
   /**
    * @param ctx - owning context 所属上下文
@@ -126,6 +87,7 @@ export class AdminApi extends Service {
   constructor(ctx: Context, config: Config) {
     super(ctx, 'adminApi')
     this.config = resolveConfig(config)
+    this.limiter = new FixedWindowLimiter(this.config.rateLimit)
   }
 
   /**
@@ -161,75 +123,24 @@ export class AdminApi extends Service {
    * @param res - server response 服务端响应
    */
   async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const requestId = randomUUID()
+    const scope: RequestScope = { requestId: randomUUID(), facts: requestFacts(req) }
     const collector = new ResponseCollector()
-    const facts = requestFacts(req)
-    let route: AdminRoute | undefined
-    let principal: AuthenticatedPrincipal | undefined
-
     try {
-      if (!facts.pathname.startsWith(this.config.mountPath)) {
-        throw new AdminError('NOT_FOUND', `no API route for ${facts.pathname}`)
+      if (!scope.facts.pathname.startsWith(this.config.mountPath)) {
+        throw new AdminError('NOT_FOUND', `no API route for ${scope.facts.pathname}`)
       }
-      this.assertOrigin(facts)
+      assertTrustedOrigin(this.config, scope.facts)
       if (req.method === 'OPTIONS') {
-        sendEmpty(res, 204, this.corsHeaders(facts))
+        sendEmpty(res, 204, corsHeaders(this.config, scope.facts))
         return
       }
-      route = this.match(facts, req.method ?? 'GET')
-      this.limit(facts, route)
-      const unsafe = UNSAFE_METHODS.has(route.method)
-      const body = unsafe ? await readJsonBody(req, this.config.maxBodyBytes) : undefined
-      const identity = await this.authenticate(route, facts)
-      if (route.audience !== 'public' && identity === undefined) {
-        throw new AdminError('AUTH_REQUIRED', 'authentication is required for this endpoint')
-      }
-      if (unsafe && route.audience !== 'public') this.assertCsrf(facts)
-      principal = identity === undefined ? undefined : await this.principalOf(identity)
-      if (route.permission !== undefined) this.assertPermission(route, principal)
-      if (route.scopes !== undefined && route.scopes.length > 0) this.assertScopes(route, principal)
-      // Repeated query keys collapse to the last value; routes that need a
-      // repeated key must read `request.query` themselves.
-      // 重复查询键折叠为最后一个值；需要重复键的路由须自行读取 `request.query`。
-      this.validate(route.query, Object.fromEntries(facts.query), 'query')
-
-      const request: AdminRequest = {
-        requestId,
-        method: route.method,
-        path: route.path,
-        params: this.lastParams ?? {},
-        query: facts.query,
-        headers: facts.headers,
-        body: this.validate(route.input, body, 'body'),
-        principal,
-        audience: route.audience,
-        ip: facts.ip,
-        cookie: (cookieName) => facts.cookies[cookieName],
-        header: (headerName) => facts.headers[headerName.toLowerCase()],
-      }
-      await this.audit(route, request, 'intent')
-      const payload = await route.handler({ request, response: collector } satisfies AdminRouteContext)
-      await this.audit(route, request, 'success')
+      const payload = await this.dispatch(req, scope, collector)
       collector.applyTo(res)
-      sendJson(res, 200, payload ?? {}, this.corsHeaders(facts))
+      sendJson(res, 200, payload ?? {}, corsHeaders(this.config, scope.facts))
     } catch (error) {
-      const failure = toAdminError(error)
-      failure.requestId = requestId
-      await this.auditFailure(route, principal, facts, failure.code === 'FORBIDDEN' ? 'denied' : 'failure')
-      collector.applyTo(res)
-      sendJson(res, failure.status, {
-        error: {
-          code: failure.code,
-          message: failure.message,
-          ...(failure.details === undefined ? {} : { details: failure.details }),
-          requestId,
-        },
-      }, this.corsHeaders(facts))
+      await this.reject(res, error, scope, collector)
     }
   }
-
-  /** Path parameters of the last match, read by {@link handle} while building the request. 最近一次匹配的路径参数。 */
-  private lastParams: Readonly<Record<string, string>> = {}
 
   /**
    * Match a request, mapping the failure modes onto platform errors.
@@ -249,209 +160,109 @@ export class AdminApi extends Service {
   }
 
   /**
-   * Consume one rate-limit token.
+   * Admit one request: match, rate-limit, authenticate, authorize and validate.
+   * Everything resolved here is written into the scope for the audit trail.
    *
-   * @param facts - request facts 请求事实
-   * @param route - matched route 匹配路由
+   * 受理一个请求：匹配、限流、认证、授权与校验。此处解析出的所有内容都写入 scope，
+ * 供审计轨迹使用。
+   *
+   * @param req - incoming request 传入请求
+   * @param scope - the request scope 请求作用域
    */
-  private limit(facts: RequestFacts, route: AdminRoute): void {
-    const key = `${facts.ip}|${route.audience}|${route.method}|${route.path}`
-    const now = Date.now()
-    const windowMs = this.config.rateLimit.window * 1000
-    const bucket = this.buckets.get(key)
-    if (bucket === undefined || now - bucket.start >= windowMs) {
-      this.buckets.set(key, { start: now, count: 1 })
-      return
+  private async admit(req: IncomingMessage, scope: RequestScope): Promise<void> {
+    const { facts } = scope
+    const route = (scope.route = this.match(facts, req.method ?? 'GET'))
+    this.limiter.consume(facts, route)
+    const unsafe = UNSAFE_METHODS.has(route.method)
+    scope.body = unsafe ? await readJsonBody(req, this.config.maxBodyBytes) : undefined
+    const identity = await resolveCaller(this.ctx, route, facts)
+    if (route.audience !== 'public' && identity === undefined) {
+      throw new AdminError('AUTH_REQUIRED', 'authentication is required for this endpoint')
     }
-    bucket.count += 1
-    if (bucket.count > this.config.rateLimit.max) {
-      throw new AdminError('RATE_LIMITED', 'too many requests', { window: this.config.rateLimit.window })
+    if (unsafe && route.audience !== 'public') assertCsrf(facts)
+    scope.principal = identity === undefined ? undefined : await principalOf(this.ctx, identity)
+    if (route.permission !== undefined) assertPermission(this.ctx, route, scope.principal)
+    if (route.scopes !== undefined && route.scopes.length > 0) assertScopes(route, scope.principal)
+    // Repeated query keys collapse to the last value; routes that need a
+    // repeated key must read `request.query` themselves.
+    // 重复查询键折叠为最后一个值；需要重复键的路由须自行读取 `request.query`。
+    validate(route.query, Object.fromEntries(facts.query), 'query')
+  }
+
+  /**
+   * Build the handler request, run the handler with audit intent and success
+   * around it, and return the payload.
+   *
+   * 组装 handler 请求，在其前后写入审计 intent 与 success，并返回载荷。
+   *
+   * @param scope - the request scope 请求作用域
+   * @param collector - response collector 响应收集器
+   * @returns the handler payload handler 载荷
+   */
+  private async execute(scope: RequestScope, collector: ResponseCollector): Promise<unknown> {
+    const route = scope.route as AdminRoute
+    const request: AdminRequest = {
+      requestId: scope.requestId,
+      method: route.method,
+      path: route.path,
+      params: this.lastParams ?? {},
+      query: scope.facts.query,
+      headers: scope.facts.headers,
+      body: validate(route.input, scope.body, 'body'),
+      principal: scope.principal,
+      audience: route.audience,
+      ip: scope.facts.ip,
+      cookie: (name) => scope.facts.cookies[name],
+      header: (name) => scope.facts.headers[name.toLowerCase()],
     }
+    await auditRequest(this.ctx, route, request, 'intent')
+    const payload = await route.handler({ request, response: collector } satisfies AdminRouteContext)
+    await auditRequest(this.ctx, route, request, 'success')
+    return payload
   }
 
   /**
-   * Resolve the caller identity for a route's audience.
+   * Run the admitted pipeline: admission first, then execution.
    *
-   * @param route - matched route 匹配路由
-   * @param facts - request facts 请求事实
-   * @returns the identity, or `undefined` for an anonymous public caller 身份；公开匿名调用为 `undefined`
+   * 运行受理后的管线：先受理，后执行。
+   *
+   * @param req - incoming request 传入请求
+   * @param scope - the request scope 请求作用域
+   * @param collector - response collector 响应收集器
+   * @returns the handler payload handler 载荷
    */
-  private async authenticate(route: AdminRoute, facts: RequestFacts): Promise<AdminIdentity | undefined> {
-    if (!this.ctx.admin.has('auth')) return undefined
-    const auth = this.ctx.admin.require<AdminAuth>('auth')
-    if (route.audience === 'terminal') {
-      const header = facts.headers.authorization ?? ''
-      const bearer = header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : undefined
-      if (bearer === undefined || bearer.length === 0) return undefined
-      return auth.authenticate({ bearer })
-    }
-    const sessionId = facts.cookies[ADMIN_SESSION_COOKIE]
-    if (sessionId === undefined) return undefined
-    return auth.authenticate({ sessionId })
+  private async dispatch(req: IncomingMessage, scope: RequestScope, collector: ResponseCollector): Promise<unknown> {
+    await this.admit(req, scope)
+    return this.execute(scope, collector)
   }
 
   /**
-   * Attach resolved permissions to an identity.
+   * Map one failure onto the error envelope, with the failure audit row.
    *
-   * @param identity - the authenticated identity 已认证身份
-   * @returns the principal 主体
-   */
-  private async principalOf(identity: AdminIdentity): Promise<AuthenticatedPrincipal> {
-    const access = this.ctx.admin.has('access') ? this.ctx.admin.require<AdminAccess>('access') : undefined
-    const permissions = access === undefined ? [] : await access.permissionsOf(identity)
-    return { ...identity, permissions }
-  }
-
-  /**
-   * Enforce one route permission.
+   * 把一次失败映射为错误信封，并写入失败审计行。
    *
-   * @param route - matched route 匹配路由
-   * @param principal - resolved principal 已解析主体
+   * @param res - server response 服务端响应
+   * @param error - the caught error 捕获的错误
+   * @param scope - the request scope 请求作用域
+   * @param collector - response collector 响应收集器
    */
-  private assertPermission(route: AdminRoute, principal: AuthenticatedPrincipal | undefined): void {
-    const permission = route.permission as string
-    if (principal === undefined) throw new AdminError('AUTH_REQUIRED', `authentication is required for ${permission}`)
-    const access = this.ctx.admin.has('access') ? this.ctx.admin.require<AdminAccess>('access') : undefined
-    if (access === undefined || !access.can(principal, permission)) {
-      throw new AdminError('FORBIDDEN', `missing permission ${permission}`, { permission })
-    }
-  }
-
-  /**
-   * Enforce the scopes a terminal route requires.
-   *
-   * @param route - matched route 匹配路由
-   * @param principal - resolved principal 已解析主体
-   */
-  private assertScopes(route: AdminRoute, principal: AuthenticatedPrincipal | undefined): void {
-    const required = route.scopes as readonly string[]
-    const granted = principal?.scopes ?? []
-    const missing = required.filter((scope) => !granted.includes(scope))
-    if (missing.length > 0) {
-      throw new AdminError('FORBIDDEN', `token is missing scopes: ${missing.join(', ')}`, { missingScopes: missing })
-    }
-  }
-
-  /**
-   * Enforce the double-submit CSRF check.
-   *
-   * @param facts - request facts 请求事实
-   */
-  private assertCsrf(facts: RequestFacts): void {
-    const cookie = facts.cookies[ADMIN_CSRF_COOKIE]
-    const header = facts.headers[ADMIN_CSRF_HEADER]
-    if (cookie === undefined || header === undefined || cookie !== header) {
-      throw new AdminError('CSRF_FAILED', 'CSRF token is missing or does not match the cookie')
-    }
-  }
-
-  /**
-   * Reject a cross-origin request from an origin the deployment does not trust.
-   *
-   * @param facts - request facts 请求事实
-   */
-  private assertOrigin(facts: RequestFacts): void {
-    const origin = facts.headers.origin
-    if (origin === undefined) return
-    if (origin === 'null') throw new AdminError('FORBIDDEN', 'null origin is not allowed')
-    const host = new URL(origin).host
-    if (host === facts.headers.host) return
-    if (this.config.trustedOrigins.includes(origin)) return
-    throw new AdminError('FORBIDDEN', `origin ${origin} is not trusted`, { origin })
-  }
-
-  /**
-   * CORS headers for a trusted cross-origin caller.
-   *
-   * @param facts - request facts 请求事实
-   * @returns response headers, empty for same-origin callers 响应头；同源调用为空
-   */
-  private corsHeaders(facts: RequestFacts): Record<string, string> {
-    const origin = facts.headers.origin
-    if (origin === undefined || !this.config.trustedOrigins.includes(origin)) return {}
-    return {
-      'Access-Control-Allow-Origin': origin,
-      'Access-Control-Allow-Credentials': 'true',
-      'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-      'Access-Control-Allow-Headers': `content-type,${ADMIN_CSRF_HEADER},idempotency-key`,
-      Vary: 'Origin',
-    }
-  }
-
-  /**
-   * Validate one untrusted value with an optional schema.
-   *
-   * @param schema - schema to apply 要应用的 schema
-   * @param value - untrusted value 不可信值
-   * @param field - field name used in the error 错误中使用的字段名
-   * @returns the validated value, or the input when no schema exists 校验后的值；无 schema 时原值
-   */
-  private validate(schema: AdminSchema | undefined, value: unknown, field: string): unknown {
-    if (schema === undefined) return value
-    try {
-      return schema.parse(value)
-    } catch (error) {
-      throw new AdminError('VALIDATION_FAILED', `${field} is invalid`, {
-        field,
-        reason: error instanceof Error ? error.message : String(error),
-      })
-    }
-  }
-
-  /**
-   * Append one audit row for a resolved request.
-   *
-   * @param route - matched route 匹配路由
-   * @param request - the request being handled 正在处理的请求
-   * @param result - outcome to record 要记录的结果
-   */
-  private async audit(route: AdminRoute, request: AdminRequest, result: 'intent' | 'success'): Promise<void> {
-    if (route.audit !== true || !this.ctx.admin.has('audit')) return
-    const audit = this.ctx.admin.require<AdminAudit>('audit')
-    try {
-      await audit.record({
-        actorId: request.principal?.userId ?? null,
-        actorLabel: request.principal?.email ?? 'anonymous',
-        action: route.action ?? `${route.audience}.${route.method.toLowerCase()} ${route.path}`,
-        result,
-        target: routePath(route.audience, route.path),
-        requestId: request.requestId,
-        ip: request.ip,
-      })
-    } catch {
-      // Auditing is best effort on the success path: a full audit store must not
-      // turn a completed write into an error the caller would retry.
-      // 成功路径上审计尽力而为：审计存储写满不应把已完成的写操作变成调用方会重试的错误。
-    }
-  }
-
-  /**
-   * Append one audit row for a failed request, if the route opted in.
-   *
-   * @param route - matched route, when matching succeeded 匹配到的路由
-   * @param principal - resolved principal, when known 已解析主体
-   * @param facts - request facts 请求事实
-   * @param result - outcome to record 要记录的结果
-   */
-  private async auditFailure(
-    route: AdminRoute | undefined,
-    principal: AuthenticatedPrincipal | undefined,
-    facts: RequestFacts,
-    result: 'failure' | 'denied',
+  private async reject(
+    res: ServerResponse,
+    error: unknown,
+    scope: RequestScope,
+    collector: ResponseCollector,
   ): Promise<void> {
-    if (route?.audit !== true || !this.ctx.admin.has('audit')) return
-    const audit = this.ctx.admin.require<AdminAudit>('audit')
-    try {
-      await audit.record({
-        actorId: principal?.userId ?? null,
-        actorLabel: principal?.email ?? 'anonymous',
-        action: route.action ?? `${route.audience}.${route.method.toLowerCase()} ${route.path}`,
-        result,
-        target: routePath(route.audience, route.path),
-        ip: facts.ip,
-      })
-    } catch {
-      // Same best-effort policy as the success path. 与成功路径同样的尽力而为策略。
-    }
+    const failure = toAdminError(error)
+    failure.requestId = scope.requestId
+    await auditFailure(this.ctx, scope.route, scope.principal, scope.facts, failure.code === 'FORBIDDEN' ? 'denied' : 'failure')
+    collector.applyTo(res)
+    sendJson(res, failure.status, {
+      error: {
+        code: failure.code,
+        message: failure.message,
+        ...(failure.details === undefined ? {} : { details: failure.details }),
+        requestId: scope.requestId,
+      },
+    }, corsHeaders(this.config, scope.facts))
   }
 }
