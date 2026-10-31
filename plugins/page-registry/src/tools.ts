@@ -18,12 +18,32 @@ export interface AppOpenPort {
   openUrl(url: string, options?: { taskId?: string; callerSessionId?: string }): Promise<{ sessionId: string; title: string }>
 }
 
-
-
 /** 目录返回值渲染成 JSON 文本 / render the open result as JSON text */
 function renderValue(_args: unknown, value: unknown): ContentBlock[] {
   return [{ type: 'text', text: JSON.stringify(value) }] as ContentBlock[]
 }
+
+/** app_open 的模型侧说明（原样保留的拼接串）/ the model-facing app_open description (verbatim) */
+const APP_OPEN_DESCRIPTION = 'Open an application page URL (for example /apps/review-workbench/task/1) or take a task '
+  + 'with taskId. It always creates a fresh page session with the page\u2019s tools mounted and returns it; '
+  + 'a previous session on the same url is deprecated automatically and never addressed via the url again. '
+  + 'Your own session, tools, and history never change. '
+  + 'Failures carry stable codes: app/not-found, app/disabled, page/not-found, task/expired.'
+
+/** page_send 的模型侧说明（原样保留的拼接串）/ the model-facing page_send description (verbatim) */
+const PAGE_SEND_DESCRIPTION = 'Deliver a message to the page session bound to a canonical page URL '
+  + '(/apps/<appId>/...). If that url has a live session the message is appended to it '
+  + '(waking it to do the work); otherwise a fresh page session is created for the url '
+  + 'first and the message is delivered there. Returns { sessionId, url, created, redirected, receipt }. '
+  + 'This is delivery, not navigation: no GUI switch happens. Cascade is capped — a chain '
+  + 'deeper than 4 hops is refused with page/hop-limit. '
+  + 'RECEIPT (default wake): when receipt=true comes back, the target\'s woken turn will '
+  + 'end with a PAGE-RECEIPT landing in YOUR session log — record-only, it NEVER wakes '
+  + 'you. Do NOT end a turn just to wait for it: finish your work, and read the receipt '
+  + 'from your log on your NEXT turn. Do NOT retry on silence, do NOT poll, do NOT send '
+  + 'follow-up "did you finish" messages; one delivery per intent. '
+  + 'Use session_dispatch when you already know the exact sessionId; use page_send when '
+  + 'you know the page URL.'
 
 /**
  * 构造 `app_open` 工具本体（defineTool 产物，零形状转换）。注册时机归装配层：
@@ -41,11 +61,7 @@ function renderValue(_args: unknown, value: unknown): ContentBlock[] {
 export function createAppOpenTool(port: () => AppOpenPort): ReturnType<typeof defineTool> {
   return defineTool({
     name: 'app_open',
-    description: 'Open an application page URL (for example /apps/review-workbench/task/1) or take a task '
-      + 'with taskId. It always creates a fresh page session with the page\u2019s tools mounted and returns it; '
-      + 'a previous session on the same url is deprecated automatically and never addressed via the url again. '
-      + 'Your own session, tools, and history never change. '
-      + 'Failures carry stable codes: app/not-found, app/disabled, page/not-found, task/expired.',
+    description: APP_OPEN_DESCRIPTION,
     parameters: {
       url: { type: 'string', required: true, description: 'Canonical page URL: /apps/<appId>/<path>[/more][?query]' },
       taskId: { type: 'string', description: 'Task id to take after the page session is open (task workflow).' },
@@ -97,19 +113,7 @@ export interface PageSendPort {
 export function createPageSendTool(port: () => PageSendPort) {
   return defineTool({
     name: 'page_send',
-    description: 'Deliver a message to the page session bound to a canonical page URL '
-      + '(/apps/<appId>/...). If that url has a live session the message is appended to it '
-      + '(waking it to do the work); otherwise a fresh page session is created for the url '
-      + 'first and the message is delivered there. Returns { sessionId, url, created, redirected, receipt }. '
-      + 'This is delivery, not navigation: no GUI switch happens. Cascade is capped — a chain '
-      + 'deeper than 4 hops is refused with page/hop-limit. '
-      + 'RECEIPT (default wake): when receipt=true comes back, the target\'s woken turn will '
-      + 'end with a PAGE-RECEIPT landing in YOUR session log — record-only, it NEVER wakes '
-      + 'you. Do NOT end a turn just to wait for it: finish your work, and read the receipt '
-      + 'from your log on your NEXT turn. Do NOT retry on silence, do NOT poll, do NOT send '
-      + 'follow-up "did you finish" messages; one delivery per intent. '
-      + 'Use session_dispatch when you already know the exact sessionId; use page_send when '
-      + 'you know the page URL.',
+    description: PAGE_SEND_DESCRIPTION,
     parameters: {
       url: { type: 'string', required: true, description: 'Canonical page URL: /apps/<appId>/<path>[/more][?query]' },
       message: { type: 'string', required: true, description: 'The message text delivered to that page session.' },

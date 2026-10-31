@@ -4,18 +4,30 @@
  *
  * - 注册表是部署级共享状态：顶层作用域挂载，会话子作用域经 inject 解析到同一实例；
  * - 索引持久化在 `app-pages` 存储域（storageDomain 路子，与 notebook/forum 一致）；
- *   存储打不开时降级为带 page/index-unavailable 码的失败索引，不静默假成功；
- * - 运行时端口（sessions/apps/toolsOf/tasks/deliveries/releaseLeases）全部由装配层
+ *   存储打不开时降级为带 page/index-unavailable 码的失败索引，不静默假成功
+ *   （域打开/清扫收口在 index-source）；
+ * - 运行时端口（sessions/apps/warn/tasks/deliveries/releaseLeases）全部由装配层
  *   （app-host）经 `bindPorts` **纯参数**传入（G13 显式接线）：本服务从不摸 ctx 上的
  *   兄弟服务；端口未接线时 openUrl/releaseApp 给 page/host-unavailable，不假成功。
+ * - The registry is deployment-shared state: mounted in the top scope, session
+ *   child scopes resolve the same instance via inject;
+ * - the index persists in the `app_pages` storage domain (same approach as
+ *   notebook/forum); a failed open degrades to the failing index with
+ *   page/index-unavailable, never fake success (domain open/sweep live in
+ *   index-source);
+ * - runtime ports all arrive as pure parameters via `bindPorts` from the host
+ *   assembly (G13 explicit wiring): this service never touches sibling services
+ *   on ctx; unbound ports surface as page/host-unavailable, never fake success.
  */
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
-import { KvPageInstanceIndex, PageError, PageErrorCode, PageRegistry, canonicalizePageUrl, formatPath } from '@veren/prompt-page'
-import type { InstanceKvPort, PageCatalogEntry, PageDefinition, PageInstanceIndex, PageInstanceKey, PageInstanceRecord, PageLiveBinding, PageMatch, PageParams } from '@veren/prompt-page'
-import { APP_PAGES_DOMAIN_NAME, appPagesDomain, instanceTableView } from './storage.ts'
-import { openPageUrl, rerenderLivePage } from './runtime.ts'
-import type { OpenPageOptions, OpenPageResult, PageRuntimePorts } from './runtime.ts'
+import { PageError, PageErrorCode, PageRegistry, canonicalizePageUrl, formatPath } from '@veren/prompt-page'
+import type { PageCatalogEntry, PageDefinition, PageInstanceIndex, PageInstanceKey, PageLiveBinding, PageMatch, PageParams } from '@veren/prompt-page'
+import { createInstanceIndexBox } from './index-source.ts'
+import type { InstanceIndexBox } from './index-source.ts'
+import { openPageUrl } from './open-page.ts'
+import { rerenderLivePage } from './page-rerender.ts'
+import type { OpenPageOptions, OpenPageResult, PageRuntimePorts } from './runtime-ports.ts'
 import { deliverToPageUrl, HopLedger } from './delivery.ts'
 import type { DeliverPageOptions, DeliveryResult } from './delivery.ts'
 import { DeliveryReceipts } from './receipts.ts'
@@ -23,31 +35,18 @@ import { DeliveryReceipts } from './receipts.ts'
 /** 服务名（ctx.pageRegistry / inject 'pageRegistry'）/ service name */
 export const PAGE_REGISTRY_NAME = 'pageRegistry'
 
-/** 存储不可用时的失败索引：所有操作给 page/index-unavailable / the failing index */
-class UnavailableIndex implements PageInstanceIndex {
-  lookup(): Promise<undefined> { return Promise.reject(unavailable()) }
-  reserve(): Promise<PageInstanceRecord> { return Promise.reject(unavailable()) }
-  commit(): Promise<PageInstanceRecord> { return Promise.reject(unavailable()) }
-  deprecate(): Promise<PageInstanceRecord | undefined> { return Promise.reject(unavailable()) }
-  fail(): Promise<void> { return Promise.reject(unavailable()) }
-  forget(): Promise<void> { return Promise.reject(unavailable()) }
-  listByApp(): Promise<readonly PageInstanceRecord[]> { return Promise.reject(unavailable()) }
-  sweepReserved(): Promise<readonly PageInstanceKey[]> { return Promise.reject(unavailable()) }
-}
-
-function unavailable(): PageError {
-  return new PageError(PageErrorCode.IndexUnavailable, `storage domain "${APP_PAGES_DOMAIN_NAME}" is unavailable; the instance index is read-only-failing`)
-}
-
 /**
  * 页面注册表服务：register/resolve 以 disposer 收口（HMR/卸载安全）。
  * resolve/get 以泛型转发（消费方声明自己的 state 类型）。
+ * The page-registry service: register/resolve close over disposers (HMR/unload
+ * safe). resolve/get forward generically (consumers declare their own state type).
  */
 export class PageRegistryService extends Service {
   /** 存储域是本插件声明过的依赖（属主合法访问）；装配顺序由 Loader 保证。 */
   static inject = ['storageDomain']
 
-  private indexFace: PageInstanceIndex = new UnavailableIndex()
+  /** 索引箱：失败索引 → KV 实现的原位替换都从这里读（index-source）。 */
+  private readonly indexBox: InstanceIndexBox
   private readonly registry: PageRegistry<never>
   /** 运行时端口：装配层 bindPorts 纯参数传入；未接线前是 undefined（fail loud）。 */
   private runtimePorts: PageRuntimePorts | undefined
@@ -57,7 +56,7 @@ export class PageRegistryService extends Service {
   private readonly receipts: DeliveryReceipts
 
   /** 页面实例索引：规范 URL → 当前活会话 + 废弃历史（持久化在 app-pages 域）*/
-  get instances(): PageInstanceIndex { return this.indexFace }
+  get instances(): PageInstanceIndex { return this.indexBox.get() }
 
   /** 端口读取口：未接线即 fail loud（misconfiguration fails loud）/ ports accessor; unbound → fail loud */
   private get ports(): PageRuntimePorts {
@@ -75,6 +74,10 @@ export class PageRegistryService extends Service {
   constructor(ctx: Context) {
     super(ctx, PAGE_REGISTRY_NAME)
     this.registry = new PageRegistry<never>()
+    // 域打开是异步的：先给失败索引，打开成功后原位换实现（打开失败保持降级）。
+    // The domain opens asynchronously: the failing index serves first, the KV
+    // face swaps in place on success (a failed open keeps the degrade).
+    this.indexBox = createInstanceIndexBox(ctx, () => this.ports.sessions)
     // 回执观察器：append 经端口惰性取（投递发生时端口必然已接线）
     // / the receipt observer: append reads the port lazily (ports are always
     // bound by the time deliveries happen)
@@ -83,55 +86,7 @@ export class PageRegistryService extends Service {
       append: (sessionId, text, source, options) => this.ports.sessions.appendUserMessage(sessionId, text, source, options),
       warn: (message) => ctx.logger.warn(message),
     })
-    // 域打开是异步的：先给失败索引，打开成功后原位换实现（打开失败保持降级）
-    void this.openDomain().then(async (table) => {
-      if (table === undefined) return
-      this.indexFace = new KvPageInstanceIndex(table, {
-        sessionExists: (id) => this.ports.sessions.exists(id),
-      })
-      // 启动清扫：reserved 残留行（崩溃遗迹）→ 没有对应活会话就删（§3.5.3/§7.5）
-      try {
-        const dropped = await this.indexFace.sweepReserved()
-        if (dropped.length > 0) ctx.logger.info(`page-registry: swept ${dropped.length} stale reserved row(s) at startup`)
-      } catch (error: unknown) {
-        ctx.logger.warn(`page-registry: reserved-row sweep failed: ${String(error)}`)
-      }
-      // 索引重建扫描（§3.5.4）：第 1 阶段不做——会话端口没有枚举会话/读
-      // app/page 事件的面，做不了真实重建；此处如实标注而非含糊带过，
-      // 见 docs/application-concept.cn.md §8.1 收尾说明。
-    }, (error: unknown) => {
-      ctx.logger.error(`page-registry: storage domain "${APP_PAGES_DOMAIN_NAME}" failed to open: ${String(error)}`)
-    })
-  }
-
-  /**
-   * 打开 app-pages 存储域。storageDomain 是本服务声明过的 inject 依赖；这里
-   * 捕获的是"存储域打不开/服务缺席"的运行故障 → 失败索引 + 告警，是既有文档
-   * 化的降级语义，不是对兄弟服务的运行期探测（G13 禁的是后者）。
-   * Open the app-pages storage domain. storageDomain is a declared inject; the
-   * catch handles genuine storage failures (documented degrade to the failing
-   * index), not sibling probing, which G13 forbids.
-   */
-  private async openDomain(): Promise<InstanceKvPort | undefined> {
-    try {
-      // 一次重激活可能留下上一个激活打开的同名域：先关掉再开（与 notebook 同型）
-      const stale = this.ctx.storageDomain.get(APP_PAGES_DOMAIN_NAME)
-      if (stale !== undefined) {
-        try {
-          await stale.close()
-          this.ctx.logger.warn('page-registry: closed the storage domain left open by a previous activation')
-        } catch (error: unknown) {
-          this.ctx.logger.warn(`page-registry: the previous storage domain could not close: ${String(error)}`)
-        }
-      }
-      const domain = await this.ctx.storageDomain.open(appPagesDomain)
-      // 句柄归本服务：卸载时关闭，给下一次激活腾出名字
-      this.ctx.effect(() => () => domain.close(), 'page-registry:storage')
-      return instanceTableView(domain.table('instances'))
-    } catch (error: unknown) {
-      this.ctx.logger.warn(`page-registry: storage domain "${APP_PAGES_DOMAIN_NAME}" unavailable (${String(error)}); instance index is disabled`)
-      return undefined
-    }
+    void this.indexBox.open()
   }
 
   /**
@@ -142,7 +97,7 @@ export class PageRegistryService extends Service {
    */
   bindPorts(ports: PageRuntimePorts, index?: PageInstanceIndex): void {
     this.runtimePorts = ports
-    if (index !== undefined) this.indexFace = index
+    if (index !== undefined) this.indexBox.replace(index)
   }
 
   /**
@@ -237,15 +192,6 @@ export class PageRegistryService extends Service {
   }
 
   /**
-   * 关闭一个 URL 的活页面实例（GUI 的"取消选择/关闭页面"）：退役该会话的
-   * agent——页面登记的一切随 fiber 逆序拆除，会话日志保留可读；索引行翻废弃，
-   * URL 腾出。行不在场或非 live 时幂等返回。
-   * Close a url's live page instance (the GUI's "unpick / close page"): retire
-   * the session's agent — everything the page registered unwinds with the fiber
-   * while the session log stays readable; the index row flips deprecated and
-   * the url frees up. Idempotent when the row is absent or not live.
-   */
-  /**
    * 页面会话再激活重挂:老会话的 agent 重建后(重启/失效),重挂页面工具面并重发
    * PAGE 块——一次性渲染绑定原始 fiber,新 agent 身上没有页面工具,模型只能靠
    * 通用工具 improvising。由装配层在 agent/created 接缝调用;非页面会话、
@@ -263,6 +209,15 @@ export class PageRegistryService extends Service {
     return Promise.resolve().then(() => rerenderLivePage(this.registry, this.instances, this.ports, sessionId, agent))
   }
 
+  /**
+   * 关闭一个 URL 的活页面实例（GUI 的"取消选择/关闭页面"）：退役该会话的
+   * agent——页面登记的一切随 fiber 逆序拆除，会话日志保留可读；索引行翻废弃，
+   * URL 腾出。行不在场或非 live 时幂等返回。
+   * Close a url's live page instance (the GUI's "unpick / close page"): retire
+   * the session's agent — everything the page registered unwinds with the fiber
+   * while the session log stays readable; the index row flips deprecated and
+   * the url frees up. Idempotent when the row is absent or not live.
+   */
   async closePage(url: PageInstanceKey | string): Promise<void> {
     const key = canonicalizePageUrl(url)
     const record = await this.instances.lookup(key)

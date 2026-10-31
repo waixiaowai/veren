@@ -17,6 +17,6 @@ pnpm --filter @veren/app-registry test
 
 ## 活的页面
 
-`pages(id, caller?).register(component, meta)` 注册组件页（`PageFC` + `ComponentPageMeta`）；在 `meta.store` 放权威 store（任意满足 `@veren/prompt-core` `ExternalStore<S>` 的对象，例如插件自己的、带 `getState` / `subscribe` 的类）即把页面标记为活的视图（§3.10.3）：适配器把 store 封成 `PageLiveBinding`（`live.mount(params, scope?)`）——页面运行时因此能挂载订阅 store 的视图，却从不接触 `S`，组件经 `useSnapshot()` 读 store。绑定随镜像进入 page-registry、也随 `listPageEntries(id)`（宿主装配的回填通道）传下去：先于装配注册的页面同样能变成活的。没有 store 的页面就只渲染静态正文。`register(page, { store })` 形态已不存在（随旧块管线一起删除）。
+`pages(id, caller?).register(page, { store })` 把页面标记为活的视图（§3.10.3）：注册时把 store（任意满足 `@veren/prompt-core` `ExternalStore<S>` 的对象，例如插件自己的、带 `getState` / `subscribe` 的类）封成 `PageLiveBinding`（`live.mount(params)`）——页面运行时因此能挂载订阅 store 的视图，却从不接触 `S`。绑定随镜像进入 page-registry、也随 `listPageEntries(id)`（宿主装配的回填通道）传下去：先于装配注册的页面同样能变成活的。没有 store 的页面保持静态。
 
 English docs: [README.md](./README.md)。

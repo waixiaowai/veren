@@ -35,8 +35,9 @@
 import { PageError, PageErrorCode } from '@veren/prompt-page'
 import type { PageInstanceIndex, PageInstanceKey, PageMatch } from '@veren/prompt-page'
 import type { AppRecord } from '@veren/app-registry'
-import { createPageSession, deprecatePrevious, resolvePageTarget } from './runtime.ts'
-import type { PageRuntimePorts, PageSessionPort } from './runtime.ts'
+import { createPageSession, deprecatePrevious } from './open-page.ts'
+import { resolvePageTarget } from './resolve-target.ts'
+import type { PageRuntimePorts, PageSessionPort } from './runtime-ports.ts'
 
 /** 投递链硬上限（跳数）：A→B→C→D 允许，第 5 跳拒绝 / the hard hop cap */
 export const MAX_DELIVERY_HOPS = 4
@@ -153,6 +154,20 @@ export async function deliverToPageUrl(
     throw new PageError(PageErrorCode.HopLimit,
       `delivery chain would reach ${nextDepth} hops (cap ${MAX_DELIVERY_HOPS}); caller ${options.callerSessionId ?? '(none)'} refused for ${key}`)
   }
+  return await deliverWithRetry(index, ports, ledger, key, app, match, options, nextDepth)
+}
+
+/** 有限次投递循环：活会话直接 append；废弃竞态下指针易主则补投 / the bounded delivery loop: append to the live session; re-deliver when the pointer moves */
+async function deliverWithRetry(
+  index: PageInstanceIndex,
+  ports: PageRuntimePorts,
+  ledger: HopLedger,
+  key: PageInstanceKey,
+  app: AppRecord,
+  match: PageMatch<never>,
+  options: DeliverPageOptions,
+  nextDepth: number,
+): Promise<DeliveryResult> {
   let redirected = false
   let lastSessionId = ''
   for (let attempt = 1; attempt <= MAX_DELIVERY_ATTEMPTS; attempt++) {
@@ -167,22 +182,7 @@ export async function deliverToPageUrl(
     // the same openUrl path, tombstone included). Live counter-example:
     // delivering to a pre-restart detail page failed twice with that error.
     if (row === undefined || row.state !== 'live' || !ports.sessions.exists(row.sessionId)) {
-      // 无活会话：新建（同 openUrl 创建路径；不 focus——投递不是导航）。占了
-      // URL 的"活行但会话不在场"旧行先经正规废弃腾位（retire 失败不阻断、墓碑
-      // 必写），否则 reserve 撞 page/index-conflict。
-      // No live session: create (the openUrl path; no focus — not navigation).
-      // A stale "live row, absent session" must first free the url through the
-      // regular deprecation (retire failures never block, the tombstone always
-      // lands), or reserve hits page/index-conflict.
-      await deprecatePrevious(index, ports, key)
-      const created = await createPageSession(index, ports, key, app, match, { focus: false })
-      ledger.record(created.sessionId, nextDepth)
-      // 武装必须先于 append（唤醒）：见 DeliverPageOptions.armReceipt 的时序注释
-      // / arming must precede the append (the wake): see the ordering note on
-      // DeliverPageOptions.armReceipt
-      options.armReceipt?.(created.sessionId, key)
-      await ports.sessions.appendUserMessage(created.sessionId, options.message, PAGE_SEND_SOURCE, { wake: options.wake })
-      return receiptOf(created.sessionId, key, true, options, redirected)
+      return await createAndDeliver(index, ports, ledger, key, app, match, options, nextDepth, redirected)
     }
     lastSessionId = row.sessionId
     // 续链：目标链深至少是 caller+1（既有的浅会话被更深的链投递时抬升）
@@ -201,4 +201,34 @@ export async function deliverToPageUrl(
   // 补投次数用尽：最后一次投递保留在它落地的会话，如实回报 redirected
   // Attempts exhausted: the last append stands where it landed; report honestly
   return receiptOf(lastSessionId, key, false, options, redirected)
+}
+
+/** 无活会话的新建路径：正规废弃腾位 → 两阶段创建（不 focus）→ 记链深 → 武装回执 → append / the create path: regular deprecation frees the url → two-phase create (no focus) → record depth → arm receipt → append */
+async function createAndDeliver(
+  index: PageInstanceIndex,
+  ports: PageRuntimePorts,
+  ledger: HopLedger,
+  key: PageInstanceKey,
+  app: AppRecord,
+  match: PageMatch<never>,
+  options: DeliverPageOptions,
+  nextDepth: number,
+  redirected: boolean,
+): Promise<DeliveryResult> {
+  // 无活会话：新建（同 openUrl 创建路径；不 focus——投递不是导航）。占了
+  // URL 的"活行但会话不在场"旧行先经正规废弃腾位（retire 失败不阻断、墓碑
+  // 必写），否则 reserve 撞 page/index-conflict。
+  // No live session: create (the openUrl path; no focus — not navigation).
+  // A stale "live row, absent session" must first free the url through the
+  // regular deprecation (retire failures never block, the tombstone always
+  // lands), or reserve hits page/index-conflict.
+  await deprecatePrevious(index, ports, key)
+  const created = await createPageSession(index, ports, key, app, match, { focus: false })
+  ledger.record(created.sessionId, nextDepth)
+  // 武装必须先于 append（唤醒）：见 DeliverPageOptions.armReceipt 的时序注释
+  // / arming must precede the append (the wake): see the ordering note on
+  // DeliverPageOptions.armReceipt
+  options.armReceipt?.(created.sessionId, key)
+  await ports.sessions.appendUserMessage(created.sessionId, options.message, PAGE_SEND_SOURCE, { wake: options.wake })
+  return receiptOf(created.sessionId, key, true, options, redirected)
 }

@@ -4,45 +4,46 @@
  * The flow engine service: register/unregister flows, start runs (RunHandle),
  * list runs; storage via the optional FlowStorage capability; runtime subflow
  * recursion guarded (FLOW_REFERENCE_CYCLE).
+ *
+ * 本文件是服务装配入口：授权审计、事件接线与运行驱动拆分在各自模块
+ * （approval-audit / engine-events / run-driver）。
+ * This file is the service assembly entry: the approval audit, the event
+ * wiring and the run driver live in their own modules (approval-audit /
+ * engine-events / run-driver).
  */
 
-import { randomUUID } from 'node:crypto';
 import { Service, type Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 import { defineToken, get } from '@veren/core';
-import type { GraphKernelService, GraphRunResult } from '@deepseek-ai/dsh-graph-core';
-import { isExternalCancel } from '@deepseek-ai/dsh-graph-core';
-import { FlowApprovalToken } from '@deepseek-ai/dsh-graph-flow-api';
+import type { GraphKernelService } from '@deepseek-ai/dsh-graph-core';
 import type {
-    FlowApprovalAudit,
-    FlowApprovalOutcome,
-    FlowApprovalRequest,
-    FlowBlackboard,
     FlowDefinition,
     FlowId,
     NodeExecuteContext,
-    NodeId,
     NodeRegistry,
     RunId,
 } from '@deepseek-ai/dsh-graph-flow-api';
-import { assertNoReferenceCycle, createBuiltinHandlers, createRunner, NodeRegistryImpl } from './registry.js';
-import {
-    cancelledRunResult, compileFlow, createBlackboard, flowError, recoveredFailure, rejectedRunResult,
-    runnerDeps, toFlowResult, toKernelGraph, toSlots,
-} from './runtime.js';
-import type { DriveEnv, OutcomePorts } from './runtime.js';
+import { assertNoReferenceCycle, createBuiltinHandlers, NodeRegistryImpl } from './registry.js';
+import { compileFlow } from './runtime.js';
+import { wireEngineEvents } from './engine-events.js';
+import { runSubflow, startEngineRun } from './run-driver.js';
+import type { EngineRunPorts } from './run-driver.js';
 import type {
-    CompiledFlow, FlowNodeRecord, FlowNodeStatus, FlowNodeStatusPayload, FlowRunDetail, FlowRunHandle, FlowRunOptions,
-    FlowRunResult, FlowRunSummary, FlowStorage, FlowSummary, RunEntry,
+    CompiledFlow,
+    FlowEngine,
+    FlowRunDetail,
+    FlowRunHandle,
+    FlowRunOptions,
+    FlowRunSummary,
+    FlowStorage,
+    FlowSummary,
+    RunEntry,
 } from './types.js';
 
 /** 引擎服务令牌 / the engine service token */
 export const FlowEngineToken = defineToken<FlowEngineService>('graphFlowEngine');
 /** 存储能力令牌（由 flow-storage 提供，可选）/ the storage capability token (provided by flow-storage, optional) */
 export const FlowStorageToken = defineToken<FlowStorage>('graphFlowStorage');
-
-/** 已落定的节点状态：授权事件不得把它们翻回运行中 / settled node states; approval events must not reopen them */
-const TERMINAL: ReadonlySet<FlowNodeStatus> = new Set(['completed', 'failed', 'skipped', 'cancelled']);
 
 /** 引擎配置 / the engine config */
 export interface FlowEngineConfig {
@@ -53,7 +54,7 @@ export interface FlowEngineConfig {
 /** 插件配置 schema / the plugin config schema */
 export const Config: z<FlowEngineConfig> = z.object({ nodeTimeoutMs: z.number().min(0).default(30_000) });
 
-export class FlowEngineService extends Service {
+export class FlowEngineService extends Service implements FlowEngine {
     private readonly flows = new Map<FlowId, CompiledFlow>();
     private readonly runs = new Map<RunId, RunEntry>();
     /**
@@ -85,99 +86,31 @@ export class FlowEngineService extends Service {
         this.ownerCtx = ctx;
         // 内置节点随引擎 fiber 卸载逆序注销 / built-ins unregister in reverse order with the engine fiber
         ctx.effect(
-            () => createBuiltinHandlers(this.runSubflow).map((handler) => this.registry.register(handler)),
+            () => createBuiltinHandlers(this.subflowRunner()).map((handler) => this.registry.register(handler)),
             'flow-builtin-nodes',
         );
-        // waterfall 改写同步：引擎监听器位于链最外层，next() 返回（全部加工
-        // 完成后）再把最终产出覆盖黑板 slot。/ The engine listener is the
-        // outermost link; after next() returns it writes the final output back.
-        ctx.on('graph/node-post-execute', (meta, envelope, next) => {
-            const final = next();
-            const entry = this.runs.get(meta.runId as RunId);
-            if (entry?.blackboard && meta.nodeId !== undefined) {
-                for (const [slot, value] of Object.entries(toSlots(final ?? envelope.output))) entry.blackboard.write(meta.nodeId, slot, value);
-            }
-            return final;
-        });
-        // 内核中性状态事件 → flow 语义事件（补 flowId；错误收缩为可序列化面）。
-        // 节点记录保留授权审计：内核每次状态迁移只重写状态字段，不能把审批事实丢掉。
-        // Kernel neutral status event → flow semantic event (adds flowId; the
-        // error shrinks to its serializable surface). The node record keeps the
-        // approval audit: a kernel transition rewrites status fields only and
-        // must not drop approval facts.
-        ctx.on('graph/node-status', (payload) => {
-            const entry = this.runs.get(payload.runId as RunId);
-            if (entry === undefined) return;
-            const previous = entry.nodes[payload.nodeId];
-            const flow = this.flows.get(entry.flowId);
-            const node = flow?.definition.nodes.find((candidate) => candidate.id === payload.nodeId);
-            const recovered = payload.status === 'completed' && node?.onError === 'errorBranch'
-                ? recoveredFailure(entry.blackboard, payload.nodeId as NodeId)
-                : undefined;
-            const record: FlowNodeRecord = { status: payload.status };
-            if (payload.skipReason !== undefined) record.skipReason = payload.skipReason;
-            if (payload.startedAt !== undefined) record.startedAt = payload.startedAt;
-            if (payload.endedAt !== undefined) record.endedAt = payload.endedAt;
-            if (payload.error) record.error = { code: payload.error.code, message: payload.error.message };
-            if (recovered) record.recovered = recovered;
-            if (previous?.approvals !== undefined) record.approvals = previous.approvals;
-            entry.nodes[payload.nodeId] = record;
-            this.projectNode(entry, payload.nodeId);
-        });
-        // 授权挂起/落定 → 节点状态与审计（等待中的请求把节点标成 awaiting-approval）
-        // Approval pending/settled → node status and audit (a pending request
-        // marks the node awaiting-approval).
-        ctx.on('flow/approval-requested', (request) => {
-            this.beginApproval(request);
-        });
-        ctx.on('flow/approval-decided', (payload) => {
-            this.finishApproval(payload.request, payload.outcome);
-        });
+        // 事件接线（内核状态 / waterfall 改写 / 授权挂起与落定）集中在一个模块。
+        // The event wiring (kernel status / waterfall rewrite / approval
+        // pending & settled) lives in one module.
+        wireEngineEvents(this.ports());
     }
 
-    /** 广播一条节点的当前记录（状态 + 审计）/ broadcast one node's current record (status + audit) */
-    private projectNode(entry: RunEntry, nodeId: string): void {
-        const record = entry.nodes[nodeId];
-        if (record === undefined) return;
-        const payload: FlowNodeStatusPayload = {
-            flowId: entry.flowId,
-            runId: entry.runId,
-            nodeId: nodeId as NodeId,
-            status: record.status,
-            ...record.skipReason === undefined ? {} : { skipReason: record.skipReason },
-            ...record.error === undefined ? {} : { error: record.error },
-            ...record.recovered === undefined ? {} : { recovered: record.recovered },
-            ...record.approvals === undefined ? {} : { approvals: record.approvals },
-            ...record.startedAt === undefined ? {} : { startedAt: record.startedAt },
-            ...record.endedAt === undefined ? {} : { endedAt: record.endedAt },
+    /** 引擎状态与能力的只读端口面（驱动器/事件接线共用）/ the read-only ports face shared by the driver and the event wiring */
+    private ports(): EngineRunPorts {
+        return {
+            flows: this.flows,
+            runs: this.runs,
+            ownerCtx: this.ownerCtx,
+            kernel: this.kernel,
+            registry: this.registry,
+            nodeTimeoutMs: this.config.nodeTimeoutMs,
+            resolveStorage: () => this.resolveStorage(),
         };
-        this.ownerCtx.emit('flow/node-status', payload);
     }
 
-    /** 请求挂起：节点进入可辨识的等待授权状态，保留已有的起止时间；同一尝试的多个并发请求都记入审计 / a request is pending: the node enters awaiting-approval, keeping its timestamps; concurrent requests of the same attempt are all audited */
-    private beginApproval(request: FlowApprovalRequest): void {
-        const entry = this.runs.get(request.runId);
-        const record = entry?.nodes[request.nodeId];
-        if (entry === undefined || record === undefined || TERMINAL.has(record.status)) return;
-        record.status = 'awaiting-approval';
-        record.approvals = [...(record.approvals ?? []), { request }];
-        this.projectNode(entry, request.nodeId);
-    }
-
-    /** 请求落定：写回结果与回答者/时间；只要还有挂起请求就保持等待 / a request settled: write back the outcome with actor/time; stay waiting while another request is still open */
-    private finishApproval(request: FlowApprovalRequest, outcome: FlowApprovalOutcome): void {
-        const entry = this.runs.get(request.runId);
-        const record = entry?.nodes[request.nodeId];
-        if (entry === undefined || record === undefined) return;
-        const current = record.approvals ?? [];
-        if (!current.some((audit) => audit.request.id === request.id)) return;
-        const approvals: FlowApprovalAudit[] = current.map((audit) =>
-            audit.request.id === request.id ? { request, outcome } : audit);
-        record.approvals = approvals;
-        if (record.status === 'awaiting-approval') {
-            record.status = approvals.some((audit) => audit.outcome === undefined) ? 'awaiting-approval' : 'running';
-        }
-        this.projectNode(entry, request.nodeId);
+    /** subflow 回调绑定本引擎端口 / bind the subflow callback to this engine's ports */
+    private subflowRunner(): (flowId: FlowId, input: Record<string, unknown>, nctx: NodeExecuteContext) => Promise<unknown> {
+        return (flowId, input, nctx) => runSubflow(this.ports(), flowId, input, nctx);
     }
 
     /**
@@ -236,106 +169,7 @@ export class FlowEngineService extends Service {
 
     /** 启动一次运行（非阻塞）；入参经 Start 签名校验 / start one run (non-blocking); input validated via the Start signature */
     run(flowId: FlowId, options: FlowRunOptions = {}): FlowRunHandle {
-        return this.startRun(flowId, options, [flowId]);
-    }
-
-    /** 启动一次运行并记录祖先链（subflow 递归防护用）/ start a run and record its ancestor chain (subflow guard) */
-    private startRun(flowId: FlowId, options: FlowRunOptions, ancestry: readonly FlowId[]): FlowRunHandle {
-        const compiled = this.flows.get(flowId);
-        if (!compiled) throw flowError('FLOW_NOT_FOUND', `flow "${flowId}" is not registered`, { flowId });
-        let input = options.input ?? {};
-        if (compiled.definition.input) {
-            try {
-                input = compiled.definition.input(input) as Record<string, unknown>;
-            } catch (cause) {
-                throw flowError('NODE_CONFIG_INVALID', `flow "${flowId}" input validation failed`, { flowId, cause });
-            }
-        }
-        const runId = randomUUID() as RunId;
-        const blackboard = createBlackboard();
-        const nodes: Record<string, FlowNodeRecord> = {};
-        for (const node of compiled.definition.nodes) nodes[node.id] = { status: 'pending' };
-        const entry: RunEntry = { flowId, runId, status: 'running', startedAt: Date.now(), ancestry, blackboard, nodes };
-        this.runs.set(runId, entry);
-        const outcomePorts: OutcomePorts = new Map();
-        let kernelCancel: (() => void) | undefined;
-        // cancel 可能先于内核启动到达：先记意愿，内核启动后转发 signal / cancel may arrive before the kernel starts
-        let cancelRequested = false;
-        // 可选能力：未装载 flow-approval 时节点授权面按 unavailable 拒绝（fail-closed 保留）
-        // Optional capability: without flow-approval the node approval face
-        // denies as unavailable (fail-closed stays intact).
-        const approval = get(this.ownerCtx, FlowApprovalToken);
-        const promise = this.drive(compiled, entry, {
-            input,
-            mocks: options.mocks,
-            blackboard,
-            outcomePorts,
-            isCancelled: () => cancelRequested,
-            setCancel: (cancel) => {
-                kernelCancel = cancel;
-                if (cancelRequested) cancel();
-            },
-            ...approval === undefined ? {} : { approval },
-        });
-        return {
-            flowId,
-            runId,
-            status: () => entry.status,
-            cancel: () => {
-                cancelRequested = true;
-                kernelCancel?.();
-            },
-            awaitCompletion: () => promise,
-        };
-    }
-
-    /** 运行主体：flow 拦截 → 内核调度 → 落盘与事件 / the run body: flow intercept → kernel scheduling → persistence and events */
-    private async drive(compiled: CompiledFlow, entry: RunEntry, env: DriveEnv): Promise<FlowRunResult> {
-        const { flowId, runId } = entry;
-        const payload = { flowId, runId, input: env.input };
-        if (env.isCancelled()) return this.finalize(compiled, entry, env.blackboard, cancelledRunResult(compiled, flowId, runId));
-        if (await this.ownerCtx.serial('flow/run-starting', payload)) {
-            return this.finalize(compiled, entry, env.blackboard, rejectedRunResult(compiled, flowId, runId));
-        }
-        if (env.isCancelled()) return this.finalize(compiled, entry, env.blackboard, cancelledRunResult(compiled, flowId, runId));
-        this.ownerCtx.emit('flow/run-start', payload);
-        const graph = toKernelGraph(compiled, env.blackboard, env.outcomePorts);
-        const deps = runnerDeps(compiled, entry, env, this.registry, this.config.nodeTimeoutMs);
-        const handle = this.kernel.run(graph, createRunner(deps), { runId });
-        env.setCancel(() => handle.cancel());
-        return this.finalize(compiled, entry, env.blackboard, await handle.result);
-    }
-
-    /** 汇总结果：输出变量、节点记录、事件与持久化 / aggregate the result: output vars, node records, events, persistence */
-    private async finalize(
-        compiled: CompiledFlow,
-        entry: RunEntry,
-        blackboard: FlowBlackboard,
-        kernelResult: GraphRunResult,
-    ): Promise<FlowRunResult> {
-        const approvals = new Map(
-            Object.entries(entry.nodes).map(([id, record]) => [id, record.approvals] as const),
-        );
-        const result = toFlowResult(compiled, entry, blackboard, kernelResult);
-        // 授权审计是 flow 层事实：内核结果只带状态/错误，这里把它合回最终节点记录。
-        // Approval audit is a flow-layer fact: the kernel result carries only
-        // status/error, so merge it back into the final node records.
-        for (const [id, record] of Object.entries(result.nodes)) {
-            const audit = approvals.get(id);
-            if (audit !== undefined) record.approvals = audit;
-        }
-        entry.status = result.status;
-        // 结果回写运行条目（getRun 面）：实时 nodes 与最终 result.nodes 同源
-        // Write the result back onto the run entry (the getRun surface); live nodes and result.nodes share one source.
-        entry.result = result;
-        entry.nodes = result.nodes;
-        this.ownerCtx.emit('flow/run-end', { flowId: entry.flowId, runId: entry.runId, status: result.status, output: result.output, blackboard: blackboard.snapshot() });
-        try {
-            await this.resolveStorage()?.saveRun(result);
-        } catch (cause) {
-            this.ownerCtx.logger.error('flow run persist failed / flow 运行持久化失败', cause);
-        }
-        return result;
+        return startEngineRun(this.ports(), flowId, options, [flowId]);
     }
 
     listRuns(): FlowRunSummary[] {
@@ -343,37 +177,4 @@ export class FlowEngineService extends Service {
             .sort((a, b) => a.startedAt - b.startedAt)
             .map(({ flowId, runId, status, startedAt }) => ({ flowId, runId, status, startedAt }));
     }
-
-    /**
-     * subflow 回调：按 run 的祖先链做递归防护（不是引擎级全局集合，
-     * 否则同一子 flow 的并行引用会互相误伤），并传播父级取消。
-     * The subflow callback: the recursion guard walks the run's own ancestor
-     * chain (an engine-global set would make parallel references to the same
-     * child flow collide) and propagates the parent cancel.
-     */
-    private runSubflow = async (flowId: FlowId, input: Record<string, unknown>, nctx: NodeExecuteContext): Promise<unknown> => {
-        const ancestry = this.runs.get(nctx.runId)?.ancestry ?? [];
-        if (ancestry.includes(flowId)) {
-            throw flowError('FLOW_REFERENCE_CYCLE', `recursive subflow reference to "${flowId}" at runtime`, { flowId, nodeId: nctx.nodeId });
-        }
-        const handle = this.startRun(flowId, { input }, [...ancestry, flowId]);
-        // 只有外部取消才取消子 flow；fail-fast 只是通知，子 flow 必须自然落定
-        // Only an external cancel cancels the child run; a fail-fast notice lets it settle naturally.
-        const onAbort = (): void => {
-            if (isExternalCancel(nctx.signal)) handle.cancel();
-        };
-        if (isExternalCancel(nctx.signal)) handle.cancel();
-        else nctx.signal.addEventListener('abort', onAbort, { once: true });
-        try {
-            const result = await handle.awaitCompletion();
-            if (result.status !== 'completed') {
-                throw flowError('NODE_FAILED', `subflow "${flowId}" ended with status ${result.status}`, {
-                    flowId, runId: nctx.runId, nodeId: nctx.nodeId,
-                });
-            }
-            return result;
-        } finally {
-            nctx.signal.removeEventListener('abort', onAbort);
-        }
-    };
 }

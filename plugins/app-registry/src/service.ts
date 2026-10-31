@@ -10,41 +10,24 @@
  * - lifecycle: an app is bound to the fiber that registered it; disposing that
  *   fiber removes the whole app (pages + tools), idempotently.
  *
- * 字段语义以 docs/application-concept.cn.md §2/§6/§7 为准；契约类型冻结在 ./types.ts。
- * Field semantics follow the design doc §2/§6/§7; contract types are frozen in ./types.ts.
+ * 字段语义以 docs/application-concept.cn.md §2/§6/§7 为准；契约类型冻结在 ./types.ts，
+ * 规则（清单校验/前缀/页面约束/入口状态机）收口在 ./app-rules，内嵌记录在 ./app-entry。
+ * Field semantics follow the design doc §2/§6/§7; contract types are frozen in
+ * ./types.ts, the rule set lives in ./app-rules, the internal record in ./app-entry.
  */
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
-import { PageError, PageErrorCode, defineAppPage, defineComponentPage, pageArchetypeOf, patternParamsOf } from '@veren/prompt-page'
+import { defineAppPage, defineComponentPage } from '@veren/prompt-page'
 import type { ComponentPageMeta, PageDefinition, PageFC, PageLiveBinding } from '@veren/prompt-page'
 import { AppErrorCode } from './types.ts'
-import type { AppId, AppPageRegistrar, AppRecord, ApplicationDefinition, PageKey, PageMirrorFace, PageRegistration } from './types.ts'
+import type { AppId, AppPageRegistrar, AppRecord, ApplicationDefinition, PageMirrorFace, PageRegistration } from './types.ts'
 import { AppRegistryError, fail } from './errors.ts'
+import { toRecord } from './app-entry.ts'
+import type { AppEntry } from './app-entry.ts'
+import { assertHomeWithoutParams, assertPageKeyAvailable, assertPageUnderApp, refreshEntryState, validateAndClaimToolPrefix, validateDefinition } from './app-rules.ts'
 
 /** 服务名（ctx.apps / inject 'apps'）/ service name */
 export const APPS_NAME = 'apps'
-
-/** 工具前缀规则：小写字母开头，仅小写字母/数字/下划线，≤32 字符 / tool-prefix slug rule */
-const TOOL_PREFIX_RE = /^[a-z][a-z0-9_]{0,31}$/
-
-/** 一条应用的内嵌运行时记录 / internal runtime record of one app */
-interface AppEntry {
-  definition: ApplicationDefinition
-  /** 注册时从 fiber 推导的提供包名 / owner package name derived from the fiber */
-  owner: string
-  /** 组合包版本快照（第 1 阶段占位）/ bundle version snapshot (placeholder in phase 1) */
-  version: string
-  /** 分配到的最终工具前缀 / assigned final tool prefix */
-  toolPrefix: string
-  state: 'active' | 'disabled' | 'broken'
-  brokenReason?: string
-  /** 注册方 fiber 上下文（归属校验 + 生命周期绑定）/ owning fiber context */
-  ownerContext?: Context
-  /** 已注册页面，键为应用内页面键 / registered pages keyed by app-internal page key */
-  pages: Map<string, PageRegistration>
-  /** 镜像注销器（应用级兜底，防止调用方丢弃 disposer）/ mirror disposers (app-level fallback) */
-  mirrorDisposers: Array<() => void>
-}
 
 export class AppRegistryService extends Service {
   /** id → 内嵌记录 / app id → internal record */
@@ -86,9 +69,9 @@ export class AppRegistryService extends Service {
    * ownership checks of `pages`/`tools` are validated against it.
    */
   register(definition: ApplicationDefinition, owner?: Context): () => void {
-    const id = this.validateDefinition(definition)
+    const id = validateDefinition(this.apps, definition)
     const toolPrefix = definition.toolPrefix ?? id.replace(/-/g, '_')
-    this.validateToolPrefix(toolPrefix, id)
+    validateAndClaimToolPrefix(this.prefixOwners, toolPrefix, id)
     const entry: AppEntry = {
       definition,
       owner: owner?.fiber?.name ?? 'unknown',
@@ -100,10 +83,10 @@ export class AppRegistryService extends Service {
       ownerContext: owner,
     }
     this.apps.set(id, entry)
-    // 入口页面允许“先注册、页面后补”：暂缺则标 broken，不抛到宿主启动（§7）。
+    // 入口页面允许"先注册、页面后补"：暂缺则标 broken，不抛到宿主启动（§7）。
     // The entry page may be registered after the app: a missing entry breaks the
     // app (with a reason) instead of failing host startup.
-    this.refreshEntryState(entry, id)
+    refreshEntryState(entry)
     const disposeApp = (): void => { this.removeApp(id, entry) }
     if (owner) owner.effect(() => disposeApp, `apps.register(${id})`)
     return disposeApp
@@ -112,12 +95,12 @@ export class AppRegistryService extends Service {
   /** 按 id 取应用记录；不存在返回 undefined / look up an app record by id */
   get(id: AppId): AppRecord | undefined {
     const entry = this.apps.get(id)
-    return entry ? this.toRecord(entry) : undefined
+    return entry ? toRecord(entry) : undefined
   }
 
   /** 应用目录（注册顺序）/ the application catalog in registration order */
   catalog(): readonly AppRecord[] {
-    return [...this.apps.values()].map((entry) => this.toRecord(entry))
+    return [...this.apps.values()].map((entry) => toRecord(entry))
   }
 
   /** 注销一个应用（幂等；宿主/测试用，正常路径走 fiber 清理）/ remove an app (idempotent) */
@@ -173,48 +156,14 @@ export class AppRegistryService extends Service {
     // 走 prompt-page 的 defineAppPage：强制 /apps/<appId>/... 形态与契约缺省。
     // Re-run prompt-page's defineAppPage: enforces the /apps/<appId>/... shape.
     const page = defineAppPage(raw)
-    const urlSegments = page.url.split('/').filter((segment) => segment.length > 0)
-    if (urlSegments[1] !== id) {
-      fail(AppErrorCode.ManifestInvalid,
-        `page "${page.name}" url must live under /apps/${id}/, got ${JSON.stringify(page.url)}`,
-        { appId: id, url: page.url })
-    }
-    if (entry.pages.has(page.name)) {
-      fail(AppErrorCode.ManifestInvalid, `duplicate page key "${id}/${page.name}" in app "${id}"`,
-        { appId: id, page: page.name })
-    }
-    // §3.10.5 规则 1（注册期，fail loud；2026-10-21 收窄）：首页 URL 不含 :param；
-    // map **仅当本应用还有记录页（详情/只读详情 viewer）时**强制非空——单页应用/
-    // 纯仪表盘应用的空 map 合法，不许因此报错。规则在两个注册序上都成立：先记录
-    // 页后首页 → 首页注册时在本页查；先首页后记录页 → 记录页注册时回头查已登记
-    // 的首页。规则 4 的 entry-not-home broken 态（refreshEntryState）是未来旁路
-    // 注册的兜底；经本注册面的参数化 entry 页在此即被拒。
-    // §3.10.5 rule 1 (registration time, fail loud; narrowed 2026-10-21): the
-    // home page carries no :param, and its map is demanded **only while the app
-    // also has record pages (detail / viewer)** — an empty map is legal for
-    // single-page / pure-dashboard apps and must never be rejected. The rule
-    // holds on both registration orders: record-page-then-home is checked here
-    // (at the home's own registration); home-then-record-page re-checks the
-    // registered home when the record page arrives. Rule 4's entry-not-home
-    // broken state (refreshEntryState) stays the backstop for any future bypass;
-    // through this registration path a parameterized entry page is rejected here.
-    const entryParams = page.name === entry.definition.entry ? patternParamsOf(page.url) : []
-    if (entryParams.length > 0) {
-      throw new PageError(PageErrorCode.HomeInvalid,
-        `home page "${id}/${page.name}" must be parameter-free, got :params ${JSON.stringify(entryParams)}`,
-      )
-    }
-    // 本页登记后的记录页（详情/只读详情）与首页各是谁（本页尚未进 entry.pages，
-    // 两类都要把"正在注册的这页"算进去）/ the app's record pages (detail/viewer)
-    // and home page as of this registration (the page under registration is not
-    // in entry.pages yet, so both faces account for it explicitly)
-    const archetype = pageArchetypeOf(page, entry.definition.entry)
-    const recordAfter = archetype === 'detail' || archetype === 'viewer'
-      || [...entry.pages.values()].some((registered) => patternParamsOf(registered.page.url).length > 0)
-    const homeAfter = archetype === 'home' ? page : entry.pages.get(entry.definition.entry)?.page
+    // 规则 1/键唯一/URL 归属全部在 app-rules 一处收口（注册期 fail loud）。
+    // Rules 1 / key uniqueness / url ownership all close in app-rules (fail loud at registration).
+    assertPageUnderApp(page, id)
+    assertPageKeyAvailable(entry, id, page)
+    assertHomeWithoutParams(entry, id, page)
     const registration: PageRegistration = { page, live, ...(component ? { component: true } : {}) }
     entry.pages.set(page.name, registration)
-    this.refreshEntryState(entry, id)
+    refreshEntryState(entry)
     // 缺口 3：单入口——内部镜像进 page-registry；镜像失败回滚内部登记并抛原错。
     // Gap 3: single entry — mirror into page-registry; a mirror failure rolls
     // the internal registration back and rethrows the original error.
@@ -224,7 +173,7 @@ export class AppRegistryService extends Service {
       // 注销幂等：只在自己仍是当前登记时摘除 / idempotent: remove only if still current
       if (entry.pages.get(page.name)?.page === page) {
         entry.pages.delete(page.name)
-        this.refreshEntryState(entry, id)
+        refreshEntryState(entry)
       }
     }
   }
@@ -252,7 +201,7 @@ export class AppRegistryService extends Service {
       const entry = this.apps.get(id)
       if (entry !== undefined && entry.pages.get(page.name)?.page === page) {
         entry.pages.delete(page.name)
-        this.refreshEntryState(entry, id)
+        refreshEntryState(entry)
       }
       throw error
     }
@@ -290,69 +239,7 @@ export class AppRegistryService extends Service {
     if (entry.state === 'disabled') entry.state = 'active'
   }
 
-  /**
-   * 入口页面在位且为首页（home 档，无 :param）→ active；缺失 → broken
-   * （EntryMissing）；在位但带 :param → broken（§3.10.5 规则 4 的 entry-not-home，
-   * 同路不抛异常）。经正常注册面参数化的 entry 页已在 registerPage 被拒（规则 1），
-   * 本分支是旁路的兜底。
-   * Entry page present and a home page (the home archetype, no :param) → active;
-   * missing → broken (EntryMissing); present but parameterized → broken
-   * (§3.10.5 rule 4's entry-not-home, same route, no throw). The normal
-   * registration path already rejects a parameterized entry (rule 1); this
-   * branch is the bypass backstop.
-   */
-  private refreshEntryState(entry: AppEntry, id: string): void {
-    const entryPage = entry.pages.get(entry.definition.entry as PageKey)
-    if (entryPage !== undefined && patternParamsOf(entryPage.page.url).length > 0) {
-      entry.state = 'broken'
-      entry.brokenReason = `${AppErrorCode.EntryNotHome}: entry page "${entry.definition.entry}" (${entryPage.page.url}) carries :params; the entry must be a home page`
-      return
-    }
-    const hasEntry = entryPage !== undefined
-    if (hasEntry && entry.state !== 'disabled') {
-      entry.state = 'active'
-      entry.brokenReason = undefined
-    } else if (!hasEntry) {
-      entry.state = 'broken'
-      entry.brokenReason = `${AppErrorCode.EntryMissing}: entry page "${entry.definition.entry}" is not registered yet`
-    }
-  }
-
   // ---- 内部校验 / internal validation ----
-
-  /** 校验应用定义：id 格式/保留字/必填字段；重复 id fail loud / validate the definition */
-  private validateDefinition(definition: ApplicationDefinition): string {
-    const id = definition.id as string
-    if (typeof id !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(id) || ['api', 'apps', 'system', '__global__'].includes(id)) {
-      fail(AppErrorCode.ManifestInvalid, `invalid app id ${JSON.stringify(id)} (lowercase slug, ≤32 chars, not reserved)`, { id })
-    }
-    if (this.apps.has(id)) {
-      fail(AppErrorCode.ManifestInvalid,
-        `app id "${id}" is already registered (ids are globally unique; not silently overwritten)`, { id })
-    }
-    for (const field of ['name', 'description', 'entry'] as const) {
-      const value = definition[field]
-      if (typeof value !== 'string' || value.length === 0) {
-        fail(AppErrorCode.ManifestInvalid, `app "${id}" field "${field}" must be a non-empty string`, { id, field })
-      }
-    }
-    return id
-  }
-
-  /** 校验工具前缀：格式 + 全宿主唯一（冲突时报出双方）/ validate the tool prefix */
-  private validateToolPrefix(prefix: string, id: string): void {
-    if (!TOOL_PREFIX_RE.test(prefix)) {
-      fail(AppErrorCode.ManifestInvalid,
-        `invalid tool prefix ${JSON.stringify(prefix)} (lowercase [a-z0-9_], ≤32 chars)`, { id, toolPrefix: prefix })
-    }
-    const holder = this.prefixOwners.get(prefix)
-    if (holder !== undefined && holder !== id) {
-      fail(AppErrorCode.ToolPrefixConflict,
-        `tool prefix "${prefix}" of app "${id}" conflicts with app "${holder}"`,
-        { toolPrefix: prefix, existingApp: holder, newApp: id })
-    }
-    this.prefixOwners.set(prefix, id)
-  }
 
   /** 取应用记录或抛 NotFound / require an app record or throw NotFound */
   private requireApp(id: AppId): AppEntry {
@@ -374,26 +261,6 @@ export class AppRegistryService extends Service {
         `app "${id}" ${face} registrar is owned by another fiber`, { appId: id, face })
     }
     return entry
-  }
-
-  /** 内嵌记录 → 对外只读视图 / internal entry → the read-only public record */
-  private toRecord(entry: AppEntry): AppRecord {
-    return {
-      definition: entry.definition,
-      owner: entry.owner,
-      version: entry.version,
-      toolPrefix: entry.toolPrefix,
-      state: entry.state,
-      ...(entry.brokenReason === undefined ? {} : { brokenReason: entry.brokenReason }),
-      // 页面投影（map 推导与规则 1 的事实源）：按访问重建，小应用零开销
-      // / the page projection (the fact source for map derivation and rule 1): rebuilt per access, trivial for app-scale maps
-      pages: new Map(
-        [...entry.pages.entries()].map(([key, registered]) => [
-          key,
-          { url: registered.page.url, description: registered.page.description, component: registered.component ?? false },
-        ]),
-      ),
-    }
   }
 }
 

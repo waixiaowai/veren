@@ -17,6 +17,6 @@ pnpm --filter @veren/app-registry test
 
 ## Live pages
 
-`pages(id, caller?).register(component, meta)` registers a component page (`PageFC` + `ComponentPageMeta`); the adapter (`defineComponentPage`) seals it into a `PageDefinition` + `PageLiveBinding` (`live.mount(params, agent)`), and the mirror carries it into page-registry (with `listPageEntries(id)` — the host assembly's backfill — so a page registered before the assembly still resolves). The body runs exactly once on the page session's real Agent: tools, single-session skills, and first-screen reads all register/start in the body (`agent.ctx.tools.register` / `agent.ctx.skills.register` / `agent.ctx.effect`), and async first-screen facts ride `agent.followup` as new messages. The meta carries declarations only — no behavioral hooks.
+`pages(id, caller?).register(page, { store })` marks the page a live view (§3.10.3): the store (any `@veren/prompt-core` `ExternalStore<S>`, e.g. a plugin's own class with `getState` / `subscribe`) is sealed at registration into a `PageLiveBinding` (`live.mount(params)`), so the page runtime mounts a store-subscribed view without ever seeing `S`. The binding travels with the mirror into page-registry and with `listPageEntries(id)` — the host assembly's backfill — so a page registered before the assembly still becomes live. Pages registered without a store stay static.
 
 中文文档见 [README.cn.md](./README.cn.md)。

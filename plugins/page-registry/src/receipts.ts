@@ -112,26 +112,35 @@ export class DeliveryReceipts {
       if (text !== '') entry.lastText = text
       return
     }
-    if (event.type === 'turn/end') {
-      // 旧回合的收尾（武装前已飞行）不点火，等真正的回应回合 / the tail of a
-      // pre-arm round does not fire; wait for the round that answers
-      if (!entry.turnStarted) {
-        entry.lastText = ''
-        return
-      }
-      this.armed.delete(target)
-      const body = entry.lastText === ''
-        ? '(the woken turn ended without a textual answer / 唤醒回合结束，无文本回答)'
-        : capText(entry.lastText)
-      const message = `PAGE-RECEIPT ${entry.url}（目标页面会话的最终回答 / the target page session's final answer）\n${body}`
-      // wake:false 是防回环的硬约束：回执只落发送方日志，下一次回合可见。
-      // wake:false is the anti-loop invariant: the receipt only lands in the
-      // sender's log, visible on its next turn.
-      void this.append(entry.callerSessionId, message, PAGE_RECEIPT_SOURCE, { wake: false })
-        .catch((error: unknown) => {
-          this.warn(`page-registry: receipt to ${entry.callerSessionId} for ${entry.url} failed: ${String(error)}`)
-        })
+    if (event.type === 'turn/end') this.settle(target, entry)
+  }
+
+  /**
+   * turn/end 的结算：武装前已飞行的旧回合收尾不点火（等真正的回应回合）；
+   * 点火即清账，最终回答以 wake:false 落回发送方日志。
+   * Settle a turn/end: the tail of a pre-arm round does not fire (wait for the
+   * round that answers); firing clears the ledger and lands the final answer
+   * back in the sender's log with wake:false.
+   */
+  private settle(target: string, entry: ArmedReceipt): void {
+    // 旧回合的收尾（武装前已飞行）不点火，等真正的回应回合 / the tail of a
+    // pre-arm round does not fire; wait for the round that answers
+    if (!entry.turnStarted) {
+      entry.lastText = ''
+      return
     }
+    this.armed.delete(target)
+    const body = entry.lastText === ''
+      ? '(the woken turn ended without a textual answer / 唤醒回合结束，无文本回答)'
+      : capText(entry.lastText)
+    const message = `PAGE-RECEIPT ${entry.url}（目标页面会话的最终回答 / the target page session's final answer）\n${body}`
+    // wake:false 是防回环的硬约束：回执只落发送方日志，下一次回合可见。
+    // wake:false is the anti-loop invariant: the receipt only lands in the
+    // sender's log, visible on its next turn.
+    void this.append(entry.callerSessionId, message, PAGE_RECEIPT_SOURCE, { wake: false })
+      .catch((error: unknown) => {
+        this.warn(`page-registry: receipt to ${entry.callerSessionId} for ${entry.url} failed: ${String(error)}`)
+      })
   }
 
   /** 目标 agent 销毁：撤销武装（无回合可等，不发票面陈旧回执）/ disarm on target disposal */
