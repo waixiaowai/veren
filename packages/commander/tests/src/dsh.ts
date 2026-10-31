@@ -115,10 +115,7 @@ function waitForExit(
     child.on('error', (error) => {
       if (settled) return;
       settled = true;
-      reject(new CliError(`无法启动 dsh / failed to spawn dsh: ${error.message}`, {
-        code: 'DSH_SPAWN_FAILED',
-        details: { message: error.message },
-      }));
+      reject(spawnError(error));
     });
     child.on('close', (code, signal) => {
       if (settled) return;
@@ -127,21 +124,37 @@ function waitForExit(
         resolve();
         return;
       }
-      const output = capture?.();
-      reject(new CliError(
-        `dsh 命令失败 / dsh command failed (exit ${code ?? 'null'}${signal ? `, signal ${signal}` : ''})`,
-        {
-          code: 'DSH_COMMAND_FAILED',
-          details: {
-            exitCode: code,
-            signal,
-            stdout: output?.stdout.trim(),
-            stderr: output?.stderr.trim(),
-          },
-        },
-      ));
+      reject(exitError(code, signal, capture?.()));
     });
   });
+}
+
+/** spawn 失败的 CliError / the CliError for a failed spawn */
+function spawnError(error: Error): CliError {
+  return new CliError(`无法启动 dsh / failed to spawn dsh: ${error.message}`, {
+    code: 'DSH_SPAWN_FAILED',
+    details: { message: error.message },
+  });
+}
+
+/** 非零退出（含信号与输出尾部）的 CliError / the CliError for a non-zero exit (signal and output tail included) */
+function exitError(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+  output?: CapturedOutput,
+): CliError {
+  return new CliError(
+    `dsh 命令失败 / dsh command failed (exit ${code ?? 'null'}${signal ? `, signal ${signal}` : ''})`,
+    {
+      code: 'DSH_COMMAND_FAILED',
+      details: {
+        exitCode: code,
+        signal,
+        stdout: output?.stdout.trim(),
+        stderr: output?.stderr.trim(),
+      },
+    },
+  );
 }
 
 /** 路径是否存在 / whether the path exists */

@@ -84,33 +84,48 @@ export function uiManifest(ctx: Context, audience: 'public' | 'admin'): UiManife
  */
 export function webRoutes(ctx: Context): AdminRoute[] {
   return [
-    {
-      audience: 'admin',
-      method: 'GET',
-      path: '/bootstrap',
-      summary: 'Identity, permissions, navigation and feature flags for the SPA',
-      tags: ['web'],
-      handler: async ({ request }) => {
-        const principal = request.principal
-        if (principal === undefined) return {}
-        return bootstrapPayload(ctx, principal, request.cookie(ADMIN_CSRF_COOKIE) ?? null)
-      },
-    },
-    {
-      audience: 'public',
-      method: 'GET',
-      path: '/ui-manifest',
-      summary: 'Core UI packs available before sign-in',
-      tags: ['web'],
-      handler: () => uiManifest(ctx, 'public'),
-    },
-    {
-      audience: 'admin',
-      method: 'GET',
-      path: '/ui-manifest',
-      summary: 'Every UI pack available after sign-in',
-      tags: ['web'],
-      handler: () => uiManifest(ctx, 'admin'),
-    },
+    bootstrapRoute(ctx),
+    publicUiManifestRoute(ctx),
+    adminUiManifestRoute(ctx),
   ]
+}
+
+/** GET /bootstrap：身份、权限、导航与功能开关——SPA 首屏的一次响应。GET /bootstrap: identity, permissions, navigation and feature flags — the SPA's first screen in one response. */
+function bootstrapRoute(ctx: Context): AdminRoute {
+  return {
+    audience: 'admin',
+    method: 'GET',
+    path: '/bootstrap',
+    summary: 'Identity, permissions, navigation and feature flags for the SPA',
+    tags: ['web'],
+    handler: async ({ request }) => {
+      const principal = request.principal
+      if (principal === undefined) return {}
+      return bootstrapPayload(ctx, principal, request.cookie(ADMIN_CSRF_COOKIE) ?? null)
+    },
+  }
+}
+
+/** GET /ui-manifest（public）：登录前可用的核心 UI 包。GET /ui-manifest (public): the core UI packs available before sign-in. */
+function publicUiManifestRoute(ctx: Context): AdminRoute {
+  return {
+    audience: 'public',
+    method: 'GET',
+    path: '/ui-manifest',
+    summary: 'Core UI packs available before sign-in',
+    tags: ['web'],
+    handler: () => uiManifest(ctx, 'public'),
+  }
+}
+
+/** GET /ui-manifest（admin）：登录后可用的全部 UI 包。GET /ui-manifest (admin): every UI pack available after sign-in. */
+function adminUiManifestRoute(ctx: Context): AdminRoute {
+  return {
+    audience: 'admin',
+    method: 'GET',
+    path: '/ui-manifest',
+    summary: 'Every UI pack available after sign-in',
+    tags: ['web'],
+    handler: () => uiManifest(ctx, 'admin'),
+  }
 }

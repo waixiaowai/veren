@@ -69,44 +69,20 @@ export async function mountAppHost(options: AppHostOptions = {}): Promise<AppHos
   const disposers: Array<() => Promise<void> | void> = []
   const tools = new ToolTable()
   disposers.push(ctx.provide('tools', tools))
-  if (options.agentPresets !== false) {
-    disposers.push(ctx.provide('agentPresets', {
-      // 空预设表 + 原样透传 preset / an empty table passing `preset` through
-      list: async () => [],
-      composedPreset: (agentContext: { preset?: string }) => agentContext.preset,
-    }))
-  }
-  // storage 先挂、最后拆（disposers 逆序）：page-registry 的存储域句柄在
-  // 自己的 fiber dispose 时关闭，storage 栈必须活得比注册表 fiber 更久。
-  // Storage mounts first and disposes last (reversed disposers): page-registry
-  // closes its domain handle on its own fiber dispose, so the storage stack
-  // must outlive the registry fibers.
+  if (options.agentPresets !== false) provideAgentPresets(ctx, disposers)
   const storageOn = options.storage !== false || options.taskCenter === true
   const registriesOn = options.registries !== false
-  if (registriesOn && options.storage === false && options.taskCenter !== true) {
-    // fail loud：page-registry 声明 inject ['storageDomain']，无存储装不上。
-    // Fail loud: page-registry declares inject ['storageDomain'] and cannot
-    // activate without storage.
-    throw new Error('mountAppHost: storage is required while registries are on '
-      + '(page-registry injects storageDomain); pass registries: false for storage-off degrade tests')
-  }
+  assertStoragePresence(options, registriesOn)
   if (storageOn) {
+    // storage 先挂（disposers 逆序后最后拆）：storage 栈必须活得比注册表 fiber 更久。
+    // Storage mounts first (disposed last after reversal): it must outlive the registry fibers.
     const storage = await mountStorage(ctx, dirs)
     disposers.push(storage.dispose)
   }
   if (registriesOn) await mountRegistries(ctx, disposers)
-  if (options.taskCenter === true) {
-    const fiber = await ctx.plugin(TaskCenterPlugin)
-    disposers.push(() => fiber.dispose())
-  }
-  // 开关关掉的键干脆不出现在结果上（exactOptionalPropertyTypes 下不写显式
-  // undefined），调用方拿到的形状与装配事实一致。apps/pageRegistry 走
-  // declaration merging 的真实服务面，缺席在 mountRegistries 里已 fail loud。
-  // Switched-off keys are absent from the result entirely (never an explicit
-  // undefined under exactOptionalPropertyTypes), so the shape callers see
-  // matches what was actually assembled. apps/pageRegistry use the real
-  // declaration-merged service faces; absence already fails loud in
-  // mountRegistries.
+  if (options.taskCenter === true) await mountTaskCenter(ctx, disposers)
+  // 开关关掉的键干脆不出现在结果上（exactOptionalPropertyTypes 下不写显式 undefined）。
+  // Switched-off keys are absent from the result entirely (never an explicit undefined under exactOptionalPropertyTypes).
   return {
     ctx,
     ...(registriesOn ? { apps: ctx.apps, pageRegistry: ctx.pageRegistry } : {}),
@@ -116,6 +92,28 @@ export async function mountAppHost(options: AppHostOptions = {}): Promise<AppHos
       dirs.disposeAll()
     },
   }
+}
+
+/** 提供最小 agentPresets 替身：空预设表 + 原样透传 preset。Provide the minimal agentPresets stub: an empty table passing `preset` through. */
+function provideAgentPresets(ctx: Context, disposers: Array<() => Promise<void> | void>): void {
+  disposers.push(ctx.provide('agentPresets', {
+    list: async () => [],
+    composedPreset: (agentContext: { preset?: string }) => agentContext.preset,
+  }))
+}
+
+/** fail loud：page-registry 声明 inject ['storageDomain']，无存储装不上。Fail loud: page-registry declares inject ['storageDomain'] and cannot activate without storage. */
+function assertStoragePresence(options: AppHostOptions, registriesOn: boolean): void {
+  if (registriesOn && options.storage === false && options.taskCenter !== true) {
+    throw new Error('mountAppHost: storage is required while registries are on '
+      + '(page-registry injects storageDomain); pass registries: false for storage-off degrade tests')
+  }
+}
+
+/** 挂真实 taskCenter fiber（隐含 storage，即使 storage 为 false 也会挂）。Mount the real task center fiber (implies storage, mounted even when `storage` is false). */
+async function mountTaskCenter(ctx: Context, disposers: Array<() => Promise<void> | void>): Promise<void> {
+  const fiber = await ctx.plugin(TaskCenterPlugin)
+  disposers.push(() => fiber.dispose())
 }
 
 /** 激活两个真实注册表插件并接上镜像面（注册表→page-registry 的单入口注册）。Activate both real registry plugins and wire the mirror (the single-entry registration path into page-registry). */

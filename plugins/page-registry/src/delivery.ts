@@ -157,6 +157,12 @@ export async function deliverToPageUrl(
   return await deliverWithRetry(index, ports, ledger, key, app, match, options, nextDepth)
 }
 
+/** 补投循环的可变状态：是否已改道、最后一次落点会话 / the mutable retry-loop state: whether redirected, the last landed session */
+interface RetryState {
+  redirected: boolean
+  lastSessionId: string
+}
+
 /** 有限次投递循环：活会话直接 append；废弃竞态下指针易主则补投 / the bounded delivery loop: append to the live session; re-deliver when the pointer moves */
 async function deliverWithRetry(
   index: PageInstanceIndex,
@@ -168,39 +174,56 @@ async function deliverWithRetry(
   options: DeliverPageOptions,
   nextDepth: number,
 ): Promise<DeliveryResult> {
-  let redirected = false
-  let lastSessionId = ''
+  const state: RetryState = { redirected: false, lastSessionId: '' }
   for (let attempt = 1; attempt <= MAX_DELIVERY_ATTEMPTS; attempt++) {
-    const row = await index.lookup(key)
-    // 活行还要"会话在场"：重启后所有旧会话都未激活，append 会以
-    // "found no active agent" 失败——视为无活会话，走新建路径（旧行经
-    // openUrl 同款废弃收编，墓碑照写）。真机反例：投给重启前的 t-3 详情
-    // 页两次均失败，发送方只拿到错误。
-    // A live row also needs its session PRESENT: after a restart every old
-    // session is inactive and append fails with "found no active agent" —
-    // treat that as no live session and create (the old row retires through
-    // the same openUrl path, tombstone included). Live counter-example:
-    // delivering to a pre-restart detail page failed twice with that error.
-    if (row === undefined || row.state !== 'live' || !ports.sessions.exists(row.sessionId)) {
-      return await createAndDeliver(index, ports, ledger, key, app, match, options, nextDepth, redirected)
-    }
-    lastSessionId = row.sessionId
-    // 续链：目标链深至少是 caller+1（既有的浅会话被更深的链投递时抬升）
-    // Chain extension: the target's depth is at least caller+1 (raised when a shallower session is handed deeper work)
-    ledger.record(row.sessionId, Math.max(ledger.depthOf(ports.sessions, row.sessionId), nextDepth))
-    options.armReceipt?.(row.sessionId, key)
-    await ports.sessions.appendUserMessage(row.sessionId, options.message, PAGE_SEND_SOURCE, { wake: options.wake })
-    // 废弃竞态（§3.9 风险 3）：投递后重查；指针已易主 → 补投给当前活会话
-    // Deprecation race: re-consult after appending; pointer moved → re-deliver
-    const current = await index.lookup(key)
-    if (current !== undefined && current.state === 'live' && current.sessionId === row.sessionId) {
-      return receiptOf(row.sessionId, key, false, options, redirected)
-    }
-    redirected = true
+    const settled = await deliverOnce(index, ports, ledger, key, app, match, options, nextDepth, state)
+    if (settled !== undefined) return settled
+    state.redirected = true
   }
   // 补投次数用尽：最后一次投递保留在它落地的会话，如实回报 redirected
   // Attempts exhausted: the last append stands where it landed; report honestly
-  return receiptOf(lastSessionId, key, false, options, redirected)
+  return receiptOf(state.lastSessionId, key, false, options, state.redirected)
+}
+
+/** 单次投递尝试：无活会话走新建路径；指针稳定则收口回执，返回 undefined = 指针易主需补投
+ * / one delivery attempt: no live session → create; a stable pointer closes with a receipt; undefined = the pointer moved, retry */
+async function deliverOnce(
+  index: PageInstanceIndex,
+  ports: PageRuntimePorts,
+  ledger: HopLedger,
+  key: PageInstanceKey,
+  app: AppRecord,
+  match: PageMatch<never>,
+  options: DeliverPageOptions,
+  nextDepth: number,
+  state: RetryState,
+): Promise<DeliveryResult | undefined> {
+  const row = await index.lookup(key)
+  // 活行还要"会话在场"：重启后所有旧会话都未激活，append 会以
+  // "found no active agent" 失败——视为无活会话，走新建路径（旧行经
+  // openUrl 同款废弃收编，墓碑照写）。真机反例：投给重启前的 t-3 详情
+  // 页两次均失败，发送方只拿到错误。
+  // A live row also needs its session PRESENT: after a restart every old
+  // session is inactive and append fails with "found no active agent" —
+  // treat that as no live session and create (the old row retires through
+  // the same openUrl path, tombstone included). Live counter-example:
+  // delivering to a pre-restart detail page failed twice with that error.
+  if (row === undefined || row.state !== 'live' || !ports.sessions.exists(row.sessionId)) {
+    return await createAndDeliver(index, ports, ledger, key, app, match, options, nextDepth, state.redirected)
+  }
+  state.lastSessionId = row.sessionId
+  // 续链：目标链深至少是 caller+1（既有的浅会话被更深的链投递时抬升）
+  // Chain extension: the target's depth is at least caller+1 (raised when a shallower session is handed deeper work)
+  ledger.record(row.sessionId, Math.max(ledger.depthOf(ports.sessions, row.sessionId), nextDepth))
+  options.armReceipt?.(row.sessionId, key)
+  await ports.sessions.appendUserMessage(row.sessionId, options.message, PAGE_SEND_SOURCE, { wake: options.wake })
+  // 废弃竞态（§3.9 风险 3）：投递后重查；指针已易主 → 补投给当前活会话
+  // Deprecation race: re-consult after appending; pointer moved → re-deliver
+  const current = await index.lookup(key)
+  if (current !== undefined && current.state === 'live' && current.sessionId === row.sessionId) {
+    return receiptOf(row.sessionId, key, false, options, state.redirected)
+  }
+  return undefined
 }
 
 /** 无活会话的新建路径：正规废弃腾位 → 两阶段创建（不 focus）→ 记链深 → 武装回执 → append / the create path: regular deprecation frees the url → two-phase create (no focus) → record depth → arm receipt → append */

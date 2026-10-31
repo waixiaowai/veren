@@ -77,46 +77,57 @@ function serializeInline(nodes: readonly FlatNode[], inline: { text: string }): 
       continue
     }
     const children = childrenOf(node)
-    switch (kind) {
-      case 'text':
-        inline.text += escapeInline(textContentOf(node))
-        continue
-      case 'strong':
-      case 'b':
-        inline.text += '**'
-        serializeInline(children, inline)
-        inline.text += '**'
-        continue
-      case 'em':
-      case 'i':
-        inline.text += '*'
-        serializeInline(children, inline)
-        inline.text += '*'
-        continue
-      case 'del':
-        inline.text += '~~'
-        serializeInline(children, inline)
-        inline.text += '~~'
-        continue
-      case 'code':
-        inline.text += '`'
-        serializeInline(children, inline)
-        inline.text += '`'
-        continue
-      case 'a': {
-        const href = typeof node === 'object' ? String((node.props as { href?: unknown }).href ?? '') : ''
-        inline.text += `[`
-        serializeInline(children, inline)
-        inline.text += `](${href})`
-        continue
-      }
-      case 'br':
-        inline.text += '  \n'
-        continue
-      default:
-        serializeInline(children, inline) // 未知/块级标签行内降级：只渲染子内容（全函数）/ unknown or block tags degrade inline: children only
+    if (kind === 'text') {
+      inline.text += escapeInline(textContentOf(node))
+      continue
     }
+    if (serializeMarked(kind, children, inline)) continue
+    if (kind === 'a') {
+      serializeAnchor(node, children, inline)
+      continue
+    }
+    if (kind === 'br') {
+      inline.text += '  \n'
+      continue
+    }
+    serializeInline(children, inline) // 未知/块级标签行内降级：只渲染子内容（全函数）/ unknown or block tags degrade inline: children only
   }
+}
+
+/** 行内标签 → 对称包裹标记 / an inline tag → its symmetric wrapping marker */
+function inlineMarkOf(kind: string): string | undefined {
+  switch (kind) {
+    case 'strong':
+    case 'b':
+      return '**'
+    case 'em':
+    case 'i':
+      return '*'
+    case 'del':
+      return '~~'
+    case 'code':
+      return '`'
+    default:
+      return undefined
+  }
+}
+
+/** 对称标记的行内样式（strong/em/del/code）：true = 已处理 / the symmetric-marker styles (strong/em/del/code): true = handled */
+function serializeMarked(kind: string, children: readonly FlatNode[], inline: { text: string }): boolean {
+  const mark = inlineMarkOf(kind)
+  if (mark === undefined) return false
+  inline.text += mark
+  serializeInline(children, inline)
+  inline.text += mark
+  return true
+}
+
+/** 链接：`[children](href)` / a link: `[children](href)` */
+function serializeAnchor(node: FlatNode, children: readonly FlatNode[], inline: { text: string }): void {
+  const href = typeof node === 'object' ? String((node.props as { href?: unknown }).href ?? '') : ''
+  inline.text += `[`
+  serializeInline(children, inline)
+  inline.text += `](${href})`
 }
 
 /** 节点列表 → 行内文本 / a node list → inline text */
@@ -142,66 +153,93 @@ function walkBlocks(nodes: readonly FlatNode[], units: string[], depth: number):
       units.push(`${'#'.repeat(Number(headingMatch[1]))} ${escapeLineStart(inlineOf(children))}`)
       continue
     }
-    switch (kind) {
-      case 'p':
-        units.push(inlineOf(children))
-        continue
-      case 'ul':
-      case 'ol': {
-        const ordered = kind === 'ol'
-        let index = 0
-        for (const li of children) {
-          if (tagOf(li) !== 'li') {
-            walkBlocks([li], units, depth) // ul 直下非 li：按块宽松降级 / a non-li under ul: degrade as a block
-            continue
-          }
-          index++
-          const marker = ordered ? `${index}.` : '-'
-          // li 的直接行内子树折进行首；嵌套列表（ul/ol 子元素）下移一层
-          // / li's direct inline subtree folds into the marker line; nested lists go a level deeper
-          const parts = childrenOf(li)
-          const own: FlatNode[] = []
-          const deeper: FlatNode[] = []
-          for (const part of parts) {
-            const partKind = tagOf(part)
-            if (partKind === 'ul' || partKind === 'ol') deeper.push(part)
-            else own.push(part)
-          }
-          units.push(`${indent}${marker} ${inlineOf(own).trimEnd()}`)
-          walkBlocks(deeper, units, depth + 1)
-        }
-        continue
-      }
-      case 'blockquote':
-        units.push(`${indent}> ${inlineOf(children)}`)
-        continue
-      case 'hr':
-        units.push(`${indent}---`)
-        continue
-      case 'pre': {
-        // pre → 围栏块（原文不转义）/ a fenced block (raw text, no escaping)
-        const raw = inlineOf(children).replace(/\\([\\`*_{}[\]()#+.!>|])/g, '$1')
-        units.push(`${indent}\`\`\`\n${raw.trim()}\n${indent}\`\`\``)
-        continue
-      }
-      case 'table':
-        units.push(`${indent}${tableToGfm(children)}`)
-        continue
-      case 'text':
-        units.push(escapeInline(textContentOf(node)))
-        continue
-      default: {
-        // 透明容器（div/section/未知标签）：含块级子则按块继续；仅行内则折叠成段落（策略位：全函数降级）
-        // / transparent containers (div/section/unknown): block children continue as blocks; inline-only folds into one paragraph
-        const hasBlockChild = children.some((child) => {
-          const childKind = tagOf(child)
-          return childKind !== undefined && (BLOCK_TAGS.has(childKind) || /^h[1-6]$/.test(childKind))
-        })
-        if (hasBlockChild) walkBlocks(children, units, depth)
-        else units.push(inlineOf(children))
-      }
+    if (walkList(kind, children, units, depth)) continue
+    if (kind === 'table') {
+      units.push(`${indent}${tableToGfm(children)}`)
+      continue
     }
+    if (kind === 'text') {
+      units.push(escapeInline(textContentOf(node)))
+      continue
+    }
+    walkSimpleBlock(kind, children, units, indent, depth)
   }
+}
+
+/** ul/ol → 缩进列表项；返回 true = 本节点已处理 / ul/ol → indented list items; true = the node is handled */
+function walkList(kind: string, children: readonly FlatNode[], units: string[], depth: number): boolean {
+  if (kind !== 'ul' && kind !== 'ol') return false
+  const indent = '  '.repeat(depth)
+  const ordered = kind === 'ol'
+  let index = 0
+  for (const li of children) {
+    if (tagOf(li) !== 'li') {
+      walkBlocks([li], units, depth) // ul 直下非 li：按块宽松降级 / a non-li under ul: degrade as a block
+      continue
+    }
+    index++
+    const marker = ordered ? `${index}.` : '-'
+    const [own, deeper] = splitListParts(childrenOf(li))
+    units.push(`${indent}${marker} ${inlineOf(own).trimEnd()}`)
+    walkBlocks(deeper, units, depth + 1)
+  }
+  return true
+}
+
+/** li 的子节点分拣：直接行内子树折进行首，嵌套列表（ul/ol 子元素）下移一层
+ * / sort an li's children: the direct inline subtree folds into the marker line, nested lists go a level deeper */
+function splitListParts(parts: readonly FlatNode[]): [FlatNode[], FlatNode[]] {
+  const own: FlatNode[] = []
+  const deeper: FlatNode[] = []
+  for (const part of parts) {
+    const partKind = tagOf(part)
+    if (partKind === 'ul' || partKind === 'ol') deeper.push(part)
+    else own.push(part)
+  }
+  return [own, deeper]
+}
+
+/** 简单块与透明容器的收尾路径（p/blockquote/hr/pre + default）/ the simple-block and transparent-container tail (p/blockquote/hr/pre + default) */
+function walkSimpleBlock(
+  kind: string,
+  children: readonly FlatNode[],
+  units: string[],
+  indent: string,
+  depth: number,
+): void {
+  switch (kind) {
+    case 'p':
+      units.push(inlineOf(children))
+      return
+    case 'blockquote':
+      units.push(`${indent}> ${inlineOf(children)}`)
+      return
+    case 'hr':
+      units.push(`${indent}---`)
+      return
+    case 'pre':
+      walkPre(children, units, indent)
+      return
+    default:
+      walkTransparent(children, units, depth)
+  }
+}
+
+/** pre → 围栏块（原文不转义，剥掉行内转义）/ pre → a fenced block (raw text, inline escapes stripped) */
+function walkPre(children: readonly FlatNode[], units: string[], indent: string): void {
+  const raw = inlineOf(children).replace(/\\([\\`*_{}[\]()#+.!>|])/g, '$1')
+  units.push(`${indent}\`\`\`\n${raw.trim()}\n${indent}\`\`\``)
+}
+
+/** 透明容器（div/section/未知标签）：含块级子则按块继续；仅行内则折叠成段落（策略位：全函数降级）
+ * / transparent containers (div/section/unknown): block children continue as blocks; inline-only folds into one paragraph */
+function walkTransparent(children: readonly FlatNode[], units: string[], depth: number): void {
+  const hasBlockChild = children.some((child) => {
+    const childKind = tagOf(child)
+    return childKind !== undefined && (BLOCK_TAGS.has(childKind) || /^h[1-6]$/.test(childKind))
+  })
+  if (hasBlockChild) walkBlocks(children, units, depth)
+  else units.push(inlineOf(children))
 }
 
 /** table → GFM（首行表头）/ table → GFM (first row as the header) */

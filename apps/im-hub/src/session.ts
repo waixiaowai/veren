@@ -53,45 +53,83 @@ const MAX_QR_ROUNDS = 12
 export async function authorize(config: HubConfig): Promise<HubCredentials> {
   const api = new WechatApi({ baseUrl: config.baseUrl })
   for (let round = 1; round <= MAX_QR_ROUNDS; round += 1) {
-    const login = await api.beginLogin()
-    const png = join(config.dataDir, 'qr.png')
-    await qrcode.toFile(png, login.qrUrl)
-    console.log(`[${new Date().toISOString()}] 二维码已刷新（第 ${round}/${MAX_QR_ROUNDS} 张）：${png}`)
-    let code: string | undefined
-    for (;;) {
-      let status
-      try {
-        status = await api.pollLogin(login.qrcode, code)
-      } catch (error: unknown) {
-        if (error instanceof WechatTimeoutError) continue
-        throw error
-      }
-      if (status.status === 'need_verifycode') {
-        code = prompt('手机上显示了验证码，输入后回车：')
-        continue
-      }
-      if (status.status === 'confirmed') {
-        const credentials = confirmedOf(status)
-        writeCredentials(credentialsFile(config), credentials)
-        console.log(`授权成功：bot=${credentials.ilinkBotId} owner=${credentials.ownerId}`)
-        return credentials
-      }
-      if (status.status === 'expired') {
-        console.log('二维码已过期，自动换新…')
-        break
-      }
-      if (status.status === 'verify_code_blocked') {
-        throw new ImError('IM_AUTH_REQUIRED', '验证码被拒绝，请稍后重试')
-      }
-      if (status.status === 'binded_redirect') {
-        throw new ImError('IM_AUTH_REQUIRED', '该微信已绑定到别处（一号一会话）')
-      }
-    }
+    const confirmed = await authorizeRound(api, config, round)
+    if (confirmed !== undefined) return confirmed
   }
   throw new ImError('IM_BIND_EXPIRED', `二维码连续 ${MAX_QR_ROUNDS} 张过期，放弃授权`)
 }
 
+/** The login session handed out by `beginLogin`. */
+/** `beginLogin` 发放的登录会话。 */
+type WechatLogin = Awaited<ReturnType<WechatApi['beginLogin']>>
+
+/** Mint one QR for this round and wait on it; credentials on confirm, `undefined` on expiry. */
+/** 本轮铸造一张二维码并等待；确认则返回凭据，过期则返回 `undefined`。 */
+async function authorizeRound(
+  api: WechatApi,
+  config: HubConfig,
+  round: number,
+): Promise<HubCredentials | undefined> {
+  const login = await api.beginLogin()
+  const png = join(config.dataDir, 'qr.png')
+  await qrcode.toFile(png, login.qrUrl)
+  console.log(`[${new Date().toISOString()}] 二维码已刷新（第 ${round}/${MAX_QR_ROUNDS} 张）：${png}`)
+  return awaitOneQr(api, login, config)
+}
+
+/** Poll one QR until confirmed / expired / fatally rejected; other verdicts keep polling. */
+/** 轮询一张二维码直到确认 / 过期 / 致命拒绝；其余裁决继续轮询。 */
+async function awaitOneQr(
+  api: WechatApi,
+  login: WechatLogin,
+  config: HubConfig,
+): Promise<HubCredentials | undefined> {
+  let code: string | undefined
+  for (;;) {
+    let status: Awaited<ReturnType<WechatApi['pollLogin']>>
+    try {
+      status = await api.pollLogin(login.qrcode, code)
+    } catch (error: unknown) {
+      if (error instanceof WechatTimeoutError) continue
+      throw error
+    }
+    if (status.status === 'need_verifycode') {
+      code = prompt('手机上显示了验证码，输入后回车：')
+      continue
+    }
+    if (status.status === 'confirmed') return confirmedCredentials(status, config)
+    if (status.status === 'expired') {
+      console.log('二维码已过期，自动换新…')
+      return undefined
+    }
+    if (status.status === 'verify_code_blocked' || status.status === 'binded_redirect') {
+      throw rejectedError(status.status)
+    }
+  }
+}
+
+/** Persist the confirmed credentials and log the owner pair. */
+/** 持久化确认后的凭据，并打印 bot/owner 配对。 */
+function confirmedCredentials(
+  status: Awaited<ReturnType<WechatApi['pollLogin']>>,
+  config: HubConfig,
+): HubCredentials {
+  const credentials = confirmedOf(status)
+  writeCredentials(credentialsFile(config), credentials)
+  console.log(`授权成功：bot=${credentials.ilinkBotId} owner=${credentials.ownerId}`)
+  return credentials
+}
+
+/** The ImError for the two fatal login verdicts. */
+/** 两种致命登录裁决对应的 ImError。 */
+function rejectedError(status: 'verify_code_blocked' | 'binded_redirect'): ImError {
+  return status === 'verify_code_blocked'
+    ? new ImError('IM_AUTH_REQUIRED', '验证码被拒绝，请稍后重试')
+    : new ImError('IM_AUTH_REQUIRED', '该微信已绑定到别处（一号一会话）')
+}
+
 /** Start the long-poll loop; returns a stop function. */
+/** 启动长轮询循环；返回停止函数。 */
 export function startPolling(
   config: HubConfig,
   onMessage: (message: HubRouted) => void,
@@ -101,34 +139,44 @@ export function startPolling(
     throw new ImError('IM_NOT_FOUND', 'no hub credentials yet — run `authorize` first')
   }
   const api = new WechatApi({ baseUrl: config.baseUrl })
+  const session = { stopped: false }
+  void pollLoop(api, config, credentials, onMessage, session)
+  return () => { session.stopped = true }
+}
+
+/** The getupdates loop: route each batch, persist the cursor, stop on death. */
+/** getupdates 循环：逐批投递、持久化游标，通道死亡即停止。 */
+async function pollLoop(
+  api: WechatApi,
+  config: HubConfig,
+  credentials: HubCredentials,
+  onMessage: (message: HubRouted) => void,
+  session: { stopped: boolean },
+): Promise<void> {
   const cursor = { value: credentials.cursor }
-  let stopped = false
-  void (async () => {
-    while (!stopped) {
-      try {
-        // getupdates 自己推进并返回游标：批量处理完后持久化即可。
-        // getupdates advances and returns the cursor itself: persist per batch.
-        const batch = await api.getUpdates(credentials.token, cursor.value)
-        for (const message of batch.messages) {
-          const routed = routedOf(message)
-          if (routed === undefined) continue
-          onMessage(routed)
-        }
-        cursor.value = batch.cursor
-        persistCursor(config, credentials, cursor.value)
-      } catch (error: unknown) {
-        if (stopped) return
-        if (error instanceof WechatTimeoutError) continue
-        if (error instanceof ImError && error.code === 'IM_AUTH_REQUIRED') {
-          console.error('[im-hub] 登录已失效（-14）：通道死亡，请重新 authorize')
-          return
-        }
-        console.error(`[im-hub] poll failed: ${String(error)}；5 秒后重试`)
-        await new Promise(resolve => setTimeout(resolve, 5_000))
+  while (!session.stopped) {
+    try {
+      // getupdates 自己推进并返回游标：批量处理完后持久化即可。
+      // getupdates advances and returns the cursor itself: persist per batch.
+      const batch = await api.getUpdates(credentials.token, cursor.value)
+      for (const message of batch.messages) {
+        const routed = routedOf(message)
+        if (routed === undefined) continue
+        onMessage(routed)
       }
+      cursor.value = batch.cursor
+      persistCursor(config, credentials, cursor.value)
+    } catch (error: unknown) {
+      if (session.stopped) return
+      if (error instanceof WechatTimeoutError) continue
+      if (error instanceof ImError && error.code === 'IM_AUTH_REQUIRED') {
+        console.error('[im-hub] 登录已失效（-14）：通道死亡，请重新 authorize')
+        return
+      }
+      console.error(`[im-hub] poll failed: ${String(error)}；5 秒后重试`)
+      await new Promise(resolve => setTimeout(resolve, 5_000))
     }
-  })()
-  return () => { stopped = true }
+  }
 }
 
 /** Send one text segment back over the session. */

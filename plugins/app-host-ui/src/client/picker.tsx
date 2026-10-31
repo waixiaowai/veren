@@ -71,6 +71,81 @@ function StatusRows(props: { snapshot: AppCatalogSnapshot; t: T; onRetry: () => 
   return <div className="ah-picker-status">{t('noApps')}</div>
 }
 
+/** 解析当前会话所属应用的 hook：undefined = 解析中，null = 普通会话（解析失败也归 null，绝不阻塞输入栏）。
+ * / the hook resolving the current session's owning app: undefined = resolving, null = an ordinary session (a failed resolve counts as null, never blocking the input bar). */
+function useOwnerApp(
+  sessionId: string,
+  resolveApp: (sessionId: string) => Promise<AppEntryView | null>,
+): readonly [AppEntryView | null | undefined, (owner: AppEntryView | null) => void] {
+  const [owner, setOwner] = useState<AppEntryView | null | undefined>(undefined)
+  useEffect(() => {
+    let alive = true
+    setOwner(undefined)
+    // 解析失败退回下拉：显示能力可以缺席，但绝不阻塞输入栏。
+    // / a failed resolve falls back to the dropdown: the display may be absent,
+    // but it must never block the input bar.
+    void resolveApp(sessionId).then(
+      (app) => { if (alive) setOwner(app) },
+      () => { if (alive) setOwner(null) },
+    )
+    return () => { alive = false }
+  }, [sessionId])
+  return [owner, setOwner] as const
+}
+
+/** 已选应用的静态标识：不可再次更改（会话 ↔ 应用页一一绑定）。
+ * / the selected app's static mark: no longer changeable (session ↔ app page bind one-to-one). */
+function OwnerMark(props: { owner: AppEntryView; t: T }): React.ReactElement {
+  return (
+    <span className="ah-picker-static" title={props.t('selectedApp')} aria-label={`${props.t('selectedApp')}: ${props.owner.name}`}>
+      <span className="ah-picker-value">{props.owner.name}</span>
+    </span>
+  )
+}
+
+/** 下拉触发按钮：outline 小按钮 + 展开箭头。The dropdown trigger: an outline sm button plus the expand chevron. */
+function PickerTrigger(props: { t: T; open: boolean; onOpen: () => void }): React.ReactElement {
+  return (
+    <Button variant="outline" size="sm" className="ah-picker"
+      aria-label={props.t('pickerAria')} aria-haspopup="menu" aria-expanded={props.open}
+      onClick={props.onOpen}>
+      <span className="ah-picker-value">{props.t('picker')}</span>
+      <IconChevronDownOutlineRegular />
+    </Button>
+  )
+}
+
+/** 菜单条目：目录有应用时逐行派生（行尾带不可打开的原因）。Menu items: one row per app when the catalog has any (suffix notes why it cannot open). */
+function menuItems(snapshot: AppCatalogSnapshot, t: T): Array<{ id: string; label: string }> {
+  return snapshot.apps.map((app) => ({ id: app.id, label: `${app.name}${appNote(app, t)}` }))
+}
+
+/** 暂存选择的回调工厂：失败带一行原因重开菜单，成功立刻显示"已选应用"（会话要等用户发送首条消息才真正开始）。
+ * / the select-callback factory: a failure reopens the menu carrying one reason line, a success shows "selected app" right away (the session really starts when the user sends the first message). */
+function stageSelection(
+  props: AppPickerProps,
+  snapshot: AppCatalogSnapshot,
+  setOwner: (owner: AppEntryView | null) => void,
+  setFailure: (failure: string | undefined) => void,
+  setOpen: (open: boolean) => void,
+): (id: string) => void {
+  return (id: string) => {
+    setFailure(undefined)
+    void props.onStage(id, props.sessionId).then((failed) => {
+      // 打开失败要说人话：菜单带着一行原因重新展开，而不是静默无反应。
+      // Open failures speak: the menu reopens carrying one readable reason
+      // line instead of silently doing nothing.
+      if (failed !== undefined) {
+        setFailure(failed)
+        setOpen(true)
+        return
+      }
+      setOpen(false)
+      setOwner(snapshot.apps.find((app) => app.id === id) ?? null)
+    })
+  }
+}
+
 /**
  * Render the application dropdown.
  * @param props - derived framework shares: catalog hook face, callbacks, locale.
@@ -85,47 +160,17 @@ export function AppPicker(props: AppPickerProps): React.ReactElement {
   // "selected app" (no dropdown); an ordinary session keeps the dropdown.
   // undefined = resolving (render a same-size placeholder instead of flashing
   // the dropdown).
-  const [owner, setOwner] = useState<AppEntryView | null | undefined>(undefined)
-  const sessionId = props.sessionId
-  useEffect(() => {
-    let alive = true
-    setOwner(undefined)
-    // 解析失败退回下拉：显示能力可以缺席，但绝不阻塞输入栏。
-    // / a failed resolve falls back to the dropdown: the display may be absent,
-    // but it must never block the input bar.
-    void props.resolveApp(sessionId).then(
-      (app) => { if (alive) setOwner(app) },
-      () => { if (alive) setOwner(null) },
-    )
-    return () => { alive = false }
-  }, [sessionId])
+  const [owner, setOwner] = useOwnerApp(props.sessionId, props.resolveApp)
   const snapshot: AppCatalogSnapshot = props.useCatalog((current) => current)
   const t = props.t
-  if (owner !== undefined && owner !== null) {
-    // 已选应用：静态标识，不可再次更改（会话 ↔ 应用页一一绑定）
-    // / the selected app: a static mark, no longer changeable (session ↔ app page bind one-to-one)
-    return (
-      <span className="ah-picker-static" title={t('selectedApp')} aria-label={`${t('selectedApp')}: ${owner.name}`}>
-        <span className="ah-picker-value">{owner.name}</span>
-      </span>
-    )
-  }
+  if (owner !== undefined && owner !== null) return <OwnerMark owner={owner} t={t} />
   if (owner === undefined) return <span className="ah-picker-ghost" aria-hidden="true" />
   const hasApps = snapshot.apps.length > 0
   return (
     <Menu portal dense compact autoFocus
       open={open}
-      anchor={
-        <Button variant="outline" size="sm" className="ah-picker"
-          aria-label={t('pickerAria')} aria-haspopup="menu" aria-expanded={open}
-          onClick={() => { setOpen(true) }}>
-          <span className="ah-picker-value">{t('picker')}</span>
-          <IconChevronDownOutlineRegular />
-        </Button>
-      }
-      items={hasApps
-        ? snapshot.apps.map((app) => ({ id: app.id, label: `${app.name}${appNote(app, t)}` }))
-        : []}
+      anchor={<PickerTrigger t={t} open={open} onOpen={() => { setOpen(true) }} />}
+      items={hasApps ? menuItems(snapshot, t) : []}
       children={
         hasApps
           ? (failure === undefined
@@ -133,24 +178,7 @@ export function AppPicker(props: AppPickerProps): React.ReactElement {
               : <div className="ah-picker-status">{t('openFailed')}: {failure}</div>)
           : <StatusRows snapshot={snapshot} t={t} onRetry={props.onRetry} />
       }
-      onSelect={(id) => {
-        setFailure(undefined)
-        void props.onStage(id, sessionId).then((failed) => {
-          // 打开失败要说人话：菜单带着一行原因重新展开，而不是静默无反应。
-          // Open failures speak: the menu reopens carrying one readable reason
-          // line instead of silently doing nothing.
-          if (failed !== undefined) {
-            setFailure(failed)
-            setOpen(true)
-            return
-          }
-          // 暂存成功：立刻显示"已选应用"；会话要等用户发送首条消息才真正开始。
-          // / staged: show the selected app right away; the session really starts
-          // when the user sends the first message.
-          setOpen(false)
-          setOwner(snapshot.apps.find((app) => app.id === id) ?? null)
-        })
-      }}
+      onSelect={stageSelection(props, snapshot, setOwner, setFailure, setOpen)}
       onClose={() => { setOpen(false) }} />
   )
 }

@@ -123,13 +123,23 @@ export class CapabilityRegistry {
    *   `CONTRACT_INCOMPATIBLE` when the declared range excludes this contract
    */
   register(manifest: ProviderManifest, implementation: object): () => void {
-    if (!satisfies(this.contractVersion, manifest.contract)) {
-      throw new AdminError(
-        'CONTRACT_INCOMPATIBLE',
-        `provider '${manifest.id}' implements contract ${manifest.contract}, which excludes ${this.contractVersion}`,
-        { provider: manifest.id, contract: manifest.contract, contractVersion: this.contractVersion },
-      )
-    }
+    this.assertCompatible(manifest)
+    const current = this.assertNoConflict(manifest)
+    return this.commitRegistration(manifest, implementation, current)
+  }
+
+  /** 契约协商：声明的版本范围排除本契约即 fail loud。Contract negotiation: a declared range excluding this contract fails loud. */
+  private assertCompatible(manifest: ProviderManifest): void {
+    if (satisfies(this.contractVersion, manifest.contract)) return
+    throw new AdminError(
+      'CONTRACT_INCOMPATIBLE',
+      `provider '${manifest.id}' implements contract ${manifest.contract}, which excludes ${this.contractVersion}`,
+      { provider: manifest.id, contract: manifest.contract, contractVersion: this.contractVersion },
+    )
+  }
+
+  /** 冲突检查：id 与 priority 在同能力内都不得重复；返回现有注册项列表。Conflict check: neither id nor priority may repeat within one capability; returns the current registrations. */
+  private assertNoConflict(manifest: ProviderManifest): Registration[] {
     const current = this.registrations.get(manifest.capability) ?? []
     if (current.some((entry) => entry.manifest.id === manifest.id)) {
       throw new AdminError('PROVIDER_CONFLICT', `provider id '${manifest.id}' is already registered for '${manifest.capability}'`, {
@@ -144,7 +154,11 @@ export class CapabilityRegistry {
         { provider: manifest.id, capability: manifest.capability, priority: manifest.priority },
       )
     }
+    return current
+  }
 
+  /** 提交注册：可见性只发生在检查之后；disposer 精确移除本条（逆序清理语义）。Commit the registration: visibility happens only after the checks; the disposer removes exactly this entry (reverse-order cleanup semantics). */
+  private commitRegistration(manifest: ProviderManifest, implementation: object, current: Registration[]): () => void {
     let registered: Registration | undefined
     const dispose = (): void => {
       const entries = this.registrations.get(manifest.capability)

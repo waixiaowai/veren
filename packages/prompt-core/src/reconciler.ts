@@ -78,28 +78,36 @@ export function reconcileChildren(
   return first
 }
 
-/** 单元素入口：组件递归展开 / host 产出实例与 effect / begin one element */
+/** 单元素入口：按节点类型分派到组件 / 宿主分支 / begin one element, dispatched by node kind */
 function beginWork(element: PromptElement, alt: Fiber | undefined, lane: Lane, effects: Effect[], root: PromptRoot | null): Fiber {
-  if (typeof element.type === 'function') {
-    const component = element.type as Component
-    if (alt !== undefined && alt.type === component && component.__memoCompare?.(alt.props, element.props)) {
-      return cloneSubtree(alt, null) // memo bailout：整棵复用，零 effect；hooks 槽位随 fiber 原样保留
-    }
-    const fiber: Fiber = { type: element.type, key: element.key, props: element.props, tag: 'component', child: null, sibling: null, parent: null }
-    // hooks 槽位随位置持久：同位同型复用旧 fiber 的槽位；异型重建 = 全新槽位（重挂语义）
-    // / hook slots persist by position: a same-type reuse carries the old fiber's slots; a type change remounts with fresh slots
-    fiber.hooks = alt?.hooks ?? []
-    fiber.child = reconcileChildren(
-      fiber,
-      alt?.child ?? null,
-      normalizeChildren(runWithHookScope(root, fiber.hooks, () => component(element.props, root?.componentCtx))),
-      lane,
-      effects,
-      root,
-    )
-    return fiber
-  }
+  return typeof element.type === 'function'
+    ? beginComponent(element, alt, lane, effects, root)
+    : beginHost(element, alt, lane, effects, root)
+}
 
+/** 组件分支：memo bailout 整棵复用；否则递归展开（hooks 槽位随位置持久）/ the component branch: memo bailout reuses wholesale, else recurses */
+function beginComponent(element: PromptElement, alt: Fiber | undefined, lane: Lane, effects: Effect[], root: PromptRoot | null): Fiber {
+  const component = element.type as Component
+  if (alt !== undefined && alt.type === component && component.__memoCompare?.(alt.props, element.props)) {
+    return cloneSubtree(alt, null) // memo bailout：整棵复用，零 effect；hooks 槽位随 fiber 原样保留
+  }
+  const fiber: Fiber = { type: element.type, key: element.key, props: element.props, tag: 'component', child: null, sibling: null, parent: null }
+  // hooks 槽位随位置持久：同位同型复用旧 fiber 的槽位；异型重建 = 全新槽位（重挂语义）
+  // / hook slots persist by position: a same-type reuse carries the old fiber's slots; a type change remounts with fresh slots
+  fiber.hooks = alt?.hooks ?? []
+  fiber.child = reconcileChildren(
+    fiber,
+    alt?.child ?? null,
+    normalizeChildren(runWithHookScope(root, fiber.hooks, () => component(element.props, root?.componentCtx))),
+    lane,
+    effects,
+    root,
+  )
+  return fiber
+}
+
+/** 宿主分支：产出实例与 placement/update effect，并对账 children / the host branch: mints the instance, effects and reconciles children */
+function beginHost(element: PromptElement, alt: Fiber | undefined, lane: Lane, effects: Effect[], root: PromptRoot | null): Fiber {
   const instance: HostInstance = { kind: element.type as string, key: element.key, props: element.props }
   const fiber: Fiber = { type: element.type, key: element.key, props: element.props, tag: 'host', child: null, sibling: null, parent: null, instance }
   if (alt === undefined || alt.instance === undefined) {

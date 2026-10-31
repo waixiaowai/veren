@@ -26,9 +26,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { createAppCatalog } from './catalog.ts'
+import type { AppCatalogSource } from './catalog.ts'
 import { en, NS, zh, type AppPickerKey } from './locales.ts'
 import { AppPicker } from './picker.tsx'
-import { appHostRemote, type AppEntryView, type AppHostResult } from './remote.ts'
+import { appHostRemote, type AppEntryView, type AppHostRemoteApi, type AppHostResult } from './remote.ts'
 import { installPickerStyles } from './styles.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -81,47 +82,7 @@ const PickerPlugin = {
     installPickerStyles(ctx)
     const catalog = createAppCatalog(appHost, (listener) => ctx.on('connection/reset', listener))
     ctx.effect(() => catalog.dispose(), 'app-host-ui: catalog invalidation listener')
-    // 选择应用 = 暂存意图：会话不立刻开始，用户发送首条消息时宿主把它提升为
-    // 页面会话（PAGE 块作为那一轮的决策消息进入上下文）。
-    // Picking an app stages the intent: the session does not start right away;
-    // the user's first message has the host promote it into a page session (the
-    // PAGE block enters that round's decision).
-    const onStage = async (appId: string, sessionId: string): Promise<string | undefined> => {
-      // 运行期信封在 direct 调用上有两种历史形态（包裹/裸值）：在这里一次性
-      // 收窄成 AppHostResult，后续代码只看一种形状（跨边界收窄，非类型逃逸）。
-      // The runtime envelope of a direct call has two historical shapes
-      // (wrapped / bare value): narrow once here to AppHostResult so the code
-      // below sees one shape (a boundary narrowing, not a type escape).
-      const raw: unknown = await appHost.stage(appId, sessionId)
-      const result = (typeof raw === 'object' && raw !== null && 'ok' in raw)
-        ? raw as AppHostResult<AppEntryView>
-        : { ok: true as const, value: raw as AppEntryView }
-      if (!result.ok) return `${result.error.code}: ${result.error.message}`
-      return undefined
-    }
-    ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
-      name: 'conversation.input.left',
-      id: PICKER_ID,
-      order: 20,
-      locale: NS,
-      inject: () => ({
-        hooks: { catalog: { getSnapshot: catalog.getSnapshot, subscribe: catalog.subscribe } },
-        onStage,
-        onRetry: catalog.refresh,
-        // 当前会话所属应用（页面会话）：工具栏据此显示"已选应用"并锁定下拉。
-        // 读失败返回 null → 组件退回下拉，显示能力不阻塞输入栏。
-        // The app owning the current session (a page session): the toolbar shows
-        // and locks "selected app". A failed read returns null → the component
-        // keeps the dropdown; the display never blocks the input bar.
-        resolveApp: async (sessionId: string): Promise<AppEntryView | null> => {
-          const raw: unknown = await appHost.sessionApp(sessionId)
-          const result = (typeof raw === 'object' && raw !== null && 'ok' in raw)
-            ? raw as AppHostResult<AppEntryView | null>
-            : { ok: true as const, value: raw as AppEntryView | null }
-          return result.ok ? result.value : null
-        },
-      }),
-    }, AppPicker))
+    registerPickerSlot(ctx, appHost, catalog)
     // focus 端口的 GUI 半边：宿主发「切到某会话」，这里执行真正的界面切换。
     // The GUI half of the focus port: the host says "switch to this session",
     // this listener performs the actual switch.
@@ -131,6 +92,56 @@ const PickerPlugin = {
     })
   },
 } as const
+
+/** 收窄 direct 调用的运行期信封（包裹/裸值两种历史形态）为统一结果（跨边界收窄，非类型逃逸）。
+ * / narrow the runtime envelope of a direct call (two historical shapes: wrapped / bare value) into one result shape (a boundary narrowing, not a type escape). */
+function unwrapEnvelope<Value>(raw: unknown): AppHostResult<Value> {
+  return (typeof raw === 'object' && raw !== null && 'ok' in raw)
+    ? raw as AppHostResult<Value>
+    : { ok: true as const, value: raw as Value }
+}
+
+/** 「选择应用 = 暂存意图」回调工厂：会话不立刻开始，用户发送首条消息时宿主把它提升为页面会话（PAGE 块作为那一轮的决策消息进入上下文）。
+ * / the "picking stages an intent" callback factory: the session does not start right away; the user's first message has the host promote it into a page session (the PAGE block enters that round's decision). */
+function stageIntent(appHost: AppHostRemoteApi): (appId: string, sessionId: string) => Promise<string | undefined> {
+  return async (appId: string, sessionId: string) => {
+    const result = unwrapEnvelope<AppEntryView>(await appHost.stage(appId, sessionId))
+    if (!result.ok) return `${result.error.code}: ${result.error.message}`
+    return undefined
+  }
+}
+
+/** 组装 slot 的 hooks 注入面：catalog 快照、暂存/重试回调与当前会话应用解析。
+ * / assemble the slot's inject hooks face: the catalog snapshot, the stage/retry callbacks and the current session's app resolution. */
+function pickerHooks(appHost: AppHostRemoteApi, catalog: AppCatalogSource, onStage: ReturnType<typeof stageIntent>) {
+  return {
+    hooks: { catalog: { getSnapshot: catalog.getSnapshot, subscribe: catalog.subscribe } },
+    onStage,
+    onRetry: catalog.refresh,
+    // 当前会话所属应用（页面会话）：工具栏据此显示"已选应用"并锁定下拉。
+    // 读失败返回 null → 组件退回下拉，显示能力不阻塞输入栏。
+    // The app owning the current session (a page session): the toolbar shows
+    // and locks "selected app". A failed read returns null → the component
+    // keeps the dropdown; the display never blocks the input bar.
+    resolveApp: async (sessionId: string): Promise<AppEntryView | null> => {
+      const result = unwrapEnvelope<AppEntryView | null>(await appHost.sessionApp(sessionId))
+      return result.ok ? result.value : null
+    },
+  }
+}
+
+/** 把下拉注册进输入工具栏 slot（铁律一：往别人的 slot 注册必须走 ctx.slots.inject）。
+ * / register the dropdown into the input-toolbar slot (rule one: registering into someone else's slot must go through ctx.slots.inject). */
+function registerPickerSlot(ctx: Context, appHost: AppHostRemoteApi, catalog: AppCatalogSource): void {
+  const onStage = stageIntent(appHost)
+  ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
+    name: 'conversation.input.left',
+    id: PICKER_ID,
+    order: 20,
+    locale: NS,
+    inject: () => pickerHooks(appHost, catalog, onStage),
+  }, AppPicker))
+}
 
 /**
  * Mount the Remote namespace, then start the inner panel plugin that waits on

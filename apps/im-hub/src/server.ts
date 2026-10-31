@@ -37,6 +37,7 @@ export function startServer(
 }
 
 /** Route one request to its endpoint after the token check. */
+/** 令牌校验通过后，把请求分发到各端点。 */
 async function handle(
   config: HubConfig,
   router: HubRouter,
@@ -49,37 +50,60 @@ async function handle(
     return
   }
   const url = new URL(request.url ?? '/', 'http://localhost')
-  if (request.method === 'POST' && url.pathname === '/hub/register') {
-    await readBody(request)
-    reply(response, 200, { ok: true, defaultDevice: config.defaultDevice })
-    return
-  }
-  if (request.method === 'GET' && url.pathname === '/hub/poll') {
-    const device = url.searchParams.get('device') ?? config.defaultDevice
-    const after = Number(url.searchParams.get('after') ?? '0')
-    const messages = await router.nextBatch(device, Number.isFinite(after) ? after : 0, LONG_POLL_MS)
-    // tail 让全新设备（cursor=0）跳过历史直接从队尾开始，不重放既有日志。
-    // `tail` lets a brand-new device (cursor=0) skip the history and start at the end.
-    reply(response, 200, { messages, tail: router.tailOf(device) })
-    return
-  }
-  if (request.method === 'POST' && url.pathname === '/hub/replies') {
-    const body = await readBody(request) as {
-      conversationId?: string
-      text?: string
-      replyTo?: string
-    }
-    const conversationId = body.conversationId?.trim() ?? ''
-    const text = body.text ?? ''
-    if (conversationId === '' || text.trim() === '') {
-      reply(response, 400, { error: 'conversationId and text are required' })
-      return
-    }
-    await sendText(config, toUserId(conversationId), text, contexts.get(conversationId))
-    reply(response, 200, { ok: true })
-    return
-  }
+  if (request.method === 'POST' && url.pathname === '/hub/register') return handleRegister(config, request, response)
+  if (request.method === 'GET' && url.pathname === '/hub/poll') return handlePoll(config, router, url, response)
+  if (request.method === 'POST' && url.pathname === '/hub/replies') return handleReplies(config, contexts, request, response)
   reply(response, 404, { error: 'unknown endpoint' })
+}
+
+/** POST /hub/register: drain the body and acknowledge with the default device. */
+/** POST /hub/register：排空请求体，返回默认设备名。 */
+async function handleRegister(
+  config: HubConfig,
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> {
+  await readBody(request)
+  reply(response, 200, { ok: true, defaultDevice: config.defaultDevice })
+}
+
+/** GET /hub/poll: one long poll for the device's next batch. */
+/** GET /hub/poll：为设备做一次长轮询，取下一批消息。 */
+async function handlePoll(
+  config: HubConfig,
+  router: HubRouter,
+  url: URL,
+  response: ServerResponse,
+): Promise<void> {
+  const device = url.searchParams.get('device') ?? config.defaultDevice
+  const after = Number(url.searchParams.get('after') ?? '0')
+  const messages = await router.nextBatch(device, Number.isFinite(after) ? after : 0, LONG_POLL_MS)
+  // tail 让全新设备（cursor=0）跳过历史直接从队尾开始，不重放既有日志。
+  // `tail` lets a brand-new device (cursor=0) skip the history and start at the end.
+  reply(response, 200, { messages, tail: router.tailOf(device) })
+}
+
+/** POST /hub/replies: validate and send one text reply into the conversation. */
+/** POST /hub/replies：校验后向会话发送一条文本回复。 */
+async function handleReplies(
+  config: HubConfig,
+  contexts: Map<string, string>,
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> {
+  const body = await readBody(request) as {
+    conversationId?: string
+    text?: string
+    replyTo?: string
+  }
+  const conversationId = body.conversationId?.trim() ?? ''
+  const text = body.text ?? ''
+  if (conversationId === '' || text.trim() === '') {
+    reply(response, 400, { error: 'conversationId and text are required' })
+    return
+  }
+  await sendText(config, toUserId(conversationId), text, contexts.get(conversationId))
+  reply(response, 200, { ok: true })
 }
 
 /** Collect one JSON body; an empty body reads as an empty object. */

@@ -27,23 +27,8 @@ const ARGUMENT_KEYS: ReadonlySet<string> = new Set(['sessionId', 'provider', 'mo
  *   Throws a coded error for every invalid input.
  */
 export function normalizeSelectArguments(args: unknown): SelectModelArgs {
-  if (args === null || typeof args !== 'object' || Array.isArray(args)) {
-    throw new SelectModelToolError(
-      'SELECT_MODEL_INVALID_ARGUMENT',
-      `${TOOL_NAME}: arguments must be an object`,
-      { args },
-    )
-  }
-  const record = args as Record<string, unknown>
-  for (const key of Object.keys(record)) {
-    if (!ARGUMENT_KEYS.has(key)) {
-      throw new SelectModelToolError(
-        'SELECT_MODEL_INVALID_ARGUMENT',
-        `${TOOL_NAME}: unknown argument ${JSON.stringify(key)}; accepted keys are ${[...ARGUMENT_KEYS].join(', ')}`,
-        { key },
-      )
-    }
-  }
+  const record = assertArgumentObject(args)
+  assertKnownKeys(record)
   // 成对必填：provider 与 model 缺一不可（两者都缺也算"不成对"），给出
   // 明确的补参提示；通过存在性检查后再做非空字符串校验。
   // Paired required: both provider and model are mandatory (missing both
@@ -65,6 +50,30 @@ export function normalizeSelectArguments(args: unknown): SelectModelArgs {
     ...(record.reasoningEffort === undefined
       ? {}
       : { reasoningEffort: requireNonEmptyString(record.reasoningEffort, 'reasoningEffort') }),
+  }
+}
+
+/** 断言参数是普通对象并收窄；其余形状一律抛带 code 的错误。Assert the arguments are a plain object and narrow; any other shape throws a coded error. */
+function assertArgumentObject(args: unknown): Record<string, unknown> {
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) {
+    throw new SelectModelToolError(
+      'SELECT_MODEL_INVALID_ARGUMENT',
+      `${TOOL_NAME}: arguments must be an object`,
+      { args },
+    )
+  }
+  return args as Record<string, unknown>
+}
+
+/** 拒绝未知参数键：错误信息带稳定 code，并列出全部合法键。Reject unknown argument keys: the error carries a stable code and lists every accepted key. */
+function assertKnownKeys(record: Record<string, unknown>): void {
+  for (const key of Object.keys(record)) {
+    if (ARGUMENT_KEYS.has(key)) continue
+    throw new SelectModelToolError(
+      'SELECT_MODEL_INVALID_ARGUMENT',
+      `${TOOL_NAME}: unknown argument ${JSON.stringify(key)}; accepted keys are ${[...ARGUMENT_KEYS].join(', ')}`,
+      { key },
+    )
   }
 }
 

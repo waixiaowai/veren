@@ -99,21 +99,22 @@ export function apply(ctx: Context, config: Config): void {
   // 移除导致的重启同样显式失败。
   ctx.admin.ready()
   const mountPath = (config.mountPath ?? '/admin').replace(/\/+$/, '')
+  registerApiRoutes(ctx)
+  registerUiPluginsPrefix(ctx, mountPath)
+  registerAssetsPrefix(ctx, mountPath)
+  registerShellPrefix(ctx, mountPath)
+  registerRootRedirect(ctx, mountPath)
+}
 
+/** 注册能力路由（adminApi），一条路由一个 effect 行。Register the capability routes (adminApi), one effect row per route. */
+function registerApiRoutes(ctx: Context): void {
   for (const route of webRoutes(ctx)) {
     ctx.effect(() => ctx.adminApi.register(route), `admin-web-${route.method}-${route.path}`)
   }
+}
 
-  const serveIndex = async (res: ServerResponse): Promise<void> => {
-    const index = resolveWithin(CLIENT_ROOT, '/index.html')
-    if (index === undefined) {
-      sendEmpty(res, 500, { 'Content-Type': 'text/plain; charset=utf-8' })
-      return
-    }
-    for (const [header, value] of Object.entries(INDEX_SECURITY_HEADERS)) res.setHeader(header, value)
-    await sendFile(res, index, 'text/html; charset=utf-8')
-  }
-
+/** 注册 `/ui-plugins` 前缀：按 pack id 投递 UI 包文件。Register the `/ui-plugins` prefix: serve UI pack files by pack id. */
+function registerUiPluginsPrefix(ctx: Context, mountPath: string): void {
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: `${mountPath}/ui-plugins`,
@@ -127,7 +128,10 @@ export function apply(ctx: Context, config: Config): void {
       await sendFile(res, asset.path, asset.contentType)
     },
   }), 'admin-web-ui-plugins')
+}
 
+/** 注册 `/assets` 前缀：同源 SPA 静态资源。Register the `/assets` prefix: same-origin SPA static assets. */
+function registerAssetsPrefix(ctx: Context, mountPath: string): void {
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: `${mountPath}/assets`,
@@ -143,7 +147,10 @@ export function apply(ctx: Context, config: Config): void {
       await sendFile(res, path, contentType)
     },
   }), 'admin-web-assets')
+}
 
+/** 注册 SPA 壳前缀：文档请求一律回壳，深链由客户端路由。Register the SPA shell prefix: document requests all render the shell; deep links route client-side. */
+function registerShellPrefix(ctx: Context, mountPath: string): void {
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: mountPath,
@@ -159,7 +166,10 @@ export function apply(ctx: Context, config: Config): void {
       await serveIndex(res)
     },
   }), 'admin-web-shell')
+}
 
+/** 注册根路径 302 跳转到 SPA。Register the root path's 302 redirect to the SPA. */
+function registerRootRedirect(ctx: Context, mountPath: string): void {
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: '/',
@@ -169,4 +179,15 @@ export function apply(ctx: Context, config: Config): void {
       res.end()
     },
   }), 'admin-web-root-redirect')
+}
+
+/** 回 SPA 壳 index.html（带安全头；缺失时 500）。Serve the SPA shell index.html (with security headers; 500 when missing). */
+async function serveIndex(res: ServerResponse): Promise<void> {
+  const index = resolveWithin(CLIENT_ROOT, '/index.html')
+  if (index === undefined) {
+    sendEmpty(res, 500, { 'Content-Type': 'text/plain; charset=utf-8' })
+    return
+  }
+  for (const [header, value] of Object.entries(INDEX_SECURITY_HEADERS)) res.setHeader(header, value)
+  await sendFile(res, index, 'text/html; charset=utf-8')
 }
