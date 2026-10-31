@@ -1,28 +1,27 @@
 // 会话派发工具：把提示投进目标会话后立即返回；目标静止后由 watch.ts 的看守
 // 把收尾输出作为结算通知投回调用方。它取代了会阻塞的 session_prompt。
+// 目标解析在 dispatch-target.ts，本文件只保留工具定义与其描述面。
 // Session dispatch tool: deliver a prompt into a target and return at once; the
 // guard in watch.ts reports the closing output once the target is quiescent. It
-// replaces the blocking session_prompt.
+// replaces the blocking session_prompt. Target resolution lives in
+// dispatch-target.ts; this file keeps the tool definition and its description face.
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import { emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 // 类型-only import：拉取 agents 与 sessionController 的 Context 声明合并。
 // Type-only imports: pull the agents and sessionController Context declaration merging.
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import { createDispatchPrompt } from './notice.js'
-import { guardRemovedCwd, resolveWorkspaceId } from './tools-management.js'
-import { SessionToolError } from './types.js'
-import type { NewSessionArgs, SessionDispatchArgs, SessionDispatchResult } from './types.js'
+import { guardRemovedCwd } from './tools-management.js'
+import { SessionToolError, TOOL_HINT as HINT } from './types.js'
+import type { SessionDispatchArgs, SessionDispatchResult } from './types.js'
+import { resolveTarget } from './dispatch-target.js'
 import type { SettlementWatch } from './watch.js'
-
-/** 工具描述共用提示：session id 从 workspace_session_list 查；workspace id 从页面正文的 Workspace List 取。
- * / shared description hint: session ids come from workspace_session_list; workspace ids from the page's Workspace List. */
-const HINT = 'Session ids come from the workspace_session_list tool; workspace ids come from the page\'s Workspace List.'
 
 /**
  * 返回指导：只有目标确实能回话时才追加。
@@ -76,65 +75,45 @@ export function requirePrompt(prompt: string): string {
 }
 
 /**
- * 解析或新建目标会话 id；sessionId 与 newSession 必须二选一。
- * Resolve or create the target session id; exactly one of sessionId and
- * newSession is required.
+ * 校验参数并解析目标：提示非空、目标二选一、目标可解析、看守有余量，四道检查
+ * 全过才放行。顺序不可换——坏参数必须报参数错误，而不是目标不可解析。
+ * Validate and resolve the dispatch target: non-empty prompt, exactly one target
+ * shape, a resolvable target, and watch capacity. The order is not
+ * interchangeable - a bad argument must report the argument error, never a
+ * target-resolution error.
  * @param ctx - 宿主上下文。The host context.
+ * @param watch - 结算看守注册表（容量查账用）。The settlement-watch registry (for the capacity check).
  * @param args - 工具参数。The tool arguments.
- * @param callerSessionId - 调用方会话 id，用于继承工作区。The caller session id, used to inherit the workspace.
- * @returns 目标会话 id。The target session id.
+ * @param callerSessionId - 调用方会话 id。The caller session id.
+ * @returns 提示原文、是否回报、目标 Agent 与目标会话 id。The prompt, the reporting flag, the target Agent, and the target session id.
  */
-async function resolveTarget(
+async function resolveValidatedTarget(
   ctx: Context,
+  watch: SettlementWatch,
   args: SessionDispatchArgs,
   callerSessionId: SessionId,
-): Promise<SessionId> {
-  const sessionId = args.sessionId?.trim() ?? ''
-  const created = args.newSession
-  if (sessionId !== '' && created !== undefined) {
+): Promise<{ prompt: string, reporting: boolean, target: Agent, targetSessionId: SessionId }> {
+  const prompt = requirePrompt(args.prompt)
+  const reporting = args.report !== false
+  const targetSessionId = await resolveTarget(ctx, args, callerSessionId)
+  // resolveAgent 会按需恢复目标会话；找不到是稳定的会话域错误。
+  // resolveAgent resumes the target on demand; a miss is a stable Session-domain error.
+  const found = await ctx.sessionController.resolveAgent(targetSessionId)
+  if ('error' in found) {
     throw new SessionToolError(
-      'SESSION_DISPATCH_TARGET_CONFLICT',
-      'provide either sessionId or newSession, not both',
-      { sessionId, newSession: created },
+      'SESSION_DISPATCH_TARGET_NOT_FOUND',
+      `session "${targetSessionId}" could not be resolved: ${found.error.message}`,
+      { sessionId: targetSessionId },
     )
   }
-  if (sessionId === '' && created === undefined) {
-    throw new SessionToolError('SESSION_DISPATCH_TARGET_MISSING', 'provide sessionId or newSession', {})
+  if (reporting && !watch.hasCapacity()) {
+    throw new SessionToolError(
+      'SESSION_DISPATCH_CAPACITY_REACHED',
+      'the configured maxConcurrentWatches limit is reached; raise the limit or wait for pending watches to settle',
+      { maxConcurrentWatches: true },
+    )
   }
-  if (created === undefined) return SessionId(sessionId)
-  return await createTarget(ctx, created, callerSessionId)
-}
-
-/**
- * 新建目标会话；工作区由共享解析器决定，失败收敛成稳定的创建错误。
- * Create the target session; the shared resolver owns the workspace and failures
- * collapse into a stable create error.
- *
- * workspaceId 直接指定工作区；省略时继承调用方会话的工作区。session_create
- * 与本工具共用该解析器，行为不会分叉。
- * workspaceId names the workspace directly; omitted it inherits the calling
- * session's workspace. session_create shares this resolver, so the creation
- * paths cannot diverge.
- * @param ctx - 宿主上下文。The host context.
- * @param created - 新建参数。The creation arguments.
- * @param callerSessionId - 调用方会话 id。The calling session id.
- * @returns 新会话 id。The new session id.
- */
-async function createTarget(
-  ctx: Context,
-  created: NewSessionArgs,
-  callerSessionId: SessionId,
-): Promise<SessionId> {
-  const workspaceId = resolveWorkspaceId(ctx, created.workspaceId, callerSessionId)
-  try {
-    const value = await ctx.sessionController.create({
-      workspaceId,
-      ...created.agentPreset === undefined ? {} : { agentPreset: created.agentPreset },
-    })
-    return value.sessionId
-  } catch (error: unknown) {
-    throw new SessionToolError('SESSION_DISPATCH_CREATE_FAILED', `creating a session failed: ${String(error)}`, {})
-  }
+  return { prompt, reporting, target: found.agent, targetSessionId }
 }
 
 /**
@@ -218,31 +197,9 @@ export function buildSessionDispatchDefinition(ctx: Context, watch: SettlementWa
           {},
         )
       }
-      // 先校验参数，再解析目标：坏参数必须报参数错误，而不是目标不可解析。
-      // Validate the argument before resolving the target: a bad argument must
-      // report the argument error, never a target-resolution error.
-      const prompt = requirePrompt(args.prompt)
-      const reporting = args.report !== false
-      const targetSessionId = await resolveTarget(ctx, args, caller.id)
-      // resolveAgent 会按需恢复目标会话；找不到是稳定的会话域错误。
-      // resolveAgent resumes the target on demand; a miss is a stable Session-domain error.
-      const found = await ctx.sessionController.resolveAgent(targetSessionId)
-      if ('error' in found) {
-        throw new SessionToolError(
-          'SESSION_DISPATCH_TARGET_NOT_FOUND',
-          `session "${targetSessionId}" could not be resolved: ${found.error.message}`,
-          { sessionId: targetSessionId },
-        )
-      }
-      if (reporting && !watch.hasCapacity()) {
-        throw new SessionToolError(
-          'SESSION_DISPATCH_CAPACITY_REACHED',
-          'the configured maxConcurrentWatches limit is reached; raise the limit or wait for pending watches to settle',
-          { maxConcurrentWatches: true },
-        )
-      }
-      const message = createDispatchPrompt(caller.id, prompt, returnGuidance(ctx, caller.id, found.agent))
-      const deliver = (): void => { found.agent.followup(message) }
+      const { prompt, reporting, target, targetSessionId } = await resolveValidatedTarget(ctx, watch, args, caller.id)
+      const message = createDispatchPrompt(caller.id, prompt, returnGuidance(ctx, caller.id, target))
+      const deliver = (): void => { target.followup(message) }
       // 挂看守与投递由注册表定序：先查账、再登记唤醒源、然后投递、最后启动观察者。
       // 报告型派发把这几步并进 arm() 的同一个同步块——查账与登记之间没有 await，所以同一步
       // 里并发发出的两条派发不可能都通过检查，第二条会被 arm() 以 WATCH_BUSY 拒绝。
@@ -251,24 +208,15 @@ export function buildSessionDispatchDefinition(ctx: Context, watch: SettlementWa
       // steps into one synchronous block inside arm() - no await separates the check
       // from the registration - so two dispatches issued concurrently in one step
       // cannot both pass and the second is refused with WATCH_BUSY.
-      let watchId: string | null = null
-      if (reporting) {
-        watchId = watch.arm({
-          agent: found.agent,
-          callerSessionId: caller.id,
-          messageId: message.id,
-          prompt,
-          deliver,
-        })
-      } else {
+      const watchId = reporting
+        ? watch.arm({ agent: target, callerSessionId: caller.id, messageId: message.id, prompt, deliver })
         // 非报告型派发没有可登记的看守，只能靠这次同步查账挡住"提示被接进受看守会话、
         // 换掉那条待结清报告将要描述的收尾输出"。
         // A non-reporting dispatch has no watch to register, so this synchronous
         // check is the only thing stopping its prompt from being accepted into a
         // watched session and replacing what the pending report will describe as
         // the closing output.
-        watch.deliverGuarded(targetSessionId, deliver)
-      }
+        : (watch.deliverGuarded(targetSessionId, deliver), null)
       // 派发已被接受：广播开始事件，让宿主与界面无需读会话日志就能看到"已派出"。
       // The dispatch was accepted: broadcast the start event, so a host or UI sees
       // "dispatched" without reading Session logs.

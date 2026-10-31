@@ -11,8 +11,8 @@
 
 import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
-import { withDefined } from './domain.ts'
-import type { StartupAction, StartupItemId, StartupItemRecord, StartupModelTarget } from './domain.ts'
+import { withDefined } from './item.ts'
+import type { StartupAction, StartupItemId, StartupItemRecord, StartupModelTarget } from './item.ts'
 
 /** Actions accepted by the stored schema; the record validator owns the rules. */
 const actionSchema = z.enum(['new_session', 'resume_session', 'message_session', 'queue_message'])

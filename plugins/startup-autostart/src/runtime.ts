@@ -3,38 +3,20 @@
  * every delivery inside `ctx.agents.withoutInitiator`, so a session this plugin
  * creates or wakes can never re-enter the same trigger and start a loop.
  *
- * Sessions are reached through the core `ctx.agents` registry, which every
- * profile mounts. The Web application's richer `sessionController` is used when
- * it is present, because only it resolves agent presets and workspace targets;
- * the headless, ACP, and SDK profiles have no such controller and go through
- * `agents.create` / `agents.resume` exactly as the headless runner does.
+ * The per-item actions live in `deliver.ts` and the Session resolution in
+ * `agent-driver.ts`; this module owns the latch, the drive loop, and the
+ * attempt stamping that make the deliveries safe and observable.
  *
  * 启动触发的投递引擎。每个运行实例只驱动一次，所有投递都在
- * `ctx.agents.withoutInitiator` 内执行，因此本插件拉起/唤醒的会话无法重新触发
- * 同一套逻辑，不会形成无限套娃。会话统一走核心 `ctx.agents` 注册表——所有
- * profile 都有它；Web 应用更丰富的 `sessionController` 只在存在时使用，因为只有
- * 它能解析 agent preset 与工作区目标。
+ * `ctx.agents.withoutInitiator` 内执行，因此本插件拉起/唤醒的会话无法重新触发同一套
+ * 逻辑，不会形成无限套娃。逐项动作在 `deliver.ts`，会话解析在 `agent-driver.ts`；
+ * 本模块只负责让这些投递安全且可观察的闩锁、驱动循环与尝试盖章。
  * @module @veren/startup-autostart/runtime
  */
 
-import { randomUUID } from 'node:crypto'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { ContextFormed } from '@deepseek-ai/dsh-llm'
-declare module '@deepseek-ai/dsh-llm' {
-  interface MessageSourceMap {
-    /** A startup item registered by the user delivered this user-role message. */
-    'startup-autostart': { kind: 'startup-autostart' } & ContextFormed
-  }
-}
-import { brandString } from '@deepseek-ai/dsh-brand'
-import { installModelSelection } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentOptions, ModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type { Context } from '@deepseek-ai/cordis'
-import type { SessionId } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-agent-default-model'
-import type {} from '@deepseek-ai/dsh-api-session-controller'
-import { startupMessageText, withDefined } from './domain.ts'
-import type { StartupItemRecord, StartupOutcome } from './domain.ts'
+import { deliverItem } from './deliver.ts'
+import type { StartupItemRecord, StartupOutcome } from './item.ts'
 
 /** Longest retained failure account, in characters. */
 const MAX_DETAIL_LENGTH = 300
@@ -44,12 +26,6 @@ export interface StartupDriveReport {
   readonly id: string
   readonly name: string
   readonly outcome: StartupOutcome
-}
-
-/** The per-Agent options and scoped setup a core-registry create or resume needs. */
-interface AgentPlan {
-  readonly agentOptions?: AgentOptions
-  readonly setup?: (agentCtx: Context) => void
 }
 
 /** Render a thrown value as a bounded one-line account. */
@@ -179,178 +155,12 @@ export class StartupRuntime {
     const startedAt = new Date().toISOString()
     let outcome: StartupOutcome
     try {
-      outcome = { status: 'ok', detail: await this.deliver(item, startedAt), at: new Date().toISOString() }
+      outcome = { status: 'ok', detail: await deliverItem(this.ctx, item, startedAt), at: new Date().toISOString() }
     } catch (error: unknown) {
       outcome = { status: 'failed', detail: errorText(error), at: new Date().toISOString() }
       this.ctx.logger.warn(`startup-autostart: item "${item.name}" (${item.id}) failed: ${outcome.detail}`)
     }
     await this.commit({ ...item, lastRunAt: startedAt, lastOutcome: outcome, runCount: item.runCount + 1 })
     return outcome
-  }
-
-  /**
-   * Perform one item's action and describe what happened.
-   * @param item - the item to deliver.
-   * @param startedAt - instant the run started, stamped into the message framing.
-   * @returns a bounded one-line account for the retained outcome.
-   */
-  private async deliver(item: StartupItemRecord, startedAt: string): Promise<string> {
-    return item.action === 'new_session'
-      ? this.deliverNewSession(item, startedAt)
-      : this.deliverExistingSession(item, startedAt)
-  }
-
-  /** Create the Session an item owns, then optionally wake it with the message. */
-  private async deliverNewSession(item: StartupItemRecord, startedAt: string): Promise<string> {
-    const controller = this.ctx.get('sessionController')
-    let agent: Agent
-    if (controller === undefined) {
-      this.refuseProfileOnlyTargets(item)
-      agent = await this.createAgent(item)
-    } else {
-      const created = await controller.create({
-        ...item.workspaceId === undefined ? {} : { workspaceId: item.workspaceId as never },
-        ...item.cwd === undefined ? {} : { cwd: item.cwd },
-        ...item.preset === undefined ? {} : { agentPreset: item.preset },
-      })
-      agent = await this.requireAgent(created.sessionId, item)
-    }
-    if (item.message === undefined) return `created session ${agent.session.id}`
-    agent.followup(this.messageFor(item, startedAt))
-    await this.requireFlush(agent, item)
-    return `created session ${agent.session.id} and delivered the message`
-  }
-
-  /** Resume the item's Session and act on it according to the item's action. */
-  private async deliverExistingSession(item: StartupItemRecord, startedAt: string): Promise<string> {
-    const agent = await this.requireAgent(item.sessionId as SessionId, item)
-    if (item.action === 'resume_session') return `resumed session ${agent.session.id}`
-    if (item.action === 'queue_message') {
-      // inject only fills the inbox: the Session stays idle until something else wakes it.
-      agent.inject(this.messageFor(item, startedAt))
-      await this.requireFlush(agent, item)
-      return `left a message in the inbox of session ${agent.session.id} without waking it`
-    }
-    agent.followup(this.messageFor(item, startedAt))
-    await this.requireFlush(agent, item)
-    return `woke session ${agent.session.id} with the message`
-  }
-
-  /**
-   * Resolve one Session to its live Agent, through the Web controller when the
-   * profile has one and through the core registry otherwise.
-   * @param sessionId - the Session to drive.
-   * @param item - the item whose model target applies to the resolved Agent.
-   * @returns the live Agent.
-   */
-  private async requireAgent(sessionId: SessionId, item: StartupItemRecord): Promise<Agent> {
-    const controller = this.ctx.get('sessionController')
-    if (controller !== undefined) {
-      const found = await controller.resolveAgent(sessionId)
-      if ('error' in found) throw found.error
-      await this.applyControllerModel(controller, found.agent, item)
-      return found.agent
-    }
-    const live = this.ctx.agents.get(sessionId)
-    if (live !== undefined) return live
-    const handle = await this.ctx.agents.resume({ resumeSessionId: sessionId, ...this.agentPlan(item) })
-    return handle.agent
-  }
-
-  /**
-   * Refuse the targets only the Web session controller can resolve.
-   *
-   * A profile without that controller composes no preset roster and no
-   * workspace registry, so silently creating a plain Session would answer a
-   * request the item never made.
-   * @param item - the item whose targets are checked.
-   * @throws Error naming the unresolvable target.
-   */
-  private refuseProfileOnlyTargets(item: StartupItemRecord): void {
-    if (item.workspaceId === undefined && item.preset === undefined) return
-    const target = item.workspaceId === undefined ? 'an agent preset' : 'a workspace'
-    throw new Error(
-      `item "${item.name}" targets ${target}, which this profile cannot resolve: `
-      + 'only the Web application mounts the session controller',
-    )
-  }
-
-  /** Create one new Session through the core registry, under a freshly minted id. */
-  private async createAgent(item: StartupItemRecord): Promise<Agent> {
-    const handle = await this.ctx.agents.create({
-      sessionId: brandString<SessionId>(`session-${randomUUID()}`),
-      ...item.cwd === undefined ? {} : { meta: { cwd: item.cwd } },
-      ...this.agentPlan(item),
-    })
-    return handle.agent
-  }
-
-  /**
-   * Build the per-Agent options a core-registry create or resume needs.
-   *
-   * The item's model wins; otherwise the deployment default applies. A profile
-   * with neither passes no options at all and lets the Agent fall back to its
-   * own configured behaviour.
-   * @param item - the item whose model target applies.
-   * @returns the options, empty when nothing names a model.
-   */
-  private agentPlan(item: StartupItemRecord): AgentPlan {
-    const fallback = this.ctx.get('agentDefaultModel')?.currentSelection()
-    // The item's effort is model-supplied text and the core selection brands it;
-    // a provider rejects an effort it does not know at request time.
-    const selected: ModelSelection | undefined = item.model === undefined
-      ? fallback
-      : withDefined<ModelSelection>(
-        { provider: item.model.provider, model: item.model.model },
-        { reasoningEffort: item.model.reasoningEffort as ModelSelection['reasoningEffort'] },
-      )
-    if (selected === undefined) return {}
-    const reference: ModelSelectionRef = { current: selected, assembled: undefined }
-    return {
-      agentOptions: { provider: selected.provider, model: selected.model },
-      setup: (agentCtx: Context) => { installModelSelection(agentCtx, reference) },
-    }
-  }
-
-  /**
-   * Install the item's model selection on a live Agent through the Web controller.
-   * @param controller - the profile's session controller.
-   * @param agent - the live Agent the selection applies to.
-   * @param item - the item naming the model, when it names one.
-   */
-  private async applyControllerModel(
-    controller: NonNullable<Context['sessionController']>,
-    agent: Agent,
-    item: StartupItemRecord,
-  ): Promise<void> {
-    if (item.model === undefined) return
-    await controller.selectModel({
-      sessionId: agent.session.id,
-      provider: item.model.provider,
-      model: item.model.model,
-      ...item.model.reasoningEffort === undefined ? {} : { reasoningEffort: item.model.reasoningEffort as never },
-    })
-  }
-
-  /** Build the framed user message one item delivers. */
-  private messageFor(item: StartupItemRecord, startedAt: string) {
-    return createUserMessage({
-      content: [{ type: 'text', text: startupMessageText(item, startedAt, item.message ?? '') }],
-      source: { kind: 'startup-autostart' },
-    })
-  }
-
-  /**
-   * Wait for the Session log to acknowledge the enqueued message.
-   *
-   * The message is already in the Agent's inbox; a refusing persistence layer
-   * means the delivery is not durable, which the item's retained outcome must
-   * report rather than silently claim success.
-   * @param agent - the Agent whose Session must acknowledge the message.
-   * @param item - the item whose delivery is being confirmed.
-   */
-  private async requireFlush(agent: Agent, item: StartupItemRecord): Promise<void> {
-    const flushed = await this.ctx.sessions.flush(agent.session)
-    if (!flushed) throw new Error(`session persistence did not acknowledge the message of item "${item.name}"`)
   }
 }

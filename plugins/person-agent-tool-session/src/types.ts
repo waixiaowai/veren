@@ -6,6 +6,11 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 
+/** 工具描述共用提示：session id 从 workspace_session_list 查；workspace id 从页面正文的 Workspace List 取。
+ * / shared description hint: session ids come from workspace_session_list; workspace ids from the page's Workspace List. */
+export const TOOL_HINT =
+  'Session ids come from the workspace_session_list tool; workspace ids come from the page\'s Workspace List.'
+
 /**
  * 新会话的工作区：显式 id，或省略后继承调用方会话的工作区。
  * The new session's workspace: an explicit id, or the calling session's

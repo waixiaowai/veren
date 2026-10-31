@@ -29,144 +29,33 @@
 // work to, so the registry enforces **one unsettled watch per target** and
 // refuses a second dispatch inside `arm()` / `deliverGuarded()`, checking the
 // ledger in the same synchronous block as the registration.
+//
+// 职责分域：公共契约、poke 令牌与看守记录在 watch-contract.ts；唤醒源登记与观察
+// 循环在 watch-observe.ts；结束原因/收尾输出的纯派生在 watch-outcome.ts。本文件只
+// 保留注册表本身：查账（assertNoPending）、结清（settle）、终局广播（emitRunEnd）、
+// best-effort flush 与武装入口（arm / deliverGuarded / dispose）。
+// Duty domains: the public contract, the poke token and the watch record live in
+// watch-contract.ts; the wake sources and the observation loop live in
+// watch-observe.ts; the pure stop-reason/closing-output folds live in
+// watch-outcome.ts. This file keeps the registry itself: the ledger check
+// (assertNoPending), settlement (settle), the terminal broadcast (emitRunEnd),
+// the best-effort flush, and the arming entries (arm / deliverGuarded / dispose).
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import { emitAgentEvent, foldConsumedWork } from '@deepseek-ai/dsh-agent'
-import { joinAssistantStreamText } from '@deepseek-ai/dsh-llm'
+import { emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { createSettlementNotice, deliverNotice } from './notice.js'
 import { SessionToolError } from './types.js'
 import type { SessionDispatchOutcome } from './types.js'
+import { deferred, wake } from './watch-contract.js'
+import type { ArmingRequest, SettlementWatch, SettlementWatchConfig, WatchRecord, WatchRuntime } from './watch-contract.js'
+import { observe, watchTarget } from './watch-observe.js'
+import { closingText, stopReasonOf } from './watch-outcome.js'
 
-/** 观察者的判定结果，与官方 settlementState 同构。The observer's verdict, isomorphic to the official `settlementState`. */
-type SettlementState = 'closed' | 'retry' | 'wait' | 'ready'
-
-/** 一个可以从外部结清的 promise。A promise an outside caller can settle. */
-interface Deferred {
-  readonly promise: Promise<void>
-  readonly resolve: () => void
-}
-
-/**
- * 建一个可以从外部结清的 promise。Build a promise an outside caller can settle.
- * @returns 结清句柄。The settle handle.
- */
-function deferred(): Deferred {
-  let resolve!: () => void
-  const promise = new Promise<void>((settle) => { resolve = settle })
-  return { promise, resolve }
-}
-
-/** 一个挂起中的看守。One armed watch. */
-interface WatchRecord {
-  readonly watchId: string
-  readonly targetSessionId: SessionId
-  readonly callerSessionId: SessionId
-  /** 被投递消息的身份；随通知一起回报，让回报可归属。Identity of the delivered prompt; reported with the notice so the notice is attributable. */
-  readonly messageId: string
-  /** 被投递的提示原文；在通知的归属行里回显。The delivered prompt, echoed in the notice's attribution line. */
-  readonly prompt: string
-  readonly armedAt: number
-  /**
-   * 订阅之后目标会话的事件（事件对象是共享的冻结值，所以这只是引用数组，很便宜）。
-   * 它同时供三件事使用：官方 foldConsumedWork 的结算归因、收尾输出折叠、失败取代判断。
-   * The target session's events since subscription (events are shared frozen
-   * values, so this is just an array of references). It feeds three things: the
-   * official `foldConsumedWork` accounting, the closing-output fold, and failure
-   * supersession.
-   */
-  readonly events: SessionEvent[]
-  /**
-   * 尚未被后续已提交轮次取代的失败位置（`agent/error` 时的 session seq）。
-   * 官方规则：已记录的失败优先于取消——停掉一个已经失败的会话不会把失败变成取消。
-   * The position of a failure not yet superseded by a later committed turn (the
-   * session seq at `agent/error`). Official rule: a recorded failure wins over a
-   * cancellation - stopping a child that had already failed does not turn its
-   * failure into a cancellation.
-   */
-  failureAt: number | undefined
-  /** 观察令牌；每次唤醒都换新，用来发现「等待期间状态变过」。 */
-  /** The observation token; renewed on every wake so a mid-await change is visible. */
-  poke: Deferred
-  readonly offEvents: (() => boolean)[]
-  settled: boolean
-}
-
-/**
- * 武装一个看守所需的一切。Everything arming one watch needs.
- *
- * 一条派发一个看守，而且**一个目标同时只能有一个未结清的看守**：看守的判据是目标
- * 会话整体静止，若同一目标上再压一条派发，两个看守会在同一瞬间以同一段收尾输出定案，
- * 于是调用方收到两条逐字相同、谁也对不上的回报，而先跑那条任务的结果再也不会送达。
- * `arm()` 自己完成查账，所以调用方绕不过去。
- * One watch per dispatch, and **at most one unsettled watch per target**: the
- * verdict is the whole target session's quiescence, so a second dispatch onto the
- * same target would make two watches settle on the same closing output at the
- * same instant - the caller then receives two byte-identical notices that answer
- * neither dispatch, and the earlier task's result is never delivered at all.
- * `arm()` performs that check itself, so no caller can bypass it.
- */
-export interface ArmingRequest {
-  /** 目标 Agent。The target Agent. */
-  readonly agent: Agent
-  /** 调用方会话 id。The caller's session id. */
-  readonly callerSessionId: SessionId
-  /** 被投递消息的身份。Identity of the delivered prompt. */
-  readonly messageId: string
-  /** 被投递的提示原文。The delivered prompt. */
-  readonly prompt: string
-  /** 投递动作，在登记唤醒源之后、启动观察者之前执行。The delivery, run after the wake sources register and before the observer starts. */
-  readonly deliver: () => void
-}
-
-/** 结算看守注册表。The settlement-watch registry. */
-export interface SettlementWatch {
-  /** 是否还能再接一个看守。Whether another watch fits the configured cap. */
-  readonly hasCapacity: () => boolean
-  /**
-   * 先查账、再登记唤醒源、然后投递、最后启动观察者；四步同处一个同步块，顺序不可交换。
-   * 目标上已有未结清看守时以 `SESSION_DISPATCH_WATCH_BUSY` 拒绝，且不登记、不投递。
-   * Check the ledger, register the wake sources, run the delivery, then start the
-   * observer; all four run in one synchronous block and the order is not
-   * interchangeable. A target that already has an unsettled watch is refused with
-   * `SESSION_DISPATCH_WATCH_BUSY`, registering nothing and delivering nothing.
-   *
-   * 查账留在这里而不是调用方：判据由注册表持有，登记动作自己把关，调用方绕不过去；两者
-   * 又同处一个同步块，检查与登记之间不会被任何别的执行插进来。
-   * The check lives here rather than in the caller: the registry owns the verdict
-   * and the registering operation gates itself, so no caller can bypass it - and
-   * sharing one synchronous block means nothing else runs between the check and
-   * the registration.
-   * @param request - 武装请求。The arming request.
-   * @returns 看守句柄。The watch handle.
-   */
-  readonly arm: (request: ArmingRequest) => string
-  /**
-   * 投递一条不挂看守的派发（`report: false`）：查账与投递同处一个同步块，目标上已有未结清
-   * 看守时拒绝且不投递。
-   * Deliver a fire-and-forget dispatch (`report: false`): the check and the
-   * delivery share one synchronous block, and a target with an unsettled watch is
-   * refused without delivering.
-   *
-   * 非报告型派发没有可登记的看守，所以这一步同步查账是唯一挡住"提示被接进受看守会话、
-   * 换掉那条报告将要描述的收尾输出"的东西。
-   * A non-reporting dispatch has no watch to register, so this synchronous check is
-   * the only thing stopping a prompt from being accepted into a watched session and
-   * replacing what that report will describe as the closing output.
-   * @param targetSessionId - 目标会话 id。The target session id.
-   * @param deliver - 投递动作。The delivery.
-   */
-  readonly deliverGuarded: (targetSessionId: SessionId, deliver: () => void) => void
-  /** 卸载：取消全部看守，不再回报。Unload: cancel every watch and stop reporting. */
-  readonly dispose: () => void
-}
-
-/** 看守使用的配置面。The configuration the guard reads. */
-export interface SettlementWatchConfig {
-  readonly maxReportChars: number
-  readonly maxConcurrentWatches: number
-}
+// 公共契约原从本模块导出；拆分后这里保留薄 re-export，`./watch.js` 的导出面不变。
+// The public contract used to be exported from this module; after the split this
+// stays a thin re-export so the `./watch.js` export face is unchanged.
+export type { ArmingRequest, SettlementWatch, SettlementWatchConfig } from './watch-contract.js'
 
 /**
  * 创建结算看守注册表。Create the settlement-watch registry.
@@ -219,83 +108,6 @@ export function createSettlementWatch(ctx: Context, config: SettlementWatchConfi
   }
 
   /**
-   * 唤醒观察者：结清旧令牌并换新，让「等待期间状态变过」可被观察。
-   * Wake the observer: settle the old token and renew it, which is what makes a
-   * mid-await state change observable.
-   * @param record - 看守记录。The watch record.
-   */
-  function wake(record: WatchRecord): void {
-    record.poke.resolve()
-    record.poke = deferred()
-  }
-
-  /**
-   * 判断此刻能否收尾。Decide whether the watch may finalize right now.
-   * @param record - 看守记录。The watch record.
-   * @param agent - 目标 Agent。The target Agent.
-   * @param observation - 本次等待开始时的令牌。The token captured when this wait began.
-   * @returns 判定结果。The verdict.
-   */
-  function settlementState(record: WatchRecord, agent: Agent, observation: Deferred): SettlementState {
-    if (record.settled) return 'closed'
-    // 等待期间被唤醒过：状态变过，重新评估而不是就地收尾。
-    // Woken during the await: state changed, so re-evaluate rather than finalize.
-    if (record.poke !== observation) return 'retry'
-    // 还有输入没跑（刚投递的那条也算）：等下一次唤醒，不空转。
-    // Input is still pending (including the prompt just delivered): wait for the
-    // next wake instead of spinning.
-    const inbox = agent.inbox
-    if (inbox.nextTurn.length > 0 || inbox.nextStep.length > 0) return 'wait'
-    return 'ready'
-  }
-
-  /**
-   * 常驻观察者：跟到目标真正静止为止。The standing observer: follow the target to true quiescence.
-   * @param record - 看守记录。The watch record.
-   * @param agent - 目标 Agent。The target Agent.
-   * @returns 观察结束。Resolves when the watch closed.
-   */
-  async function observe(record: WatchRecord, agent: Agent): Promise<void> {
-    for (;;) {
-      const observation = record.poke
-      // 权威静止信号：没有活动 driver，也没有 maintenance 任务。
-      // Authoritative quiescence: no active driver and no maintenance task.
-      await agent.whenIdle()
-      if (record.settled) return
-      // 注册表身份比对（与官方 drainDescendants 同一手法）：被看护的 Agent 已经离开
-      // 注册表，就没人再能产出收尾输出了。
-      // Registry identity check (the official drainDescendants move): the watched
-      // Agent left the registry, so nobody can produce closing output any more.
-      if (ctx.agents.get(record.targetSessionId) !== agent) {
-        await flushTarget(record)
-        await settle(record, 'target-gone')
-        return
-      }
-      const state = settlementState(record, agent, observation)
-      if (state === 'closed') return
-      if (state === 'retry') continue
-      if (state === 'wait') {
-        await observation.promise
-        continue
-      }
-      // 收尾前的复查，与官方 watchLocalSettlement 的 ready 分支同一手法：记住当时的
-      // seq，best-effort flush，然后**重新**判定——状态或 seq 只要动过就回到循环重判，
-      // 绝不拿着 flush 之前的结论去报告。
-      // The pre-finalization re-check, the official watchLocalSettlement ready
-      // branch move: remember the seq, best-effort flush, then decide AGAIN - if
-      // either the state or the seq moved, go back around instead of reporting the
-      // conclusion reached before the flush.
-      const finalSeq = agent.session.seq
-      await flushTarget(record)
-      if (record.settled) return
-      if (settlementState(record, agent, observation) !== 'ready') continue
-      if (agent.session.seq !== finalSeq) continue
-      await settle(record, stopReasonOf(record))
-      return
-    }
-  }
-
-  /**
    * 结清一个看守并投递通知。Retire one watch and deliver its notice.
    * @param record - 看守记录。The watch record.
    * @param outcome - 下场。The outcome.
@@ -309,7 +121,7 @@ export function createSettlementWatch(ctx: Context, config: SettlementWatchConfi
     // 结清也要唤醒：观察者可能正卡在 wait 分支上。
     // Settlement wakes too: the observer may be parked in its `wait` branch.
     wake(record)
-    const closing = closingText(record)
+    const closing = closingText(record.events)
     const message = createSettlementNotice(
       record.targetSessionId, outcome, closing, config.maxReportChars,
       { watchId: record.watchId, messageId: record.messageId, prompt: record.prompt },
@@ -371,130 +183,6 @@ export function createSettlementWatch(ctx: Context, config: SettlementWatchConfi
    */
   function targetSession(record: WatchRecord): Session | undefined {
     return ctx.sessions.get(record.targetSessionId) ?? ctx.agents.get(record.targetSessionId)?.session
-  }
-
-  /**
-   * 从目标自己的事件后缀派生结束原因。
-   * Derive the stop reason from the target's own event suffix.
-   *
-   * 归因用官方 `foldConsumedWork`（`@deepseek-ai/dsh-agent`，运行时可直接解析）：
-   * 只有它能把「跑完了」与「认领了输入却被拒/被停/出错」分开——单看轮次边界，
-   * 一个在第一步之前停下的轮次与一个平衡的空转轮次形状完全相同，孤立读轮次不是把
-   * 被截断的活记成完成，就是把每个空转都定罪。分支本身照抄官方 `epochStopReason`
-   * （在 `@deepseek-ai/dsh-subagent` 的 lifecycle.ts；该包在本工作区不可解析，
-   * 且让会话工具依赖派活子系统是不该有的依赖边）。
-   * The accounting reuses the official `foldConsumedWork` (`@deepseek-ai/dsh-agent`,
-   * resolvable at runtime): only it separates "finished" from "claimed input then
-   * was rejected/stopped/errored", because a turn stopping before its first step
-   * has exactly the shape of a balanced no-op turn, so reading turns in isolation
-   * either credits cut-short work as finished or convicts every no-op. The switch
-   * mirrors the official `epochStopReason` (in `@deepseek-ai/dsh-subagent`'s
-   * lifecycle.ts, which is not resolvable in this workspace and whose subsystem a
-   * session tool should not depend on).
-   * @param record - 看守记录。The watch record.
-   * @returns 结束原因。The stop reason.
-   */
-  function stopReasonOf(record: WatchRecord): SessionDispatchOutcome {
-    // 已记录的失败优先于取消（官方 captureLocalResult 的同一判据）。
-    // A recorded failure wins over a cancellation (the official captureLocalResult rule).
-    if (record.failureAt !== undefined) return 'error'
-    const { end, droppedUnrun } = foldConsumedWork(record.events)
-    switch (end?.data.reason.kind) {
-      case 'max-tokens': return 'max-tokens'
-      case 'aborted':
-      case 'interrupted': return 'aborted'
-      case 'error': return 'error'
-      // pre-step 拒绝（hook 拒绝、策略插件）丢弃了这个 epoch 已认领的输入：那是被拒绝，不是做完了。
-      // A pre-step rejection (a hook deny, a policy plugin) discarded input this
-      // epoch had claimed: the work was declined, not done.
-      case 'blocked': return 'refusal'
-      // 干净结束与「根本没有计账轮次」同规则：没有取消留下的未跑输入就算做完了。
-      // A clean ending and no accounting turn share one rule: the epoch finished
-      // what it was given unless a cancelled queue says otherwise.
-      case undefined:
-      case 'completed': return droppedUnrun ? 'aborted' : 'completed'
-      default:
-        // TurnEndReason 可扩展：无法命名的结束按失败汇报，而不是当成成功。
-        // Merge-extensible: an unnameable ending is reported as a failure, never
-        // as success.
-        return 'error'
-    }
-  }
-
-  /**
-   * 折叠目标的收尾输出。规则与官方 `AssistantOutputFold` 一致：最后一条**非空**
-   * assistant 消息（空内容消息，例如只带 usage 的，不替换更早的输出）；没有任何消息时
-   * 回退到累积的流文本。该官方类来自不可解析的 `@deepseek-ai/dsh-subagent`，所以这里
-   * 按其语义就地实现，并复用官方的 `joinAssistantStreamText` 处理流片段。
-   * Fold the target's closing output. The rule matches the official
-   * `AssistantOutputFold`: the last non-empty assistant message (an empty-content
-   * message, such as a usage-only one, never replaces earlier output), falling
-   * back to the accumulated stream text when no message exists. That official
-   * class lives in the unresolvable `@deepseek-ai/dsh-subagent`, so its semantics
-   * are implemented here and the official `joinAssistantStreamText` handles the
-   * stream pieces.
-   * @param record - 看守记录。The watch record.
-   * @returns 收尾内容块。The closing content blocks.
-   */
-  function closingText(record: WatchRecord): readonly ContentBlock[] {
-    let message: readonly ContentBlock[] | undefined
-    const partial: string[] = []
-    for (const event of record.events) {
-      if (event.type === 'assistant/message') {
-        const content = event.data.message.content
-        if (content.length > 0) message = content
-      }
-      if (event.type === 'assistant/message' || event.type === 'assistant/attempt') {
-        partial.push(joinAssistantStreamText(event.data.stream))
-      }
-    }
-    if (message !== undefined) return message
-    const text = partial.join('')
-    return text.length > 0 ? [{ type: 'text', text }] : []
-  }
-
-  /**
-   * 在目标 Agent 自己的作用域上登记观察面。
-   * Register the observation surface on the target Agent's own scope.
-   *
-   * `agent.ctx` 上的监听由 @deepseek-ai/dsh-scope 按作用域路由，只会收到这个 Agent 的
-   * 通知，因此不需要、也没有任何 sessionId 比对；Agent 卸载时 Cordis 一并摘除。
-   * Listeners on `agent.ctx` are routed by @deepseek-ai/dsh-scope to that Agent
-   * alone, so no sessionId comparison exists or is needed; Agent disposal unwinds
-   * them too.
-   *
-   * 唤醒源只有 inbox 三件事与 `agent/error`（与官方一致）：`session/event` **只记账不唤醒**，
-   * 否则每个流片段都会把观察者吵醒一次。
-   * The wake sources are exactly the three inbox events plus `agent/error`, as in
-   * the official observer: `session/event` records without waking, because
-   * otherwise every stream piece would wake the observer.
-   * @param record - 看守记录。The watch record.
-   * @param agent - 目标 Agent。The target Agent.
-   */
-  function watchTarget(record: WatchRecord, agent: Agent): void {
-    const notify = (): void => { wake(record) }
-    const onEvent = (session: Session, event: SessionEvent): void => {
-      if (session !== agent.session) return
-      record.events.push(event)
-      // 后续已提交轮次取代了这次失败：它不再决定结束原因（官方 observeLocalFailure 的规则）。
-      // A later committed turn supersedes the failure: it no longer decides the
-      // stop reason (the official observeLocalFailure rule).
-      if (event.type === 'turn/end' && record.failureAt !== undefined && event.seq >= record.failureAt) {
-        record.failureAt = undefined
-      }
-    }
-    const onError = ({ agent: subject }: { agent: Agent }): void => {
-      if (subject !== agent) return
-      record.failureAt = agent.session.seq
-      notify()
-    }
-    record.offEvents.push(
-      agent.ctx.on('agent/inbox/inserted', notify),
-      agent.ctx.on('agent/inbox/claimed', notify),
-      agent.ctx.on('agent/inbox/discarded', notify),
-      agent.ctx.on('session/event', onEvent),
-      agent.ctx.on('agent/error', onError),
-    )
   }
 
   /** 撤销一个看守且不通知。Drop one watch without notifying。 */
@@ -559,7 +247,13 @@ export function createSettlementWatch(ctx: Context, config: SettlementWatchConfi
         disarm(watchId)
         throw error
       }
-      void observe(record, request.agent).catch((error: unknown) => {
+      // 观察循环经回调面回到本注册表（flush/settle），失败只告警——结清后观察者的
+      // 错误与已废弃的看守无关，不再打扰日志。
+      // The observation loop reaches this registry back through the callback face
+      // (flush/settle); a failure only warns - once settled, an observer error
+      // belongs to a watch that no longer exists and stays out of the log.
+      const runtime: WatchRuntime = { flushTarget, settle }
+      void observe(ctx, runtime, record, request.agent).catch((error: unknown) => {
         if (!record.settled) {
           ctx.logger.warn(`session-dispatch: watching "${record.targetSessionId}" failed: ${String(error)}`)
         }

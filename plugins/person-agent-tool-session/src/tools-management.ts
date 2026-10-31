@@ -18,12 +18,9 @@ import {
   SessionToolError,
   optionalModelSelection,
   requireTitle,
+  TOOL_HINT as HINT,
 } from './types.js'
 import type { SessionCreateArgs, SessionCreateResult, SessionRenameArgs } from './types.js'
-
-/** 工具描述共用提示：session id 从 workspace_session_list 查；workspace id 从页面正文的 Workspace List 取。
- * / shared description hint: session ids come from workspace_session_list; workspace ids from the page's Workspace List. */
-const HINT = 'Session ids come from the workspace_session_list tool; workspace ids come from the page\'s Workspace List.'
 
 /**
  * 解析新会话的工作区：显式 id 优先；缺省继承调用方会话所在的工作区。
