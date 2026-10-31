@@ -16,8 +16,10 @@
  * 审计）以及供工具回写的 settle 接口。
  *
  * Declarations (config, the fixed question, view shapes, options) live in
- * `intake-types.ts` and are re-exported unchanged here.
- * 声明面（配置、固定询问、视图形状、选项）在 `intake-types.ts`，并在此原样再导出。
+ * `intake-types.ts` and are re-exported unchanged here; the in-memory ask
+ * guards live in `intake-gate.ts`, the audit projections in `intake-view.ts`.
+ * 声明面（配置、固定询问、视图形状、选项）在 `intake-types.ts`，并在此原样再导出；进程内
+ * 询问闸门在 `intake-gate.ts`，审计投影在 `intake-view.ts`。
  *
  * @module @veren/im/intake
  */
@@ -26,11 +28,12 @@ import { errorMessage } from './runtime-seams.ts'
 import type { ImLogger } from './runtime-seams.ts'
 import type { ImMessage, ImSendResult } from './contract.ts'
 import type { ImPeople, ImPersonView } from './people.ts'
-import type { ImPersonIntakeRow } from './store.ts'
 import { STRANGER_INTAKE_ASK, STRANGER_INTAKE_DEFAULTS } from './intake-types.ts'
 import type {
-  ImIntakeRecordView, ImIntakeSettle, ImIntakeStatusView, ImStrangerIntakeConfig, ImStrangerIntakeOptions,
+  ImIntakeSettle, ImIntakeStatusView, ImStrangerIntakeConfig, ImStrangerIntakeOptions,
 } from './intake-types.ts'
+import { IntakeAskGate } from './intake-gate.ts'
+import { countsOf, viewOf } from './intake-view.ts'
 
 // ---- unchanged export surface (declarations moved to intake-types.ts) ----
 // ---- 导出面不变（声明面移至 intake-types.ts）----
@@ -43,11 +46,7 @@ export type {
   ImStrangerIntakeOptions,
 } from './intake-types.ts'
 
-const HOUR_MS = 3_600_000
 const RECENT_LIMIT = 100
-/** Cap for the in-memory ask-once guard; pruned against the durable rows. */
-/** 进程内 ask-once 闸门的上限；对照持久化行收缩。 */
-const ASKED_CAP = 512
 
 /**
  * The automatic stranger-intake service. It never routes messages and never
@@ -65,9 +64,7 @@ export class ImStrangerIntake {
   // In-process guards: two concurrent conversations cannot ask one person twice,
   // and a failed intake write cannot cause a second question after a good send.
   // 进程内保护：两个并发会话不会把同一个人问两遍；intake 写入失败也不会在发送成功后重问。
-  private readonly asking = new Set<string>()
-  private readonly asked = new Set<string>()
-  private readonly askTimes = new Map<string, number[]>()
+  private readonly gate: IntakeAskGate
 
   /**
    * @param options - people directory, logger, sender, config, and clock.
@@ -78,9 +75,11 @@ export class ImStrangerIntake {
     this.send = options.send
     this.now = options.now ?? Date.now
     this.config = { ...STRANGER_INTAKE_DEFAULTS, ...options.config }
+    this.gate = new IntakeAskGate(this.people, this.logger, this.now)
   }
 
   /** Whether the total switch is on. */
+  /** 总开关是否打开。 */
   get enabled(): boolean {
     return this.config.enabled
   }
@@ -104,9 +103,10 @@ export class ImStrangerIntake {
   }
 
   /** Read the switch, counts, and recent audit records. */
+  /** 读取开关、计数与最近的审计记录。 */
   status(limit = 20): ImIntakeStatusView {
     const rows = this.people.intakes().sort((left, right) => right.asked_at - left.asked_at)
-    const counts = this.countsOf(rows)
+    const counts = countsOf(rows, this.now(), this.config.replyWindowMs)
     const requested = Number.isFinite(limit) ? Math.trunc(limit) : 20
     const size = Math.max(1, Math.min(RECENT_LIMIT, requested))
     return {
@@ -116,7 +116,8 @@ export class ImStrangerIntake {
       maxAsksPerHour: this.config.maxAsksPerHour,
       minAskIntervalMs: this.config.minAskIntervalMs,
       counts,
-      recent: rows.slice(0, size).map(row => this.viewOf(row)),
+      recent: rows.slice(0, size).map(row =>
+        viewOf(row, this.people.person(row.person_id), this.now(), this.config.replyWindowMs)),
     }
   }
 
@@ -145,6 +146,7 @@ export class ImStrangerIntake {
   }
 
   /** Whether one observed person is already identifiable enough not to be asked. */
+  /** 某个被观察的人是否已足够可识别，无需再问。 */
   private identifiable(person: ImPersonView, externalId: string): boolean {
     if (person.identityStatus !== 'unverified') return true
     if (person.aliases.length > 0 || person.bio !== undefined || person.notes !== undefined) return true
@@ -155,22 +157,24 @@ export class ImStrangerIntake {
   }
 
   /** Ask once, or leave an already-asked person to the conversation model. */
+  /** 只问一次；已问过的人留给会话模型。 */
   private async askOnce(providerId: string, message: ImMessage, person: ImPersonView | undefined): Promise<void> {
     if (!this.config.enabled) return
     const externalId = message.sender.id.trim()
     if (person === undefined || externalId === '') return
     if (this.people.intakeOf(person.id) !== undefined) return
-    if (this.asked.has(person.id) || this.identifiable(person, externalId)) return
-    if (this.asking.has(person.id) || !this.allow(providerId, message.accountId)) return
-    this.asking.add(person.id)
+    if (this.gate.hasBeenAsked(person.id) || this.identifiable(person, externalId)) return
+    if (this.gate.isBeingAsked(person.id)
+      || !this.gate.reserveSlot(providerId, message.accountId, this.config)) return
+    this.gate.beginAsk(person.id)
     try {
       const sent = await this.deliverQuestion(providerId, message)
       if (sent === undefined) return
-      this.asked.add(person.id)
-      this.pruneAsked()
+      this.gate.markAsked(person.id)
+      this.gate.pruneAsked()
       await this.recordAsk(providerId, message, person, sent)
     } finally {
-      this.asking.delete(person.id)
+      this.gate.endAsk(person.id)
     }
   }
 
@@ -229,83 +233,10 @@ export class ImStrangerIntake {
       + ` (message ${sent.id}): ${STRANGER_INTAKE_ASK}`,
     )
   }
-
-  /** Reserve one send slot under the per-account sliding-hour cap. */
-  private allow(providerId: string, accountId: string): boolean {
-    const now = this.now()
-    const recent = (this.askTimes.get(accountId) ?? []).filter(at => now - at < HOUR_MS)
-    // 空槽位直接删键，Map 不随账号数无界增长。
-    // An empty slot deletes the key, so the map never grows with the account count.
-    if (recent.length === 0) this.askTimes.delete(accountId)
-    else this.askTimes.set(accountId, recent)
-    if (recent.length >= Math.max(1, this.config.maxAsksPerHour)) {
-      this.logger.warn(`[im:${providerId}] stranger intake skipped for ${accountId}: hourly cap reached`)
-      return false
-    }
-    const last = recent[recent.length - 1]
-    if (last !== undefined && now - last < this.config.minAskIntervalMs) {
-      this.logger.warn(`[im:${providerId}] stranger intake skipped for ${accountId}: minimum interval not elapsed`)
-      return false
-    }
-    // Reserve synchronously before the send await so two conversations cannot
-    // both observe the same free slot.
-    // 在 send await 之前同步预留，两个会话不会同时看到同一个空位。
-    recent.push(now)
-    this.askTimes.set(accountId, recent)
-    return true
-  }
-
-  /**
-   * Shrink the in-memory ask-once guard: every id with a durable intake row is
-   * already re-derivable from storage (the row check runs first in askOnce), so
-   * only write-failure survivors need to stay in memory.
-   * 收缩进程内 ask-once 闸门：有持久化行的 id 已可从存储再推导（askOnce 的第一道检查），
-   * 内存里只需保留写入失败的幸存者。
-   */
-  private pruneAsked(): void {
-    if (this.asked.size <= ASKED_CAP) return
-    for (const id of this.asked) {
-      if (this.people.intakeOf(id) !== undefined) this.asked.delete(id)
-    }
-  }
-
-  /** Per-status tally used by the audit view. */
-  private countsOf(rows: ImPersonIntakeRow[]): Record<ImIntakeRecordView['status'], number> {
-    const counts: Record<ImIntakeRecordView['status'], number> = { asked: 0, answered: 0, declined: 0, expired: 0 }
-    for (const row of rows) counts[this.effectiveStatus(row)] += 1
-    return counts
-  }
-
-  /** Effective status, treating an overdue `asked` as expired for display. */
-  private effectiveStatus(row: ImPersonIntakeRow): ImIntakeRecordView['status'] {
-    if (row.status !== 'asked') return row.status
-    return this.now() > row.asked_at + this.config.replyWindowMs ? 'expired' : 'asked'
-  }
-
-  /** Project one row and its person onto the audit view. */
-  private viewOf(row: ImPersonIntakeRow): ImIntakeRecordView {
-    const person = this.people.person(row.person_id)
-    return {
-      personId: row.person_id,
-      personName: person?.displayName ?? row.person_id,
-      ...(person?.claimedName === undefined ? {} : { claimedName: person.claimedName }),
-      status: this.effectiveStatus(row),
-      provider: row.provider,
-      accountId: row.account_id,
-      conversationId: row.conversation_id,
-      askedAt: row.asked_at,
-      askMessageId: row.ask_message_id,
-      askText: row.ask_text,
-      expiresAt: row.asked_at + this.config.replyWindowMs,
-      ...(row.settled_at === undefined ? {} : { settledAt: row.settled_at }),
-      ...(row.outcome === undefined ? {} : { outcome: row.outcome }),
-      ...(row.reply_message_id === undefined ? {} : { replyMessageId: row.reply_message_id }),
-      ...(row.reply_excerpt === undefined ? {} : { replyExcerpt: row.reply_excerpt }),
-    }
-  }
 }
 
 /** Normalize text for one-line log-safe comparison. */
+/** 规范化文本，用于单行日志安全的比较。 */
 function normalizeKey(value: string): string {
   return value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase()
 }

@@ -1,23 +1,24 @@
 /**
- * Durable IM tables: row shapes, their zod schemas, and the authoritative `im`
- * storage domain, plus the row-key and settings-mapping helpers.
+ * Durable IM tables: the row shapes and the row-key helpers.
  *
  * The store deliberately persists no online status and no creation time. Online
  * status is a live provider fact; creation time is not part of the V1 contract.
  *
- * 持久化的 IM 表：行形状、对应的 zod schema 与权威 `im` 存储域，外加行键与 settings 映射助手。
+ * 持久化的 IM 表：行形状与行键助手。
  *
  * 存储刻意不持久化在线状态与创建时间：在线状态是 provider 的现场事实，创建时间不属于 V1 契约。
+ *
+ * The zod schemas and the authoritative `im` storage domain live in
+ * `store-schema.ts`.
+ * zod schema 与权威的 `im` 存储域在 `store-schema.ts`。
  *
  * @module @veren/im/store-rows
  */
 
-import { z } from 'zod'
-import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
-import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type { ImConversation, ImPersonClaim, ImPersonContact } from './contract.ts'
 
 /** One `im_accounts` row. `status` is intentionally absent. */
+/** 一行 `im_accounts`。刻意没有 `status`。 */
 export interface ImAccountRow {
   id: string
   provider: string
@@ -26,6 +27,7 @@ export interface ImAccountRow {
 }
 
 /** One `im_conversations` row. */
+/** 一行 `im_conversations`。 */
 export interface ImConversationRow {
   account_id: string
   conversation_id: string
@@ -34,6 +36,7 @@ export interface ImConversationRow {
 }
 
 /** One `im_bindings` row. `settings_json` is the serialized settings object. */
+/** 一行 `im_bindings`。`settings_json` 是序列化的设置对象。 */
 export interface ImBindingRow {
   id: string
   account_id: string
@@ -59,6 +62,7 @@ export interface ImPersonRow {
   bio?: string
   notes?: string
   /** Unverified self-report; authoritative name fields stay separate. */
+  /** 未核实的自述；权威姓名字段保持独立。 */
   claim?: ImPersonClaim
   updated_at: number
 }
@@ -81,6 +85,7 @@ export interface ImPersonAddressRow {
 }
 
 /** Lifecycle of one automatic self-introduction request. */
+/** 一次自动自我介绍请求的生命周期。 */
 export type ImIntakeStatus = 'asked' | 'answered' | 'declined' | 'expired'
 
 /**
@@ -101,11 +106,14 @@ export interface ImPersonIntakeRow {
   ask_message_id: string
   ask_text: string
   /** When the intake reached a terminal state; absent while `asked`. */
+  /** intake 到达终态的时刻；`asked` 期间缺省。 */
   settled_at?: number
   /** What a successful self-report contained. */
+  /** 一次成功的自述包含了什么。 */
   outcome?: 'name' | 'contact' | 'both'
   reply_message_id?: string
   /** One-line excerpt of the reply, kept for audit only. */
+  /** 回复的单行摘录，仅作审计留存。 */
   reply_excerpt?: string
 }
 
@@ -129,10 +137,12 @@ export interface ImMessageRow {
   attempts: number
   updated_at: number
   /** One-line excerpt of the reply, kept for the audit view. */
+  /** 回复的单行摘录，供审计视图留存。 */
   reply_excerpt?: string
 }
 
 /** Lifecycle of one queued inbound message. */
+/** 一条排队入站消息的生命周期。 */
 export type ImMessageStatus = 'queued' | 'consuming' | 'replied' | 'failed' | 'dead'
 
 /**
@@ -148,140 +158,8 @@ export interface ImConversationSessionRow {
   updated_at: number
 }
 
-const accountSchema = z.object({
-  id: z.string().min(1),
-  provider: z.string().min(1),
-  token_ref: z.string().min(1),
-  owner_id: z.string().optional(),
-})
-
-const conversationSchema = z.object({
-  account_id: z.string().min(1),
-  conversation_id: z.string().min(1),
-  kind: z.enum(['direct', 'group', 'thread']),
-  title: z.string().optional(),
-})
-
-const bindingSchema = z.object({
-  // 休眠表：绑定机制已删除（2.1.8），定义保留只为打开含此表的旧存储文件不报错；
-  // 没有任何代码路径再读写它。
-  // Dormant table: the binding mechanism is gone (2.1.8); the definition stays
-  // only so older storage files that carry the table still open. No code path
-  // reads or writes it anymore.
-  id: z.string().min(1),
-  account_id: z.string().min(1),
-  conversation_id: z.string().min(1),
-  session_id: z.string().min(1),
-  active: z.boolean(),
-  settings_json: z.string(),
-})
-
-const messageSchema = z.object({
-  message_id: z.string().min(1),
-  provider: z.string().min(1),
-  account_id: z.string().min(1),
-  conversation_id: z.string().min(1),
-  sender: z.string(),
-  text: z.string(),
-  received_at: z.number(),
-  status: z.enum(['queued', 'consuming', 'replied', 'failed', 'dead']),
-  attempts: z.number(),
-  updated_at: z.number(),
-  reply_excerpt: z.string().optional(),
-})
-
-const conversationSessionSchema = z.object({
-  conversation_id: z.string().min(1),
-  session_id: z.string().min(1),
-  updated_at: z.number(),
-})
-
-const contactSchema = z.object({
-  kind: z.enum(['wechat', 'email', 'phone', 'other']),
-  value: z.string().min(1),
-  label: z.string().optional(),
-})
-
-const claimSchema = z.object({
-  name: z.string().min(1).optional(),
-  contacts: z.array(contactSchema),
-  source: z.literal('self-report'),
-  provider: z.string().min(1),
-  accountId: z.string().min(1),
-  conversationId: z.string().min(1),
-  messageId: z.string().min(1),
-  at: z.number(),
-})
-
-const personSchema = z.object({
-  id: z.string().min(1),
-  display_name: z.string().min(1),
-  real_name: z.string().optional(),
-  aliases: z.array(z.string()),
-  contacts: z.array(contactSchema),
-  bio: z.string().optional(),
-  notes: z.string().optional(),
-  claim: claimSchema.optional(),
-  updated_at: z.number(),
-})
-
-const personAddressSchema = z.object({
-  person_id: z.string().min(1),
-  provider: z.string().min(1),
-  account_id: z.string().min(1),
-  conversation_id: z.string().min(1),
-  external_id: z.string().min(1),
-  display_name: z.string().optional(),
-  updated_at: z.number(),
-})
-
-const intakeSchema = z.object({
-  person_id: z.string().min(1),
-  provider: z.string().min(1),
-  account_id: z.string().min(1),
-  conversation_id: z.string().min(1),
-  status: z.enum(['asked', 'answered', 'declined', 'expired']),
-  asked_at: z.number(),
-  ask_message_id: z.string().min(1),
-  ask_text: z.string().min(1),
-  settled_at: z.number().optional(),
-  outcome: z.enum(['name', 'contact', 'both']).optional(),
-  reply_message_id: z.string().min(1).optional(),
-  reply_excerpt: z.string().min(1).optional(),
-})
-
-/**
- * Authoritative IM storage domain.
- *
- * Version stays 1: every added person field is optional and a missing table
- * reads as empty, so a file written before the intake feature still opens
- * without discarding records. Bumping the version would reject that file
- * instead of migrating it.
- * 版本保持 1：新增的人员字段都是可选的，缺失的表读作空表，因此采集功能之前写下的文件仍能
- * 打开且不丢记录。提升版本会直接拒绝该文件，而不是迁移它。
- */
-export const imDomain = defineDomain({
-  name: 'im',
-  version: 1,
-  tables: {
-    accounts: domainTable<string, ImAccountRow>(accountSchema),
-    conversations: domainTable<string, ImConversationRow>(conversationSchema),
-    bindings: domainTable<string, ImBindingRow>(bindingSchema),
-    messages: domainTable<string, ImMessageRow>(messageSchema),
-    conversation_sessions: domainTable<string, ImConversationSessionRow>(conversationSessionSchema),
-    people: domainTable<string, ImPersonRow>(personSchema),
-    person_addresses: domainTable<string, ImPersonAddressRow>(personAddressSchema),
-    person_intakes: domainTable<string, ImPersonIntakeRow>(intakeSchema),
-  },
-})
-
-/** Domain name, shared with diagnostics. */
-export const IM_DOMAIN_NAME = imDomain.name
-
-/** One opened IM domain. */
-export type ImStore = Domain<typeof imDomain>
-
 /** Stable key for one conversation row. */
+/** 一行会话记录的稳定键。 */
 export function conversationKey(accountId: string, conversationId: string): string {
   return `${accountId}\u0000${conversationId}`
 }

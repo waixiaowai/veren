@@ -14,50 +14,33 @@
  * `turn/end` 落定。捕获只由本 prompt 自己的 `user/message` 事件武装（经 `im-message` source
  * 匹配），因此同一 Session 里并发进行的人类 turn 绝不会把它的回答泄漏回渠道。
  *
- * Split out of `index.ts` so the plugin assembly stays under the file-size
- * ceiling.
- * 按职责从 `index.ts` 拆出，让插件装配保持在单文件行数上限内。
+ * Session provisioning (create/resume, workspace resolution, prompt-message
+ * building) lives in `gateway-session.ts`; this file keeps only the per-turn
+ * capture machinery.
+ * 会话筹备（创建/恢复、工作区解析、prompt 消息构建）在 `gateway-session.ts`；本文件只保留
+ * 单 turn 的捕获机制。
  *
  * @module @veren/im/gateway
  */
 
-import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { AgentOptions } from '@deepseek-ai/dsh-agent'
-// 类型-only：拉取 ctx.workspaceRegistry 的 declaration merging（会话 cwd 归属解析）
-// / type-only: pulls the ctx.workspaceRegistry declaration merging (session cwd membership)
-import type {} from '@deepseek-ai/dsh-workspace'
-// 类型-only：拉取 ctx.agentDefaultModel 的 declaration merging（部署默认模型选型，
-// 会话创建时回填 agentOptions.model 以注册 {{model}} 提示变量）
-// / type-only: pulls the ctx.agentDefaultModel declaration merge (the deployment
-// default model, applied at session creation to register the {{model}} prompt variable)
-import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
-import { ImError } from './contract.ts'
-import type { ImBindingSettings } from './contract.ts'
+import { ImError } from './contract-errors.ts'
+import type { ImBindingSettings } from './contract-bind.ts'
 import { errorMessage } from './runtime-seams.ts'
 import type { ImSessionGateway } from './runtime-seams.ts'
-
-declare module '@deepseek-ai/dsh-llm' {
-  interface MessageSourceMap {
-    /** One inbound IM message promoted into a DSH Session. @persistenceSource user */
-    'im-message': {
-      kind: 'im-message'
-      providerId: string
-      accountId: string
-      conversationId: string
-      messageId: string
-    }
-  }
-}
+import { ensureDshSession, promptMessageOf, resumeAgentOptionsOf } from './gateway-session.ts'
+import type { ImPromptSource } from './runtime-seams.ts'
 
 /** One reply the gateway is waiting for. */
+/** 一条网关正在等待的回复。 */
 interface PendingReply {
   /** True until this prompt's own `user/message` event is observed. */
+  /** 观察到本 prompt 自己的 `user/message` 事件之前为真。 */
   awaitingMessage: boolean
   /** The prompt id sent through `followup`; identifies exactly our turn. */
+  /** 经 followup 发出的 prompt id；精确标识属于我们的那个 turn。 */
   messageId: string
   text: string
   resolve: (value: string | undefined) => void
@@ -87,61 +70,17 @@ export class DshSessionGateway implements ImSessionGateway {
     )
   }
 
-  async ensureSession(request: {
+  ensureSession(request: {
     sessionId?: string
     settings: ImBindingSettings
   }): Promise<{ sessionId: string; created: boolean }> {
-    const existing = request.sessionId
-    if (existing !== undefined) {
-      const id = brandString<SessionId>(existing)
-      if (this.ctx.agents.get(id) !== undefined) return { sessionId: existing, created: false }
-      try {
-        await this.ctx.agents.resume({ resumeSessionId: id })
-        return { sessionId: existing, created: false }
-      } catch (error: unknown) {
-        throw new ImError('IM_INTERNAL', `session could not be resumed: ${errorMessage(error)}`)
-      }
-    }
-    const id = brandString<SessionId>(`session-${randomUUID()}`)
-    try {
-      // agentOptions.model 来自部署默认模型（agentDefaultModel）：agent-loop 用
-      // agent.options.model 注册 {{model}} 提示变量——不给模型，deployment persona
-      // 段的 {{model}} 插值在首回合就失败（真机反例：IM 会话首轮"本轮运行失败
-      // prompt variable {{model}} has no value"）。与 app-host / webhook 会话创建
-      // 同一条选型路径；settings 显式给了 model 时以 settings 为准。
-      // agentOptions.model comes from the deployment default model
-      // (agentDefaultModel): the agent loop registers the {{model}} prompt
-      // variable from agent.options.model — without one, the deployment persona
-      // section's {{model}} interpolation fails on the first turn (live
-      // counter-example: an IM session's first turn failed with "prompt
-      // variable {{model}} has no value"). Same selection path as app-host and
-      // the webhook session creation; explicit settings win when present.
-      const fallback = request.settings.model === undefined
-        ? this.ctx.agentDefaultModel.currentSelection()
-        : undefined
-      await this.ctx.agents.create({
-        sessionId: id,
-        meta: { cwd: await imSessionWorkspace(this.ctx), ...(request.settings.presetId === undefined ? {} : { agentPreset: request.settings.presetId }) },
-        ...agentOptionsOf(request.settings),
-        ...(fallback === undefined || request.settings.model !== undefined ? {} : {
-          agentOptions: { provider: fallback.provider, model: fallback.model },
-        }),
-      })
-      return { sessionId: id, created: true }
-    } catch (error: unknown) {
-      throw new ImError('IM_INTERNAL', `session could not be created: ${errorMessage(error)}`)
-    }
+    return ensureDshSession(this.ctx, request)
   }
 
   ask(request: {
     sessionId: string
     prompt: string
-    source: {
-      providerId: string
-      accountId: string
-      conversationId: string
-      messageId: string
-    }
+    source: ImPromptSource
   }): Promise<string | undefined> {
     return this.serialize(request.sessionId, () => this.awaitReply(request))
   }
@@ -154,52 +93,12 @@ export class DshSessionGateway implements ImSessionGateway {
   private awaitReply(request: {
     sessionId: string
     prompt: string
-    source: {
-      providerId: string
-      accountId: string
-      conversationId: string
-      messageId: string
-    }
+    source: ImPromptSource
   }): Promise<string | undefined> {
     return new Promise<string | undefined>((resolve, reject) => {
       const agent = this.ctx.agents.get(brandString<SessionId>(request.sessionId))
       if (agent === undefined) {
-        // 宿主重启后磁盘会话没有活 agent：先从持久化恢复再投递，否则每条消息都
-        // 以 IM_NOT_FOUND 静默死亡（真机反例：重启用微信发消息石沉大海）。恢复
-        // 失败才以原始错误拒绝。
-        // A disk session has no live agent after a host restart: resume it from
-        // persistence before delivering, or every message dies silently with
-        // IM_NOT_FOUND (live counter-example: WeChat messages after a restart
-        // vanished). Only a failed resume rejects with its own error.
-        void this.ctx.agents
-          .resume({
-            resumeSessionId: brandString<SessionId>(request.sessionId),
-            // 恢复路径同样回填部署默认模型：旧绑定的会话创建于修复前，缺
-            // agentOptions.model，首回合 {{model}} 插值即失败（同 beginBind 修复）。
-            // / the resume path applies the deployment default model too: older
-            // bindings were created before the fix and lack agentOptions.model
-            // (same first-turn {{model}} failure as the beginBind fix).
-            agentOptions: {
-              provider: this.ctx.agentDefaultModel.currentSelection().provider,
-              model: this.ctx.agentDefaultModel.currentSelection().model,
-            },
-          })
-          .then(() => {
-            const resumed = this.ctx.agents.get(brandString<SessionId>(request.sessionId))
-            if (resumed === undefined) {
-              reject(new ImError('IM_NOT_FOUND', `session did not resume: ${request.sessionId}`))
-              return
-            }
-            this.armReply(request, resolve, reject)
-            try {
-              resumed.followup(promptMessageOf(request))
-            } catch (error: unknown) {
-              this.settle(request.sessionId, { error })
-            }
-          })
-          .catch((error: unknown) => {
-            reject(new ImError('IM_NOT_FOUND', `session could not be resumed: ${error instanceof Error ? error.message : String(error)}`))
-          })
+        this.resumeAndAsk(request, resolve, reject)
         return
       }
       this.armReply(request, resolve, reject)
@@ -211,7 +110,50 @@ export class DshSessionGateway implements ImSessionGateway {
     })
   }
 
+  /**
+   * A disk session has no live agent after a host restart: resume it from
+   * persistence before delivering, or every message dies silently with
+   * IM_NOT_FOUND (live counter-example: WeChat messages after a restart
+   * vanished). Only a failed resume rejects with its own error.
+   * 宿主重启后磁盘会话没有活 agent：先从持久化恢复再投递，否则每条消息都
+   * 以 IM_NOT_FOUND 静默死亡（真机反例：重启用微信发消息石沉大海）。恢复
+   * 失败才以原始错误拒绝。
+   */
+  private resumeAndAsk(
+    request: { sessionId: string; prompt: string; source: ImPromptSource },
+    resolve: (value: string | undefined) => void,
+    reject: (error: unknown) => void,
+  ): void {
+    void this.ctx.agents
+      .resume({ resumeSessionId: brandString<SessionId>(request.sessionId), ...resumeAgentOptionsOf(this.ctx) })
+      .then(() => this.deliverAfterResume(request, resolve, reject))
+      .catch((error: unknown) => {
+        reject(new ImError('IM_NOT_FOUND', `session could not be resumed: ${errorMessage(error)}`))
+      })
+  }
+
+  /** Arm the reply and deliver the prompt once the session is live again. */
+  /** 会话恢复后再武装待复并投递 prompt。 */
+  private deliverAfterResume(
+    request: { sessionId: string; prompt: string; source: ImPromptSource },
+    resolve: (value: string | undefined) => void,
+    reject: (error: unknown) => void,
+  ): void {
+    const resumed = this.ctx.agents.get(brandString<SessionId>(request.sessionId))
+    if (resumed === undefined) {
+      reject(new ImError('IM_NOT_FOUND', `session did not resume: ${request.sessionId}`))
+      return
+    }
+    this.armReply(request, resolve, reject)
+    try {
+      resumed.followup(promptMessageOf(request))
+    } catch (error: unknown) {
+      this.settle(request.sessionId, { error })
+    }
+  }
+
   /** Arm the per-ask timeout and register the pending reply it guards. */
+  /** 武装单次询问的超时并登记它守护的待复。 */
   private armReply(
     request: { sessionId: string; source: { messageId: string } },
     resolve: (value: string | undefined) => void,
@@ -234,6 +176,7 @@ export class DshSessionGateway implements ImSessionGateway {
   }
 
   /** Stop waiting for replies; called on plugin unload. */
+  /** 停止等待回复；插件卸载时调用。 */
   dispose(): void {
     for (const [sessionId, pending] of [...this.pending]) {
       clearTimeout(pending.timer)
@@ -244,6 +187,7 @@ export class DshSessionGateway implements ImSessionGateway {
   }
 
   /** Consume one session event for the pending reply of that session. */
+  /** 为该会话的待复消费一条会话事件。 */
   private observe(sessionId: SessionId, event: SessionEvent): void {
     const pending = this.pending.get(sessionId)
     if (pending === undefined) return
@@ -273,6 +217,7 @@ export class DshSessionGateway implements ImSessionGateway {
   }
 
   /** Settle one pending reply exactly once. */
+  /** 恰好一次地落定一条待复。 */
   private settle(sessionId: string, outcome: { value?: string; error?: unknown }): void {
     const pending = this.pending.get(sessionId)
     if (pending === undefined) return
@@ -283,6 +228,7 @@ export class DshSessionGateway implements ImSessionGateway {
   }
 
   /** Serialize prompts per Session so a reply cannot bind to the wrong turn. */
+  /** 按 Session 串行化 prompt，回复才不会绑错 turn。 */
   private serialize<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
     const previous = this.chains.get(sessionId) ?? Promise.resolve()
     const next = previous.then(work, work)
@@ -292,52 +238,4 @@ export class DshSessionGateway implements ImSessionGateway {
       if (this.chains.get(sessionId) === tail) this.chains.delete(sessionId)
     })
   }
-}
-
-/**
- * Resolve the default workspace path for new IM sessions — the same shape as
- * app-host's pageSessionWorkspace: the durable default when present, else the
- * oldest workspace; no registry or empty registry falls back to process.cwd().
- * 为新 IM 会话解析默认工作区路径——与 app-host 的 pageSessionWorkspace 同构：
- * 有持久默认用默认，否则取最早创建的工作区；无 registry 或空 registry 退回进程 cwd。
- */
-async function imSessionWorkspace(ctx: Context): Promise<string> {
-  try {
-    const registry = ctx.workspaceRegistry
-    const workspaces = registry.list()
-    if (workspaces.length === 0) return process.cwd()
-    const preferred = await registry.initializeDefault(async () => {
-      throw new Error('im: the default workspace already exists; the resolver must not run')
-    }).catch(() => undefined)
-    return preferred?.path ?? workspaces[workspaces.length - 1]!.path
-  } catch {
-    return process.cwd()
-  }
-}
-
-/** Build the user message one delivered prompt becomes. */
-function promptMessageOf(request: {
-  prompt: string
-  source: {
-    providerId: string
-    accountId: string
-    conversationId: string
-    messageId: string
-  }
-}): ReturnType<typeof createUserMessage> {
-  return createUserMessage({
-    content: [{ type: 'text', text: request.prompt }],
-    source: { kind: 'im-message', ...request.source },
-  })
-}
-
-/** Build the per-agent options a new Session receives. */
-function agentOptionsOf(settings: ImBindingSettings): { agentOptions: AgentOptions } | Record<string, never> {
-  const options: AgentOptions = {}
-  if (settings.provider !== undefined) options.provider = settings.provider
-  if (settings.model !== undefined) options.model = settings.model
-  if (settings.reasoning !== undefined) {
-    options.reasoningEffort = brandString<NonNullable<AgentOptions['reasoningEffort']>>(settings.reasoning)
-  }
-  return Object.keys(options).length === 0 ? {} : { agentOptions: options }
 }

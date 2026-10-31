@@ -1,11 +1,11 @@
 /**
  * Durable IM tables: the storage seams the router and the people directory
- * program against, plus the unchanged re-export surface of the row shapes, the
- * `im` domain (`store-rows.ts`), and the `ImStorage` implementation
- * (`store-storage.ts`).
+ * program against, plus the unchanged re-export surface of the row shapes
+ * (`store-rows.ts`), the `im` domain (`store-schema.ts`), and the `ImStorage`
+ * implementation (`store-storage.ts`).
  *
- * 持久化的 IM 表：路由与人员目录面向编程的存储接缝，外加行形状、`im` 域（`store-rows.ts`）
- * 与 `ImStorage` 实现（`store-storage.ts`）的原样再导出面。
+ * 持久化的 IM 表：路由与人员目录面向编程的存储接缝，外加行形状（`store-rows.ts`）、
+ * `im` 域（`store-schema.ts`）与 `ImStorage` 实现（`store-storage.ts`）的原样再导出面。
  *
  * @module @veren/im/store
  */
@@ -15,11 +15,16 @@ import type {
   ImPersonIntakeRow, ImPersonRow,
 } from './store-rows.ts'
 
-// ---- unchanged export surface (rows/domain moved to store-rows.ts) ----
-// ---- 导出面不变（行形状与域移至 store-rows.ts）----
+// ---- unchanged export surface (rows/keys live in store-rows.ts, the domain in
+// store-schema.ts) ----
+// ---- 导出面不变（行形状与键在 store-rows.ts，域在 store-schema.ts）----
 export {
-  IM_DOMAIN_NAME, conversationKey, imDomain, messageKey, personAddressKey,
+  conversationKey, messageKey, personAddressKey,
 } from './store-rows.ts'
+export {
+  IM_DOMAIN_NAME, imDomain,
+} from './store-schema.ts'
+export type { ImStore } from './store-schema.ts'
 export type {
   ImAccountRow,
   ImBindingRow,
@@ -31,7 +36,6 @@ export type {
   ImPersonAddressRow,
   ImPersonIntakeRow,
   ImPersonRow,
-  ImStore,
 } from './store-rows.ts'
 export { ImStorage } from './store-storage.ts'
 

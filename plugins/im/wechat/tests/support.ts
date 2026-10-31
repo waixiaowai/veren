@@ -1,7 +1,9 @@
+import { rm } from 'node:fs/promises'
 import { Context } from '@deepseek-ai/cordis'
 import type { LoggerService } from '@deepseek-ai/cordis'
 import { WECHAT_CONTEXT_LIMIT } from '../src/state.ts'
 import type { WechatSecretStore, WechatSecrets, WechatState, WechatStore } from '../src/state.ts'
+import { WechatProvider } from '../src/provider.ts'
 
 /**
  * A silent but genuine host logger for provider specs.
@@ -199,4 +201,53 @@ export function bodyOf(init: RequestInit): Record<string, unknown> {
     throw new Error('expected a JSON object body')
   }
   return value as Record<string, unknown>
+}
+
+/** Options of {@link setupProvider}. */
+/** {@link setupProvider} 的选项。 */
+export interface SetupOptions {
+  /** Long-poll timeout handed to the provider; short so specs finish fast. */
+  /** 交给 provider 的长轮询超时；取短值让测试快速结束。 */
+  longPollTimeoutMs?: number
+}
+
+/** One provider wired over in-memory seams and a mocked fetch. */
+/** 一只以内存接缝与 mock fetch 接线的 provider。 */
+export interface SetupResult {
+  provider: WechatProvider
+  store: MemoryWechatStore
+  secrets: MemorySecrets
+}
+
+/** Build a provider over in-memory seams with a mocked fetch. */
+/** 以内存接缝与 mock fetch 构建一只 provider。 */
+export async function setupProvider(handler: FetchHandler, options: SetupOptions = {}): Promise<SetupResult> {
+  const store = new MemoryWechatStore()
+  const secrets = new MemorySecrets()
+  const provider = new WechatProvider({
+    store,
+    secrets,
+    fetchImpl: mockFetch(handler),
+    longPollTimeoutMs: options.longPollTimeoutMs ?? 20,
+    pollIntervalMs: 5,
+    qrTtlMs: 60_000,
+    logger: testLogger(),
+  })
+  return { provider, store, secrets }
+}
+
+/** QR PNG paths written through {@link trackQrImage}; cleaned by {@link cleanQrImages}. */
+/** 经 {@link trackQrImage} 登记的二维码 PNG 路径；由 {@link cleanQrImages} 清理。 */
+const qrImages: string[] = []
+
+/** Remember a bind challenge's local QR PNG so afterEach can delete it. */
+/** 登记授权质询的本地二维码 PNG，供 afterEach 删除。 */
+export function trackQrImage(path: string | undefined): void {
+  if (path !== undefined) qrImages.push(path)
+}
+
+/** Delete every tracked QR PNG; call from afterEach. */
+/** 删除所有登记过的二维码 PNG；在 afterEach 中调用。 */
+export async function cleanQrImages(): Promise<void> {
+  for (const path of qrImages.splice(0)) await rm(path, { force: true })
 }

@@ -16,13 +16,13 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { ImError } from './contract.ts'
-import {
-  IM_DOMAIN_NAME, conversationKey, imDomain, messageKey, personAddressKey,
-} from './store-rows.ts'
+import { conversationKey, messageKey, personAddressKey } from './store-rows.ts'
 import type {
   ImAccountRow, ImConversationRow, ImConversationSessionRow, ImMessageRow, ImPersonAddressRow,
-  ImPersonIntakeRow, ImPersonRow, ImStore,
+  ImPersonIntakeRow, ImPersonRow,
 } from './store-rows.ts'
+import { IM_DOMAIN_NAME, imDomain } from './store-schema.ts'
+import type { ImStore } from './store-schema.ts'
 
 /** Durable store over the `im` storage domain. */
 export class ImStorage {
