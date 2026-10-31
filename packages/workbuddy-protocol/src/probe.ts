@@ -70,6 +70,71 @@ function isAcceptance(attempt: ProbeObservation): boolean {
   return attempt.status === 200 && attempt.streamed
 }
 
+/** 已装配的单次尝试执行器（计数与超时在工厂里绑定）。The bound single-attempt executor (counting and timeout bound in the factory). */
+type BoundAttempt = (effort: string | undefined) => Promise<ProbeObservation>
+
+/** 三阶段共享的请求计数盒。The request counter shared by the three phases. */
+interface ProbeRequestCounter {
+  count: number
+}
+
+/** 装配单次尝试：计数 + 超时中止 + 网络失败归一为 status 0。Wires one attempt: counting, timeout abort, transport failure normalized to status 0. */
+function createAttempt(send: ProbeSender, timeoutMs: number | undefined, counter: ProbeRequestCounter): BoundAttempt {
+  return async (effort) => {
+    counter.count += 1
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs ?? PROBE_REQUEST_TIMEOUT_MS)
+    try {
+      return await send(effort, controller.signal)
+    } catch {
+      return { status: 0, streamed: false }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+}
+
+/**
+ * 第 1/2 步：基线证明请求路径通，sentinel 区分"验证该字段"与"来者不拒"。
+ * 返回 undefined = 两步都通过，继续第 3 步的档位扫描。
+ * Steps 1/2: the baseline proves the request path; the sentinel separates
+ * "validates the field" from "accepts anything". Returning undefined means
+ * both passed — continue to step 3's level sweep.
+ */
+async function probeBaselineAndSentinel(attempt: BoundAttempt, region: 'cn' | 'global', sentinel: () => string, counter: ProbeRequestCounter): Promise<ProbeOutcome | undefined> {
+  // 1. 基线：没有它，sentinel 上的 400 也可能只是无关的请求问题。
+  // 1. Baseline: without it a 400 on the sentinel could just be an unrelated request problem.
+  const baseline = await attempt(undefined)
+  if (!isAcceptance(baseline)) {
+    return { validation: 'unknown', efforts: [], requests: counter.count, reason: `baseline status ${baseline.status}` }
+  }
+  // 2. sentinel：唯一能区分"验证该字段"与"来者不拒"的一步。
+  // 2. Sentinel: the only step distinguishing "validates the field" from "accepts anything".
+  const sentinelAttempt = await attempt(sentinel())
+  if (isAcceptance(sentinelAttempt)) {
+    return { validation: 'non-validating', efforts: [], requests: counter.count }
+  }
+  if (!isEffortRejection(sentinelAttempt, region)) {
+    return { validation: 'unknown', efforts: [], requests: counter.count, reason: `sentinel status ${sentinelAttempt.status} ${sentinelAttempt.errorCode ?? ''}` }
+  }
+  return undefined
+}
+
+/** 第 3 步：档位扫描，只在 sentinel 被拒之后才有意义。Step 3: the level sweep, meaningful only because the sentinel was refused. */
+async function probeLevels(attempt: BoundAttempt, region: 'cn' | 'global', candidates: readonly WorkBuddyEffort[], counter: ProbeRequestCounter): Promise<ProbeOutcome> {
+  const accepted: WorkBuddyEffort[] = []
+  for (const effort of candidates) {
+    const levelAttempt = await attempt(effort)
+    if (isAcceptance(levelAttempt)) {
+      accepted.push(effort)
+      continue
+    }
+    if (isEffortRejection(levelAttempt, region)) continue
+    return { validation: 'unknown', efforts: [], requests: counter.count, reason: `level ${effort} status ${levelAttempt.status}` }
+  }
+  return { validation: 'validating', efforts: accepted, requests: counter.count }
+}
+
 /** 探测一个模型。`candidates` 仅供测试缩短；生产恒用全表。Probe one model; `candidates` is a test seam. */
 export async function probeModel(options: {
   readonly send: ProbeSender
@@ -80,48 +145,9 @@ export async function probeModel(options: {
 }): Promise<ProbeOutcome> {
   const sentinel = options.sentinel ?? (() => `probe_sentinel_${randomBytes(12).toString('hex')}`)
   const candidates = options.candidates ?? PROBE_EFFORT_CANDIDATES
-  let requests = 0
-  const attempt = async (effort: string | undefined): Promise<ProbeObservation> => {
-    requests += 1
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? PROBE_REQUEST_TIMEOUT_MS)
-    try {
-      return await options.send(effort, controller.signal)
-    } catch {
-      return { status: 0, streamed: false }
-    } finally {
-      clearTimeout(timer)
-    }
-  }
-
-  // 1. 基线：没有它，sentinel 上的 400 也可能只是无关的请求问题。
-  // 1. Baseline: without it a 400 on the sentinel could just be an unrelated request problem.
-  const baseline = await attempt(undefined)
-  if (!isAcceptance(baseline)) {
-    return { validation: 'unknown', efforts: [], requests, reason: `baseline status ${baseline.status}` }
-  }
-
-  // 2. sentinel：唯一能区分"验证该字段"与"来者不拒"的一步。
-  // 2. Sentinel: the only step distinguishing "validates the field" from "accepts anything".
-  const sentinelAttempt = await attempt(sentinel())
-  if (isAcceptance(sentinelAttempt)) {
-    return { validation: 'non-validating', efforts: [], requests }
-  }
-  if (!isEffortRejection(sentinelAttempt, options.region)) {
-    return { validation: 'unknown', efforts: [], requests, reason: `sentinel status ${sentinelAttempt.status} ${sentinelAttempt.errorCode ?? ''}` }
-  }
-
-  // 3. 档位：只在 sentinel 被拒之后才有意义。
-  // 3. Levels: meaningful only because the sentinel was refused.
-  const accepted: WorkBuddyEffort[] = []
-  for (const effort of candidates) {
-    const levelAttempt = await attempt(effort)
-    if (isAcceptance(levelAttempt)) {
-      accepted.push(effort)
-      continue
-    }
-    if (isEffortRejection(levelAttempt, options.region)) continue
-    return { validation: 'unknown', efforts: [], requests, reason: `level ${effort} status ${levelAttempt.status}` }
-  }
-  return { validation: 'validating', efforts: accepted, requests }
+  const counter: ProbeRequestCounter = { count: 0 }
+  const attempt = createAttempt(options.send, options.timeoutMs, counter)
+  const settled = await probeBaselineAndSentinel(attempt, options.region, sentinel, counter)
+  if (settled !== undefined) return settled
+  return probeLevels(attempt, options.region, candidates, counter)
 }

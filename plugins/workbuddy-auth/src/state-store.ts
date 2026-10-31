@@ -147,45 +147,50 @@ export class WorkbuddyAccounts {
   async refreshEntry(uid: string): Promise<RefreshOutcome> {
     const inFlight = this.refreshing.get(uid)
     if (inFlight !== undefined) return inFlight
-    const run = (async (): Promise<RefreshOutcome> => {
-      // 修改在缝锁内执行且锁跨网络调用：第二进程在锁内重读已提交的新令牌，
-      // needsRefresh 已为 false，自然跳过刷新——不会重放已消费的轮换令牌。
-      // The mutation runs inside the seam lock and the lock spans the network
-      // call: a second process re-reads the committed token inside the lock and
-      // skips its refresh — the spent rotating token is never replayed.
-      let outcome: RefreshOutcome = { status: 'failed', reason: 'unreachable' }
-      await this.modify(async (document) => {
-        const stored = document.accounts.find(candidate => candidate.uid === uid)
-        if (stored === undefined) return document
-        if (!needsRefresh(toRefreshable(stored), this.now())) {
-          outcome = { status: 'not-needed', entry: stored }
-          return document
-        }
-        const result = await this.refresh(toRefreshable(stored))
-        if (!result.ok) {
-          outcome = { status: 'failed', reason: result.message }
-          return document
-        }
-        const refreshed: WorkbuddyAccountEntry = {
-          ...stored,
-          accessToken: result.tokens.accessToken,
-          refreshToken: result.tokens.refreshToken ?? stored.refreshToken,
-          expiresAtMs: result.tokens.expiresInSec !== undefined
-            ? this.now() + result.tokens.expiresInSec * 1000
-            : stored.expiresAtMs,
-          ...(result.tokens.domain !== undefined ? { domain: result.tokens.domain } : {}),
-        }
-        outcome = { status: 'refreshed', entry: refreshed }
-        return withAccountEntry(document, refreshed)
-      })
-      return outcome
-    })()
+    const run = this.refreshOnce(uid)
     this.refreshing.set(uid, run)
     try {
       return await run
     } finally {
       this.refreshing.delete(uid)
     }
+  }
+
+  /**
+   * 单飞内核：修改在缝锁内执行且锁跨网络调用，第二进程在锁内重读已提交的
+   * 新令牌，needsRefresh 已为 false，自然跳过刷新——不会重放已消费的轮换令牌。
+   * The single-flight core: the mutation runs inside the seam lock and the lock
+   * spans the network call — a second process re-reads the committed token
+   * inside the lock and skips its refresh, so the spent rotating token is never
+   * replayed.
+   */
+  private async refreshOnce(uid: string): Promise<RefreshOutcome> {
+    let outcome: RefreshOutcome = { status: 'failed', reason: 'unreachable' }
+    await this.modify(async (document) => {
+      const stored = document.accounts.find(candidate => candidate.uid === uid)
+      if (stored === undefined) return document
+      if (!needsRefresh(toRefreshable(stored), this.now())) {
+        outcome = { status: 'not-needed', entry: stored }
+        return document
+      }
+      const result = await this.refresh(toRefreshable(stored))
+      if (!result.ok) {
+        outcome = { status: 'failed', reason: result.message }
+        return document
+      }
+      const refreshed: WorkbuddyAccountEntry = {
+        ...stored,
+        accessToken: result.tokens.accessToken,
+        refreshToken: result.tokens.refreshToken ?? stored.refreshToken,
+        expiresAtMs: result.tokens.expiresInSec !== undefined
+          ? this.now() + result.tokens.expiresInSec * 1000
+          : stored.expiresAtMs,
+        ...(result.tokens.domain !== undefined ? { domain: result.tokens.domain } : {}),
+      }
+      outcome = { status: 'refreshed', entry: refreshed }
+      return withAccountEntry(document, refreshed)
+    })
+    return outcome
   }
 
   /** 记一笔失败冷却（分类学定时长；不冷却的类别无操作）。池的内存视图由下次 resolve 从文档回灌。 */

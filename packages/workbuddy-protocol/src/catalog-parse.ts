@@ -123,6 +123,50 @@ function parsePromotions(value: unknown, model: string): WorkBuddyPromotion[] {
   })
 }
 
+/** 抽 `cli` agent 的模型花名册（第一个带 models 数组的 `cli` 行）；缺失或空 = 硬错误。Extracts the `cli` agent's model roster (the first `cli` row carrying a models array); missing or empty is a hard error. */
+function cliModelIds(data: Record<string, unknown>): readonly string[] {
+  const agents = Array.isArray(data['agents']) ? data['agents'] : []
+  for (const agent of agents) {
+    if (isObject(agent) && agent['name'] === 'cli' && Array.isArray(agent['models'])) {
+      const cliIds = agent['models'].filter((id): id is string => typeof id === 'string')
+      if (cliIds.length > 0) return cliIds
+      break
+    }
+  }
+  throw new Error('workbuddy model catalog lists no cli agent models')
+}
+
+/** 解析一行可用模型（无 id / 停用 / 上下文窗非法 → 跳过）。Parses one usable model row (no id / disabled / invalid context window ⇒ skipped). */
+function parseModelRow(
+  model: Record<string, unknown>,
+  international: boolean,
+  promoBadges: ReadonlyMap<string, readonly string[]> | undefined,
+  promoValue: unknown,
+): WorkBuddyUpstreamModel | undefined {
+  const id = typeof model['id'] === 'string' ? model['id'] : ''
+  if (id === '' || model['disabled'] === true) return undefined
+  const input = typeof model['maxInputTokens'] === 'number' ? model['maxInputTokens'] : 0
+  const output = typeof model['maxOutputTokens'] === 'number' ? model['maxOutputTokens'] : 0
+  if (input <= 0 || output <= 0) return undefined
+  const window = isObject(model['contextWindow']) ? model['contextWindow'] : undefined
+  return {
+    id,
+    name: typeof model['name'] === 'string' && model['name'] !== '' ? model['name'] : id,
+    contextWindow: international && positive(window?.['defaultLength']) ? (window?.['defaultLength'] as number) : input,
+    ...(international ? {
+      ...(positive(window?.['defaultLength']) ? { defaultContextWindow: window?.['defaultLength'] as number } : {}),
+      maxInputTokens: input,
+      supportedContextWindows: Array.isArray(window?.['supportedLengths'])
+        ? (window?.['supportedLengths'] as unknown[]).filter(positive) : [],
+      promotions: parsePromotions(promoValue, id),
+    } : {}),
+    maxTokens: output,
+    supportsImages: model['supportsImages'] === true && model['disabledMultimodal'] !== true,
+    reasoning: resolveReasoning(model),
+    billing: resolveBilling(model, promoBadges?.get(id)),
+  }
+}
+
 /**
  * 解析信封解开后的目录文档。两形状共用：`data` 或裸产品文档。
  * 花名册缺失或交集为空是硬错误——空目录应是"没登录"或"上游翻脸"的显式信号，
@@ -137,42 +181,13 @@ export function parseModelCatalog(
   promoBadges?: ReadonlyMap<string, readonly string[]>,
 ): readonly WorkBuddyUpstreamModel[] {
   const rawModels = Array.isArray(data['models']) ? data['models'] : []
-  const agents = Array.isArray(data['agents']) ? data['agents'] : []
-  let cliIds: readonly string[] | undefined
-  for (const agent of agents) {
-    if (isObject(agent) && agent['name'] === 'cli' && Array.isArray(agent['models'])) {
-      cliIds = agent['models'].filter((id): id is string => typeof id === 'string')
-      break
-    }
-  }
-  if (cliIds === undefined || cliIds.length === 0) {
-    throw new Error('workbuddy model catalog lists no cli agent models')
-  }
+  const cliIds = cliModelIds(data)
   const byId = new Map<string, WorkBuddyUpstreamModel>()
   for (const model of rawModels) {
     if (!isObject(model)) continue
-    const id = typeof model['id'] === 'string' ? model['id'] : ''
-    if (id === '' || model['disabled'] === true) continue
-    const input = typeof model['maxInputTokens'] === 'number' ? model['maxInputTokens'] : 0
-    const output = typeof model['maxOutputTokens'] === 'number' ? model['maxOutputTokens'] : 0
-    if (input <= 0 || output <= 0) continue
-    const window = isObject(model['contextWindow']) ? model['contextWindow'] : undefined
-    byId.set(id, {
-      id,
-      name: typeof model['name'] === 'string' && model['name'] !== '' ? model['name'] : id,
-      contextWindow: international && positive(window?.['defaultLength']) ? (window?.['defaultLength'] as number) : input,
-      ...(international ? {
-        ...(positive(window?.['defaultLength']) ? { defaultContextWindow: window?.['defaultLength'] as number } : {}),
-        maxInputTokens: input,
-        supportedContextWindows: Array.isArray(window?.['supportedLengths'])
-          ? (window?.['supportedLengths'] as unknown[]).filter(positive) : [],
-        promotions: parsePromotions(data['modelPromotions'], id),
-      } : {}),
-      maxTokens: output,
-      supportsImages: model['supportsImages'] === true && model['disabledMultimodal'] !== true,
-      reasoning: resolveReasoning(model),
-      billing: resolveBilling(model, promoBadges?.get(id)),
-    })
+    const parsed = parseModelRow(model, international, promoBadges, data['modelPromotions'])
+    if (parsed === undefined) continue
+    byId.set(parsed.id, parsed)
   }
   const models = cliIds.map(id => byId.get(id)).filter((model): model is WorkBuddyUpstreamModel => model !== undefined)
   if (models.length === 0) throw new Error('workbuddy model catalog resolved to an empty list')

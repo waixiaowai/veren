@@ -169,12 +169,11 @@ export class LoginClient {
     return this.loginBaseOverride ?? regionProfile(region).loginBase
   }
 
-  /** 一次 JSON 调用并解信封；pending 形态（11217/login ing/4xx）映射为 LoginPending。One JSON call, envelope unwrapped; pending shapes map to LoginPending. */
-  private async call<T>(url: string, region: WorkBuddyRegion, init: { method: string; body?: string; token?: string }): Promise<T> {
+  /** 发一次请求；传输层失败归一为人话错误。Sends one request; transport failures normalize to a human error. */
+  private async send(url: string, region: WorkBuddyRegion, init: { method: string; body?: string; token?: string }): Promise<Response> {
     const { origin } = regionProfile(region)
-    let response: Response
     try {
-      response = await this.fetchImpl(url, {
+      return await this.fetchImpl(url, {
         method: init.method,
         headers: loginHeaders(origin, init.token),
         ...(init.body !== undefined ? { body: init.body } : {}),
@@ -183,13 +182,19 @@ export class LoginClient {
     } catch (error) {
       throw new Error(`请求 ${url} 失败：${error instanceof Error ? error.message : String(error)}`)
     }
-    const text = await response.text().catch(() => '')
-    let envelope: Envelope<T>
+  }
+
+  /** 解析响应文本为信封；非 JSON 归一为人话错误。Parses the body text into an envelope; non-JSON normalizes to a human error. */
+  private parseEnvelope<T>(text: string, response: Response): Envelope<T> {
     try {
-      envelope = JSON.parse(text) as Envelope<T>
+      return JSON.parse(text) as Envelope<T>
     } catch {
       throw new Error(`上游返回的不是 JSON（HTTP ${response.status}）：${text.slice(0, 200)}`)
     }
+  }
+
+  /** 业务校验：pending 形态（11217/login ing/4xx）映射为 LoginPending，其余失败抛错，成功交出 data。Business validation: pending shapes (11217/login ing/4xx) map to LoginPending, other failures throw, success yields the data. */
+  private assertData<T>(envelope: Envelope<T>, response: Response, text: string): T {
     if (envelope.code !== undefined && envelope.code !== 0) {
       const detail = `code=${envelope.code} msg=${envelope.msg ?? ''}`
       const msg = envelope.msg ?? ''
@@ -205,6 +210,14 @@ export class LoginClient {
     if (!response.ok) throw new Error(`HTTP ${response.status}：${text.slice(0, 200)}`)
     if (envelope.data === undefined) throw new Error(`上游响应缺少 data 字段：${text.slice(0, 200)}`)
     return envelope.data
+  }
+
+  /** 一次 JSON 调用并解信封；pending 形态（11217/login ing/4xx）映射为 LoginPending。One JSON call, envelope unwrapped; pending shapes map to LoginPending. */
+  private async call<T>(url: string, region: WorkBuddyRegion, init: { method: string; body?: string; token?: string }): Promise<T> {
+    const response = await this.send(url, region, init)
+    const text = await response.text().catch(() => '')
+    const envelope = this.parseEnvelope<T>(text, response)
+    return this.assertData<T>(envelope, response, text)
   }
 
   /** 第一步：要 state 与授权 URL。Step 1 — ask for a `state` and the authorization URL. */

@@ -119,30 +119,18 @@ export type RefreshCallResult =
   | { readonly ok: true; readonly tokens: { accessToken: string; refreshToken?: string; expiresInSec?: number; domain?: string } }
   | { readonly ok: false; readonly kind: 'session_dead' | 'server' | 'client'; readonly message: string }
 
-/**
- * POST 刷新端点并解令牌。会话死（401/12153）归类为需要重新登录，不是可重试
- * 故障；编排层（单飞 + 锁 + 惰性判定）在壳层。
- * POST the refresh endpoint and extract the tokens. A dead session (401/12153)
- * classifies as sign-in-again, not a retryable fault; the orchestration
- * (single flight + lock + laziness) lives in the shell.
- */
-export async function callRefresh(
-  credential: RefreshableCredential,
-  deps: { fetchImpl?: FetchLike; timeoutMs?: number; baseUrl?: string } = {},
-): Promise<RefreshCallResult> {
-  const fetchImpl = deps.fetchImpl ?? fetch
-  let response: Response
-  try {
-    response = await fetchImpl(`${deps.baseUrl ?? regionProfile(credential.region).base}${REFRESH_PATH}`, {
-      method: 'POST',
-      headers: refreshRequestHeaders(credential),
-      body: '{}',
-      signal: AbortSignal.timeout(deps.timeoutMs ?? JSON_TIMEOUT_MS),
-    })
-  } catch (error) {
-    return { ok: false, kind: 'server', message: `刷新请求失败：${error instanceof Error ? error.message : String(error)}` }
-  }
-  const text = await response.text().catch(() => '')
+/** POST 刷新端点；传输层异常原样上抛（归一在 callRefresh）。POSTs the refresh endpoint; transport errors propagate raw (normalization lives in callRefresh). */
+async function postRefresh(credential: RefreshableCredential, fetchImpl: FetchLike, baseUrl: string | undefined, timeoutMs: number): Promise<Response> {
+  return await fetchImpl(`${baseUrl ?? regionProfile(credential.region).base}${REFRESH_PATH}`, {
+    method: 'POST',
+    headers: refreshRequestHeaders(credential),
+    body: '{}',
+    signal: AbortSignal.timeout(timeoutMs),
+  })
+}
+
+/** 解析并解释刷新响应：令牌束成功；无新 token 时按类别归一为失败。Parses and interprets the refresh response: a token bundle on success; no fresh tokens classify the failure. */
+function interpretRefresh(response: Response, text: string): RefreshCallResult {
   let payload: unknown
   try {
     payload = JSON.parse(text)
@@ -163,6 +151,28 @@ export async function callRefresh(
     kind: kind === 'session_dead' ? 'session_dead' : kind === 'client' ? 'client' : 'server',
     message: text.slice(0, 200) || `HTTP ${response.status}`,
   }
+}
+
+/**
+ * POST 刷新端点并解令牌。会话死（401/12153）归类为需要重新登录，不是可重试
+ * 故障；编排层（单飞 + 锁 + 惰性判定）在壳层。
+ * POST the refresh endpoint and extract the tokens. A dead session (401/12153)
+ * classifies as sign-in-again, not a retryable fault; the orchestration
+ * (single flight + lock + laziness) lives in the shell.
+ */
+export async function callRefresh(
+  credential: RefreshableCredential,
+  deps: { fetchImpl?: FetchLike; timeoutMs?: number; baseUrl?: string } = {},
+): Promise<RefreshCallResult> {
+  const fetchImpl = deps.fetchImpl ?? fetch
+  let response: Response
+  try {
+    response = await postRefresh(credential, fetchImpl, deps.baseUrl, deps.timeoutMs ?? JSON_TIMEOUT_MS)
+  } catch (error) {
+    return { ok: false, kind: 'server', message: `刷新请求失败：${error instanceof Error ? error.message : String(error)}` }
+  }
+  const text = await response.text().catch(() => '')
+  return interpretRefresh(response, text)
 }
 
 /** 一次探测尝试的观测。One probe attempt's observation. */

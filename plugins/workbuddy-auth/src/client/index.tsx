@@ -18,10 +18,10 @@ import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots/client'
-import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS, en, zh, type WbKey } from './locales.ts'
-import { WorkbuddyCard, type WbCardInjected, type WbCardSnapshot } from './card.tsx'
+import { WorkbuddyCard, type WbCardInjected } from './card.tsx'
 import { workbuddyAuthRemote, type WbCredits, type WbDescribe, type WbPoll, type WbProbeOutcome } from './remote.ts'
+import { createWbSource } from './wb-source.ts'
 
 declare module '@deepseek-ai/dsh-client-locale/client' {
   interface LocaleNamespaceMap {
@@ -45,9 +45,6 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     }
   }
 }
-
-/** 进行中卡片的轮询间隔。The poll interval while the card is in flight. */
-const POLL_MS = 1_500
 
 /** Marker attribute so a re-activation replaces its own sheet rather than stacking. */
 const STYLE_MARKER = 'data-workbuddy-auth-card'
@@ -79,168 +76,6 @@ function installCardStyles(ctx: Context): void {
     document.head.append(style)
     return () => { style.remove() }
   }, 'workbuddy-auth:styles')
-}
-
-/**
- * 组合 describe+poll+动作的单一可观察状态。getSnapshot 必须返回稳定引用：
- * 状态保持在 current 里，变更整对象替换后再 notify（React #185）。
- * Composes describe+poll+actions into one observable. getSnapshot must return
- * a stable reference: state lives in `current`, replaced whole on change
- * (React #185).
- */
-function createWbSource(api: Context['remote']['workbuddyAuth']): {
-  readonly source: HostObservable<WbCardSnapshot>
-  readonly start: (method: string) => void
-  readonly attach: () => void
-  readonly cancel: () => void
-  readonly dismiss: () => void
-  readonly signOut: (uid: string) => void
-  readonly toggle: (uid: string, disabled: boolean) => void
-  readonly credits: (uid: string) => void
-  readonly probe: (uid: string, model: string) => void
-} {
-  let describe: WbDescribe | undefined
-  let poll: WbPoll | undefined
-  let error = ''
-  let errorCode: string | undefined
-  let timer: ReturnType<typeof globalThis.setInterval> | undefined
-  // 自动打开只认**本页发起的**登录：begin 成功即武装，开过或尝试结束即解除。
-  // 页面刷新后未武装——宿主缓冲的旧授权 URL 绝不会把用户带离应用（真机教训）。
-  // Auto-open only arms for a sign-in THIS page started: armed at begin success,
-  // disarmed after opening or when the attempt ends. A refreshed page is never
-  // armed, so the host's buffered URL can never drag the user away (a live-taught
-  // lesson).
-  let armed = false
-  let openedNoticeUrl: string | undefined
-  let current: WbCardSnapshot = { describe: undefined, poll: undefined, error: '', errorCode: undefined, credits: {}, probe: {} }
-  const listeners = new Set<() => void>()
-  const source: HostObservable<WbCardSnapshot> = {
-    getSnapshot: () => current,
-    subscribe: (listener) => {
-      listeners.add(listener)
-      return () => { listeners.delete(listener) }
-    },
-  }
-  const commit = (next: Partial<WbCardSnapshot>): void => {
-    current = { ...current, ...next }
-    for (const listener of [...listeners]) listener()
-  }
-  const stopPolling = (): void => {
-    if (timer === undefined) return
-    globalThis.clearInterval(timer)
-    timer = undefined
-  }
-  const readOnce = async (): Promise<void> => {
-    try {
-      const [description, state] = await Promise.all([api.describe(), api.poll()])
-      if (description.ok) describe = description.value
-      if (state.ok) {
-        poll = state.value
-        error = ''
-        errorCode = undefined
-        if (!state.value.inFlight) stopPolling()
-      } else {
-        error = state.error.message
-        errorCode = state.error.code
-        stopPolling()
-      }
-      commit({ describe, poll, error, errorCode })
-      disarmIfSettled()
-      openAuthorizationUrl()
-    } catch {
-      // 传输层失败（节点重启窗口等）：人话 + 重试，不与授权错误混淆。
-      // A transport failure: human copy + retry, never conflated with auth errors.
-      errorCode = 'TRANSPORT'
-      stopPolling()
-      commit({ errorCode })
-    }
-  }
-  /**
-   * 授权流一交出 URL 就跳系统浏览器/新标签（用户不该手动复制粘贴）；仅在
-   * 武装窗口内开一次。IAB/桌面壳的 window.open 都落在系统浏览器面。
-   * Jump to the system browser / a new tab as soon as the flow hands out the
-   * URL (copy-paste is not the user's job); opens once per armed window only.
-   */
-  const openAuthorizationUrl = (): void => {
-    if (!armed) return
-    const url = poll?.notices.find(notice => notice.url !== undefined)?.url
-    if (url === undefined) return
-    armed = false
-    openedNoticeUrl = url
-    window.open(url, '_blank', 'noopener')
-  }
-  /** 尝试结束（终局/失败/取消）即解除武装。Disarms when the attempt settles. */
-  const disarmIfSettled = (): void => {
-    if (poll?.inFlight === false && (poll?.settled !== undefined || poll?.failed !== undefined)) armed = false
-  }
-  const startPolling = async (): Promise<void> => {
-    await readOnce()
-    stopPolling()
-    timer = setInterval(() => { void readOnce() }, POLL_MS)
-  }
-  void readOnce()
-  return {
-    source,
-    start: (method) => {
-      void (async () => {
-        if (describe?.inFlight === true) {
-          // inFlight 时 begin 必被缝拒绝——重接是唯一正解，错误态不可表达。
-          // With inFlight the seam refuses begin — re-attach is the only answer.
-          await startPolling()
-          return
-        }
-        const started = await api.begin({ method })
-        if (!started.ok) {
-          error = started.error.message
-          errorCode = started.error.code
-          commit({ error, errorCode })
-          return
-        }
-        // 本页发起的登录：武装自动打开（开过或终局即解除）。
-        // A sign-in this page started: arm auto-open (disarmed after opening or settlement).
-        armed = true
-        openedNoticeUrl = undefined
-        await startPolling()
-      })()
-    },
-    attach: () => { void startPolling() },
-    cancel: () => {
-      void api.cancel().then((result) => {
-        if (!result.ok) error = result.error.message
-        void readOnce()
-      })
-    },
-    dismiss: () => {
-      poll = poll === undefined ? undefined : { ...poll, settled: undefined }
-      commit({ poll })
-    },
-    signOut: (uid) => {
-      void api.signOut({ uid }).then((result) => {
-        if (!result.ok) error = result.error.message
-        void readOnce()
-      })
-    },
-    toggle: (uid, disabled) => {
-      void api.toggle({ uid, disabled }).then((result) => {
-        if (!result.ok) error = result.error.message
-        void readOnce()
-      })
-    },
-    credits: (uid) => {
-      commit({ credits: { ...current.credits, [uid]: 'pending' } })
-      void api.credits({ uid }).then((result) => {
-        if (result.ok) commit({ credits: { ...current.credits, [uid]: result.value } })
-        else commit({ credits: { ...current.credits, [uid]: 'error' } })
-      })
-    },
-    probe: (uid, model) => {
-      commit({ probe: { ...current.probe, [uid]: 'running' } })
-      void api.probe({ uid, model }).then((result) => {
-        if (result.ok) commit({ probe: { ...current.probe, [uid]: result.value } })
-        else commit({ probe: { ...current.probe, [uid]: { validation: 'unknown', efforts: [], requests: 0, reason: result.error.message } } })
-      })
-    },
-  }
 }
 
 /** 卡片插件：等命名空间就绪，注册页脚 slot 与双语字典。 */

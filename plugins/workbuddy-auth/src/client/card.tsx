@@ -46,7 +46,7 @@ export type WbCardProps = PropsRuntime<'settings.models.footer'>
   & InjectFace<WbCardInjected>
   & PropsLocale<'workbuddy-auth'>
 
-/** 卡片本体。The card body. */
+/** 卡片本体：三态分区（通告/入口/通知流/账号表）由子组件承担。The card body: the three-state sections (banners / entries / notice stream / account table) delegate to sub-components. */
 export function WorkbuddyCard(props: WbCardProps) {
   const snapshot = props.useWb((state: WbCardSnapshot) => state)
   const t = props.t
@@ -57,50 +57,12 @@ export function WorkbuddyCard(props: WbCardProps) {
   const failed = poll?.failed
   const signedIn = describe?.signedIn === true
   const accounts = describe?.accounts ?? []
-
   return (
     <section className="wb-card" data-state={inFlight ? 'in-flight' : signedIn ? 'signed-in' : 'signed-out'}>
-      <header className="wb-head">
-        <div className="wb-identity">
-          <span className="wb-name">{describe?.label ?? 'WorkBuddy'}</span>
-          <span className={inFlight ? 'wb-status' : signedIn ? 'wb-status wb-status-ok' : 'wb-status'}>
-            {inFlight ? t('signingIn') : signedIn ? t('signedIn') : t('notSignedIn')}
-          </span>
-        </div>
-        <div className="wb-actions">
-          {inFlight && <button type="button" className="wb-button" onClick={() => props.onCancel()}>{t('cancel')}</button>}
-          {!inFlight && signedIn && <button type="button" className="wb-button" onClick={() => props.onStart('device-code-cn')}>{t('reSignIn')}</button>}
-        </div>
-      </header>
-      {snapshot.errorCode === 'TRANSPORT' && (
-        <p className="wb-error">{t('transportDown')} <button type="button" className="wb-link" onClick={() => props.onAttach()}>{t('retry')}</button></p>
-      )}
-      {failed !== undefined && !inFlight && (
-        <p className="wb-error">{humanizeSignInError(failed.code, failed.message, t) ?? `${t('failed')}：${failed.message}`}</p>
-      )}
-      {settled !== undefined && (
-        <p className={settled.status === 'authorized' ? 'wb-settle wb-settle-ok' : 'wb-settle'}>
-          {settled.status === 'authorized' ? t('authorizedDone') : t('cancelledDone')}
-          {' '}
-          <button type="button" className="wb-link" onClick={() => props.onDismiss()}>{t('close')}</button>
-        </p>
-      )}
-      {!inFlight && settled === undefined && !signedIn && (
-        <div className="wb-methods">
-          <button type="button" className="wb-button wb-primary" onClick={() => props.onStart('device-code-cn')}>{t('signInCn')}</button>
-          <button type="button" className="wb-button wb-primary" onClick={() => props.onStart('device-code-global')}>{t('signInGlobal')}</button>
-        </div>
-      )}
-      {inFlight && (
-        <div className="wb-flight">
-          {(poll?.notices ?? []).map((notice, index) => (
-            <p className="wb-notice" key={index}>
-              {notice.message}
-              {notice.url !== undefined && <a href={notice.url} target="_blank" rel="noreferrer">{notice.url}</a>}
-            </p>
-          ))}
-        </div>
-      )}
+      <CardHeader {...props} label={describe?.label ?? 'WorkBuddy'} inFlight={inFlight} signedIn={signedIn} />
+      <CardBanners {...props} inFlight={inFlight} settled={settled} failed={failed} errorCode={snapshot.errorCode} />
+      {!inFlight && settled === undefined && !signedIn && <SignInMethods {...props} />}
+      {inFlight && <FlightNotices {...props} notices={poll?.notices ?? []} />}
       {signedIn && accounts.length > 0 && (
         <div className="wb-accounts">
           <span className="wb-accounts-title">{t('accountsTitle')}</span>
@@ -113,15 +75,135 @@ export function WorkbuddyCard(props: WbCardProps) {
   )
 }
 
-/** 一行账号：状态徽标 + 动作面（探测双确认与模型草稿是行内局部状态）。 */
-/** One account row: status badges plus actions (the probe double-confirm and model draft are row-local state). */
+/** 卡头：身份行 + 主行动（登录中=取消；已登录=重登）。The card header: identity plus primary actions (cancel while in flight; re-sign-in when signed in). */
+function CardHeader(props: WbCardProps & { label: string; inFlight: boolean; signedIn: boolean }) {
+  const { label, inFlight, signedIn, ...actions } = props
+  const t = actions.t
+  return (
+    <header className="wb-head">
+      <div className="wb-identity">
+        <span className="wb-name">{label}</span>
+        <span className={inFlight ? 'wb-status' : signedIn ? 'wb-status wb-status-ok' : 'wb-status'}>
+          {inFlight ? t('signingIn') : signedIn ? t('signedIn') : t('notSignedIn')}
+        </span>
+      </div>
+      <div className="wb-actions">
+        {inFlight && <button type="button" className="wb-button" onClick={() => actions.onCancel()}>{t('cancel')}</button>}
+        {!inFlight && signedIn && <button type="button" className="wb-button" onClick={() => actions.onStart('device-code-cn')}>{t('reSignIn')}</button>}
+      </div>
+    </header>
+  )
+}
+
+/** 通告带：传输中断 / 登录失败 / 终局回执三条横幅（互斥出现）。The banner strip: transport-down, sign-in failure and settlement — three mutually exclusive banners. */
+function CardBanners(props: WbCardProps & { inFlight: boolean; settled: WbPoll['settled']; failed: WbPoll['failed']; errorCode: string | undefined }) {
+  const { inFlight, settled, failed, errorCode, ...actions } = props
+  const t = actions.t
+  return (
+    <>
+      {errorCode === 'TRANSPORT' && (
+        <p className="wb-error">{t('transportDown')} <button type="button" className="wb-link" onClick={() => actions.onAttach()}>{t('retry')}</button></p>
+      )}
+      {failed !== undefined && !inFlight && (
+        <p className="wb-error">{humanizeSignInError(failed.code, failed.message, t) ?? `${t('failed')}：${failed.message}`}</p>
+      )}
+      {settled !== undefined && (
+        <p className={settled.status === 'authorized' ? 'wb-settle wb-settle-ok' : 'wb-settle'}>
+          {settled.status === 'authorized' ? t('authorizedDone') : t('cancelledDone')}
+          {' '}
+          <button type="button" className="wb-link" onClick={() => actions.onDismiss()}>{t('close')}</button>
+        </p>
+      )}
+    </>
+  )
+}
+
+/** 未登录区：两个区域的登录入口。The signed-out section: the two region sign-in entries. */
+function SignInMethods(props: WbCardProps) {
+  const t = props.t
+  return (
+    <div className="wb-methods">
+      <button type="button" className="wb-button wb-primary" onClick={() => props.onStart('device-code-cn')}>{t('signInCn')}</button>
+      <button type="button" className="wb-button wb-primary" onClick={() => props.onStart('device-code-global')}>{t('signInGlobal')}</button>
+    </div>
+  )
+}
+
+/** 登录中区的通知流（授权 URL 以链接呈现）。The in-flight notice stream (authorization URLs render as links). */
+function FlightNotices(props: WbCardProps & { notices: WbPoll['notices'] }) {
+  const { notices } = props
+  return (
+    <div className="wb-flight">
+      {notices.map((notice, index) => (
+        <p className="wb-notice" key={index}>
+          {notice.message}
+          {notice.url !== undefined && <a href={notice.url} target="_blank" rel="noreferrer">{notice.url}</a>}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+/** 一行账号：徽标行 + 动作行 + 探测控件（三个子组件，探测态是行内局部状态）。One account row: the badge row, the action row and the probe control (three sub-components; probe state is row-local). */
 function AccountRow(props: WbCardProps & { account: WbAccount; t: (key: WbKey) => string }) {
-  const { account, t, ...actions } = props
+  const { account, ...actions } = props
+  const t = actions.t
   const snapshot = actions.useWb((state: WbCardSnapshot) => state)
-  const [confirm, setConfirm] = useState<0 | 1 | 2>(0)
-  const [modelDraft, setModelDraft] = useState('')
   const credits = snapshot.credits[account.uid]
   const probe = snapshot.probe[account.uid]
+  return (
+    <div className="wb-account" data-region={account.region}>
+      <AccountBadges account={account} t={t} />
+      <AccountActions {...props} account={account} credits={credits} />
+      <AccountProbe {...props} account={account} probe={probe} />
+    </div>
+  )
+}
+
+/** 徽标行：名称、区域与企业/停用/过期/冷却标记。The badge row: name, region and the enterprise/disabled/expired/cooldown tags. */
+function AccountBadges(props: { account: WbAccount; t: (key: WbKey) => string }) {
+  const { account, t } = props
+  return (
+    <div className="wb-account-line">
+      <span className="wb-account-name">{account.name}</span>
+      <span className="wb-tag">{account.region === 'global' ? t('regionGlobal') : t('regionCn')}</span>
+      {account.enterprise && <span className="wb-tag">{t('enterpriseTag')}</span>}
+      {account.disabled && <span className="wb-tag wb-tag-warn">{t('disabledTag')}</span>}
+      {account.expired && !account.disabled && <span className="wb-tag wb-tag-warn">{t('expiredTag')}</span>}
+      {account.cooldownRemainMs > 0 && <span className="wb-tag wb-tag-warn">{`${t('cooldownTag')} ${Math.ceil(account.cooldownRemainMs / 60_000)}min`}</span>}
+    </div>
+  )
+}
+
+/** 动作行：余额展示 + 余额刷新 / 启停 / 登出。The action row: the credits display plus refresh / enable-disable / sign-out. */
+function AccountActions(props: WbCardProps & { account: WbAccount; credits: WbCredits | 'pending' | 'error' | undefined }) {
+  const { account, credits, ...actions } = props
+  const t = actions.t
+  return (
+    <div className="wb-account-actions">
+      {credits === 'pending' && <span className="wb-status">{t('creditsPending')}</span>}
+      {credits !== undefined && credits !== 'pending' && credits !== 'error' && (
+        <span className="wb-status">
+          {credits.unlimited === true
+            ? t('creditsUnlimited')
+            : `${t('credits')} ${String(credits.total)}${credits.cycleResetTime === undefined ? '' : ` · ${credits.cycleResetTime}`}`}
+        </span>
+      )}
+      <button type="button" className="wb-link" onClick={() => actions.onCredits(account.uid)}>{t('credits')}</button>
+      <button type="button" className="wb-link" onClick={() => actions.onToggle(account.uid, !account.disabled)}>
+        {account.disabled ? t('toggleEnable') : t('toggleDisable')}
+      </button>
+      <button type="button" className="wb-link" onClick={() => actions.onSignOut(account.uid)}>{t('signOut')}</button>
+    </div>
+  )
+}
+
+/** 探测控件：模型草稿与双确认都是行内局部状态（探测消耗真实积分）。The probe control: the model draft and double confirm are row-local state (a probe consumes real credits). */
+function AccountProbe(props: WbCardProps & { account: WbAccount; probe: WbProbeOutcome | 'running' | undefined }) {
+  const { account, probe, ...actions } = props
+  const t = actions.t
+  const [confirm, setConfirm] = useState<0 | 1 | 2>(0)
+  const [modelDraft, setModelDraft] = useState('')
   const startProbe = (): void => {
     if (confirm === 0) { setConfirm(1); return }
     if (confirm === 1) { setConfirm(2); return }
@@ -129,49 +211,18 @@ function AccountRow(props: WbCardProps & { account: WbAccount; t: (key: WbKey) =
     actions.onProbe(account.uid, modelDraft.trim())
   }
   return (
-    <div className="wb-account" data-region={account.region}>
-      <div className="wb-account-line">
-        <span className="wb-account-name">{account.name}</span>
-        <span className="wb-tag">{account.region === 'global' ? t('regionGlobal') : t('regionCn')}</span>
-        {account.enterprise && <span className="wb-tag">{t('enterpriseTag')}</span>}
-        {account.disabled && <span className="wb-tag wb-tag-warn">{t('disabledTag')}</span>}
-        {account.expired && !account.disabled && <span className="wb-tag wb-tag-warn">{t('expiredTag')}</span>}
-        {account.cooldownRemainMs > 0 && <span className="wb-tag wb-tag-warn">{`${t('cooldownTag')} ${Math.ceil(account.cooldownRemainMs / 60_000)}min`}</span>}
-      </div>
-      <div className="wb-account-actions">
-        {credits === 'pending' && <span className="wb-status">{t('creditsPending')}</span>}
-        {credits !== undefined && credits !== 'pending' && credits !== 'error' && (
-          <span className="wb-status">
-            {credits.unlimited === true
-              ? t('creditsUnlimited')
-              : `${t('credits')} ${String(credits.total)}${credits.cycleResetTime === undefined ? '' : ` · ${credits.cycleResetTime}`}`}
-          </span>
-        )}
-        <button type="button" className="wb-link" onClick={() => actions.onCredits(account.uid)}>{t('credits')}</button>
-        <button type="button" className="wb-link" onClick={() => actions.onToggle(account.uid, !account.disabled)}>
-          {account.disabled ? t('toggleEnable') : t('toggleDisable')}
-        </button>
-        <button type="button" className="wb-link" onClick={() => actions.onSignOut(account.uid)}>{t('signOut')}</button>
-      </div>
-      <div className="wb-probe">
-        <input
-          className="wb-probe-model"
-          type="text"
-          placeholder="model id"
-          value={modelDraft}
-          onChange={event => setModelDraft(event.target.value)}
-        />
-        <button type="button" className="wb-button" disabled={probe === 'running' || modelDraft.trim() === ''} onClick={startProbe}>
-          {probe === 'running' ? t('probeRunning') : confirm === 0 ? t('probe') : confirm === 1 ? t('probeConfirmTitle') : t('probeConfirmAgain')}
-        </button>
-        {probe !== undefined && probe !== 'running' && (
-          <span className="wb-status">
-            {probe.validation === 'validating' ? `${t('probeValidating')}: ${probe.efforts.join(', ') || '—'}`
-              : probe.validation === 'non-validating' ? t('probeNonValidating')
-              : `${t('probeUnknown')}${probe.reason === undefined ? '' : ` (${probe.reason})`}`}
-          </span>
-        )}
-      </div>
+    <div className="wb-probe">
+      <input className="wb-probe-model" type="text" placeholder="model id" value={modelDraft} onChange={event => setModelDraft(event.target.value)} />
+      <button type="button" className="wb-button" disabled={probe === 'running' || modelDraft.trim() === ''} onClick={startProbe}>
+        {probe === 'running' ? t('probeRunning') : confirm === 0 ? t('probe') : confirm === 1 ? t('probeConfirmTitle') : t('probeConfirmAgain')}
+      </button>
+      {probe !== undefined && probe !== 'running' && (
+        <span className="wb-status">
+          {probe.validation === 'validating' ? `${t('probeValidating')}: ${probe.efforts.join(', ') || '—'}`
+            : probe.validation === 'non-validating' ? t('probeNonValidating')
+            : `${t('probeUnknown')}${probe.reason === undefined ? '' : ` (${probe.reason})`}`}
+        </span>
+      )}
     </div>
   )
 }

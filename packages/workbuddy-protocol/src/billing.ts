@@ -119,13 +119,15 @@ async function fetchPersonalCredits(credential: RefreshableCredential, fetchImpl
   return parsePersonalAccounts(inner)
 }
 
-/**
- * CN 企业端点：一个周期配额。字段拼写两官方调用点不一致（limitNum/credit vs
- * limit_num/used_num），都收；`-1` = 无上限（独立 flag，绝不渲染成 0）。
- * The CN enterprise endpoint: one cycle quota. Both official field spellings
- * are accepted; `-1` means uncapped (a separate flag, never rendered as 0).
- */
-async function fetchEnterpriseCredits(credential: RefreshableCredential, fetchImpl: FetchLike, baseUrl?: string): Promise<WorkBuddyCredits> {
+/** 企业配额三元组（limit 已保证可识别；used 可能缺失）。The enterprise quota triple (`limit` is guaranteed recognized; `used` may be missing). */
+interface EnterpriseQuota {
+  readonly limit: number
+  readonly used: number | undefined
+  readonly resetTime: string | undefined
+}
+
+/** 企业端点请求的组装与发送：空体 POST，信封校验（http ok + code 0）。Assembles and sends the enterprise request: an empty-body POST with envelope validation (http ok + code 0). */
+async function postEnterpriseUsage(credential: RefreshableCredential, fetchImpl: FetchLike, baseUrl?: string): Promise<Envelope> {
   const billingOrigin = baseUrl ?? regionProfile(credential.region).billingOrigin
   const response = await fetchImpl(`${billingOrigin}/v2/billing/meter/get-enterprise-user-usage`, {
     method: 'POST',
@@ -135,6 +137,11 @@ async function fetchEnterpriseCredits(credential: RefreshableCredential, fetchIm
   })
   const envelope = await readEnvelope(response)
   if (!response.ok || envelope.code !== 0) throw failEnvelope(response.status, envelope)
+  return envelope
+}
+
+/** 解析配额三元组：字段拼写两官方调用点不一致（limitNum/credit vs limit_num/used_num），都收。Parses the quota triple; both official field spellings (limitNum/credit vs limit_num/used_num) are accepted. */
+function parseEnterpriseQuota(envelope: Envelope): EnterpriseQuota {
   const numberAt = (source: Record<string, unknown>, key: string): number | undefined =>
     typeof source[key] === 'number' ? source[key] as number : undefined
   let limit: number | undefined
@@ -157,26 +164,40 @@ async function fetchEnterpriseCredits(credential: RefreshableCredential, fetchIm
   if (limit === undefined) {
     throw new Error('workbuddy enterprise billing response carried no recognised quota field (expected limitNum/limit_num + credit/used_num)')
   }
-  if (limit === -1) {
+  return { limit, used, resetTime }
+}
+
+/** 由配额三元组合成计费结果：`-1` = 无上限（独立 flag，绝不渲染成 0）。Composes the credits from the quota triple; `-1` means uncapped (a separate flag, never rendered as 0). */
+function composeEnterpriseCredits(quota: EnterpriseQuota): WorkBuddyCredits {
+  if (quota.limit === -1) {
     return {
       total: 0,
       accounts: [{ packageName: ENTERPRISE_PACKAGE_NAME, remain: 0, size: 0, unlimited: true }],
       unlimited: true,
-      ...(resetTime === undefined ? {} : { cycleResetTime: resetTime }),
+      ...(quota.resetTime === undefined ? {} : { cycleResetTime: quota.resetTime }),
     }
   }
   // 有配额没用量必须失败而不是假设用 0——默认 0 会从一份读不懂的答案里渲染
   // 出一个自信的"配额全满"。
   // A limit with no usage must fail rather than assume zero used — defaulting to 0 renders a confident "full quota" from a response we could not read.
-  if (used === undefined) {
+  if (quota.used === undefined) {
     throw new Error('workbuddy enterprise billing response carried a quota limit but no recognised usage field')
   }
-  const remain = Math.max(0, limit - used)
+  const remain = Math.max(0, quota.limit - quota.used)
   return {
     total: remain,
-    accounts: [{ packageName: ENTERPRISE_PACKAGE_NAME, remain, size: limit }],
-    ...(resetTime === undefined ? {} : { cycleResetTime: resetTime }),
+    accounts: [{ packageName: ENTERPRISE_PACKAGE_NAME, remain, size: quota.limit }],
+    ...(quota.resetTime === undefined ? {} : { cycleResetTime: quota.resetTime }),
   }
+}
+
+/**
+ * CN 企业端点：一个周期配额。
+ * The CN enterprise endpoint: one cycle quota.
+ */
+async function fetchEnterpriseCredits(credential: RefreshableCredential, fetchImpl: FetchLike, baseUrl?: string): Promise<WorkBuddyCredits> {
+  const envelope = await postEnterpriseUsage(credential, fetchImpl, baseUrl)
+  return composeEnterpriseCredits(parseEnterpriseQuota(envelope))
 }
 
 /**

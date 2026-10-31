@@ -22,7 +22,7 @@
  */
 import type { ContentBlock, GenerateOptions, RequestMessage, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { LlmError } from '@deepseek-ai/dsh-llm'
-import { routeSystemForRegion, type WorkBuddyRegion } from '@veren/workbuddy-protocol'
+import { routeSystemForRegion, type RoutedSystem, type WorkBuddyRegion } from '@veren/workbuddy-protocol'
 
 /** 区域 → harness 面 id 前缀。Region → harness-facing id prefix. */
 const REGION_PREFIX: Readonly<Record<WorkBuddyRegion, string>> = { cn: 'cn:', global: 'global:' }
@@ -84,18 +84,12 @@ export function translateRequest(options: GenerateOptions, upstreamId: string, e
 }
 
 /**
- * 消息序列翻译：role 分派 + 块级投影 + 区域系统提示改道。
- * 系统提示有两个可能入口——`options.system` **和** messages 里的 `system`
- * 角色消息（harness 实测走的是后者）——两者都必须过 routeSystemForRegion，
- * 否则真实提示会原样漏到 CN 线上被内容拦截（真机踩过）。
- * Message-sequence translation: role dispatch, per-block projection, region
- * system routing. The system prompt has TWO entry points — `options.system`
- * and `system`-role messages inside `messages` (the harness uses the latter,
- * live-measured) — both must go through routeSystemForRegion, or the real
- * prompt leaks raw onto the CN wire and gets intercepted (a live-taught
- * lesson).
+ * 系统提示收集与透传分流：`system` 参数与 messages 里的 `system` 角色消息
+ * 汇成一份提示文本，其余消息按序分出。
+ * Collects the system texts and splits the passthrough: the `system` argument
+ * and `system`-role messages merge into one prompt text; the rest keep order.
  */
-function translateMessages(messages: readonly RequestMessage[], system: string | undefined, region: WorkBuddyRegion): unknown[] {
+function splitSystem(messages: readonly RequestMessage[], system: string | undefined): { readonly parts: string[]; readonly passthrough: RequestMessage[] } {
   const parts: string[] = []
   if (system !== undefined && system.trim() !== '') parts.push(system)
   const passthrough: RequestMessage[] = []
@@ -107,9 +101,16 @@ function translateMessages(messages: readonly RequestMessage[], system: string |
     }
     passthrough.push(message)
   }
-  const routed = routeSystemForRegion(region, parts.length === 0 ? undefined : parts.join('\n\n'))
+  return { parts, passthrough }
+}
+
+/**
+ * 透传消息逐条翻译；CN 改道上下文随首条 user 消息投递，返回是否已挂。
+ * Translates the passthrough messages one by one; the CN-rerouted context
+ * rides on the first user message. Returns whether it got attached.
+ */
+function translatePassthrough(passthrough: readonly RequestMessage[], routed: RoutedSystem): { readonly wire: unknown[]; readonly contextAttached: boolean } {
   const wire: unknown[] = []
-  if (routed.systemOnWire.length > 0) wire.push({ role: 'system', content: routed.systemOnWire })
   let contextAttached = false
   for (const message of passthrough) {
     const translated = translateOne(message)
@@ -123,10 +124,32 @@ function translateMessages(messages: readonly RequestMessage[], system: string |
     }
     wire.push(...translated)
   }
+  return { wire, contextAttached }
+}
+
+/**
+ * 消息序列翻译：role 分派 + 块级投影 + 区域系统提示改道。
+ * 系统提示有两个可能入口——`options.system` **和** messages 里的 `system`
+ * 角色消息（harness 实测走的是后者）——两者都必须过 routeSystemForRegion，
+ * 否则真实提示会原样漏到 CN 线上被内容拦截（真机踩过）。
+ * Message-sequence translation: role dispatch, per-block projection, region
+ * system routing. The system prompt has TWO entry points — `options.system`
+ * and `system`-role messages inside `messages` (the harness uses the latter,
+ * live-measured) — both must go through routeSystemForRegion, or the real
+ * prompt leaks raw onto the CN wire and gets intercepted (a live-taught
+ * lesson).
+ */
+function translateMessages(messages: readonly RequestMessage[], system: string | undefined, region: WorkBuddyRegion): unknown[] {
+  const { parts, passthrough } = splitSystem(messages, system)
+  const routed = routeSystemForRegion(region, parts.length === 0 ? undefined : parts.join('\n\n'))
+  const wire: unknown[] = []
+  if (routed.systemOnWire.length > 0) wire.push({ role: 'system', content: routed.systemOnWire })
+  const tail = translatePassthrough(passthrough, routed)
+  wire.push(...tail.wire)
   // 没有任何 user 消息时改道内容无处附着：单独作为一条 user 注入（会话标题
   // 等辅助调用的形状）。
   // With no user message to attach to, the context rides alone (auxiliary calls like session titles).
-  if (routed.systemAsUserContext !== undefined && !contextAttached) {
+  if (routed.systemAsUserContext !== undefined && !tail.contextAttached) {
     wire.push({ role: 'user', content: [{ type: 'text', text: routed.systemAsUserContext }] })
   }
   return wire
