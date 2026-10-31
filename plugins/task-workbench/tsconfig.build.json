@@ -12,7 +12,13 @@
     "noEmit": false,
     "rootDir": "src",
     "outDir": "dist",
-    "rewriteRelativeImportExtensions": true
+    "rewriteRelativeImportExtensions": true,
+    // 清空 typecheck 用的 paths 源码钉住：钉住会把兄弟包源码拖进本包程序，
+    // 违反 rootDir；构建按 node_modules 解析到兄弟包的 dist 类型即可。
+    // Clear the typecheck-only source pins: they would drag sibling sources
+    // into this program and violate rootDir; the build resolves siblings'
+    // dist types through node_modules instead.
+    "paths": {}
   },
   "include": ["src"]
 }
