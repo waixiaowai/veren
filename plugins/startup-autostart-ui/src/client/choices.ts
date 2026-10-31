@@ -13,6 +13,11 @@
  * 相同的读取），派生出扁平选项列表，并在连接重置、适配器更新或设置文档更新使其
  * 失效时重读。可观察对象与启动项目录遵循同一规则：事实未变时快照引用保持不变。
  *
+ * 实现按步骤拆分：广播、读取、订阅/退订各自是模块级函数，经 ChoicesState 共享
+ * 可变状态。
+ * The implementation is split by step: publish, read, and subscribe/unsubscribe
+ * are module-level functions sharing mutable state through ChoicesState.
+ *
  * @module @veren/startup-autostart/client/choices
  */
 
@@ -64,6 +69,24 @@ export interface StartupChoices {
   readonly source: HostObservable<StartupChoicesSnapshot>
 }
 
+/** 选项源的内部可变状态。Internal mutable state of the choices source. */
+interface ChoicesState {
+  snapshot: StartupChoicesSnapshot
+  disposers: (() => void)[]
+  epoch: number
+  inflight: Promise<void> | undefined
+  readonly registry: Set<() => void>
+}
+
+/** 初值/复位快照；每次调用都给新对象，保持原来的引用语义。The initial/reset snapshot; a new object per call keeps the original reference semantics. */
+const initialSnapshot = (): StartupChoicesSnapshot => ({ presets: [], models: [], status: 'loading' })
+
+/** 向全部监听者广播一次快照更新。Broadcast one snapshot update to every listener. */
+function publishSnapshot(state: ChoicesState, next: Partial<StartupChoicesSnapshot>): void {
+  state.snapshot = { ...state.snapshot, ...next }
+  for (const listener of [...state.registry]) listener()
+}
+
 /** Healthy presets as dropdown options, in roster order. */
 function presetOptions(presets: readonly { readonly id: string; readonly name?: string; readonly description?: string; readonly broken?: string }[]): StartupChoiceOption[] {
   return presets.filter(preset => preset.broken === undefined).map(preset => ({
@@ -83,67 +106,68 @@ function modelOptions(groups: readonly { readonly id: string; readonly name: str
 }
 
 /**
+ * 读一次两路 Remote：任一路失败即报错，双路成功才发布派生选项。
+ * Read both Remotes once: any failed read publishes the error, and only a
+ * doubly successful read publishes the derived options.
+ */
+function readChoices(deps: StartupChoicesDeps, state: ChoicesState): Promise<void> {
+  if (state.inflight !== undefined) return state.inflight
+  const mine = state.epoch
+  publishSnapshot(state, { status: 'loading' })
+  state.inflight = Promise.all([deps.listPresets(), deps.listModels()]).then(
+    ([presets, models]) => {
+      if (mine !== state.epoch) return
+      if (!presets.ok || presets.value === undefined || !models.ok || models.value === undefined) {
+        publishSnapshot(state, { status: 'error' })
+        return
+      }
+      publishSnapshot(state, {
+        presets: presetOptions(presets.value.presets),
+        models: modelOptions(models.value.groups),
+        status: 'ready',
+      })
+    },
+    () => {
+      if (mine === state.epoch) publishSnapshot(state, { status: 'error' })
+    },
+  ).finally(() => {
+    if (mine === state.epoch) state.inflight = undefined
+  })
+  return state.inflight
+}
+
+/** 末位退订：逆序清理失效源、前进 epoch 并复位快照。Last unsubscribe: unwind the invalidation sources in reverse, advance the epoch, and reset the snapshot. */
+function unsubscribeChoices(state: ChoicesState, listener: () => void): void {
+  state.registry.delete(listener)
+  if (state.registry.size !== 0) return
+  for (const dispose of state.disposers) dispose()
+  state.disposers = []
+  state.epoch += 1
+  state.inflight = undefined
+  state.snapshot = initialSnapshot()
+}
+
+/** 首订阅登记失效源并首读，返回退订句柄。The first subscriber registers the invalidation source and starts the first read; returns the unsubscriber. */
+function subscribeChoices(deps: StartupChoicesDeps, state: ChoicesState, listener: () => void): () => void {
+  state.registry.add(listener)
+  if (state.registry.size === 1) {
+    state.disposers = [deps.subscribeInvalidate(() => { void readChoices(deps, state) })]
+    void readChoices(deps, state)
+  }
+  return () => { unsubscribeChoices(state, listener) }
+}
+
+/**
  * Build the choices source over the two Remote reads.
  * @param deps - reads and the shared invalidation subscription.
  * @returns the observable the panel injects into the detail form.
  */
 export function createStartupChoices(deps: StartupChoicesDeps): StartupChoices {
-  let snapshot: StartupChoicesSnapshot = { presets: [], models: [], status: 'loading' }
-  let disposers: (() => void)[] = []
-  let epoch = 0
-  let inflight: Promise<void> | undefined
-  const registry = new Set<() => void>()
-
-  const publish = (next: Partial<StartupChoicesSnapshot>): void => {
-    snapshot = { ...snapshot, ...next }
-    for (const listener of [...registry]) listener()
-  }
-
-  const read = (): Promise<void> => {
-    if (inflight !== undefined) return inflight
-    const mine = epoch
-    publish({ status: 'loading' })
-    inflight = Promise.all([deps.listPresets(), deps.listModels()]).then(
-      ([presets, models]) => {
-        if (mine !== epoch) return
-        if (!presets.ok || presets.value === undefined || !models.ok || models.value === undefined) {
-          publish({ status: 'error' })
-          return
-        }
-        publish({
-          presets: presetOptions(presets.value.presets),
-          models: modelOptions(models.value.groups),
-          status: 'ready',
-        })
-      },
-      () => {
-        if (mine === epoch) publish({ status: 'error' })
-      },
-    ).finally(() => {
-      if (mine === epoch) inflight = undefined
-    })
-    return inflight
-  }
-
+  const state: ChoicesState = { snapshot: initialSnapshot(), disposers: [], epoch: 0, inflight: undefined, registry: new Set() }
   return {
     source: {
-      getSnapshot: () => snapshot,
-      subscribe(listener) {
-        registry.add(listener)
-        if (registry.size === 1) {
-          disposers = [deps.subscribeInvalidate(() => { void read() })]
-          void read()
-        }
-        return () => {
-          registry.delete(listener)
-          if (registry.size !== 0) return
-          for (const dispose of disposers) dispose()
-          disposers = []
-          epoch += 1
-          inflight = undefined
-          snapshot = { presets: [], models: [], status: 'loading' }
-        }
-      },
+      getSnapshot: () => state.snapshot,
+      subscribe: listener => subscribeChoices(deps, state, listener),
     },
   }
 }

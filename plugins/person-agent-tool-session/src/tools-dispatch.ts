@@ -6,7 +6,7 @@
 // replaces the blocking session_prompt. Target resolution lives in
 // dispatch-target.ts; this file keeps the tool definition and its description face.
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import { emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -22,6 +22,54 @@ import { SessionToolError, TOOL_HINT as HINT } from './types.js'
 import type { SessionDispatchArgs, SessionDispatchResult } from './types.js'
 import { resolveTarget } from './dispatch-target.js'
 import type { SettlementWatch } from './watch.js'
+
+/** `session_dispatch` 的模型可见描述。The model-visible description of `session_dispatch`. */
+const DISPATCH_DESCRIPTION =
+  'Hand a prompt to another session and return immediately; this call never waits for that session. '
+  + 'The prompt is queued as its own follow-up turn in the target session and wakes it. '
+  + 'With report true (the default) a watcher observes the target until it is genuinely quiescent - no active '
+  + 'turn and no maintenance task - and then delivers the target\'s closing output back into THIS session as a '
+  + 'follow-up message, which wakes this session again. Every notice names the dispatch it answers. '
+  + 'Only one dispatch per session may be outstanding: the report is the whole session\'s closing output once it '
+  + 'settles, so a second prompt sent before the first report arrives would make both reports describe the same '
+  + 'last output and would lose the earlier result. Such a dispatch is refused with SESSION_DISPATCH_WATCH_BUSY; '
+  + 'wait for the notice that names the pending dispatch and then dispatch again. '
+  + 'Set report to false for fire-and-forget delivery to a session with no outstanding report. '
+  + 'This is how the bridge persona hands a created session its task. ' + HINT
+
+/**
+ * `session_dispatch` 的参数面。`as const` 保留字面量（`required: true`），供
+ * defineTool 的 const 泛型推断参数类型。
+ * The parameter face of `session_dispatch`. `as const` keeps the literals
+ * (`required: true`) so defineTool's const generic infers argument types.
+ */
+const DISPATCH_PARAMETERS = {
+  sessionId: {
+    type: 'string',
+    description: 'Existing target session id. Provide either sessionId or newSession, not both.',
+  },
+  newSession: {
+    type: 'object',
+    additionalProperties: false,
+    description: 'Create a fresh session in a workspace instead of naming an existing one. Pass workspaceId, or omit it to inherit this session\'s workspace; cwd is not accepted. Provide either sessionId or newSession, not both.',
+    properties: {
+      workspaceId: {
+        type: 'string',
+        description: 'Workspace the new session joins, by id from the page\'s Workspace List. Omit it to inherit this session\'s workspace; creation fails with SESSION_CREATE_WORKSPACE_UNKNOWN when this session has none. cwd is not accepted: pass workspaceId instead.',
+      },
+      agentPreset: { type: 'string', description: 'Agent preset the new session runs. Defaults to the configured default.' },
+    },
+  },
+  prompt: {
+    type: 'string',
+    required: true,
+    description: 'Text delivered to the target session as its own follow-up turn. Required and non-empty.',
+  },
+  report: {
+    type: 'boolean',
+    description: 'true (default) sends the target\'s closing output back into this session once the target settles; false dispatches only and never sends anything back. Either way the dispatch is refused while this session has an outstanding report for the target.',
+  },
+} as const
 
 /**
  * 返回指导：只有目标确实能回话时才追加。
@@ -117,6 +165,53 @@ async function resolveValidatedTarget(
 }
 
 /**
+ * `session_dispatch` 的执行体：解析目标、投递、按需武装看守、广播开始事件。
+ * The `session_dispatch` body: resolve the target, deliver, arm the watch when
+ * reporting, then broadcast the start event.
+ *
+ * 挂看守与投递由注册表定序：先查账、再登记唤醒源、然后投递、最后启动观察者。报告型
+ * 派发把这几步并进 arm() 的同一个同步块——查账与登记之间没有 await，所以同一步里并发
+ * 发出的两条派发不可能都通过检查，第二条会被 arm() 以 WATCH_BUSY 拒绝。非报告型派发
+ * 没有可登记的看守，只能靠这次同步查账挡住"提示被接进受看守会话、换掉那条待结清报告
+ * 将要描述的收尾输出"。
+ * Arming and delivery are ordered by the registry: check, register the wake
+ * sources, deliver, then start the observer. A reporting dispatch folds those
+ * steps into one synchronous block inside arm() - no await separates the check
+ * from the registration - so two dispatches issued concurrently in one step
+ * cannot both pass and the second is refused with WATCH_BUSY. A non-reporting
+ * dispatch has no watch to register, so its synchronous check is the only thing
+ * stopping its prompt from being accepted into a watched session and replacing
+ * what the pending report will describe as the closing output.
+ * @param ctx - 宿主上下文。The host context.
+ * @param watch - 结算看守注册表。The settlement-watch registry.
+ * @param args - 已校验的工具参数。The validated tool arguments.
+ * @param exec - 执行身份与调用方。The execution identity and caller.
+ * @returns 已接受的派发收据。The accepted-dispatch receipt.
+ */
+async function executeDispatch(
+  ctx: Context,
+  watch: SettlementWatch,
+  args: SessionDispatchArgs,
+  exec: ToolRunContext,
+): Promise<SessionDispatchResult> {
+  const caller = exec.agent
+  if (caller === undefined) {
+    throw new SessionToolError('SESSION_DISPATCH_NO_CALLER', 'this call has no calling agent, so a settlement notice could not be addressed', {})
+  }
+  const { prompt, reporting, target, targetSessionId } = await resolveValidatedTarget(ctx, watch, args, caller.id)
+  const message = createDispatchPrompt(caller.id, prompt, returnGuidance(ctx, caller.id, target))
+  const deliver = (): void => { target.followup(message) }
+  const watchId = reporting
+    ? watch.arm({ agent: target, callerSessionId: caller.id, messageId: message.id, prompt, deliver })
+    : (watch.deliverGuarded(targetSessionId, deliver), null)
+  // 派发已被接受：广播开始事件，让宿主与界面无需读会话日志就能看到"已派出"。
+  // The dispatch was accepted: broadcast the start event, so a host or UI sees
+  // "dispatched" without reading Session logs.
+  emitAgentEvent(ctx, caller, 'session-dispatch/start', { watchId, targetSessionId, callerSessionId: caller.id })
+  return { sessionId: targetSessionId, messageId: message.id, watchId, reporting }
+}
+
+/**
  * 构建 `session_dispatch` 工具定义（不注册）：派发立即返回 + 事件驱动结算通知。
  * 看守由调用方持有（页面会话作用域随视图创建/销毁），本构建器只把它接进定义。
  * Build the `session_dispatch` tool definition (unregistered): the dispatch
@@ -129,45 +224,8 @@ async function resolveValidatedTarget(
 export function buildSessionDispatchDefinition(ctx: Context, watch: SettlementWatch): ToolDefinition {
   const definition = defineTool({
     name: 'session_dispatch',
-    description:
-      'Hand a prompt to another session and return immediately; this call never waits for that session. '
-      + 'The prompt is queued as its own follow-up turn in the target session and wakes it. '
-      + 'With report true (the default) a watcher observes the target until it is genuinely quiescent - no active '
-      + 'turn and no maintenance task - and then delivers the target\'s closing output back into THIS session as a '
-      + 'follow-up message, which wakes this session again. Every notice names the dispatch it answers. '
-      + 'Only one dispatch per session may be outstanding: the report is the whole session\'s closing output once it '
-      + 'settles, so a second prompt sent before the first report arrives would make both reports describe the same '
-      + 'last output and would lose the earlier result. Such a dispatch is refused with SESSION_DISPATCH_WATCH_BUSY; '
-      + 'wait for the notice that names the pending dispatch and then dispatch again. '
-      + 'Set report to false for fire-and-forget delivery to a session with no outstanding report. '
-      + 'This is how the bridge persona hands a created session its task. ' + HINT,
-    parameters: {
-      sessionId: {
-        type: 'string',
-        description: 'Existing target session id. Provide either sessionId or newSession, not both.',
-      },
-      newSession: {
-        type: 'object',
-        additionalProperties: false,
-        description: 'Create a fresh session in a workspace instead of naming an existing one. Pass workspaceId, or omit it to inherit this session\'s workspace; cwd is not accepted. Provide either sessionId or newSession, not both.',
-        properties: {
-          workspaceId: {
-            type: 'string',
-            description: 'Workspace the new session joins, by id from the page\'s Workspace List. Omit it to inherit this session\'s workspace; creation fails with SESSION_CREATE_WORKSPACE_UNKNOWN when this session has none. cwd is not accepted: pass workspaceId instead.',
-          },
-          agentPreset: { type: 'string', description: 'Agent preset the new session runs. Defaults to the configured default.' },
-        },
-      },
-      prompt: {
-        type: 'string',
-        required: true,
-        description: 'Text delivered to the target session as its own follow-up turn. Required and non-empty.',
-      },
-      report: {
-        type: 'boolean',
-        description: 'true (default) sends the target\'s closing output back into this session once the target settles; false dispatches only and never sends anything back. Either way the dispatch is refused while this session has an outstanding report for the target.',
-      },
-    },
+    description: DISPATCH_DESCRIPTION,
+    parameters: DISPATCH_PARAMETERS,
     output: {
       // 无损 JSON 输出：收据小而稳定，模型直接读原始值。
       // Lossless JSON output: the receipt is small and stable; the model reads the raw value.
@@ -177,62 +235,15 @@ export function buildSessionDispatchDefinition(ctx: Context, watch: SettlementWa
         properties: {
           sessionId: { type: 'string', required: true, description: 'Session that received the prompt.' },
           messageId: { type: 'string', required: true, description: 'Identity of the enqueued user message.' },
-          watchId: {
-            oneOf: [{ type: 'string' }, { type: 'null' }],
-            required: true,
-            description: 'Settlement-watch handle, or null when report is false.',
-          },
+          watchId: { oneOf: [{ type: 'string' }, { type: 'null' }], required: true, description: 'Settlement-watch handle, or null when report is false.' },
           reporting: { type: 'boolean', required: true, description: 'Whether a settlement notice will be sent back to this session.' },
         },
       },
       render: (_args, value) => [{ type: 'text' as const, text: describeReceipt(value) }],
     },
     isConcurrencySafe: () => true,
-    async execute(args, exec): Promise<SessionDispatchResult> {
-      const caller = exec.agent
-      if (caller === undefined) {
-        throw new SessionToolError(
-          'SESSION_DISPATCH_NO_CALLER',
-          'this call has no calling agent, so a settlement notice could not be addressed',
-          {},
-        )
-      }
-      const { prompt, reporting, target, targetSessionId } = await resolveValidatedTarget(ctx, watch, args, caller.id)
-      const message = createDispatchPrompt(caller.id, prompt, returnGuidance(ctx, caller.id, target))
-      const deliver = (): void => { target.followup(message) }
-      // 挂看守与投递由注册表定序：先查账、再登记唤醒源、然后投递、最后启动观察者。
-      // 报告型派发把这几步并进 arm() 的同一个同步块——查账与登记之间没有 await，所以同一步
-      // 里并发发出的两条派发不可能都通过检查，第二条会被 arm() 以 WATCH_BUSY 拒绝。
-      // Arming and delivery are ordered by the registry: check, register the wake
-      // sources, deliver, then start the observer. A reporting dispatch folds those
-      // steps into one synchronous block inside arm() - no await separates the check
-      // from the registration - so two dispatches issued concurrently in one step
-      // cannot both pass and the second is refused with WATCH_BUSY.
-      const watchId = reporting
-        ? watch.arm({ agent: target, callerSessionId: caller.id, messageId: message.id, prompt, deliver })
-        // 非报告型派发没有可登记的看守，只能靠这次同步查账挡住"提示被接进受看守会话、
-        // 换掉那条待结清报告将要描述的收尾输出"。
-        // A non-reporting dispatch has no watch to register, so this synchronous
-        // check is the only thing stopping its prompt from being accepted into a
-        // watched session and replacing what the pending report will describe as
-        // the closing output.
-        : (watch.deliverGuarded(targetSessionId, deliver), null)
-      // 派发已被接受：广播开始事件，让宿主与界面无需读会话日志就能看到"已派出"。
-      // The dispatch was accepted: broadcast the start event, so a host or UI sees
-      // "dispatched" without reading Session logs.
-      emitAgentEvent(ctx, caller, 'session-dispatch/start', {
-        watchId,
-        targetSessionId,
-        callerSessionId: caller.id,
-      })
-      return { sessionId: targetSessionId, messageId: message.id, watchId, reporting }
-    },
-    presentCall: args => ({
-      card: 'generic',
-      title: 'Dispatch to session',
-      kind: 'other',
-      rawInput: args,
-    }),
+    execute: (args, exec) => executeDispatch(ctx, watch, args, exec),
+    presentCall: args => ({ card: 'generic', title: 'Dispatch to session', kind: 'other', rawInput: args }),
   })
   return guardRemovedCwd(definition, 'session_dispatch')
 }

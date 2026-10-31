@@ -17,6 +17,11 @@
  * 正变化才会触发重渲染。读取会共享：同一个提交里挂载多个消费者也只发一次调用；订阅已
  * 消失后才返回的读取会按 epoch 丢弃，关闭的面板不会覆盖活着的面板。
  *
+ * 实现按步骤拆分：广播、读取、订阅/退订各自是模块级函数，经 CatalogState 共享
+ * 可变状态。
+ * The implementation is split by step: publish, read, and subscribe/unsubscribe
+ * are module-level functions sharing mutable state through CatalogState.
+ *
  * @module @veren/startup-autostart/client/catalog
  */
 
@@ -58,63 +63,85 @@ export interface StartupCatalog {
   readonly refresh: () => void
 }
 
+/** 目录源的内部可变状态。Internal mutable state of the catalog source. */
+interface CatalogState {
+  snapshot: StartupCatalogSnapshot
+  disposers: (() => void)[]
+  epoch: number
+  inflight: Promise<void> | undefined
+  readonly registry: Set<() => void>
+}
+
+/** 初值/复位快照；每次调用都给新对象，保持原来的引用语义。The initial/reset snapshot; a new object per call keeps the original reference semantics. */
+const initialSnapshot = (): StartupCatalogSnapshot => ({ records: [], status: 'loading', settled: false })
+
+/** 向全部监听者广播一次快照更新。Broadcast one snapshot update to every listener. */
+function publishSnapshot(state: CatalogState, next: Partial<StartupCatalogSnapshot>): void {
+  state.snapshot = { ...state.snapshot, ...next }
+  for (const listener of [...state.registry]) listener()
+}
+
+/**
+ * 读一次目录：并发读合并为一次，epoch 已前进的过期读按丢弃处理。
+ * Read the catalog once: concurrent reads coalesce into one, and a read whose
+ * epoch has moved on is discarded.
+ */
+function readCatalog(deps: StartupCatalogDeps, state: CatalogState): Promise<void> {
+  if (state.inflight !== undefined) return state.inflight
+  const mine = state.epoch
+  publishSnapshot(state, { status: 'loading' })
+  state.inflight = deps.list().then(
+    (result) => {
+      if (mine !== state.epoch) return
+      publishSnapshot(state, result.ok
+        ? { records: result.value, status: 'ready', settled: true }
+        : { status: 'error' })
+    },
+    () => {
+      if (mine === state.epoch) publishSnapshot(state, { status: 'error' })
+    },
+  ).finally(() => {
+    if (mine === state.epoch) state.inflight = undefined
+  })
+  return state.inflight
+}
+
+/** 末位退订：逆序清理失效源、前进 epoch 并复位快照。Last unsubscribe: unwind the invalidation sources in reverse, advance the epoch, and reset the snapshot. */
+function unsubscribeCatalog(state: CatalogState, listener: () => void): void {
+  state.registry.delete(listener)
+  if (state.registry.size !== 0) return
+  for (const dispose of state.disposers) dispose()
+  state.disposers = []
+  state.epoch += 1
+  state.inflight = undefined
+  state.snapshot = initialSnapshot()
+}
+
+/** 首订阅登记失效源并首读，返回退订句柄。The first subscriber registers the invalidation sources and starts the first read; returns the unsubscriber. */
+function subscribeCatalog(deps: StartupCatalogDeps, state: CatalogState, listener: () => void): () => void {
+  state.registry.add(listener)
+  if (state.registry.size === 1) {
+    state.disposers = [
+      deps.subscribeChanged(() => { void readCatalog(deps, state) }),
+      deps.subscribeReset(() => { void readCatalog(deps, state) }),
+    ]
+    void readCatalog(deps, state)
+  }
+  return () => { unsubscribeCatalog(state, listener) }
+}
+
 /**
  * Build the catalog source over one Remote read.
  * @param deps - read and invalidation subscriptions.
  * @returns the observable and its manual refresh.
  */
 export function createStartupCatalog(deps: StartupCatalogDeps): StartupCatalog {
-  let snapshot: StartupCatalogSnapshot = { records: [], status: 'loading', settled: false }
-  let disposers: (() => void)[] = []
-  let epoch = 0
-  let inflight: Promise<void> | undefined
-  const registry = new Set<() => void>()
-
-  const publish = (next: Partial<StartupCatalogSnapshot>): void => {
-    snapshot = { ...snapshot, ...next }
-    for (const listener of [...registry]) listener()
-  }
-
-  const read = (): Promise<void> => {
-    if (inflight !== undefined) return inflight
-    const mine = epoch
-    publish({ status: 'loading' })
-    inflight = deps.list().then(
-      (result) => {
-        if (mine !== epoch) return
-        publish(result.ok
-          ? { records: result.value, status: 'ready', settled: true }
-          : { status: 'error' })
-      },
-      () => {
-        if (mine === epoch) publish({ status: 'error' })
-      },
-    ).finally(() => {
-      if (mine === epoch) inflight = undefined
-    })
-    return inflight
-  }
-
+  const state: CatalogState = { snapshot: initialSnapshot(), disposers: [], epoch: 0, inflight: undefined, registry: new Set() }
   return {
     source: {
-      getSnapshot: () => snapshot,
-      subscribe(listener) {
-        registry.add(listener)
-        if (registry.size === 1) {
-          disposers = [deps.subscribeChanged(() => { void read() }), deps.subscribeReset(() => { void read() })]
-          void read()
-        }
-        return () => {
-          registry.delete(listener)
-          if (registry.size !== 0) return
-          for (const dispose of disposers) dispose()
-          disposers = []
-          epoch += 1
-          inflight = undefined
-          snapshot = { records: [], status: 'loading', settled: false }
-        }
-      },
+      getSnapshot: () => state.snapshot,
+      subscribe: listener => subscribeCatalog(deps, state, listener),
     },
-    refresh: () => { void read() },
+    refresh: () => { void readCatalog(deps, state) },
   }
 }

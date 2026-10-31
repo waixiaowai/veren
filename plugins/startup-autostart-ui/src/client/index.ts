@@ -27,7 +27,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { createStartupCatalog } from './catalog.ts'
+import type { StartupCatalog } from './catalog.ts'
 import { createStartupChoices } from './choices.ts'
+import type { StartupChoices } from './choices.ts'
 import { StartupPanelIcon } from './icon.tsx'
 import { en, NS, zh, type StartupPanelKey } from './locales.ts'
 import { StartupPanel } from './panel.tsx'
@@ -67,6 +69,107 @@ function reported(error: { readonly code: string; readonly message: string }): s
   return `${error.code}: ${error.message}`
 }
 
+/** 面板动作回调面：更新/删除/运行，全部走 Remote 端点。The panel action callbacks: update, delete, and run, all through Remote endpoints. */
+interface PanelActions {
+  readonly onUpdate: (request: StartupItemRequest & { readonly id: string }) => Promise<string | undefined>
+  readonly onDelete: (id: string) => Promise<string | undefined>
+  readonly onRun: (id: string) => Promise<{ readonly ok: boolean; readonly detail: string }>
+}
+
+/**
+ * 建立目录源：读挂载命名空间的 catalog，跟随宿主变更事件与连接重置。
+ * Build the catalog source: read the mounted namespace's catalog, following
+ * the Host's change event and connection resets.
+ */
+function createPanelCatalog(ctx: Context, startup: StartupRemoteApi): StartupCatalog {
+  return createStartupCatalog({
+    list: () => startup.catalog(),
+    // The Host emits this after every committed write and the Web
+    // application forwards it, so the list follows the Host without polling.
+    // 宿主在每次提交写入后发出该事件，Web 应用会转发，列表因此无需轮询。
+    subscribeChanged: listener => ctx.remote.$on('startup-autostart/changed', listener),
+    subscribeReset: listener => ctx.on('connection/reset', listener),
+  })
+}
+
+/**
+ * 建立下拉选项源：读宿主自带的预设名册与模型目录，跟随共享失效事件。
+ * Build the choices source: read the host's own preset roster and model
+ * catalog, following the shared invalidation events.
+ */
+function createPanelChoices(ctx: Context): StartupChoices {
+  return createStartupChoices({
+    listPresets: () => ctx.remote.agentPresets.list(),
+    listModels: () => ctx.remote.session.modelCatalog(),
+    // The detail form's dropdowns read the same Host surfaces the shipped
+    // preset picker and model selector use; any of these events may change
+    // them, so one shared invalidation re-reads both.
+    // 详情表单的下拉读取与自带预设选择器、模型选择器相同的宿主表面；下列任一事件
+    // 都可能改变它们，因此用一条共享失效订阅同时重读两者。
+    subscribeInvalidate: listener => [
+      ctx.on('connection/reset', listener),
+      ctx.remote.$on('llm/adapters-updated', listener),
+      ctx.remote.$on('settings/document-updated', listener),
+    ].reduce((parent, dispose) => () => { dispose(); parent() }, () => {}),
+  })
+}
+
+/**
+ * 建立面板动作回调：每次写都把 Host 失败渲染成状态行文本。
+ * Build the panel action callbacks: each write renders a Host failure into
+ * status-line text.
+ */
+function createPanelActions(startup: StartupRemoteApi): PanelActions {
+  const onUpdate = async (request: StartupItemRequest & { readonly id: string }): Promise<string | undefined> => {
+    const result = await startup.update(request)
+    return result.ok ? undefined : reported(result.error)
+  }
+  const onDelete = async (id: string): Promise<string | undefined> => {
+    const result = await startup.delete({ id })
+    return result.ok ? undefined : reported(result.error)
+  }
+  const onRun = async (id: string): Promise<{ readonly ok: boolean; readonly detail: string }> => {
+    const result = await startup.run({ id })
+    if (!result.ok) return { ok: false, detail: reported(result.error) }
+    return { ok: result.value.outcome?.status === 'ok', detail: result.value.outcome?.detail ?? '' }
+  }
+  return { onUpdate, onDelete, onRun }
+}
+
+/**
+ * 注册主页面 slot：注入 hooks 面与动作回调。
+ * Register the main-page slot: inject the hooks face and the action callbacks.
+ */
+function registerMainSlot(ctx: Context, catalog: StartupCatalog, choices: StartupChoices, actions: PanelActions): void {
+  ctx.slots.inject('main', () => ctx.slots.register({
+    name: 'main',
+    key: PANEL_ID,
+    locale: NS,
+    inject: () => ({
+      hooks: { catalog: catalog.source, choices: choices.source },
+      onRetry: catalog.refresh,
+      // The page has no creation form of its own: a new item starts in a
+      // session, where the model registers it with `startup_create`.
+      // 页面没有自己的创建表单：新启动项在会话里由模型用 `startup_create` 登记。
+      onNew: () => { ctx.uiWorkspace.startSession() },
+      onUpdate: actions.onUpdate,
+      onDelete: actions.onDelete,
+      onRun: actions.onRun,
+    }),
+  }, StartupPanel))
+}
+
+/** 注册侧栏入口 slot。Register the sidebar-entry slot. */
+function registerSidebarEntry(ctx: Context, label: () => string): void {
+  ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+    name: 'sidebar.panellist',
+    id: PANEL_ID,
+    order: 10,
+    locale: NS,
+    label,
+  }, StartupPanelIcon))
+}
+
 /**
  * The inner panel plugin. It injects the freshly mounted `remote.startup`
  * namespace (inject resolution is registry-based, so the sibling-mounted
@@ -95,64 +198,11 @@ const PanelPlugin = {
     ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'startup-autostart: dictionaries')
     installPanelStyles(ctx)
     const t = ctx.locale.bind(NS)
-    const catalog = createStartupCatalog({
-      list: () => startup.catalog(),
-      // The Host emits this after every committed write and the Web
-      // application forwards it, so the list follows the Host without polling.
-      // 宿主在每次提交写入后发出该事件，Web 应用会转发，列表因此无需轮询。
-      subscribeChanged: listener => ctx.remote.$on('startup-autostart/changed', listener),
-      subscribeReset: listener => ctx.on('connection/reset', listener),
-    })
-    // The detail form's dropdowns read the same Host surfaces the shipped
-    // preset picker and model selector use; any of these events may change
-    // them, so one shared invalidation re-reads both.
-    // 详情表单的下拉读取与自带预设选择器、模型选择器相同的宿主表面；下列任一事件
-    // 都可能改变它们，因此用一条共享失效订阅同时重读两者。
-    const choices = createStartupChoices({
-      listPresets: () => ctx.remote.agentPresets.list(),
-      listModels: () => ctx.remote.session.modelCatalog(),
-      subscribeInvalidate: listener => [
-        ctx.on('connection/reset', listener),
-        ctx.remote.$on('llm/adapters-updated', listener),
-        ctx.remote.$on('settings/document-updated', listener),
-      ].reduce((parent, dispose) => () => { dispose(); parent() }, () => {}),
-    })
-    const onUpdate = async (request: StartupItemRequest & { readonly id: string }): Promise<string | undefined> => {
-      const result = await startup.update(request)
-      return result.ok ? undefined : reported(result.error)
-    }
-    const onDelete = async (id: string): Promise<string | undefined> => {
-      const result = await startup.delete({ id })
-      return result.ok ? undefined : reported(result.error)
-    }
-    const onRun = async (id: string): Promise<{ readonly ok: boolean; readonly detail: string }> => {
-      const result = await startup.run({ id })
-      if (!result.ok) return { ok: false, detail: reported(result.error) }
-      return { ok: result.value.outcome?.status === 'ok', detail: result.value.outcome?.detail ?? '' }
-    }
-    ctx.slots.inject('main', () => ctx.slots.register({
-      name: 'main',
-      key: PANEL_ID,
-      locale: NS,
-      inject: () => ({
-        hooks: { catalog: catalog.source, choices: choices.source },
-        onRetry: catalog.refresh,
-        // The page has no creation form of its own: a new item starts in a
-        // session, where the model registers it with `startup_create`.
-        // 页面没有自己的创建表单：新启动项在会话里由模型用 `startup_create` 登记。
-        onNew: () => { ctx.uiWorkspace.startSession() },
-        onUpdate,
-        onDelete,
-        onRun,
-      }),
-    }, StartupPanel))
-    ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-      name: 'sidebar.panellist',
-      id: PANEL_ID,
-      order: 10,
-      locale: NS,
-      label: () => t('panel'),
-    }, StartupPanelIcon))
+    const catalog = createPanelCatalog(ctx, startup)
+    const choices = createPanelChoices(ctx)
+    const actions = createPanelActions(startup)
+    registerMainSlot(ctx, catalog, choices, actions)
+    registerSidebarEntry(ctx, () => t('panel'))
   },
 } as const
 

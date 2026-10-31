@@ -45,7 +45,7 @@ import { clearBootFlag, claimBootFlag, readLastSession, saveLastSession } from '
 import {
   autostartStatus, defaultStartupFolder, disableAutostart, enableAutostart,
 } from './os-autostart.ts'
-import type { BootClaim, CrashCause, RecoveryStatus } from './types.ts'
+import type { BootClaim, CrashCause, LastActiveSession, RecoveryStatus } from './types.ts'
 export type * from './types.ts'
 export { UNKNOWN_CAUSE_TEXT } from './cause.ts'
 export { AutostartConfigError } from './os-autostart.ts'
@@ -94,6 +94,25 @@ function resolveStateDir(config: Config): string {
   if (config.stateDir !== undefined) return config.stateDir
   const home = process.env['DSH_HOME'] ?? join(homedir(), '.dsh')
   return join(home, 'storages', 'startup-recovery')
+}
+
+/**
+ * 由一次 drive 的事实拼出状态报告。exactOptionalPropertyTypes：可选成员按有无
+ * 分别构造，而不是先 undefined 再补。
+ * Assemble the status report from one drive's facts. exactOptionalPropertyTypes:
+ * build the two shapes instead of patching undefined.
+ */
+function buildRecoveryReport(claim: BootClaim, cause: CrashCause, delivered: boolean, last: LastActiveSession | undefined): RecoveryStatus {
+  let report: RecoveryStatus = {
+    unclean: claim.unclean,
+    cause,
+    delivered,
+    detail: delivered
+      ? `delivered the recovery prompt${last === undefined ? '' : ` to ${last.sessionId}`}`
+      : 'delivered nothing this boot',
+  }
+  if (last !== undefined) report = { ...report, lastSession: last }
+  return report
 }
 
 /**
@@ -208,17 +227,7 @@ export class StartupRecoveryService extends Service {
         )
       }
     }
-    // exactOptionalPropertyTypes：可选成员按有无分别构造，而不是先 undefined 再补。
-    // exactOptionalPropertyTypes: build the two shapes instead of patching undefined.
-    let report: RecoveryStatus = {
-      unclean: this.claim.unclean,
-      cause,
-      delivered,
-      detail: delivered
-        ? `delivered the recovery prompt${last === undefined ? '' : ` to ${last.sessionId}`}`
-        : 'delivered nothing this boot',
-    }
-    if (last !== undefined) report = { ...report, lastSession: last }
+    const report = buildRecoveryReport(this.claim, cause, delivered, last)
     this.report = report
     this.logOutcome(report)
   }

@@ -25,12 +25,15 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS, en, zh, type NotebookKey } from './locales.ts'
 import { NotebookPanel } from './panel.tsx'
+import { createNotebookSource } from './source.ts'
+// 页面唯一可观察对象归 source.ts 所有；这里保留薄 re-export，导出面不变。
+// The page's single observable is owned by source.ts; this stays a thin
+// re-export so the export face is unchanged.
+export type { NotebookSource } from './source.ts'
 import {
-  notebookRemote, type NoteView, type NotebookPanelInjected, type NotebookRemoteApi, type NotebookRemoteResult,
-  type NotebookSnapshot, type OwnerView,
+  notebookRemote, type NotebookPanelInjected, type NotebookRemoteApi, type NotebookRemoteResult,
 } from './remote.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -49,16 +52,6 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 
 /** Sidebar and main-panel identity of the page. */
 const PANEL_ID = 'notebook' as MainPanelId
-
-/** How long the open page waits before re-reading, in milliseconds. */
-const POLL_MS = 8_000
-
-/** The observable plus the owner selection and manual refresh the page uses. */
-export interface NotebookSource {
-  readonly source: HostObservable<NotebookSnapshot>
-  readonly select: (owner: string) => void
-  readonly refresh: () => void
-}
 
 /**
  * Client services of the entry plugin. `remote.notebook` must NOT be declared
@@ -106,101 +99,11 @@ const PanelPlugin = {
   },
 } as const
 
-/**
- * Build the page's single observable over the Remote namespace.
- * @param api - the mounted `remote.notebook` namespace.
- * @returns the observable, its owner selection, and its manual refresh.
- */
-function createNotebookSource(api: NotebookRemoteApi): NotebookSource {
-  let snapshot: NotebookSnapshot = {
-    owners: [], owner: undefined, notes: [], status: 'loading', settled: false, error: '',
-  }
-  let owner: string | undefined
-  let epoch = 0
-  let timer: ReturnType<typeof globalThis.setInterval> | undefined
-  const listeners = new Set<() => void>()
-  const publish = (next: Partial<NotebookSnapshot>): void => {
-    snapshot = { ...snapshot, ...next }
-    for (const listener of [...listeners]) listener()
-  }
-  const run = async (mine: number): Promise<void> => {
-    try {
-      const owners = await readOwners(api)
-      const chosen = chooseOwner(owners, owner)
-      owner = chosen
-      if (chosen === undefined) {
-        if (mine === epoch) {
-          publish({ owners, owner: undefined, notes: [], status: 'ready', settled: true, error: '' })
-        }
-        return
-      }
-      const notes = await readNotes(api, chosen)
-      if (mine !== epoch) return
-      publish({ owners, owner: chosen, notes, status: 'ready', settled: true, error: '' })
-    } catch (error: unknown) {
-      if (mine === epoch) publish({ status: 'error', error: messageOf(error) })
-    }
-  }
-  const load = (): void => {
-    const mine = ++epoch
-    if (!snapshot.settled) publish({ status: 'loading' })
-    void run(mine)
-  }
-  return {
-    source: {
-      getSnapshot: () => snapshot,
-      subscribe(listener) {
-        listeners.add(listener)
-        if (listeners.size === 1) {
-          load()
-          timer = globalThis.setInterval(load, POLL_MS)
-        }
-        return () => {
-          listeners.delete(listener)
-          if (listeners.size !== 0) return
-          if (timer !== undefined) globalThis.clearInterval(timer)
-          timer = undefined
-          epoch += 1
-        }
-      },
-    },
-    select: (next) => { owner = next; load() },
-    refresh: () => { load() },
-  }
-}
-
-/** Keep the selected owner when it still exists, else prefer a declared preset. */
-function chooseOwner(owners: readonly OwnerView[], current: string | undefined): string | undefined {
-  if (current !== undefined && owners.some(owner => owner.id === current)) return current
-  return owners.find(owner => owner.declared)?.id ?? owners[0]?.id
-}
-
-/** Read the owner list or throw the Host's message. */
-async function readOwners(api: NotebookRemoteApi): Promise<readonly OwnerView[]> {
-  const result = await api.owners({})
-  if (!result.ok) throw new Error(result.error.message)
-  return result.value
-}
-
-/** Read one owner's notes or throw the Host's message. */
-async function readNotes(api: NotebookRemoteApi, owner: string): Promise<readonly NoteView[]> {
-  const result = await api.list({ owner })
-  if (!result.ok) throw new Error(result.error.message)
-  return result.value
-}
-
 /** Unwrap one write result, raising the Host's message on refusal. */
 async function unwrap<T>(result: Promise<NotebookRemoteResult<T>>): Promise<T> {
   const settled = await result
   if (!settled.ok) throw new Error(settled.error.message)
   return settled.value
-}
-
-/** Render one failure as a single line. */
-function messageOf(error: unknown): string {
-  if (error instanceof Error) return error.message
-  if (typeof error === 'object' && error !== null && 'message' in error) return String(error.message)
-  return String(error)
 }
 
 /**

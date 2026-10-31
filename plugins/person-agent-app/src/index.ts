@@ -63,41 +63,44 @@ export const inject = [
 ]
 export const provide = []
 
-export const apply = (ctx: Context): void => {
-  const apps = ctx.apps
+/**
+ * 单一 effect 的接线体（G13 规则 3）：定义 → 页面，体内任何一步失败都把已完成的
+ * 步骤逆序回滚——绝不留下"应用在、页面缺"的半接线状态。本接线不持有独立资源：
+ * 清理全部由注册表侧的 disposer 承担，effect 返回空清理器。
+ * The wiring body inside the one effect (G13 rule 3): definition → pages; any
+ * failing step rolls the finished ones back in reverse, never leaving a
+ * half-wired state. This wiring owns no standalone resource: cleanup lives in
+ * the registry disposers, so the effect returns a no-op disposer.
+ */
+function wirePersonAgent(ctx: Context): () => void {
+  const done: Array<() => void> = []
+  try {
+    // 1) 应用定义：绑定本 fiber，fiber 销毁 → 整应用摘除。
+    //    Bind the definition to this fiber: disposing it removes the whole app.
+    done.push(ctx.apps.register(APP_DEFINITION, ctx))
+    // 2) 页面注册（一次性渲染形态）：工厂以本插件 ctx 为纯参数产出 PageFC + meta，
+    //    单入口内部自动镜像进 page-registry（可被 openUrl 解析）。组件体在页面会话的
+    //    真实 Agent 上执行恰好一次——工具由体直接登记（随 agent fiber 生灭），异步
+    //    数据在 load 里取齐；此后不再渲染。
+    //    Page registration (one-shot form): the factory takes this plugin's ctx as
+    //    the pure parameter and yields PageFCs + metas, single entry mirrored into
+    //    the page registry (openUrl-resolvable). Each body runs exactly once on
+    //    the page session's real Agent - tools register via the body (living and
+    //    dying with the agent fiber) and async data settles in load; the page
+    //    never renders again.
+    bindPersonAgentContext(ctx)
+    const pages = ctx.apps.pages(APP_ID, ctx)
+    done.push(pages.register(OverviewPage, OverviewMeta))
+    done.push(pages.register(WorkspacesPage, WorkspacesMeta))
+  } catch (error: unknown) {
+    for (const dispose of done.reverse()) dispose()
+    throw error
+  }
+  return () => undefined
+}
 
-  // 单一 effect 收线（G13 规则 3）：定义 → 页面，体内任何一步失败都把已完成的
-  // 步骤逆序回滚——绝不留下"应用在、页面缺"的半接线状态。
-  // One effect owns the wiring (G13 rule 3): definition → pages; any failing
-  // step rolls the finished ones back in reverse, never leaving a half-wired
-  // state.
-  ctx.effect(() => {
-    const done: Array<() => void> = []
-    try {
-      // 1) 应用定义：绑定本 fiber，fiber 销毁 → 整应用摘除。
-      //    Bind the definition to this fiber: disposing it removes the whole app.
-      done.push(apps.register(APP_DEFINITION, ctx))
-      // 2) 页面注册（一次性渲染形态）：工厂以本插件 ctx 为纯参数产出 PageFC +
-      //    meta，单入口内部自动镜像进 page-registry（可被 openUrl 解析）。组件体
-      //    在页面会话的真实 Agent 上执行恰好一次——工具由体直接登记（随 agent
-      //    fiber 生灭），异步数据在 load 里取齐；此后不再渲染。
-      //    Page registration (one-shot form): the factory takes this plugin's
-      //    ctx as the pure parameter and yields PageFCs + metas, single entry
-      //    mirrored into the page registry (openUrl-resolvable). Each body runs
-      //    exactly once on the page session's real Agent — tools register via
-      //    the body (living and dying with the agent fiber) and async data
-      //    settles in load; the page never renders again.
-      bindPersonAgentContext(ctx)
-      const pages = apps.pages(APP_ID, ctx)
-      done.push(pages.register(OverviewPage, OverviewMeta))
-      done.push(pages.register(WorkspacesPage, WorkspacesMeta))
-    } catch (error: unknown) {
-      for (const dispose of done.reverse()) dispose()
-      throw error
-    }
-    // 本接线不持有独立资源：清理全部由注册表侧的 disposer 承担，effect 返回空清理器。
-    // This wiring owns no standalone resource: cleanup lives in the registry
-    // disposers, so the effect returns a no-op disposer.
-    return () => undefined
-  }, 'person-agent-app:wire')
+export const apply = (ctx: Context): void => {
+  // 单一 effect 收线（G13 规则 3）：定义 → 页面。
+  // One effect owns the wiring (G13 rule 3): definition → pages.
+  ctx.effect(() => wirePersonAgent(ctx), 'person-agent-app:wire')
 }

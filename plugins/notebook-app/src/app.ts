@@ -88,6 +88,61 @@ export function createAppTools(ctx: Context, port: () => NotebookToolsPort): Too
 // ---- 单入口注册 / the single-entry registration ----
 
 /**
+ * 绑定页面模块的装配期槽位：选中预挂渲染与组件体的 requireServices 从这里取服务面
+ * ——绑定必须先于任何页面打开，否则选中即 fail loud。第三项是页面作用域完成回报面
+ * （task_take/task_complete/task_fail，docs/unattended-page-contract §6）：投递到本页
+ * 的任务由此收口。
+ * Bind the pages module's assembly-time slot: the staged pick's preview render
+ * and the bodies' requireServices read the face from here — the bind must
+ * precede any page open, or picking fails loud. The third item is the
+ * page-scoped completion face (the §6 delivery loop's last link): tasks
+ * delivered to these pages report through it.
+ */
+function bindPageServices(ctx: Context, port: () => NotebookToolsPort, tools: ToolDefinition[]): void {
+  bindNotebookServices(port, tools, () => buildPageTaskTools(() => ctx.taskCenter, {
+    urlOfSession: async (sessionId) => {
+      const rows = await ctx.pageRegistry.instances.listByApp(APP_ID)
+      return rows.find((row) => row.state === 'live' && row.sessionId === sessionId)?.url
+    },
+  }))
+}
+
+/**
+ * 注册应用的三个步骤（定义 → 工具+槽位绑定 → 页面）；任何一步失败都把已完成的步骤
+ * 逆序回滚，不留"应用在、页面缺"的半接线状态。成功时返回逆序清理句柄。
+ * The three registration steps (definition → tools + slot bind → pages); a
+ * failure at any step rolls the finished ones back in reverse, never leaving a
+ * half-wired "app present, pages missing" state. Returns the reverse-order
+ * disposer on success.
+ */
+function registerAppSteps(ctx: Context, port: () => NotebookToolsPort): () => void {
+  const apps = ctx.apps
+  const done: Array<() => void> = []
+  try {
+    done.push(apps.register(APP_DEFINITION, ctx))
+    // 2) 工具以全名备好：组件体在唯一一次渲染里直接 agent.ctx.tools.register。
+    // 2) Tools are prepared under full names: the body registers via
+    //    agent.ctx.tools.register in the one render.
+    const tools = createAppTools(ctx, port)
+    // 2.5) 装配期槽位绑定（职责见 bindPageServices 的注释）。
+    // 2.5) The assembly-time slot bind (see bindPageServices for the duties).
+    bindPageServices(ctx, port, tools)
+    // 3) 页面注册（一次性渲染形态）：工厂产出的 PageFC + meta 直接注册，
+    //    单入口内部自动镜像进 page-registry（可被 openUrl 解析）。
+    //    Page registration (one-shot form): the factory's PageFC + meta pairs
+    //    register directly, single entry mirrored into the page registry
+    //    (openUrl-resolvable).
+    const pages = apps.pages(APP_ID, ctx)
+    done.push(pages.register(ListPage, ListMeta))
+    done.push(pages.register(NotePage, NoteMeta))
+  } catch (error: unknown) {
+    for (const dispose of done.reverse()) dispose()
+    throw error
+  }
+  return () => { for (const dispose of done.reverse()) dispose() }
+}
+
+/**
  * Register the whole application (definition → tools → pages) in one effect
  * whose body rolls back every finished step when a later one fails — no
  * half-wired "app present, pages missing" state. Disposing reverses
@@ -100,42 +155,5 @@ export function createAppTools(ctx: Context, port: () => NotebookToolsPort): Too
  * @param port - resolves the notebook surface the page tools act through.
  */
 export function registerNotebookApp(ctx: Context, port: () => NotebookToolsPort): void {
-  const apps = ctx.apps
-  ctx.effect(() => {
-    const done: Array<() => void> = []
-    try {
-      done.push(apps.register(APP_DEFINITION, ctx))
-      // 2) 工具以全名备好：组件体在唯一一次渲染里直接 agent.ctx.tools.register。
-      // 2) Tools are prepared under full names: the body registers via
-      //    agent.ctx.tools.register in the one render.
-      const tools = createAppTools(ctx, port)
-      // 2.5) 绑定页面模块的装配期槽位：选中预挂渲染与组件体的 requireServices
-      //      从这里取服务面——绑定必须先于任何页面打开，否则选中即 fail loud。
-      //      第三项是页面作用域完成回报面（task_take/task_complete/task_fail，
-      //      docs/unattended-page-contract §6）：投递到本页的任务由此收口。
-      // 2.5) Bind the pages module's assembly-time slot: the staged pick's
-      //      preview render and the bodies' requireServices read the face from
-      //      here — the bind must precede any page open, or picking fails loud.
-      //      The third item is the page-scoped completion face (the §6 delivery
-      //      loop's last link): tasks delivered to these pages report through it.
-      bindNotebookServices(port, tools, () => buildPageTaskTools(() => ctx.taskCenter, {
-        urlOfSession: async (sessionId) => {
-          const rows = await ctx.pageRegistry.instances.listByApp(APP_ID)
-          return rows.find((row) => row.state === 'live' && row.sessionId === sessionId)?.url
-        },
-      }))
-      // 3) 页面注册（一次性渲染形态）：工厂产出的 PageFC + meta 直接注册，
-      //    单入口内部自动镜像进 page-registry（可被 openUrl 解析）。
-      //    Page registration (one-shot form): the factory's PageFC + meta pairs
-      //    register directly, single entry mirrored into the page registry
-      //    (openUrl-resolvable).
-      const pages = apps.pages(APP_ID, ctx)
-      done.push(pages.register(ListPage, ListMeta))
-      done.push(pages.register(NotePage, NoteMeta))
-    } catch (error: unknown) {
-      for (const dispose of done.reverse()) dispose()
-      throw error
-    }
-    return () => { for (const dispose of done.reverse()) dispose() }
-  }, 'notebook:app()')
+  ctx.effect(() => registerAppSteps(ctx, port), 'notebook:app()')
 }

@@ -71,49 +71,53 @@ export const Config: z<Config> = z.object({
 export const inject = ['apps']
 export const provide = []
 
+/**
+ * 单一 effect 的接线体：定义 → 工具 → 页面，体内任何一步失败都把已完成的步骤
+ * 逆序回滚——绝不留下"应用在、工具缺页"的半接线状态（task-workbench 同款）。
+ * 激活即拉一次真实数据（只读）；失败只记进 store.error，不影响挂载。
+ * The wiring body inside the one effect: definition → tools → pages; any
+ * failing step rolls the finished ones back in reverse (the task-workbench
+ * shape). Live data is pulled once on activation (read-only); failures land in
+ * store.error without affecting the mount.
+ */
+function wireSub2ApiApp(ctx: Context, client: Sub2AdminClient, store: Sub2ApiStore): () => void {
+  const done: Array<() => void> = []
+  try {
+    // 1) 应用定义：绑定本 fiber，fiber 销毁 → 整应用（页面+工具）摘除
+    // / 1) the app definition: fiber-bound; fiber teardown removes pages+tools
+    done.push(ctx.apps.register(APP_DEFINITION, ctx))
+    // 2) 工具以全名备好（`sub2api_admin__<本地名>`，§3.4.3）绑进页面模块槽位：组件体在唯一一次渲染里直接 agent.ctx.tools.register 登记。
+    // / 2) tools prepared under full names, bound into the pages' module slot:
+    //    the bodies register via agent.ctx.tools.register in the one render.
+    const tools = createAppTools(client, store).map((tool) => ({ ...tool, name: externalName(tool.name) }))
+    bindSub2ApiRuntime(store, tools)
+    // 3) 页面注册走单入口，app-registry 内部镜像进 page-registry（可被 openUrl 解析）；镜像失败会回滚并抛错。
+    // / 3) registration rides the single entry, mirrored into page-registry
+    //    (openUrl-resolvable); a mirror failure rolls back and throws.
+    const pages = ctx.apps.pages(APP_ID, ctx)
+    done.push(pages.register(HomePage, HomeMeta))
+    done.push(pages.register(ChannelsPage, ChannelsMeta))
+    done.push(pages.register(GroupsPage, GroupsMeta))
+    done.push(pages.register(UsersPage, UsersMeta))
+    done.push(pages.register(SubscriptionsPage, SubscriptionsMeta))
+    done.push(pages.register(FinancePage, FinanceMeta))
+    done.push(pages.register(CodesPage, CodesMeta))
+    done.push(pages.register(AccountsPage, AccountsMeta))
+    done.push(pages.register(UsagePage, UsageMeta))
+  } catch (error: unknown) {
+    for (const dispose of done.reverse()) dispose()
+    throw error
+  }
+  void store.refreshAll(client)
+  return () => undefined
+}
+
 export const apply = (ctx: Context, config: Config): void => {
-  const apps = ctx.apps
   // 页面与工具共用同一客户端与凭据 / pages and tools share one client and one credential config
   const client = new Sub2AdminClient((config ?? {}) as AdminConfig)
   const store = new Sub2ApiStore()
-
-  // 单一 effect 收线：定义 → 工具 → 页面，体内任何一步失败都把已完成的步骤
-  // 逆序回滚——绝不留下"应用在、工具缺页"的半接线状态（task-workbench 同款）。
-  // One effect owns the wiring: definition → tools → pages; any failing step
-  // rolls the finished ones back in reverse (the task-workbench shape).
-  ctx.effect(() => {
-    const done: Array<() => void> = []
-    try {
-      // 1) 应用定义：绑定本 fiber，fiber 销毁 → 整应用（页面+工具）摘除
-      // / 1) the app definition: fiber-bound; fiber teardown removes pages+tools
-      done.push(apps.register(APP_DEFINITION, ctx))
-      // 2) 工具以全名备好（`sub2api_admin__<本地名>`，§3.4.3）绑进页面模块槽位：
-      //    页面组件体在唯一一次渲染里直接 agent.ctx.tools.register 登记。
-      // / 2) tools prepared under full names, bound into the pages' module slot:
-      //    the bodies register via agent.ctx.tools.register in the one render.
-      const tools = createAppTools(client, store).map((tool) => ({ ...tool, name: externalName(tool.name) }))
-      bindSub2ApiRuntime(store, tools)
-      // 3) 页面注册走单入口，app-registry 内部镜像进 page-registry（可被 openUrl
-      //    解析）；镜像失败会回滚并抛错。
-      // / 3) registration rides the single entry, mirrored into page-registry
-      //    (openUrl-resolvable); a mirror failure rolls back and throws.
-      const pages = apps.pages(APP_ID, ctx)
-      done.push(pages.register(HomePage, HomeMeta))
-      done.push(pages.register(ChannelsPage, ChannelsMeta))
-      done.push(pages.register(GroupsPage, GroupsMeta))
-      done.push(pages.register(UsersPage, UsersMeta))
-      done.push(pages.register(SubscriptionsPage, SubscriptionsMeta))
-      done.push(pages.register(FinancePage, FinanceMeta))
-      done.push(pages.register(CodesPage, CodesMeta))
-      done.push(pages.register(AccountsPage, AccountsMeta))
-      done.push(pages.register(UsagePage, UsageMeta))
-    } catch (error: unknown) {
-      for (const dispose of done.reverse()) dispose()
-      throw error
-    }
-    // 激活即拉一次真实数据（只读）；失败只记进 store.error，不影响挂载
-    // Pull live data once on activation (read-only); failures land in store.error.
-    void store.refreshAll(client)
-    return () => undefined
-  }, 'sub2api-admin:app')
+  // 单一 effect 收线：定义 → 工具 → 页面（回滚语义见 wireSub2ApiApp 的注释）。
+  // One effect owns the wiring: definition → tools → pages (rollback semantics
+  // documented on wireSub2ApiApp).
+  ctx.effect(() => wireSub2ApiApp(ctx, client, store), 'sub2api-admin:app')
 }

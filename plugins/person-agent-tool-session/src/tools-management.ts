@@ -7,7 +7,7 @@
 // session-fork-enhanced plugin (session_fork_with_options), so this package
 // provides no fork tool and keeps a single implementation.
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 // 类型-only import：拉取 sessionController 与 workspaceRegistry 的声明合并。
@@ -103,6 +103,48 @@ export function guardRemovedCwd(definition: ToolDefinition, toolName: string): T
 /** The host create value shape (reused in this file instead of redeclaring). */
 type SessionCreateValue = Awaited<ReturnType<Context['sessionController']['create']>>
 
+/** `session_create` 的模型可见描述。The model-visible description of `session_create`. */
+const CREATE_DESCRIPTION =
+  'Create a new ordinary session in this deployment, optionally with a preset, an initial ' +
+  'provider/model, and a title. The session always joins a workspace: pass workspaceId, or omit it ' +
+  'to inherit the calling session\'s workspace. cwd is not accepted. The new session starts empty ' +
+  'and is not switched to; report its id to the user. ' + HINT
+
+/**
+ * `session_create` 的参数面。`as const` 保留字面量，供 defineTool 的 const 泛型
+ * 推断参数类型。
+ * The parameter face of `session_create`. `as const` keeps the literals so
+ * defineTool's const generic infers argument types.
+ */
+const CREATE_PARAMETERS = {
+  title: { type: 'string', description: 'Display title for the new session; auto-titling applies when omitted.' },
+  presetId: { type: 'string', description: 'Agent preset id; the deployment default when omitted.' },
+  provider: { type: 'string', description: 'Provider id; required together with model.' },
+  model: { type: 'string', description: 'Model id; required together with provider.' },
+  workspaceId: {
+    type: 'string',
+    description: 'Workspace the new session joins, by id from the page\'s Workspace List. Omit it to inherit the calling session\'s workspace; creation fails with SESSION_CREATE_WORKSPACE_UNKNOWN when the caller has none. cwd is not accepted: pass workspaceId instead.',
+  },
+} as const
+
+/**
+ * `session_create` 的执行体：先建会话，再按需补装模型选择与标题。
+ * The `session_create` body: create the session first, then install the model
+ * selection and title on demand.
+ * @param ctx - 携带 sessionController 的宿主上下文。The context carrying sessionController.
+ * @param args - 已校验的创建参数。The validated create arguments.
+ * @param exec - 执行身份与调用方。The execution identity and caller.
+ * @returns 完整的创建结果。The full create result.
+ */
+async function executeSessionCreate(ctx: Context, args: SessionCreateArgs, exec: ToolRunContext): Promise<SessionCreateResult> {
+  const request = buildCreateRequest(ctx, args, exec.agent?.id)
+  const created = await ctx.sessionController.create(request)
+  // 创建成功后再按需补装模型选择与标题；失败时新会话保留，错误显性返回。
+  // Model selection and title are installed after a successful create; on
+  // failure the new session is kept and the error surfaces as-is.
+  return await decorateCreatedSession(ctx, args, created)
+}
+
 /**
  * 构建 `session_create` 工具定义（不注册）：应用目录复用同一份实现。
  * Build the `session_create` tool definition (unregistered): the app catalog
@@ -112,21 +154,8 @@ type SessionCreateValue = Awaited<ReturnType<Context['sessionController']['creat
 export function buildSessionCreateDefinition(ctx: Context): ToolDefinition {
   return defineTool({
     name: 'session_create',
-    description:
-      'Create a new ordinary session in this deployment, optionally with a preset, an initial ' +
-      'provider/model, and a title. The session always joins a workspace: pass workspaceId, or omit it ' +
-      'to inherit the calling session\'s workspace. cwd is not accepted. The new session starts empty ' +
-      'and is not switched to; report its id to the user. ' + HINT,
-    parameters: {
-      title: { type: 'string', description: 'Display title for the new session; auto-titling applies when omitted.' },
-      presetId: { type: 'string', description: 'Agent preset id; the deployment default when omitted.' },
-      provider: { type: 'string', description: 'Provider id; required together with model.' },
-      model: { type: 'string', description: 'Model id; required together with provider.' },
-      workspaceId: {
-        type: 'string',
-        description: 'Workspace the new session joins, by id from the page\'s Workspace List. Omit it to inherit the calling session\'s workspace; creation fails with SESSION_CREATE_WORKSPACE_UNKNOWN when the caller has none. cwd is not accepted: pass workspaceId instead.',
-      },
-    },
+    description: CREATE_DESCRIPTION,
+    parameters: CREATE_PARAMETERS,
     output: {
       // 无损 JSON 输出：结果小而稳定，模型直接读原始值。
       // Lossless JSON output: results are small and stable; the model reads
@@ -134,20 +163,8 @@ export function buildSessionCreateDefinition(ctx: Context): ToolDefinition {
       schema: { type: 'json' },
       render: (_args, value) => [{ type: 'text' as const, text: JSON.stringify(value) }],
     },
-    async execute(args, exec): Promise<SessionCreateResult> {
-      const request = buildCreateRequest(ctx, args, exec.agent?.id)
-      const created = await ctx.sessionController.create(request)
-      // 创建成功后再按需补装模型选择与标题；失败时新会话保留，错误显性返回。
-      // Model selection and title are installed after a successful create; on
-      // failure the new session is kept and the error surfaces as-is.
-      return await decorateCreatedSession(ctx, args, created)
-    },
-    presentCall: (args) => ({
-      card: 'generic',
-      title: 'Create session',
-      kind: 'other',
-      rawInput: args,
-    }),
+    execute: (args, exec) => executeSessionCreate(ctx, args, exec),
+    presentCall: args => ({ card: 'generic', title: 'Create session', kind: 'other', rawInput: args }),
   })
 }
 
