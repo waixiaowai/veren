@@ -213,6 +213,21 @@ export class WechatProvider implements ImService {
     return attempt
   }
 
+  /**
+   * Read the cached context token for one conversation; a storage failure is
+   * fatal and reported verbatim.
+   * 读取一个会话缓存的 context_token；存储失败是致命的，并原样上报。
+   */
+  private contextTokenOf(accountId: string, userId: string): string | undefined {
+    try {
+      return this.store.contextToken(accountId, userId)
+    } catch (error: unknown) {
+      throw new ImError('IM_INTERNAL', `wechat context token could not be read: ${messageOf(error)}`, { cause: error })
+    }
+  }
+
+  /** Send one message, splitting the text at the provider's own limit. */
+  /** 发送一条消息，按 provider 自身的上限分段文本。 */
   async send(request: ImSendRequest): Promise<ImSendResult> {
     const runtime = this.runtimes.get(request.target.accountId)
     if (runtime === undefined) throw new ImError('IM_NOT_FOUND', `unknown WeChat account: ${request.target.accountId}`)
@@ -224,12 +239,7 @@ export class WechatProvider implements ImService {
     const userId = request.target.conversationId.startsWith('p2p:')
       ? request.target.conversationId.slice(4)
       : request.target.conversationId
-    let contextToken: string | undefined
-    try {
-      contextToken = this.store.contextToken(request.target.accountId, userId)
-    } catch (error: unknown) {
-      throw new ImError('IM_INTERNAL', `wechat context token could not be read: ${messageOf(error)}`, { cause: error })
-    }
+    const contextToken = this.contextTokenOf(request.target.accountId, userId)
     let first: { id: string; sentAt: number } | undefined
     for (const segment of splitText(content.text, WEIXIN_FEATURES.limits.textChars)) {
       try {

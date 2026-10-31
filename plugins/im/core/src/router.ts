@@ -5,11 +5,13 @@
  * unchanged re-export surface. By responsibility the module is split into
  * `router-types.ts` (configuration and person-send shapes), `router-prompt.ts`
  * (prompt rendering and content degradation), `router-inbound.ts` (serialized
- * inbound handling), and `router-send.ts` (outbound sends).
+ * inbound handling), `router-people.ts` (the directory face), `router-accounts.ts`
+ * (account removal), and `router-send.ts` (outbound sends).
  *
  * 本文件保留公开门面：`ImRouter`、服务令牌与原样不变的再导出面。模块按职责拆为
  * `router-types.ts`（配置与按人发送形状）、`router-prompt.ts`（Prompt 渲染与内容降级）、
- * `router-inbound.ts`（串行入站处理）与 `router-send.ts`（出站发送）。
+ * `router-inbound.ts`（串行入站处理）、`router-people.ts`（目录面）、`router-accounts.ts`
+ * （账号删除）与 `router-send.ts`（出站发送）。
  *
  * @module @veren/im/router
  */
@@ -34,10 +36,10 @@ import type {
   ImPersonAddressFilter,
   ImPersonQuery,
   ImPersonResolution,
-  ImPersonSaveRequest,
   ImPersonView,
 } from './people-types.ts'
 import { RouterInbound } from './router-inbound.ts'
+import { RouterPeople } from './router-people.ts'
 import { ImMessageQueue } from './queue.ts'
 import { RouterSend } from './router-send.ts'
 import type {
@@ -78,24 +80,6 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/**
- * The directory-save request a router save maps onto, without its address;
- * undefined fields stay untouched, exactly as the caller left them.
- * 路由层保存请求映射成的目录保存请求，不含地址；未定义字段原样保持不动。
- */
-function saveBaseOf(request: ImPersonSaveInput): ImPersonSaveRequest {
-  return {
-    ...(request.personId === undefined ? {} : { personId: request.personId }),
-    ...(request.displayName === undefined ? {} : { displayName: request.displayName }),
-    ...(request.realName === undefined ? {} : { realName: request.realName }),
-    ...(request.aliases === undefined ? {} : { aliases: request.aliases }),
-    ...(request.contacts === undefined ? {} : { contacts: request.contacts }),
-    ...(request.bio === undefined ? {} : { bio: request.bio }),
-    ...(request.notes === undefined ? {} : { notes: request.notes }),
-    ...(request.clearClaim === undefined ? {} : { clearClaim: request.clearClaim }),
-  }
-}
-
 /** Route inbound messages through the durable queue and expose the tool operations. */
 export class ImRouter {
   private readonly registry: ImRegistry
@@ -107,6 +91,28 @@ export class ImRouter {
   private readonly queue: ImMessageQueue
   private readonly inbound: RouterInbound
   private readonly sender: RouterSend
+  private readonly directory: RouterPeople
+  /**
+   * Build the stranger-intake engine over this router's own send path.
+   * 基于本 router 自己的发送路径构建陌生人采集引擎。
+   */
+  private buildIntake(options: ImRouterOptions): ImStrangerIntake {
+    return new ImStrangerIntake({
+      people: options.people,
+      logger: options.logger,
+      // A router without an explicit intake section stays silent; only the
+      // plugin (which owns the config surface) turns it on by default.
+      // 未显式配置 intake 的 router 保持静默；只有拥有配置面的插件才默认开启。
+      config: options.config.strangerIntake ?? { enabled: false },
+      send: request => this.send({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        content: { type: 'text', text: request.text },
+      }),
+      ...(options.now === undefined ? {} : { now: options.now }),
+    })
+  }
+
   /**
    * @param options - storage, registry, session gateway, credentials, people, and config.
    */
@@ -122,20 +128,11 @@ export class ImRouter {
       registry: this.registry,
       people: this.people,
     })
-    this.intake = new ImStrangerIntake({
-      people: options.people,
-      logger: options.logger,
-      // A router without an explicit intake section stays silent; only the
-      // plugin (which owns the config surface) turns it on by default.
-      // 未显式配置 intake 的 router 保持静默；只有拥有配置面的插件才默认开启。
-      config: options.config.strangerIntake ?? { enabled: false },
-      send: request => this.send({
-        accountId: request.accountId,
-        conversationId: request.conversationId,
-        content: { type: 'text', text: request.text },
-      }),
-      ...(options.now === undefined ? {} : { now: options.now }),
+    this.directory = new RouterPeople({
+      bindings: this.bindings,
+      people: this.people,
     })
+    this.intake = this.buildIntake(options)
     this.inbound = new RouterInbound({
       gateway: options.gateway,
       registry: this.registry,
@@ -172,13 +169,13 @@ export class ImRouter {
   submitBindCode(bindId: string, code: string): Promise<ImBindPollResult> {
     return this.bindings.submitBindCode(bindId, code)
   }
-  /** List or search the people directory; never sends. */
+  /** List or search the people directory; never sends. See `router-people.ts`. */
   listPeople(request: ImPersonQuery = {}): ImPersonView[] {
-    return this.people.list(request)
+    return this.directory.list(request)
   }
   /** Resolve one name without sending; exposes ambiguity to the caller. */
   resolvePerson(query: string, filter: ImPersonAddressFilter = {}): ImPersonResolution {
-    return this.people.resolve(query, filter)
+    return this.directory.resolve(query, filter)
   }
   /** The automatic-intake switch, counts, and recent audit records. */
   intakeStatus(limit?: number): ImIntakeStatusView {
@@ -186,69 +183,37 @@ export class ImRouter {
   }
   /**
    * Resolve the person seen at one conversation address, for tools that know
-   * the conversation but not the person id.
+   * the conversation but not the person id. See `router-people.ts`.
    * 解析某个会话地址上观察到的人，供只知道会话、不知道 personId 的工具使用。
    */
   personAt(accountId: string, conversationId: string): ImPersonView | undefined {
-    const account = this.bindings.account(accountId)
-    if (account === undefined) return undefined
-    return this.people.viewAt(account.provider, accountId, conversationId)
+    return this.directory.personAt(accountId, conversationId)
   }
   /** Read one person by id, for tools that already hold a personId. */
   personById(personId: string): ImPersonView | undefined {
-    return this.people.person(personId)
+    return this.directory.personById(personId)
   }
   /**
    * Record one unverified self-report from the conversation model. The
    * provider comes from the account; the claim path never touches `realName`.
    * 记录会话模型带来的一条未核实自述。provider 取自账号；claim 路径绝不碰 realName。
    */
-  async reportPersonClaim(personId: string, claim: {
+  reportPersonClaim(personId: string, claim: {
     name?: string
     contacts?: ImPersonContact[]
     accountId: string
     conversationId: string
     messageId: string
   }): Promise<ImPersonView> {
-    const account = this.bindings.account(claim.accountId)
-    if (account === undefined) throw new ImError('IM_NOT_FOUND', `unknown account: ${claim.accountId}`)
-    return this.people.recordClaim(personId, {
-      ...(claim.name === undefined ? {} : { name: claim.name }),
-      ...(claim.contacts === undefined ? {} : { contacts: claim.contacts }),
-      provider: account.provider,
-      accountId: claim.accountId,
-      conversationId: claim.conversationId,
-      messageId: claim.messageId,
-    })
+    return this.directory.reportClaim(personId, claim)
   }
   /** Settle one person's open intake question from the model's report. */
   settleIntake(personId: string, outcome: ImIntakeSettle, detail?: 'name' | 'contact' | 'both'): Promise<boolean> {
     return this.intake.settleByModel(personId, outcome, detail)
   }
-  /** Create or enrich one person. An unknown account fails loudly. */
-  async savePerson(request: ImPersonSaveInput): Promise<ImPersonView> {
-    const base = saveBaseOf(request)
-    const address = request.address
-    if (address === undefined) return this.people.save(base)
-    const account = this.bindings.account(address.accountId)
-    if (account === undefined) throw new ImError('IM_NOT_FOUND', `unknown account: ${address.accountId}`)
-    const provider = address.provider ?? account.provider
-    if (provider !== account.provider) {
-      throw new ImError(
-        'IM_INVALID_REQUEST',
-        `account ${address.accountId} belongs to ${account.provider}, not ${provider}`,
-      )
-    }
-    return this.people.save({
-      ...base,
-      address: {
-        provider,
-        accountId: address.accountId,
-        conversationId: address.conversationId,
-        ...(address.externalId === undefined ? {} : { externalId: address.externalId }),
-        ...(address.displayName === undefined ? {} : { displayName: address.displayName }),
-      },
-    })
+  /** Create or enrich one person. An unknown account fails loudly. See `router-people.ts`. */
+  savePerson(request: ImPersonSaveInput): Promise<ImPersonView> {
+    return this.directory.save(request)
   }
   /** Send to a person, resolving the name first; see `router-send.ts`. */
   sendToPerson(request: ImPersonSendRequest): Promise<ImPersonSendResult> {

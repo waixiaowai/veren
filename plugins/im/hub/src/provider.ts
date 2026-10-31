@@ -139,40 +139,59 @@ export class HubProvider {
     return { id: `hub-${Date.now()}`, sentAt: Date.now() }
   }
 
-  /** The long-poll loop: claim batches, emit, advance the cursor per batch.
-   *  新鲜度过滤在 CMS 侧完成（after=0 只回 5 分钟内消息）——设备侧零重复实现。 */
+  /**
+   * Claim one batch from the hub's device queue. Freshness filtering is the
+   * CMS side's job (after=0 only returns messages from the last 5 minutes) —
+   * the device side implements zero of it.
+   * 从 hub 的设备队列认领一批。新鲜度过滤在 CMS 侧完成（after=0 只回 5 分钟内消息）——
+   * 设备侧零重复实现。
+   */
+  private async claimBatch(): Promise<HubMessagesData> {
+    const { hubBaseUrl, apiKey, deviceId, cursor } = this.options
+    const response = await this.fetch(
+      `${hubBaseUrl}/v1/im/hub/messages?device=${encodeURIComponent(deviceId)}&after=${cursor.after(deviceId)}`,
+      { headers: { authorization: `Bearer ${apiKey}` }, signal: this.controller.signal },
+    )
+    if (!response.ok) throw new ImError('IM_INTERNAL', `hub poll failed: HTTP ${response.status}`)
+    return this.envelope<HubMessagesData>(response)
+  }
+
+  /**
+   * Fan one batch message out to every handler, then advance the cursor.
+   * An empty message_id is skipped (with the cursor still advanced): it would
+   * otherwise become a poison row that fails the domain at open (live defect
+   * 2026-10-27: an older gateway omitted the field).
+   * 把一批里的一条消息广播给所有 handler，然后推进游标。空 message_id 直接跳过
+   * （游标照常推进）：否则会成为开库都过不了的毒行（真机缺陷 2026-10-27：旧网关
+   * 不下发该字段）。
+   */
+  private async route(deviceId: string, cursor: HubCursorStore, message: HubDeviceMessage): Promise<void> {
+    if (message.message_id === undefined || message.message_id === '') {
+      this.options.logger.warn(`[im:hub] message seq ${message.seq} has no message_id — skipped`)
+      await cursor.save(deviceId, message.seq)
+      return
+    }
+    const normalized: ImMessage = {
+      id: message.message_id,
+      accountId: deviceId,
+      conversationId: message.conversation_id,
+      sender: { id: message.sender },
+      sentAt: message.sent_at,
+      content: { type: 'text', text: message.text },
+    }
+    for (const handler of [...this.handlers]) await handler(normalized)
+    await cursor.save(deviceId, message.seq)
+  }
+
+  /** The long-poll loop: claim batches, emit, advance the cursor per batch. */
+  /** 长轮询循环：认领批次、投递、按批推进游标。 */
   private async loop(): Promise<void> {
-    const { hubBaseUrl, apiKey, deviceId, cursor, logger } = this.options
+    const { deviceId, cursor, logger } = this.options
     while (!this.controller.signal.aborted) {
       try {
-        const response = await this.fetch(
-          `${hubBaseUrl}/v1/im/hub/messages?device=${encodeURIComponent(deviceId)}&after=${cursor.after(deviceId)}`,
-          { headers: { authorization: `Bearer ${apiKey}` }, signal: this.controller.signal },
-        )
-        if (!response.ok) throw new ImError('IM_INTERNAL', `hub poll failed: HTTP ${response.status}`)
-        const data = await this.envelope<HubMessagesData>(response)
+        const data = await this.claimBatch()
         for (const message of data.messages ?? []) {
-          // 防御：空 message_id 一旦入库就是启动开库都过不了的毒行（真机缺陷
-          // 2026-10-27：旧网关不下发该字段）。跳过并推进游标，不让一条坏载荷
-          // 堵死整条通道。
-          // Defense: an empty message_id becomes a poison row that fails the
-          // domain at open (live defect 2026-10-27: an older gateway omitted
-          // the field). Skip it, advance the cursor, keep the channel alive.
-          if (message.message_id === undefined || message.message_id === '') {
-            logger.warn(`[im:hub] message seq ${message.seq} has no message_id — skipped`)
-            await cursor.save(deviceId, message.seq)
-            continue
-          }
-          const normalized: ImMessage = {
-            id: message.message_id,
-            accountId: deviceId,
-            conversationId: message.conversation_id,
-            sender: { id: message.sender },
-            sentAt: message.sent_at,
-            content: { type: 'text', text: message.text },
-          }
-          for (const handler of [...this.handlers]) await handler(normalized)
-          await cursor.save(deviceId, message.seq)
+          await this.route(deviceId, cursor, message)
         }
         if ((data.messages ?? []).length === 0) {
           await new Promise(resolve => setTimeout(resolve, 300))

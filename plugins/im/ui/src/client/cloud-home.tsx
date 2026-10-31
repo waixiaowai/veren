@@ -67,6 +67,99 @@ function classifyFailure(cause: unknown, session: CmsSession, onExpired: () => v
   return { kind: 'message', text: cause instanceof Error ? cause.message : String(cause) }
 }
 
+/** The snapshot setters the home's async steps drive. */
+/** 主视图异步步骤驱动的快照 setter。 */
+interface HomeSetters {
+  readonly setInfo: (info: CmsOverview | undefined) => void
+  readonly setRows: (rows: DirectoryData | undefined) => void
+  readonly setError: (error: string | undefined) => void
+  readonly setGap: (gap: boolean) => void
+}
+
+/**
+ * One home refresh: read the overview and the directory; a 401 signs the
+ * session out, a 404 flips the gap card, anything else surfaces its message.
+ * 一次主视图刷新：读取概览与目录；401 登出，404 翻出差距卡，其余呈现消息。
+ */
+async function reloadHome(
+  session: CmsSession,
+  onExpired: () => void,
+  set: HomeSetters,
+): Promise<void> {
+  try {
+    set.setInfo(await overview(session))
+    set.setRows(await people(session))
+    // 一次成功读取会清掉错误与过期的差距标记。
+    // A successful read clears the error and the stale gap flag.
+    set.setError(undefined)
+    set.setGap(false)
+  } catch (cause) {
+    const failure = classifyFailure(cause, session, onExpired)
+    if (failure.kind === 'gap') set.setGap(true)
+    if (failure.kind === 'message') set.setError(failure.text)
+  }
+}
+
+/**
+ * Patch one person's display name and note; false means the patch failed, with
+ * only its message surfaced — the gap card is reserved for the first read.
+ * 补丁一个人员的显示名与备注；false 表示补丁失败，只呈现消息——差距卡专属于首读。
+ */
+async function saveDraft(
+  session: CmsSession,
+  draft: EditDraft,
+  onExpired: () => void,
+  setError: (error: string | undefined) => void,
+): Promise<boolean> {
+  try {
+    await patchPerson(session, draft.id, { displayName: draft.displayName, note: draft.note })
+  } catch (cause) {
+    const failure = classifyFailure(cause, session, onExpired)
+    if (failure.kind === 'message') setError(failure.text)
+    return false
+  }
+  return true
+}
+
+/**
+ * The home's data plane: overview + directory state, the refresh cycle, and
+ * the person save.
+ * 主视图的数据面：概览+目录状态、刷新循环与人员保存。
+ */
+function useHomeData(props: {
+  readonly session: CmsSession
+  readonly onExpired: () => void
+}): {
+  readonly info: CmsOverview | undefined
+  readonly rows: DirectoryData | undefined
+  readonly error: string | undefined
+  readonly gap: boolean
+  readonly refresh: () => Promise<void>
+  readonly savePerson: (draft: EditDraft) => Promise<boolean>
+} {
+  const { session } = props
+  const [info, setInfo] = useState<CmsOverview | undefined>()
+  const [rows, setRows] = useState<DirectoryData | undefined>()
+  const [error, setError] = useState<string | undefined>()
+  const [gap, setGap] = useState(false)
+
+  const refresh = useCallback(
+    () => reloadHome(session, props.onExpired, { setInfo, setRows, setError, setGap }),
+    [props, session],
+  )
+
+  useEffect(() => { void refresh() }, [refresh])
+
+  const savePerson = useCallback(async (draft: EditDraft): Promise<boolean> => {
+    const saved = await saveDraft(session, draft, props.onExpired, setError)
+    if (!saved) return false
+    await refresh()
+    return true
+  }, [props, refresh, session])
+
+  return { info, rows, error, gap, refresh, savePerson }
+}
+
 /** The signed-in home: fetches overview + directory, then dispatches the body. */
 /** 已登录主视图：拉取概览+目录，然后分发主体。 */
 export function CloudHome(props: {
@@ -76,43 +169,12 @@ export function CloudHome(props: {
   readonly onExpired: () => void
 }): React.JSX.Element {
   const { t, session } = props
-  const [info, setInfo] = useState<CmsOverview | undefined>()
-  const [rows, setRows] = useState<DirectoryData | undefined>()
-  const [error, setError] = useState<string | undefined>()
-  const [gap, setGap] = useState(false)
-
-  const refresh = useCallback(async () => {
-    try {
-      setInfo(await overview(session))
-      setRows(await people(session))
-      setError(undefined)
-      setGap(false)
-    } catch (cause) {
-      const failure = classifyFailure(cause, session, props.onExpired)
-      if (failure.kind === 'gap') setGap(true)
-      if (failure.kind === 'message') setError(failure.text)
-    }
-  }, [props, session])
-
-  useEffect(() => { void refresh() }, [refresh])
-
-  const savePerson = useCallback(async (draft: EditDraft): Promise<boolean> => {
-    try {
-      await patchPerson(session, draft.id, { displayName: draft.displayName, note: draft.note })
-    } catch (cause) {
-      const failure = classifyFailure(cause, session, props.onExpired)
-      if (failure.kind === 'message') setError(failure.text)
-      return false
-    }
-    await refresh()
-    return true
-  }, [props, refresh, session])
-
+  const home = useHomeData({ session: props.session, onExpired: props.onExpired })
   return (
     <section className="im-section">
-      <HomeBody t={t} session={session} info={info} rows={rows} error={error} gap={gap}
-        onRefresh={() => void refresh()} onSignOut={props.onSignedOut}
-        onAuthorized={() => void refresh()} onExpired={props.onExpired} onSave={savePerson} />
+      <HomeBody t={t} session={session} info={home.info} rows={home.rows} error={home.error} gap={home.gap}
+        onRefresh={() => void home.refresh()} onSignOut={props.onSignedOut}
+        onAuthorized={() => void home.refresh()} onExpired={props.onExpired} onSave={home.savePerson} />
     </section>
   )
 }

@@ -1,45 +1,49 @@
 /**
  * Tencent iLink bot HTTP client.
  *
- * Owns protocol shape, request timeouts, and error-code mapping. `-14` means
- * the login is stale; a rejected `sendmessage` (`ret=-2`) is a delivery
- * refusal, not a network error. The trusted-URL policy lives in `api-url.ts`
- * and is re-exported unchanged here.
+ * Owns the client face: one method per endpoint, composed from the wire-level
+ * plumbing in `api-wire.ts` (timeouts, headers, failure classification) and the
+ * trusted-URL policy in `api-url.ts`. `-14` means the login is stale; a
+ * rejected `sendmessage` (`ret=-2`) is a delivery refusal, not a network error.
  *
- * 腾讯 iLink 机器人 HTTP 客户端。负责协议形状、请求超时与错误码映射。`-14` 表示登录失效；
- * `sendmessage` 被拒（`ret=-2`）是投递拒绝，不是网络错误。可信 URL 策略在 `api-url.ts`，
- * 并在此原样再导出。
+ * 腾讯 iLink 机器人 HTTP 客户端。负责客户端门面：每个端点一个方法，由 `api-wire.ts` 的
+ * 线上管线（超时、请求头、失败归类）与 `api-url.ts` 的可信 URL 策略组合而成。`-14` 表示
+ * 登录失效；`sendmessage` 被拒（`ret=-2`）是投递拒绝，不是网络错误。
  *
  * @module @veren/im-wechat/api
  */
 
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { ImError } from '@veren/im'
 import { isRecord, toLoginStatus, toMessage } from './state.ts'
 import { assertTrustedUrl, normalizeBaseUrl, normalizeQrUrl } from './api-url.ts'
+import {
+  QR_TIMEOUT_MS,
+  REQUEST_TIMEOUT_MS,
+  WechatTimeoutError,
+  baseInfo,
+  rejectedCode,
+  requestErrorOf,
+  requestHeadersOf,
+  requiredString,
+  sendTextRequestOf,
+} from './api-wire.ts'
 import type { WechatLoginStatus, WechatMessage } from './state.ts'
 
 // ---- unchanged export surface (URL policy moved to api-url.ts) ----
 // ---- 导出面不变（URL 策略移至 api-url.ts）----
 export { normalizeBaseUrl, normalizeQrUrl } from './api-url.ts'
 
+// ---- unchanged export surface (wire plumbing moved to api-wire.ts) ----
+// ---- 导出面不变（线上管线移至 api-wire.ts）----
+export { WechatTimeoutError } from './api-wire.ts'
+
 /** Default iLink API base URL and bot type. */
 export const WEIXIN_BASE_URL = 'https://ilinkai.weixin.qq.com/'
 export const WEIXIN_BOT_TYPE = '3'
 /** The protocol expects a 35-second long poll; a timeout is an empty batch. */
 export const WEIXIN_LONG_POLL_MS = 35_000
-const REQUEST_TIMEOUT_MS = 15_000
-const QR_TIMEOUT_MS = 10_000
-const PROTOCOL_VERSION = '2.4.6'
-const CLIENT_VERSION = (2 << 16) | (4 << 8) | 6
 
-/** A request that exceeded its timeout; `getupdates` treats it as an empty batch. */
-export class WechatTimeoutError extends Error {
-  constructor() {
-    super('wechat request timed out')
-    this.name = 'WechatTimeoutError'
-  }
-}
 /** Client construction options. */
 export interface WechatApiOptions {
   baseUrl?: string
@@ -122,6 +126,7 @@ export class WechatApi {
   }
 
   /** Send one text segment to one user. */
+  /** 向一个用户发送一段文本。 */
   async sendText(
     token: string,
     toUserId: string,
@@ -132,23 +137,8 @@ export class WechatApi {
     const clientId = `im-wechat-${randomUUID()}`
     let response: Record<string, unknown>
     try {
-      response = await this.request('POST', 'ilink/bot/sendmessage', {
-        token,
-        timeoutMs: REQUEST_TIMEOUT_MS,
-        body: {
-          msg: {
-            from_user_id: '',
-            to_user_id: toUserId,
-            client_id: clientId,
-            message_type: 2,
-            message_state: 2,
-            item_list: [{ type: 1, text_item: { text } }],
-            ...(contextToken === undefined || contextToken === '' ? {} : { context_token: contextToken }),
-          },
-          base_info: baseInfo(),
-        },
-        ...(signal === undefined ? {} : { signal }),
-      })
+      response = await this.request('POST', 'ilink/bot/sendmessage',
+        sendTextRequestOf(token, toUserId, clientId, text, contextToken, signal))
     } catch (error: unknown) {
       if (error instanceof WechatTimeoutError) {
         throw new ImError('IM_DELIVERY_UNCERTAIN', 'wechat text send timed out', { cause: error })
@@ -200,6 +190,7 @@ export class WechatApi {
   }
 
   /** One authenticated JSON request against the trusted iLink base. */
+  /** 对可信 iLink 基址发起一次（默认带鉴权的）JSON 请求。 */
   private async request(
     method: 'GET' | 'POST',
     endpoint: string,
@@ -217,67 +208,36 @@ export class WechatApi {
       ? controller.signal
       : AbortSignal.any([controller.signal, options.signal])
     try {
-      const headers: Record<string, string> = {
-        'iLink-App-Id': 'bot',
-        'iLink-App-ClientVersion': String(CLIENT_VERSION),
-      }
-      if (options.body !== undefined) headers['content-type'] = 'application/json'
-      if (options.authenticated !== false) {
-        headers.AuthorizationType = 'ilink_bot_token'
-        headers['X-WECHAT-UIN'] = randomBytes(4).toString('base64')
-        if (options.token !== undefined) headers.Authorization = `Bearer ${options.token}`
-      }
-      const response = await this.fetch(url, {
-        method,
-        headers,
-        ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
-        signal: combined,
-      })
-      if (!response.ok) throw new ImError('IM_INTERNAL', `wechat HTTP ${response.status}`)
-      let parsed: unknown
-      try {
-        parsed = await response.json()
-      } catch {
-        throw new ImError('IM_INTERNAL', 'wechat returned invalid JSON')
-      }
-      if (!isRecord(parsed)) throw new ImError('IM_INTERNAL', 'wechat returned a non-object response')
-      return parsed
+      return await this.fetchJson(url, method, options, combined)
     } catch (error: unknown) {
-      if (timedOut) throw new WechatTimeoutError()
-      if (options.signal?.aborted === true) {
-        throw options.signal.reason instanceof Error
-          ? options.signal.reason
-          : new ImError('IM_INTERNAL', 'wechat request aborted')
-      }
-      if (error instanceof ImError) throw error
-      throw new ImError('IM_INTERNAL', 'wechat request failed', { cause: error })
+      throw requestErrorOf(error, timedOut, options.signal)
     } finally {
       clearTimeout(timer)
     }
   }
-}
 
-/** Return the first non-zero `ret`/`errcode`. */
-function rejectedCode(value: Record<string, unknown>): string | undefined {
-  for (const field of ['ret', 'errcode'] as const) {
-    const raw = value[field]
-    if (raw === undefined || raw === 0 || raw === '0') continue
-    if (typeof raw === 'string' || typeof raw === 'number') return String(raw)
-    return 'rejected'
+  /** Issue the fetch and normalize the response into a JSON record. */
+  /** 发起 fetch 并把响应归一为 JSON record。 */
+  private async fetchJson(
+    url: URL,
+    method: 'GET' | 'POST',
+    options: { body?: Record<string, unknown>; token?: string; authenticated?: boolean },
+    signal: AbortSignal,
+  ): Promise<Record<string, unknown>> {
+    const response = await this.fetch(url, {
+      method,
+      headers: requestHeadersOf(options),
+      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+      signal,
+    })
+    if (!response.ok) throw new ImError('IM_INTERNAL', `wechat HTTP ${response.status}`)
+    let parsed: unknown
+    try {
+      parsed = await response.json()
+    } catch {
+      throw new ImError('IM_INTERNAL', 'wechat returned invalid JSON')
+    }
+    if (!isRecord(parsed)) throw new ImError('IM_INTERNAL', 'wechat returned a non-object response')
+    return parsed
   }
-  return undefined
 }
-
-/** Require one non-empty string response field. */
-function requiredString(value: unknown, field: string): string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new ImError('IM_INTERNAL', `wechat response is missing ${field}`)
-  }
-  return value.trim()
-}
-
-/** Protocol metadata sent with every request. */
-function baseInfo(): Record<string, unknown> {
-  return { channel_version: PROTOCOL_VERSION, bot_agent: 'VerenIM/0.1.0' }
-}
-

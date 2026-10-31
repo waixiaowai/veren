@@ -187,19 +187,32 @@ export const Config: z<Config> = z.object({
   }),
 })
 /**
- * Apply the IM core plugin.
- * @param ctx - host context.
- * @param config - validated plugin configuration.
+ * Open the durable IM domain and register its disposer.
+ * 打开持久化 IM 域并注册其释放器。
  */
-export const apply = async (ctx: Context, config: Config): Promise<void> => {
+async function openStorage(ctx: Context): Promise<ImStorage> {
   const storage = new ImStorage()
   await storage.open(ctx)
   ctx.effect(() => () => storage.close(), 'im:storage')
-  const logger: ImLogger = {
+  return storage
+}
+
+/** Project the host logger onto the seam the IM core reads. */
+/** 把宿主 logger 投影到 IM 核心依赖的接缝上。 */
+function buildLogger(ctx: Context): ImLogger {
+  return {
     info: message => ctx.logger.info(message),
     warn: message => ctx.logger.warn(message),
     error: message => ctx.logger.error(message),
   }
+}
+
+/**
+ * Build the people directory: consolidate stored duplicates, seed from stored
+ * conversations, and publish the service.
+ * 构建人员目录：归并存量重复档案、从已存会话播种，并发布服务。
+ */
+async function buildPeople(ctx: Context, storage: ImStorage, logger: ImLogger): Promise<ImPeople> {
   const people = new ImPeople({ store: storage, logger })
   // 先归并存量重复档案再播种：归并回退只防新增，重启时的存量修复在这里。
   // Consolidate stored duplicates before seeding: the runtime fallback only
@@ -207,12 +220,14 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   await consolidatePeople(storage, logger)
   await seedPeople(people, storage, logger)
   ctx.effect(() => ctx.provide(ImPeopleToken, people), 'im:people')
-  ctx.logger.info(
-    `im: stranger intake is ${config.strangerIntake.enabled ? 'enabled' : 'disabled'}`
-    + ` (ask: ${STRANGER_INTAKE_ASK})`,
-  )
-  const gateway = new DshSessionGateway(ctx, config.replyTimeoutMs)
-  ctx.effect(() => () => gateway.dispose(), 'im:gateway')
+  return people
+}
+
+/**
+ * Recover in-flight queue rows left by a crash back to the queued state.
+ * 把崩溃遗留的在途队列行恢复回排队状态。
+ */
+async function recoverQueue(ctx: Context, storage: ImStorage): Promise<void> {
   // 重启恢复：消费中的行回到排队（至少一次契约），消息绝不因崩溃而消失。
   // Restart recovery: consuming rows return to queued (the at-least-once
   // contract); a crash never makes a message vanish.
@@ -221,6 +236,16 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   if (recovered > 0) {
     ctx.logger.warn(`im: ${recovered} in-flight message(s) returned to the queue after the restart`)
   }
+}
+
+/**
+ * Wire the session gateway and the queue-fed router, with disposers in
+ * unload order.
+ * 接线会话网关与队列供养的 router，并按卸载顺序注册释放器。
+ */
+function wireRuntime(ctx: Context, storage: ImStorage, logger: ImLogger, config: Config, people: ImPeople): void {
+  const gateway = new DshSessionGateway(ctx, config.replyTimeoutMs)
+  ctx.effect(() => () => gateway.dispose(), 'im:gateway')
   wireRouter(ctx, {
     store: storage,
     gateway,
@@ -236,6 +261,23 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
       strangerIntake: config.strangerIntake,
     },
   })
+}
+
+/**
+ * Apply the IM core plugin.
+ * @param ctx - host context.
+ * @param config - validated plugin configuration.
+ */
+export const apply = async (ctx: Context, config: Config): Promise<void> => {
+  const storage = await openStorage(ctx)
+  const logger = buildLogger(ctx)
+  const people = await buildPeople(ctx, storage, logger)
+  ctx.logger.info(
+    `im: stranger intake is ${config.strangerIntake.enabled ? 'enabled' : 'disabled'}`
+    + ` (ask: ${STRANGER_INTAKE_ASK})`,
+  )
+  await recoverQueue(ctx, storage)
+  wireRuntime(ctx, storage, logger, config, people)
   // Web 面板的后端：`im` 远端命名空间（QR data URL、目录/绑定/采集的读写面）。
   // router 由注入解析，挂载顺序无关。
   // The web panel's backend: the `im` remote namespace (QR data URLs plus the

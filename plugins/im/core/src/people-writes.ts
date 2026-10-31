@@ -94,34 +94,57 @@ export class PeopleMutations {
     // different bot account (a fresh QR authorization mints a new accountId),
     // fall back to the same provider+externalId address and let it drift to the
     // new account instead of minting a duplicate person.
-    const merged = existing === undefined
-      ? this.store.personAddresses().find(candidate =>
-          candidate.provider === address.provider
-          && candidate.external_id === address.externalId
-          && candidate.account_id !== address.accountId)
-      : undefined
-    if (merged !== undefined) {
-      const mergedPerson = this.store.getPerson(merged.person_id)
-      if (mergedPerson === undefined) {
-        // 悬挂地址（人已消失）：放弃归并，按全新地址登记 / a dangling address
-        // (person gone): skip the merge and register fresh
-        this.logger.warn(
-          `[im:people] address ${merged.provider}/${merged.account_id}/${merged.external_id}`
-          + ' referenced a missing person; the merge was skipped',
-        )
-      } else {
-        this.logger.info?.(
-          `[im:people] ${address.provider}/${address.externalId} moved from account`
-          + ` ${merged.account_id} to ${address.accountId}; person ${merged.person_id} kept`,
-        )
-        const person = await this.refreshAddress(merged, mergedPerson, address, displayName, now)
-        return viewOfPerson(this.store, person.id)
-      }
-    }
+    const merged = existing === undefined ? this.mergedAddressOf(address) : undefined
+    const adopted = merged === undefined ? undefined : await this.adoptMerged(merged, address, displayName, now)
+    if (adopted !== undefined) return viewOfPerson(this.store, adopted.id)
     const person = existing !== undefined && existingPerson !== undefined
       ? await this.refreshAddress(existing, existingPerson, address, displayName, now)
       : await this.registerAddress(address, displayName, now)
     return viewOfPerson(this.store, person.id)
+  }
+
+  /**
+   * Find the address to merge when the exact triple misses: the same provider
+   * user id observed under a different bot account.
+   * 精确三元组落空时寻找要归并的地址：同 provider 同用户 id 换了 bot 账号。
+   */
+  private mergedAddressOf(
+    address: { provider: string; accountId: string; externalId: string },
+  ): ImPersonAddressRow | undefined {
+    return this.store.personAddresses().find(candidate =>
+      candidate.provider === address.provider
+      && candidate.external_id === address.externalId
+      && candidate.account_id !== address.accountId)
+  }
+
+  /**
+   * Carry one merged address (and its person) onto the account being observed.
+   * Returns undefined when the address dangles (its person is gone) so the
+   * caller registers fresh instead.
+   * 把一条归并地址（连同其人）迁移到本次观察的账号。地址悬挂（人已消失）时返回 undefined，
+   * 调用方改按全新地址登记。
+   */
+  private async adoptMerged(
+    merged: ImPersonAddressRow,
+    address: Required<Pick<ImPersonAddressInput, 'provider' | 'accountId' | 'conversationId' | 'externalId'>>,
+    displayName: string | undefined,
+    now: number,
+  ): Promise<ImPersonRow | undefined> {
+    const mergedPerson = this.store.getPerson(merged.person_id)
+    if (mergedPerson === undefined) {
+      // 悬挂地址（人已消失）：放弃归并，按全新地址登记 / a dangling address
+      // (person gone): skip the merge and register fresh
+      this.logger.warn(
+        `[im:people] address ${merged.provider}/${merged.account_id}/${merged.external_id}`
+        + ' referenced a missing person; the merge was skipped',
+      )
+      return undefined
+    }
+    this.logger.info?.(
+      `[im:people] ${address.provider}/${address.externalId} moved from account`
+      + ` ${merged.account_id} to ${address.accountId}; person ${merged.person_id} kept`,
+    )
+    return this.refreshAddress(merged, mergedPerson, address, displayName, now)
   }
 
   /**

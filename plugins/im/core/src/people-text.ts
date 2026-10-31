@@ -140,14 +140,12 @@ function cleanContacts(values: ImPersonContact[]): ImPersonContact[] {
   return result
 }
 
-/** Apply the profile patch onto a copy of one row. */
-export function applyProfile(row: ImPersonRow, request: ImPersonSaveRequest, now: number): ImPersonRow {
-  const next: ImPersonRow = {
-    ...row,
-    aliases: [...row.aliases],
-    contacts: row.contacts.map(contact => ({ ...contact })),
-    updated_at: now,
-  }
+/**
+ * Patch the name fields: the display name must be non-empty and on one line;
+ * an empty real name clears the field. Both are length-capped.
+ * 补丁名字段：显示名不得为空且保持单行；真名为空则清掉该字段。两者都限长。
+ */
+function applyNamePatch(next: ImPersonRow, request: ImPersonSaveRequest): void {
   if (request.displayName !== undefined) {
     const name = oneLine(request.displayName)
     if (name === '') throw new ImError('IM_INVALID_REQUEST', 'displayName must not be empty')
@@ -163,6 +161,11 @@ export function applyProfile(row: ImPersonRow, request: ImPersonSaveRequest, now
       throw new ImError('IM_INVALID_REQUEST', `realName must be at most ${MAX_NAME_CHARS} characters`)
     } else next.real_name = name
   }
+}
+
+/** Patch the aliases, contacts, free-text fields, and the claim-clear switch. */
+/** 补丁别名、联系方式、自由文本字段与清除自述开关。 */
+function applyTextPatch(next: ImPersonRow, request: ImPersonSaveRequest): void {
   if (request.aliases !== undefined) next.aliases = cleanAliases(request.aliases)
   if (request.contacts !== undefined) next.contacts = cleanContacts(request.contacts)
   if (request.bio !== undefined) {
@@ -176,6 +179,19 @@ export function applyProfile(row: ImPersonRow, request: ImPersonSaveRequest, now
     else next.notes = notes
   }
   if (request.clearClaim === true) delete next.claim
+}
+
+/** Apply the profile patch onto a copy of one row. */
+/** 把档案补丁应用到一行数据的副本上。 */
+export function applyProfile(row: ImPersonRow, request: ImPersonSaveRequest, now: number): ImPersonRow {
+  const next: ImPersonRow = {
+    ...row,
+    aliases: [...row.aliases],
+    contacts: row.contacts.map(contact => ({ ...contact })),
+    updated_at: now,
+  }
+  applyNamePatch(next, request)
+  applyTextPatch(next, request)
   return next
 }
 

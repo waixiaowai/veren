@@ -1,15 +1,13 @@
 /**
  * Inbound routing segment: per-conversation serialization over the durable
- * queue — observe → intake → enqueue → drain — plus the people-directory
- * hygiene the inbound path and account removal share.
+ * queue — observe → intake → enqueue → drain.
  *
  * The queue owns durability, so a crash between receive and reply loses
  * nothing: the row is still `queued`/`consuming` and restart recovery re-runs
  * it. Directory bookkeeping never drops a message either — a storage failure
  * is logged, then routing proceeds.
  *
- * 入站路由段：在持久化队列之上的按会话串行——观察 → 采集 → 入队 → 排空——同时附带入站路径
- * 与账号删除共用的目录清理动作。
+ * 入站路由段：在持久化队列之上的按会话串行——观察 → 采集 → 入队 → 排空。
  *
  * 队列持有持久化，接收与回复之间的崩溃不丢任何东西：行仍在 `queued`/`consuming`，
  * 重启恢复会重跑。目录记账同样绝不丢消息：存储失败只记日志，路由继续。
@@ -24,7 +22,8 @@ import type { ImStrangerIntake } from './intake.ts'
 import type { ImPeople } from './people.ts'
 import type { ImPersonView } from './people-types.ts'
 import { ImMessageQueue } from './queue.ts'
-import { renderPrompt } from './router-prompt.ts'
+import { knownSenderName, renderPrompt } from './router-prompt.ts'
+import type { ImMessageRow } from './store.ts'
 
 /** The queued ack sent when a conversation already has work in flight. */
 /** 会话已有在途工作时发送的排队告知。 */
@@ -64,6 +63,41 @@ export class RouterInbound {
   }
 
   /**
+   * Record the inbound sender in the people directory, and push the observation
+   * upstream when a cloud directory is attached (fire-and-forget).
+   * 把入站发送者记入人员目录；挂了云端目录时把观察上报上游（fire-and-forget）。
+   */
+  private async recordSender(providerId: string, message: ImMessage): Promise<ImPersonView | undefined> {
+    // Directory bookkeeping must never drop a message: a storage failure is
+    // reported, then routing proceeds. When a cloud directory is attached the
+    // observation also pushes upstream (fire-and-forget — a hub failure never
+    // blocks the inbound path; the local store stays the read cache).
+    // 目录记账绝不能丢消息：存储失败只记日志，路由继续。挂了云端目录时观察同时
+    // 上报（fire-and-forget——hub 故障绝不阻塞入站路径；本地存储仍是读缓存）。
+    let person: ImPersonView | undefined
+    try {
+      person = await this.people.observeMessage(providerId, message)
+    } catch (error: unknown) {
+      this.logger.error(
+        `[im:${providerId}] inbound sender could not be recorded in the people directory: ${errorMessage(error)}`,
+      )
+    }
+    const remote = this.registry.directoryRemote()
+    if (remote !== undefined && person !== undefined) {
+      void remote.upsert({
+        provider: providerId,
+        externalId: message.sender.id,
+        displayName: person.displayName,
+        ...(person.claimedName === undefined ? {} : { claimedName: person.claimedName }),
+        ...(person.identityStatus === undefined ? {} : { identityStatus: person.identityStatus }),
+      }).catch((error: unknown) => {
+        this.logger.warn(`[im:${providerId}] directory upsert failed: ${errorMessage(error)}`)
+      })
+    }
+    return person
+  }
+
+  /**
    * Route one inbound message. The durable enqueue happens before any
    * serialization, so the window between "received" and "durable" is empty —
    * a crash cannot lose a message that was seen. The rest (directory,
@@ -79,38 +113,64 @@ export class RouterInbound {
     const key = `${providerId}\u0000${message.accountId}\u0000${message.conversationId}`
     void this.ackIfBusy(key, providerId, message)
     await this.serialize(key, async () => {
-      // Directory bookkeeping must never drop a message: a storage failure is
-      // reported, then routing proceeds. When a cloud directory is attached the
-      // observation also pushes upstream (fire-and-forget — a hub failure never
-      // blocks the inbound path; the local store stays the read cache).
-      // 目录记账绝不能丢消息：存储失败只记日志，路由继续。挂了云端目录时观察同时
-      // 上报（fire-and-forget——hub 故障绝不阻塞入站路径；本地存储仍是读缓存）。
-      let person: ImPersonView | undefined
-      try {
-        person = await this.people.observeMessage(providerId, message)
-      } catch (error: unknown) {
-        this.logger.error(
-          `[im:${providerId}] inbound sender could not be recorded in the people directory: ${errorMessage(error)}`,
-        )
-      }
-      const remote = this.registry.directoryRemote()
-      if (remote !== undefined && person !== undefined) {
-        void remote.upsert({
-          provider: providerId,
-          externalId: message.sender.id,
-          displayName: person.displayName,
-          ...(person.claimedName === undefined ? {} : { claimedName: person.claimedName }),
-          ...(person.identityStatus === undefined ? {} : { identityStatus: person.identityStatus }),
-        }).catch((error: unknown) => {
-          this.logger.warn(`[im:${providerId}] directory upsert failed: ${errorMessage(error)}`)
-        })
-      }
+      const person = await this.recordSender(providerId, message)
       // Intake runs before the drain and owns its own failure containment: the
       // fixed question is not an agent turn.
       // 采集在排空之前运行，并自行收敛失败：固定询问不是 agent turn。
       await this.intake.handle(providerId, message, person)
       await this.drain(providerId, message.accountId, message.conversationId)
     })
+  }
+
+  /**
+   * Answer one claimed row: one private session turn, then deliver the answer
+   * and mark the row replied.
+   * 回答一个已认领的行：跑一次私有会话回合，送达回答并标记该行已回复。
+   */
+  private async answerRow(
+    providerId: string,
+    accountId: string,
+    conversationId: string,
+    row: ImMessageRow,
+  ): Promise<void> {
+    const sessionId = await this.resolveSession(conversationId)
+    const answer = await this.gateway.ask({
+      sessionId,
+      prompt: renderPrompt(providerId, messageOf(row), knownSenderName(this.people, this.logger, providerId, {
+        ...messageOf(row),
+        accountId,
+      })),
+      source: { providerId, accountId, conversationId, messageId: row.message_id },
+    })
+    if (answer !== undefined && answer.trim() !== '') {
+      await this.send(providerId, accountId, conversationId, answer, row.message_id)
+    }
+    await this.queue.markReplied(providerId, row.message_id, (answer ?? '').trim())
+  }
+
+  /**
+   * Record one failed attempt; a row that reached the dead-letter state is
+   * announced to the user exactly once.
+   * 记录一次失败尝试；进入死信终态的行只向用户告知一次。
+   */
+  private async failRow(
+    providerId: string,
+    accountId: string,
+    conversationId: string,
+    row: ImMessageRow,
+    error: unknown,
+  ): Promise<void> {
+    this.logger.error(`[im:${providerId}] message ${row.message_id} failed: ${errorMessage(error)}`)
+    const failed = await this.queue.markFailed(providerId, row.message_id)
+    if (failed.status === 'dead') {
+      await this.send(
+        providerId,
+        accountId,
+        conversationId,
+        '这条消息处理失败了（已自动重试），请稍后再发一次。',
+        row.message_id,
+      ).catch(() => undefined)
+    }
   }
 
   /**
@@ -125,31 +185,9 @@ export class RouterInbound {
       const row = await this.queue.claimNext(conversationId)
       if (row === undefined) return
       try {
-        const sessionId = await this.resolveSession(conversationId)
-        const answer = await this.gateway.ask({
-          sessionId,
-          prompt: renderPrompt(providerId, messageOf(row), knownSenderName(this.people, this.logger, providerId, {
-            ...messageOf(row),
-            accountId,
-          })),
-          source: { providerId, accountId, conversationId, messageId: row.message_id },
-        })
-        if (answer !== undefined && answer.trim() !== '') {
-          await this.send(providerId, accountId, conversationId, answer, row.message_id)
-        }
-        await this.queue.markReplied(providerId, row.message_id, (answer ?? '').trim())
+        await this.answerRow(providerId, accountId, conversationId, row)
       } catch (error: unknown) {
-        this.logger.error(`[im:${providerId}] message ${row.message_id} failed: ${errorMessage(error)}`)
-        const failed = await this.queue.markFailed(providerId, row.message_id)
-        if (failed.status === 'dead') {
-          await this.send(
-            providerId,
-            accountId,
-            conversationId,
-            '这条消息处理失败了（已自动重试），请稍后再发一次。',
-            row.message_id,
-          ).catch(() => undefined)
-        }
+        await this.failRow(providerId, accountId, conversationId, row, error)
       }
     }
   }
@@ -227,41 +265,5 @@ function messageOf(row: { message_id: string; conversation_id: string; sender: s
     sender: { id: row.sender },
     sentAt: row.received_at,
     content: { type: 'text', text: row.text },
-  }
-}
-
-/**
- * Remove one account's addresses; profiles and names stay for a later rebind.
- * 清掉一个账号的全部地址；档案与名字保留，供日后重新绑定。
- */
-export async function clearPersonAddresses(people: ImPeople, logger: ImLogger, accountId: string): Promise<void> {
-  try {
-    await people.removeAddressesOf(accountId)
-  } catch (error: unknown) {
-    logger.warn(`[im:people] addresses of ${accountId} were not removed: ${errorMessage(error)}`)
-  }
-}
-
-/**
- * The known sender label, marking a self-reported name as unverified.
- * 已知发送者的显示名；自述名会标注「未核实」。
- */
-export function knownSenderName(
-  people: ImPeople,
-  logger: ImLogger,
-  providerId: string,
-  message: ImMessage,
-): string | undefined {
-  try {
-    const person = people.viewAt(providerId, message.accountId, message.conversationId)
-    if (person === undefined) return undefined
-    if (person.identityStatus === 'self-reported' && person.claimedName !== undefined
-      && person.displayName === message.sender.id) {
-      return `${person.claimedName}（自称）`
-    }
-    return person.displayName
-  } catch (error: unknown) {
-    logger.warn(`[im:people] sender lookup failed: ${errorMessage(error)}`)
-    return undefined
   }
 }

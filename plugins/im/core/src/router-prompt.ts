@@ -15,6 +15,9 @@
 
 import { ImError } from './contract.ts'
 import type { ImMessage, ImMessageContent, ImProvider } from './contract.ts'
+import { errorMessage } from './runtime-seams.ts'
+import type { ImLogger } from './runtime-seams.ts'
+import type { ImPeople } from './people.ts'
 
 /** The reply contract every rendered turn must carry: the model's own text
  *  output IS the channel reply — narration or send-tool calls are never needed.
@@ -80,5 +83,32 @@ export function degradeContent(features: ImProvider['features'], content: ImMess
       return content
     case 'text':
       return content
+  }
+}
+
+/**
+ * The known sender label for the prompt's source section, marking a
+ * self-reported name as unverified. A lookup failure only warns: a directory
+ * problem never blocks the inbound path.
+ * Prompt 来源区块使用的已知发送者显示名；自述名会标注「未核实」。查找失败只告警：
+ * 目录故障绝不阻塞入站路径。
+ */
+export function knownSenderName(
+  people: ImPeople,
+  logger: ImLogger,
+  providerId: string,
+  message: ImMessage,
+): string | undefined {
+  try {
+    const person = people.viewAt(providerId, message.accountId, message.conversationId)
+    if (person === undefined) return undefined
+    if (person.identityStatus === 'self-reported' && person.claimedName !== undefined
+      && person.displayName === message.sender.id) {
+      return `${person.claimedName}（自称）`
+    }
+    return person.displayName
+  } catch (error: unknown) {
+    logger.warn(`[im:people] sender lookup failed: ${errorMessage(error)}`)
+    return undefined
   }
 }

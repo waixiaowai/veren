@@ -14,6 +14,10 @@
  * contribution 在 Harness 检出仓库内生成，本包在其之外），内层面板插件注入刚挂载的命名空间，
  * 基于它建立可观察对象，并从该对象的订阅驱动绑定向导的轮询循环。
  *
+ * The observable and its poll loops live in `source.ts`; this file keeps the
+ * plugin assembly.
+ * 可观察对象与轮询循环在 `source.ts`；本文件保留插件装配。
+ *
  * @module @veren/im-ui/client
  */
 
@@ -25,10 +29,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS, en, zh, type ImKey } from './locales.ts'
 import { ImPanel } from './panel.tsx'
-import { imRemote, type ImPanelInjected, type ImRemoteApi, type ImSnapshot } from './remote.ts'
+import { imRemote, type ImPanelInjected, type ImRemoteApi } from './remote.ts'
+import { createImSource } from './source.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -46,12 +50,6 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 
 /** Sidebar and main-panel identity of the page. */
 const PANEL_ID = 'im' as MainPanelId
-
-/** How long the open page waits between catalog re-reads, in milliseconds. */
-const POLL_MS = 5_000
-
-/** How long the bind wizard waits between bind polls while open. */
-const BIND_POLL_MS = 2_000
 
 /**
  * Client services of the entry plugin. `remote.im` must NOT be declared here:
@@ -99,132 +97,6 @@ const PanelPlugin = {
     }, ImPanelIcon))
   },
 } as const
-
-/** Build the page's single observable over the Remote namespace. */
-function createImSource(api: ImRemoteApi): {
-  readonly source: HostObservable<ImSnapshot>
-  readonly startBind: () => void
-  readonly closeBind: () => void
-  readonly submitCode: (code: string) => void
-  readonly unbindAccount: (accountId: string) => void
-  readonly renamePerson: (personId: string, displayName: string) => void
-  readonly refresh: () => void
-} {
-  let snapshot: ImSnapshot = {
-    catalog: { accounts: [], conversations: [], people: [], intake: emptyIntake() },
-    status: 'loading', settled: false, error: '', bind: undefined,
-  }
-  let epoch = 0
-  let catalogTimer: ReturnType<typeof globalThis.setInterval> | undefined
-  let bindTimer: ReturnType<typeof globalThis.setInterval> | undefined
-  const listeners = new Set<() => void>()
-  const publish = (next: Partial<ImSnapshot>): void => {
-    snapshot = { ...snapshot, ...next }
-    for (const listener of [...listeners]) listener()
-  }
-  const readCatalog = async (mine: number): Promise<void> => {
-    const result = await api.catalog({})
-    if (mine !== epoch) return
-    if (!result.ok) {
-      publish({ status: 'error', error: result.error.message })
-      return
-    }
-    publish({ catalog: result.value, status: 'ready', settled: true, error: '' })
-  }
-  const load = (): void => {
-    const mine = ++epoch
-    if (!snapshot.settled) publish({ status: 'loading' })
-    void readCatalog(mine)
-  }
-  const pollBind = async (bindId: string): Promise<void> => {
-    const result = await api.pollBind({ bindId })
-    if (mine0() !== epoch || snapshot.bind?.bindId !== bindId) return
-    if (!result.ok) {
-      publish({ bind: { ...snapshot.bind!, status: 'failed', error: result.error } })
-      stopBindTimer()
-      return
-    }
-    publish({ bind: result.value })
-    if (result.value.status === 'bound' || result.value.status === 'expired' || result.value.status === 'failed') {
-      stopBindTimer()
-      void readCatalog(epoch)
-    }
-  }
-  const mine0 = (): number => epoch
-  const stopBindTimer = (): void => {
-    if (bindTimer === undefined) return
-    globalThis.clearInterval(bindTimer)
-    bindTimer = undefined
-  }
-  return {
-    source: {
-      getSnapshot: () => snapshot,
-      subscribe(listener: () => void) {
-        listeners.add(listener)
-        if (listeners.size === 1) {
-          load()
-          catalogTimer = globalThis.setInterval(load, POLL_MS)
-        }
-        return () => {
-          listeners.delete(listener)
-          stopBindTimer()
-          if (listeners.size !== 0) return
-          if (catalogTimer !== undefined) globalThis.clearInterval(catalogTimer)
-          catalogTimer = undefined
-          epoch += 1
-        }
-      },
-    },
-    startBind: () => {
-      void (async () => {
-        const result = await api.beginBind({ label: 'WeChat' })
-        if (!result.ok) {
-          publish({ bind: { bindId: '', status: 'failed', error: result.error } })
-          return
-        }
-        publish({ bind: result.value })
-        stopBindTimer()
-        bindTimer = globalThis.setInterval(() => void pollBind(result.value.bindId), BIND_POLL_MS)
-      })()
-    },
-    closeBind: () => {
-      stopBindTimer()
-      publish({ bind: undefined })
-    },
-    submitCode: (code) => {
-      const bind = snapshot.bind
-      if (bind === undefined) return
-      void (async () => {
-        const result = await api.submitBindCode({ bindId: bind.bindId, code })
-        if (!result.ok) {
-          publish({ bind: { ...bind, error: result.error } })
-          return
-        }
-        publish({ bind: result.value })
-      })()
-    },
-    unbindAccount: (accountId) => {
-      void api.unbindAccount({ accountId }).then(() => { stopBindTimer(); load() })
-    },
-    renamePerson: (personId, displayName) => {
-      void api.renamePerson({ personId, displayName }).then(load)
-    },
-    refresh: () => { load() },
-  }
-}
-
-/** The intake view shape before the first catalog lands. */
-function emptyIntake(): ImSnapshot['catalog']['intake'] {
-  return {
-    enabled: false,
-    askText: '',
-    replyWindowMs: 120_000,
-    maxAsksPerHour: 10,
-    minAskIntervalMs: 0,
-    counts: { asked: 0, answered: 0, declined: 0, expired: 0 },
-    recent: [],
-  }
-}
 
 /**
  * Mount the Remote namespace, then start the inner panel plugin that waits on

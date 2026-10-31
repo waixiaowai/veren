@@ -85,7 +85,49 @@ export class WechatMonitor {
     })
   }
 
+  /**
+   * One poll round: read a batch, emit it, advance the cursor, persist.
+   * Returns false when the signal aborted mid-round (the loop then stops
+   * without resetting the failure count, exactly as before).
+   * 一轮轮询：读取批次、投递、推进游标并持久化。信号在一轮中途中止时返回 false
+   * （循环随即停止且不重置失败计数，与原先完全一致）。
+   */
+  private async pollOnce(accountId: string, runtime: AccountRuntime, signal: AbortSignal): Promise<boolean> {
+    const batch = await this.api.getUpdates(runtime.secrets.token, runtime.state.cursor, signal)
+    if (signal.aborted) return false
+    runtime.status = 'online'
+    for (const message of batch.messages) await this.accept(runtime, message)
+    runtime.state.cursor = batch.cursor
+    await this.persistState(accountId)
+    return true
+  }
+
+  /**
+   * Classify one poll failure: a stale credential (`-14`) or the third failure
+   * stops the runtime; anything else retries after the backoff delay.
+   * 归类一次轮询失败：凭据失效（`-14`）或第三次失败都停止运行时；其余按退避延迟重试。
+   */
+  private async pollFailure(
+    accountId: string,
+    runtime: AccountRuntime,
+    error: unknown,
+    failures: number,
+  ): Promise<boolean> {
+    if (error instanceof ImError && error.code === 'IM_AUTH_REQUIRED') {
+      runtime.status = 'error'
+      this.logger.error(`[im:wechat] account ${accountId} credential is stale (-14); runtime stopped`)
+      return true
+    }
+    if (failures >= 3) {
+      runtime.status = 'error'
+      this.logger.error(`[im:wechat] account ${accountId} failed ${failures} times; runtime stopped`)
+      return true
+    }
+    return false
+  }
+
   /** One account's long-poll loop. */
+  /** 单账号的长轮询循环。 */
   private async loop(accountId: string, runtime: AccountRuntime, signal: AbortSignal): Promise<void> {
     try {
       await this.api.notifyStart(runtime.secrets.token, signal)
@@ -97,26 +139,12 @@ export class WechatMonitor {
     let failures = 0
     while (!signal.aborted) {
       try {
-        const batch = await this.api.getUpdates(runtime.secrets.token, runtime.state.cursor, signal)
-        if (signal.aborted) return
+        if (!await this.pollOnce(accountId, runtime, signal)) return
         failures = 0
-        runtime.status = 'online'
-        for (const message of batch.messages) await this.accept(runtime, message)
-        runtime.state.cursor = batch.cursor
-        await this.persistState(accountId)
       } catch (error: unknown) {
         if (signal.aborted) return
-        if (error instanceof ImError && error.code === 'IM_AUTH_REQUIRED') {
-          runtime.status = 'error'
-          this.logger.error(`[im:wechat] account ${accountId} credential is stale (-14); runtime stopped`)
-          return
-        }
         failures += 1
-        if (failures >= 3) {
-          runtime.status = 'error'
-          this.logger.error(`[im:wechat] account ${accountId} failed ${failures} times; runtime stopped`)
-          return
-        }
+        if (await this.pollFailure(accountId, runtime, error, failures)) return
         await delay(2_000 * 2 ** (failures - 1), signal)
       }
     }

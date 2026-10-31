@@ -96,65 +96,94 @@ export class WechatBindAttempt implements ImBindAttempt {
     return this.bindStatus
   }
 
+  /**
+   * The confirmed case: activate the account, remember it, and settle waiters.
+   * Activation failure is a terminal failure of the attempt.
+   * confirmed 分支：激活账号、记住它并落定等待者。激活失败是该尝试的终态失败。
+   */
+  private async confirmAccount(response: WechatLoginStatus): Promise<boolean> {
+    try {
+      const account = await this.activate(response)
+      this.account = account
+      this.bindStatus = 'bound'
+      // 绑定成功：QR 已无用，立即清掉（临时目录不再堆积）。
+      // Bound: the QR is dead weight now — remove it at once (no temp litter).
+      void this.removeQrImage()
+      this.settleWaiters(account)
+      return true
+    } catch (error: unknown) {
+      this.finish('failed', asImError(error, 'the WeChat account could not be activated'))
+      return true
+    }
+  }
+
+  /**
+   * Apply one poll response: advance the status, or finish the attempt on a
+   * terminal state. Returns true when the loop must stop.
+   * 应用一次轮询响应：推进状态，或在终态收尾。返回 true 表示循环必须停止。
+   */
+  private async applyStatus(response: WechatLoginStatus): Promise<boolean> {
+    switch (response.status) {
+      case 'wait':
+        this.bindStatus = 'pending'
+        return false
+      case 'scaned':
+      case 'scaned_but_redirect':
+        this.bindStatus = 'scanned'
+        return false
+      case 'need_verifycode':
+        this.bindStatus = 'needs-code'
+        return false
+      case 'expired':
+        this.finish('expired', new ImError('IM_BIND_EXPIRED', 'the WeChat QR code expired'))
+        return true
+      case 'verify_code_blocked':
+        this.finish('failed', new ImError('IM_AUTH_REQUIRED', 'the WeChat verify code was blocked'))
+        return true
+      case 'binded_redirect':
+        this.finish('failed', new ImError('IM_AUTH_REQUIRED', 'this WeChat account is already bound elsewhere'))
+        return true
+      case 'confirmed':
+        return this.confirmAccount(response)
+      default:
+        this.finish('failed', new ImError('IM_INTERNAL', `unknown WeChat login status: ${response.status ?? ''}`))
+        return true
+    }
+  }
+
+  /**
+   * One poll round: read the login state and apply it. Returns true when the
+   * loop must stop (terminal state or abort); a timeout just means "keep polling".
+   * 一轮轮询：读取登录状态并应用。返回 true 表示循环必须停止（终态或中止）；
+   * 超时只意味着「继续轮询」。
+   */
+  private async pollOnce(): Promise<boolean> {
+    try {
+      const response = await this.api.pollLogin(this.qrcode, this.code, this.controller.signal)
+      if (this.controller.signal.aborted) return true
+      return await this.applyStatus(response)
+    } catch (error: unknown) {
+      if (this.controller.signal.aborted) return true
+      if (!(error instanceof WechatTimeoutError)) {
+        this.finish(
+          'failed',
+          error instanceof ImError ? error : asImError(error, 'the WeChat QR poll failed'),
+        )
+        return true
+      }
+      return false
+    }
+  }
+
   /** Advance the attempt until it is bound, expired, failed, or cancelled. */
+  /** 推进尝试，直到绑定成功、过期、失败或被取消。 */
   async run(): Promise<void> {
     while (!this.controller.signal.aborted && this.bindStatus !== 'bound') {
       if (this.now() >= (this.challenge.expiresAt ?? 0)) {
         this.finish('expired', new ImError('IM_BIND_EXPIRED', 'the WeChat QR code expired'))
         return
       }
-      try {
-        const response = await this.api.pollLogin(this.qrcode, this.code, this.controller.signal)
-        if (this.controller.signal.aborted) return
-        switch (response.status) {
-          case 'wait':
-            this.bindStatus = 'pending'
-            break
-          case 'scaned':
-          case 'scaned_but_redirect':
-            this.bindStatus = 'scanned'
-            break
-          case 'need_verifycode':
-            this.bindStatus = 'needs-code'
-            break
-          case 'expired':
-            this.finish('expired', new ImError('IM_BIND_EXPIRED', 'the WeChat QR code expired'))
-            return
-          case 'verify_code_blocked':
-            this.finish('failed', new ImError('IM_AUTH_REQUIRED', 'the WeChat verify code was blocked'))
-            return
-          case 'binded_redirect':
-            this.finish('failed', new ImError('IM_AUTH_REQUIRED', 'this WeChat account is already bound elsewhere'))
-            return
-          case 'confirmed': {
-            try {
-              const account = await this.activate(response)
-              this.account = account
-              this.bindStatus = 'bound'
-              // 绑定成功：QR 已无用，立即清掉（临时目录不再堆积）。
-              // Bound: the QR is dead weight now — remove it at once (no temp litter).
-              void this.removeQrImage()
-              this.settleWaiters(account)
-              return
-            } catch (error: unknown) {
-              this.finish('failed', asImError(error, 'the WeChat account could not be activated'))
-              return
-            }
-          }
-          default:
-            this.finish('failed', new ImError('IM_INTERNAL', `unknown WeChat login status: ${response.status ?? ''}`))
-            return
-        }
-      } catch (error: unknown) {
-        if (this.controller.signal.aborted) return
-        if (!(error instanceof WechatTimeoutError)) {
-          this.finish(
-            'failed',
-            error instanceof ImError ? error : asImError(error, 'the WeChat QR poll failed'),
-          )
-          return
-        }
-      }
+      if (await this.pollOnce()) return
       await delay(this.pollIntervalMs, this.controller.signal)
     }
   }

@@ -24,7 +24,7 @@ import type {
   ImPersonAddressFilter, ImPersonAddressView, ImPersonMatch, ImPersonResolution,
 } from './people-types.ts'
 import type { ImPeople } from './people.ts'
-import type { ImPersonSendRequest, ImPersonSendResult } from './router-types.ts'
+import type { ImPersonRecipient, ImPersonSendRequest, ImPersonSendResult } from './router-types.ts'
 
 /** Whether one resolved address still satisfies the caller's provider/account filter. */
 function addressAccepted(address: ImPersonAddressView, filter: ImPersonAddressFilter): boolean {
@@ -63,11 +63,11 @@ export class RouterSend {
   }
 
   /**
-   * Send to a person, resolving the name first. Exactly one person and one
-   * address are required; every other outcome refuses before any provider call.
-   * 按人发送，先解析名字。必须恰好一个人、一个地址；其他结果都在调用 provider 前拒绝。
+   * Validate the provider/account filter up front: an unknown account refuses,
+   * and an account that contradicts the provider refuses.
+   * 预先校验 provider/账号过滤：未知账号拒绝，账号与 provider 相互矛盾的也拒绝。
    */
-  async sendToPerson(request: ImPersonSendRequest): Promise<ImPersonSendResult> {
+  private validatedFilterOf(request: ImPersonSendRequest): ImPersonAddressFilter {
     const filter: ImPersonAddressFilter = {
       ...(request.provider === undefined ? {} : { provider: request.provider }),
       ...(request.accountId === undefined ? {} : { accountId: request.accountId }),
@@ -83,7 +83,19 @@ export class RouterSend {
         )
       }
     }
-    const match = this.matchOf(request.person, this.people.resolve(request.person, filter))
+    return filter
+  }
+
+  /**
+   * Resolve the single reachable address for a matched person, or refuse with
+   * the evidence: no address at all, or more than one.
+   * 解析命中之人的唯一可达地址，否则携带证据拒绝：一个地址都没有，或不止一个。
+   */
+  private addressOf(
+    request: ImPersonSendRequest,
+    match: ImPersonMatch,
+    filter: ImPersonAddressFilter,
+  ): ImPersonAddressView {
     // A query that named an address is pinned to that address. If the caller's
     // filter excludes it, refuse instead of silently sending to another address.
     // 查询点名了某个地址时就锁定该地址。若调用方的过滤条件排除了它，直接拒绝，绝不改发另一个地址。
@@ -110,27 +122,41 @@ export class RouterSend {
         },
       })
     }
-    const address = addresses[0]!
+    return addresses[0]!
+  }
+
+  /** Project the match and the chosen address onto the recipient evidence. */
+  /** 把命中结果与选定地址投影为收件人证据。 */
+  private recipientOf(match: ImPersonMatch, address: ImPersonAddressView): ImPersonRecipient {
+    return {
+      personId: match.person.id,
+      displayName: match.person.displayName,
+      matchedBy: match.matchedBy,
+      matchedValue: match.matchedValue,
+      identityStatus: match.person.identityStatus,
+      ...(match.person.claimedName === undefined ? {} : { claimedName: match.person.claimedName }),
+      provider: address.provider,
+      accountId: address.accountId,
+      conversationId: address.conversationId,
+    }
+  }
+
+  /**
+   * Send to a person, resolving the name first. Exactly one person and one
+   * address are required; every other outcome refuses before any provider call.
+   * 按人发送，先解析名字。必须恰好一个人、一个地址；其他结果都在调用 provider 前拒绝。
+   */
+  async sendToPerson(request: ImPersonSendRequest): Promise<ImPersonSendResult> {
+    const filter = this.validatedFilterOf(request)
+    const match = this.matchOf(request.person, this.people.resolve(request.person, filter))
+    const address = this.addressOf(request, match, filter)
     const result = await this.send({
       accountId: address.accountId,
       conversationId: address.conversationId,
       content: request.content,
       ...(request.replyToMessageId === undefined ? {} : { replyToMessageId: request.replyToMessageId }),
     })
-    return {
-      result,
-      recipient: {
-        personId: match.person.id,
-        displayName: match.person.displayName,
-        matchedBy: match.matchedBy,
-        matchedValue: match.matchedValue,
-        identityStatus: match.person.identityStatus,
-        ...(match.person.claimedName === undefined ? {} : { claimedName: match.person.claimedName }),
-        provider: address.provider,
-        accountId: address.accountId,
-        conversationId: address.conversationId,
-      },
-    }
+    return { result, recipient: this.recipientOf(match, address) }
   }
 
   /** Resolve a send target from the explicit pair form. */

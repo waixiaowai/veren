@@ -38,7 +38,51 @@ export function CloudView(props: { readonly t: Translate }): React.JSX.Element {
   )
 }
 
+/** The sign-in form: origin/email/password inputs plus the submit button. */
+/** 登录表单：CMS 地址/邮箱/密码输入与提交按钮。 */
+function SignInForm(props: {
+  readonly t: Translate
+  readonly origin: string
+  readonly email: string
+  readonly password: string
+  readonly submitting: boolean
+  readonly error: string | undefined
+  readonly onOrigin: (origin: string) => void
+  readonly onEmail: (email: string) => void
+  readonly onPassword: (password: string) => void
+  readonly onSubmit: () => void
+}): React.JSX.Element {
+  const { t, origin, email, password, submitting, error } = props
+  return (
+    <form className="im-card" onSubmit={event => { event.preventDefault(); if (!submitting) props.onSubmit() }}>
+      <div className="im-card-body">
+        <div className="im-row">
+          <label className="im-item" htmlFor="im-cms-origin">{t('cloudOrigin')}</label>
+          <input id="im-cms-origin" className="im-input" name="url" value={origin}
+            onChange={event => props.onOrigin(event.target.value)} autoComplete="url" />
+        </div>
+        <div className="im-row">
+          <label className="im-item" htmlFor="im-cms-email">{t('cloudEmail')}</label>
+          <input id="im-cms-email" className="im-input" name="email" type="email" value={email}
+            onChange={event => props.onEmail(event.target.value)} autoComplete="email" placeholder="email" />
+        </div>
+        <div className="im-row">
+          <label className="im-item" htmlFor="im-cms-password">{t('cloudPassword')}</label>
+          <input id="im-cms-password" className="im-input" name="password" type="password" value={password}
+            onChange={event => props.onPassword(event.target.value)} autoComplete="current-password" />
+        </div>
+        {error !== undefined && <p className="im-error" role="alert">{error}</p>}
+        <button type="submit" className="im-button im-button-primary"
+          disabled={submitting || email === '' || password === ''}>
+          {submitting ? t('cloudLoggingIn') : t('cloudLogin')}
+        </button>
+      </div>
+    </form>
+  )
+}
+
 /** The sign-in card, with the expired hint when a 401 sent us back here. */
+/** 登录卡；401 把我们送回来时显示过期提示。 */
 function SignInCard(props: {
   readonly t: Translate
   readonly expired: boolean
@@ -68,30 +112,8 @@ function SignInCard(props: {
       <h2 className="im-heading">{t('cloudSignInHeading')}</h2>
       <p className="im-muted">{t('cloudSubtitle')}</p>
       {expired && <p className="im-muted">{t('cloudSessionExpired')}</p>}
-      <form className="im-card" onSubmit={event => { event.preventDefault(); if (!submitting) void submit() }}>
-        <div className="im-card-body">
-          <div className="im-row">
-            <label className="im-item" htmlFor="im-cms-origin">{t('cloudOrigin')}</label>
-            <input id="im-cms-origin" className="im-input" name="url" value={origin}
-              onChange={event => setOrigin(event.target.value)} autoComplete="url" />
-          </div>
-          <div className="im-row">
-            <label className="im-item" htmlFor="im-cms-email">{t('cloudEmail')}</label>
-            <input id="im-cms-email" className="im-input" name="email" type="email" value={email}
-              onChange={event => setEmail(event.target.value)} autoComplete="email" placeholder="email" />
-          </div>
-          <div className="im-row">
-            <label className="im-item" htmlFor="im-cms-password">{t('cloudPassword')}</label>
-            <input id="im-cms-password" className="im-input" name="password" type="password" value={password}
-              onChange={event => setPassword(event.target.value)} autoComplete="current-password" />
-          </div>
-          {error !== undefined && <p className="im-error" role="alert">{error}</p>}
-          <button type="submit" className="im-button im-button-primary"
-            disabled={submitting || email === '' || password === ''}>
-            {submitting ? t('cloudLoggingIn') : t('cloudLogin')}
-          </button>
-        </div>
-      </form>
+      <SignInForm t={t} origin={origin} email={email} password={password} submitting={submitting} error={error}
+        onOrigin={setOrigin} onEmail={setEmail} onPassword={setPassword} onSubmit={() => void submit()} />
       <p className="im-muted">{t('cloudCredentialNote')}</p>
     </section>
   )

@@ -24,6 +24,157 @@ import {
 import type { Translate } from './cloud-home-types.ts'
 import { EmptyBlock } from './cloud-empty.tsx'
 
+/** The funnel's phases. */
+/** 漏斗的阶段。 */
+type FunnelPhase = 'idle' | 'qr' | 'verify' | 'done'
+
+/** The interval ref the funnel's steps share. */
+/** 漏斗各步骤共享的定时器 ref。 */
+type FunnelTimer = { current: ReturnType<typeof setInterval> | undefined }
+
+/**
+ * The state setters the funnel's async steps drive, bundled so each step has
+ * one readable parameter. React setState identities are stable.
+ * 漏斗异步步骤驱动的状态 setter，打包成一个参数保持可读。React 的 setState 身份稳定。
+ */
+interface FunnelSetters {
+  readonly setPhase: (phase: FunnelPhase) => void
+  readonly setQrData: (data: string | undefined) => void
+  readonly setNote: (note: string | undefined) => void
+  readonly setDenied: (denied: boolean) => void
+  readonly setBusy: (busy: boolean) => void
+}
+
+/** The terminal outcomes the funnel reports back to the home. */
+/** 漏斗向主页上报的终态结果。 */
+interface FunnelOutcome {
+  readonly onAuthorized: () => void
+  readonly onExpired: () => void
+}
+
+/**
+ * One status poll: confirmed closes the funnel, an inactive session goes back
+ * to idle with the expired note, and a verify demand switches to the verify
+ * phase. A session expiry forgets the session and reports it; a transient
+ * network blip never stops the poll.
+ * 一次状态轮询：已确认收口漏斗；会话失效回到 idle 并提示过期；要求验证码则切到 verify。
+ * 会话过期时忘掉会话并上报；瞬时网络抖动绝不打断轮询。
+ */
+async function pollAuthorize(
+  session: CmsSession,
+  t: Translate,
+  timer: FunnelTimer,
+  setters: Pick<FunnelSetters, 'setPhase' | 'setNote'>,
+  outcome: FunnelOutcome,
+): Promise<void> {
+  try {
+    const state = await authorizeStatus(session)
+    if (state.session_authorized) {
+      clearInterval(timer.current)
+      setters.setPhase('done')
+      outcome.onAuthorized()
+      return
+    }
+    if (!state.active) {
+      clearInterval(timer.current)
+      setters.setPhase('idle')
+      setters.setNote(t('cloudAuthExpired'))
+      return
+    }
+    if (state.status === 'need_verifycode') setters.setPhase('verify')
+  } catch (cause) {
+    if (isExpired(cause)) {
+      clearInterval(timer.current)
+      forgetSession(session.origin)
+      outcome.onExpired()
+    }
+    // 瞬时网络抖动不打断轮询 / a transient network blip never stops the poll
+  }
+}
+
+/**
+ * Start the authorization: request the QR, render it locally, then poll every
+ * 3s. An admin-forbidden session flips the denied flag; other failures surface
+ * as a note.
+ * 发起授权：请求二维码、本地渲染，然后每 3 秒轮询。管理员面拒绝时翻转 denied 标记；
+ * 其他失败以提示呈现。
+ */
+async function startAuthorize(
+  session: CmsSession,
+  timer: FunnelTimer,
+  setters: FunnelSetters,
+  poll: () => Promise<void>,
+): Promise<void> {
+  setters.setBusy(true); setters.setNote(undefined); setters.setDenied(false)
+  try {
+    await authorizeStart(session)
+    const state = await authorizeStatus(session)
+    if (state.qr_url !== '') setters.setQrData(await QRCode.toDataURL(state.qr_url, { width: 260, margin: 1 }))
+    setters.setPhase('qr')
+    clearInterval(timer.current)
+    timer.current = setInterval(() => void poll(), 3000)
+  } catch (cause) {
+    if (isForbidden(cause)) setters.setDenied(true)
+    else setters.setNote(cause instanceof Error ? cause.message : String(cause))
+  } finally {
+    setters.setBusy(false)
+  }
+}
+
+/** Submit the verify code, then poll once for the verdict. */
+/** 提交验证码，然后轮询一次拿裁决。 */
+async function submitAuthorize(
+  session: CmsSession,
+  code: string,
+  setters: Pick<FunnelSetters, 'setNote' | 'setBusy'>,
+  poll: () => Promise<void>,
+): Promise<void> {
+  if (code.trim() === '') return
+  setters.setBusy(true)
+  try {
+    await authorizeVerify(session, code.trim())
+    setters.setNote(undefined)
+    await poll()
+  } catch (cause) {
+    setters.setNote(cause instanceof Error ? cause.message : String(cause))
+  } finally {
+    setters.setBusy(false)
+  }
+}
+
+/**
+ * The funnel card's body: the phase branches for idle/qr/verify. The done
+ * phase is handled by the parent (it renders the confirmed empty block).
+ * 漏斗卡的主体：idle/qr/verify 三个阶段的分支。done 阶段由父组件处理
+ * （渲染已确认空态块）。
+ */
+function FunnelBody(props: {
+  readonly t: Translate
+  readonly session: CmsSession
+  readonly phase: FunnelPhase
+  readonly qrData: string | undefined
+  readonly code: string
+  readonly note: string | undefined
+  readonly denied: boolean
+  readonly busy: boolean
+  readonly onCode: (code: string) => void
+  readonly onStart: () => void
+  readonly onSubmit: () => void
+}): React.JSX.Element {
+  const { t, session, phase, qrData, code, note, denied, busy } = props
+  return (
+    <div className="im-card im-card-hot">
+      <div className="im-card-body">
+        <span className="im-strong">{t('cloudUnauthorizedTitle')}</span>
+        {phase === 'idle' && <IdlePhase t={t} session={session} denied={denied} note={note} busy={busy} onStart={props.onStart} />}
+        {phase === 'qr' && <QrPhase t={t} qrData={qrData} note={note} />}
+        {phase === 'verify' && <VerifyPhase t={t} code={code} busy={busy} note={note}
+          onCode={props.onCode} onSubmit={props.onSubmit} />}
+      </div>
+    </div>
+  )
+}
+
 /** The unauthorized channel's activation funnel card. */
 /** 未授权通道的激活漏斗卡。 */
 export function AuthorizeFunnel(props: {
@@ -33,85 +184,26 @@ export function AuthorizeFunnel(props: {
   readonly onExpired: () => void
 }): React.JSX.Element {
   const { t, session } = props
-  const [phase, setPhase] = useState<'idle' | 'qr' | 'verify' | 'done'>('idle')
+  const [phase, setPhase] = useState<FunnelPhase>('idle')
   const [qrData, setQrData] = useState<string | undefined>()
   const [code, setCode] = useState('')
   const [note, setNote] = useState<string | undefined>()
   const [denied, setDenied] = useState(false)
   const [busy, setBusy] = useState(false)
   const timer = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
-
-  /** 3s 轮询到终态；confirmed 收口，need_verifycode 转 verify，expired 回 idle。 */
-  const poll = useCallback(async (): Promise<void> => {
-    try {
-      const state = await authorizeStatus(session)
-      if (state.session_authorized) {
-        clearInterval(timer.current)
-        setPhase('done')
-        props.onAuthorized()
-        return
-      }
-      if (!state.active) {
-        clearInterval(timer.current)
-        setPhase('idle')
-        setNote(t('cloudAuthExpired'))
-        return
-      }
-      if (state.status === 'need_verifycode') setPhase('verify')
-    } catch (cause) {
-      if (isExpired(cause)) {
-        clearInterval(timer.current)
-        forgetSession(session.origin)
-        props.onExpired()
-      }
-      // 瞬时网络抖动不打断轮询 / a transient network blip never stops the poll
-    }
-  }, [props, session, t])
-
   useEffect(() => () => clearInterval(timer.current), [])
-
-  const start = useCallback(async (): Promise<void> => {
-    setBusy(true); setNote(undefined); setDenied(false)
-    try {
-      await authorizeStart(session)
-      const state = await authorizeStatus(session)
-      if (state.qr_url !== '') setQrData(await QRCode.toDataURL(state.qr_url, { width: 260, margin: 1 }))
-      setPhase('qr')
-      clearInterval(timer.current)
-      timer.current = setInterval(() => void poll(), 3000)
-    } catch (cause) {
-      if (isForbidden(cause)) setDenied(true)
-      else setNote(cause instanceof Error ? cause.message : String(cause))
-    } finally {
-      setBusy(false)
-    }
-  }, [poll, session, t])
-
-  const submitCode = useCallback(async (): Promise<void> => {
-    if (code.trim() === '') return
-    setBusy(true)
-    try {
-      await authorizeVerify(session, code.trim())
-      setNote(undefined)
-      await poll()
-    } catch (cause) {
-      setNote(cause instanceof Error ? cause.message : String(cause))
-    } finally {
-      setBusy(false)
-    }
-  }, [code, poll, session])
+  const setters: FunnelSetters = { setPhase, setQrData, setNote, setDenied, setBusy }
+  const outcome: FunnelOutcome = { onAuthorized: props.onAuthorized, onExpired: props.onExpired }
+  // 3s 轮询到终态；confirmed 收口，need_verifycode 转 verify，expired 回 idle。
+  const poll = useCallback(() => pollAuthorize(session, t, timer, setters, outcome), [props, session, t])
+  const start = useCallback(() => startAuthorize(session, timer, setters, poll), [poll, session, t])
+  const submitCode = useCallback(() => submitAuthorize(session, code, setters, poll), [code, poll, session])
 
   if (phase === 'done') return <EmptyBlock title={t('cloudAuthConfirmed')} />
   return (
-    <div className="im-card im-card-hot">
-      <div className="im-card-body">
-        <span className="im-strong">{t('cloudUnauthorizedTitle')}</span>
-        {phase === 'idle' && <IdlePhase t={t} session={session} denied={denied} note={note} busy={busy} onStart={() => void start()} />}
-        {phase === 'qr' && <QrPhase t={t} qrData={qrData} note={note} />}
-        {phase === 'verify' && <VerifyPhase t={t} code={code} busy={busy} note={note}
-          onCode={setCode} onSubmit={() => void submitCode()} />}
-      </div>
-    </div>
+    <FunnelBody t={t} session={session} phase={phase} qrData={qrData} code={code} note={note}
+      denied={denied} busy={busy} onCode={setCode}
+      onStart={() => void start()} onSubmit={() => void submitCode()} />
   )
 }
 

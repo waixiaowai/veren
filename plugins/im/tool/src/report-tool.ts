@@ -19,9 +19,10 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool, type InferArgs, type ParameterSchemaSpec } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { ImError } from '@veren/im'
-import type { ImPersonContact, ImRouter } from '@veren/im'
+import type { ImPersonContact, ImPersonView, ImRouter } from '@veren/im'
 import { contactsOf } from './people-tools.ts'
 import { ok, requireString, run } from './values.ts'
 
@@ -40,6 +41,38 @@ const WECHAT = /^[A-Za-z][-_A-Za-z0-9]{5,19}$/
 
 /** Result value describing which fields failed a guardrail. */
 type Rejections = Array<{ field: string; reason: string }>
+
+/** `im_person_report` description: judge meaning, record unverified claims. */
+/** `im_person_report` 描述：由模型判断语义，只记录未核实自述。 */
+const REPORT_DESCRIPTION = 'Record what one person said about themselves in conversation (their claimed name '
+  + 'and/or offered contacts) after the automatic stranger question or an unprompted self-report. '
+  + 'Judge the meaning of their messages yourself, then report only clearly stated facts here: '
+  + 'this writes the unverified self-reported claim (shown as claimedName, '
+  + 'identityStatus=self-reported), never realName or aliases. Set refused=true when the person '
+  + 'declined to answer; that closes the open question without recording anything. A field that '
+  + 'fails a format check is dropped and named in the result, so you may ask the person again.'
+
+/** `im_person_report` parameters. */
+/** `im_person_report` 参数。 */
+const REPORT_PARAMETERS = {
+  personId: { type: 'string', description: 'The person reporting; or give accountId + conversationId.' },
+  accountId: { type: 'string', description: 'Account of the conversation the report came from.' },
+  conversationId: { type: 'string', description: 'Conversation the report came from.' },
+  name: { type: 'string', description: 'The name the person clearly used for themselves.' },
+  contacts: {
+    type: 'json',
+    description: 'JSON array of { kind: wechat|email|phone|other, value, label? } the person offered.',
+  },
+  refused: {
+    type: 'boolean',
+    required: true,
+    description: 'True when the person declined to answer; no claim is written then.',
+  },
+} as const satisfies ParameterSchemaSpec
+
+/** Inferred argument shape of the report tool, derived from the schema. */
+/** report 工具的参数形状，由 schema 推导而来。 */
+type ReportArgs = InferArgs<typeof REPORT_PARAMETERS>
 
 /** Strip wrapping quotes a human might type around a name. */
 function unquote(value: string): string {
@@ -98,88 +131,103 @@ function guardedContacts(raw: ImPersonContact[] | undefined): { contacts: ImPers
 }
 
 /**
+ * Apply the format guardrails to the reported fields. The name guard runs
+ * after the contacts parse, matching the original validation order.
+ * 对上报字段应用格式护栏。名字护栏在联系方式解析之后运行，与原先的校验顺序一致。
+ */
+function guardedReport(args: ReportArgs): { name?: string; contacts: ImPersonContact[]; rejections: Rejections } {
+  const { contacts, rejections } = guardedContacts(contactsOf(args.contacts))
+  const name = args.name === undefined ? undefined : guardedName(args.name)
+  if (name?.reason !== undefined) rejections.unshift({ field: 'name', reason: name.reason })
+  return { name: name?.name, contacts, rejections }
+}
+
+/** Which fields the claim carried, for the intake settle detail. */
+/** 自述带了哪些字段，用于采集收尾的 detail。 */
+function intakeDetailOf(report: { name?: string; contacts: ImPersonContact[] }): 'name' | 'contact' | 'both' {
+  const hasName = report.name !== undefined
+  const hasContacts = report.contacts.length > 0
+  return hasName && hasContacts ? 'both' : hasName ? 'name' : 'contact'
+}
+
+/** Close the open intake question as declined; nothing is recorded. */
+/** 把未决的采集问题按「拒绝回答」收尾；不记录任何内容。 */
+async function declinedResult(router: ImRouter, person: { id: string }): Promise<JsonValue> {
+  const settled = await router.settleIntake(person.id, 'declined')
+  return ok({ recorded: false, declined: true, settled, personId: person.id })
+}
+
+/** Guard the reported fields, record the claim, then settle the intake. */
+/** 护栏过滤上报字段，记录自述，然后收尾采集。 */
+async function recordedResult(router: ImRouter, person: ImPersonView, args: ReportArgs): Promise<JsonValue> {
+  const report = guardedReport(args)
+  if (report.name === undefined && report.contacts.length === 0) {
+    return ok({
+      recorded: false,
+      settled: false,
+      personId: person.id,
+      rejected: report.rejections,
+    })
+  }
+  const provenance = provenanceOf(person, args)
+  const updated = await router.reportPersonClaim(person.id, {
+    ...(report.name === undefined ? {} : { name: report.name }),
+    ...(report.contacts.length === 0 ? {} : { contacts: report.contacts }),
+    accountId: provenance.accountId,
+    conversationId: provenance.conversationId,
+    messageId: 'im_person_report',
+  })
+  const settled = await router.settleIntake(person.id, 'answered', intakeDetailOf(report))
+  return ok({
+    recorded: true,
+    settled,
+    personId: person.id,
+    person: updated,
+    ...(report.rejections.length === 0 ? {} : { rejected: report.rejections }),
+  })
+}
+
+/** The `im_person_report` execution: declined closes the question; otherwise record. */
+/** `im_person_report` 执行：拒绝则收尾问题，否则记录自述。 */
+function personReportExecute(router: ImRouter): (args: ReportArgs) => Promise<JsonValue> {
+  return async args => run(async () => {
+    const person = personOf(router, args)
+    if (args.refused === true) return declinedResult(router, person)
+    return recordedResult(router, person, args)
+  })
+}
+
+/**
  * Register the report tool in the mounting scope.
  * @param ctx - Context owning the `tools` registry.
  * @param router - the active-binding router, which owns the directory and intake.
  */
 export function registerReportTool(ctx: Context, router: ImRouter): void {
   ctx.effect(() => {
-    const dispose = ctx.tools.register(defineTool({
-      name: 'im_person_report',
-      description: 'Record what one person said about themselves in conversation (their claimed name '
-        + 'and/or offered contacts) after the automatic stranger question or an unprompted self-report. '
-        + 'Judge the meaning of their messages yourself, then report only clearly stated facts here: '
-        + 'this writes the unverified self-reported claim (shown as claimedName, '
-        + 'identityStatus=self-reported), never realName or aliases. Set refused=true when the person '
-        + 'declined to answer; that closes the open question without recording anything. A field that '
-        + 'fails a format check is dropped and named in the result, so you may ask the person again.',
-      parameters: {
-        personId: { type: 'string', description: 'The person reporting; or give accountId + conversationId.' },
-        accountId: { type: 'string', description: 'Account of the conversation the report came from.' },
-        conversationId: { type: 'string', description: 'Conversation the report came from.' },
-        name: { type: 'string', description: 'The name the person clearly used for themselves.' },
-        contacts: {
-          type: 'json',
-          description: 'JSON array of { kind: wechat|email|phone|other, value, label? } the person offered.',
-        },
-        refused: {
-          type: 'boolean',
-          required: true,
-          description: 'True when the person declined to answer; no claim is written then.',
-        },
-      },
-      output: OUTPUT,
-      async execute(args) {
-        return run(async () => {
-          const person = personOf(router, args)
-          if (args.refused === true) {
-            const settled = await router.settleIntake(person.id, 'declined')
-            return ok({ recorded: false, declined: true, settled, personId: person.id })
-          }
-          const { contacts, rejections } = guardedContacts(contactsOf(args.contacts))
-          const name = args.name === undefined ? {} : guardedName(args.name)
-          if (name.reason !== undefined) rejections.unshift({ field: 'name', reason: name.reason })
-          if (name.name === undefined && contacts.length === 0) {
-            return ok({
-              recorded: false,
-              settled: false,
-              personId: person.id,
-              rejected: rejections,
-            })
-          }
-          const provenance = provenanceOf(person, args)
-          const updated = await router.reportPersonClaim(person.id, {
-            ...(name.name === undefined ? {} : { name: name.name }),
-            ...(contacts.length === 0 ? {} : { contacts }),
-            accountId: provenance.accountId,
-            conversationId: provenance.conversationId,
-            messageId: 'im_person_report',
-          })
-          const settled = await router.settleIntake(
-            person.id,
-            'answered',
-            name.name !== undefined && contacts.length > 0 ? 'both' : name.name !== undefined ? 'name' : 'contact',
-          )
-          return ok({
-            recorded: true,
-            settled,
-            personId: person.id,
-            person: updated,
-            ...(rejections.length === 0 ? {} : { rejected: rejections }),
-          })
-        })
-      },
-    }))
+    const dispose = ctx.tools.register(defineReportTool(router))
     return () => { dispose() }
   }, 'im:report-tool()')
 }
 
+/** Build the `im_person_report` tool definition. */
+/** 构造 `im_person_report` 工具定义。 */
+function defineReportTool(router: ImRouter) {
+  return defineTool({
+    name: 'im_person_report',
+    description: REPORT_DESCRIPTION,
+    parameters: REPORT_PARAMETERS,
+    output: OUTPUT,
+    execute: personReportExecute(router),
+  })
+}
+
 /** Resolve the target person by id or by conversation address. */
+/** 按 id 或按会话地址解析目标人员。 */
 function personOf(router: ImRouter, args: {
   personId?: string
   accountId?: string
   conversationId?: string
-}): { id: string; addresses: Array<{ accountId: string; conversationId: string }> } {
+}): ImPersonView {
   if (args.personId !== undefined) {
     const person = router.personById(requireString(args.personId, 'personId'))
     if (person === undefined) throw new ImError('IM_NOT_FOUND', `unknown person: ${args.personId}`)
@@ -201,7 +249,8 @@ function personOf(router: ImRouter, args: {
 }
 
 /** Claim provenance: the caller's conversation, or the person's first address. */
-function provenanceOf(person: { addresses: Array<{ accountId: string; conversationId: string }> }, args: {
+/** 自述来源：调用方给出的会话，或该人员的第一个地址。 */
+function provenanceOf(person: ImPersonView, args: {
   accountId?: string
   conversationId?: string
 }): { accountId: string; conversationId: string } {

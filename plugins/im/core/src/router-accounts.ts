@@ -22,9 +22,20 @@ import type { ImProvider, ImRegistry } from './contract.ts'
 import { ImBindings } from './bindings.ts'
 import { errorMessage } from './runtime-seams.ts'
 import type { ImCredentialStore, ImLogger } from './runtime-seams.ts'
-import { clearPersonAddresses } from './router-inbound.ts'
 import type { ImPeople } from './people.ts'
 import type { ImUnbindAccountResult } from './router-types.ts'
+
+/**
+ * Remove one account's addresses; profiles and names stay for a later rebind.
+ * 清掉一个账号的全部地址；档案与名字保留，供日后重新绑定。
+ */
+async function clearPersonAddresses(people: ImPeople, logger: ImLogger, accountId: string): Promise<void> {
+  try {
+    await people.removeAddressesOf(accountId)
+  } catch (error: unknown) {
+    logger.warn(`[im:people] addresses of ${accountId} were not removed: ${errorMessage(error)}`)
+  }
+}
 
 /** Collaborators the removal needs; all owned by the router facade. */
 export interface UnbindAccountDeps {
@@ -35,46 +46,82 @@ export interface UnbindAccountDeps {
   logger: ImLogger
 }
 
+/**
+ * Resolve the account's provider; an unregistered provider only warns — the
+ * local rows are still removed.
+ * 解析账号的 provider；provider 未注册时只告警——本地行仍然删除。
+ */
+function providerOf(
+  registry: ImRegistry,
+  providerId: string,
+): { provider: ImProvider | undefined; warning: string | undefined } {
+  try {
+    return { provider: registry.get(providerId), warning: undefined }
+  } catch {
+    return {
+      provider: undefined,
+      warning: 'the provider is not registered, so the remote grant could not be revoked',
+    }
+  }
+}
+
+/** Preferred path: revoke through the provider's own per-account removal. */
+/** 首选路径：走 provider 自带的单账号删除来吊销。 */
+async function revokeViaService(provider: ImProvider, accountId: string): Promise<void> {
+  try {
+    await provider.service.removeAccount!(accountId)
+  } catch (error: unknown) {
+    throw new ImError('IM_INTERNAL', `the provider could not remove the account: ${errorMessage(error)}`)
+  }
+}
+
+/**
+ * Legacy fallback: a full runtime stop/restart around the local removal.
+ * 兼容回退：在本地删除前后整体 stop/restart 一次。
+ */
+async function removeWithRestart(
+  deps: UnbindAccountDeps,
+  provider: ImProvider,
+  accountId: string,
+  warning: string | undefined,
+): Promise<ImUnbindAccountResult> {
+  let stopped = warning
+  try {
+    await provider.service.stop()
+  } catch (error: unknown) {
+    stopped = `the provider runtime did not stop cleanly: ${errorMessage(error)}`
+  }
+  await removeLocalRows(deps, accountId)
+  try {
+    await provider.service.start()
+  } catch (error: unknown) {
+    throw new ImError('IM_INTERNAL', `account removed but the provider did not restart: ${errorMessage(error)}`)
+  }
+  return { removed: true, revoked: false, ...(stopped === undefined ? {} : { warning: stopped }) }
+}
+
+/** Drop the credential, the durable rows, and the person addresses. */
+/** 删除凭据、持久化行与人员地址。 */
+async function removeLocalRows(deps: UnbindAccountDeps, accountId: string): Promise<void> {
+  await deps.credentials.remove(accountId)
+  await deps.bindings.removeAccountRows(accountId)
+  await clearPersonAddresses(deps.people, deps.logger, accountId)
+}
+
 /** Remove an account, its runtime state, credential, and rows. */
+/** 删除一个账号及其运行时状态、凭据与行。 */
 export async function unbindAccount(deps: UnbindAccountDeps, accountId: string): Promise<ImUnbindAccountResult> {
-  const { bindings, registry, credentials, people, logger } = deps
+  const { bindings, registry } = deps
   const account = bindings.account(accountId)
   if (account === undefined) throw new ImError('IM_NOT_FOUND', `unknown account: ${accountId}`)
-  let provider: ImProvider | undefined
-  let warning: string | undefined
-  try {
-    provider = registry.get(account.provider)
-  } catch {
-    warning = 'the provider is not registered, so the remote grant could not be revoked'
-  }
+  const { provider, warning } = providerOf(registry, account.provider)
   if (provider?.service.removeAccount !== undefined) {
     // Preferred path: only this account's runtime and files are touched.
     // 首选路径：只触碰该账号的运行时与本地文件，其他账号不受影响。
-    try {
-      await provider.service.removeAccount(accountId)
-    } catch (error: unknown) {
-      throw new ImError('IM_INTERNAL', `the provider could not remove the account: ${errorMessage(error)}`)
-    }
+    await revokeViaService(provider, accountId)
   } else if (provider !== undefined) {
-    // Legacy fallback: a full runtime stop/restart around the removal.
-    // 兼容回退：删除前后整体 stop/restart 一次。
-    try {
-      await provider.service.stop()
-    } catch (error: unknown) {
-      warning = `the provider runtime did not stop cleanly: ${errorMessage(error)}`
-    }
-    await credentials.remove(accountId)
-    await bindings.removeAccountRows(accountId)
-    await clearPersonAddresses(people, logger, accountId)
-    try {
-      await provider.service.start()
-    } catch (error: unknown) {
-      throw new ImError('IM_INTERNAL', `account removed but the provider did not restart: ${errorMessage(error)}`)
-    }
-    return { removed: true, revoked: false, ...(warning === undefined ? {} : { warning }) }
+    return removeWithRestart(deps, provider, accountId, warning)
   }
-  await credentials.remove(accountId)
-  await bindings.removeAccountRows(accountId)
-  await clearPersonAddresses(people, logger, accountId)
+  await removeLocalRows(deps, accountId)
   return { removed: true, revoked: false, ...(warning === undefined ? {} : { warning }) }
 }
