@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 import { defineConfig } from 'vitest/config'
 
 // *.spec.ts 单元测试 / unit tests only
@@ -13,6 +15,10 @@ export default defineConfig({
     alias: [
       { find: /^react\/jsx-dev-runtime$/, replacement: '@veren/prompt-core/jsx-dev-runtime' },
       { find: /^react\/jsx-runtime$/, replacement: '@veren/prompt-core/jsx-runtime' },
+      // 工作区兄弟包交付的 `dist/` 会落后于源码；测试运行与检查器钉到同一份源码（见 tsconfig paths）。
+      // The workspace sibling's shipped `dist/` can lag its sources; the test run
+      // reads the same sources the checker pins to (see tsconfig paths).
+      { find: /^@veren\/prompt-page$/, replacement: resolve(fileURLToPath(new URL('.', import.meta.url)), '../../packages/prompt-page/src/index.ts').replaceAll('\\', '/') },
     ],
   },
   test: {

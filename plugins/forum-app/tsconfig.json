@@ -16,7 +16,14 @@
       // same sources (see vitest.config.ts).
       // 宿主包交付的是不带声明的 `dist/*.js`，因此类型检查改读宿主的 TypeScript 源码
       // （im/wechat 先例）；测试运行时 vitest 把同一说明符别名到同一份源码（见 vitest.config.ts）。
-      "@veren/forum": ["../forum/src/index.ts"]
+      "@veren/forum": ["../forum/src/index.ts"],
+      // The workspace siblings' checked-in `dist/` can lag their sources (build
+      // artifacts are not kept in git); pinning the checker to the sources keeps
+      // the current API authoritative. Vitest aliases the same specifiers.
+      // 工作区兄弟包入库的 `dist/` 会落后于其源码（构建产物不入库）；把检查器钉到
+      // 源码上，以当前 API 为权威。vitest 把同一批说明符别名到同一处。
+      "@veren/prompt-page": ["../../packages/prompt-page/src/index.ts"],
+      "@veren/task-center": ["../task-center/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "vitest.config.ts"]

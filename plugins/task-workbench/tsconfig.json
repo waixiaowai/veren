@@ -7,7 +7,18 @@
     "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "jsxImportSource": "@veren/prompt-core",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {
+      // The workspace siblings' checked-in `dist/` can lag their sources (build
+      // artifacts are not kept in git); pinning the checker to the sources keeps
+      // the current API authoritative. Vitest aliases the same specifiers.
+      // 工作区兄弟包入库的 `dist/` 会落后于其源码（构建产物不入库）；把检查器钉到
+      // 源码上，以当前 API 为权威。vitest 把同一批说明符别名到同一处。
+      "@veren/prompt-page": ["../../packages/prompt-page/src/index.ts"],
+      "@veren/task-center": ["../task-center/src/index.ts"],
+      "@veren/page-registry": ["../page-registry/src/index.ts"],
+      "@veren/app-registry": ["../app-registry/src/index.ts"]
+    }
   },
   "include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]
 }

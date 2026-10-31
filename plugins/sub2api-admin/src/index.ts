@@ -38,7 +38,8 @@ import {
   UsersMeta, UsersPage,
 } from './pages.tsx'
 import { Sub2ApiStore } from './store.ts'
-import { APP_DEFINITION, APP_ID, createAppTools } from './tools.ts'
+import { APP_DEFINITION, APP_ID } from './app-definition.ts'
+import { createAppTools } from './tools.ts'
 
 export const name = 'veren-sub2api-admin'
 

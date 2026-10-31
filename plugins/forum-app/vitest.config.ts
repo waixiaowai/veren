@@ -62,6 +62,11 @@ export default defineConfig({
       // Type-check and test run read the very same host sources.
       // 类型检查与测试运行读的是同一份宿主源码。
       { find: /^@veren\/forum$/, replacement: resolve(fileURLToPath(new URL('.', import.meta.url)), '../forum/src/index.ts').replaceAll('\\', '/') },
+      // The workspace siblings' shipped `dist/` can lag their sources; the test
+      // run reads the same sources the checker pins to (see tsconfig paths).
+      // 工作区兄弟包交付的 `dist/` 会落后于源码；测试运行与检查器钉到同一份源码（见 tsconfig paths）。
+      { find: /^@veren\/prompt-page$/, replacement: resolve(fileURLToPath(new URL('.', import.meta.url)), '../../packages/prompt-page/src/index.ts').replaceAll('\\', '/') },
+      { find: /^@veren\/task-center$/, replacement: resolve(fileURLToPath(new URL('.', import.meta.url)), '../task-center/src/index.ts').replaceAll('\\', '/') },
     ],
   },
   test: {
