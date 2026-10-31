@@ -213,6 +213,29 @@ export async function requeueTaskAction(
     // dispatch: an order someone is working must not be yanked away
     return { ok: false, code: 'dispatch/conflict', detail: 'the dispatched order is still open at the target; cancel it there first' }
   }
+  return await sendRequeuedRecord(ports, exec, ref, args, lane)
+}
+
+/** 退回/改派引用（resolveTaskRef 的非空形状）/ a requeue reference (resolveTaskRef's non-null shape) */
+interface RequeueRef {
+  readonly item: string
+  readonly record: TaskRecord
+}
+
+/**
+ * 两步一致性的后半（§3.3）：先 send 新记录，再撤旧 open 载体（失败吞掉——新记录已
+ * 是事实源），最后同步投影。
+ * / The two-step tail (§3.3): send the new record first, then cancel the old
+ * open vehicle (failures swallowed — the new record is the fact source), then
+ * sync the projection.
+ */
+async function sendRequeuedRecord(
+  ports: QueuePorts,
+  exec: ToolCallContext,
+  ref: RequeueRef,
+  args: { target_app?: string; page?: string },
+  lane: TaskRecord['status'],
+): Promise<ToolOutcome> {
   const itemId = ref.item
   const detailUrl = `/apps/task-workbench/task/${itemId}`
   const target = dispatchTargetOf(ports.catalog(), args, detailUrl)

@@ -25,7 +25,9 @@ import type {} from '@veren/app-registry'
 import type {} from '@veren/page-registry'
 import type {} from '@veren/task-center'
 import { APP_DEFINITION, APP_ID } from './app.ts'
+import type { OpenUrlPort } from './actions-queue.ts'
 import { createTaskChannel } from './channel.ts'
+import type { TaskChannel } from './channel.ts'
 import { ConsentBook, DriveLedger } from './consent.ts'
 import { bindWorkbenchRuntime } from './pages.tsx'
 import { ListMeta, ListPage } from './page-list.tsx'
@@ -56,20 +58,40 @@ export const inject = ['apps', 'pageRegistry', 'taskCenter']
 export const provide = []
 
 export const apply = (ctx: Context, config: Config): void => {
-  const apps = ctx.apps
   // 任务中心是声明的硬 inject：通道从注入的服务面纯参数构建，不再探测 ctx。
   // taskCenter is a declared hard inject: the channel is built from the injected
   // service face as a pure parameter — no ctx probing.
-  const channel = createTaskChannel(ctx.taskCenter)
-  const store = new TaskStore()
-  const book = new ConsentBook()
-  const ledger = new DriveLedger()
-  // 页面作用域解析面（take_page_task 的"本页那条"）：用 page-registry 实例索引
-  // 反查本会话在详情页上的 live 行——URL 里已有 taskId，接取天然受限，不靠参数。
-  // / The page-scope resolver (take_page_task's "this page's task"): look this
-  // session's live detail row up through the page-registry instance index — the
-  // url already carries the taskId, so the take is naturally scoped, parameter-free.
-  const scope: PageTaskScope = {
+  const deps: WorkbenchDeps = {
+    channel: createTaskChannel(ctx.taskCenter),
+    store: new TaskStore(),
+    book: new ConsentBook(),
+    ledger: new DriveLedger(),
+    scope: pageScopeOf(ctx),
+    openUrl: openUrlOf(ctx),
+  }
+  wireConsentObserver(ctx, deps.book)
+  wireApp(ctx, config, deps)
+}
+
+/** 装配段共享的运行时依赖 / the runtime deps the assembly segments share */
+interface WorkbenchDeps {
+  readonly channel: TaskChannel
+  readonly store: TaskStore
+  readonly book: ConsentBook
+  readonly ledger: DriveLedger
+  readonly scope: PageTaskScope
+  readonly openUrl: OpenUrlPort['openUrl']
+}
+
+/**
+ * 页面作用域解析面（take_page_task 的"本页那条"）：用 page-registry 实例索引
+ * 反查本会话在详情页上的 live 行——URL 里已有 taskId，接取天然受限，不靠参数。
+ * / The page-scope resolver (take_page_task's "this page's task"): look this
+ * session's live detail row up through the page-registry instance index — the
+ * url already carries the taskId, so the take is naturally scoped, parameter-free.
+ */
+function pageScopeOf(ctx: Context): PageTaskScope {
+  return {
     liveDetailTaskOf: async (sessionId) => {
       const rows = await ctx.pageRegistry.instances.listByApp(APP_ID)
       const row = rows.find((candidate) => candidate.state === 'live'
@@ -85,50 +107,60 @@ export const apply = (ctx: Context, config: Config): void => {
       return { taskId, url: row.url }
     },
   }
-  // 导航正门（§6）：open_task_page 走 pageRegistry.openUrl——taskId 接取与
-  // 同 URL 自开守卫都在宿主侧，本包不自建导航机制。
-  // / The navigation front door (§6): open_task_page rides pageRegistry.openUrl —
-  // the taskId take and the same-url self-open guard both live host-side.
-  const openUrl = (url: string, options?: { taskId?: string; callerSessionId?: string }): ReturnType<typeof ctx.pageRegistry.openUrl> =>
-    ctx.pageRegistry.openUrl(url, options)
+}
 
-  // 同意门观察器：先于页面注册（首屏回合之前就要开始折叠）。global 是硬要求。
-  // / The consent observer: registered before the pages (the fold must run before
-  // the first screen's turn). global is a hard requirement.
+/**
+ * 导航正门（§6）：open_task_page 走 pageRegistry.openUrl——taskId 接取与
+ * 同 URL 自开守卫都在宿主侧，本包不自建导航机制。
+ * / The navigation front door (§6): open_task_page rides pageRegistry.openUrl —
+ * the taskId take and the same-url self-open guard both live host-side.
+ */
+function openUrlOf(ctx: Context): OpenUrlPort['openUrl'] {
+  return (url, options) => ctx.pageRegistry.openUrl(url, options)
+}
+
+/**
+ * 同意门观察器：先于页面注册（首屏回合之前就要开始折叠）。global 是硬要求。
+ * / The consent observer: registered before the pages (the fold must run before
+ * the first screen's turn). global is a hard requirement.
+ */
+function wireConsentObserver(ctx: Context, book: ConsentBook): void {
   ctx.effect(() => ctx.on('session/event', book.observe, { global: true }), 'task-workbench:consent-observer')
+}
 
-  // 单一 effect 收线（G13 规则 3）：定义 → 工具 → 页面，体内任何一步失败都把
-  // 已完成的步骤逆序回滚——绝不留下"应用在、工具缺页"的半接线状态。
-  // One effect owns the wiring (G13 rule 3): definition → tools → pages; any
-  // failing step rolls the finished ones back in reverse.
+/**
+ * 单一 effect 收线（G13 规则 3）：定义 → 工具 → 页面；体内任何一步失败都把
+ * 已完成的步骤逆序回滚——绝不留下"应用在、工具缺页"的半接线状态。
+ * / One effect owns the wiring (G13 rule 3): definition → tools → pages; any
+ * failing step rolls the finished ones back in reverse.
+ */
+function wireApp(ctx: Context, config: Config, deps: WorkbenchDeps): void {
   ctx.effect(() => {
     const done: Array<() => void> = []
     try {
       // 1) 应用定义：绑定本 fiber，fiber 销毁 → 整应用（页面+工具）摘除
-      done.push(apps.register(APP_DEFINITION, ctx))
-      // 2) 工具矩阵以全名备好（§4 扩展表）：页面组件体在唯一一次渲染里直接
-      //    agent.ctx.tools.register 按矩阵行登记。
-      // 2) The tool matrix is prepared under full names (the §4 table): page
-      //    bodies register their matrix rows in the one render.
+      // 1) The app definition binds to this fiber; fiber dispose removes the whole app.
+      done.push(ctx.apps.register(APP_DEFINITION, ctx))
+      // 2) 工具矩阵以全名备好（§4 扩展表），页面组件体在唯一一次渲染里按矩阵行登记
+      // 2) The tool matrix is prepared under full names (the §4 table).
       const tools = createAppTools({
-        store, channel, scope, book, ledger, openUrl,
-        catalog: () => apps.catalog(),
+        store: deps.store, channel: deps.channel, scope: deps.scope,
+        book: deps.book, ledger: deps.ledger, openUrl: deps.openUrl,
+        catalog: () => ctx.apps.catalog(),
       }).map((tool) => ({ ...tool, name: `task_workbench__${tool.name}` }))
-      // 3) 组件是模块级的：权威投影/全名工具/目录/种子数在装配此刻绑进模块槽位。
-      // 3) Components are module-level: the authoritative projection / full-named
-      //    tools / catalog / seed size bind into the module slot right here.
-      bindWorkbenchRuntime({ store, tools, catalog: () => apps.catalog(), channel, seedSize: config.listSize })
-      const pages = apps.pages(APP_ID, ctx)
+      // 3) 组件是模块级的：权威投影/全名工具/目录/种子数在装配此刻绑进模块槽位
+      // 3) Components are module-level: bind the module slot right here.
+      bindWorkbenchRuntime({ store: deps.store, tools, catalog: () => ctx.apps.catalog(), channel: deps.channel, seedSize: config.listSize })
+      const pages = ctx.apps.pages(APP_ID, ctx)
       done.push(pages.register(ListPage, ListMeta))
       done.push(pages.register(DetailPage, DetailMeta))
       done.push(pages.register(PublishPage, PublishMeta))
     } catch (error: unknown) {
+      // 任何一步失败：已完成步骤逆序回滚 / any failing step rolls the finished ones back in reverse
       for (const dispose of done.reverse()) dispose()
       throw error
     }
-    // 本接线不持有独立资源：清理全部由注册表侧的 disposer 承担，effect 返回空清理器。
-    // This wiring owns no standalone resource: cleanup lives in the registry
-    // disposers, so the effect returns a no-op disposer.
+    // 本接线不持有独立资源：清理全部由注册表侧的 disposer 承担 / this wiring owns no standalone resource
     return () => undefined
   }, 'task-workbench:app')
 }

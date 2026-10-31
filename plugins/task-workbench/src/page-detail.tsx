@@ -11,6 +11,9 @@
 import type { ComponentPageMeta, PageFC } from '@veren/prompt-page'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { subtreeProgress, subtaskTree } from './store.ts'
+import type { TaskStore } from './store.ts'
+import type { SubtaskNode } from './types.ts'
+import type { TaskChannel } from './channel.ts'
 import { followupText, requireRuntime, STRINGS, toolOf, tExpandHint, tLane, tProgress, URL_PREFIX } from './pages.tsx'
 import { laneOfItem } from './page-list.tsx'
 
@@ -21,39 +24,62 @@ function registerPageTools(agent: Agent): void {
   }
 }
 
+/** 详情页首屏生命周期回调体：中心真身随消息送达（投影可能缺这条——投递来的单在别的会话发布）。
+ * / The detail page's first-screen effect body: the center's real body as a
+ * message (the projection may miss this order — a delivered order was published
+ * elsewhere). */
+async function detailFirstScreen(
+  agent: Agent,
+  store: TaskStore,
+  channel: TaskChannel,
+  taskId: string,
+): Promise<() => Promise<void>> {
+  try {
+    const records = await channel.list()
+    store.rebuildFrom(records)
+    const record = records.find((entry) => entry.parentId === undefined
+      && (entry.target.params['taskId'] === taskId || `wb-${entry.id}` === taskId))
+    followupText(agent, record === undefined
+      ? `[task-workbench] 任务 ${taskId} 在任务中心无记录——如实告知用户，不要凭空处理。/ no task-center record for ${taskId}; tell the user honestly.`
+      : `[task-workbench] ${taskId} 的中心真身：${record.id} · ${record.title} · ${record.status} · ${record.target.url}${record.result?.summary === undefined ? '' : ` · ${record.result.summary}`}`)
+  } catch (error: unknown) {
+    followupText(agent, '[task-workbench] 任务中心读取失败：' + (error instanceof Error ? error.message : String(error)))
+  }
+  return async () => undefined
+}
+
+/** 投影缺这条（投递来的单还没进投影）：如实渲染，真身随消息送达。
+ * / The projection misses this order (a delivered one not yet projected):
+ * render honestly; the real body arrives as a message. */
+function missingTaskBody(taskId: string): JSX.Element {
+  return (
+    <>
+      <h1>任务 {taskId}（中心记录加载中）</h1>
+      <blockquote>本页正文还没有这条任务的投影；它的中心真身随后以消息送达，或用 get_page_task 读取。不要凭空处理。</blockquote>
+    </>
+  )
+}
+
+/** 子任务树缩进行（活跃分支展开，终态折叠为进度徽标）/ the subtask-tree indented rows (active branches expanded; terminal ones collapse into a progress badge) */
+function subtreeRows(rows: readonly SubtaskNode[]): JSX.Element[] {
+  return rows.map((node) => (
+    <li key={node.item.id}>
+      {'　'.repeat(node.depth - 1)}{node.item.title}（{node.item.status}
+      {node.progress.label !== '' ? ` · ${tProgress(node.progress.label)}` : ''}）
+    </li>
+  ))
+}
+
 /** 详情页组件体（一次性渲染）/ the detail page's body (the one-shot render) */
 export const DetailPage: PageFC<{ taskId: string }> = (props, agent) => {
   registerPageTools(agent)
   const { store, channel } = requireRuntime()
   const taskId = String(props.taskId ?? '')
   const item = store.getState().find((entry) => entry.id === taskId)
-  // 首屏生命周期：中心真身随消息送达（投影可能缺这条——投递来的单在别的会话发布）
-  // / the first-screen lifecycle: the center's real body as a message (the projection may miss this order — a delivered order was published elsewhere)
-  agent.ctx.effect(async () => {
-    try {
-      const records = await channel.list()
-      store.rebuildFrom(records)
-      const record = records.find((entry) => entry.parentId === undefined
-        && (entry.target.params['taskId'] === taskId || `wb-${entry.id}` === taskId))
-      followupText(agent, record === undefined
-        ? `[task-workbench] 任务 ${taskId} 在任务中心无记录——如实告知用户，不要凭空处理。/ no task-center record for ${taskId}; tell the user honestly.`
-        : `[task-workbench] ${taskId} 的中心真身：${record.id} · ${record.title} · ${record.status} · ${record.target.url}${record.result?.summary === undefined ? '' : ` · ${record.result.summary}`}`)
-    } catch (error: unknown) {
-      followupText(agent, '[task-workbench] 任务中心读取失败：' + (error instanceof Error ? error.message : String(error)))
-    }
-    return async () => undefined
-  }, 'task-workbench:detail-first-screen')
-  if (item === undefined) {
-    // 投影缺这条（投递来的单还没进投影）：如实渲染，真身随消息送达
-    // / the projection misses this order (a delivered one not yet projected): render honestly, the real body arrives as a message
-    return (
-      <>
-        <h1>任务 {taskId}（中心记录加载中）</h1>
-        <blockquote>本页正文还没有这条任务的投影；它的中心真身随后以消息送达，或用 get_page_task 读取。不要凭空处理。</blockquote>
-      </>
-    )
-  }
-  const rows = subtaskTree(store.getState(), taskId)
+  // 首屏生命周期：中心真身随消息送达（投影可能缺这条）
+  // / the first-screen lifecycle: the center's real body as a message (the projection may miss this order)
+  agent.ctx.effect(() => detailFirstScreen(agent, store, channel, taskId), 'task-workbench:detail-first-screen')
+  if (item === undefined) return missingTaskBody(taskId)
   return (
     <>
       <h1>{item.id} {item.title}</h1>
@@ -62,12 +88,7 @@ export const DetailPage: PageFC<{ taskId: string }> = (props, agent) => {
       <p>{tExpandHint()}</p>
       <h2>子任务树</h2>
       <ul>
-        {rows.map((node) => (
-          <li key={node.item.id}>
-            {'　'.repeat(node.depth - 1)}{node.item.title}（{node.item.status}
-            {node.progress.label !== '' ? ` · ${tProgress(node.progress.label)}` : ''}）
-          </li>
-        ))}
+        {subtreeRows(subtaskTree(store.getState(), taskId))}
       </ul>
       <p>{STRINGS.splitHint.zh}</p>
       <hr />

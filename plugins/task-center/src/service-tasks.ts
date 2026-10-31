@@ -15,8 +15,9 @@
  */
 
 import { view } from './storage.ts'
-import type { DeliveryRecord } from './storage.ts'
+import type { DeliveryRecord, TaskCenterStore } from './storage.ts'
 import { TaskError, TERMINAL_STATUSES, checkSubtreeLimits, rootIdOf, treePathOf } from './tree.ts'
+import type { TaskTreeIndex } from './tree.ts'
 import { TaskErrorCode } from './types.ts'
 import type { TaskDraft, TaskId, TaskQuery, TaskRecord } from './types.ts'
 import { newId, newTaskId } from './service-storage.ts'
@@ -33,50 +34,62 @@ export async function sendTask(ops: TaskOps, draft: TaskDraft): Promise<TaskReco
   return ops.storage.write(async (domain) => {
     await ops.tree.sweep(domain, ops)
     validateDraft(draft)
-    if (draft.idempotencyKey !== undefined) {
-      const seen = ops.tree.tasks(domain).all().find(row =>
-        row.appId === draft.target.appId && row.idempotencyKey === draft.idempotencyKey)
-      if (seen !== undefined) return seen
-    }
+    const seen = idempotentDuplicateOf(ops, domain, draft)
+    if (seen !== undefined) return seen
     await checkSender(ops, draft.target.appId)
     const snapshot = await ops.appResolver()?.(draft.target.appId)
-    const now = new Date().toISOString()
-    const record: TaskRecord = {
-      id: newTaskId(),
-      appId: draft.target.appId,
-      kind: draft.kind,
-      title: draft.title.trim(),
-      ...(draft.body === undefined ? {} : { body: draft.body }),
-      target: draft.target,
-      appVersion: snapshot?.version ?? 'unknown',
-      assignee: 'local',
-      status: 'open',
-      revision: 1,
-      createdAt: now,
-      updatedAt: now,
-      ...(draft.dueAt === undefined ? {} : { dueAt: draft.dueAt }),
-      ...(draft.expiresAt === undefined ? {} : { expiresAt: draft.expiresAt }),
-      ...(draft.origin === undefined ? {} : { origin: draft.origin }),
-      ...(draft.idempotencyKey === undefined ? {} : { idempotencyKey: draft.idempotencyKey }),
-      // v2 起所有记录带树字段；send 只创建根任务 / every record carries the tree
-      // fields from v2 on; send creates roots only
-      ancestorIds: [],
-      schemaVersion: 2,
-    }
+    const record = rootRecordOf(draft, snapshot?.version ?? 'unknown')
     await ops.tree.save(domain, record)
-    const delivery: DeliveryRecord = {
-      id: newId('notice'),
-      taskId: record.id,
-      recipient: 'local',
-      mode: 'inbox',
-      state: 'pending',
-      attempts: 0,
-      createdAt: now,
-    }
-    await view(domain.table('deliveries')).put(delivery.id, delivery)
-    ops.host.emit('task-center/changed', { taskId: record.id, action: 'sent' })
+    await deliverRoot(ops, domain, record)
     return record
   })
+}
+
+/** 幂等键查重：同应用同键的既有记录原样返回（§4.2 去重）/ the idempotency-key dedup: an existing same-app same-key record returns unchanged. */
+function idempotentDuplicateOf(ops: TaskOps, domain: TaskCenterStore, draft: TaskDraft): TaskRecord | undefined {
+  if (draft.idempotencyKey === undefined) return undefined
+  return ops.tree.tasks(domain).all().find(row =>
+    row.appId === draft.target.appId && row.idempotencyKey === draft.idempotencyKey)
+}
+
+/** 组装根任务记录（v2：所有记录带树字段；send 只创建根任务）/ assemble the root record (v2: tree fields on every record; send creates roots only). */
+function rootRecordOf(draft: TaskDraft, appVersion: string): TaskRecord {
+  const now = new Date().toISOString()
+  return {
+    id: newTaskId(),
+    appId: draft.target.appId,
+    kind: draft.kind,
+    title: draft.title.trim(),
+    ...(draft.body === undefined ? {} : { body: draft.body }),
+    target: draft.target,
+    appVersion,
+    assignee: 'local',
+    status: 'open',
+    revision: 1,
+    createdAt: now,
+    updatedAt: now,
+    ...(draft.dueAt === undefined ? {} : { dueAt: draft.dueAt }),
+    ...(draft.expiresAt === undefined ? {} : { expiresAt: draft.expiresAt }),
+    ...(draft.origin === undefined ? {} : { origin: draft.origin }),
+    ...(draft.idempotencyKey === undefined ? {} : { idempotencyKey: draft.idempotencyKey }),
+    ancestorIds: [],
+    schemaVersion: 2,
+  }
+}
+
+/** 根任务的收件箱投递行 + changed 事件（§4.7.5：收件箱只出现根任务）/ the root's inbox delivery row + changed event (§4.7.5: the inbox shows roots only). */
+async function deliverRoot(ops: TaskOps, domain: TaskCenterStore, record: TaskRecord): Promise<void> {
+  const delivery: DeliveryRecord = {
+    id: newId('notice'),
+    taskId: record.id,
+    recipient: 'local',
+    mode: 'inbox',
+    state: 'pending',
+    attempts: 0,
+    createdAt: record.createdAt,
+  }
+  await view(domain.table('deliveries')).put(delivery.id, delivery)
+  ops.host.emit('task-center/changed', { taskId: record.id, action: 'sent' })
 }
 
 /**
@@ -98,51 +111,66 @@ export async function createSubtask(
   return ops.storage.write(async (domain) => {
     await ops.tree.sweep(domain, ops)
     const index = ops.tree.tasks(domain)
-    const parent = index.get(parentId)
-    if (parent === undefined) {
-      throw new TaskError(TaskErrorCode.ParentGone, `parent task ${parentId} does not exist`)
-    }
-    if (TERMINAL_STATUSES.has(parent.status)) {
-      throw new TaskError(TaskErrorCode.InvalidState,
-        `parent task ${parentId} is ${parent.status}; subtasks attach to non-terminal parents only`)
-    }
+    const parent = requireOpenParent(index, parentId)
     if (opts.claimantSessionId !== undefined) ops.tree.assertTreeClaimant(index, parent, opts.claimantSessionId)
     validateDraft(draft)
-    if (draft.target.url !== parent.target.url) {
-      throw new TaskError(TaskErrorCode.SubtaskTargetMismatch,
-        `subtask target ${draft.target.url} must equal the parent target ${parent.target.url}`)
-    }
+    assertSubtaskTarget(parent, draft)
     const root = requireTask(index.get(rootIdOf(parent)))
     checkSubtreeLimits(parent, index.directChildren(parent.id).length, index.subtree(root.id).length)
-    const now = new Date().toISOString()
-    const record: TaskRecord = {
-      id: newTaskId(),
-      appId: draft.target.appId,
-      kind: draft.kind,
-      title: draft.title.trim(),
-      ...(draft.body === undefined ? {} : { body: draft.body }),
-      target: draft.target,
-      appVersion: parent.appVersion,
-      assignee: 'local',
-      status: 'open',
-      revision: 1,
-      createdAt: now,
-      updatedAt: now,
-      ...(draft.dueAt === undefined ? {} : { dueAt: draft.dueAt }),
-      ...(draft.expiresAt === undefined ? {} : { expiresAt: draft.expiresAt }),
-      ...(draft.origin === undefined ? {} : { origin: draft.origin }),
-      ...(draft.idempotencyKey === undefined ? {} : { idempotencyKey: draft.idempotencyKey }),
-      // 父指针只在这里写一次；ancestorIds = 父的树路径，随创建定型（§4.7.1）
-      // / the parent pointer is written once here; ancestorIds = the parent's
-      // tree path, fixed at creation
-      parentId,
-      ancestorIds: treePathOf(parent),
-      schemaVersion: 2,
-    }
+    const record = subtaskRecordOf(parentId, parent, draft)
     await ops.tree.save(domain, record)
     ops.host.emit('task-center/changed', { taskId: record.id, action: 'subtask-added' })
     return record
   })
+}
+
+/** 父任务存在且未终结（§4.7.6 的前两条校验）/ the parent exists and is non-terminal (§4.7.6's first two checks). */
+function requireOpenParent(index: TaskTreeIndex, parentId: TaskId): TaskRecord {
+  const parent = index.get(parentId)
+  if (parent === undefined) {
+    throw new TaskError(TaskErrorCode.ParentGone, `parent task ${parentId} does not exist`)
+  }
+  if (TERMINAL_STATUSES.has(parent.status)) {
+    throw new TaskError(TaskErrorCode.InvalidState,
+      `parent task ${parentId} is ${parent.status}; subtasks attach to non-terminal parents only`)
+  }
+  return parent
+}
+
+/** 子任务 target.url 必须与父一致（§4.7.6）/ the subtask's target.url must equal the parent's (§4.7.6). */
+function assertSubtaskTarget(parent: TaskRecord, draft: TaskDraft): void {
+  if (draft.target.url !== parent.target.url) {
+    throw new TaskError(TaskErrorCode.SubtaskTargetMismatch,
+      `subtask target ${draft.target.url} must equal the parent target ${parent.target.url}`)
+  }
+}
+
+/** 组装子任务记录：父指针只在这里写一次，ancestorIds = 父的树路径，随创建定型（§4.7.1）。
+ * / Assemble the subtask record: the parent pointer is written once here;
+ * ancestorIds = the parent's tree path, fixed at creation (§4.7.1). */
+function subtaskRecordOf(parentId: TaskId, parent: TaskRecord, draft: TaskDraft): TaskRecord {
+  const now = new Date().toISOString()
+  return {
+    id: newTaskId(),
+    appId: draft.target.appId,
+    kind: draft.kind,
+    title: draft.title.trim(),
+    ...(draft.body === undefined ? {} : { body: draft.body }),
+    target: draft.target,
+    appVersion: parent.appVersion,
+    assignee: 'local',
+    status: 'open',
+    revision: 1,
+    createdAt: now,
+    updatedAt: now,
+    ...(draft.dueAt === undefined ? {} : { dueAt: draft.dueAt }),
+    ...(draft.expiresAt === undefined ? {} : { expiresAt: draft.expiresAt }),
+    ...(draft.origin === undefined ? {} : { origin: draft.origin }),
+    ...(draft.idempotencyKey === undefined ? {} : { idempotencyKey: draft.idempotencyKey }),
+    parentId,
+    ancestorIds: treePathOf(parent),
+    schemaVersion: 2,
+  }
 }
 
 /** List tasks by the query filters, after a lazy sweep. */

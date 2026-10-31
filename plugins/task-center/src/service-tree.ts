@@ -168,32 +168,56 @@ export class TaskTree {
     for (const id of index.all().map(row => row.id)) {
       const row = index.get(id)
       if (row === undefined) continue
-      if ((row.status === 'open' || row.status === 'taken') && resolver !== undefined) {
-        if (await resolver(row.appId) === undefined) {
-          const { claimedBy: _dropped, ...kept } = row
-          const next: TaskRecord = { ...kept, status: 'orphaned', revision: row.revision + 1, updatedAt: new Date().toISOString() }
-          await this.save(domain, next)
-          await this.cascadeSubtree(domain, ops, next, 'orphaned', 'app uninstalled')
-          ops.host.emit('task-center/changed', { taskId: row.id, action: 'orphaned' })
-          continue
-        }
+      if (await this.sweepOrphan(domain, ops, row, resolver)) continue
+      await this.sweepExpiry(domain, ops, row, now)
+    }
+  }
+
+  /**
+   * 孤儿扫入（§7.4、§4.7.7 场景 8）：注册表里已查不到应用 → 本行连同整棵子树标
+   * 孤儿。返回 true = 本行已处理，调用方跳过后续到期判定。
+   * / Orphan sweep-in (§7.4, §4.7.7 scenario 8): an app the registry no longer
+   * knows → orphan this row and its whole subtree. True = handled; the caller
+   * skips the deadline checks.
+   */
+  private async sweepOrphan(
+    domain: TaskCenterStore,
+    ops: TaskOps,
+    row: TaskRecord,
+    resolver: AppResolver | undefined,
+  ): Promise<boolean> {
+    if ((row.status !== 'open' && row.status !== 'taken') || resolver === undefined) return false
+    if (await resolver(row.appId) !== undefined) return false
+    // claimedBy 是 readonly：用解构摘除该键，不用 as 断言 / destructure to drop the key, no cast
+    const { claimedBy: _dropped, ...kept } = row
+    const next: TaskRecord = { ...kept, status: 'orphaned', revision: row.revision + 1, updatedAt: new Date().toISOString() }
+    await this.save(domain, next)
+    await this.cascadeSubtree(domain, ops, next, 'orphaned', 'app uninstalled')
+    ops.host.emit('task-center/changed', { taskId: row.id, action: 'orphaned' })
+    return true
+  }
+
+  /**
+   * 到期清扫（§4.4、§7.5）：到点的 open → expired 并向子树级联；过租的 taken → 回 open。
+   * / Deadline sweep (§4.4, §7.5): a due open expires and cascades; a past-lease
+   * taken returns to open.
+   */
+  private async sweepExpiry(domain: TaskCenterStore, ops: TaskOps, row: TaskRecord, now: number): Promise<void> {
+    if (row.status === 'open' && isPast(row.expiresAt, now)) {
+      const next: TaskRecord = { ...row, status: 'expired', revision: row.revision + 1, updatedAt: new Date().toISOString() }
+      await this.save(domain, next)
+      // 父过期 → 子树里 open 后代 expired、taken 后代 cancelled（§4.7.2 规则二）
+      // / an expired parent expires open descendants and cancels taken ones
+      await this.cascadeSubtree(domain, ops, next, 'expired', 'ancestor expired')
+      ops.host.emit('task-center/changed', { taskId: row.id, action: 'expired' })
+    } else if (row.status === 'taken' && isPast(row.claimedBy?.leaseUntil, now)) {
+      // claimedBy 是 readonly：用解构摘除该键，不用 as 断言 / destructure to drop the key, no cast
+      const { claimedBy: _dropped, ...kept } = row
+      const next: TaskRecord = {
+        ...kept, status: 'open', revision: row.revision + 1, updatedAt: new Date().toISOString(),
       }
-      if (row.status === 'open' && isPast(row.expiresAt, now)) {
-        const next: TaskRecord = { ...row, status: 'expired', revision: row.revision + 1, updatedAt: new Date().toISOString() }
-        await this.save(domain, next)
-        // 父过期 → 子树里 open 后代 expired、taken 后代 cancelled（§4.7.2 规则二）
-        // / an expired parent expires open descendants and cancels taken ones
-        await this.cascadeSubtree(domain, ops, next, 'expired', 'ancestor expired')
-        ops.host.emit('task-center/changed', { taskId: row.id, action: 'expired' })
-      } else if (row.status === 'taken' && isPast(row.claimedBy?.leaseUntil, now)) {
-        // claimedBy 是 readonly：用解构摘除该键，不用 as 断言 / destructure to drop the key, no cast
-        const { claimedBy: _dropped, ...kept } = row
-        const next: TaskRecord = {
-          ...kept, status: 'open', revision: row.revision + 1, updatedAt: new Date().toISOString(),
-        }
-        await this.save(domain, next)
-        ops.host.emit('task-center/changed', { taskId: row.id, action: 'lease-expired' })
-      }
+      await this.save(domain, next)
+      ops.host.emit('task-center/changed', { taskId: row.id, action: 'lease-expired' })
     }
   }
 }

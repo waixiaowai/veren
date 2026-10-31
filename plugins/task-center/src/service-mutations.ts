@@ -16,11 +16,13 @@
  */
 
 import { TaskError, TERMINAL_STATUSES } from './tree.ts'
+import type { TaskTreeIndex } from './tree.ts'
 import { TaskErrorCode } from './types.ts'
 import type {
   TaskCenterContract, TaskFailure, TaskId, TaskRecord, TaskResult,
 } from './types.ts'
 import { isPast } from './service-storage.ts'
+import type { TaskCenterStore } from './storage.ts'
 import type { TaskOps } from './service-tree.ts'
 import { requireTask } from './service-tree.ts'
 
@@ -36,34 +38,55 @@ export async function takeTask(ops: TaskOps, id: TaskId, claim: TakeClaim): Prom
     await ops.tree.sweep(domain, ops)
     const index = ops.tree.tasks(domain)
     const record = requireTask(index.get(id))
-    const sameClaimant = record.status === 'taken' && record.claimedBy !== undefined
-      && record.claimedBy.actor === claim.actor && record.claimedBy.sessionId === claim.sessionId
-    if (record.status === 'taken' && !sameClaimant && !isPast(record.claimedBy?.leaseUntil, Date.now())) {
-      throw new TaskError(TaskErrorCode.AlreadyTaken, `task ${id} is taken until ${record.claimedBy?.leaseUntil}`)
-    }
-    if (record.status === 'orphaned') {
-      throw new TaskError(TaskErrorCode.Orphaned, `task ${id} belongs to an uninstalled app`)
-    }
-    // 已被懒过期判定翻成 expired 的任务不可接取 / a lazily expired task is not claimable
-    if (record.status === 'expired') {
-      throw new TaskError(TaskErrorCode.Expired, `task ${id} expired at ${record.expiresAt}`)
-    }
-    // 续租（同一接取者幂等续约）或首次接取；其余状态不可接取 / renew (idempotent) or first take
-    if (record.status !== 'open' && !sameClaimant) {
-      throw new TaskError(TaskErrorCode.InvalidState, `task ${id} is ${record.status}, not claimable`)
-    }
+    const sameClaimant = isSameClaimant(record, claim)
+    assertTakeable(record, id, sameClaimant)
     if (!sameClaimant) ops.tree.assertTreeMutex(index, record, claim.sessionId)
-    const next: TaskRecord = {
-      ...record,
-      status: 'taken',
-      revision: record.revision + 1,
-      updatedAt: new Date().toISOString(),
-      claimedBy: { sessionId: claim.sessionId, actor: claim.actor, leaseUntil: claim.leaseUntil },
-    }
-    await ops.tree.save(domain, next)
-    ops.host.emit('task-center/changed', { taskId: id, action: sameClaimant ? 'renewed' : 'taken' })
-    return next
+    return await saveTaken(ops, domain, record, claim, sameClaimant)
   })
+}
+
+/** 同一接取者判定：幂等续租的依据 / the same-claimant test: the idempotent-renewal basis. */
+function isSameClaimant(record: TaskRecord, claim: TakeClaim): boolean {
+  return record.status === 'taken' && record.claimedBy !== undefined
+    && record.claimedBy.actor === claim.actor && record.claimedBy.sessionId === claim.sessionId
+}
+
+/** 可接取性校验（§4.4）：未过租、未孤儿、未过期、状态允许 / the takeability checks (§4.4): live lease, not orphaned, not expired, claimable state. */
+function assertTakeable(record: TaskRecord, id: TaskId, sameClaimant: boolean): void {
+  if (record.status === 'taken' && !sameClaimant && !isPast(record.claimedBy?.leaseUntil, Date.now())) {
+    throw new TaskError(TaskErrorCode.AlreadyTaken, `task ${id} is taken until ${record.claimedBy?.leaseUntil}`)
+  }
+  if (record.status === 'orphaned') {
+    throw new TaskError(TaskErrorCode.Orphaned, `task ${id} belongs to an uninstalled app`)
+  }
+  // 已被懒过期判定翻成 expired 的任务不可接取 / a lazily expired task is not claimable
+  if (record.status === 'expired') {
+    throw new TaskError(TaskErrorCode.Expired, `task ${id} expired at ${record.expiresAt}`)
+  }
+  // 续租（同一接取者幂等续约）或首次接取；其余状态不可接取 / renew (idempotent) or first take
+  if (record.status !== 'open' && !sameClaimant) {
+    throw new TaskError(TaskErrorCode.InvalidState, `task ${id} is ${record.status}, not claimable`)
+  }
+}
+
+/** 落 taken 并广播 taken/renewed / persist taken and broadcast taken/renewed. */
+async function saveTaken(
+  ops: TaskOps,
+  domain: TaskCenterStore,
+  record: TaskRecord,
+  claim: TakeClaim,
+  renewed: boolean,
+): Promise<TaskRecord> {
+  const next: TaskRecord = {
+    ...record,
+    status: 'taken',
+    revision: record.revision + 1,
+    updatedAt: new Date().toISOString(),
+    claimedBy: { sessionId: claim.sessionId, actor: claim.actor, leaseUntil: claim.leaseUntil },
+  }
+  await ops.tree.save(domain, next)
+  ops.host.emit('task-center/changed', { taskId: next.id, action: renewed ? 'renewed' : 'taken' })
+  return next
 }
 
 /** Release one taken task back to open, dropping its claim. */
@@ -98,40 +121,58 @@ export async function completeTask(ops: TaskOps, id: TaskId, result: TaskResult)
     await ops.tree.sweep(domain, ops)
     const index = ops.tree.tasks(domain)
     const record = requireTask(index.get(id))
+    // 幂等：重复 complete 返回当前结果 / idempotent: a repeated complete returns the current result
     if (record.status === 'done') return record
-    if (record.status !== 'taken') {
-      throw new TaskError(TaskErrorCode.InvalidState, `task ${id} is ${record.status}; only taken tasks can complete`)
-    }
-    if (result.summary.trim().length === 0) {
-      throw new TaskError(TaskErrorCode.DraftInvalid, 'result.summary is required')
-    }
-    // §4.7.2 规则一：子树里还有非终态后代就拒绝（不级联完成——结果必须由子任务自己的
-    // 接取者写）。校验走 ancestorIds 索引，一次子树查询。
-    // §4.7.2 rule 1: refuse while the subtree has a non-terminal descendant (no
-    // cascade-complete — a result must be written by the subtask's own claimant).
-    // One subtree query over the ancestorIds index.
-    const activeChild = index.activeDescendants(id)[0]
-    if (activeChild !== undefined) {
-      throw new TaskError(TaskErrorCode.ChildrenActive,
-        `subtree of ${id} still has non-terminal descendant ${activeChild.id} (${activeChild.status}); resolve descendants first`)
-    }
-    const sessionId = record.claimedBy?.sessionId
-    const next: TaskRecord = {
-      ...record,
-      status: 'done',
-      result: {
-        summary: result.summary,
-        ...(result.artifacts === undefined ? {} : { artifacts: result.artifacts }),
-      },
-      revision: record.revision + 1,
-      updatedAt: new Date().toISOString(),
-    }
-    await ops.tree.save(domain, next)
-    ops.host.emit('task-center/completed', {
-      taskId: id, appId: record.appId, result: next.result ?? result, sessionId,
-    })
-    return next
+    assertCompletable(index, id, record, result)
+    return await saveDone(ops, domain, id, record, result)
   })
+}
+
+/**
+ * 完成前置校验：必须是 taken、summary 必填、子树无非终态后代。§4.7.2 规则一：
+ * 不级联完成——结果必须由子任务自己的接取者写；校验走 ancestorIds 索引，一次子树查询。
+ * / The completion preconditions: taken only, summary required, no non-terminal
+ * descendant. §4.7.2 rule 1: no cascade-complete — a result must be written by
+ * the subtask's own claimant; one subtree query over the ancestorIds index.
+ */
+function assertCompletable(index: TaskTreeIndex, id: TaskId, record: TaskRecord, result: TaskResult): void {
+  if (record.status !== 'taken') {
+    throw new TaskError(TaskErrorCode.InvalidState, `task ${id} is ${record.status}; only taken tasks can complete`)
+  }
+  if (result.summary.trim().length === 0) {
+    throw new TaskError(TaskErrorCode.DraftInvalid, 'result.summary is required')
+  }
+  const activeChild = index.activeDescendants(id)[0]
+  if (activeChild !== undefined) {
+    throw new TaskError(TaskErrorCode.ChildrenActive,
+      `subtree of ${id} still has non-terminal descendant ${activeChild.id} (${activeChild.status}); resolve descendants first`)
+  }
+}
+
+/** 落 done 终态并广播 completed / persist done and broadcast completed. */
+async function saveDone(
+  ops: TaskOps,
+  domain: TaskCenterStore,
+  id: TaskId,
+  record: TaskRecord,
+  result: TaskResult,
+): Promise<TaskRecord> {
+  const sessionId = record.claimedBy?.sessionId
+  const next: TaskRecord = {
+    ...record,
+    status: 'done',
+    result: {
+      summary: result.summary,
+      ...(result.artifacts === undefined ? {} : { artifacts: result.artifacts }),
+    },
+    revision: record.revision + 1,
+    updatedAt: new Date().toISOString(),
+  }
+  await ops.tree.save(domain, next)
+  ops.host.emit('task-center/completed', {
+    taskId: id, appId: record.appId, result: next.result ?? result, sessionId,
+  })
+  return next
 }
 
 /** Mark one taken task failed; failing does not cascade (§4.7.2 rule 2). */

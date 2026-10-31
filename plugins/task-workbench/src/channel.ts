@@ -67,26 +67,8 @@ function assertClaimant(record: TaskRecord, sessionId: string | undefined): void
 export function createTaskChannel(taskCenter: TaskCenterContract): TaskChannel {
   return {
     send: async (draft) => await taskCenter.send(draft),
-    addSubtask: async (parentId, title, opts) => {
-      // 父记录在这里解析，工具侧只传 id + 标题 / the parent is resolved here; the tool passes id + title
-      const parent = await taskCenter.get(parentId)
-      if (parent === undefined) {
-        throw Object.assign(new Error(`parent task ${parentId} not found in the task center`), {
-          code: TaskErrorCode.ParentGone,
-        })
-      }
-      return await taskCenter.addSubtask(parent.id, {
-        kind: parent.kind,
-        title,
-        target: parent.target,
-        ...(opts?.body === undefined ? {} : { body: opts.body }),
-      }, { ...(opts?.claimantSessionId === undefined ? {} : { claimantSessionId: opts.claimantSessionId }) })
-    },
-    findByTarget: async (url) => {
-      const records = await taskCenter.list({ appId: SELF_APP_ID })
-      // 收件箱只出现根任务（§4.7.5）：先取根再按 URL 匹配 / roots only (§4.7.5): roots first, then match by url
-      return records.find((record) => record.parentId === undefined && record.target.url === url)
-    },
+    addSubtask: (parentId, title, opts) => addSubtaskVia(taskCenter, parentId, title, opts),
+    findByTarget: (url) => findRootByTarget(taskCenter, url),
     take: (id, claim) => taskCenter.take(id, {
       sessionId: claim.sessionId,
       actor: 'model',
@@ -94,21 +76,52 @@ export function createTaskChannel(taskCenter: TaskCenterContract): TaskChannel {
     }),
     list: (query) => taskCenter.list(query ?? {}),
     get: (id) => taskCenter.get(id),
-    completeAsClaimant: async (id, result, sessionId) => {
-      const current = await taskCenter.get(id)
-      if (current !== undefined) assertClaimant(current, sessionId)
-      return await taskCenter.complete(id, result)
-    },
-    releaseAsClaimant: async (id, reason, sessionId) => {
-      const current = await taskCenter.get(id)
-      if (current !== undefined) assertClaimant(current, sessionId)
-      return await taskCenter.release(id, reason)
-    },
-    failAsClaimant: async (id, failure, sessionId) => {
-      const current = await taskCenter.get(id)
-      if (current !== undefined) assertClaimant(current, sessionId)
-      return await taskCenter.fail(id, failure)
-    },
+    completeAsClaimant: (id, result, sessionId) => asClaimant(taskCenter, id, sessionId, () => taskCenter.complete(id, result)),
+    releaseAsClaimant: (id, reason, sessionId) => asClaimant(taskCenter, id, sessionId, () => taskCenter.release(id, reason)),
+    failAsClaimant: (id, failure, sessionId) => asClaimant(taskCenter, id, sessionId, () => taskCenter.fail(id, failure)),
     cancel: (id, reason) => taskCenter.cancel(id, reason),
   }
+}
+
+/** 通道的 addSubtask 实现：父记录在这里解析，工具侧只传 id + 标题 / the addSubtask implementation: the parent is resolved here; the tool passes id + title */
+async function addSubtaskVia(
+  taskCenter: TaskCenterContract,
+  parentId: TaskId,
+  title: string,
+  opts?: SplitOptions,
+): Promise<TaskRecord> {
+  const parent = await taskCenter.get(parentId)
+  if (parent === undefined) {
+    throw Object.assign(new Error(`parent task ${parentId} not found in the task center`), {
+      code: TaskErrorCode.ParentGone,
+    })
+  }
+  return await taskCenter.addSubtask(parent.id, {
+    kind: parent.kind,
+    title,
+    target: parent.target,
+    ...(opts?.body === undefined ? {} : { body: opts.body }),
+  }, { ...(opts?.claimantSessionId === undefined ? {} : { claimantSessionId: opts.claimantSessionId }) })
+}
+
+/** 通道的 findByTarget 实现：收件箱只出现根任务（§4.7.5），先取根再按 URL 匹配 / the findByTarget implementation: roots only (§4.7.5), then match by url */
+async function findRootByTarget(taskCenter: TaskCenterContract, url: string): Promise<TaskRecord | undefined> {
+  const records = await taskCenter.list({ appId: SELF_APP_ID })
+  return records.find((record) => record.parentId === undefined && record.target.url === url)
+}
+
+/**
+ * 接取者校验后的中心转调：先读当前记录校验接取者，再执行动作（§5.6 语义）。
+ * / Center dispatch after the claimant check: read the current record, verify
+ * the claimant, then run the action (§5.6 semantics).
+ */
+async function asClaimant(
+  taskCenter: TaskCenterContract,
+  id: TaskId,
+  sessionId: string | undefined,
+  act: () => Promise<TaskRecord>,
+): Promise<TaskRecord> {
+  const current = await taskCenter.get(id)
+  if (current !== undefined) assertClaimant(current, sessionId)
+  return await act()
 }

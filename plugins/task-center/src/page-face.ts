@@ -109,59 +109,74 @@ function leaseAhead(): string {
  */
 export function buildPageTaskTools(port: () => TaskCenterContract, scope: PageTaskScope): ToolDefinitionLike[] {
   return [
-    defineTool({
-      name: 'task_take',
-      description: '接取投递到本页的那条任务（无需参数：目标 URL 就是本页；本会话已持有则续租 30 分钟）。'
-        + 'Take the task delivered to this page — no arguments; renews the 30-minute lease when this session already holds it.',
-      parameters: {},
-      output: { schema: TASK_SCHEMA, render: renderValue },
-      async execute(_args, exec) {
-        const { sessionId, record } = await resolvePageTask(port, scope, exec.agent)
-        const taken = await port().take(record.id, { sessionId, actor: 'model', leaseUntil: leaseAhead() })
-        return { task: jsonOf(taken) }
-      },
-      presentCall: () => ({ card: 'generic', title: '接取本页任务', kind: 'other' }),
-    }),
-    defineTool({
-      name: 'task_complete',
-      description: '完成本页那条已被本会话接取的任务：summary 必填（一句话结果），artifacts 可选（id/路径/URL 引用，不搬正文）。'
-        + 'Complete the task this page\u2019s session has taken: summary required, optional artifact references.',
-      parameters: {
-        summary: { type: 'string', required: true, description: '一句话结果（完成证据）' },
-        artifacts: { type: 'array', description: '产物引用（id/路径/URL）' },
-      },
-      output: { schema: TASK_SCHEMA, render: renderValue },
-      async execute(args, exec) {
-        const summary = typeof args.summary === 'string' ? args.summary.trim() : ''
-        if (summary.length === 0) throw new TaskError('task/draft-invalid', 'summary is required (the completion evidence)')
-        const { record } = await resolvePageTask(port, scope, exec.agent)
-        const completed = await port().complete(record.id, {
-          summary,
-          ...(Array.isArray(args.artifacts) ? { artifacts: args.artifacts.filter((a): a is string => typeof a === 'string') } : {}),
-        })
-        return { task: jsonOf(completed) }
-      },
-      presentCall: args => ({ card: 'generic', title: '完成本页任务', kind: 'other', rawInput: args }),
-    }),
-    defineTool({
-      name: 'task_fail',
-      description: '把本页那条已被本会话接取的任务标为失败：code 用稳定错误码，message 说明原因。做不下去时必须调用——否则任务挂着直到租约到期。'
-        + 'Fail the task this session has taken with a stable code; call it whenever the work cannot be finished.',
-      parameters: {
-        code: { type: 'string', required: true, description: '稳定错误码' },
-        message: { type: 'string', required: true, description: '失败原因' },
-      },
-      output: { schema: TASK_SCHEMA, render: renderValue },
-      async execute(args, exec) {
-        const code = typeof args.code === 'string' ? args.code.trim() : ''
-        const message = typeof args.message === 'string' ? args.message.trim() : ''
-        if (code.length === 0 || message.length === 0) throw new TaskError('task/draft-invalid', 'code and message are required')
-        const { record } = await resolvePageTask(port, scope, exec.agent)
-        return { task: jsonOf(await port().fail(record.id, { code, message })) }
-      },
-      presentCall: args => ({ card: 'generic', title: '本页任务失败', kind: 'other', rawInput: args }),
-    }),
+    pageTaskTakeTool(port, scope),
+    pageTaskCompleteTool(port, scope),
+    pageTaskFailTool(port, scope),
   ]
+}
+
+/** 页面作用域 task_take：接取/续租本页那条 / the page-scoped task_take: take or renew this page's record. */
+function pageTaskTakeTool(port: () => TaskCenterContract, scope: PageTaskScope): ToolDefinitionLike {
+  return defineTool({
+    name: 'task_take',
+    description: '接取投递到本页的那条任务（无需参数：目标 URL 就是本页；本会话已持有则续租 30 分钟）。'
+      + 'Take the task delivered to this page — no arguments; renews the 30-minute lease when this session already holds it.',
+    parameters: {},
+    output: { schema: TASK_SCHEMA, render: renderValue },
+    async execute(_args, exec) {
+      const { sessionId, record } = await resolvePageTask(port, scope, exec.agent)
+      const taken = await port().take(record.id, { sessionId, actor: 'model', leaseUntil: leaseAhead() })
+      return { task: jsonOf(taken) }
+    },
+    presentCall: () => ({ card: 'generic', title: '接取本页任务', kind: 'other' }),
+  })
+}
+
+/** 页面作用域 task_complete：结算本页被本会话接取的那条 / the page-scoped task_complete: settle the record this session took. */
+function pageTaskCompleteTool(port: () => TaskCenterContract, scope: PageTaskScope): ToolDefinitionLike {
+  return defineTool({
+    name: 'task_complete',
+    description: '完成本页那条已被本会话接取的任务：summary 必填（一句话结果），artifacts 可选（id/路径/URL 引用，不搬正文）。'
+      + 'Complete the task this page\u2019s session has taken: summary required, optional artifact references.',
+    parameters: {
+      summary: { type: 'string', required: true, description: '一句话结果（完成证据）' },
+      artifacts: { type: 'array', description: '产物引用（id/路径/URL）' },
+    },
+    output: { schema: TASK_SCHEMA, render: renderValue },
+    async execute(args, exec) {
+      const summary = typeof args.summary === 'string' ? args.summary.trim() : ''
+      if (summary.length === 0) throw new TaskError('task/draft-invalid', 'summary is required (the completion evidence)')
+      const { record } = await resolvePageTask(port, scope, exec.agent)
+      const completed = await port().complete(record.id, {
+        summary,
+        ...(Array.isArray(args.artifacts) ? { artifacts: args.artifacts.filter((a): a is string => typeof a === 'string') } : {}),
+      })
+      return { task: jsonOf(completed) }
+    },
+    presentCall: args => ({ card: 'generic', title: '完成本页任务', kind: 'other', rawInput: args }),
+  })
+}
+
+/** 页面作用域 task_fail：把本页被本会话接取的那条标失败 / the page-scoped task_fail: fail the record this session took. */
+function pageTaskFailTool(port: () => TaskCenterContract, scope: PageTaskScope): ToolDefinitionLike {
+  return defineTool({
+    name: 'task_fail',
+    description: '把本页那条已被本会话接取的任务标为失败：code 用稳定错误码，message 说明原因。做不下去时必须调用——否则任务挂着直到租约到期。'
+      + 'Fail the task this session has taken with a stable code; call it whenever the work cannot be finished.',
+    parameters: {
+      code: { type: 'string', required: true, description: '稳定错误码' },
+      message: { type: 'string', required: true, description: '失败原因' },
+    },
+    output: { schema: TASK_SCHEMA, render: renderValue },
+    async execute(args, exec) {
+      const code = typeof args.code === 'string' ? args.code.trim() : ''
+      const message = typeof args.message === 'string' ? args.message.trim() : ''
+      if (code.length === 0 || message.length === 0) throw new TaskError('task/draft-invalid', 'code and message are required')
+      const { record } = await resolvePageTask(port, scope, exec.agent)
+      return { task: jsonOf(await port().fail(record.id, { code, message })) }
+    },
+    presentCall: args => ({ card: 'generic', title: '本页任务失败', kind: 'other', rawInput: args }),
+  })
 }
 
 /** 本文件只用到 ToolDefinition 的形状；从 dsh-tools 的 defineTool 产物自然满足

@@ -10,9 +10,12 @@
  * @module @veren/task-workbench
  */
 import type { ComponentPageMeta, PageFC } from '@veren/prompt-page'
+import type { AppRecord } from '@veren/app-registry'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { subtreeProgress } from './store.ts'
-import type { QueueLane } from './types.ts'
+import type { TaskStore } from './store.ts'
+import type { QueueLane, TaskItem } from './types.ts'
+import type { WorkbenchRuntime } from './pages.tsx'
 import { externalName, followupText, requireRuntime, refreshQueue, STRINGS, toolOf, tLane, tProgress, URL_PREFIX } from './pages.tsx'
 
 /**
@@ -42,51 +45,69 @@ export function laneOfItem(item: { readonly status: string; readonly dispatchedT
 
 const LANES: readonly QueueLane[] = ['takeable', 'dispatched', 'held', 'completed', 'returned', 'stale']
 
+/** 列表页首屏生命周期回调体：懒播种子 + 队列真身随消息送达；失败只降级——投影正文照常可读。
+ * / The list page's first-screen effect body: lazy seeding + the queue's real
+ * body as a message; failures degrade — the projected body stays readable. */
+async function listFirstScreen(agent: Agent, runtime: WorkbenchRuntime): Promise<() => Promise<void>> {
+  try {
+    await refreshQueue(agent, runtime.channel, runtime.store, runtime.seedSize)
+  } catch (error: unknown) {
+    followupText(agent, '[task-workbench] 任务中心读取失败：' + (error instanceof Error ? error.message : String(error))
+      + '——投影正文仍可读；稍后用 list_tasks 再取。/ the task center read failed; the projected body still reads; retry with list_tasks.')
+  }
+  return async () => undefined
+}
+
+/** lane 概览计数行（只有非零 lane）/ the lane summary counts (non-zero lanes only) */
+function laneCountsOf(items: readonly TaskItem[]): string[] {
+  return LANES
+    .map((lane) => ({ lane, count: items.filter((item) => laneOfItem(item) === lane).length }))
+    .filter((entry) => entry.count > 0)
+    .map((entry) => `${tLane(entry.lane)} ${entry.count}`)
+}
+
+/** 队列工单行（lane + 子树进度投影）/ the queue order rows (lane + subtree-progress projection) */
+function queueRows(store: TaskStore, items: readonly TaskItem[]): JSX.Element[] {
+  return items.map((item) => {
+    const lane = laneOfItem(item)
+    return (
+      <li key={item.id}>
+        <strong>{item.id}</strong> {item.title}
+        （{tLane(lane)}{item.dispatchedTo !== undefined ? ` → ${item.dispatchedTo}` : ''}
+        {' · '}{tProgress(subtreeProgress(store.getState(), item.id).label)}）
+      </li>
+    )
+  })
+}
+
+/** 跨应用目录行（来源 = 注册表；只列 active 应用）/ the cross-app catalog rows (source = the registry; active apps only) */
+function catalogRows(catalog: () => readonly AppRecord[]): JSX.Element[] {
+  return catalog().filter((record) => record.state === 'active').map((record) => (
+    <li key={record.definition.id}>
+      {record.definition.id}（{record.definition.name}）→ {record.definition.description}；
+      入口 {record.pages?.get(record.definition.entry)?.url ?? '（未注册）'}
+    </li>
+  ))
+}
+
 /** 列表页组件体（一次性渲染）/ the list page's body (the one-shot render) */
 export const ListPage: PageFC = (_props, agent) => {
   registerPageTools(agent)
   const runtime = requireRuntime()
-  const { store, catalog, channel } = runtime
   // 首屏生命周期：懒播种子 + 队列真身随消息送达（宿主不经手取数）
   // / the first-screen lifecycle: lazy seeding + the queue's real body as a message (the host touches no fetching)
-  agent.ctx.effect(async () => {
-    try {
-      await refreshQueue(agent, channel, store, runtime.seedSize)
-    } catch (error: unknown) {
-      followupText(agent, '[task-workbench] 任务中心读取失败：' + (error instanceof Error ? error.message : String(error))
-        + '——投影正文仍可读；稍后用 list_tasks 再取。/ the task center read failed; the projected body still reads; retry with list_tasks.')
-    }
-    return async () => undefined
-  }, 'task-workbench:list-first-screen')
-  const items = store.getState().filter((item) => item.parentId === undefined)
-  const counts = LANES
-    .map((lane) => ({ lane, count: items.filter((item) => laneOfItem(item) === lane).length }))
-    .filter((entry) => entry.count > 0)
-    .map((entry) => `${tLane(entry.lane)} ${entry.count}`)
+  agent.ctx.effect(() => listFirstScreen(agent, runtime), 'task-workbench:list-first-screen')
+  const items = runtime.store.getState().filter((item) => item.parentId === undefined)
   return (
     <>
       <h1>任务工作台 · 队列</h1>
-      <p>{counts.join(' · ') || '队列为空（首屏消息随后送达真身）'}</p>
+      <p>{laneCountsOf(items).join(' · ') || '队列为空（首屏消息随后送达真身）'}</p>
       <ul>
-        {items.map((item) => {
-          const lane = laneOfItem(item)
-          return (
-            <li key={item.id}>
-              <strong>{item.id}</strong> {item.title}
-              （{tLane(lane)}{item.dispatchedTo !== undefined ? ` → ${item.dispatchedTo}` : ''}
-              {' · '}{tProgress(subtreeProgress(store.getState(), item.id).label)}）
-            </li>
-          )
-        })}
+        {queueRows(runtime.store, items)}
       </ul>
       <h2>跨应用目录</h2>
       <ul>
-        {catalog().filter((record) => record.state === 'active').map((record) => (
-          <li key={record.definition.id}>
-            {record.definition.id}（{record.definition.name}）→ {record.definition.description}；
-            入口 {record.pages?.get(record.definition.entry)?.url ?? '（未注册）'}
-          </li>
-        ))}
+        {catalogRows(runtime.catalog)}
       </ul>
       <blockquote>
         {STRINGS.snapshot.zh}写动作（take/complete/requeue/publish/open）需要本回合同意：用户点名，或点名本任务的投递指令；
