@@ -21,7 +21,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { DomainError } from '@deepseek-ai/dsh-storage-domain'
 import { bootstrapAdmin, buildBetterAuth, loadAuthSecret } from './auth.js'
-import type { AdminSeed } from './auth.js'
+import type { AdminSeed, LoginGateAuth } from './auth.js'
 import { LOGIN_GATE_DOMAIN_NAME, loginGateDomain } from './domain.js'
 import type { LoginGateDomain } from './domain.js'
 import { installGate, resolveListenerFacts } from './gate.js'
@@ -181,26 +181,46 @@ async function openDomain(ctx: Context): Promise<LoginGateDomain> {
 }
 
 /**
- * Assemble the gate: validate the storage routes, load the durable secret,
- * open the domain, build Better Auth, seed the admin once, then install the
- * routes and the data gate. Any failure fails the plugin load loudly — the
- * web server never degrades to an ungated state.
- * 装配门禁：校验存储路由、加载持久秘密、打开 domain、构建 Better Auth、
- * 一次性播种管理员，然后安装路由与数据闸门。任何失败都让插件加载显式失败
- * ——Web 服务器绝不会降级为无门禁状态。
- * @param ctx - Plugin context.
- * @param config - Validated plugin config.
+ * Resolve the SPA entry: use the configured path when given, otherwise
+ * locate the running runtime's frontend package. An unresolvable entry fails
+ * the load loudly — the gate must never serve a broken index.
+ * 解析 SPA 入口：优先使用配置路径，否则定位运行中 runtime 的前端包。解析
+ * 失败会让加载显式失败——门禁绝不能服务一个坏掉的 index。
+ * @param configured - The `distIndex` config value. `distIndex` 配置值。
+ * @returns the absolute index path. index.html 的绝对路径。
  */
-export const apply = async (ctx: Context, config: Config): Promise<void> => {
+function resolveDistIndex(configured: string | undefined): string {
+  const distIndex = configured === undefined || configured === ''
+    ? defaultDistIndex()
+    : configured
+  if (distIndex === '') {
+    throw new Error(
+      'web-login-gate: cannot locate @deepseek-ai/dsh-web-frontend/dist/index.html; '
+      + 'set config.distIndex to the Web frontend entry of this deployment',
+    )
+  }
+  return distIndex
+}
+
+/**
+ * Build everything behind the gate: validate storage routes, load the
+ * durable secret, open the domain, derive the listener origin, construct
+ * Better Auth and seed the admin once.
+ * 构建门禁背后的一切：校验存储路由、加载持久秘密、打开 domain、推导监听器
+ * origin、构建 Better Auth，并一次性播种管理员。
+ * @param ctx - Plugin context.
+ * @param webServer - The host web server carrying listener facts.
+ * @param config - Validated plugin config.
+ * @returns the auth instance and the listener origin. auth 实例与监听器 origin。
+ */
+async function buildAuthServices(
+  ctx: Context,
+  webServer: GateWebServer,
+  config: Config,
+): Promise<{ auth: LoginGateAuth, origin: string }> {
   assertStorageRoutes(ctx, config.storage)
   const secret = await loadAuthSecret(ctx.credentials)
   const domain = await openDomain(ctx)
-  // The running host's WebServer carries getOrigin()/protocol (source-level
-  // surface); the last published rc.2 type bundle does not declare them yet,
-  // so this one downcast names the facts the service really exposes.
-  // 运行中宿主的 WebServer 具备 getOrigin()/protocol（源码级面）；已发布的
-  // rc.2 类型包尚未声明，因此用这一次向下转型指称服务真正暴露的事实。
-  const webServer = ctx.webServer as GateWebServer
   const { origin, secure } = resolveListenerFacts(webServer, config.publicOrigin, message => {
     ctx.logger.warn(new Error(message))
   })
@@ -219,15 +239,27 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   if (config.admin !== undefined && config.admin !== null) {
     await bootstrapAdmin(auth, domain, config.admin)
   }
-  const distIndex = config.distIndex === undefined || config.distIndex === ''
-    ? defaultDistIndex()
-    : config.distIndex
-  if (distIndex === '') {
-    throw new Error(
-      'web-login-gate: cannot locate @deepseek-ai/dsh-web-frontend/dist/index.html; '
-      + 'set config.distIndex to the Web frontend entry of this deployment',
-    )
-  }
+  return { auth, origin }
+}
+
+/**
+ * Assemble the gate: build the auth services, resolve the SPA entry, then
+ * install the routes and the data gate. Any failure fails the plugin load
+ * loudly — the web server never degrades to an ungated state.
+ * 装配门禁：构建 auth 服务、解析 SPA 入口，然后安装路由与数据闸门。任何失败
+ * 都让插件加载显式失败——Web 服务器绝不会降级为无门禁状态。
+ * @param ctx - Plugin context.
+ * @param config - Validated plugin config.
+ */
+export const apply = async (ctx: Context, config: Config): Promise<void> => {
+  // The running host's WebServer carries getOrigin()/protocol (source-level
+  // surface); the last published rc.2 type bundle does not declare them yet,
+  // so this one downcast names the facts the service really exposes.
+  // 运行中宿主的 WebServer 具备 getOrigin()/protocol（源码级面）；已发布的
+  // rc.2 类型包尚未声明，因此用这一次向下转型指称服务真正暴露的事实。
+  const webServer = ctx.webServer as GateWebServer
+  const { auth, origin } = await buildAuthServices(ctx, webServer, config)
+  const distIndex = resolveDistIndex(config.distIndex)
   installGate(ctx, {
     webServer,
     connection: ctx.connection,

@@ -4,6 +4,7 @@
  * process tree on both Windows and POSIX.
  */
 import { spawn } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 
 /** Bytes of a diagnostic command's output retained for error messages. */
 const COMMAND_OUTPUT_LIMIT = 64 * 1024
@@ -62,6 +63,72 @@ export function delay(ms: number): Promise<void> {
   })
 }
 
+/** Bounded stdout/stderr tails feeding the CommandResult fields. 供给 CommandResult 字段的有界 stdout/stderr 尾部。 */
+interface OutputCapture {
+  stdout(): string
+  stderr(): string
+}
+
+/**
+ * Bind the child's stdout/stderr encoding and keep their bounded tails.
+ * @param child - the spawned child whose streams are collected.
+ * @returns the live capture handle. 实时捕获句柄。
+ */
+function captureOutput(child: ChildProcess): OutputCapture {
+  let stdout = ''
+  let stderr = ''
+  const append = (current: string, chunk: string): string => (current + chunk).slice(-COMMAND_OUTPUT_LIMIT)
+  child.stdout?.setEncoding('utf8')
+  child.stdout?.on('data', (chunk: string) => {
+    stdout = append(stdout, chunk)
+  })
+  child.stderr?.setEncoding('utf8')
+  child.stderr?.on('data', (chunk: string) => {
+    stderr = append(stderr, chunk)
+  })
+  return { stdout: () => stdout, stderr: () => stderr }
+}
+
+/**
+ * Translate the child's `error`/`close` outcomes into CommandResults.
+ * @param child - the spawned child.
+ * @param capture - the live output capture.
+ * @param finish - the one-shot settle callback.
+ */
+function watchChildResult(child: ChildProcess, capture: OutputCapture, finish: (result: CommandResult) => void): void {
+  child.on('error', (error: NodeJS.ErrnoException) => {
+    finish({ code: null, stdout: capture.stdout(), stderr: capture.stderr(), missing: error.code === 'ENOENT', timedOut: false })
+  })
+  child.on('close', (code: number | null) => {
+    finish({ code, stdout: capture.stdout(), stderr: capture.stderr(), missing: false, timedOut: false })
+  })
+}
+
+/**
+ * Arm the kill timer: on expiry the child is killed and the timedOut result wins.
+ * @param child - the spawned child.
+ * @param capture - the live output capture.
+ * @param finish - the one-shot settle callback.
+ * @param timeoutMs - budget before the kill.
+ * @returns the timer handle, so an earlier settle can clear it. 定时器句柄，供提前落定时清除。
+ */
+function armCommandTimeout(
+  child: ChildProcess,
+  capture: OutputCapture,
+  finish: (result: CommandResult) => void,
+  timeoutMs: number,
+): ReturnType<typeof setTimeout> {
+  return setTimeout(() => {
+    try {
+      child.kill()
+    } catch {
+      // The command is already gone; the timeout result still stands.
+      // 命令已经消失；超时结果仍然成立。
+    }
+    finish({ code: null, stdout: capture.stdout(), stderr: capture.stderr(), missing: false, timedOut: true })
+  }, timeoutMs)
+}
+
 /**
  * Run a command without a shell and capture bounded stdout/stderr.
  *
@@ -72,42 +139,17 @@ export function delay(ms: number): Promise<void> {
 export function runCommand(command: string, args: readonly string[], timeoutMs = 5000): Promise<CommandResult> {
   return new Promise(resolve => {
     const child = spawn(command, [...args], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
-    let stdout = ''
-    let stderr = ''
+    const capture = captureOutput(child)
     let settled = false
     let timer: ReturnType<typeof setTimeout> | undefined
-
     const finish = (result: CommandResult): void => {
       if (settled) return
       settled = true
       if (timer !== undefined) clearTimeout(timer)
       resolve(result)
     }
-    const append = (current: string, chunk: string): string => (current + chunk).slice(-COMMAND_OUTPUT_LIMIT)
-
-    child.stdout?.setEncoding('utf8')
-    child.stdout?.on('data', (chunk: string) => {
-      stdout = append(stdout, chunk)
-    })
-    child.stderr?.setEncoding('utf8')
-    child.stderr?.on('data', (chunk: string) => {
-      stderr = append(stderr, chunk)
-    })
-    child.on('error', (error: NodeJS.ErrnoException) => {
-      finish({ code: null, stdout, stderr, missing: error.code === 'ENOENT', timedOut: false })
-    })
-    child.on('close', (code: number | null) => {
-      finish({ code, stdout, stderr, missing: false, timedOut: false })
-    })
-
-    timer = setTimeout(() => {
-      try {
-        child.kill()
-      } catch {
-        // The command is already gone; the timeout result still stands.
-      }
-      finish({ code: null, stdout, stderr, missing: false, timedOut: true })
-    }, timeoutMs)
+    watchChildResult(child, capture, finish)
+    timer = armCommandTimeout(child, capture, finish, timeoutMs)
   })
 }
 

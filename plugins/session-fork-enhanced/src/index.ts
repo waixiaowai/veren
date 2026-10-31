@@ -113,17 +113,53 @@ export async function forkWithOptions(ctx: Context, rawArgs: unknown): Promise<F
 }
 
 /**
- * 在宿主工具注册表上注册分叉工具。effect 函数体返回 `tools.register`
- * 给出的精确卸载函数，卸载/HMR 时逆序调用，不泄漏注册项。
- * Register the fork tool on the host tool registry. The effect body returns
- * the exact disposer given by `tools.register`, invoked on unload/HMR, so no
- * registration leaks.
- * @param ctx - 携带 `tools` 的宿主上下文。The host context carrying `tools`.
- * @param _config - 已解析的插件配置（当前无可调项）。
- *   The resolved plugin config (no tunables yet).
+ * output 契约：与 `ForkValue` 的真实返回形态一致——扁平对象（非 `{note}`
+ * 类包装值），必填六键 + 两个可选项；`execute` 直接返回该值。返回类型按
+ * 逐键字面量拼写，保持 `defineTool` 的 `InferValue` 精确推断（工具注册表
+ * 不会为手工构造的工具定义做这件事）。
+ * Output contract: mirrors the real `ForkValue` return — a flat object (not a
+ * `{note}`-style wrapper) with six required keys plus two options. The return
+ * type is spelled per-key so `defineTool`'s `InferValue` stays exact (the
+ * tool registry does not do this for hand-built definitions).
  */
-export const apply = (ctx: Context, _config: Config): void => {
-  ctx.effect(() => ctx.tools.register(defineTool({
+function forkOutputSchema(): {
+  type: 'object'
+  properties: {
+    sessionId: { type: 'string', required: true }
+    sourceSessionId: { type: 'string', required: true }
+    atSeq: { type: 'integer', required: true }
+    inheritedEventCount: { type: 'integer', required: true }
+    agentPreset: { type: 'string' }
+    provider: { type: 'string', required: true }
+    model: { type: 'string', required: true }
+    reasoningEffort: { type: 'string' }
+  }
+  additionalProperties: false
+} {
+  return {
+    type: 'object',
+    properties: {
+      sessionId: { type: 'string', required: true },
+      sourceSessionId: { type: 'string', required: true },
+      atSeq: { type: 'integer', required: true },
+      inheritedEventCount: { type: 'integer', required: true },
+      agentPreset: { type: 'string' },
+      provider: { type: 'string', required: true },
+      model: { type: 'string', required: true },
+      reasoningEffort: { type: 'string' },
+    },
+    additionalProperties: false,
+  }
+}
+
+/**
+ * 构造分叉工具定义：参数、output 契约与执行体都绑定到宿主 ctx。
+ * Builds the fork tool definition: parameters, the output contract and the
+ * execution body all bind to the host ctx.
+ * @param ctx - 携带 `tools` 的宿主上下文。The host context carrying `tools`.
+ */
+function defineForkTool(ctx: Context) {
+  return defineTool({
     name: TOOL_NAME,
     description: 'Fork one existing session: copy an exact completed-turn prefix (its full context) into a new '
       + 'session and optionally continue that branch under a different agent preset and/or provider model. '
@@ -136,25 +172,8 @@ export const apply = (ctx: Context, _config: Config): void => {
       model: { type: 'string', description: 'Model id for the new branch; required together with provider.' },
       reasoningEffort: { type: 'string', description: 'Optional adapter-owned reasoning effort for that route.' },
     },
-    // output 契约：与 `ForkValue` 的真实返回形态一致——扁平对象（非
-    // `{note}` 类包装值），必填六键 + 两个可选项；`execute` 直接返回该值。
-    // Output contract: mirrors the real `ForkValue` return — a flat object
-    // (not a `{note}`-style wrapper) with six required keys plus two options.
     output: {
-      schema: {
-        type: 'object',
-        properties: {
-          sessionId: { type: 'string', required: true },
-          sourceSessionId: { type: 'string', required: true },
-          atSeq: { type: 'integer', required: true },
-          inheritedEventCount: { type: 'integer', required: true },
-          agentPreset: { type: 'string' },
-          provider: { type: 'string', required: true },
-          model: { type: 'string', required: true },
-          reasoningEffort: { type: 'string' },
-        },
-        additionalProperties: false,
-      },
+      schema: forkOutputSchema(),
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
     async execute(args) {
@@ -166,5 +185,19 @@ export const apply = (ctx: Context, _config: Config): void => {
       kind: 'other',
       rawInput: args,
     }),
-  })), 'session-fork-enhanced.tool')
+  })
+}
+
+/**
+ * 在宿主工具注册表上注册分叉工具。effect 函数体返回 `tools.register`
+ * 给出的精确卸载函数，卸载/HMR 时逆序调用，不泄漏注册项。
+ * Register the fork tool on the host tool registry. The effect body returns
+ * the exact disposer given by `tools.register`, invoked on unload/HMR, so no
+ * registration leaks.
+ * @param ctx - 携带 `tools` 的宿主上下文。The host context carrying `tools`.
+ * @param _config - 已解析的插件配置（当前无可调项）。
+ *   The resolved plugin config (no tunables yet).
+ */
+export const apply = (ctx: Context, _config: Config): void => {
+  ctx.effect(() => ctx.tools.register(defineForkTool(ctx)), 'session-fork-enhanced.tool')
 }

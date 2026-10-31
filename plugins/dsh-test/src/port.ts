@@ -81,18 +81,42 @@ export async function preparePort(port: number | undefined): Promise<void> {
   if (owners.pids.length === 0) {
     // Windows netstat is authoritative. On POSIX lsof can hide another user's
     // listener, so confirm with a bind probe before declaring the port free.
+    // Windows 上 netstat 是权威的；POSIX 的 lsof 可能看不到其他用户的监听，
+    // 所以在宣布端口空闲前先用绑定探测确认。
     if (owners.queried && process.platform === 'win32') return
     const probe = await probePort(port)
     if (probe !== 'in-use') return
     throw new Error(unidentifiedOwnerMessage(port))
   }
+  throwIfProtectedOwner(port, owners)
+  await stopListeners(port, owners)
+  await waitForRelease(port, owners)
+}
+
+/**
+ * Refuse a target port held by a Windows system process or by this host
+ * process itself — stopping either would break the machine or the harness.
+ *
+ * @param port - target port being freed.
+ * @param owners - listeners found on the port.
+ */
+function throwIfProtectedOwner(port: number, owners: ListenerQuery): void {
   if (process.platform === 'win32' && owners.pids.some(pid => pid === 0 || pid === 4)) {
     throw new Error(`port ${port} is held by a Windows system process; refusing to stop it`)
   }
   if (owners.pids.includes(process.pid)) {
     throw new Error(`port ${port} is held by the current dsh-test host process (pid ${process.pid}); refusing to kill itself`)
   }
+}
 
+/**
+ * Stop every identified listener; one failure is collected so the others still
+ * get their chance, then the whole operation fails with the summary.
+ *
+ * @param port - target port being freed.
+ * @param owners - listeners found on the port.
+ */
+async function stopListeners(port: number, owners: ListenerQuery): Promise<void> {
   const failures: string[] = []
   for (const pid of owners.pids) {
     try {
@@ -104,7 +128,16 @@ export async function preparePort(port: number | undefined): Promise<void> {
   if (failures.length > 0) {
     throw new Error(`port ${port} is in use, but stopping its listener failed (${failures.join('; ')})`)
   }
+}
 
+/**
+ * Wait until the killed listeners have actually released the socket, polling
+ * the authoritative query first and falling back to the bind probe.
+ *
+ * @param port - target port being freed.
+ * @param owners - listeners that were stopped.
+ */
+async function waitForRelease(port: number, owners: ListenerQuery): Promise<void> {
   const deadline = Date.now() + PORT_RELEASE_TIMEOUT_MS
   while (Date.now() < deadline) {
     const remaining = await queryListeners(port)

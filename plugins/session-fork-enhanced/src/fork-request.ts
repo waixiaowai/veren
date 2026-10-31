@@ -110,6 +110,57 @@ export function effectiveSelection(ctx: Context, events: readonly SessionEvent[]
   return selectionOf(ctx.agentDefaultModel.currentSelection())
 }
 
+/** 拒绝未知参数键。Rejects unknown argument keys. */
+function assertKnownKeys(record: Record<string, unknown>): void {
+  for (const key of Object.keys(record)) {
+    if (!ARGUMENT_KEYS.has(key)) throw new Error(`${TOOL_NAME}: unknown argument ${JSON.stringify(key)}`)
+  }
+}
+
+/** 校验 sessionId 为非空字符串并返回它。Validates sessionId as a non-empty string and returns it. */
+function assertSessionId(record: Record<string, unknown>): string {
+  const sessionId = record.sessionId
+  if (typeof sessionId !== 'string' || sessionId.trim() === '') {
+    throw new Error(`${TOOL_NAME}: sessionId must be a non-empty string`)
+  }
+  return sessionId
+}
+
+/** 校验 atSeq（存在时）为非负安全整数。Validates atSeq (when present) as a non-negative safe integer. */
+function assertAtSeq(record: Record<string, unknown>): void {
+  if (record.atSeq !== undefined && (!Number.isSafeInteger(record.atSeq) || (record.atSeq as number) < 0)) {
+    throw new Error(`${TOOL_NAME}: atSeq must be a non-negative integer`)
+  }
+}
+
+/** 校验可选字符串键（存在时）非空。Validates the optional string keys (when present) as non-empty. */
+function assertOptionalStrings(record: Record<string, unknown>): void {
+  for (const key of OPTIONAL_STRING_KEYS) {
+    const value = record[key]
+    if (value !== undefined && (typeof value !== 'string' || value === '')) {
+      throw new Error(`${TOOL_NAME}: ${key} must be a non-empty string when present`)
+    }
+  }
+}
+
+/** 校验 provider/model 成对出现与 reasoningEffort 前置条件，返回路由片段。Validates the provider/model pairing and the reasoningEffort precondition, returning the route fragment. */
+function assertRoutePair(record: Record<string, unknown>): Pick<ForkRequest, 'provider' | 'model' | 'reasoningEffort'> {
+  const provider = record.provider as string | undefined
+  const model = record.model as string | undefined
+  const reasoningEffort = record.reasoningEffort as string | undefined
+  if ((provider === undefined) !== (model === undefined)) {
+    throw new Error(`${TOOL_NAME}: provider and model must be supplied together`)
+  }
+  if (reasoningEffort !== undefined && provider === undefined) {
+    throw new Error(`${TOOL_NAME}: reasoningEffort requires provider and model`)
+  }
+  return {
+    ...(provider === undefined
+      ? {}
+      : { provider, model: model as string, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }),
+  }
+}
+
 /**
  * 校验并归一模型生成的参数。工具注册表不会为手工构造的工具定义校验参数，
  * 所以这里必须自己把关。
@@ -126,37 +177,15 @@ export function normalizeArguments(args: unknown): ForkRequest {
     throw new Error(`${TOOL_NAME}: arguments must be an object`)
   }
   const record = args as Record<string, unknown>
-  for (const key of Object.keys(record)) {
-    if (!ARGUMENT_KEYS.has(key)) throw new Error(`${TOOL_NAME}: unknown argument ${JSON.stringify(key)}`)
-  }
-  const sessionId = record.sessionId
-  if (typeof sessionId !== 'string' || sessionId.trim() === '') {
-    throw new Error(`${TOOL_NAME}: sessionId must be a non-empty string`)
-  }
-  if (record.atSeq !== undefined && (!Number.isSafeInteger(record.atSeq) || (record.atSeq as number) < 0)) {
-    throw new Error(`${TOOL_NAME}: atSeq must be a non-negative integer`)
-  }
-  for (const key of OPTIONAL_STRING_KEYS) {
-    const value = record[key]
-    if (value !== undefined && (typeof value !== 'string' || value === '')) {
-      throw new Error(`${TOOL_NAME}: ${key} must be a non-empty string when present`)
-    }
-  }
-  const provider = record.provider as string | undefined
-  const model = record.model as string | undefined
-  const reasoningEffort = record.reasoningEffort as string | undefined
-  if ((provider === undefined) !== (model === undefined)) {
-    throw new Error(`${TOOL_NAME}: provider and model must be supplied together`)
-  }
-  if (reasoningEffort !== undefined && provider === undefined) {
-    throw new Error(`${TOOL_NAME}: reasoningEffort requires provider and model`)
-  }
+  assertKnownKeys(record)
+  const sessionId = assertSessionId(record)
+  assertAtSeq(record)
+  assertOptionalStrings(record)
+  const route = assertRoutePair(record)
   return {
     sessionId,
     ...(record.atSeq === undefined ? {} : { atSeq: record.atSeq as number }),
     ...(record.presetId === undefined ? {} : { presetId: record.presetId as string }),
-    ...(provider === undefined
-      ? {}
-      : { provider, model: model as string, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }),
+    ...route,
   }
 }

@@ -3,10 +3,12 @@
  * The API Key form component (pure rendering; the rotate behavior arrives via props).
  *
  * 保存走 owner site 注入的 rotate 回调;原文绝不回显,成功后只清空输入框。
- * 眼睛图标切换明文/密文显示。
+ * 眼睛图标切换明文/密文显示。渲染拆成子组件:输入行(含眼睛切换)、保存按钮、
+ * 结果反馈。
  * Saving goes through the injected rotate callback; the raw value is never
  * rendered back — on success the input just clears. An eye icon toggles
- * between masked and plain text.
+ * between masked and plain text. Rendering is split into sub-components: the
+ * token row (with the eye toggle), the save button, and the result feedback.
  */
 import { useState } from 'react';
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives';
@@ -16,6 +18,38 @@ import styles from './panel.module.css';
 
 /** 组件返回类型:React 元素 / component return type: a React element */
 type Jsx = import('react').ReactElement;
+
+/** 保存阶段的相位 / the save phase */
+type SavePhase = 'idle' | 'saving' | 'saved';
+
+/** 翻译文案里的错误文本 / the error text out of a thrown value */
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * 保存回调的状态机:成功清空输入并标记 saved;失败回 idle 并携带文案。
+ * The save state machine: success clears the input and marks saved; failure
+ * returns to idle carrying the message text.
+ */
+async function applyRotate(
+  rotate: (token: string) => Promise<void>,
+  token: string,
+  setPhase: (phase: SavePhase) => void,
+  setMessage: (message: string) => void,
+  onSaved: () => void,
+): Promise<void> {
+  setPhase('saving');
+  setMessage('');
+  try {
+    await rotate(token);
+    onSaved();
+    setPhase('saved');
+  } catch (error) {
+    setPhase('idle');
+    setMessage(errorMessage(error));
+  }
+}
 
 /** 眼睛图标(睁眼:可见)/ the eye icon (open: visible) */
 function EyeIcon(): Jsx {
@@ -39,6 +73,66 @@ function EyeOffIcon(): Jsx {
   );
 }
 
+/** 令牌输入行:明/密文输入框 + 眼睛切换 / the token input row: masked/plain input + the eye toggle */
+function TokenField({ token, visible, t, onTokenChange, onToggleVisible }: {
+  token: string;
+  visible: boolean;
+  t: Translate;
+  onTokenChange: (token: string) => void;
+  onToggleVisible: () => void;
+}): Jsx {
+  return (
+    <>
+      <Input
+        className={styles.input}
+        type={visible ? 'text' : 'password'}
+        value={token}
+        placeholder="cmsk_..."
+        onChange={(e) => onTokenChange(e.target.value)}
+      />
+      <Button
+        variant="ghost"
+        size="sm"
+        className={styles.eyeToggle}
+        title={visible ? t('hide') : t('show')}
+        aria-label={visible ? t('hide') : t('show')}
+        onClick={onToggleVisible}
+      >
+        {visible ? <EyeIcon /> : <EyeOffIcon />}
+      </Button>
+    </>
+  );
+}
+
+/** 保存按钮:保存中禁用 / the save button: disabled while saving */
+function SaveButton({ saving, tokenLength, t, onSave }: {
+  saving: boolean;
+  tokenLength: number;
+  t: Translate;
+  onSave: () => void;
+}): Jsx {
+  return (
+    <Button
+      variant="primary"
+      size="sm"
+      disabled={saving || tokenLength === 0}
+      onClick={onSave}
+    >
+      {saving ? t('saving') : t('save')}
+    </Button>
+  );
+}
+
+/** 结果反馈:saved 标记与失败文案 / the result feedback: the saved mark and the failure text */
+function SaveFeedback({ phase, message, t }: { phase: SavePhase, message: string, t: Translate }): Jsx {
+  return (
+    <>
+      {phase === 'saved' ? <div className={styles.saved}>{t('saved')}</div> : null}
+      {message !== '' ? <div className={styles.errorText}>{t('saveFailed', { message })}</div> : null}
+    </>
+  );
+}
+
 export function ApiKeyForm({ rotate, t }: {
   /** owner site 注入的换凭证行为 / the rotate behavior injected from the owner site */
   rotate: (token: string) => Promise<void>;
@@ -46,56 +140,32 @@ export function ApiKeyForm({ rotate, t }: {
 }): Jsx {
   const [token, setToken] = useState('');
   const [visible, setVisible] = useState(false);
-  const [phase, setPhase] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [phase, setPhase] = useState<SavePhase>('idle');
   const [message, setMessage] = useState('');
 
-  const save = async (): Promise<void> => {
-    setPhase('saving');
-    setMessage('');
-    try {
-      await rotate(token);
-      setToken('');
-      setVisible(false);
-      setPhase('saved');
-    } catch (error) {
-      setPhase('idle');
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  };
+  const save = (): Promise<void> =>
+    applyRotate(rotate, token, setPhase, setMessage, () => { setToken(''); setVisible(false); });
 
   return (
     <div className={styles.card}>
       <div className={styles.cardTitle}>{t('apiKeyTitle')}</div>
       <div className={styles.hint}>{t('apiKeyHint')}</div>
       <div className={styles.formRow}>
-        <Input
-          className={styles.input}
-          type={visible ? 'text' : 'password'}
-          value={token}
-          placeholder="cmsk_..."
-          onChange={(e) => { setToken(e.target.value); setPhase('idle'); }}
+        <TokenField
+          token={token}
+          visible={visible}
+          t={t}
+          onTokenChange={(value) => { setToken(value); setPhase('idle'); }}
+          onToggleVisible={() => { setVisible((v) => !v); }}
         />
-        <Button
-          variant="ghost"
-          size="sm"
-          className={styles.eyeToggle}
-          title={visible ? t('hide') : t('show')}
-          aria-label={visible ? t('hide') : t('show')}
-          onClick={() => { setVisible((v) => !v); }}
-        >
-          {visible ? <EyeIcon /> : <EyeOffIcon />}
-        </Button>
-        <Button
-          variant="primary"
-          size="sm"
-          disabled={phase === 'saving' || token.length === 0}
-          onClick={() => { void save(); }}
-        >
-          {phase === 'saving' ? t('saving') : t('save')}
-        </Button>
+        <SaveButton
+          saving={phase === 'saving'}
+          tokenLength={token.length}
+          t={t}
+          onSave={() => { void save(); }}
+        />
       </div>
-      {phase === 'saved' ? <div className={styles.saved}>{t('saved')}</div> : null}
-      {message !== '' ? <div className={styles.errorText}>{t('saveFailed', { message })}</div> : null}
+      <SaveFeedback phase={phase} message={message} t={t} />
     </div>
   );
 }

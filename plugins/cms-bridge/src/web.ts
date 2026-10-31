@@ -33,22 +33,28 @@ function probe<K extends string & keyof Context>(ctx: Context, name: K): Context
   return ctx.get(name);
 }
 
-/** 注册全部 Web UI 路由;宿主无 webServer 时静默跳过 / registers every Web UI route; skipped on hosts without a webServer */
-export function registerWebApi(ctx: Context, service: CmsBridgeService): void {
-  const webServer = probe(ctx, 'webServer');
-  if (!webServer) {
-    ctx.logger.warn('cms-bridge: no webServer on this host; web UI API skipped');
-    return;
-  }
-  const json = (res: ServerResponse, code: number, body: unknown): void => {
-    res.writeHead(code, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(body));
-  };
+/** JSON 回执助手 / the JSON response helper */
+function json(res: ServerResponse, code: number, body: unknown): void {
+  res.writeHead(code, { 'content-type': 'application/json' });
+  res.end(JSON.stringify(body));
+}
+
+/** 把错误翻译成回执 message 文案 / turns an error into the response message text */
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** 注册 GET /status 快照路由 / registers the GET /status snapshot route */
+function registerStatusRoute(ctx: Context, webServer: WebServer, service: CmsBridgeService): void {
   ctx.effect(() => webServer.register({
     kind: 'exact',
     path: '/cms-bridge/api/status',
     handler: (_req, res) => json(res, 200, service.status()),
   }), 'cms-bridge/api-status');
+}
+
+/** 注册 POST /credential 凭证轮换路由 / registers the POST /credential rotation route */
+function registerCredentialRoute(ctx: Context, webServer: WebServer, service: CmsBridgeService): void {
   ctx.effect(() => webServer.register({
     kind: 'exact',
     path: '/cms-bridge/api/credential',
@@ -59,10 +65,14 @@ export function registerWebApi(ctx: Context, service: CmsBridgeService): void {
         ctx.logger.info('cms-bridge: credential rotated via web UI');
         json(res, 200, { ok: true, status: service.status() });
       } catch (error) {
-        json(res, 400, { ok: false, message: error instanceof Error ? error.message : String(error) });
+        json(res, 400, { ok: false, message: errorMessage(error) });
       }
     },
   }), 'cms-bridge/api-credential');
+}
+
+/** 注册 GET/POST /identity 节点身份路由 / registers the GET/POST /identity route */
+function registerIdentityRoute(ctx: Context, webServer: WebServer, service: CmsBridgeService): void {
   ctx.effect(() => webServer.register({
     kind: 'exact',
     path: '/cms-bridge/api/identity',
@@ -75,10 +85,14 @@ export function registerWebApi(ctx: Context, service: CmsBridgeService): void {
         }
         json(res, 200, { ok: true, identity: service.identity(), status: service.status() });
       } catch (error) {
-        json(res, 400, { ok: false, message: error instanceof Error ? error.message : String(error) });
+        json(res, 400, { ok: false, message: errorMessage(error) });
       }
     },
   }), 'cms-bridge/api-identity');
+}
+
+/** 注册 POST /icon 上传代理路由 / registers the POST /icon upload-proxy route */
+function registerIconRoute(ctx: Context, webServer: WebServer, service: CmsBridgeService): void {
   ctx.effect(() => webServer.register({
     kind: 'exact',
     path: '/cms-bridge/api/icon',
@@ -87,10 +101,27 @@ export function registerWebApi(ctx: Context, service: CmsBridgeService): void {
         const url = await uploadIcon(service, req);
         json(res, 200, { ok: true, url });
       } catch (error) {
-        json(res, 502, { ok: false, message: error instanceof Error ? error.message : String(error) });
+        json(res, 502, { ok: false, message: errorMessage(error) });
       }
     },
   }), 'cms-bridge/api-icon');
+}
+
+/** 注册全部 Web UI 路由;宿主无 webServer 时静默跳过 / registers every Web UI route; skipped on hosts without a webServer */
+export function registerWebApi(ctx: Context, service: CmsBridgeService): void {
+  const webServer = probe(ctx, 'webServer');
+  if (!webServer) {
+    ctx.logger.warn('cms-bridge: no webServer on this host; web UI API skipped');
+    return;
+  }
+  // 登记顺序保持 status → credential → identity → icon → events；ctx.effect
+  // 的逆序清理语义不变。
+  // Registration order stays status → credential → identity → icon → events;
+  // the ctx.effect reverse-order disposal semantics are unchanged.
+  registerStatusRoute(ctx, webServer, service);
+  registerCredentialRoute(ctx, webServer, service);
+  registerIdentityRoute(ctx, webServer, service);
+  registerIconRoute(ctx, webServer, service);
   registerEventStream(ctx, webServer, service);
 }
 

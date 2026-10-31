@@ -17,6 +17,65 @@ import { INFO_OUTPUT_SCHEMA } from './types.js'
 import type { DshTestInfo } from './types.js'
 
 /**
+ * Build the read-only `get_dsh_test_info` tool.
+ *
+ * @param read - read-only snapshot of the current instance state.
+ */
+function buildInfoTool(read: () => DshTestInfo): ToolDefinition {
+  return defineTool({
+    name: 'get_dsh_test_info',
+    description:
+      'Read the managed dsh profile web instance launched by the dsh-test plugin: '
+      + 'its token-bearing WEB_URL once ready, DSH_HOME, DSH_SRC, the pre-checked PORT when known, '
+      + 'startup/restart STATUS, and a readable ERROR reason after a failure. '
+      + 'Without PORT (no `port` config and no `--port` argument) the CLI chose the port and no pre-check ran. '
+      + 'This tool is read-only and never starts, stops, or repairs the instance; '
+      + 'call restart_dsh_test when WEB_URL is unreachable or the instance must be recycled.',
+    parameters: {},
+    output: {
+      schema: INFO_OUTPUT_SCHEMA,
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    isConcurrencySafe: () => true,
+    async execute() {
+      // Read-only snapshot; startup failures surface here instead of throwing.
+      // 只读快照；启动失败在这里呈现而不是向上抛。
+      return read()
+    },
+  })
+}
+
+/**
+ * Build the `restart_dsh_test` tool.
+ *
+ * @param restart - queued stop-and-start operation returning the resulting state.
+ */
+function buildRestartTool(restart: () => Promise<DshTestInfo>): ToolDefinition {
+  return defineTool({
+    name: 'restart_dsh_test',
+    description:
+      'Restart the managed dsh profile web instance: stop its current process tree, wait for the target port, '
+      + 'kill whatever process currently holds that port, then launch a fresh `dsh web` and wait for its new token URL. '
+      + 'Use when WEB_URL is unreachable or stale, or after changing the launch configuration; '
+      + 'use get_dsh_test_info to inspect without recycling anything. '
+      + 'The port pre-check runs only when a target port is known (the `port` config or a `--port` value in `args`); '
+      + 'otherwise the CLI picks the port, no occupancy check or cleanup happens, and the result has no PORT. '
+      + 'A failed restart reports STATUS=error and a readable ERROR instead of throwing.',
+    parameters: {},
+    output: {
+      schema: INFO_OUTPUT_SCHEMA,
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    isConcurrencySafe: () => false,
+    async execute() {
+      // Queued after any in-flight startup; a second call restarts the fresh instance.
+      // 排在未完成的启动之后；第二次调用重启的是新实例。
+      return restart()
+    },
+  })
+}
+
+/**
  * Build the two instance tools.
  *
  * @param read - read-only snapshot of the current instance state.
@@ -26,47 +85,5 @@ export function createInstanceTools(
   read: () => DshTestInfo,
   restart: () => Promise<DshTestInfo>,
 ): readonly ToolDefinition[] {
-  return [
-    defineTool({
-      name: 'get_dsh_test_info',
-      description:
-        'Read the managed dsh profile web instance launched by the dsh-test plugin: '
-        + 'its token-bearing WEB_URL once ready, DSH_HOME, DSH_SRC, the pre-checked PORT when known, '
-        + 'startup/restart STATUS, and a readable ERROR reason after a failure. '
-        + 'Without PORT (no `port` config and no `--port` argument) the CLI chose the port and no pre-check ran. '
-        + 'This tool is read-only and never starts, stops, or repairs the instance; '
-        + 'call restart_dsh_test when WEB_URL is unreachable or the instance must be recycled.',
-      parameters: {},
-      output: {
-        schema: INFO_OUTPUT_SCHEMA,
-        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
-      },
-      isConcurrencySafe: () => true,
-      async execute() {
-        // Read-only snapshot; startup failures surface here instead of throwing.
-        return read()
-      },
-    }),
-    defineTool({
-      name: 'restart_dsh_test',
-      description:
-        'Restart the managed dsh profile web instance: stop its current process tree, wait for the target port, '
-        + 'kill whatever process currently holds that port, then launch a fresh `dsh web` and wait for its new token URL. '
-        + 'Use when WEB_URL is unreachable or stale, or after changing the launch configuration; '
-        + 'use get_dsh_test_info to inspect without recycling anything. '
-        + 'The port pre-check runs only when a target port is known (the `port` config or a `--port` value in `args`); '
-        + 'otherwise the CLI picks the port, no occupancy check or cleanup happens, and the result has no PORT. '
-        + 'A failed restart reports STATUS=error and a readable ERROR instead of throwing.',
-      parameters: {},
-      output: {
-        schema: INFO_OUTPUT_SCHEMA,
-        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
-      },
-      isConcurrencySafe: () => false,
-      async execute() {
-        // Queued after any in-flight startup; a second call restarts the fresh instance.
-        return restart()
-      },
-    }),
-  ]
+  return [buildInfoTool(read), buildRestartTool(restart)]
 }

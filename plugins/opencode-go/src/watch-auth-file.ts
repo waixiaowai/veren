@@ -41,57 +41,80 @@ function hashFile(path: string): string {
   }
 }
 
-/** 启动监听；返回 stop（幂等）。启动即记录基线哈希，未变化的写入不触发回调。 */
-/** Starts the watch; returns stop (idempotent). The baseline hash is recorded at start — writes without content change never fire. */
-export function watchAuthFile(options: AuthFileWatchOptions): AuthFileWatch {
-  let stopped = false
-  let lastHash = hashFile(options.path)
-  let debounce: ReturnType<typeof globalThis.setTimeout> | undefined
-  let timeout: ReturnType<typeof globalThis.setTimeout> | undefined
-  let watcher: FSWatcher | undefined
-  let fallback: ReturnType<typeof globalThis.setInterval> | undefined
+/** 监听器的可变句柄状态。The watch's mutable handle state. */
+interface WatchState {
+  stopped: boolean
+  lastHash: string
+  debounce: ReturnType<typeof globalThis.setTimeout> | undefined
+  timeout: ReturnType<typeof globalThis.setTimeout> | undefined
+  watcher: FSWatcher | undefined
+  fallback: ReturnType<typeof globalThis.setInterval> | undefined
+}
 
-  const stop = (): void => {
-    if (stopped) return
-    stopped = true
-    watcher?.close()
-    if (debounce !== undefined) globalThis.clearTimeout(debounce)
-    if (timeout !== undefined) globalThis.clearTimeout(timeout)
-    if (fallback !== undefined) globalThis.clearInterval(fallback)
+/** 组合 stop：幂等，关 watcher 并清全部定时器。Composes stop: idempotent, closes the watcher and clears every timer. */
+function createStop(state: WatchState): () => void {
+  return () => {
+    if (state.stopped) return
+    state.stopped = true
+    state.watcher?.close()
+    if (state.debounce !== undefined) globalThis.clearTimeout(state.debounce)
+    if (state.timeout !== undefined) globalThis.clearTimeout(state.timeout)
+    if (state.fallback !== undefined) globalThis.clearInterval(state.fallback)
   }
+}
 
-  const onTick = (): void => {
-    if (stopped) return
-    globalThis.clearTimeout(debounce)
-    debounce = globalThis.setTimeout(() => {
-      if (stopped) return
+/** 组合 onTick：变化去抖后回调一次。Composes onTick: debounces changes into one callback. */
+function createOnTick(state: WatchState, options: AuthFileWatchOptions): () => void {
+  return () => {
+    if (state.stopped) return
+    globalThis.clearTimeout(state.debounce)
+    state.debounce = globalThis.setTimeout(() => {
+      if (state.stopped) return
       const hash = hashFile(options.path)
-      if (hash === lastHash) return
-      lastHash = hash
+      if (hash === state.lastHash) return
+      state.lastHash = hash
       options.onChange()
     }, options.debounceMs ?? 1_200)
   }
+}
 
+/** 打开 fs.watch；error（EPERM）与文件缺失都降级为轮询。Opens fs.watch; both an error (EPERM) and a missing file degrade to polling. */
+function openWatcher(state: WatchState, options: AuthFileWatchOptions, onTick: () => void): void {
   try {
-    watcher = watch(options.path, onTick)
+    state.watcher = watch(options.path, onTick)
     // Windows 上被监视文件被重写/删除的瞬间 watch 会发 error（EPERM）；
     // EventEmitter 的 error 无监听=进程崩溃。降级为轮询而非吞掉。
     // On Windows, a rewritten/deleted watched file makes watch emit error
     // (EPERM); an unhandled EventEmitter error crashes the process — degrade
     // to polling instead of swallowing.
-    watcher.on('error', () => {
-      if (stopped) return
-      watcher?.close()
-      watcher = undefined
-      if (fallback === undefined) fallback = globalThis.setInterval(onTick, 2_000)
+    state.watcher.on('error', () => {
+      if (state.stopped) return
+      state.watcher?.close()
+      state.watcher = undefined
+      if (state.fallback === undefined) state.fallback = globalThis.setInterval(onTick, 2_000)
     })
   } catch {
     // 文件尚不存在：回退为存在性+哈希轮询（与 watch 同语义）。
     // The file does not exist yet: fall back to existence+hash polling (same semantics as watch).
-    fallback = globalThis.setInterval(onTick, 2_000)
+    state.fallback = globalThis.setInterval(onTick, 2_000)
   }
+}
 
-  timeout = globalThis.setTimeout(() => stop(), options.timeoutMs)
+/** 启动监听；返回 stop（幂等）。启动即记录基线哈希，未变化的写入不触发回调。 */
+/** Starts the watch; returns stop (idempotent). The baseline hash is recorded at start — writes without content change never fire. */
+export function watchAuthFile(options: AuthFileWatchOptions): AuthFileWatch {
+  const state: WatchState = {
+    stopped: false,
+    lastHash: hashFile(options.path),
+    debounce: undefined,
+    timeout: undefined,
+    watcher: undefined,
+    fallback: undefined,
+  }
+  const onTick = createOnTick(state, options)
+  openWatcher(state, options, onTick)
+  const stop = createStop(state)
+  state.timeout = globalThis.setTimeout(stop, options.timeoutMs)
   return { stop }
 }
 

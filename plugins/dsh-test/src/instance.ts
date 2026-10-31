@@ -8,12 +8,9 @@
  */
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { childEnvironment, errorMessage, terminateProcessTree } from './process.js'
-import { buildLaunchArgs, preparePort, resolveTargetPort } from './port.js'
-import { defaultSrcDir } from './config.js'
-import type { DshTestConfig, DshTestInfo } from './types.js'
+import { preparePort } from './port.js'
+import type { DshTestInfo } from './types.js'
 
 /** Startup line the production web runner prints once its listener is ready. */
 const READY_URL_PATTERN = /dsh web: (\S+)/u
@@ -31,7 +28,13 @@ interface ManagedInstance {
   startup: Promise<void>
 }
 
-interface LaunchPlan {
+/**
+ * Everything the runner needs to launch one managed instance; assembled by
+ * `createInstanceRunner` (see `index.ts`).
+ * runner 拉起托管实例所需的全部输入；由 `createInstanceRunner` 组装（见
+ * `index.ts`）。
+ */
+export interface LaunchPlan {
   readonly srcDir: string
   readonly dshHome: string
   readonly cwd: string
@@ -105,10 +108,8 @@ export class InstanceRunner {
     if (instance === undefined) return
     this.current = undefined
     instance.phase = 'stopped'
-    if (instance.timer !== undefined) {
-      clearTimeout(instance.timer)
-      instance.timer = undefined
-    }
+    if (instance.timer !== undefined) clearTimeout(instance.timer)
+    instance.timer = undefined
     instance.settle()
     await terminateProcessTree(instance.child.pid)
   }
@@ -183,9 +184,7 @@ export class InstanceRunner {
   /** Create the instance record and wire its stdout/stderr/exit handlers. 创建实例记录并挂接 stdout/stderr/exit 监听。 */
   private wireInstance(child: ChildProcess): ManagedInstance {
     let settleStartup!: () => void
-    const startup = new Promise<void>(resolveStartup => {
-      settleStartup = resolveStartup
-    })
+    const startup = new Promise<void>(resolveStartup => { settleStartup = resolveStartup })
     const instance: ManagedInstance = {
       child,
       phase: 'starting',
@@ -196,34 +195,42 @@ export class InstanceRunner {
       startup,
     }
     this.current = instance
-    child.stdout?.setEncoding('utf8')
-    child.stdout?.on('data', (chunk: string) => this.onStdout(instance, chunk))
-    child.stderr?.setEncoding('utf8')
-    child.stderr?.on('data', (chunk: string) => {
-      instance.outputTail = (instance.outputTail + chunk).slice(-OUTPUT_TAIL_LIMIT)
-    })
+    this.attachOutputHandlers(instance, child)
     child.on('error', (spawnError: Error) => {
       this.failStartup(instance, `failed to launch "${this.plan.commandLine}" in ${this.plan.cwd}: ${spawnError.message}`)
     })
     child.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
       this.onExit(instance, code, signal)
     })
-    instance.timer = setTimeout(() => {
+    instance.timer = this.armStartupTimeout(instance)
+    return instance
+  }
+
+  /** Wire the child's stdout/stderr: keep the diagnostic tail. 挂接子进程 stdout/stderr：保留诊断尾部。 */
+  private attachOutputHandlers(instance: ManagedInstance, child: ChildProcess): void {
+    child.stdout?.setEncoding('utf8')
+    child.stdout?.on('data', (chunk: string) => this.onStdout(instance, chunk))
+    child.stderr?.setEncoding('utf8')
+    child.stderr?.on('data', (chunk: string) => {
+      instance.outputTail = (instance.outputTail + chunk).slice(-OUTPUT_TAIL_LIMIT)
+    })
+  }
+
+  /** Arm the startup watchdog: no ready URL in budget fails the instance. 设置启动看门狗：预算内没有就绪 URL 即失败。 */
+  private armStartupTimeout(instance: ManagedInstance): ReturnType<typeof setTimeout> {
+    return setTimeout(() => {
       this.failStartup(
         instance,
         `"${this.plan.commandLine}" printed no ready URL within ${this.plan.startupTimeoutMs}ms.`
         + ` Last output: ${instance.outputTail.trim() || '(none)'}`,
       )
     }, this.plan.startupTimeoutMs)
-    return instance
   }
 
   /** Clear the startup timer and settle the startup promise. 清除启动定时器并落定启动 promise。 */
   private finishStartup(instance: ManagedInstance): void {
-    if (instance.timer !== undefined) {
-      clearTimeout(instance.timer)
-      instance.timer = undefined
-    }
+    if (instance.timer !== undefined) clearTimeout(instance.timer)
+    instance.timer = undefined
     instance.settle()
   }
 
@@ -282,18 +289,4 @@ export class InstanceRunner {
       instance.phase = 'stopped'
     })
   }
-}
-
-/** Build the launch plan from validated config and create the runner. 由已校验配置组装启动计划并创建 runner。 */
-export function createInstanceRunner(config: DshTestConfig): InstanceRunner {
-  const srcDir = config.srcDir ?? defaultSrcDir()
-  const dshHome = config.dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh')
-  return new InstanceRunner({
-    srcDir,
-    dshHome,
-    cwd: config.cwd ?? srcDir,
-    targetPort: resolveTargetPort(config),
-    commandLine: [config.command, ...buildLaunchArgs(config)].join(' '),
-    startupTimeoutMs: config.startupTimeoutMs,
-  })
 }

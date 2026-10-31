@@ -20,10 +20,14 @@
 // merging（ctx.tools），本插件不再手写一份 ToolRegistry/PluginContext。
 // The real Cordis context type; the bare type import only pulls the dsh-tools
 // declaration merge (ctx.tools), so no hand-written ToolRegistry/PluginContext.
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { DshTestConfig } from './types.js'
-import { createInstanceRunner, type InstanceRunner } from './instance.js'
+import { InstanceRunner } from './instance.js'
+import { buildLaunchArgs, resolveTargetPort } from './port.js'
+import { defaultSrcDir } from './config.js'
 import { createInstanceTools } from './tools.js'
 
 export { Config } from './config.js'
@@ -44,6 +48,26 @@ function registerInstanceTools(ctx: Context, runner: InstanceRunner): Array<() =
   return createInstanceTools(() => runner.snapshot(), () => runner.requestRestart())
     .map(definition => ctx.tools.register(definition))
     .reverse()
+}
+
+/**
+ * Build the launch plan from validated config and create the runner.
+ * 由已校验配置组装启动计划并创建 runner。
+ *
+ * @param config - validated plugin configuration. 已校验的插件配置。
+ * @returns the runner owning the managed instance lifecycle. 持有托管实例生命周期的 runner。
+ */
+function createInstanceRunner(config: DshTestConfig): InstanceRunner {
+  const srcDir = config.srcDir ?? defaultSrcDir()
+  const dshHome = config.dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  return new InstanceRunner({
+    srcDir,
+    dshHome,
+    cwd: config.cwd ?? srcDir,
+    targetPort: resolveTargetPort(config),
+    commandLine: [config.command, ...buildLaunchArgs(config)].join(' '),
+    startupTimeoutMs: config.startupTimeoutMs,
+  })
 }
 
 /**

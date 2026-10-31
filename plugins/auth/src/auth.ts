@@ -111,6 +111,74 @@ export function loopbackOriginAliases(origin: string): string[] {
 }
 
 /**
+ * Open the domain-backed Kysely database Better Auth runs on.
+ * 打开 Better Auth 所依赖的 domain 存储 Kysely 数据库。
+ * @param domain - The opened login-gate domain handle. 已打开的登录门禁 domain 句柄。
+ * @returns the Kysely database handle. Kysely 数据库句柄。
+ */
+function openAuthDatabase(domain: LoginGateDomain) {
+  // The dialect turns Kysely queries into domain-table operations; sqlite is
+  // the closest capability profile (dynamic types, no server transactions).
+  // dialect 把 Kysely 查询变为 domain 表操作；sqlite 是最贴近的能力档案
+  // （动态类型、无服务端事务）。
+  return openDomainKysely(domain, LOGIN_GATE_MODELS)
+}
+
+/**
+ * Session block of the Better Auth options: lifetime derived from the
+ * configured days, refreshed daily, rows kept in the domain database.
+ * Better Auth 选项的会话块：时长由配置天数推导，按天刷新，会话行持久化在
+ * domain 数据库里。
+ * @param expiresInDays - Session lifetime in days. 会话时长（天）。
+ * @returns the `session` options section. `session` 选项段。
+ */
+function authSessionConfig(expiresInDays: number) {
+  return {
+    expiresIn: expiresInDays * 24 * 60 * 60,
+    updateAge: 24 * 60 * 60,
+    storeSessionInDatabase: true,
+  }
+}
+
+/**
+ * Advanced block of the Better Auth options: cookie flags and the schema
+ * validation switch.
+ * Better Auth 选项的高级块：Cookie 标志与 schema 校验开关。
+ * @param secure - Whether the listener serves TLS. 监听器是否 TLS。
+ * @returns the `advanced` options section. `advanced` 选项段。
+ */
+function authAdvancedConfig(secure: boolean) {
+  return {
+    useSecureCookies: secure,
+    cookiePrefix: 'dsh-login',
+    defaultCookieAttributes: { sameSite: 'strict', path: '/' } as const,
+    // Domain storage is schema-loose by design (fields belong to Better Auth
+    // and evolve with it; the domain spec versions the medium), so Better
+    // Auth's SQL-flavored column diff does not apply here.
+    // domain 存储本就是宽松 schema（字段集归 Better Auth 且随其演进；介质版本
+    // 由 domain spec 管理），Better Auth 面向 SQL 的列比对在此不适用。
+    database: { validateSchema: false },
+  }
+}
+
+/**
+ * Rate-limit block of the Better Auth options: either the explicit
+ * brute-force window/limit or an explicit disable (tests only).
+ * Better Auth 选项的限流块：显式的暴力尝试窗口/上限，或显式关闭（仅测试）。
+ * @param rateLimit - The configured policy. 配置的限流策略。
+ * @returns the `rateLimit` options section. `rateLimit` 选项段。
+ */
+function authRateLimitConfig(rateLimit: BetterAuthInputs['rateLimit']) {
+  if (rateLimit === false) return { enabled: false, storage: 'memory' } as const
+  return {
+    enabled: true,
+    window: rateLimit?.window ?? 60,
+    max: rateLimit?.max ?? 10,
+    storage: 'memory',
+  } as const
+}
+
+/**
  * Build the Better Auth server instance: email+password sign-in, strict
  * same-site cookies, a memory rate limiter as brute-force protection, and
  * the domain-storage adapter as its database.
@@ -120,11 +188,7 @@ export function loopbackOriginAliases(origin: string): string[] {
  * @returns the ready Better Auth instance.
  */
 export function buildBetterAuth(inputs: BetterAuthInputs): LoginGateAuth {
-  // The dialect turns Kysely queries into domain-table operations; sqlite is
-  // the closest capability profile (dynamic types, no server transactions).
-  // dialect 把 Kysely 查询变为 domain 表操作；sqlite 是最贴近的能力档案
-  // （动态类型、无服务端事务）。
-  const db = openDomainKysely(inputs.domain, LOGIN_GATE_MODELS)
+  const db = openAuthDatabase(inputs.domain)
   return betterAuth<BetterAuthOptions>({
     appName: 'dsh-web-login-gate',
     // The plugin serves Better Auth under the free `/auth` prefix route.
@@ -135,30 +199,9 @@ export function buildBetterAuth(inputs: BetterAuthInputs): LoginGateAuth {
     secret: inputs.secret,
     database: kyselyAdapter(db, { type: 'sqlite', transaction: false }),
     emailAndPassword: { enabled: true, minPasswordLength: 8 },
-    session: {
-      expiresIn: inputs.expiresInDays * 24 * 60 * 60,
-      updateAge: 24 * 60 * 60,
-      storeSessionInDatabase: true,
-    },
-    advanced: {
-      useSecureCookies: inputs.secure,
-      cookiePrefix: 'dsh-login',
-      defaultCookieAttributes: { sameSite: 'strict', path: '/' },
-      // Domain storage is schema-loose by design (fields belong to Better Auth
-      // and evolve with it; the domain spec versions the medium), so Better
-      // Auth's SQL-flavored column diff does not apply here.
-      // domain 存储本就是宽松 schema（字段集归 Better Auth 且随其演进；介质版本
-      // 由 domain spec 管理），Better Auth 面向 SQL 的列比对在此不适用。
-      database: { validateSchema: false },
-    },
-    rateLimit: inputs.rateLimit === false
-      ? { enabled: false, storage: 'memory' }
-      : {
-          enabled: true,
-          window: inputs.rateLimit?.window ?? 60,
-          max: inputs.rateLimit?.max ?? 10,
-          storage: 'memory',
-        },
+    session: authSessionConfig(inputs.expiresInDays),
+    advanced: authAdvancedConfig(inputs.secure),
+    rateLimit: authRateLimitConfig(inputs.rateLimit),
   })
 }
 

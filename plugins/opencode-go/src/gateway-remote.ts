@@ -133,11 +133,7 @@ export class OpencodeGoGatewayService extends TypertRemoteService {
       this.failure = { code: 'ALREADY_IN_FLIGHT', message: 'an authorization attempt for "opencode-go/account" is already running' }
       return
     }
-    this.notices = []
-    this.pending = undefined
-    this.settled = undefined
-    this.failure = undefined
-    this.running = true
+    this.resetAttemptState()
     try {
       const outcome = await this.host.authorization.begin({
         key: OPENCODE_GO_RECORD,
@@ -149,29 +145,51 @@ export class OpencodeGoGatewayService extends TypertRemoteService {
           }),
         },
       })
-      this.settled = { status: outcome.status }
-      if (outcome.status === 'authorized' && this.autoWaiting) {
-        this.autoWaiting = false
-        this.autoImported = true
-        this.autoWatch?.stop()
-        this.autoWatch = undefined
-      }
+      this.settleStatus(outcome.status)
     } catch (error) {
       // 自动等待期内的导入失败保持安静（监听继续等），只有手动尝试才上抛到 poll。
       // Failures while auto-watching stay quiet (the watch keeps waiting); only
       // manual attempts surface to poll.
-      if (!this.autoWaiting) {
-        this.failure = {
-          code: (error as { code?: string }).code,
-          message: (error as { message?: string }).message ?? String(error),
-        }
-      }
+      if (!this.autoWaiting) this.recordFailure(error)
     } finally {
-      this.running = false
-      const open = this.pending as PendingPrompt | undefined
-      this.pending = undefined
-      open?.reject(new Error('opencode-go: the attempt ended'))
+      this.closeAttempt()
     }
+  }
+
+  /** 清空上一轮尝试的痕迹并标记进行中。Clears the previous attempt's traces and marks in-flight. */
+  private resetAttemptState(): void {
+    this.notices = []
+    this.pending = undefined
+    this.settled = undefined
+    this.failure = undefined
+    this.running = true
+  }
+
+  /** 结算一次尝试：记录终局；自动模式下成功即收掉监听。Settles one attempt: files the outcome; auto mode stops the watch on success. */
+  private settleStatus(status: WebSettlement['status']): void {
+    this.settled = { status }
+    if (status === 'authorized' && this.autoWaiting) {
+      this.autoWaiting = false
+      this.autoImported = true
+      this.autoWatch?.stop()
+      this.autoWatch = undefined
+    }
+  }
+
+  /** 记录一次失败的结构化事实。Records one failure's structured facts. */
+  private recordFailure(error: unknown): void {
+    this.failure = {
+      code: (error as { code?: string }).code,
+      message: (error as { message?: string }).message ?? String(error),
+    }
+  }
+
+  /** 收尾一次尝试：清除进行中标记并合上未答提问。Finishes one attempt: clears the in-flight mark and closes the open prompt. */
+  private closeAttempt(): void {
+    this.running = false
+    const open = this.pending
+    this.pending = undefined
+    open?.reject(new Error('opencode-go: the attempt ended'))
   }
 
   /** 自动监听到点：未成功即标记超时并自停。The auto watch deadline: marks the timeout and stops without success. */

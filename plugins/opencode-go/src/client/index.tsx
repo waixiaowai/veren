@@ -1,12 +1,13 @@
 /**
  * 浏览器半边：挂载 `opencodeGo` 远端命名空间，在设置 → 模型 页脚注册
  * 登录卡片，并以单一可观察对象驱动轮询。铁律六：往别人的 slot 注册必须经
- * `ctx.slots.inject`。
+ * `ctx.slots.inject`。可观察状态源与动作工厂在 `./source.ts`。
  *
  * The browser half: mounts the `opencodeGo` Remote namespace, registers the
  * sign-in card in the Models settings footer, and drives polling from one
  * observable. Iron law six: registering into someone else's slot must go
- * through `ctx.slots.inject`.
+ * through `ctx.slots.inject`. The observable source and its action factories
+ * live in `./source.ts`.
  *
  * @module @veren/opencode-go/client
  */
@@ -16,10 +17,10 @@ import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots/client'
-import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS, en, zh, type OgKey } from './locales.ts'
-import { OpencodeGoCard, type OgCardInjected, type OgCardSnapshot } from './card.tsx'
+import { OpencodeGoCard, type OgCardInjected } from './card.tsx'
 import { opencodeGoRemote, type OgDescribe, type OgPoll, type OgRemoteResult } from './remote.ts'
+import { createOgSource } from './source.ts'
 
 declare module '@deepseek-ai/dsh-client-locale/client' {
   interface LocaleNamespaceMap {
@@ -42,9 +43,6 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     }
   }
 }
-
-/** 进行中卡片的轮询间隔。The poll interval while the card is in flight. */
-const POLL_MS = 1_500
 
 /** Marker attribute so a re-activation replaces its own sheet rather than stacking. */
 const STYLE_MARKER = 'data-opencode-go-card'
@@ -85,160 +83,6 @@ function installCardStyles(ctx: Context): void {
     document.head.append(style)
     return () => { style.remove() }
   }, 'opencode-go:styles')
-}
-
-/** 组合 describe+poll 的单一可观察状态与动作。Composes describe+poll into one observable state plus actions. */
-function createOgSource(api: Context['remote']['opencodeGo']): {
-  readonly source: HostObservable<OgCardSnapshot>
-  readonly startAuto: () => void
-  readonly start: (method: string) => void
-  readonly attach: () => void
-  readonly answer: (value: string) => void
-  readonly cancel: () => void
-  readonly dismiss: () => void
-  readonly signOut: () => void
-  readonly togglePaste: () => void
-} {
-  let describe: OgDescribe | undefined
-  let poll: OgPoll | undefined
-  let error = ''
-  let errorCode: string | undefined
-  let pasteOpen = false
-  // useSyncExternalStore 的 getSnapshot 必须返回稳定引用：状态保持在
-  // `current` 里，变更整对象替换后再 notify——每次调用新建对象会触发
-  // React #185（Maximum update depth）。
-  // useSyncExternalStore's getSnapshot must return a stable reference: state
-  // lives in `current` and is replaced whole on change — building a fresh
-  // object per call trips React #185 (Maximum update depth).
-  let current: OgCardSnapshot = { describe: undefined, poll: undefined, error: '', errorCode: undefined, pasteOpen: false }
-  const listeners = new Set<() => void>()
-  const source: HostObservable<OgCardSnapshot> = {
-    getSnapshot: () => current,
-    subscribe: (listener) => {
-      listeners.add(listener)
-      return () => { listeners.delete(listener) }
-    },
-  }
-  const commit = (next: Partial<OgCardSnapshot>): void => {
-    current = { ...current, ...next }
-    for (const listener of [...listeners]) listener()
-  }
-  const stopPolling = (): void => {
-    if (timer === undefined) return
-    globalThis.clearInterval(timer)
-    timer = undefined
-  }
-  let timer: ReturnType<typeof globalThis.setInterval> | undefined
-  const readOnce = async (): Promise<void> => {
-    try {
-      const [description, state] = await Promise.all([
-        api.describe(),
-        api.poll(),
-      ])
-      if (description.ok) describe = description.value
-      if (state.ok) {
-        poll = state.value
-        error = ''
-        errorCode = undefined
-        if (!state.value.inFlight) stopPolling()
-      } else {
-        error = state.error.message
-        errorCode = state.error.code
-        stopPolling()
-      }
-      commit({ describe, poll, error, errorCode })
-    } catch {
-      // 传输层失败（节点重启窗口等）：人话 + 重试，不与授权错误混淆。
-      // A transport failure (node restart window and alike): human copy +
-      // retry, never conflated with authorization errors.
-      errorCode = 'TRANSPORT'
-      stopPolling()
-      commit({ errorCode })
-    }
-  }
-  /** 启动轮询循环（begin 成功与重接共用）。Starts the poll loop (shared by begin success and re-attach). */
-  const startPolling = async (): Promise<void> => {
-    await readOnce()
-    stopPolling()
-    timer = setInterval(() => { void readOnce() }, POLL_MS)
-  }
-  // 挂载即取一次状态：卡片首帧就有登录态与方法列表。
-  // One fetch at mount: the card's first frame already knows sign-in state and methods.
-  void readOnce()
-  return {
-    source,
-    startAuto: () => {
-      window.open('https://opencode.ai/auth', '_blank', 'noopener')
-      void (async () => {
-        const started = await api.beginAuto()
-        if (!started.ok) {
-          error = started.error.message
-          errorCode = started.error.code
-          commit({ error, errorCode })
-          return
-        }
-        await startPolling()
-      })()
-    },
-    togglePaste: () => {
-      pasteOpen = !pasteOpen
-      commit({ pasteOpen })
-    },
-    start: (method) => {
-      void (async () => {
-        // inFlight 时 begin 必被缝拒绝——重接是唯一正解，错误态不可表达。
-        // With inFlight the seam refuses begin — re-attach is the only right
-        // answer; the error state must not be expressible.
-        if (describe?.inFlight === true) {
-          error = ''
-          errorCode = undefined
-          await startPolling()
-          return
-        }
-        error = ''
-        errorCode = undefined
-        commit({ error, errorCode })
-        const started = await api.begin({ method })
-        if (!started.ok) {
-          error = started.error.message
-          errorCode = started.error.code
-          commit({ error, errorCode })
-          return
-        }
-        await startPolling()
-      })()
-    },
-    attach: () => {
-      error = ''
-      errorCode = undefined
-      void startPolling()
-    },
-    answer: (value) => {
-      void api.answer({ value }).then((result) => {
-        if (!result.ok) {
-          error = result.error.message
-          errorCode = result.error.code
-          commit({ error, errorCode })
-        }
-      })
-    },
-    cancel: () => {
-      void api.cancel().then((result) => {
-        if (!result.ok) error = result.error.message
-        void readOnce()
-      })
-    },
-    dismiss: () => {
-      poll = poll === undefined ? undefined : { ...poll, settled: undefined }
-      commit({ poll })
-    },
-    signOut: () => {
-      void api.signOut().then((result) => {
-        if (!result.ok) error = result.error.message
-        void readOnce()
-      })
-    },
-  }
 }
 
 /** 卡片插件：等命名空间就绪，注册页脚 slot 与双语字典。 */

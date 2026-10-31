@@ -5,8 +5,10 @@
  *
  * 状态不再占卡片内一行,而是以 Tag 角标悬浮于卡片右上边缘(悬浮角标);
  * 数据经 props 从 owner site 穿入(铁律 10),组件不接触 ctx、不自订阅。
+ * 渲染拆成子组件:卡片标题与指标行组。
  * The state is not an in-card row anymore — it floats on the top-right edge
  * as a Tag badge; data arrives via props (rule 10), never touching ctx.
+ * Rendering is split into sub-components: the card title and the metric rows.
  */
 import { Tag } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { TagTone } from '@deepseek-ai/dsh-client-ui-primitives';
@@ -39,6 +41,48 @@ function uptime(connectedAt: number | null): string {
   return hh > 0 ? `${hh}h ${m % 60}m` : m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
 }
 
+/** 单行指标 / one metric row */
+function Row({ label, value }: { label: string; value: string }): Jsx {
+  return (
+    <div className={styles.row}>
+      <span className={styles.rowLabel}>{label}</span>
+      <span className={styles.rowValue}>{value}</span>
+    </div>
+  );
+}
+
+/** 卡片标题:节点图标+名称,或缺省标题 / the card title: node icon+name, or the fallback title */
+function StatusTitle({ status, t }: { status: BridgeStatus | null, t: Translate }): Jsx {
+  return (
+    <div className={styles.cardTitle}>
+      {status
+        ? (
+            <>
+              {isUrl(status.node.nodeIcon)
+                ? <img className={styles.iconImgSmall} src={status.node.nodeIcon} alt="" />
+                : <span aria-hidden="true">{status.node.nodeIcon}</span>}
+              <span>{status.node.nodeName}</span>
+            </>
+          )
+        : t('statusTitle')}
+    </div>
+  );
+}
+
+/** 关键指标行组 / the metric row group */
+function MetricRows({ status, t }: { status: BridgeStatus | null, t: Translate }): Jsx {
+  return (
+    <div>
+      <Row label={t('credential')} value={status?.credentialFingerprint ?? t('notSet')} />
+      <Row label={t('uptime')} value={uptime(status?.connectedAt ?? null)} />
+      <Row label={t('reconnects')} value={String(status?.reconnectAttempts ?? 0)} />
+      <Row label={t('pending')} value={String(status?.pendingEvents ?? 0)} />
+      <Row label={t('inflight')} value={String(status?.inflightCommands ?? 0)} />
+      {status?.lastError ? <Row label={t('lastError')} value={status.lastError} /> : null}
+    </div>
+  );
+}
+
 export function StatusCard({ status, error, t }: {
   status: BridgeStatus | null;
   error: string | null;
@@ -49,41 +93,11 @@ export function StatusCard({ status, error, t }: {
     <div className={styles.card}>
       {/* 悬浮角标:跨压卡片上边缘 / floating badge straddling the card's top edge */}
       <Tag tone={BADGE_TONE[state]} className={styles.badge}>{t(`state.${state}`)}</Tag>
-      <div className={styles.cardTitle}>
-        {status
-          ? (
-              <>
-                {isUrl(status.node.nodeIcon)
-                  ? <img className={styles.iconImgSmall} src={status.node.nodeIcon} alt="" />
-                  : <span aria-hidden="true">{status.node.nodeIcon}</span>}
-                <span>{status.node.nodeName}</span>
-              </>
-            )
-          : t('statusTitle')}
-      </div>
-      {error !== null ? (
-        <div className={styles.errorText}>{t('apiUnreachable', { error })}</div>
-      ) : (
-        <div>
-          <Row label={t('credential')} value={status?.credentialFingerprint ?? t('notSet')} />
-          <Row label={t('uptime')} value={uptime(status?.connectedAt ?? null)} />
-          <Row label={t('reconnects')} value={String(status?.reconnectAttempts ?? 0)} />
-          <Row label={t('pending')} value={String(status?.pendingEvents ?? 0)} />
-          <Row label={t('inflight')} value={String(status?.inflightCommands ?? 0)} />
-          {status?.lastError ? <Row label={t('lastError')} value={status.lastError} /> : null}
-        </div>
-      )}
+      <StatusTitle status={status} t={t} />
+      {error !== null
+        ? <div className={styles.errorText}>{t('apiUnreachable', { error })}</div>
+        : <MetricRows status={status} t={t} />}
       <div className={styles.hint}>{t('refreshHint')}</div>
-    </div>
-  );
-}
-
-/** 单行指标 / one metric row */
-function Row({ label, value }: { label: string; value: string }): Jsx {
-  return (
-    <div className={styles.row}>
-      <span className={styles.rowLabel}>{label}</span>
-      <span className={styles.rowValue}>{value}</span>
     </div>
   );
 }

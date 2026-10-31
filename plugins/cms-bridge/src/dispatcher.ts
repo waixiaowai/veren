@@ -78,6 +78,17 @@ export class Dispatcher {
       const reason = entry.validate(payload);
       if (reason) return fail(id, INVALID_PAYLOAD, reason);
     }
+    return this.runMapped(id, action, entry, payload);
+  }
+
+  /**
+   * 运行一个已映射的 action：套独立超时，把超时哨兵与处理器错误翻译成对应的
+   * 失败回执；成功路径包成 ok:true。
+   * Runs one mapped action: wraps it with its own timeout and translates the
+   * timeout sentinel and handler errors into the matching failure frames; the
+   * success path wraps into ok:true.
+   */
+  private async runMapped(id: string, action: string, entry: ActionEntry, payload: unknown): Promise<ResultFrame> {
     this.options.onStart?.(action);
     this.inflightCount++;
     try {
