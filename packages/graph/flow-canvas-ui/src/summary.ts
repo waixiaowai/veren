@@ -82,6 +82,29 @@ export function runSummary(snapshot: CanvasRunSnapshot | null): RunSummary {
             recovered: [],
         };
     }
+    const { counts, failed, skipped, recovered } = scanNodes(snapshot);
+    const tone: RunTone = snapshot.status;
+    return {
+        tone,
+        headline: headlineOf(tone, counts, failed, recovered),
+        detail: detailOf(tone, counts, failed, skipped),
+        counts,
+        failed,
+        skipped,
+        recovered,
+    };
+}
+
+/** 逐节点扫描结果：计数 + 三类关键节点 / one pass over the nodes: counts plus the three key lists */
+interface NodeScan {
+    counts: RunCounts;
+    failed: FailedNode[];
+    skipped: SkippedNode[];
+    recovered: RecoveredNode[];
+}
+
+/** 扫描全部节点：计数并收集失败/跳过/兜底 / scan every node: count statuses and collect failed/skipped/recovered */
+function scanNodes(snapshot: CanvasRunSnapshot): NodeScan {
     const failed: FailedNode[] = [];
     const skipped: SkippedNode[] = [];
     const recovered: RecoveredNode[] = [];
@@ -98,16 +121,7 @@ export function runSummary(snapshot: CanvasRunSnapshot | null): RunSummary {
         }
     }
     counts.settled = counts.completed + counts.failed + counts.skipped + counts.cancelled;
-    const tone: RunTone = snapshot.status;
-    return {
-        tone,
-        headline: headlineOf(tone, counts, failed, recovered),
-        detail: detailOf(tone, counts, failed, skipped),
-        counts,
-        failed,
-        skipped,
-        recovered,
-    };
+    return { counts, failed, skipped, recovered };
 }
 
 /** 空计数 / zeroed counts */

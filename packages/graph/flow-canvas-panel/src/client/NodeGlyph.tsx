@@ -36,48 +36,63 @@ export function NodeGlyph({ type }: { readonly type: string }) {
 /** Pick the path set for one node type; unknown types get a neutral diamond. */
 function glyph(type: string) {
     switch (type) {
-        case 'noop':
-            // A pass-through arrow: the node does nothing but forwards.
-            return (
-                <>
-                    <path d="M2.5 8h6.6" />
-                    <path d="m7.4 5.6 2.6 2.4-2.6 2.4" />
-                    <path d="M12.8 4.6v6.8" />
-                </>
-            )
-        case 'fail':
-            // Alert triangle.
-            return (
-                <>
-                    <path d="M8 2.4 13.7 13H2.3L8 2.4Z" />
-                    <path d="M8 6.2v3.1" />
-                    <path d="M8 11.5h.01" />
-                </>
-            )
-        case 'echo':
-            // Return arrow: echo sends a value back into the flow.
-            return (
-                <>
-                    <path d="M3 5.6h6.4a3.1 3.1 0 0 1 0 6.2H6.4" />
-                    <path d="M5.4 3.2 3 5.6l2.4 2.4" />
-                </>
-            )
-        case 'tool':
-            // Terminal prompt: a tool call executes something.
-            return (
-                <>
-                    <rect x="2.2" y="3.2" width="11.6" height="9.6" rx="2" />
-                    <path d="m5 6.6 2 1.8-2 1.8" />
-                    <path d="M8.6 10.2h2.6" />
-                </>
-            )
-        default:
-            // Generic node shape for extension types.
-            return (
-                <>
-                    <path d="M8 2.6 13.4 8 8 13.4 2.6 8Z" />
-                    <circle cx="8" cy="8" r="1.2" />
-                </>
-            )
+        case 'noop': return noopGlyph()
+        case 'fail': return failGlyph()
+        case 'echo': return echoGlyph()
+        case 'tool': return toolGlyph()
+        default: return neutralGlyph()
     }
+}
+
+/** A pass-through arrow: the node does nothing but forwards. */
+function noopGlyph() {
+    return (
+        <>
+            <path d="M2.5 8h6.6" />
+            <path d="m7.4 5.6 2.6 2.4-2.6 2.4" />
+            <path d="M12.8 4.6v6.8" />
+        </>
+    )
+}
+
+/** Alert triangle. */
+function failGlyph() {
+    return (
+        <>
+            <path d="M8 2.4 13.7 13H2.3L8 2.4Z" />
+            <path d="M8 6.2v3.1" />
+            <path d="M8 11.5h.01" />
+        </>
+    )
+}
+
+/** Return arrow: echo sends a value back into the flow. */
+function echoGlyph() {
+    return (
+        <>
+            <path d="M3 5.6h6.4a3.1 3.1 0 0 1 0 6.2H6.4" />
+            <path d="M5.4 3.2 3 5.6l2.4 2.4" />
+        </>
+    )
+}
+
+/** Terminal prompt: a tool call executes something. */
+function toolGlyph() {
+    return (
+        <>
+            <rect x="2.2" y="3.2" width="11.6" height="9.6" rx="2" />
+            <path d="m5 6.6 2 1.8-2 1.8" />
+            <path d="M8.6 10.2h2.6" />
+        </>
+    )
+}
+
+/** Generic node shape for extension types. */
+function neutralGlyph() {
+    return (
+        <>
+            <path d="M8 2.6 13.4 8 8 13.4 2.6 8Z" />
+            <circle cx="8" cy="8" r="1.2" />
+        </>
+    )
 }

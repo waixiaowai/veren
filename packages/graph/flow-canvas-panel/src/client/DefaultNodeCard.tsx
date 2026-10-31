@@ -15,7 +15,8 @@
  * @module @deepseek-ai/dsh-graph-flow-canvas-panel/client/DefaultNodeCard
  */
 
-import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsLocale, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type { DetailLine } from './model.ts'
 import { nodeDetail, statusVisual } from './model.ts'
 import { NodeGlyph } from './NodeGlyph.tsx'
 import { detailText, nodeTypeLabel, skipReasonLabel } from './present.ts'
@@ -42,6 +43,45 @@ function toneClass(tone: ReturnType<typeof statusVisual>['tone']): string {
 }
 
 /**
+ * The card's one secondary line: the stable code/reason only. Full messages
+ * belong to the inspector, where they have room and can wrap.
+ * 卡片的唯一次要信息行：只保留稳定的错误码/原因；完整消息属于检查器。
+ */
+function detailLineOf(detail: DetailLine | undefined, detailTitle: string | undefined, t: TranslateNS<'flowCanvas'>): string | undefined {
+    if (detail === undefined) return undefined
+    if (detail.key === 'node.detail.skip') return skipReasonLabel(String(detail.params['reason']), t)
+    if (detail.key === 'node.detail.error' || detail.key === 'node.detail.recovered') return String(detail.params['code'])
+    return detailTitle
+}
+
+/** Props of the card body: title row plus the secondary line. */
+interface NodeCardBodyProps {
+    readonly node: FlowCanvasNodeOwnerProps['node']
+    readonly labelKey: ReturnType<typeof statusVisual>['labelKey']
+    readonly subtitle: string
+    readonly subtitleTitle: string | undefined
+    readonly pendingApproval: FlowCanvasNodeOwnerProps['pendingApproval']
+    readonly t: TranslateNS<'flowCanvas'>
+}
+
+/** Title row (label + status) and the secondary line (detail or approval hint). */
+function NodeCardBody({ node, labelKey, subtitle, subtitleTitle, pendingApproval, t }: NodeCardBodyProps) {
+    return (
+        <span className={css.nodeBody}>
+            <span className={css.nodeTitleRow}>
+                <span className={css.nodeLabel} title={node.display.label}>{node.display.label}</span>
+                <span className={css.nodeStatus}>{t(labelKey)}</span>
+            </span>
+            <span className={css.nodeMetaRow}>
+                {pendingApproval === undefined
+                    ? <span className={css.nodeDetail} title={subtitleTitle}>{subtitle}</span>
+                    : <span className={css.nodeApprovalHint}>{t('node.approvalHint')}</span>}
+            </span>
+        </span>
+    )
+}
+
+/**
  * The panel's own node card.
  * @param props - node, runtime record, selection, approval face and translator.
  * @returns one clickable, compact node card.
@@ -53,30 +93,16 @@ export function DefaultNodeCard({
     const detail = nodeDetail(runtime)
     const detailTitle = detail === undefined ? undefined : detailText(detail, t)
     const typeLabel = nodeTypeLabel(node.type, t)
-    // The card keeps the stable code/reason only; full messages belong to the
-    // inspector, where they have room and can wrap.
-    const detailLine = detail === undefined
-        ? undefined
-        : detail.key === 'node.detail.skip'
-            ? skipReasonLabel(String(detail.params['reason']), t)
-            : detail.key === 'node.detail.error' || detail.key === 'node.detail.recovered'
-                ? String(detail.params['code'])
-                : detailTitle
-    // Without a detail line the subtitle names the type; the icon carries the
-    // same information at a glance.
-    const subtitle = detailLine ?? typeLabel
-    const subtitleTitle = detailTitle ?? typeLabel
+    // Without a detail line the subtitle names the type; the icon carries the same information at a glance.
+    // 无详情行时副标题显示类型；图标一眼传达同样的信息。
+    const subtitle = detailLineOf(detail, detailTitle, t) ?? typeLabel
     return (
         <div className={css.nodeShell}>
             <button
                 type="button"
                 data-flow-node-card={node.id}
                 data-node-tone={visual.tone}
-                className={[
-                    css.nodeCard,
-                    toneClass(visual.tone),
-                    selected ? css.nodeCardSelected : '',
-                ].filter(Boolean).join(' ')}
+                className={[css.nodeCard, toneClass(visual.tone), selected ? css.nodeCardSelected : ''].filter(Boolean).join(' ')}
                 aria-pressed={selected}
                 aria-label={`${node.display.label} · ${typeLabel} · ${t(visual.labelKey)}`}
                 title={`${node.display.label} · ${t(visual.labelKey)}`}
@@ -86,17 +112,10 @@ export function DefaultNodeCard({
                 <span className={css.nodeIcon} title={typeLabel} aria-hidden="true">
                     <NodeGlyph type={node.type} />
                 </span>
-                <span className={css.nodeBody}>
-                    <span className={css.nodeTitleRow}>
-                        <span className={css.nodeLabel} title={node.display.label}>{node.display.label}</span>
-                        <span className={css.nodeStatus}>{t(visual.labelKey)}</span>
-                    </span>
-                    <span className={css.nodeMetaRow}>
-                        {pendingApproval === undefined
-                            ? <span className={css.nodeDetail} title={subtitleTitle}>{subtitle}</span>
-                            : <span className={css.nodeApprovalHint}>{t('node.approvalHint')}</span>}
-                    </span>
-                </span>
+                <NodeCardBody
+                    node={node} labelKey={visual.labelKey} subtitle={subtitle}
+                    subtitleTitle={detailTitle ?? typeLabel} pendingApproval={pendingApproval} t={t}
+                />
             </button>
         </div>
     )

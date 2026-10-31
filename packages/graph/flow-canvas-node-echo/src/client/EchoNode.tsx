@@ -45,6 +45,18 @@ const TONE_CLASSES: Record<CanvasNodeRuntime['status'], string | undefined> = {
     cancelled: css.cancelled,
 }
 
+/** The echo glyph: a small reply arrow, drawn locally so the theme drives the stroke. / echo 图标：小的回声箭头，本地绘制，颜色跟随主题。 */
+function EchoIcon() {
+    return (
+        <span className={css.icon} aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 5.6h6.4a3.1 3.1 0 0 1 0 6.2H6.4" />
+                <path d="M5.4 3.2 3 5.6l2.4 2.4" />
+            </svg>
+        </span>
+    )
+}
+
 /**
  * Render the custom echo card.
  * @param props - node, runtime record, selection, select callback and translator.
@@ -65,12 +77,7 @@ export function EchoNode({ node, runtime, selected, onSelect, t }: EchoNodeProps
             title={`${node.display.label} · ${node.display.subtitle}`}
             onClick={() => { onSelect(node.id) }}
         >
-            <span className={css.icon} aria-hidden="true">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 5.6h6.4a3.1 3.1 0 0 1 0 6.2H6.4" />
-                    <path d="M5.4 3.2 3 5.6l2.4 2.4" />
-                </svg>
-            </span>
+            <EchoIcon />
             <span className={css.body}>
                 <span className={css.titleRow}>
                     <span className={css.label} title={node.display.label}>{node.display.label}</span>

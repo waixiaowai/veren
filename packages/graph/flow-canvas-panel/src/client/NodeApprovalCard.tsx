@@ -37,6 +37,129 @@ export interface NodeApprovalCardProps {
     readonly moreCount?: number
 }
 
+/** Props of the title row: what will happen, on which node, how many queued. */
+interface ApprovalTitleRowProps {
+    readonly request: FlowApprovalAudit['request']
+    readonly nodeLabel: string | undefined
+    readonly moreCount: number
+    readonly t: TranslateNS<'flowCanvas'>
+}
+
+/** Badge, action, owning node and the queued-behind count. */
+function ApprovalTitleRow({ request, nodeLabel, moreCount, t }: ApprovalTitleRowProps) {
+    return (
+        <div className={css.approvalTitleRow}>
+            <span className={css.approvalBadge}>{t('approval.badge')}</span>
+            <span className={css.approvalAction} title={request.action}>
+                {t('approval.action', { action: request.action })}
+            </span>
+            {nodeLabel === undefined ? null : (
+                <span className={css.approvalNode}>{t('approval.node', { node: nodeLabel })}</span>
+            )}
+            {moreCount > 0
+                ? <span className={css.approvalMore}>{t('approval.more', { count: moreCount })}</span>
+                : null}
+        </div>
+    )
+}
+
+/** Props of the timestamps row. */
+interface ApprovalMetaProps {
+    readonly request: FlowApprovalAudit['request']
+    readonly expiresAt: number | undefined
+    readonly remaining: string | undefined
+    readonly expired: boolean
+    readonly t: TranslateNS<'flowCanvas'>
+}
+
+/** Requested-at / expires-at plus the live countdown (or the expired mark). */
+function ApprovalMeta({ request, expiresAt, remaining, expired, t }: ApprovalMetaProps) {
+    return (
+        <div className={css.approvalMeta}>
+            <span>{t('approval.requestedAt', { time: formatClock(request.requestedAt) })}</span>
+            {expiresAt === undefined
+                ? null
+                : <span>{t('approval.expiresAt', { time: formatClock(expiresAt) })}</span>}
+            {remaining === undefined
+                ? null
+                : (
+                    <strong className={expired ? css.approvalExpired : css.approvalCountdown}>
+                        {expired ? t('approval.expired') : t('approval.remaining', { time: remaining })}
+                    </strong>
+                )}
+        </div>
+    )
+}
+
+/** Props of the card body (everything between the lead and the buttons). */
+interface ApprovalDetailsProps {
+    readonly request: FlowApprovalAudit['request']
+    readonly nodeLabel: string | undefined
+    readonly moreCount: number
+    readonly expiresAt: number | undefined
+    readonly remaining: string | undefined
+    readonly expired: boolean
+    readonly t: TranslateNS<'flowCanvas'>
+}
+
+/** What the request will do, why it needs a human, and the auto-deny deadline. */
+function ApprovalDetails({ request, nodeLabel, moreCount, expiresAt, remaining, expired, t }: ApprovalDetailsProps) {
+    return (
+        <div className={css.approvalMain}>
+            <ApprovalTitleRow request={request} nodeLabel={nodeLabel} moreCount={moreCount} t={t} />
+            <p className={css.approvalHint}>{t('approval.hint')}</p>
+            {request.reason === undefined ? null : (
+                <p className={css.approvalReason}>
+                    <strong>{t('approval.reason')}</strong>
+                    <span>{request.reason}</span>
+                </p>
+            )}
+            {request.summary === undefined ? null : (
+                <div className={css.approvalArgs}>
+                    <span className={css.approvalLabel}>{t('approval.arguments')}</span>
+                    <pre className={css.approvalSummary}>{request.summary}</pre>
+                </div>
+            )}
+            <ApprovalMeta request={request} expiresAt={expiresAt} remaining={remaining} expired={expired} t={t} />
+        </div>
+    )
+}
+
+/** Props of the two answers plus the answered marker. */
+interface ApprovalButtonsProps {
+    readonly answered: FlowApprovalDecision | undefined
+    readonly expired: boolean
+    readonly answer: (decision: FlowApprovalDecision) => void
+    readonly t: TranslateNS<'flowCanvas'>
+}
+
+/** Exactly two answers: a large primary "agree" and a secondary "deny"; single use. */
+function ApprovalButtons({ answered, expired, answer, t }: ApprovalButtonsProps) {
+    return (
+        <div className={css.approvalActions}>
+            {answered === undefined ? null : (
+                <span className={css.approvalAnswered} role="status">
+                    {t(answered === 'allow' ? 'approval.settledAllow' : 'approval.settledDeny')}
+                </span>
+            )}
+            <button
+                type="button" className={`${css.approvalButton} ${css.approvalAllow}`} aria-label={t('approval.allow')}
+                title={t('approval.allowHint')} disabled={answered !== undefined || expired} onClick={() => { answer('allow') }}
+            >
+                <span>{t('approval.allow')}</span>
+                <small>{t('approval.allowHint')}</small>
+            </button>
+            <button
+                type="button" className={`${css.approvalButton} ${css.approvalDeny}`} aria-label={t('approval.deny')}
+                title={t('approval.denyHint')} disabled={answered !== undefined || expired} onClick={() => { answer('deny') }}
+            >
+                <span>{t('approval.deny')}</span>
+                <small>{t('approval.denyHint')}</small>
+            </button>
+        </div>
+    )
+}
+
 /**
  * Render one pending approval.
  * @param props - pending request, decision callback and translator.
@@ -62,75 +185,11 @@ export function NodeApprovalCard({ audit, onDecision, t, nodeLabel, moreCount = 
     return (
         <div className={css.approvalCard} role="group" aria-label={t('approval.title')}>
             <span className={css.approvalLead} aria-hidden="true">!</span>
-            <div className={css.approvalMain}>
-                <div className={css.approvalTitleRow}>
-                    <span className={css.approvalBadge}>{t('approval.badge')}</span>
-                    <span className={css.approvalAction} title={request.action}>
-                        {t('approval.action', { action: request.action })}
-                    </span>
-                    {nodeLabel === undefined ? null : (
-                        <span className={css.approvalNode}>{t('approval.node', { node: nodeLabel })}</span>
-                    )}
-                    {moreCount > 0
-                        ? <span className={css.approvalMore}>{t('approval.more', { count: moreCount })}</span>
-                        : null}
-                </div>
-                <p className={css.approvalHint}>{t('approval.hint')}</p>
-                {request.reason === undefined ? null : (
-                    <p className={css.approvalReason}>
-                        <strong>{t('approval.reason')}</strong>
-                        <span>{request.reason}</span>
-                    </p>
-                )}
-                {request.summary === undefined ? null : (
-                    <div className={css.approvalArgs}>
-                        <span className={css.approvalLabel}>{t('approval.arguments')}</span>
-                        <pre className={css.approvalSummary}>{request.summary}</pre>
-                    </div>
-                )}
-                <div className={css.approvalMeta}>
-                    <span>{t('approval.requestedAt', { time: formatClock(request.requestedAt) })}</span>
-                    {expiresAt === undefined
-                        ? null
-                        : <span>{t('approval.expiresAt', { time: formatClock(expiresAt) })}</span>}
-                    {remaining === undefined
-                        ? null
-                        : (
-                            <strong className={expired ? css.approvalExpired : css.approvalCountdown}>
-                                {expired ? t('approval.expired') : t('approval.remaining', { time: remaining })}
-                            </strong>
-                        )}
-                </div>
-            </div>
-            <div className={css.approvalActions}>
-                {answered === undefined ? null : (
-                    <span className={css.approvalAnswered} role="status">
-                        {t(answered === 'allow' ? 'approval.settledAllow' : 'approval.settledDeny')}
-                    </span>
-                )}
-                <button
-                    type="button"
-                    className={`${css.approvalButton} ${css.approvalAllow}`}
-                    aria-label={t('approval.allow')}
-                    title={t('approval.allowHint')}
-                    disabled={answered !== undefined || expired}
-                    onClick={() => { answer('allow') }}
-                >
-                    <span>{t('approval.allow')}</span>
-                    <small>{t('approval.allowHint')}</small>
-                </button>
-                <button
-                    type="button"
-                    className={`${css.approvalButton} ${css.approvalDeny}`}
-                    aria-label={t('approval.deny')}
-                    title={t('approval.denyHint')}
-                    disabled={answered !== undefined || expired}
-                    onClick={() => { answer('deny') }}
-                >
-                    <span>{t('approval.deny')}</span>
-                    <small>{t('approval.denyHint')}</small>
-                </button>
-            </div>
+            <ApprovalDetails
+                request={request} nodeLabel={nodeLabel} moreCount={moreCount} expiresAt={expiresAt}
+                remaining={remaining} expired={expired} t={t}
+            />
+            <ApprovalButtons answered={answered} expired={expired} answer={answer} t={t} />
         </div>
     )
 }

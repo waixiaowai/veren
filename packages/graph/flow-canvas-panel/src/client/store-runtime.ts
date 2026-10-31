@@ -81,6 +81,31 @@ function messageOf(cause: unknown): string {
     return cause instanceof Error ? cause.message : String(cause)
 }
 
+/** Merge a patch into the state and notify the listeners. */
+function publishPatch(runtime: StoreRuntime, patch: Partial<FlowCanvasViewState>): void {
+    runtime.state = { ...runtime.state, ...patch }
+    for (const listener of [...runtime.listeners]) listener()
+}
+
+/** Record the saved subset and persist it (never throws). */
+function persistSaved(runtime: StoreRuntime, next: SavedView): void {
+    runtime.saved = next
+    persistView(runtime.storage, next)
+}
+
+/** Flip the state to the error phase with a single-line message. */
+function failRuntime(runtime: StoreRuntime, cause: unknown): void {
+    runtime.publish({ phase: 'error', error: messageOf(cause) })
+}
+
+/** Cancel a pending initial-list retry, if any. */
+function clearRetryTimer(runtime: StoreRuntime): void {
+    if (runtime.retryTimer !== undefined) {
+        clearTimeout(runtime.retryTimer)
+        runtime.retryTimer = undefined
+    }
+}
+
 /**
  * Create the shared runtime for one store instance.
  * @param api - the `ctx.remote.flowCanvas` face.
@@ -106,23 +131,10 @@ export function createStoreRuntime(
         resumedRunId: undefined,
         subscription: undefined,
         listeners: new Set(),
-        publish(patch) {
-            runtime.state = { ...runtime.state, ...patch }
-            for (const listener of [...runtime.listeners]) listener()
-        },
-        save(next) {
-            runtime.saved = next
-            persistView(runtime.storage, next)
-        },
-        fail(cause) {
-            runtime.publish({ phase: 'error', error: messageOf(cause) })
-        },
-        clearRetry() {
-            if (runtime.retryTimer !== undefined) {
-                clearTimeout(runtime.retryTimer)
-                runtime.retryTimer = undefined
-            }
-        },
+        publish(patch) { publishPatch(runtime, patch) },
+        save(next) { persistSaved(runtime, next) },
+        fail(cause) { failRuntime(runtime, cause) },
+        clearRetry() { clearRetryTimer(runtime) },
     }
     return runtime
 }

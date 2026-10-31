@@ -11,7 +11,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { CanvasFlow } from '@deepseek-ai/dsh-graph-flow-canvas';
+import type { CanvasFlow, FlowCanvas } from '@deepseek-ai/dsh-graph-flow-canvas';
+import type { FlowEngineService } from '@deepseek-ai/dsh-graph-flow-engine';
 import type { StartRunResponse } from './model.js';
 import { createCanvasRuntime, flowDescriptors } from './runtime.js';
 import { RunRegistry } from './runs.js';
@@ -48,71 +49,11 @@ export async function createFlowCanvasServer(options: FlowCanvasUiOptions = {}):
     const runs = new RunRegistry(canvas, (error) => {
         console.error('[flow-canvas-ui] run failed / 画布运行失败', error);
     });
+    const handleRequest = createRequestHandler(engine, canvas, runs, packageRoot);
     const server = createServer((request, response) => {
-        void handleRequest(request, response).catch((error: unknown) => {
-            const message = error instanceof Error ? error.message : String(error);
-            if (response.headersSent) {
-                response.end();
-                return;
-            }
-            sendJson(response, 500, { error: message });
-        });
+        void handleRequest(request, response).catch((error: unknown) => respondError(response, error));
     });
     const url = await listen(server, host, options.port ?? 4780);
-
-    /** 路由入口 / request router */
-    async function handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
-        const method = request.method ?? 'GET';
-        const requestUrl = new URL(request.url ?? '/', 'http://localhost');
-        if (method === 'GET' && requestUrl.pathname === '/api/flows') {
-            sendJson(response, 200, { flows: flowDescriptors(engine) });
-            return;
-        }
-        const flowMatch = /^\/api\/flows\/([^/]+)$/.exec(requestUrl.pathname);
-        if (method === 'GET' && flowMatch) {
-            const flowId = decodeURIComponent(flowMatch[1]!);
-            if (!engine.hasFlow(flowId)) {
-                sendJson(response, 404, { error: `flow "${flowId}" is not registered`, code: 'FLOW_NOT_FOUND' });
-                return;
-            }
-            sendJson(response, 200, canvas.project(flowId) satisfies CanvasFlow);
-            return;
-        }
-        if (method === 'POST' && requestUrl.pathname === '/api/runs') {
-            const body = await readJson(request);
-            const flowId = typeof body.flowId === 'string' ? body.flowId : 'canvas-demo';
-            if (!engine.hasFlow(flowId)) {
-                sendJson(response, 404, { error: `flow "${flowId}" is not registered`, code: 'FLOW_NOT_FOUND' });
-                return;
-            }
-            const payload: StartRunResponse = { runId: runs.start(flowId), flowId };
-            sendJson(response, 201, payload);
-            return;
-        }
-        const runMatch = /^\/api\/runs\/([^/]+)$/.exec(requestUrl.pathname);
-        if (method === 'GET' && runMatch) {
-            const state = runs.get(decodeURIComponent(runMatch[1]!));
-            if (!state) {
-                sendJson(response, 404, { error: 'run not found', code: 'RUN_NOT_FOUND' });
-                return;
-            }
-            sendJson(response, 200, state);
-            return;
-        }
-        const streamMatch = /^\/api\/runs\/([^/]+)\/events$/.exec(requestUrl.pathname);
-        if (method === 'GET' && streamMatch) {
-            if (!runs.attach(decodeURIComponent(streamMatch[1]!), response)) {
-                sendJson(response, 404, { error: 'run not found', code: 'RUN_NOT_FOUND' });
-            }
-            return;
-        }
-        if (method === 'GET') {
-            await serveStatic(requestUrl.pathname, response, packageRoot);
-            return;
-        }
-        sendJson(response, 405, { error: `method ${method} is not allowed` });
-    }
-
     return {
         url,
         port: portOf(server),
@@ -121,6 +62,91 @@ export async function createFlowCanvasServer(options: FlowCanvasUiOptions = {}):
             await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
             await runtime.close();
         },
+    };
+}
+
+/** 回应一次处理失败：头已发出就只能断开，否则回 500 / respond to a failed request: just hang up when headers are sent, else 500 */
+function respondError(response: ServerResponse, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    if (response.headersSent) {
+        response.end();
+        return;
+    }
+    sendJson(response, 500, { error: message });
+}
+
+/** 路由表 / the per-route handlers over one composed data plane */
+interface RouteDeps {
+    engine: FlowEngineService;
+    canvas: FlowCanvas;
+    runs: RunRegistry;
+    packageRoot: string;
+}
+
+/** GET /api/flows：全部已注册 flow 描述 / the flow descriptor list */
+function handleFlowsList(response: ServerResponse, engine: FlowEngineService): void {
+    sendJson(response, 200, { flows: flowDescriptors(engine) });
+}
+
+/** GET /api/flows/:id：静态投影，未注册 404 / one static projection; 404 when unregistered */
+function handleFlowGet(response: ServerResponse, deps: RouteDeps, flowId: string): void {
+    if (!deps.engine.hasFlow(flowId)) {
+        sendJson(response, 404, { error: `flow "${flowId}" is not registered`, code: 'FLOW_NOT_FOUND' });
+        return;
+    }
+    sendJson(response, 200, deps.canvas.project(flowId) satisfies CanvasFlow);
+}
+
+/** POST /api/runs：启动一次运行 / start one run */
+async function handleRunStart(request: IncomingMessage, response: ServerResponse, deps: RouteDeps): Promise<void> {
+    const body = await readJson(request);
+    const flowId = typeof body.flowId === 'string' ? body.flowId : 'canvas-demo';
+    if (!deps.engine.hasFlow(flowId)) {
+        sendJson(response, 404, { error: `flow "${flowId}" is not registered`, code: 'FLOW_NOT_FOUND' });
+        return;
+    }
+    const payload: StartRunResponse = { runId: deps.runs.start(flowId), flowId };
+    sendJson(response, 201, payload);
+}
+
+/** GET /api/runs/:id：运行状态快照 / one run's status snapshot */
+function handleRunGet(response: ServerResponse, runs: RunRegistry, runId: string): void {
+    const state = runs.get(runId);
+    if (!state) {
+        sendJson(response, 404, { error: 'run not found', code: 'RUN_NOT_FOUND' });
+        return;
+    }
+    sendJson(response, 200, state);
+}
+
+/** GET /api/runs/:id/events：SSE 状态流 / the SSE status stream */
+function handleRunEvents(response: ServerResponse, runs: RunRegistry, runId: string): void {
+    if (!runs.attach(runId, response)) {
+        sendJson(response, 404, { error: 'run not found', code: 'RUN_NOT_FOUND' });
+    }
+}
+
+/** 路由入口 / request router */
+function createRequestHandler(
+    engine: FlowEngineService,
+    canvas: FlowCanvas,
+    runs: RunRegistry,
+    packageRoot: string,
+): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
+    const deps: RouteDeps = { engine, canvas, runs, packageRoot };
+    return async (request, response) => {
+        const method = request.method ?? 'GET';
+        const requestUrl = new URL(request.url ?? '/', 'http://localhost');
+        const flowMatch = /^\/api\/flows\/([^/]+)$/.exec(requestUrl.pathname);
+        const runMatch = /^\/api\/runs\/([^/]+)$/.exec(requestUrl.pathname);
+        const streamMatch = /^\/api\/runs\/([^/]+)\/events$/.exec(requestUrl.pathname);
+        if (method === 'GET' && requestUrl.pathname === '/api/flows') return handleFlowsList(response, engine);
+        if (method === 'GET' && flowMatch) return handleFlowGet(response, deps, decodeURIComponent(flowMatch[1]!));
+        if (method === 'POST' && requestUrl.pathname === '/api/runs') return handleRunStart(request, response, deps);
+        if (method === 'GET' && runMatch) return handleRunGet(response, runs, decodeURIComponent(runMatch[1]!));
+        if (method === 'GET' && streamMatch) return handleRunEvents(response, runs, decodeURIComponent(streamMatch[1]!));
+        if (method === 'GET') return serveStatic(requestUrl.pathname, response, packageRoot);
+        sendJson(response, 405, { error: `method ${method} is not allowed` });
     };
 }
 

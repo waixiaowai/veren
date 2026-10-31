@@ -24,6 +24,46 @@ interface ExecutionBudget {
     cancel(): void;
 }
 
+/** 可变预算状态：limited 为 false 时一切操作都是空操作 / mutable budget state; every op is a no-op while `limited` is false */
+interface BudgetState {
+    limited: boolean;
+    remaining: number;
+    armedAt: number;
+    timer: ReturnType<typeof setTimeout> | undefined;
+    paused: boolean;
+}
+
+/** 装表：到期经 `onExpire` 以 NODE_TIMEOUT 拒绝 / arm the timer; on expiry `onExpire` rejects with NODE_TIMEOUT */
+function armBudget(
+    state: BudgetState,
+    timeoutMs: number,
+    nodeId: NodeId,
+    deps: RunnerDeps,
+    onExpire: (error: ReturnType<typeof flowError>) => void,
+): void {
+    state.armedAt = Date.now();
+    state.timer = setTimeout(() => {
+        state.timer = undefined;
+        onExpire(flowError('NODE_TIMEOUT', `node "${nodeId}" timed out after ${timeoutMs}ms`, { flowId: deps.flowId, nodeId }));
+    }, Math.max(0, state.remaining));
+}
+
+/** 暂停：清计时器并把已流逝时间从预算里扣掉 / pause: clear the timer and bank the elapsed time against the budget */
+function pauseBudget(state: BudgetState): void {
+    if (!state.limited || state.paused || state.timer === undefined) return;
+    clearTimeout(state.timer);
+    state.timer = undefined;
+    state.remaining -= Date.now() - state.armedAt;
+    state.paused = true;
+}
+
+/** 恢复：重新装表 / resume: re-arm the timer */
+function resumeBudget(state: BudgetState, arm: () => void): void {
+    if (!state.limited || !state.paused) return;
+    state.paused = false;
+    arm();
+}
+
 /**
  * Arm the timeout budget of one attempt; `onExpire` rejects with NODE_TIMEOUT.
  * 为一次尝试装配超时预算；到期经 `onExpire` 以 NODE_TIMEOUT 拒绝。
@@ -34,36 +74,14 @@ function executionBudget(
     deps: RunnerDeps,
     onExpire: (error: ReturnType<typeof flowError>) => void,
 ): ExecutionBudget {
-    const limited = timeoutMs > 0;
-    let remaining = timeoutMs;
-    let armedAt = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let paused = false;
-    const arm = (): void => {
-        armedAt = Date.now();
-        timer = setTimeout(() => {
-            timer = undefined;
-            onExpire(flowError('NODE_TIMEOUT', `node "${nodeId}" timed out after ${timeoutMs}ms`, { flowId: deps.flowId, nodeId }));
-        }, Math.max(0, remaining));
-    };
-    const pause = (): void => {
-        if (!limited || paused || timer === undefined) return;
-        clearTimeout(timer);
-        timer = undefined;
-        remaining -= Date.now() - armedAt;
-        paused = true;
-    };
-    const resume = (): void => {
-        if (!limited || !paused) return;
-        paused = false;
-        arm();
-    };
-    if (limited) arm();
+    const state: BudgetState = { limited: timeoutMs > 0, remaining: timeoutMs, armedAt: 0, timer: undefined, paused: false };
+    const arm = (): void => armBudget(state, timeoutMs, nodeId, deps, onExpire);
+    if (state.limited) arm();
     return {
-        pause,
-        resume,
+        pause: () => pauseBudget(state),
+        resume: () => resumeBudget(state, arm),
         cancel: () => {
-            if (timer !== undefined) clearTimeout(timer);
+            if (state.timer !== undefined) clearTimeout(state.timer);
         },
     };
 }

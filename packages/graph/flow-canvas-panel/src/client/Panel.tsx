@@ -4,26 +4,204 @@
  * It is pure presentation over the inject face: one observable snapshot
  * (`useFlow`), the panel callbacks, child-slot `renderSlot`, and the locale `t`.
  * The page composes the header, the run status strip, the approval dock, the
- * pan/zoom graph, and an inspector that opens with the selected node.
+ * pan/zoom graph, and an inspector that opens with the selected node. Page
+ * chrome lives in `PanelChrome`, the viewport graph in `FlowGraph`.
  *
  * 画布插件的主面板页面。它只做注入面的展示：一个可观察快照（`useFlow`）、面板回调、
  * 子槽位 `renderSlot` 与语言 `t`。页面组合顶栏、运行状态条、授权坞、可平移缩放图，
- * 以及随选中节点打开的详情面板。
+ * 以及随选中节点打开的详情面板。页面框架在 `PanelChrome`，视口图在 `FlowGraph`。
  *
  * @module @deepseek-ai/dsh-graph-flow-canvas-panel/client/Panel
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { FlowApprovalDecision } from '@deepseek-ai/dsh-graph-flow-api'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { CanvasFlow, CanvasNode, CanvasNodeRuntime } from '@deepseek-ai/dsh-graph-flow-canvas'
+import type { FlowApprovalAudit, FlowApprovalDecision } from '@deepseek-ai/dsh-graph-flow-api'
 import { ApprovalDock, type DecisionNotice } from './ApprovalDock.tsx'
 import { DefaultNodeCard } from './DefaultNodeCard.tsx'
 import { FlowGraph } from './FlowGraph.tsx'
 import { Inspector } from './Inspector.tsx'
 import { pendingApproval, runDigest } from './model.ts'
-import { attentionNodes, flowLabel, pendingApprovals } from './present.ts'
+import { attentionNodes, pendingApprovals } from './present.ts'
+import { PanelHeader, PanelLegend } from './PanelChrome.tsx'
 import { StatusStrip } from './StatusStrip.tsx'
-import type { FlowCanvasPanelProps } from './slots.ts'
+import type { FlowCanvasPanelProps, FlowCanvasNodeOwnerProps } from './slots.ts'
+import type { RunView } from './store.ts'
 import css from './panel.module.css'
+
+/** One pending approval plus the node that owns it (a present.ts view). */
+type PendingView = ReturnType<typeof pendingApprovals>[number]
+
+/**
+ * The approval card is the canvas focus: open the owning node once per
+ * request so the inspector and the dock tell the same story. A new run owns a
+ * new decision history; never show the previous run's result over it.
+ * 授权卡是画布焦点：每个请求只自动打开一次所属节点，让检查器与授权坞讲同一个故事。
+ * 新 run 拥有新的决定历史；上一 run 的结果不得盖在新 run 上。
+ */
+function useDecisionNotice(
+    runId: string | undefined,
+    flowId: string | undefined,
+    active: PendingView | undefined,
+    onSelectNode: FlowCanvasPanelProps['onSelectNode'],
+): [DecisionNotice | undefined, (notice: DecisionNotice | undefined) => void] {
+    const [notice, setNotice] = useState<DecisionNotice>()
+    const autoFocused = useRef<string>()
+    useEffect(() => {
+        setNotice(undefined)
+        autoFocused.current = undefined
+    }, [runId, flowId])
+    useEffect(() => {
+        if (active === undefined) return
+        const requestId = active.audit.request.id
+        if (autoFocused.current === requestId) return
+        autoFocused.current = requestId
+        onSelectNode(active.nodeId)
+    }, [active, onSelectNode])
+    return [notice, setNotice]
+}
+
+/**
+ * The decision notice only explains the request it answered; a different
+ * active request hides it.
+ * 决定通知只解释它回答的那条请求；活动请求变了就隐藏。
+ */
+function activeNotice(notice: DecisionNotice | undefined, active: PendingView | undefined): DecisionNotice | undefined {
+    return notice !== undefined
+        && (active === undefined || active.audit.request.id === notice.request.id)
+        ? notice
+        : undefined
+}
+
+/** The settled audit entry and node status matching the notice, once the stream has them. */
+function settledFacts(
+    run: RunView | undefined,
+    notice: DecisionNotice | undefined,
+): { settledAudit: FlowApprovalAudit | undefined; settledStatus: CanvasNodeRuntime['status'] | undefined } {
+    if (notice === undefined || run === undefined) return { settledAudit: undefined, settledStatus: undefined }
+    const node = run.nodes[notice.nodeId]
+    return {
+        settledAudit: node?.approvals?.find(audit => audit.request.id === notice.request.id),
+        settledStatus: node?.status,
+    }
+}
+
+/** Build the decision callback: record the local notice, then forward to the host. */
+function makeDecider(
+    pending: readonly PendingView[],
+    setNotice: (notice: DecisionNotice | undefined) => void,
+    onAnswerApproval: FlowCanvasPanelProps['onAnswerApproval'],
+): (requestId: string, decision: FlowApprovalDecision) => void {
+    return (requestId, decision) => {
+        const view = pending.find(entry => entry.audit.request.id === requestId)
+        if (view !== undefined) {
+            setNotice({ nodeId: view.nodeId, request: view.audit.request, decision, at: Date.now() })
+        }
+        onAnswerApproval(requestId, decision)
+    }
+}
+
+/** Build the node-slot renderer: owner props are derived shares, dispatched through the slot. */
+function nodeRenderer(
+    renderSlot: FlowCanvasPanelProps['renderSlot'],
+    onSelectNode: FlowCanvasPanelProps['onSelectNode'],
+    onAnswerApproval: FlowCanvasPanelProps['onAnswerApproval'],
+    t: FlowCanvasPanelProps['t'],
+): (node: CanvasNode, runtime: CanvasNodeRuntime | undefined, selected: boolean) => ReactNode {
+    return (node, runtime, selected) => {
+        // owner props 是派生共享：授权面随节点记录一起下传，
+        // 第三方渲染器可以完全自定义卡片而不导入默认卡片。
+        // Owner props are derived shares: the approval face
+        // travels with the node record, so a third-party
+        // renderer can replace the card entirely.
+        const owner: FlowCanvasNodeOwnerProps = {
+            node,
+            runtime,
+            selected,
+            onSelect: onSelectNode,
+            pendingApproval: pendingApproval(runtime),
+            approvals: runtime?.approvals ?? [],
+            onApprovalDecision: onAnswerApproval,
+        }
+        return renderSlot(
+            'flow.canvas.node',
+            owner,
+            {
+                entryKey: node.type,
+                fallback: <DefaultNodeCard {...owner} t={t} />,
+            },
+        )
+    }
+}
+
+/** Props of the page body: graph area plus inspector. */
+interface PanelBodyProps {
+    readonly flow: CanvasFlow | undefined
+    readonly flowCount: number
+    readonly run: RunView | undefined
+    readonly selectedNodeId: string | undefined
+    readonly selectedNode: CanvasNode | undefined
+    readonly renderNode: (node: CanvasNode, runtime: CanvasNodeRuntime | undefined, selected: boolean) => ReactNode
+    readonly onSelectNode: FlowCanvasPanelProps['onSelectNode']
+    readonly t: FlowCanvasPanelProps['t']
+}
+
+/** The graph area (or its empty hint) and the inspector for the selected node. */
+function PanelBody({
+    flow, flowCount, run, selectedNodeId, selectedNode, renderNode, onSelectNode, t,
+}: PanelBodyProps) {
+    return (
+        <div className={css.body}>
+            <div className={css.graphArea}>
+                {flow === undefined
+                    ? <p className={css.muted}>{flowCount === 0 ? t('panel.emptyFlows') : t('panel.emptyGraph')}</p>
+                    : (
+                        <FlowGraph
+                            flow={flow}
+                            run={run}
+                            selectedNodeId={selectedNodeId}
+                            onClearSelection={() => { onSelectNode(undefined) }}
+                            t={t}
+                            renderNode={renderNode}
+                        />
+                    )}
+            </div>
+            {selectedNode === undefined
+                ? null
+                : (
+                    <Inspector
+                        node={selectedNode}
+                        runtime={run?.nodes[selectedNode.id]}
+                        run={run}
+                        onClose={() => { onSelectNode(undefined) }}
+                        t={t}
+                    />
+                )}
+        </div>
+    )
+}
+
+/** 授权坞需要的全部派生事实 / every derived fact the approval dock needs */
+interface ApprovalDockState {
+    /** The decision notice that still matches the active request. */
+    readonly notice: DecisionNotice | undefined
+    readonly settledAudit: FlowApprovalAudit | undefined
+    readonly settledStatus: CanvasNodeRuntime['status'] | undefined
+    readonly setNotice: (notice: DecisionNotice | undefined) => void
+}
+
+/** Decision-notice state (see {@link useDecisionNotice}) plus its settled facts (see {@link settledFacts}). */
+function useApprovalDockState(
+    run: RunView | undefined,
+    runId: string | undefined,
+    flowId: string | undefined,
+    active: PendingView | undefined,
+    onSelectNode: FlowCanvasPanelProps['onSelectNode'],
+): ApprovalDockState {
+    const [notice, setNotice] = useDecisionNotice(runId, flowId, active, onSelectNode)
+    const noticeForActive = activeNotice(notice, active)
+    return { notice: noticeForActive, ...settledFacts(run, noticeForActive), setNotice }
+}
 
 /**
  * Render the canvas page.
@@ -35,184 +213,31 @@ export function FlowCanvasPanel({
     onCancelRun, onRefresh,
 }: FlowCanvasPanelProps) {
     const state = useFlow(snapshot => snapshot)
-    const flow = state.flow
-    const selectedNode = flow?.nodes.find(node => node.id === state.selectedNodeId)
-    const running = state.run?.status === 'running'
-    const digest = state.run === undefined ? undefined : runDigest(state.run)
-    const attention = useMemo(() => attentionNodes(flow, state.run), [flow, state.run])
-    const pending = useMemo(() => pendingApprovals(flow, state.run), [flow, state.run])
-    const active = pending[0]
-    const [notice, setNotice] = useState<DecisionNotice>()
-    const autoFocused = useRef<string>()
-    const runId = state.run?.runId
-
-    // A new run owns a new decision history; never show the previous run's
-    // "allowed / denied" result over it.
-    useEffect(() => {
-        setNotice(undefined)
-        autoFocused.current = undefined
-    }, [runId, state.flowId])
-
-    // The approval card is the canvas focus: open the owning node once per
-    // request so the inspector and the dock tell the same story.
-    useEffect(() => {
-        if (active === undefined) return
-        const requestId = active.audit.request.id
-        if (autoFocused.current === requestId) return
-        autoFocused.current = requestId
-        onSelectNode(active.nodeId)
-    }, [active, onSelectNode])
-
-    const noticeForActive = notice !== undefined
-        && (active === undefined || active.audit.request.id === notice.request.id)
-        ? notice
-        : undefined
-    const settledAudit = noticeForActive === undefined || state.run === undefined
-        ? undefined
-        : state.run.nodes[noticeForActive.nodeId]?.approvals?.find(audit => audit.request.id === noticeForActive.request.id)
-    const settledStatus = noticeForActive === undefined || state.run === undefined
-        ? undefined
-        : state.run.nodes[noticeForActive.nodeId]?.status
-
-    const decide = (requestId: string, decision: FlowApprovalDecision): void => {
-        const view = pending.find(entry => entry.audit.request.id === requestId)
-        if (view !== undefined) {
-            setNotice({ nodeId: view.nodeId, request: view.audit.request, decision, at: Date.now() })
-        }
-        onAnswerApproval(requestId, decision)
-    }
-
+    const attention = useMemo(() => attentionNodes(state.flow, state.run), [state.flow, state.run])
+    const pending = useMemo(() => pendingApprovals(state.flow, state.run), [state.flow, state.run])
+    const { notice, settledAudit, settledStatus, setNotice } =
+        useApprovalDockState(state.run, state.run?.runId, state.flowId, pending[0], onSelectNode)
     return (
         <section className={css.page} aria-label={t('panel.title')}>
-            <header className={css.header}>
-                <div className={css.titleRow}>
-                    <h1 className={css.title}>{t('panel.title')}</h1>
-                    <span className={css.subtitle}>{t('panel.subtitle')}</span>
-                </div>
-                <div className={css.toolbar}>
-                    <label className={css.fieldLabel} htmlFor="flow-canvas-select">{t('panel.flow')}</label>
-                    <select
-                        id="flow-canvas-select"
-                        className={css.select}
-                        value={state.flowId ?? ''}
-                        disabled={state.flows.length === 0}
-                        onChange={(event) => { onSelectFlow(event.target.value) }}
-                    >
-                        {state.flows.length === 0
-                            ? <option value="">{t('panel.emptyFlows')}</option>
-                            : state.flows.map(entry => (
-                                <option key={entry.id} value={entry.id} title={entry.id}>
-                                    {flowLabel(entry.id, t)}
-                                </option>
-                            ))}
-                    </select>
-                    {running
-                        ? (
-                            <button type="button" className={`${css.button} ${css.danger}`} onClick={onCancelRun}>
-                                <span aria-hidden="true">■</span>
-                                {t('panel.cancel')}
-                            </button>
-                        )
-                        : (
-                            <button
-                                type="button"
-                                className={`${css.button} ${css.primary}`}
-                                disabled={state.flowId === undefined}
-                                onClick={onRun}
-                            >
-                                <span aria-hidden="true">▶</span>
-                                {state.run === undefined ? t('panel.run') : t('panel.rerun')}
-                            </button>
-                        )}
-                    <button
-                        type="button"
-                        className={`${css.button} ${css.ghost}`}
-                        title={t('panel.refreshHint')}
-                        onClick={onRefresh}
-                    >
-                        <span aria-hidden="true">↻</span>
-                        {t('panel.refresh')}
-                    </button>
-                </div>
-            </header>
+            <PanelHeader
+                flows={state.flows} flowId={state.flowId} running={state.run?.status === 'running'} canRun={state.flowId !== undefined}
+                hasRun={state.run !== undefined} onSelectFlow={onSelectFlow} onRun={onRun} onCancelRun={onCancelRun} onRefresh={onRefresh} t={t}
+            />
             <StatusStrip
-                phase={state.phase}
-                error={state.error}
-                flowCount={state.flows.length}
-                flow={flow}
-                run={state.run}
-                digest={digest}
-                attention={attention}
-                onSelectNode={onSelectNode}
-                t={t}
+                phase={state.phase} error={state.error} flowCount={state.flows.length} flow={state.flow} run={state.run}
+                digest={state.run === undefined ? undefined : runDigest(state.run)}
+                attention={attention} onSelectNode={onSelectNode} t={t}
             />
             <ApprovalDock
-                pending={pending}
-                notice={noticeForActive}
-                settledAudit={settledAudit}
-                settledStatus={settledStatus}
-                onDecision={decide}
-                onDismiss={() => { setNotice(undefined) }}
-                t={t}
+                pending={pending} notice={notice} settledAudit={settledAudit} settledStatus={settledStatus}
+                onDecision={makeDecider(pending, setNotice, onAnswerApproval)} onDismiss={() => { setNotice(undefined) }} t={t}
             />
-            <div className={css.body}>
-                <div className={css.graphArea}>
-                    {flow === undefined
-                        ? <p className={css.muted}>{state.flows.length === 0 ? t('panel.emptyFlows') : t('panel.emptyGraph')}</p>
-                        : (
-                            <FlowGraph
-                                flow={flow}
-                                run={state.run}
-                                selectedNodeId={state.selectedNodeId}
-                                onClearSelection={() => { onSelectNode(undefined) }}
-                                t={t}
-                                renderNode={(node, runtime, selected) => {
-                                    // owner props 是派生共享：授权面随节点记录一起下传，
-                                    // 第三方渲染器可以完全自定义卡片而不导入默认卡片。
-                                    // Owner props are derived shares: the approval face
-                                    // travels with the node record, so a third-party
-                                    // renderer can replace the card entirely.
-                                    const owner = {
-                                        node,
-                                        runtime,
-                                        selected,
-                                        onSelect: onSelectNode,
-                                        pendingApproval: pendingApproval(runtime),
-                                        approvals: runtime?.approvals ?? [],
-                                        onApprovalDecision: onAnswerApproval,
-                                    }
-                                    return renderSlot(
-                                        'flow.canvas.node',
-                                        owner,
-                                        {
-                                            entryKey: node.type,
-                                            fallback: <DefaultNodeCard {...owner} t={t} />,
-                                        },
-                                    )
-                                }}
-                            />
-                        )}
-                </div>
-                {selectedNode === undefined
-                    ? null
-                    : (
-                        <Inspector
-                            node={selectedNode}
-                            runtime={state.run?.nodes[selectedNode.id]}
-                            run={state.run}
-                            onClose={() => { onSelectNode(undefined) }}
-                            t={t}
-                        />
-                    )}
-            </div>
-            <footer className={css.legend}>
-                <span className={css.legendHint}>{t('legend.hint')}</span>
-                <span className={css.legendDivider} aria-hidden="true" />
-                <strong>{t('legend.title')}</strong>
-                <span className={css.legendItem}><i className={`${css.legendLine} ${css.legendAlways}`} />{t('legend.edgeAlways')}</span>
-                <span className={css.legendItem}><i className={`${css.legendLine} ${css.legendConditional}`} />{t('legend.edgeConditional')}</span>
-                <span className={css.legendItem}><i className={`${css.legendLine} ${css.legendDashed}`} />{t('legend.edgeDashed')}</span>
-            </footer>
+            <PanelBody
+                flow={state.flow} flowCount={state.flows.length} run={state.run} selectedNodeId={state.selectedNodeId}
+                selectedNode={state.flow?.nodes.find(node => node.id === state.selectedNodeId)}
+                renderNode={nodeRenderer(renderSlot, onSelectNode, onAnswerApproval, t)} onSelectNode={onSelectNode} t={t}
+            />
+            <PanelLegend t={t} />
         </section>
     )
 }

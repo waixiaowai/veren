@@ -39,6 +39,20 @@ export function assertEdgesAnchored(graph: Graph): void {
 }
 
 /**
+ * 发现环：抛 GRAPH_CYCLE_DETECTED（携带环成员）。
+ * A cycle exists: throw GRAPH_CYCLE_DETECTED (carrying the cycle members).
+ */
+function assertAcyclic(graph: Graph, indegree: ReadonlyMap<string, number>, order: readonly string[]): void {
+    if (order.length === graph.nodes.length) return;
+    const cycle = [...indegree.entries()].filter(([, degree]) => degree > 0).map(([id]) => id);
+    throw graphError(
+        'GRAPH_CYCLE_DETECTED',
+        `graph "${graph.id}" contains a cycle among: ${cycle.join(', ')}`,
+        { graphId: graph.id, detail: cycle.join(',') },
+    );
+}
+
+/**
  * Kahn 拓扑排序；发现环时抛 GRAPH_CYCLE_DETECTED（携带环成员）。
  * Kahn topological sort; throws GRAPH_CYCLE_DETECTED (with the cycle members)
  * when a cycle exists.
@@ -66,14 +80,7 @@ export function topoSort(graph: Graph): string[] {
             if (degree === 0) queue.push(next);
         }
     }
-    if (order.length !== graph.nodes.length) {
-        const cycle = [...indegree.entries()].filter(([, degree]) => degree > 0).map(([id]) => id);
-        throw graphError(
-            'GRAPH_CYCLE_DETECTED',
-            `graph "${graph.id}" contains a cycle among: ${cycle.join(', ')}`,
-            { graphId: graph.id, detail: cycle.join(',') },
-        );
-    }
+    assertAcyclic(graph, indegree, order);
     return order;
 }
 

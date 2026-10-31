@@ -28,7 +28,7 @@ import type { Context } from '@deepseek-ai/cordis';
 // 类型-only import：只为拉取 dsh-tools 的 declaration merge（ctx.tools 类型面）
 // Type-only import: pulls in the dsh-tools declaration merge (the ctx.tools type surface).
 import type { } from '@deepseek-ai/dsh-tools';
-import type { PreToolDecision, ToolExecution, ToolExecutionInput } from '@deepseek-ai/dsh-tools';
+import type { PreToolDecision, ToolExecution, ToolExecutionFailure, ToolExecutionInput } from '@deepseek-ai/dsh-tools';
 import type { FlowApprovalOutcome } from '@deepseek-ai/dsh-graph-flow-api';
 import z from '@deepseek-ai/schemastery';
 import { isExternalCancel } from '@deepseek-ai/dsh-graph-core';
@@ -172,6 +172,21 @@ export function createApprovalGate(
 }
 
 /**
+ * 失败结果 → 带稳定 code 的错误。授权拒绝已带完整原因，别再套一层 "tool failed" 前缀。
+ * Failure result → an error with its stable code. An approval denial already carries
+ * the full reason; do not wrap it in a second "tool failed" prefix.
+ */
+function toolFailureError(tool: string, result: ToolExecutionFailure): Error & { code: string } {
+    const code = result.error.info?.code ?? 'TOOL_FAILED';
+    const message = result.error.info?.name === 'FlowApproval'
+        ? result.error.message
+        : `tool "${tool}" failed: ${result.error.message}`;
+    const error = new Error(message) as Error & { code: string };
+    error.code = code;
+    return error;
+}
+
+/**
  * tool 节点 handler（调用面与在途表经 apply 闭包注入）。
  * The tool node handler (the invoker and in-flight table injected via the apply closure).
  * @param execute - the tools pipeline entry (`ctx.tools.execute`).
@@ -202,16 +217,7 @@ export function createToolHandler(
                 // 成功：canonical value 原样交引擎归一化为 slot；失败：转成带稳定 code 的错误
                 // Success: hand the canonical value to the engine's slot normalization; failure: rethrow with the stable code.
                 if (!result.isError) return result.value;
-                const code = result.error.info?.code ?? 'TOOL_FAILED';
-                // 授权拒绝已带完整原因，别再套一层 "tool failed" 前缀。
-                // An approval denial already carries the full reason; do not wrap
-                // it in a second "tool failed" prefix.
-                const message = result.error.info?.name === 'FlowApproval'
-                    ? result.error.message
-                    : `tool "${config.tool}" failed: ${result.error.message}`;
-                const error = new Error(message) as Error & { code: string };
-                error.code = code;
-                throw error;
+                throw toolFailureError(config.tool, result);
             } finally {
                 calls.delete(derived.signal);
                 derived.dispose();

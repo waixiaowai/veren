@@ -47,6 +47,68 @@ export interface ApprovalDockProps {
     readonly t: TranslateNS<'flowCanvas'>
 }
 
+/** Locale keys of the settled-result headline / 落定结果标题可用的文案键 */
+type SettledMessageKey =
+    | 'approval.settledAllowDone'
+    | 'approval.settledAllowFailed'
+    | 'approval.settledAllow'
+    | 'approval.settledDenyDone'
+    | 'approval.settledDeny'
+
+/**
+ * Pick the headline key of the settled result: an allow over a completed node
+ * reads as done; over a failed node as failed-but-answered.
+ * 选择落定结果的标题文案：allow 落在 completed 上是“已放行且完成”，落在 failed 上是“已放行但仍失败”。
+ */
+function settledMessageKey(decision: FlowApprovalDecision, settledStatus: CanvasNodeRuntime['status'] | undefined): SettledMessageKey {
+    const settled = settledStatus === 'completed' || settledStatus === 'failed'
+        || settledStatus === 'skipped' || settledStatus === 'cancelled'
+    if (decision === 'allow') {
+        if (settledStatus === 'completed') return 'approval.settledAllowDone'
+        if (settledStatus === 'failed') return 'approval.settledAllowFailed'
+        return 'approval.settledAllow'
+    }
+    return settled ? 'approval.settledDenyDone' : 'approval.settledDeny'
+}
+
+/** Props of the settled-result notice. */
+interface SettledNoticeProps {
+    readonly notice: DecisionNotice
+    readonly settledAudit: FlowApprovalAudit | undefined
+    readonly settledStatus: CanvasNodeRuntime['status'] | undefined
+    readonly onDismiss: () => void
+    readonly t: TranslateNS<'flowCanvas'>
+}
+
+/**
+ * The settled result: stays in place and explains what happened until dismissed.
+ * 落定结果：留在原处说明发生了什么，直到被收起。
+ */
+function SettledNotice({ notice, settledAudit, settledStatus, onDismiss, t }: SettledNoticeProps) {
+    const auditLine = approvalAuditLine(settledAudit)
+    const messageKey = settledMessageKey(notice.decision, settledStatus)
+    return (
+        <section className={css.approvalSettled} role="status" aria-label={t('approval.title')}>
+            <span
+                className={`${css.approvalSettledIcon} ${notice.decision === 'allow' ? css.approvalSettledAllow : css.approvalSettledDeny}`}
+                aria-hidden="true"
+            >
+                {notice.decision === 'allow' ? '✓' : '×'}
+            </span>
+            <div className={css.approvalSettledBody}>
+                <div className={css.approvalSettledTitle}>
+                    <strong>{t(messageKey)}</strong>
+                    <span className={css.approvalAction}>{t('approval.action', { action: notice.request.action })}</span>
+                </div>
+                {auditLine === undefined
+                    ? <span className={css.muted}>{t('approval.hint')}</span>
+                    : <span className={css.approvalSettledAudit}>{t(auditLine.key, auditLine.params)}</span>}
+            </div>
+            <button type="button" className={css.button} onClick={onDismiss}>{t('approval.dismiss')}</button>
+        </section>
+    )
+}
+
 /**
  * Render the approval dock, or nothing when no request needs a human.
  * @param props - pending queue, local result notice and callbacks.
@@ -55,37 +117,11 @@ export interface ApprovalDockProps {
 export function ApprovalDock({ pending, notice, settledAudit, settledStatus, onDecision, onDismiss, t }: ApprovalDockProps) {
     const active = pending[0]
     if (notice !== undefined) {
-        const auditLine = approvalAuditLine(settledAudit)
-        const settled = settledStatus === 'completed' || settledStatus === 'failed'
-            || settledStatus === 'skipped' || settledStatus === 'cancelled'
-        const messageKey = notice.decision === 'allow'
-            ? settledStatus === 'completed'
-                ? 'approval.settledAllowDone'
-                : settledStatus === 'failed'
-                    ? 'approval.settledAllowFailed'
-                    : 'approval.settledAllow'
-            : settled
-                ? 'approval.settledDenyDone'
-                : 'approval.settledDeny'
         return (
-            <section className={css.approvalSettled} role="status" aria-label={t('approval.title')}>
-                <span
-                    className={`${css.approvalSettledIcon} ${notice.decision === 'allow' ? css.approvalSettledAllow : css.approvalSettledDeny}`}
-                    aria-hidden="true"
-                >
-                    {notice.decision === 'allow' ? '✓' : '×'}
-                </span>
-                <div className={css.approvalSettledBody}>
-                    <div className={css.approvalSettledTitle}>
-                        <strong>{t(messageKey)}</strong>
-                        <span className={css.approvalAction}>{t('approval.action', { action: notice.request.action })}</span>
-                    </div>
-                    {auditLine === undefined
-                        ? <span className={css.muted}>{t('approval.hint')}</span>
-                        : <span className={css.approvalSettledAudit}>{t(auditLine.key, auditLine.params)}</span>}
-                </div>
-                <button type="button" className={css.button} onClick={onDismiss}>{t('approval.dismiss')}</button>
-            </section>
+            <SettledNotice
+                notice={notice} settledAudit={settledAudit} settledStatus={settledStatus}
+                onDismiss={onDismiss} t={t}
+            />
         )
     }
     if (active === undefined) return null

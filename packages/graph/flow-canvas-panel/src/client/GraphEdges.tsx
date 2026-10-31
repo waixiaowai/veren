@@ -23,7 +23,7 @@ import {
     placeEdgeLabels,
     type LabelPlacement,
 } from './edgeLabels.ts'
-import type { FlowLayout } from './layout.ts'
+import type { EdgeRoute, FlowLayout } from './layout.ts'
 import type { RunView } from './store.ts'
 import css from './panel.module.css'
 
@@ -107,50 +107,135 @@ type RenderedLabel = LabelPlacement & {
     readonly title: string
 }
 
+/** Unplaced label facts for every labelled edge, in edge order. */
+function candidateLabels(layout: FlowLayout, run: RunView | undefined, t: TranslateNS<'flowCanvas'>): RenderedLabel[] {
+    const candidates: RenderedLabel[] = []
+    for (const edge of layout.edges) {
+        const visual = edgeVisual(edge.condition)
+        if (visual.label === undefined) continue
+        const skipped = isSkipped(run, edge.to)
+        const text = t(visual.label.key, visual.label.params)
+        candidates.push({
+            id: edge.id,
+            x: edge.labelX,
+            y: edge.labelY,
+            width: estimateEdgeLabelWidth(text),
+            height: 21,
+            text,
+            tone: skipped ? 'skipped' : visual.tone,
+            skipped,
+            title: visual.titleKey === undefined ? visual.title : t(visual.titleKey, visual.label.params),
+        })
+    }
+    return candidates
+}
+
+/** Place the candidates and merge each placement back onto its source facts. */
+function collectEdgeLabels(layout: FlowLayout, run: RunView | undefined, t: TranslateNS<'flowCanvas'>): readonly RenderedLabel[] {
+    const candidates = candidateLabels(layout, run, t)
+    const placed = placeEdgeLabels(
+        candidates,
+        Object.values(layout.nodes),
+        { width: layout.width, height: layout.height },
+    )
+    const byId = new Map(candidates.map(candidate => [candidate.id, candidate]))
+    return placed.map((placement) => {
+        const source = byId.get(placement.id)
+        return {
+            ...source,
+            ...placement,
+            text: source?.text ?? '',
+            tone: source?.tone ?? 'always',
+            skipped: source?.skipped ?? false,
+            title: source?.title ?? '',
+        }
+    })
+}
+
+/** One arrowhead `<marker>` per paint tone, defined once in `<defs>`. */
+function EdgeMarkers({ tones }: { readonly tones: readonly PaintTone[] }) {
+    return (
+        <defs>
+            {tones.map(tone => (
+                <marker
+                    key={tone}
+                    id={markerId(tone)}
+                    viewBox="0 0 8 8"
+                    refX="7"
+                    refY="4"
+                    markerWidth="7"
+                    markerHeight="7"
+                    orient="auto-start-reverse"
+                >
+                    <path className={arrowClass(tone)} d="M 0 0 L 8 4 L 0 8 z" />
+                </marker>
+            ))}
+        </defs>
+    )
+}
+
+/** The two port dots of one edge (source r=3.5, target r=3). */
+function EdgePorts({ edge, tone }: { readonly edge: EdgeRoute; readonly tone: PaintTone }) {
+    return (
+        <>
+            <circle
+                cx={edge.fromX}
+                cy={edge.fromY}
+                r={3.5}
+                className={[css.portDot, portDotClass(tone)].join(' ')}
+                data-flow-port="source"
+            />
+            <circle
+                cx={edge.toX}
+                cy={edge.toY}
+                r={3}
+                className={[css.portDot, portDotClass(tone)].join(' ')}
+                data-flow-port="target"
+            />
+        </>
+    )
+}
+
+/** Props of one rendered edge. */
+interface EdgePathProps {
+    readonly edge: EdgeRoute
+    readonly run: RunView | undefined
+    readonly t: TranslateNS<'flowCanvas'>
+}
+
+/** One edge: the path with its tooltip plus the two port dots. */
+function EdgePath({ edge, run, t }: EdgePathProps) {
+    const visual = edgeVisual(edge.condition)
+    const skipped = isSkipped(run, edge.to)
+    const tone: PaintTone = skipped ? 'skipped' : visual.tone
+    const dash = skipped ? '2 5' : visual.dashed ? '6 5' : undefined
+    return (
+        <g>
+            <path
+                className={[css.edge, edgeClass(tone)].filter(Boolean).join(' ')}
+                d={edge.path}
+                strokeDasharray={dash}
+                markerEnd={`url(#${markerId(tone)})`}
+                data-edge-skipped={skipped ? 'true' : undefined}
+            >
+                <title>
+                    {visual.titleKey === undefined
+                        ? visual.title
+                        : t(visual.titleKey, visual.label?.params ?? {})}
+                </title>
+            </path>
+            <EdgePorts edge={edge} tone={tone} />
+        </g>
+    )
+}
+
 /**
  * Draw every edge and its label.
  * @param props - layout, run and translator.
  * @returns the SVG path layer plus HTML label pills.
  */
 export function GraphEdges({ layout, run, t }: GraphEdgesProps) {
-    const labels = useMemo<readonly RenderedLabel[]>(() => {
-        const candidates: RenderedLabel[] = []
-        for (const edge of layout.edges) {
-            const visual = edgeVisual(edge.condition)
-            if (visual.label === undefined) continue
-            const skipped = isSkipped(run, edge.to)
-            const text = t(visual.label.key, visual.label.params)
-            candidates.push({
-                id: edge.id,
-                x: edge.labelX,
-                y: edge.labelY,
-                width: estimateEdgeLabelWidth(text),
-                height: 21,
-                text,
-                tone: skipped ? 'skipped' : visual.tone,
-                skipped,
-                title: visual.titleKey === undefined ? visual.title : t(visual.titleKey, visual.label.params),
-            })
-        }
-        const placed = placeEdgeLabels(
-            candidates,
-            Object.values(layout.nodes),
-            { width: layout.width, height: layout.height },
-        )
-        const byId = new Map(candidates.map(candidate => [candidate.id, candidate]))
-        return placed.map((placement) => {
-            const source = byId.get(placement.id)
-            return {
-                ...source,
-                ...placement,
-                text: source?.text ?? '',
-                tone: source?.tone ?? 'always',
-                skipped: source?.skipped ?? false,
-                title: source?.title ?? '',
-            }
-        })
-    }, [layout, run, t])
-
+    const labels = useMemo(() => collectEdgeLabels(layout, run, t), [layout, run, t])
     const markerTones: readonly PaintTone[] = ['always', 'port', 'predicate', 'error-branch-default', 'skipped']
     return (
         <>
@@ -160,59 +245,8 @@ export function GraphEdges({ layout, run, t }: GraphEdgesProps) {
                 aria-hidden="true"
                 className={css.edgeLayer}
             >
-                <defs>
-                    {markerTones.map(tone => (
-                        <marker
-                            key={tone}
-                            id={markerId(tone)}
-                            viewBox="0 0 8 8"
-                            refX="7"
-                            refY="4"
-                            markerWidth="7"
-                            markerHeight="7"
-                            orient="auto-start-reverse"
-                        >
-                            <path className={arrowClass(tone)} d="M 0 0 L 8 4 L 0 8 z" />
-                        </marker>
-                    ))}
-                </defs>
-                {layout.edges.map((edge) => {
-                    const visual = edgeVisual(edge.condition)
-                    const skipped = isSkipped(run, edge.to)
-                    const tone: PaintTone = skipped ? 'skipped' : visual.tone
-                    const dash = skipped ? '2 5' : visual.dashed ? '6 5' : undefined
-                    return (
-                        <g key={edge.id}>
-                            <path
-                                className={[css.edge, edgeClass(tone)].filter(Boolean).join(' ')}
-                                d={edge.path}
-                                strokeDasharray={dash}
-                                markerEnd={`url(#${markerId(tone)})`}
-                                data-edge-skipped={skipped ? 'true' : undefined}
-                            >
-                                <title>
-                                    {visual.titleKey === undefined
-                                        ? visual.title
-                                        : t(visual.titleKey, visual.label?.params ?? {})}
-                                </title>
-                            </path>
-                            <circle
-                                cx={edge.fromX}
-                                cy={edge.fromY}
-                                r={3.5}
-                                className={[css.portDot, portDotClass(tone)].join(' ')}
-                                data-flow-port="source"
-                            />
-                            <circle
-                                cx={edge.toX}
-                                cy={edge.toY}
-                                r={3}
-                                className={[css.portDot, portDotClass(tone)].join(' ')}
-                                data-flow-port="target"
-                            />
-                        </g>
-                    )
-                })}
+                <EdgeMarkers tones={markerTones} />
+                {layout.edges.map(edge => <EdgePath key={edge.id} edge={edge} run={run} t={t} />)}
             </svg>
             {labels.map(label => (
                 <div

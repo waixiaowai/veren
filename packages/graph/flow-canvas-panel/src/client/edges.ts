@@ -39,48 +39,62 @@ export interface EdgeVisual {
  */
 export function edgeVisual(condition: CanvasEdgeCondition): EdgeVisual {
     switch (condition.kind) {
-        case 'port': {
-            const port = condition.port ?? '?'
-            const known = port === 'error'
-            return {
-                tone: 'port',
-                label: known
-                    ? { key: condition.hasPredicate ? 'edge.errorPortPredicate' : 'edge.errorPort', params: {} }
-                    : {
-                        key: condition.hasPredicate ? 'edge.portPredicate' : 'edge.port',
-                        params: { port },
-                    },
-                title: condition.summary,
-                titleKey: known ? 'edge.errorPortTitle' : 'edge.portTitle',
-                dashed: false,
-            }
-        }
-        case 'predicate':
-            return {
-                tone: 'predicate',
-                label: { key: 'edge.predicate', params: {} },
-                title: condition.summary,
-                titleKey: 'edge.predicateTitle',
-                dashed: false,
-            }
-        case 'error-branch-default':
-            return {
-                tone: 'error-branch-default',
-                label: { key: condition.hasPredicate ? 'edge.defaultPredicate' : 'edge.default', params: {} },
-                title: condition.summary,
-                titleKey: 'edge.defaultTitle',
-                dashed: true,
-            }
-        case 'always':
-            return {
-                tone: 'always',
-                label: undefined,
-                title: condition.summary,
-                titleKey: undefined,
-                dashed: false,
-            }
-        default:
-            return assertNever(condition.kind)
+        case 'port': return portVisual(condition)
+        case 'predicate': return predicateVisual(condition)
+        case 'error-branch-default': return errorBranchDefaultVisual(condition)
+        case 'always': return alwaysVisual(condition)
+        default: return assertNever(condition.kind)
+    }
+}
+
+/** Named-port edge: the built-in `error` port gets a readable branch name; a custom port keeps its declared name. */
+function portVisual(condition: CanvasEdgeCondition): EdgeVisual {
+    const port = condition.port ?? '?'
+    const known = port === 'error'
+    return {
+        tone: 'port',
+        label: known
+            ? { key: condition.hasPredicate ? 'edge.errorPortPredicate' : 'edge.errorPort', params: {} }
+            : {
+                key: condition.hasPredicate ? 'edge.portPredicate' : 'edge.port',
+                params: { port },
+            },
+        title: condition.summary,
+        titleKey: known ? 'edge.errorPortTitle' : 'edge.portTitle',
+        dashed: false,
+    }
+}
+
+/** Declared-predicate edge. */
+function predicateVisual(condition: CanvasEdgeCondition): EdgeVisual {
+    return {
+        tone: 'predicate',
+        label: { key: 'edge.predicate', params: {} },
+        title: condition.summary,
+        titleKey: 'edge.predicateTitle',
+        dashed: false,
+    }
+}
+
+/** errorBranch default edge (dashed; closes when the error port is active). */
+function errorBranchDefaultVisual(condition: CanvasEdgeCondition): EdgeVisual {
+    return {
+        tone: 'error-branch-default',
+        label: { key: condition.hasPredicate ? 'edge.defaultPredicate' : 'edge.default', params: {} },
+        title: condition.summary,
+        titleKey: 'edge.defaultTitle',
+        dashed: true,
+    }
+}
+
+/** Unconditional edge: no label, no tooltip key. */
+function alwaysVisual(condition: CanvasEdgeCondition): EdgeVisual {
+    return {
+        tone: 'always',
+        label: undefined,
+        title: condition.summary,
+        titleKey: undefined,
+        dashed: false,
     }
 }
 

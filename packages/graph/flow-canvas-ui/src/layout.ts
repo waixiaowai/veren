@@ -70,6 +70,15 @@ export interface FlowLayout {
  */
 export function layoutFlow(flow: CanvasFlow): FlowLayout {
     const ranks = rankNodes(flow);
+    const groups = groupNodesByRank(flow, ranks);
+    const { width, height } = canvasSize(groups);
+    const nodes = placeNodes(groups);
+    const edges = routeEdges(flow, nodes);
+    return { width, height, nodes, edges, order: flow.nodes.map((node) => node.id) };
+}
+
+/** 按 rank 分组，组内保持声明顺序 / group node ids by rank, declaration order kept inside a group */
+function groupNodesByRank(flow: CanvasFlow, ranks: Map<string, number>): Map<number, string[]> {
     const groups = new Map<number, string[]>();
     for (const node of flow.nodes) {
         const rank = ranks.get(node.id) ?? 0;
@@ -77,10 +86,22 @@ export function layoutFlow(flow: CanvasFlow): FlowLayout {
         group.push(node.id);
         groups.set(rank, group);
     }
+    return groups;
+}
+
+/** 画布尺寸：由最深的列数与最宽的行数决定 / canvas size from the deepest rank and the widest column */
+function canvasSize(groups: Map<number, string[]>): { width: number; height: number } {
     const maxRank = groups.size === 0 ? 0 : Math.max(...groups.keys());
     const maxRows = Math.max(1, ...[...groups.values()].map((group) => group.length));
-    const width = PAD_X * 2 + (maxRank + 1) * NODE_WIDTH + maxRank * COLUMN_GAP;
-    const height = PAD_TOP + PAD_BOTTOM + maxRows * NODE_HEIGHT + (maxRows - 1) * ROW_GAP;
+    return {
+        width: PAD_X * 2 + (maxRank + 1) * NODE_WIDTH + maxRank * COLUMN_GAP,
+        height: PAD_TOP + PAD_BOTTOM + maxRows * NODE_HEIGHT + (maxRows - 1) * ROW_GAP,
+    };
+}
+
+/** 摆放节点盒子（列内垂直居中）/ place the node boxes (columns centred vertically) */
+function placeNodes(groups: Map<number, string[]>): Record<string, NodeBox> {
+    const maxRows = Math.max(1, ...[...groups.values()].map((group) => group.length));
     const nodes: Record<string, NodeBox> = {};
     for (const [rank, group] of [...groups.entries()].sort(([a], [b]) => a - b)) {
         // 列内垂直居中 / centre each column vertically
@@ -96,6 +117,11 @@ export function layoutFlow(flow: CanvasFlow): FlowLayout {
             };
         });
     }
+    return nodes;
+}
+
+/** 路由全部边并附着可视信息 / route every edge and attach its visual facts */
+function routeEdges(flow: CanvasFlow, nodes: Record<string, NodeBox>): EdgeRoute[] {
     const laneCounts = countParallelEdges(flow);
     const seen = new Map<string, number>();
     const edges: EdgeRoute[] = [];
@@ -121,7 +147,7 @@ export function layoutFlow(flow: CanvasFlow): FlowLayout {
             labelY: route.labelY,
         });
     }
-    return { width, height, nodes, edges, order: flow.nodes.map((node) => node.id) };
+    return edges;
 }
 
 /** 计算每个节点的最长路径层号 / longest-path rank per node */

@@ -51,6 +51,91 @@ function runClass(status: CanvasRunSnapshot['status']): string {
     return classes[status] ?? ''
 }
 
+/** Props of the left run-state segment. */
+interface RunStateLineProps {
+    readonly phase: StatusStripProps['phase']
+    readonly error: string | undefined
+    readonly flowCount: number
+    readonly flow: CanvasFlow | undefined
+    readonly run: RunView | undefined
+    readonly t: TranslateNS<'flowCanvas'>
+}
+
+/** The left segment: load phase message or the run status pill. */
+function RunStateLine({ phase, error, flowCount, flow, run, t }: RunStateLineProps) {
+    return (
+        <div className={css.statusLeft}>
+            {phase === 'error'
+                ? <span className={css.error}>{t('panel.error', { message: error ?? '' })}</span>
+                : flowCount === 0 && phase !== 'loading'
+                    ? <span className={css.muted}>{t('panel.emptyFlows')}</span>
+                    : run === undefined
+                        ? <span className={css.muted}>{flow === undefined ? t('panel.loading') : t('panel.noRun')}</span>
+                        : (
+                            <span className={`${css.runPill} ${runClass(run.status)}`}>
+                                <span className={css.runDot} aria-hidden="true" />
+                                {t(`run.status.${run.status}`)}
+                            </span>
+                        )}
+        </div>
+    )
+}
+
+/** Props of one actionable attention button. */
+interface AttentionButtonProps {
+    /** Extra tone class (`attentionApproval` / `attentionFailed`). */
+    readonly tone: string | undefined
+    /** The icon glyph (`!` / `×`). */
+    readonly icon: string
+    /** The localized headline with its count. */
+    readonly label: string
+    /** The localized hint line. */
+    readonly hint: string
+    /** The localized action verb. */
+    readonly action: string
+    /** The node to open when clicked. */
+    readonly nodeId: string
+    readonly onSelectNode: (nodeId: string) => void
+}
+
+/** One actionable fact (a suspended approval, a failure) that opens the exact node. */
+function AttentionButton({ tone, icon, label, hint, action, nodeId, onSelectNode }: AttentionButtonProps) {
+    return (
+        <button type="button" className={`${css.attention} ${tone}`} onClick={() => { onSelectNode(nodeId) }}>
+            <span className={css.attentionIcon} aria-hidden="true">{icon}</span>
+            <span className={css.attentionText}>
+                <strong>{label}</strong>
+                <small>{hint}</small>
+            </span>
+            <span className={css.attentionAction}>{action} ›</span>
+        </button>
+    )
+}
+
+/** One neutral completion counter chip. */
+interface DigestChip {
+    readonly key: string
+    readonly label: string
+    readonly value: number
+    readonly tone: string | undefined
+}
+
+/** The neutral completion counters; quiet on the right, absent when empty. */
+function DigestChips({ counts }: { readonly counts: readonly DigestChip[] }) {
+    if (counts.length === 0) return null
+    return (
+        <div className={css.digest}>
+            {counts.map(count => (
+                <span key={count.key} className={`${css.chip} ${count.tone}`}>
+                    <span className={css.chipDot} aria-hidden="true" />
+                    {count.label}
+                    <strong>{count.value}</strong>
+                </span>
+            ))}
+        </div>
+    )
+}
+
 /**
  * Render the status strip.
  * @param props - run, counters and attention queue.
@@ -69,63 +154,22 @@ export function StatusStrip({
         ].filter(count => count.value > 0)
     return (
         <div className={css.statusBar} aria-live="polite">
-            <div className={css.statusLeft}>
-                {phase === 'error'
-                    ? <span className={css.error}>{t('panel.error', { message: error ?? '' })}</span>
-                    : flowCount === 0 && phase !== 'loading'
-                        ? <span className={css.muted}>{t('panel.emptyFlows')}</span>
-                        : run === undefined
-                            ? <span className={css.muted}>{flow === undefined ? t('panel.loading') : t('panel.noRun')}</span>
-                            : (
-                                <span className={`${css.runPill} ${runClass(run.status)}`}>
-                                    <span className={css.runDot} aria-hidden="true" />
-                                    {t(`run.status.${run.status}`)}
-                                </span>
-                            )}
-            </div>
-            {attention.awaiting.length > 0
-                ? (
-                    <button
-                        type="button"
-                        className={`${css.attention} ${css.attentionApproval}`}
-                        onClick={() => { onSelectNode(attention.awaiting[0]!.nodeId) }}
-                    >
-                        <span className={css.attentionIcon} aria-hidden="true">!</span>
-                        <span className={css.attentionText}>
-                            <strong>{t('attention.approval', { count: attention.awaiting.length })}</strong>
-                            <small>{t('attention.approvalHint')}</small>
-                        </span>
-                        <span className={css.attentionAction}>{t('attention.handle')} ›</span>
-                    </button>
-                )
-                : null}
-            {attention.failed.length > 0
-                ? (
-                    <button
-                        type="button"
-                        className={`${css.attention} ${css.attentionFailed}`}
-                        onClick={() => { onSelectNode(attention.failed[0]!.nodeId) }}
-                    >
-                        <span className={css.attentionIcon} aria-hidden="true">×</span>
-                        <span className={css.attentionText}>
-                            <strong>{t('attention.failed', { count: attention.failed.length })}</strong>
-                            <small>{t('attention.failedHint')}</small>
-                        </span>
-                        <span className={css.attentionAction}>{t('attention.review')} ›</span>
-                    </button>
-                )
-                : null}
-            {counts.length === 0 ? null : (
-                <div className={css.digest}>
-                    {counts.map(count => (
-                        <span key={count.key} className={`${css.chip} ${count.tone}`}>
-                            <span className={css.chipDot} aria-hidden="true" />
-                            {count.label}
-                            <strong>{count.value}</strong>
-                        </span>
-                    ))}
-                </div>
-            )}
+            <RunStateLine phase={phase} error={error} flowCount={flowCount} flow={flow} run={run} t={t} />
+            {attention.awaiting.length > 0 ? (
+                <AttentionButton
+                    tone={css.attentionApproval} icon="!" nodeId={attention.awaiting[0]!.nodeId} onSelectNode={onSelectNode}
+                    label={t('attention.approval', { count: attention.awaiting.length })} hint={t('attention.approvalHint')}
+                    action={t('attention.handle')}
+                />
+            ) : null}
+            {attention.failed.length > 0 ? (
+                <AttentionButton
+                    tone={css.attentionFailed} icon="×" nodeId={attention.failed[0]!.nodeId} onSelectNode={onSelectNode}
+                    label={t('attention.failed', { count: attention.failed.length })} hint={t('attention.failedHint')}
+                    action={t('attention.review')}
+                />
+            ) : null}
+            <DigestChips counts={counts} />
         </div>
     )
 }

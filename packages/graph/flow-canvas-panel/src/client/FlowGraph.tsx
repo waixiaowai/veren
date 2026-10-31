@@ -19,7 +19,9 @@ import type { CanvasFlow, CanvasNode, CanvasNodeRuntime } from '@deepseek-ai/dsh
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RunView } from './store.ts'
 import { GraphEdges } from './GraphEdges.tsx'
+import type { FlowLayout } from './layout.ts'
 import { layoutFlow } from './layout.ts'
+import type { CanvasViewportController } from './useCanvasViewport.ts'
 import { useCanvasViewport } from './useCanvasViewport.ts'
 import { zoomPercent } from './view.ts'
 import css from './panel.module.css'
@@ -40,14 +42,18 @@ export interface FlowGraphProps {
     readonly t: TranslateNS<'flowCanvas'>
 }
 
+/** Props of the pan/zoom surface wrapper. */
+interface GraphSurfaceProps {
+    readonly viewport: CanvasViewportController
+    readonly t: TranslateNS<'flowCanvas'>
+    readonly children: ReactNode
+}
+
 /**
- * Draw the graph.
- * @param props - projection, run, selection, clear callback and node renderer.
- * @returns the graph surface.
+ * The pan/zoom surface: pointer routing plus the native-drag suppression.
+ * 可平移缩放的表面：指针事件路由与原生拖拽抑制。
  */
-export function FlowGraph({ flow, run, selectedNodeId, renderNode, onClearSelection, t }: FlowGraphProps) {
-    const layout = useMemo(() => layoutFlow(flow), [flow])
-    const viewport = useCanvasViewport(layout, flow.flowId, selectedNodeId, onClearSelection)
+function GraphSurface({ viewport, t, children }: GraphSurfaceProps) {
     return (
         <div
             ref={viewport.ref}
@@ -65,6 +71,75 @@ export function FlowGraph({ flow, run, selectedNodeId, renderNode, onClearSelect
             // 拖动节点卡片会启动原生拖拽，其放置行为等同复制——即“拖拽触发复制”的 bug。
             onDragStart={event => { event.preventDefault() }}
         >
+            {children}
+        </div>
+    )
+}
+
+/** Props of the positioned node-slot layer. */
+interface GraphNodesProps {
+    readonly flow: CanvasFlow
+    readonly layout: FlowLayout
+    readonly run: RunView | undefined
+    readonly selectedNodeId: string | undefined
+    readonly renderNode: (node: CanvasNode, runtime: CanvasNodeRuntime | undefined, selected: boolean) => ReactNode
+}
+
+/** One positioned slot per node; the slot dispatch renders the card inside. */
+function GraphNodes({ flow, layout, run, selectedNodeId, renderNode }: GraphNodesProps) {
+    return (
+        <>
+            {flow.nodes.map((node) => {
+                const box = layout.nodes[node.id]
+                if (box === undefined) return null
+                const selected = node.id === selectedNodeId
+                return (
+                    <div
+                        key={node.id}
+                        data-flow-node={node.id}
+                        className={css.nodeSlot}
+                        style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
+                    >
+                        {renderNode(node, run?.nodes[node.id], selected)}
+                    </div>
+                )
+            })}
+        </>
+    )
+}
+
+/** Props of the zoom controls. */
+interface ZoomControlsProps {
+    readonly viewport: CanvasViewportController
+    readonly t: TranslateNS<'flowCanvas'>
+}
+
+/** Zoom out / reset / zoom in / fit controls pinned to the canvas. */
+function ZoomControls({ viewport, t }: ZoomControlsProps) {
+    return (
+        <div className={css.zoomControls} data-canvas-control>
+            <button type="button" className={css.zoomButton} aria-label={t('canvas.zoomOut')} title={t('canvas.zoomOut')} onClick={() => { viewport.zoomBy(1 / 1.2) }}>−</button>
+            <button type="button" className={css.zoomValue} aria-label={t('canvas.zoomReset')} title={t('canvas.zoomReset')} onClick={viewport.reset}>{zoomPercent(viewport.view)}%</button>
+            <button type="button" className={css.zoomButton} aria-label={t('canvas.zoomIn')} title={t('canvas.zoomIn')} onClick={() => { viewport.zoomBy(1.2) }}>+</button>
+            <span className={css.zoomDivider} aria-hidden="true" />
+            <button type="button" className={css.fitButton} aria-label={t('canvas.fit')} title={t('canvas.fit')} onClick={viewport.fit}>
+                <span aria-hidden="true">⛶</span>
+                {t('canvas.fit')}
+            </button>
+        </div>
+    )
+}
+
+/**
+ * Draw the graph.
+ * @param props - projection, run, selection, clear callback and node renderer.
+ * @returns the graph surface.
+ */
+export function FlowGraph({ flow, run, selectedNodeId, renderNode, onClearSelection, t }: FlowGraphProps) {
+    const layout = useMemo(() => layoutFlow(flow), [flow])
+    const viewport = useCanvasViewport(layout, flow.flowId, selectedNodeId, onClearSelection)
+    return (
+        <GraphSurface viewport={viewport} t={t}>
             <div
                 className={css.graphContent}
                 style={{
@@ -74,21 +149,7 @@ export function FlowGraph({ flow, run, selectedNodeId, renderNode, onClearSelect
                 }}
             >
                 <GraphEdges layout={layout} run={run} t={t} />
-                {flow.nodes.map((node) => {
-                    const box = layout.nodes[node.id]
-                    if (box === undefined) return null
-                    const selected = node.id === selectedNodeId
-                    return (
-                        <div
-                            key={node.id}
-                            data-flow-node={node.id}
-                            className={css.nodeSlot}
-                            style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
-                        >
-                            {renderNode(node, run?.nodes[node.id], selected)}
-                        </div>
-                    )
-                })}
+                <GraphNodes flow={flow} layout={layout} run={run} selectedNodeId={selectedNodeId} renderNode={renderNode} />
             </div>
             {flow.nodes.length === 0
                 ? <p className={css.emptyGraph}>{t('panel.emptyGraph')}</p>
@@ -96,16 +157,7 @@ export function FlowGraph({ flow, run, selectedNodeId, renderNode, onClearSelect
             <div className={css.canvasHint} data-canvas-control>
                 {t('canvas.hint')}
             </div>
-            <div className={css.zoomControls} data-canvas-control>
-                <button type="button" className={css.zoomButton} aria-label={t('canvas.zoomOut')} title={t('canvas.zoomOut')} onClick={() => { viewport.zoomBy(1 / 1.2) }}>−</button>
-                <button type="button" className={css.zoomValue} aria-label={t('canvas.zoomReset')} title={t('canvas.zoomReset')} onClick={viewport.reset}>{zoomPercent(viewport.view)}%</button>
-                <button type="button" className={css.zoomButton} aria-label={t('canvas.zoomIn')} title={t('canvas.zoomIn')} onClick={() => { viewport.zoomBy(1.2) }}>+</button>
-                <span className={css.zoomDivider} aria-hidden="true" />
-                <button type="button" className={css.fitButton} aria-label={t('canvas.fit')} title={t('canvas.fit')} onClick={viewport.fit}>
-                    <span aria-hidden="true">⛶</span>
-                    {t('canvas.fit')}
-                </button>
-            </div>
-        </div>
+            <ZoomControls viewport={viewport} t={t} />
+        </GraphSurface>
     )
 }

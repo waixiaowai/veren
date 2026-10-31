@@ -67,6 +67,15 @@ export interface FlowLayout {
  */
 export function layoutFlow(flow: CanvasFlow): FlowLayout {
     const ranks = rankNodes(flow)
+    const groups = groupNodesByRank(flow, ranks)
+    const { width, height } = canvasSize(groups)
+    const nodes = placeNodes(groups, height)
+    const edges = routeEdges(flow, nodes)
+    return { width, height, nodes, edges }
+}
+
+/** Group node ids by rank, keeping declaration order inside a group. */
+function groupNodesByRank(flow: CanvasFlow, ranks: Map<string, number>): Map<number, string[]> {
     const groups = new Map<number, string[]>()
     for (const node of flow.nodes) {
         const rank = ranks.get(node.id) ?? 0
@@ -74,10 +83,21 @@ export function layoutFlow(flow: CanvasFlow): FlowLayout {
         group.push(node.id)
         groups.set(rank, group)
     }
+    return groups
+}
+
+/** Canvas size from the deepest rank and the widest column. */
+function canvasSize(groups: Map<number, string[]>): { width: number; height: number } {
     const maxRank = groups.size === 0 ? 0 : Math.max(...groups.keys())
     const widest = Math.max(1, ...[...groups.values()].map(group => group.length))
-    const width = PAD_X * 2 + (maxRank + 1) * NODE_WIDTH + maxRank * COLUMN_GAP
-    const height = PAD_Y * 2 + widest * NODE_HEIGHT + (widest - 1) * ROW_GAP
+    return {
+        width: PAD_X * 2 + (maxRank + 1) * NODE_WIDTH + maxRank * COLUMN_GAP,
+        height: PAD_Y * 2 + widest * NODE_HEIGHT + (widest - 1) * ROW_GAP,
+    }
+}
+
+/** Place the node boxes, centering each column vertically. */
+function placeNodes(groups: Map<number, string[]>, height: number): Record<string, NodeBox> {
     const nodes: Record<string, NodeBox> = {}
     for (const [rank, group] of [...groups.entries()].sort(([a], [b]) => a - b)) {
         const stack = group.length * NODE_HEIGHT + (group.length - 1) * ROW_GAP
@@ -93,6 +113,11 @@ export function layoutFlow(flow: CanvasFlow): FlowLayout {
             }
         })
     }
+    return nodes
+}
+
+/** Route every edge with lane offsets so parallel branches fan out. */
+function routeEdges(flow: CanvasFlow, nodes: Readonly<Record<string, NodeBox>>): EdgeRoute[] {
     const outgoing = groupEdges(flow, true, nodes)
     const incoming = groupEdges(flow, false, nodes)
     const edges: EdgeRoute[] = []
@@ -107,7 +132,7 @@ export function layoutFlow(flow: CanvasFlow): FlowLayout {
         const route = routeEdge(from, to, outOffset, inOffset)
         edges.push({ id: edge.id, from: edge.from, to: edge.to, condition: edge.condition, ...route })
     }
-    return { width, height, nodes, edges }
+    return edges
 }
 
 /**
@@ -157,26 +182,51 @@ function routeEdge(
     outOffset: number,
     inOffset: number,
 ): { path: string; labelX: number; labelY: number; fromX: number; fromY: number; toX: number; toY: number } {
-    const x1 = from.x + from.width
-    const y1 = from.y + from.height / 2 + outOffset
-    const x2 = to.x
-    const y2 = to.y + to.height / 2 + inOffset
-    if (to.rank > from.rank) {
-        const bend = Math.max(30, (x2 - x1) * 0.46)
-        const path = `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`
-        const point = cubicAt(x1, y1, x1 + bend, y1, x2 - bend, y2, x2, y2, 0.5)
-        const side = outOffset <= 0 ? -1 : 1
-        return {
-            path,
-            labelX: point.x,
-            labelY: point.y + side * 14,
-            fromX: x1,
-            fromY: y1,
-            toX: x2,
-            toY: y2,
-        }
+    const anchors = {
+        x1: from.x + from.width,
+        y1: from.y + from.height / 2 + outOffset,
+        x2: to.x,
+        y2: to.y + to.height / 2 + inOffset,
     }
-    // Same-rank or back edge: loop below both cards so it never crosses them.
+    // Forward edge: a horizontal Bézier; same-rank or back edge: loop below both cards.
+    // 前向边走水平贝塞尔；同层/回边绕到两卡片下方，避免压在节点上。
+    return to.rank > from.rank ? forwardRoute(outOffset, anchors) : backRoute(from, to)
+}
+
+/** Anchors of one edge in graph coordinates / 一条边在图坐标里的端口锚点 */
+interface EdgeAnchors {
+    x1: number
+    y1: number
+    x2: number
+    y2: number
+}
+
+/** A forward edge: one horizontal Bézier with the label at its midpoint. */
+function forwardRoute(
+    outOffset: number,
+    anchors: EdgeAnchors,
+): { path: string; labelX: number; labelY: number; fromX: number; fromY: number; toX: number; toY: number } {
+    const { x1, y1, x2, y2 } = anchors
+    const bend = Math.max(30, (x2 - x1) * 0.46)
+    const path = `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`
+    const point = cubicAt(x1, y1, x1 + bend, y1, x2 - bend, y2, x2, y2, 0.5)
+    const side = outOffset <= 0 ? -1 : 1
+    return {
+        path,
+        labelX: point.x,
+        labelY: point.y + side * 14,
+        fromX: x1,
+        fromY: y1,
+        toX: x2,
+        toY: y2,
+    }
+}
+
+/** A same-rank or back edge: loop below both cards so it never crosses them. */
+function backRoute(
+    from: NodeBox,
+    to: NodeBox,
+): { path: string; labelX: number; labelY: number; fromX: number; fromY: number; toX: number; toY: number } {
     const bottom = Math.max(from.y + from.height, to.y + to.height) + 40
     const sx = from.x + from.width / 2
     const tx = to.x + to.width / 2
