@@ -5,11 +5,12 @@
  * and JSON output.
  *
  * 命令只依赖最小结构视图（TrainingPaths 与两个注入函数），不感知 Cordis；
- * 插件装配见 ./index.ts 的 apply。
+ * 插件装配见 ./index.ts 的 apply。选项解析与位置参数校验见 ./cli-options.ts。
  *
  * The command only depends on a minimal structural view (TrainingPaths plus
  * two injected functions) and knows nothing about Cordis; plugin assembly
- * lives in ./index.ts's apply.
+ * lives in ./index.ts's apply. Option parsing and positional-argument
+ * validation live in ./cli-options.ts.
  */
 
 import { homedir } from 'node:os';
@@ -26,6 +27,7 @@ import {
   type TrainingGroundRef,
   type TrainingPaths,
 } from './ground.js';
+import { parseOptions, requireName, requireNoName, type ParsedOptions } from './cli-options.js';
 
 /** 缺省 web 端口 / the default web port */
 export const DEFAULT_PORT = 3080;
@@ -38,15 +40,18 @@ export interface TestsCommandDeps extends TrainingPaths {
   start(ground: TrainingGroundRef, options: StartTrainingGroundOptions): Promise<void>;
 }
 
-/** 解析后的选项 / parsed options */
-interface ParsedOptions {
-  /** 位置参数 / positional arguments */
-  positionals: string[];
-  /** 取值的选项 / options with a value */
-  values: Map<string, string>;
-  /** 布尔开关 / boolean flags */
-  flags: Set<string>;
-}
+/** 单个子命令处理器的形状 / the shape of one subcommand handler */
+type SubcommandHandler = (deps: TestsCommandDeps, args: readonly string[]) => Promise<void>;
+
+/** 子命令分发表 / the subcommand dispatch table */
+const SUBCOMMANDS: ReadonlyMap<string, SubcommandHandler> = new Map([
+  ['create', createCommand],
+  ['list', listCommand],
+  ['show', showCommand],
+  ['path', pathCommand],
+  ['remove', removeCommand],
+  ['start', startCommand],
+]);
 
 /**
  * 创建 tests 命令定义；注册表看到的只有一条命令，子命令由本函数分发。
@@ -65,37 +70,26 @@ export function createTestsCommand(deps: TestsCommandDeps): CommandDef {
 /** 分发表 / the dispatch table */
 async function runTests(deps: TestsCommandDeps, args: readonly string[]): Promise<void> {
   const [subcommand, ...rest] = args;
-  switch (subcommand) {
-    case undefined:
-    case 'help':
-    case '--help':
-    case '-h':
-      printHelp();
-      return;
-    case 'create':
-      await createCommand(deps, rest);
-      return;
-    case 'list':
-      await listCommand(deps, rest);
-      return;
-    case 'show':
-      await showCommand(deps, rest);
-      return;
-    case 'path':
-      await pathCommand(deps, rest);
-      return;
-    case 'remove':
-      await removeCommand(deps, rest);
-      return;
-    case 'start':
-      await startCommand(deps, rest);
-      return;
-    default:
-      throw new CliError(
-        `未知 tests 子命令 / unknown tests subcommand: ${subcommand}（可用 / available: create, list, show, path, remove, start）`,
-        { code: 'TESTS_UNKNOWN_SUBCOMMAND', details: { subcommand } },
-      );
+  if (subcommand === undefined || isHelpToken(subcommand)) {
+    printHelp();
+    return;
   }
+  const handler = SUBCOMMANDS.get(subcommand);
+  if (handler === undefined) throw unknownSubcommand(subcommand);
+  await handler(deps, rest);
+}
+
+/** 帮助 token：help / --help / -h / the help tokens: help / --help / -h */
+function isHelpToken(token: string): boolean {
+  return token === 'help' || token === '--help' || token === '-h';
+}
+
+/** 未知子命令错误 / the unknown-subcommand error */
+function unknownSubcommand(subcommand: string): CliError {
+  return new CliError(
+    `未知 tests 子命令 / unknown tests subcommand: ${subcommand}（可用 / available: create, list, show, path, remove, start）`,
+    { code: 'TESTS_UNKNOWN_SUBCOMMAND', details: { subcommand } },
+  );
 }
 
 /** create 子命令 / the create subcommand */
@@ -207,79 +201,6 @@ function parsePort(value: string | undefined): number {
     );
   }
   return port;
-}
-
-/** 要求恰好一个训练场名 / require exactly one training-ground name */
-function requireName(positionals: readonly string[]): string {
-  if (positionals.length !== 1) {
-    throw new CliError(
-      `该子命令需要且仅需要一个训练场名 / this subcommand takes exactly one training-ground name（收到 / received: ${positionals.length}）`,
-      { code: 'TESTS_INVALID_ARGUMENTS', details: { positionals } },
-    );
-  }
-  return positionals[0];
-}
-
-/** 要求没有位置参数 / require no positional arguments */
-function requireNoName(positionals: readonly string[]): void {
-  if (positionals.length > 0) {
-    throw new CliError(
-      `该子命令不接受位置参数 / this subcommand takes no positional arguments: ${positionals.join(' ')}`,
-      { code: 'TESTS_INVALID_ARGUMENTS', details: { positionals } },
-    );
-  }
-}
-
-/**
- * 解析命令行选项：支持 --key value 与 --key=value，未知选项立即失败。
- * Parses command-line options: supports --key value and --key=value, and
- * rejects unknown options immediately.
- */
-function parseOptions(
-  args: readonly string[],
-  valueOptions: readonly string[],
-  flagOptions: readonly string[],
-): ParsedOptions {
-  const parsed: ParsedOptions = { positionals: [], values: new Map(), flags: new Set() };
-  for (let index = 0; index < args.length; index += 1) {
-    const token = args[index];
-    if (token === '-h') {
-      parsed.flags.add('help');
-      continue;
-    }
-    if (!token.startsWith('--')) {
-      parsed.positionals.push(token);
-      continue;
-    }
-    const body = token.slice(2);
-    const separator = body.indexOf('=');
-    const name = separator === -1 ? body : body.slice(0, separator);
-    const inline = separator === -1 ? undefined : body.slice(separator + 1);
-    if (name === 'help') {
-      parsed.flags.add('help');
-      continue;
-    }
-    if (flagOptions.includes(name)) {
-      if (inline !== undefined) throw optionError(`--${name} 不接受取值 / --${name} takes no value`);
-      parsed.flags.add(name);
-      continue;
-    }
-    if (!valueOptions.includes(name)) throw optionError(`未知选项 / unknown option: --${name}`);
-    const value = inline ?? args[index + 1];
-    if (value === undefined || (inline === undefined && value.startsWith('--'))) {
-      throw optionError(`选项缺少取值 / option requires a value: --${name}`);
-    }
-    if (inline === undefined) index += 1;
-    parsed.values.set(name, value);
-  }
-  return parsed;
-}
-
-/** 选项错误 / an option error */
-function optionError(message: string): CliError {
-  return new CliError(`${message}；用 tests help 查看用法 / see tests help for usage`, {
-    code: 'TESTS_INVALID_OPTION',
-  });
 }
 
 /** 展开 ~ 并转为绝对路径 / expand ~ and resolve to an absolute path */
