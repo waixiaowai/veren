@@ -90,11 +90,11 @@ const KNOWN_DRIFTS = [
     key: 'promise@task-workbench/list:abandon_task',
     reason: '列表页契约 escape 点名 abandon_task（挂载在详情页）——首份门禁报告抓到的真漂移；修复方向：escape 改指详情页或由列表页挂载，修后删行',
   },
-  {
-    owner: 'task-workbench (page-publish 说明)',
-    key: 'promise@task-workbench/publish:drive_begin',
-    reason: '发布页说明"browse 先 drive_begin"但本页只挂 publish_task（drive 两件在列表/详情页）——首份门禁报告抓到的真漂移；修复方向：改写为"在队列/详情页先 drive_begin"，修后删行',
-  },
+  // promise@task-workbench/publish:drive_begin 已修复（2026-11-01：发布页补挂
+  // drive_begin/drive_end，挂载与文案对齐），按"修掉必须删行"规则移出台账。
+  // promise@task-workbench/publish:drive_begin was fixed (2026-11-01: the publish
+  // page now mounts drive_begin/drive_end, matching its copy) — removed per the
+  // fixed-drifts-delete-their-row rule.
 ]
 
 /** 跑一次全仓判定 / run the whole workspace verdict once */

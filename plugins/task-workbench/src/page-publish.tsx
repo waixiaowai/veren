@@ -14,6 +14,13 @@ import { requireRuntime, toolOf, URL_PREFIX } from './pages.tsx'
 /** 发布页组件体（一次性渲染）/ the publish page's body (the one-shot render) */
 export const PublishPage: PageFC<{ draftTitle?: string }> = (props, agent) => {
   agent.ctx.tools.register(toolOf('publish_task'))
+  // 发布是写动作，页内指引要求 browse 先 drive_begin——挂载必须与文案对齐，
+  // 否则 browse 模式下发布被宿主拒绝（2026-11-01 真机验收实锤的漂移）。
+  // Publishing is a write; the page's own instructions require drive_begin in
+  // browse mode — the mounts must match the copy, or the host refuses the
+  // publish (drift confirmed live during the 2026-11-01 acceptance run).
+  agent.ctx.tools.register(toolOf('drive_begin'))
+  agent.ctx.tools.register(toolOf('drive_end'))
   const { catalog } = requireRuntime()
   const apps = catalog().filter((record) => record.state === 'active' && record.definition.id !== 'task-workbench')
   return (
@@ -47,6 +54,6 @@ export const PublishMeta: ComponentPageMeta<{ draftTitle?: string }> = {
   instructions: '这是任务发布页：草稿标题见正文。用 publish_task 确认发布；标题为空时不要调用。'
     + 'target_app 缺省 = 本应用详情页；要派给别的应用时从正文目录里选 id（落点是该应用的 entry 页；'
     + '带 :param 的页会被 dispatch/target-invalid 拒绝）。'
-    + '发布是写动作：需要本回合同意（用户消息），browse 先 drive_begin。'
+    + '发布是写动作：需要本回合同意（用户消息），browse 先 drive_begin 声明范围，发布完成后 drive_end 收尾。'
     + '发布不支持带子任务的模板（§4.7.6），子任务由接取者在其任务详情页现场拆分。',
 }
