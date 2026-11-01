@@ -15,8 +15,11 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { Domain, DomainSpec } from '@deepseek-ai/dsh-storage-domain'
 import { TASK_CENTER_DOMAIN_NAME, taskCenterDomain } from './storage.ts'
 import type { TaskCenterStore } from './storage.ts'
+import { TASK_CENTER_EFFECTS_DOMAIN_NAME, taskCenterEffectsDomain } from './service-pump.ts'
+import type { TaskEffectsStore } from './service-pump.ts'
 import { TaskError } from './tree.ts'
 import { TaskErrorCode } from './types.ts'
 import type { TaskId } from './types.ts'
@@ -47,11 +50,14 @@ export function newTaskId(): TaskId {
 export class TaskStorage {
   /** The domain-open promise; `Service.init` awaits it. */
   readonly ready: Promise<TaskCenterStore | undefined>
+  /** The pump domain-open promise; the delivery pump awaits it. */
+  readonly effects: Promise<TaskEffectsStore | undefined>
   private storageFailure: string | undefined
   private chain: Promise<unknown> = Promise.resolve()
 
   constructor(private readonly host: Context) {
-    this.ready = this.openDomain()
+    this.ready = this.openTaskDomain()
+    this.effects = this.openEffectsDomain()
   }
 
   /** Run one mutation at a time, preserving FIFO order (§4.4). */
@@ -71,27 +77,48 @@ export class TaskStorage {
   }
 
   /** Open the storage domain, reporting rather than throwing on failure. */
-  private async openDomain(): Promise<TaskCenterStore | undefined> {
-    // A live reinstall can leave the previous activation's domain open under
-    // the same name; close that handle first (same pattern as notebook/forum).
-    const stale = this.host.storageDomain.get(TASK_CENTER_DOMAIN_NAME)
+  private async openTaskDomain(): Promise<TaskCenterStore | undefined> {
+    return this.openNamed(taskCenterDomain, TASK_CENTER_DOMAIN_NAME, 'taskCenter:storage', message => {
+      this.storageFailure = message
+      this.host.logger.error(`taskCenter: storage domain "${TASK_CENTER_DOMAIN_NAME}" could not open: ${message}`)
+    })
+  }
+
+  /** Open the pump's effects domain, degrading the pump (not the service) on failure. */
+  private async openEffectsDomain(): Promise<TaskEffectsStore | undefined> {
+    return this.openNamed(taskCenterEffectsDomain, TASK_CENTER_EFFECTS_DOMAIN_NAME, 'taskCenter:effects-storage', message => {
+      this.host.logger.error(`taskCenter: effects domain "${TASK_CENTER_EFFECTS_DOMAIN_NAME}" could not open: ${message}`)
+    })
+  }
+
+  /**
+   * One open sequence shared by both domains. A live reinstall can leave the
+   * previous activation's domain open under the same name; close that handle
+   * first (same pattern as notebook/forum).
+   * / 两个域共用的打开序列。热重装会在同名下留下上一个激活的域；先关掉那个句柄
+   * （与 notebook/forum 同一模式）。
+   */
+  private async openNamed<S extends DomainSpec>(
+    spec: S,
+    name: string,
+    label: string,
+    onError: (message: string) => void,
+  ): Promise<Domain<S> | undefined> {
+    const stale = this.host.storageDomain.get(name)
     if (stale !== undefined) {
       try {
         await stale.close()
-        this.host.logger.warn('taskCenter: closed the storage domain left open by a previous activation')
+        this.host.logger.warn(`taskCenter: closed the storage domain left open by a previous activation (${name})`)
       } catch (error: unknown) {
         this.host.logger.warn(`taskCenter: the previous storage domain could not close: ${String(error)}`)
       }
     }
     try {
-      const domain = await this.host.storageDomain.open(taskCenterDomain)
-      this.host.effect(() => () => domain.close(), 'taskCenter:storage')
+      const domain = await this.host.storageDomain.open(spec)
+      this.host.effect(() => () => domain.close(), label)
       return domain
     } catch (error: unknown) {
-      this.storageFailure = error instanceof Error ? error.message : String(error)
-      this.host.logger.error(
-        `taskCenter: storage domain "${TASK_CENTER_DOMAIN_NAME}" could not open: ${this.storageFailure}`,
-      )
+      onError(error instanceof Error ? error.message : String(error))
       return undefined
     }
   }

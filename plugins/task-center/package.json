@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/effects": "workspace:^",
     "zod": "4.4.3"
   },
   "devDependencies": {

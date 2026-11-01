@@ -89,6 +89,9 @@ async function deliverRoot(ops: TaskOps, domain: TaskCenterStore, record: TaskRe
     createdAt: record.createdAt,
   }
   await view(domain.table('deliveries')).put(delivery.id, delivery)
+  // 投递行落库后给泵挂上效果行：先落回执、后调度（先存储、后执行的官方次序）。
+  // / the receipt lands first, then the pump schedules its effect row (the official store-then-do order).
+  await ops.pump.track(delivery.id, record.id)
   ops.host.emit('task-center/changed', { taskId: record.id, action: 'sent' })
 }
 

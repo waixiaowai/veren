@@ -11,6 +11,12 @@
  * 任务已到终态的通知在此翻成 `read`。
  *
  * 任务状态与通知投递状态是两条独立的轴：投递失败不是任务失败，投递只计数、不做评判。
+ * 投递的调度底座是效果核泵（service-pump.ts，@veren/effects）——本文件的外部接缝
+ * （返回形状、工具名、翻 read 时机）保持原样，只在回执落定时顺带结算泵的效果行。
+ * / The delivery scheduler underneath is the effects-core pump (service-pump.ts,
+ * @veren/effects); this file's external seam (return shapes, tool names, when
+ * rows flip to read) stays as it was — settling the pump's effect row rides
+ * along when a receipt lands.
  *
  * @module @veren/task-center/service-delivery
  */
@@ -49,6 +55,8 @@ export async function collectPendingDeliveries(ops: TaskOps): Promise<readonly I
       if (task.parentId !== undefined) continue
       if (task.status === 'done' || task.status === 'cancelled' || task.status === 'expired') {
         await deliveries.put(row.id, { ...row, state: 'read', lastAt: new Date().toISOString() })
+        // 回执已翻 read：泵的效果行就地结算（§4.5）/ the receipt flipped to read: settle the pump's effect row (§4.5)
+        await ops.pump.release(row.id)
         continue
       }
       if (task.status !== 'open' && task.status !== 'taken') continue
@@ -78,6 +86,8 @@ export async function markDelivered(
       ? { ...row, state: 'delivered', attempts: row.attempts + 1, lastAt: now }
       : { ...row, attempts: row.attempts + 1, lastAt: now, lastError: error }
     await deliveries.put(deliveryId, next)
+    // 投递成功即回执落定：泵的效果行撤掉（§4.5）/ a successful delivery settles the receipt: drop the pump's effect row (§4.5)
+    if (error === undefined) await ops.pump.release(deliveryId)
     return next
   })
 }

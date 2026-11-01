@@ -19,6 +19,7 @@ import { TaskErrorCode } from './types.ts'
 import type { TaskId, TaskRecord } from './types.ts'
 import { isPast } from './service-storage.ts'
 import type { TaskStorage } from './service-storage.ts'
+import type { DeliveryPump } from './service-pump.ts'
 import type { AppResolver } from './service.ts'
 
 /** Collaborators every task operation runs through; owned by the service. */
@@ -29,6 +30,8 @@ export interface TaskOps {
   /** The FIFO write chain every mutation queues on (§4.4). */
   readonly storage: TaskStorage
   readonly tree: TaskTree
+  /** The effects-core delivery pump under the inbox seam (§4.5). */
+  readonly pump: DeliveryPump
 }
 
 /** Resolve one record or fail with task/not-found. */

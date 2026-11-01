@@ -36,6 +36,7 @@ import { registerTaskTools } from './tools.ts'
 import { TaskStorage } from './service-storage.ts'
 import { TaskTree } from './service-tree.ts'
 import type { TaskOps } from './service-tree.ts'
+import { DeliveryPump, PUMP_TICK_MS } from './service-pump.ts'
 import { createSubtask, getTask, listTasks, orphanAppTasks, sendTask } from './service-tasks.ts'
 import { cancelTask, completeTask, failTask, releaseTask, takeTask } from './service-mutations.ts'
 import { collectPendingDeliveries, markDelivered } from './service-delivery.ts'
@@ -100,12 +101,23 @@ export class TaskCenterService extends Service implements TaskCenterContract {
       appResolver: () => this.resolver,
       storage: new TaskStorage(ctx),
       tree,
+      pump: new DeliveryPump(),
     }
     if (config.tools.enabled) registerTaskTools(ctx, () => this)
   }
 
   async [Service.init](): Promise<void> {
     await this.ops.storage.ready
+    // 投递泵：效果域打开后启动；卸载逆序收线——先停表（不再派发），再 drain 在跑尝试，
+    // 等待行留在存储里等下次 start（官方 stored-work 语义）。
+    // / The delivery pump starts once its domain is open; teardown runs in
+    // reverse — stop the tick first (no more dispatch), then drain running
+    // attempts, leaving waiting rows in storage for the next start (the
+    // official stored-work semantics).
+    await this.ops.pump.start(this.ops)
+    this.ops.host.effect(() => () => this.ops.pump.stop(), 'taskCenter:pump-drain')
+    const tick = setInterval(() => this.ops.pump.kick(), PUMP_TICK_MS)
+    this.ops.host.effect(() => () => clearInterval(tick), 'taskCenter:pump-tick')
   }
 
   /** Wire the app registry explicitly — app-host does this at assembly time.
