@@ -41,6 +41,7 @@ import type {
   NotebookConfig, NotebookToolsPort, OwnerView,
 } from './types.ts'
 import { NotebookStoreHandle } from './store.ts'
+import { registerNotebookGlobalTools } from './tools-global.ts'
 import { NotebookError } from './notes.ts'
 import {
   backlinkViewOf, cachedBacklinks, hubView, linkCounts as countLinks, outgoingOf,
@@ -60,11 +61,17 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /**
- * Config schema: empty today, kept so the plugin manager shows an (empty) form
- * rather than erroring on a missing schema.
- * Config schema：当前为空；保留它让插件管理器以（空）表单展示本插件，而不是因缺 schema 报错。
+ * Config schema: the one switch is the preset-wide global tool face (M1 of
+ * docs/notebook-roadmap.cn.md); disable it to keep the box page-only.
+ * Config schema：唯一的开关是预设全域工具面（docs/notebook-roadmap.cn.md 的 M1）；
+ * 关掉它盒子就回到仅页面可用。
  */
-export const Config = z.object({}).description('Reserved; no host-layer options yet.')
+export const Config: z<NotebookConfig> = z.object({
+  globalTools: z
+    .object({ enabled: z.boolean().default(true).description('Mount the consult/write face in every session.') })
+    .default({ enabled: true })
+    .description('The preset-wide card-box face: consult and feed the box from any session of the preset; page sessions shadow it with the same names.'),
+}).description('Notebook host-layer options.')
 
 /** Hubs returned per ranking; enough entry points without flooding a first screen. 每次排名返回的枢纽数；足够做入口又不淹没首屏。 */
 const HUB_LIMIT = 10
@@ -85,7 +92,7 @@ export class NotebookService extends TypertRemoteService {
   // mounter of the exported builders.
   // 应用框架（`apps`）刻意不在其中（G2）：应用面住在独立的 `@veren/notebook-app` 包里。
   // `tools` 注册表也不再 inject——注册归导出构建器的挂载方。
-  static inject = ['storageDomain', 'agentPresets']
+  static inject = ['storageDomain', 'agentPresets', 'tools']
   static Config = Config
 
   /** The plugin's own reference to the owning Context. */
@@ -95,13 +102,17 @@ export class NotebookService extends TypertRemoteService {
 
   /**
    * @param ctx - Host services owning storage and the preset registry.
-   * @param _config - validated plugin configuration; nothing to configure at
-   *   the host layer today.
+   * @param config - validated plugin configuration; `globalTools.enabled`
+   *   mounts the consult/write face into every session (M1).
    */
-  constructor(ctx: Context, _config: NotebookConfig) {
+  constructor(ctx: Context, config: NotebookConfig) {
     super(ctx, 'notebook', { namespace: 'notebook' })
     this.host = ctx
     this.store = new NotebookStoreHandle(ctx)
+    // 全局面：每个会话都能咨询与喂养盒子；页面会话以同名 agent 作用域注册遮蔽。
+    // / The global face: every session consults and feeds the box; page sessions
+    // shadow it with same-name agent-scope registrations.
+    if (config.globalTools.enabled) registerNotebookGlobalTools(ctx, () => this.toolsPort())
   }
 
   async [Service.init](): Promise<void> {
@@ -272,6 +283,7 @@ export {
   buildNotebookRewriteDefinition, buildNotebookWriteDefinition,
 } from './tools.ts'
 export { buildNotebookBacklinksDefinition, buildNotebookFindDefinition, buildNotebookHubsDefinition } from './tools-graph.ts'
+export { GLOBAL_TOOL_NAMES, registerNotebookGlobalTools } from './tools-global.ts'
 export type {
   BacklinkView, CardLinkView, HubView, LinkCountView, LinkRecord, LinkTargetView, NoteRecord,
   NoteSummary, NoteView, NotebookConfig, NotebookErrorCode, NotebookToolsPort, OwnerView,

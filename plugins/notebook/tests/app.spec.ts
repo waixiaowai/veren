@@ -85,7 +85,7 @@ async function mountFrameworkAbsent(): Promise<{
   console.warn = (line: unknown, ...rest: unknown[]) => { lines.push([line, ...rest].map(String).join(' ')) }
   console.error = (line: unknown, ...rest: unknown[]) => { lines.push([line, ...rest].map(String).join(' ')) }
   try {
-    const fiber = await ctx.plugin(NotebookService, Config({}))
+    const fiber = await ctx.plugin(NotebookService, Config({ globalTools: { enabled: false } }))
     return { ctx, fiber, tools, lines }
   } finally {
     console.warn = warn

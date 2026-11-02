@@ -20,6 +20,13 @@
 卡片盒，就打开 `/apps/notebook/list`（列表页）从那里干活。这是刻意为之的 0.x 破坏性
 变更：一个能力，一个注册面，一个可查之处。
 
+**3.0.0 起全局面回归（可关）**：`globalTools.enabled`（默认开）把四件咨询/写入工具
+（`notebook__list_notes`、`notebook__find_cards`、`notebook__read_note`、
+`notebook__write_note`）挂进**预设的每个会话**——盒作为随时在场的第二记忆；页面
+会话以同名 agent 作用域注册遮蔽全局件（注册表文档语义），每个能力仍然只有一个
+名字。`rewrite_note` 与 `delete_note` 仍只在详情页（删除是 L2 契约）。关掉开关，
+盒子就回到仅页面可用。
+
 ## 归属与隔离
 
 卡片的归属永远是写入它的 Agent 的预设 id。工具构建器没有归属参数：`src/tools.ts`
@@ -53,6 +60,7 @@
 | 构建器 | 工具（本地名） | 用途 |
 | --- | --- | --- |
 | `buildNotebookListDefinition` | `list_notes` | 列出调用者自己那只盒，最近更新的在前。 |
+| `buildNotebookFindDefinition` | `find_cards` | 按标题片段找卡（精确包含、上限 20 行）——写前查重与按地址找旧卡是同一个廉价查询。 |
 | `buildNotebookReadDefinition` | `read_note` | 读一张卡的完整正文。 |
 | `buildNotebookWriteDefinition` | `write_note` | 写一张卡（标题须唯一；`[[标题]]` 链接必须可解析）。 |
 | `buildNotebookRewriteDefinition` | `rewrite_note` | 替换标题、正文，或两者；改名让入链自动跟随。 |

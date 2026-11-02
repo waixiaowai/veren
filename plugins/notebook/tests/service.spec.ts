@@ -48,6 +48,7 @@ function tempRoot(): string {
 
 /** The storage stack exactly as the Web profile provides it, over one root. 与 Web profile 完全相同的存储栈，作用于同一个根。 */
 async function storageStack(ctx: Context, root: string): Promise<void> {
+  ctx.provide('tools', { register: () => () => undefined })
   ctx.provide('agentPresets', { list: async () => [], composedPreset: () => undefined })
   await ctx.plugin(Storage.default)
   await ctx.plugin(StorageJson, { root })
@@ -87,7 +88,7 @@ describe('notebook service on real storage / 真实存储上的记事本服务',
   it('I2: one FIFO chain lands exactly one of two same-title concurrent creates', async () => {
     const ctx = new Context()
     await storageStack(ctx, tempRoot())
-    const fiber = await ctx.plugin(NotebookService, { })
+    const fiber = await ctx.plugin(NotebookService, { globalTools: { enabled: false } })
     const port = ctx.notebook.toolsPort()
 
     const attempts = await Promise.allSettled([
@@ -113,7 +114,7 @@ describe('notebook service on real storage / 真实存储上的记事本服务',
 
     const ctx = new Context()
     await storageStack(ctx, root)
-    const fiber = await ctx.plugin(NotebookService, { })
+    const fiber = await ctx.plugin(NotebookService, { globalTools: { enabled: false } })
     const port = ctx.notebook.toolsPort()
 
     // 行零丢失：两条 v1 记录按原字段可读。/ No row lost: both v1 records read with their fields intact.
@@ -134,7 +135,7 @@ describe('notebook service on real storage / 真实存储上的记事本服务',
   it('lists summaries with excerpts and never crosses owners', async () => {
     const ctx = new Context()
     await storageStack(ctx, tempRoot())
-    const fiber = await ctx.plugin(NotebookService, { })
+    const fiber = await ctx.plugin(NotebookService, { globalTools: { enabled: false } })
     const port = ctx.notebook.toolsPort()
 
     await port.create('ada', 'Ada card', 'ada body')

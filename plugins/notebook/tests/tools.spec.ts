@@ -78,6 +78,7 @@ async function mount(): Promise<{
   run: (tool: string, args: unknown, exec: { agent?: unknown }) => Promise<unknown>
 }> {
   const ctx = new Context()
+  ctx.provide('tools', { register: () => () => undefined })
   ctx.provide('agentPresets', {
     list: async () => [],
     composedPreset: (agentContext: { preset?: string }) => agentContext.preset,
@@ -85,7 +86,7 @@ async function mount(): Promise<{
   await ctx.plugin(Storage.default)
   await ctx.plugin(StorageJson, { root: tempRoot() })
   await ctx.plugin(StorageDomain, { backend: 'json' })
-  const fiber = await ctx.plugin(NotebookService, Config({}))
+  const fiber = await ctx.plugin(NotebookService, Config({ globalTools: { enabled: false } }))
   const port = ctx.notebook.toolsPort()
   const definitions = new Map<string, ToolDefinition>([
     ['list_notes', buildNotebookListDefinition(ctx, () => port)],

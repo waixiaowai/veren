@@ -26,6 +26,16 @@ notebook by opening `/apps/notebook/list` (the list page) and works from
 there. This is a 0.x breaking change by design: one capability, one
 registration face, one place to look.
 
+**Since 3.0.0 the global face is back, behind a switch**: `globalTools.enabled`
+(on by default) mounts the four consult/write tools (`notebook__list_notes`,
+`notebook__find_cards`, `notebook__read_note`, `notebook__write_note`) into
+**every session of the preset** — the box as the always-available second
+memory. Page sessions shadow the globals with same-name agent-scope
+registrations (the registry's documented semantics), so every capability keeps
+exactly one name. `rewrite_note` and `delete_note` remain page-only (deletion
+is the L2 contract). Flip the switch off and the box goes back to
+page-only.
+
 ## Ownership and isolation
 
 The owner of a card is always the preset id of the Agent that wrote it. The
@@ -72,6 +82,7 @@ them into page sessions, where the registry composes the external
 | Builder | Tool (local) | Purpose |
 | --- | --- | --- |
 | `buildNotebookListDefinition` | `list_notes` | List the calling preset's cards, newest update first. |
+| `buildNotebookFindDefinition` | `find_cards` | Find cards by a title fragment (exact contains, 20-row cap) — a pre-write duplicate check and an address lookup are the same cheap query. |
 | `buildNotebookReadDefinition` | `read_note` | Read one card's whole body. |
 | `buildNotebookWriteDefinition` | `write_note` | Write a card (unique title required; `[[title]]` links must resolve). |
 | `buildNotebookRewriteDefinition` | `rewrite_note` | Replace the title, the body, or both; a rename retargets inbound links. |

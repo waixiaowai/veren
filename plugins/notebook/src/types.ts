@@ -146,7 +146,10 @@ export interface NotePatch {
  * with the global registration; the field set stays reserved.
  * 记事本插件配置。当前为空——全局注册退役时其开关一并删除；字段集保留备用。
  */
-export interface NotebookConfig {}
+export interface NotebookConfig {
+  /** Mount the consult/write tool face into every session of every preset. 把咨询/写入工具面挂进每个预设的任意会话。 */
+  readonly globalTools: { readonly enabled: boolean }
+}
 
 /**
  * The narrow surface the model-facing tools read and write.
