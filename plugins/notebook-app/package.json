@@ -1,7 +1,7 @@
 {
   "name": "@veren/notebook-app",
   "displayName": "Notebook-应用",
-  "version": "3.0.0-rc.6",
+  "version": "3.0.0-rc.7",
   "description": "Use when the notebook domain service is installed and its tools should live only in notebook page sessions: registers the notebook app (a card list entry page plus a card detail page under /apps/notebook) as the single registration face - the seven notebook__* page tools are the @veren/notebook builders, defined into the app catalog and mounted per page via meta.tools; the list page hands over the box's hubs on open and the detail page hands over the card with its outgoing and incoming links. Skip it for headless deployments, where the domain service alone is wanted and nothing mounts the tools.",
   "type": "module",
   "main": "./dist/index.js",

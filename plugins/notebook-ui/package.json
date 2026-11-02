@@ -1,7 +1,7 @@
 {
   "name": "@veren/notebook-ui",
   "displayName": "Notebook UI",
-  "version": "3.0.0-rc.6",
+  "version": "3.0.0-rc.7",
   "icon": "./icon.svg",
   "description": "Use when the @veren/notebook Host service is installed and a person needs to open, read, create, edit, and delete a preset's private cards in the DeepSeek Harness Web GUI; it adds the \"notebook\" sidebar entry and the owner-selector page, mounts the `notebook` Remote namespace, shows each list row's inbound-link badge, and renders the selected card's outgoing and backlink sections. Skip it for a headless, ACP, or SDK profile, where the Host service and its tools already cover every operation.",
   "type": "module",
