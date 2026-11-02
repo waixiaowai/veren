@@ -20,7 +20,7 @@ export const NS = 'notebook'
 export type NotebookKey =
   | 'panel' | 'panelSubtitle' | 'owner' | 'ownerHint' | 'notes' | 'noOwners' | 'noNotes' | 'noNotesHint'
   | 'newNote' | 'newNoteHint' | 'editNote' | 'title' | 'titlePlaceholder' | 'body' | 'bodyPlaceholder'
-  | 'save' | 'saving' | 'delete' | 'confirmDelete' | 'refresh' | 'loading' | 'failed' | 'retry'
+  | 'save' | 'saving' | 'delete' | 'confirmDelete' | 'refresh' | 'loading' | 'failed' | 'retry' | 'exportLabel'
   | 'emptyTitle' | 'emptyBody' | 'saved' | 'deleted' | 'unsaved' | 'titleRequired' | 'bodyTooLong'
   | 'removed' | 'updatedAt' | 'selectNote' | 'close'
   | 'linksTitle' | 'linksLoading' | 'linksFailed' | 'outgoing' | 'outgoingEmpty' | 'incoming' | 'incomingEmpty'
@@ -47,6 +47,7 @@ export const zh: Record<NotebookKey, string> = {
   delete: '删除',
   confirmDelete: '再点一次确认删除',
   refresh: '刷新',
+  exportLabel: '导出 Markdown',
   loading: '正在读取…',
   failed: '读取失败',
   retry: '重试',
@@ -92,6 +93,7 @@ export const en: Record<NotebookKey, string> = {
   delete: 'Delete',
   confirmDelete: 'Click again to delete',
   refresh: 'Refresh',
+  exportLabel: 'Export Markdown',
   loading: 'Loading…',
   failed: 'Could not read',
   retry: 'Retry',

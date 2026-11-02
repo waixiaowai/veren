@@ -56,12 +56,14 @@ function NotebookPageHeader({ state, t, actions, busy, onChooseOwner, onStartNew
       removedLabel={t('removed')}
       refreshLabel={t('refresh')}
       newLabel={t('newNote')}
+      exportLabel={t('exportLabel')}
       owners={state.owners}
       owner={state.owner}
       ownerDisabled={state.owner === undefined || busy}
       onChooseOwner={onChooseOwner}
       onRefresh={() => { actions.onRefresh() }}
       onStartNew={onStartNew}
+      onExport={(owner) => { void actions.onExport(owner) }}
     />
   )
 }

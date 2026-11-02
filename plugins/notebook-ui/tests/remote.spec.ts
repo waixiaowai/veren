@@ -39,7 +39,7 @@ function requestSchema(endpoint: string) {
 }
 
 describe('notebook remote contract / 记事本远端约定', () => {
-  it('publishes the eight endpoints under the notebook service', () => {
+  it('publishes the nine endpoints under the notebook service', () => {
     expect(notebookRemote.package).toBe('@veren/notebook')
     const endpoints = notebookRemote.descriptors
       .map(entry => `${entry.namespace}/${entry.method}`)
@@ -48,6 +48,7 @@ describe('notebook remote contract / 记事本远端约定', () => {
       'notebook/cardLinks',
       'notebook/create',
       'notebook/deleteNote',
+      'notebook/exportAll',
       'notebook/hubs',
       'notebook/linkCounts',
       'notebook/list',

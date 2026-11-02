@@ -31,12 +31,14 @@ export interface NotebookHeaderProps {
   readonly removedLabel: string
   readonly refreshLabel: string
   readonly newLabel: string
+  readonly exportLabel: string
   readonly owners: ReadonlyArray<{ readonly id: string; readonly declared: boolean }>
   readonly owner: string | undefined
   readonly ownerDisabled: boolean
   readonly onChooseOwner: (owner: string) => void
   readonly onRefresh: () => void
   readonly onStartNew: () => void
+  readonly onExport: (owner: string) => void
 }
 
 /** The heading block: glyph + title + subtitle. 标题块：图形 + 标题 + 副标题。 */
@@ -81,18 +83,29 @@ function NotebookOwnerSelect({ label, hint, removedLabel, owners, owner, onChoos
   )
 }
 
-/** The refresh / new-note action buttons. 刷新/新建动作按钮。 */
-function NotebookActions({ refreshLabel, newLabel, ownerDisabled, onRefresh, onStartNew }: {
+/** The refresh / export / new-note action buttons. 刷新/导出/新建动作按钮。 */
+function NotebookActions({ refreshLabel, exportLabel, newLabel, ownerDisabled, owner, onRefresh, onStartNew, onExport }: {
   readonly refreshLabel: string
+  readonly exportLabel: string
   readonly newLabel: string
   readonly ownerDisabled: boolean
+  readonly owner: string | undefined
   readonly onRefresh: () => void
   readonly onStartNew: () => void
+  readonly onExport: (owner: string) => void
 }) {
   return (
     <>
       <button type="button" className="notebook-btn" onClick={() => { onRefresh() }}>
         {refreshLabel}
+      </button>
+      <button
+        type="button"
+        className="notebook-btn"
+        disabled={owner === undefined}
+        onClick={() => { if (owner !== undefined) onExport(owner) }}
+      >
+        {exportLabel}
       </button>
       <button type="button" className="notebook-btn is-primary" disabled={ownerDisabled} onClick={onStartNew}>
         {newLabel}
@@ -117,10 +130,13 @@ export function NotebookHeader(props: NotebookHeaderProps) {
         />
         <NotebookActions
           refreshLabel={props.refreshLabel}
+          exportLabel={props.exportLabel}
           newLabel={props.newLabel}
           ownerDisabled={props.ownerDisabled}
+          owner={props.owner}
           onRefresh={props.onRefresh}
           onStartNew={props.onStartNew}
+          onExport={props.onExport}
         />
       </div>
     </header>

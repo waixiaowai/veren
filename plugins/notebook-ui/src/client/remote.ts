@@ -97,6 +97,8 @@ export interface NotebookPanelInjected {
   readonly onRemove: (input: { readonly owner: string; readonly id: string }) => Promise<{ readonly deleted: boolean }>
   /** Read one card's outgoing and incoming links. 读一张卡的出链与入链。 */
   readonly onCardLinks: (input: { readonly owner: string; readonly id: string }) => Promise<CardLinkView>
+  /** Export the selected notebook as one markdown download. 把选中的盒导出为一份 markdown 下载。 */
+  readonly onExport: (owner: string) => Promise<{ readonly count: number }>
 }
 
 /** The mounted `ctx.remote.notebook` surface. */
@@ -105,6 +107,8 @@ export interface NotebookRemoteApi {
   readonly owners: (request: Record<string, never>) => Promise<NotebookRemoteResult<readonly OwnerView[]>>
   /** Read one preset's notes, newest update first. */
   readonly list: (request: { readonly owner: string }) => Promise<NotebookRemoteResult<readonly NoteView[]>>
+  /** Export one notebook as one portable markdown document. 把一本盒导出为单份可携带 markdown。 */
+  readonly exportAll: (request: { readonly owner: string }) => Promise<NotebookRemoteResult<{ readonly count: number; readonly markdown: string }>>
   /** Write one note into one preset's notebook. */
   readonly create: (request: {
     readonly owner: string
@@ -231,5 +235,8 @@ export const notebookRemote = createTypertRemoteInfo({
     ...method('linkCounts', 'Count inbound links per card title.', 'linkCounts', [
       parameter('request', 'notebook:linkCounts:request', () => OWNER_REQUEST),
     ], () => z.array(z.looseObject({ title: z.string(), count: z.number() }))),
+    ...method('exportAll', 'Export one notebook as one portable markdown document.', 'exportAll', [
+      parameter('request', 'notebook:exportAll:request', () => OWNER_REQUEST),
+    ], () => z.looseObject({ count: z.number(), markdown: z.string() })),
   } as Record<string, never>,
 }, z)

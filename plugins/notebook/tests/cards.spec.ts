@@ -15,6 +15,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildNote, noteKey, titlesContaining } from '../src/notes.ts'
 import { riddlePairs, RIDDLE_MIN_SHARED, staleView, STALE_DAYS } from '../src/graph.ts'
+import { exportMarkdown } from '../src/notes.ts'
 import { NotebookError } from '../src/notes.ts'
 import { applyCardCreate, applyCardRemove, applyCardUpdate } from '../src/cards.ts'
 import type { CardTables } from '../src/cards.ts'
@@ -252,5 +253,22 @@ describe('card write paths / 卡片写路径', () => {
     // 排除直链对：丙丁不成谜
     expect(riddles.some(r => [r.aTitle, r.bTitle].includes('丙') && [r.aTitle, r.bTitle].includes('丁'))).toBe(false)
     void RIDDLE_MIN_SHARED
+  })
+
+  it('M5: exports the whole box as one portable markdown document, newest first', async () => {
+    const box = tables()
+    await applyCardCreate(box, 'ada', { title: '第一张', body: '早期想法' }, '2026-10-01T00:00:00.000Z', 'e1')
+    await applyCardCreate(box, 'ada', { title: '第二张', body: '链接 [[第一张]]' }, '2026-11-01T00:00:00.000Z', 'e2')
+    const { count, markdown } = exportMarkdown(box.notes, 'ada')
+    expect(count).toBe(2)
+    // 最新在前
+    expect(markdown.indexOf('# 第二张')).toBeLessThan(markdown.indexOf('# 第一张'))
+    // 小节结构：标题行、正文原样（[[链接]]保持）、id/日期脚注、水平线分隔
+    expect(markdown).toContain('# 第二张\n\n链接 [[第一张]]\n\n- id: e2')
+    expect(markdown).toContain('- created: 2026-11-01T00:00:00.000Z')
+    expect(markdown).toContain('---')
+    // 空盒导出为空文档
+    expect(exportMarkdown(box.notes, 'nobody').count).toBe(0)
+    expect(exportMarkdown(box.notes, 'nobody').markdown).toBe('')
   })
 })

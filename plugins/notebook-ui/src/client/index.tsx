@@ -88,6 +88,24 @@ const PanelPlugin = {
         onUpdate: async input => unwrap(api.update(input)),
         onRemove: async input => unwrap(api.deleteNote(input)),
         onCardLinks: async input => unwrap(api.cardLinks(input)),
+        onExport: async (owner) => {
+          const result = await unwrap(api.exportAll({ owner }))
+          // 逃生门的交付动作：数据由客户端持有（Remote 只读返回），落成 Blob 触发
+          // 浏览器下载——宿主不写任何文件，存储域零改动。
+          // / The escape hatch's delivery step: the data is client-held (the
+          // Remote returns read-only), turned into a Blob for a browser
+          // download — the host writes no files, the storage domain untouched.
+          const blob = new Blob([result.markdown], { type: 'text/markdown;charset=utf-8' })
+          const url = URL.createObjectURL(blob)
+          const anchor = document.createElement('a')
+          anchor.href = url
+          anchor.download = `notebook-${owner}.md`
+          document.body.appendChild(anchor)
+          anchor.click()
+          anchor.remove()
+          URL.revokeObjectURL(url)
+          return { count: result.count }
+        },
       }),
     }, NotebookPanel))
     ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({

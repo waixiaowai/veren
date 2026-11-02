@@ -48,7 +48,7 @@ import {
 } from './graph.ts'
 import { applyCardCreate, applyCardRemove, applyCardUpdate } from './cards.ts'
 import {
-  findCards, noteView, notesOf, ownersOf, requireOwner, requireOwned, summariesOf,
+  exportMarkdown, findCards, noteView, notesOf, ownersOf, requireOwner, requireOwned, summariesOf,
 } from './notes.ts'
 // Type-only: pulls the `ctx.agentPresets` service declaration into this face.
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
@@ -242,6 +242,13 @@ export class NotebookService extends TypertRemoteService {
     })
   }
 
+  /** Export one box as one portable markdown document, newest first; read-only. 把某盒导出为单份可携带 markdown，最新在前；只读。 */
+  @Remote('exportAll')
+  async exportAll(request: { readonly owner: string }): Promise<{ readonly count: number; readonly markdown: string }> {
+    const owner = requireOwner(request.owner)
+    return this.store.read(domain => exportMarkdown(this.store.tables(domain).notes, owner))
+  }
+
   /** Count inbound links per card title, for the panel's list badges. 按标题统计入链数，供面板列表角标。 */
   @Remote('linkCounts')
   async linkCounts(request: { readonly owner: string }): Promise<readonly LinkCountView[]> {
@@ -291,9 +298,9 @@ export class NotebookService extends TypertRemoteService {
 }
 
 export {
-  EXCERPT_CHARS, FIND_LIMIT, MAX_BODY_CHARS, MAX_TITLE_CHARS, NotebookError, applyUpdate, buildNote,
-  findCards, noteKey, noteSummary, noteView, notesOf, ownersOf, requireOwner, requireOwned,
-  titlesContaining,
+  EXCERPT_CHARS, EXPORT_SEPARATOR, FIND_LIMIT, MAX_BODY_CHARS, MAX_TITLE_CHARS, NotebookError,
+  applyUpdate, buildNote, exportMarkdown, findCards, noteKey, noteSummary, noteView, notesOf,
+  ownersOf, requireOwner, requireOwned, titlesContaining,
 } from './notes.ts'
 export { ensureExpected, resolveLinksOrThrow, validateCreate, validateUpdate } from './validate.ts'
 export { riddlePairs, RIDDLE_MIN_SHARED, staleView, STALE_DAYS } from './graph.ts'

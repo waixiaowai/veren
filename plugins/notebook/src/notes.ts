@@ -229,3 +229,37 @@ export function requireOwned(table: NotebookTable<NoteRecord>, owner: string, id
   }
   return record
 }
+
+/** The section separator inside one exported markdown document. 导出文档内的分节分隔线。 */
+export const EXPORT_SEPARATOR = '\n\n---\n\n'
+
+/**
+ * Render one owner's whole box as a single portable markdown document, newest
+ * first — the escape hatch (Ahrens 10: organize development, not output; the
+ * box must be able to leave). Read-only: nothing is written anywhere. Each
+ * card is a `# title` section with its body verbatim ([[links]] stay links)
+ * and an id/date footer; sections separate on a horizontal rule.
+ * @param table - the notes table.
+ * @param owner - preset id whose box is exported.
+ * @returns the card count and the document (empty string when the box is empty).
+ *
+ * 把某归属整只盒渲染成单份可携带 markdown 文档，最新在前——逃生门（Ahrens 10：
+ * 组织的是发展不是产出；盒必须能离开）。只读：不写任何地方。每张卡是一个
+ * `# 标题` 小节，正文原样（[[链接]]保持链接）带 id/日期脚注；小节间以水平线分隔。
+ */
+export function exportMarkdown(table: NotebookTable<NoteRecord>, owner: string): { count: number; markdown: string } {
+  const records = recordsOf(table, owner)
+  const nl = String.fromCharCode(10)
+  const markdown = records
+    .map(record => [
+      `# ${record.title}`,
+      '',
+      record.body,
+      '',
+      `- id: ${record.id}`,
+      `- created: ${record.createdAt}`,
+      `- updated: ${record.updatedAt}`,
+    ].join(nl))
+    .join(EXPORT_SEPARATOR)
+  return { count: records.length, markdown }
+}
