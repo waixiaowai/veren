@@ -54,3 +54,17 @@
 ## 6. 终止条件
 
 盲操作者不看任何内部文档、不用任何手工工具，仅凭这两个页面完成：微信重新授权（免重启、页面见游标推进）→ 微信发「任务：…」→ taskhub 页时间线全跳可见、手机收到回信；-14 死通道在 stub 下被页面如实判「失联」；昨天 failed 任务的 GUI 回放与 sqlite 逐行一致。此四条齐，任务闭环。
+
+---
+
+## 交付记录（2026-11-03，B0+A+B+C 全腿完成）
+
+- **B0 地基**（cms c9471a19）：imhub poller -14 恢复缺陷红绿修复（回归钉 TestPollerResumes…WithoutRestart：-14 后协程存活、重授权落库+唤醒 ≤5s 用新 token 恢复、免进程重启——「5s 内自动接管」装配承诺自此兑现）+ 活性读口（session 投影增 last_poll_ok_at/messages_last_hour，投影测试钉）。红相实录：恰 1 次拉取后协程死。
+- **A 页 /channels/wechat**（fe4f82b4）：活性证据卡（live/失联(从未|陈旧)/未授权 三态，classifyLiveness >120s 判失联——「行在通道死」陷阱的 UI 判定）；授权漏斗 LoginStatus 闭集逐态一屏（wait 出二维码+滴答倒计时+过期自动换新 / scaned / need_verifycode 提交 / expired·blocked·failed 重新起挑战 / confirmed 收尾）；消息日志；人员目录；intake 六键结构化表单（T317 render-adjust 模式，在飞语义声明）。组件测试钉全态（含失联态与漏斗三迁移）。
+- **B 页 /channels/taskhub**：状态过滤清单（5s 轮询）+ 单任务时间线回放（3s 轮询；**fixture=2026-11-02 生产 failed 任务 01M6EAQMV… 的真实 events 含 10×reply_failed 语义**，负路径破坏色同级视觉）+ requeue（failed 不可重排=状态机 UI 如实）+ workers 池卡。
+- **接线三方守护**：菜单 seed comms 组（order 11 殿后追加）+ sidebar-data 消息通道组 + route-perms 两行 + 前端码镜像补 imhub/taskhub 五码 + 全部计数钉（46→48、42→44、41→43）与 meta_registry 登记；openapi 重产。
+- **C 备忘录**（6fb056bd）：飞书绑定有界选项（事实基础因并行通道统一波 e9bcc027 交付 feishuhub 而更新）——推荐选项 A（feishuhub GUI 同构小页随下一波），待用户拍板 A/B。
+- **顺手清欠**：通道统一波漏登记的 feishuhub/mailhub 六条 meta 行补入（TestDocsMetaComplete 拦下）。
+- **门禁**：Go touched 包 ok、web tsc/lint/build 绿、vitest 1938 passed（唯余 keys-usage-summary 预存月份墙钟红——硬编码 9 月初 from=1788220800，10 月起必红，T428 教训活例，非本波引入，登记待修）。
+- **合并**：rebase 到 8b49c383（并行 H5 波）消化 openapi 冲突后 ff-only 入 main（a03f79f2），worktree/分支三清。
+- **staging 实机验收（任务书终裁四条）待跑**：盲操作者 GUI 重授权（免重启+游标推进可见）→微信发任务→时间线到 replied+手机收回信；-14 stub 态页面判失联；GUI 回放≡sqlite；生产部署随下次 deploy 窗。
