@@ -53,6 +53,11 @@
 7. **仪表 → `ledger` 账表 + `box_stats` 工具。** append-only 动作账（captured/promoted/trashed/archived/riddle_closed），盒的动作量是人肉尺度，账表恒小；比率按 7 天窗口算。谜面闭合检测：改写路径新增直链时，若该对此前共享邻居 ≥ `RIDDLE_MIN_SHARED` 且此前无双向直链 → 记 riddle_closed（激发率的机械可测部分；不可测的"谜面被看过但被否"如实不测）。
 8. **版本 → `4.0.0-rc.1`（执行期修正）。** 原判 `3.0.0-rc.7`，但执行期间并行列车已把 3.0.0 正式版发进不可变 registry（commit 7f8a0fd）；本次扩张（NoteRecord/NoteView/NoteSummary/NotebookErrorCode/NotebookToolsPort，错误码联合扩张对穷举 switch 是编译破坏——rc.1 设计 D11 的 MAJOR 判据）按版本规范落新 MAJOR 线 `4.0.0-rc.1`，走 -rc.N 先过预发布环境。家族四包同线齐升。
 
+### 取证审计回填（2026-11-03，`docs/notebook-audit-results.cn.md`，证据在案）
+
+9. **转轨缺口（G2）→ 补 reclassify 动词。** 真机终态存在"应属项目却住永久盒"的卡（Sub2API 定价策略草稿），而 promote 只吃 fleeting（lifecycle.ts:114）、archive 只吃 project（:150）、@Remote 面无 reclassify——该卡永远进不了项目生命周期。补 `reclassify`：→project 须带 anchor，→fleeting 禁止；与 promote/archive 同级页面作用域。
+10. **残渣清理（G1'）→ title 锚定预筛 + 人审终裁，禁全自动删除。** 取证审计的双评分者实验证明：title∪body 正则会误杀全盒最好的卡（正文"验证发生在输出侧"撞词）；title-only 变体与独立评分者 13/13 一致。清理通道 = title 锚定预筛列出候选 + 人审确认，不允许无人审批的批量删除。仪表补 orphanCount（实测孤岛 5/13，含零再接触的最优卡）；审计漏斗数字（F1=18/F4=3/F5=5；F5/F1=0.28、出链密度 0.5）记为"改造前"基准线。
+
 ## 5. 外部裁决者（验收不由你我）
 
 1. 原文文本：每条实现规则溯源到 Ahrens/卢曼引文，或写明理由的显式偏离。
@@ -63,4 +68,20 @@
 
 ## 6. 真机验收清单（3080，执行时回填编号与"看什么/通过标准"）
 
-（回填）
+1. 升级路径：升级后存量卡全部可见、角标全为 permanent——v1 行经 schema 默认读作 permanent（零迁移证明）。
+2. capture_note 写一张带悬链 `[[x]]` 的闪念——成功；list_notes(kind: fleeting) 可见；在枢纽/反链/谜面/迷失区不可见。
+3. 对该卡 promote_note 带悬链 → 拒 link-unresolved；链接解析后 → kind 翻成 permanent，卡入图。
+4. 进料盲测：过 2 天窗的闪念浮在首屏进料区；新会话中 AI 主动对它提出炼/扔提议。
+5. 扔的语义：delete_note 删得掉闪念；无任何自动过期（一周没动的卡重启后还在）。
+6. archive_note：项目卡 + distilledInto 指向真实永久卡 → 卡消失且 ledger 有行；distilledInto 指向闪念/缺失 id → 拒 archive-undistilled。
+7. write_note 链到闪念标题 → 拒（闪念不是地址）。
+8. box_stats 返回 kind 计数、密度、进料队列与 7 天比率；ledger 重启后存活。
+9. 作用域：非页面会话全局面五工具（list/find/read/write/capture）；promote/archive 只在笔记页出现。
+10. 卸载组合包 → 干净拆除，无孤儿注册。
+
+### 取证审计回填（2026-11-03）
+
+11. reclassify 真机：把定价策略草稿（PR1 预测对象）→project 带 anchor 成功，→fleeting 被拒；看什么——ledger 记行、卡角标翻转；通过标准——预测 PR1 兑现。
+12. 生命周期面真实使用（N1：全部日志 promoteNote 调用 = 0）：验收须含一次**真实** promote（真闪念炼成）与一次**真实** archive（真项目结项），不得用测试卡走场。
+13. 孤岛仪表（PR2）：box_stats 首读 orphanCount = 5（取证审计终态数；冻结时括号注 3 基于 11 卡旧快照，以终态复算为准）；通过标准——"学习"卡在孤岛清单里可见。
+14. 残渣通道（PR3）：title 锚定预筛列出 10 张 R 卡候选 + 人审逐张确认；看什么——候选清单含 rc1/rc4/rc6/rc7/验收/回归卡、不含"学习"卡；通过标准——误报数为 0 才允许批量处置。

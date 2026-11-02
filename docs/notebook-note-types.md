@@ -53,6 +53,11 @@ Land the Ahrens classification as a **lifecycle with terminal actions**, not a l
 7. **Metrics → a `ledger` table + the `box_stats` tool.** An append-only action ledger (captured/promoted/trashed/archived/riddle_closed); box actions are human-scale so the ledger stays tiny; rates are windowed at 7 days. Riddle-closure detection: when a rewrite adds a direct link and the pair shared >= RIDDLE_MIN_SHARED neighbors with no prior direct link either way → a riddle_closed row (the mechanically measurable part of the spark rate; "riddle seen and rejected" is honestly unmeasured).
 8. **Version → `4.0.0-rc.1` (amended during execution).** The original call was `3.0.0-rc.7`, but a parallel release train shipped 3.0.0 final into the immutable registry mid-task (commit 7f8a0fd); this widening (NoteRecord/NoteView/NoteSummary/NotebookErrorCode/NotebookToolsPort — the error-code union expansion is a compile break for exhaustive switches, the rc.1 design's D11 MAJOR criterion) lands on the new MAJOR line `4.0.0-rc.1` per the versioning convention, riding -rc.N through staging first. The whole family rises on one line.
 
+### Forensic-audit backfill (2026-11-03, `docs/notebook-audit-results.md`, evidence on file)
+
+9. **Reclassify gap (G2) → add the reclassify verb.** The live end state holds a card that belongs in the project lifecycle but lives in the permanent box (the Sub2API pricing draft), while promote only eats fleeting (lifecycle.ts:114), archive only project (:150), and the @Remote surface has no reclassify — that card can never enter the project lifecycle. Add `reclassify`: →project requires an anchor, →fleeting forbidden; page scope alongside promote/archive.
+10. **Residue cleanup (G1') → title-anchored pre-screen + human final gate; fully automatic deletion forbidden.** The audit's dual-rater experiment proves a title∪body regex would kill the box's best card (the body phrase "验证发生在输出侧" trips the word); the title-only variant matches an independent rater 13/13. Cleanup channel = title-anchored pre-screen listing candidates + human confirmation; no unattended batch deletion. Gauges gain orphanCount (measured orphans 5/13, including the zero-re-contact best card); the audit's funnel numbers (F1=18/F4=3/F5=5; F5/F1=0.28, out-density 0.5) are recorded as the "before" baseline.
+
 ## 5. External adjudicators (acceptance is not ours to grant)
 
 1. Source text: every implemented rule traces to an Ahrens/Luhmann quote, or an explicitly reasoned deviation.
@@ -75,3 +80,10 @@ Each item: what to look at / pass standard. Install the family bundle on the sta
 8. box_stats returns kind counts, density, the intake queue, and the 7-day rates; the ledger survives a restart.
 9. Scopes: the global face carries five tools (list/find/read/write/capture) in a non-page session; promote/archive appear only on the note page.
 10. Uninstall the bundle → clean teardown, no orphan registrations.
+
+### Forensic-audit backfill (2026-11-03)
+
+11. reclassify on the live node: the pricing draft (PR1's subject) →project with an anchor succeeds, →fleeting is refused; look for — a ledger row and the badge flip; pass — prediction PR1 fulfilled.
+12. Real usage of the lifecycle face (N1: promoteNote calls across all logs = 0): acceptance must include one **real** promote (a true fleeting card compounded) and one **real** archive (a true project closed) — no test-card walkthroughs.
+13. Orphan gauge (PR2): box_stats first reading orphanCount = 5 (the audit's end-state count; the freeze-time parenthetical "3" was based on the stale 11-row snapshot — the end-state recomputation governs); pass — the "Learning" card is visible in the orphan list.
+14. Residue channel (PR3): the title-anchored pre-screen lists all 10 R-card candidates + per-card human confirmation; look for — the candidate list holds the rc1/rc4/rc6/rc7/acceptance/regression cards and NOT the "Learning" card; pass — zero false positives before any batch disposition.
