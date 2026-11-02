@@ -142,3 +142,13 @@ wsgw 指令回执是**同步等待且上限 10s**（`command.go:18`），而 sup
 - **F2/F3 生产上线**（cms main 49c26606 → veren.top）：顺手修复 `copy-button.tsx` 缺 Button 导入的预存破损（a57832d5 起阻塞一切正规 web 构建，49c26606）；deploy-local-pkg.sh 全链（组包→scp→box 校验→原子换位→信封验证→自动回切就绪）EXIT=0，release `20261102130422`。部署后核验：schema_migrations MAX=210、taskhub 四表在册、公开面 `/v1/admin/taskhub/tasks` 回 1003（路由在册+守卫生效）、rbac 自动补绑 taskhub:read/manage 日志实证。
 - **取证**：生产微信会话 -14 失效首现于归档日志 11:15:25Z，早于部署（13:04Z）约两小时——iLink 服务端自行过期，与部署无关；真实微信链路需重新扫码授权（本来就是用户步骤）。
 - **F4 待用户**：①管理面重新扫码授权微信；②建节点 API Key；③平台参数设 task.hub.* 六键；④任一节点启用 `dsh-superagent-taskhub` 行（上线指南 = fork docs/009-taskhub.{cn,}.md）；⑤真机六条验收（§2 Q4）。
+
+## 交付记录·生产全链实测（2026-11-02 终）
+
+按用户指示用"其他方式"模拟消息打生产全链（微信会话死，绕开它）：
+- **会话取证**：生产密钥解封生产 token 直连 iLink getupdates → `login is stale (-14)` 第一手实锤（授权于 10-28，iLink 服务端已判死；重新扫码只有用户手机能做）。
+- **测试设施**：织入一小时管理会话（跑完即删）→ 真实 API 设 task.hub.* 三 operative 键（owner=2/prefix/任务：，UTF-8 文件体避 GBK 坑）→ 真实 API 建节点 API Key（id=25）。
+- **节点全配置**：3083 节点面板 API 配三源（github=ym…/superagent-test + gh 包装指向 gh-agent.exe；gitea=imeepos/superagent-node-test 新建仓库；taskhub=wss://veren.top/v1/ws）→ **setup problem:null、orchestrator ready、模型在册（deepseek-flash 默认 + zq4i/opencode-go 可路由）**。
+- **生产全链实测（时间线铁证）**：模拟微信消息插入 → 20s 内 received（幂等键=message id、前缀剥除）→ matched rehearsal-01 → WSS 派发 → **节点 Eval 闸门否决**（"该节点评估后未接下此任务"——授权体系按设计工作，拒绝必回报）→ 拒绝回报送达尝试 **10 次重试全部真实打到 iLink（ret=-14）** → failed 终态留痕。除微信会话本身外每一跳都通。
+- **实战抓出并修复第三个真缺陷（0b365ea）**：wsgw 从不回 event_ack（契约 §1 标可选），ack-等待版上报每条 10s 超时、一次逃逸拒绝被 DSH 判为致命加载失败炸死整个进程——**上报改 fire-and-forget（永不 reject），离线 FIFO 补报保留**，测试 16 绿重写为契约一致语义。教训钉：部署前必须在真实对端上跑一次上报路径，mock 对不出 server 行为差。
+- 残留态：微信会话待用户重扫码（唯一断点）；节点 rehearsal-01 在线待命（taskhub 来源 enabled、setup 已配）；测试会话已删、密钥已碎碎；task#failed 行与 gitea 测试仓库留作证据。
