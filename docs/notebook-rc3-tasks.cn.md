@@ -48,6 +48,7 @@ Zettelkasten 软件的底线是「点链接即跳转」（Obsidian/Logseq/Anytyp
 写卡前先查重（「盒里是否已有相近标题的卡」——防止 `……（2）` 式重复卡）；重入盒时按主题片段定位入口；整理时按前缀圈出同主题的卡。三个动作全是「按标题片段找卡」，一个工具全覆盖。
 
 **2. 生料（已取证）**
+- **执行勘误（2026-11-02 实施期）**：find_cards 最终只挂**列表页**——实施中发现 §3.9 既有契约「每工具恰好归属一页」约束挂载面；写前查重的主场景在列表页（write_note 本就只挂列表页），契约优先，详情页不加。
 - 匹配语义现成：`validate.ts` 的 `suggestions()`（160 行起）已经是「标题 contains 片段、归属内、上限 5 条」——把这段逻辑**抽成共享函数**（建议挪 `notes.ts`，如 `titlesContaining(notes, owner, needle)`），`suggestions` 改调它，新工具也调它——拒绝提示与新工具永远同一匹配语义。
 - 端口与挂载现成：`NotebookToolsPort`（types.ts:155）加 `find`；`index.ts` 服务面加对应 Remote 或直接端口实现；`pages.tsx` 两个页面组件体各加一行 `toolOf('find_cards')`（现 8 处 toolOf 注册，加 2 处）；应用目录定义加一件构建器（`tools-graph.ts` 或新 `tools-find.ts`，守 300 行）。
 - 输出形状现成：复用 `NoteSummary`（id/title/excerpt/updatedAt），与 `list_notes` 同形，模型零学习成本。
