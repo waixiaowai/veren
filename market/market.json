@@ -365,6 +365,28 @@
         "登录",
         "模型路由"
       ]
+    },
+    "@veren/zhihu-ops-bundle": {
+      "title": {
+        "en": "Zhihu Operations Analysis",
+        "zh": "知乎运营分析"
+      },
+      "description": {
+        "en": "Operations analysis for your own Zhihu account: a daily read-only pull from the official Zhihu open platform (account stats, per-content funnel metrics, comments on your own works, the hot list, and the answerable questions), durable daily snapshots, derived follower growth and content movers, and an LLM-written report delivered to your inbox through the task center. It never publishes, comments, or follows for you. Skip it when the deployment has no Zhihu account to analyse.",
+        "zh": "对你自己的知乎账号做运营分析：每天从知乎官方开放平台只读采集（账号统计、单篇漏斗指标、自己作品下的评论、热榜与适合回答的问题），存下持久日快照，派生涨粉与内容 movers，并由模型写出运营分析报告、经任务中心投进收件箱。它绝不替你发布、评论或关注。没有知乎账号要分析的部署可跳过。"
+      },
+      "category": "automation",
+      "labels": [
+        "official"
+      ],
+      "keywords": [
+        "zhihu",
+        "知乎",
+        "operations",
+        "analytics",
+        "report",
+        "运营分析"
+      ]
     }
   }
 }

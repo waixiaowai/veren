@@ -1,0 +1,32 @@
+{
+  "name": "@veren/zhihu-client",
+  "displayName": "Zhihu Client",
+  "version": "0.1.0",
+  "description": "Use when a feature must read Zhihu account and content data through the official Zhihu open platform: it holds the endpoint table in one place so upstream drift is a one-file edit, normalizes the platform's responses into stable canonical types (account snapshot, content refs, per-content stats, comments, hot list, answerable questions, quota), guards the free daily quota with a local call budget and a request-interval throttle, and reports failures as structured errors with stable codes; skip it when the deployment never talks to Zhihu.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.cn.md"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^5.0.4"
+  }
+}

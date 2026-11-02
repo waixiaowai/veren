@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Zhihu Operations Analysis",
+    "description": "Pulls your own Zhihu account data from the official open platform on a schedule, derives follower growth and content performance, and writes an operations report into your inbox."
+  }
+}

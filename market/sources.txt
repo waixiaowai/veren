@@ -17,3 +17,4 @@
 @veren/im-bundle
 @veren/workbuddy-auth
 @veren/opencode-go
+@veren/zhihu-ops-bundle

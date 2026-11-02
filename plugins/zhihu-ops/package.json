@@ -1,0 +1,71 @@
+{
+  "name": "@veren/zhihu-ops",
+  "displayName": "知乎运营分析",
+  "version": "0.1.0",
+  "description": "Use when a DSH deployment must run operations analysis on the operator's own Zhihu account: it pulls the account and content statistics from the official Zhihu open platform on a daily schedule under a quota-aware budget, stores the daily snapshots in a durable storage domain, derives follower growth and content movers from them, writes an LLM-written report, and delivers that report to the operator's inbox through the task center; skip it when the deployment never analyses a Zhihu account.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.cn.md",
+    "icon.svg",
+    "locale/*.json"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {},
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-agent": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-agent-default-model": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-credentials": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-llm": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-storage-domain": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0",
+    "@veren/app-registry": "workspace:^",
+    "@veren/page-registry": "workspace:^",
+    "@veren/prompt-page": "workspace:^",
+    "@veren/task-center": "workspace:^"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/prompt-core": "workspace:^",
+    "@veren/zhihu-client": "workspace:^",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-agent": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-agent-default-model": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-credentials": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-storage-domain": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
+    "@veren/app-registry": "workspace:^",
+    "@veren/page-registry": "workspace:^",
+    "@veren/prompt-core": "workspace:^",
+    "@veren/prompt-page": "workspace:^",
+    "@veren/task-center": "workspace:^",
+    "@veren/test-support": "workspace:^",
+    "@veren/zhihu-client": "workspace:^",
+    "typescript": "^5.6.0",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}

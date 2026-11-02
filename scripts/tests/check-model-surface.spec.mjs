@@ -116,10 +116,10 @@ describe('check-model-surface', () => {
       .toEqual([['list_items'], ['remove_item'], ['task_take', 'task_fail'], ['set_rates']])
   })
 
-  it('真实仓冒烟锚：18 页 / 5 应用 / 挂载零未决', async () => {
+  it('真实仓冒烟锚：22 页 / 6 应用 / 挂载零未决', async () => {
     const surface = await buildModelSurface(ROOT)
-    expect(surface.pages.length).toBe(18)
-    expect([...surface.apps.keys()].sort()).toEqual(['forum', 'notebook', 'person-agent', 'sub2api-admin', 'task-workbench'])
+    expect(surface.pages.length).toBe(22)
+    expect([...surface.apps.keys()].sort()).toEqual(['forum', 'notebook', 'person-agent', 'sub2api-admin', 'task-workbench', 'zhihu-ops'])
     expect(normalizeMounts(surface).length).toBe(0)
     const workbench = surface.pages.find((page) => page.key === 'task-workbench/detail')
     expect(workbench.mountedFull).toContain('task_workbench__take_page_task')

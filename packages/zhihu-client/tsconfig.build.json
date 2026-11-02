@@ -1,0 +1,18 @@
+{
+  // 构建配置：把 src/*.ts 发射为 dist/*.js 与 dist/*.d.ts。
+  // Build config: emit src/*.ts as dist/*.js plus dist/*.d.ts.
+  //
+  // 源码按本仓库惯例用 `.ts` 后缀互相导入；`rewriteRelativeImportExtensions`
+  // 在发射时把它们改写成 Node 可加载的 `.js`，因此无需再改源码。
+  // Sources import each other with `.ts` specifiers per house style;
+  // `rewriteRelativeImportExtensions` rewrites them to loadable `.js` on emit,
+  // so the sources stay untouched.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["src"]
+}

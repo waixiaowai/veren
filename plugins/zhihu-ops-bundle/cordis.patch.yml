@@ -1,0 +1,31 @@
+# Zhihu operations analysis bundle: composes the app-only stack in one profile layer.
+# 知乎运营分析组合包：用一个 profile 层装好纯应用栈。
+#
+# This bundle is the ONLY profile layer of the Zhihu operations stack: the
+# member does not declare `dsh.bundle.patch`, so the dsh plugin reconciliation
+# activates exactly this layer - installing the bundle can never double-insert
+# a row. The member rides along as a plain dependency.
+# 本组合包是知乎运营技术栈唯一的 profile 层：成员不声明
+# `dsh.bundle.patch`，dsh plugin 的 reconciliation 因此只会激活这一层——
+# 安装组合包绝不会重复插行。成员只作为普通依赖随行。
+#
+# The bundle carries zero runtime code. Each `insert` row resolves by package
+# name from the bundle's own dependencies (pnpm installs them into the profile
+# alongside this bundle).
+# 组合包零运行时代码。每条 `insert` 行按包名从组合包自身的 dependencies 解析
+# （pnpm 会把它们和组合包一起装进 profile）。
+#
+# The application framework (app registry, page registry, task center, app-host)
+# is NOT listed here: it rides in through the @veren/app-host-bundle dependency
+# and inserts its own framework rows.
+# 应用框架（应用注册表、页面注册表、任务中心、app-host）不在这里罗列：
+# 它经 @veren/app-host-bundle 依赖带入，由后者插入自己的框架行。
+
+- insert:
+    # The app layer IS the whole stack: the Zhihu operations analysis as an
+    # application (overview, contents, single content, reports under
+    # /apps/zhihu-ops).
+    # 应用层即整栈：把知乎运营分析暴露为应用（/apps/zhihu-ops 下的总览、
+    # 内容列表、单篇内容与报告四页）。
+    - id: zhihu-ops
+      name: '@veren/zhihu-ops'

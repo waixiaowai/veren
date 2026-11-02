@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Zhihu Operations Analysis",
+    "description": "Installs the Zhihu operations-analysis application in one step: a daily read-only pull from the official open platform, durable snapshots, derived metrics, and an operations report delivered to your inbox."
+  }
+}

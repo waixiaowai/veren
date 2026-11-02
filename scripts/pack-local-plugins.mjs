@@ -101,6 +101,14 @@ const PACKAGES = [
   ['plugins/person-agent-bundle', '@veren/person-agent-bundle'],
   ['plugins/person-agent-tool-session', '@veren/person-agent-tool-session'],
   ['plugins/person-agent-tool-workspace', '@veren/person-agent-tool-workspace'],
+  // Zhihu operations stack: the pure client library plus the app plugin and
+  // its bundle, so @veren/zhihu-ops-bundle installs from the same local
+  // tarball set as the other bundles.
+  // 知乎运营栈：纯客户端库 + 应用插件 + 组合包，与其他组合包从同一套本地
+  // tarball 安装。
+  ['packages/zhihu-client', '@veren/zhihu-client'],
+  ['plugins/zhihu-ops', '@veren/zhihu-ops'],
+  ['plugins/zhihu-ops-bundle', '@veren/zhihu-ops-bundle'],
 ]
 
 /** Parse `--out <dir>` / 解析 `--out <目录>` */
