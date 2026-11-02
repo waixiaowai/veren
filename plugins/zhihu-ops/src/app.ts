@@ -21,6 +21,16 @@ export const APP_ID = 'zhihu-ops' as AppId
 /** 工具名前缀（进工具全名）/ the tool-name prefix */
 export const TOOL_PREFIX = 'zhihu_ops'
 
+/**
+ * 工具对外名：`<toolPrefix>__<本地名>`——本地名与全名之间的唯一折法。
+ * The external tool name: `<toolPrefix>__<localName>` — the one and only
+ * folding between a local name and a full name.
+ *
+ * @param localName - the local tool name / 本地工具名
+ * @returns the full tool name / 工具全名
+ */
+export const externalName = (localName: string): string => `${TOOL_PREFIX}__${localName}`
+
 /** 入口页键 / the entry page key */
 export const ENTRY_PAGE = 'overview' as PageKey
 

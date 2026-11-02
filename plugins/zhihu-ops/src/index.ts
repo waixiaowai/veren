@@ -84,10 +84,14 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
     throw error
   }
   if (runtime.autoPull) faces.scheduler.start()
-  ctx.effect(async () => {
-    await storage.close()
-    return () => undefined
-  }, 'zhihu-ops:storage')
+  // 卸载时关域：effect 体**立刻**执行并交出 disposer，因此这里返回的才是
+  // 卸载时才跑的那一支——直接 `ctx.effect(async () => { await close() })`
+  // 会在注册时就把域关掉。
+  // Close the domain on unload: the effect body runs **immediately** and hands
+  // over a disposer, so the disposer is the branch that runs at unload — an
+  // `ctx.effect(async () => { await close() })` would close the domain at
+  // registration time.
+  ctx.effect(() => () => storage.close(), 'zhihu-ops:storage')
 }
 
 /** 装配期构造出的各块面 / the faces built at assembly time */

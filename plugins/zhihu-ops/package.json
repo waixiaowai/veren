@@ -1,7 +1,7 @@
 {
   "name": "@veren/zhihu-ops",
   "displayName": "知乎运营分析",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Use when a DSH deployment must run operations analysis on the operator's own Zhihu account: it pulls the account and content statistics from the official Zhihu open platform on a daily schedule under a quota-aware budget, stores the daily snapshots in a durable storage domain, derives follower growth and content movers from them, writes an LLM-written report, and delivers that report to the operator's inbox through the task center; skip it when the deployment never analyses a Zhihu account.",
   "type": "module",
   "main": "./dist/index.js",

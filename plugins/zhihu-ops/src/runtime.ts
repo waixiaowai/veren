@@ -15,6 +15,7 @@
  * @module @veren/zhihu-ops/runtime
  */
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { externalName } from './app.ts'
 import type { PullOutcome } from './collect/pull.ts'
 import type { ReportRow } from './store/store.ts'
 import type { ZhihuOpsStorage } from './store/store.ts'
@@ -67,13 +68,22 @@ export function requireRuntime(): ZhihuOpsRuntime {
 
 /**
  * 按本地名取全名工具定义。
+ *
+ * 装配期把工具矩阵改名成全名（`zhihu_ops__<本地名>`），因此这里必须先把本地名
+ * 折成全名再查——页面体写的是本地名。
+ *
  * Looks up a full-named tool definition by its local name.
+ *
+ * The assembly renames the tool matrix to full names (`zhihu_ops__<localName>`),
+ * so the local name must be folded into the full name before the lookup — the
+ * page bodies speak the local name.
  *
  * @param localName - the local tool name / 本地工具名
  * @returns the tool definition / 工具定义
  */
 export function toolOf(localName: string): ToolDefinition {
-  const found = requireRuntime().tools.find((tool) => tool.name === localName)
-  if (found === undefined) throw new Error(`[zhihu-ops] tool ${localName} is not defined`)
+  const fullName = externalName(localName)
+  const found = requireRuntime().tools.find((tool) => tool.name === fullName)
+  if (found === undefined) throw new Error(`[zhihu-ops] tool ${fullName} is not defined`)
   return found
 }

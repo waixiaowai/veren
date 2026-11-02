@@ -17,7 +17,7 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { TOOL_PREFIX } from './app.ts'
+import { externalName } from './app.ts'
 
 // 类型合并扩充：复用宿主的 app/page 消息源。形状必须与 app-host 的声明逐字
 // 一致——TS 接口合并规则下两处同键成员类型不同会直接报错，漂移无处藏身。
@@ -41,8 +41,8 @@ const DEFAULT_LANG: Lang = 'zh'
 /** 应用内 URL 前缀 / the app-scoped url prefix */
 export const URL_PREFIX = '/apps/zhihu-ops'
 
-/** 工具对外名：`<toolPrefix>__<本地名>` / the external tool name */
-export const externalName = (localName: string): string => `${TOOL_PREFIX}__${localName}`
+/** 工具对外名（唯一折法住在 app.ts）/ the external tool name (the one folding lives in app.ts) */
+export { externalName }
 
 /** 双语文案 / the bilingual strings */
 export const STRINGS = {

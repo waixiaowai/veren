@@ -24,13 +24,14 @@
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context, Fiber } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { mountAppHost, expectAppRemoved, expectPagesRegisteredOnce, assertUnattendedPage, assertNoUnattendedStall } from '@veren/test-support'
 import type { AppHost } from '@veren/test-support'
 import { apply, inject, name, Config } from '../src/index.ts'
 import { APP_ID, TOOL_PREFIX } from '../src/app.ts'
 import { ContentDetailMeta } from '../src/page-content-detail.tsx'
 import { ContentsMeta } from '../src/page-contents.tsx'
-import { OverviewMeta } from '../src/page-overview.tsx'
+import { OverviewMeta, OverviewPage } from '../src/page-overview.tsx'
 import { ReportsMeta } from '../src/page-reports.tsx'
 import { createZhihuOpsTools } from '../src/tools.ts'
 
@@ -54,6 +55,18 @@ function provideStubs(ctx: Context): void {
   })
   ctx.provide('agentDefaultModel', { currentSelection: () => undefined })
   ctx.provide('llm', { stream: () => ({ async *[Symbol.asyncIterator]() { /* no chunks */ } }) })
+}
+
+/** 一个假会话 agent：记录页面体直登的工具 / a fake session agent: records the tools the body registers directly */
+function fakeAgent(registered: string[]): Agent {
+  return {
+    ctx: {
+      tools: { register: (definition: { name: string }) => { registered.push(definition.name); return () => undefined } },
+      effect: () => async () => undefined,
+      on: () => () => undefined,
+    },
+    followup: () => undefined,
+  } as unknown as Agent
 }
 
 /** 插件配置（测试用；自动采集关掉，由用例自己驱动）/ the plugin configuration (for tests; the automatic pull is off) */
@@ -118,6 +131,21 @@ describe('tool face', () => {
   it('prefixes the tool names at assembly', () => {
     const prefixed = createZhihuOpsTools().map((tool) => `${TOOL_PREFIX}__${tool.name}`)
     expect(prefixed).toContain('zhihu_ops__refresh_now')
+  })
+
+  it('resolves each page body\'s tools under their full names', async () => {
+    // 回归锚：页面体按本地名取工具，装配期工具已改名为全名——两边的折法必须一致。
+    // Regression anchor: the bodies look tools up by their local name while the
+    // assembly renamed them to full names — both sides must fold the same way.
+    host = await mount()
+    const registered: string[] = []
+    const agent = fakeAgent(registered)
+    OverviewPage({}, agent)
+    expect(registered).toEqual([
+      'zhihu_ops__refresh_now',
+      'zhihu_ops__setup_credentials',
+      'zhihu_ops__generate_report',
+    ])
   })
 })
 
