@@ -125,3 +125,13 @@ wsgw 指令回执是**同步等待且上限 10s**（`command.go:18`），而 sup
 ## 7. 终止条件
 
 真实微信里发一句任务 → 手机收到带结论的回复（同一会话）；cms 审计时间线完整可回放；混沌三剧本不变式全过；无匹配与拒绝两条负路径均有送达证据。此四条齐，任务才算完成。
+
+---
+
+## 交付记录（2026-11-02，A–E 腿完成）
+
+- **cms 侧**（main d6393377 → 3458ccf9，八笔）：契约登记（TODO 72/SESSIONS/adopted）→ 迁移 0210 四表（前沿钉）→ 错误码 7700-7799 + 权限码 taskhub:read/manage（中央登记小提交）→ 域核心（持久队列/租约重排/粗配/幂等 intake/origin 投递，红绿）→ wsgw 两个 append-only 窄口（通用事件 tap + ConnByNode + Uplink 收口）→ admin 路由 + 装配三件 + config seed 六键 + 金标 311→315 + openapi 重产 → **全链旅程测试**（真 wsgw 指令面 + 假 WS 节点 + 真库：intake→匹配→派发→接单→回复→完成→回信→时间线回放）。
+- **节点侧**（cursour 573a627）：`src/infra/taskhub/{protocol,connection}.ts`（零 cordis 薄 WS 客户端：重连退避/凭证停泊 4401/离线 FIFO 补报+ack/命令分发——契约字面双侧钉）+ `src/sources/taskhub.ts`（SourceKind 'taskhub'：注册/心跳/派发→Trigger→Eval 闸门全保留→Outbox→task.reply；ticket.ended/decision.recorded 挂 runtime.ts）+ patch yml `dsh-superagent-taskhub`（默认 disabled）+ 007 文档表 + bundle-patch 金标更新。
+- **测试**：cms 域 23 测 + wsgw 窄口 3 测 + 旅程 1 测 + 迁移 2 测全绿；fork 14 测绿（连接 5/契约 5/kind 4），typecheck + build 绿；全量套件与基线逐一对齐（Windows 预存环境失败零新增）。
+- **混沌剧本的在程覆盖**：杀节点=LeaseTick 重排（3 次到限停放+负回复，测在案）；杀 cms=节点离线 FIFO 补报（fork 连接测在案）；重复派发=节点 taskId 幂等 + cms UNIQUE(task_id,type,ref)（双侧测在案）。
+- **F 腿待真机**（见 §5，唯一剩余）：① staging cms 部署演练；② 生产 `deploy-local-pkg.sh`；③ 真机清单 = §2 Q4 六条（真实微信发单→手机收回复、SQLite 时间线、无匹配/拒绝负回复送达）；④ 节点侧真机 = 3080 或 Olares chart 启用 `dsh-superagent-taskhub` 行并配 url/token/title/tags。
