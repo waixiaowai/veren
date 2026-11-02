@@ -97,24 +97,64 @@ function overdueQueue(graphNodes: readonly CanvasNodeView[]): readonly CanvasNod
     .sort((left, right) => (left.updatedAt < right.updatedAt ? -1 : 1))
 }
 
-/** The canvas column: the graph plus the intake dock beneath it. 画布列：图区加其下的进料口。 */
-function CanvasColumn({ state, t, view }: {
+/** The floating inspector: the selected card's editor and link sections,
+ * overlaid on the canvas — the canvas is the whole face, editing rides on top
+ * of it. 浮动检查器：选中卡的编辑器与链接两段，叠在画布上——画布即整个面，
+ * 编辑骑在它上面。 */
+function CanvasInspector({ state, t, view, actions }: {
   readonly state: BodyProps['state']
   readonly t: BodyProps['t']
   readonly view: ReturnType<typeof useNotebookView>
+  readonly actions: BodyProps['actions']
+}) {
+  if (view.selectedId === undefined && !view.editingNew) return null
+  return (
+    <div className="notebook-inspector" data-canvas-control>
+      <div className="notebook-inspector-head">
+        <span>{view.editingNew ? t('newNote') : t('editNote')}</span>
+        <button type="button" className="notebook-btn" aria-label={t('close')} onClick={view.clearSelection}>×</button>
+      </div>
+      <div className="notebook-inspector-body">
+        <NotebookEditorSeat t={t} owner={state.owner} active view={view} />
+        {!view.editingNew && (
+          <NoteLinks
+            t={t}
+            owner={state.owner}
+            selectedId={view.selectedId}
+            editingNew={view.editingNew}
+            fetchLinks={actions.onCardLinks}
+            onOpenCard={openByIdIn(state, view)}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** The canvas face: the full-bleed graph, the floating inspector, and the
+ * intake dock beneath — no permanent editor column (the user's ruling). 画布
+ * 面：全幅图区、浮动检查器与其下的进料口——没有常驻编辑器栏（用户裁定）。 */
+function CanvasColumn({ state, t, view, actions }: {
+  readonly state: BodyProps['state']
+  readonly t: BodyProps['t']
+  readonly view: ReturnType<typeof useNotebookView>
+  readonly actions: BodyProps['actions']
 }) {
   const graphNodes = state.graph?.nodes ?? []
   return (
     <div className="notebook-canvas-column">
-      <CanvasGraph
-        t={t}
-        nodes={graphNodes}
-        edges={state.graph?.edges ?? []}
-        selectedId={view.selectedId}
-        onSelect={openByIdIn(state, view)}
-        onClearSelection={view.clearSelection}
-        fitKey={state.owner ?? ''}
-      />
+      <div className="notebook-canvas-wrap">
+        <CanvasGraph
+          t={t}
+          nodes={graphNodes}
+          edges={state.graph?.edges ?? []}
+          selectedId={view.selectedId}
+          onSelect={openByIdIn(state, view)}
+          onClearSelection={view.clearSelection}
+          fitKey={state.owner ?? ''}
+        />
+        <CanvasInspector state={state} t={t} view={view} actions={actions} />
+      </div>
       <CanvasDock
         t={t}
         overdue={overdueQueue(graphNodes)}
@@ -156,7 +196,9 @@ function EditorColumn({ state, t, view, actions }: {
   )
 }
 
-/** The mode-aware layout: canvas+dock or the list on the left, the editor seat on the right. 模式感知布局：左列画布+进料口或列表，右列编辑器席位。 */
+/** The mode-aware layout: canvas mode is the canvas face alone (the user's
+ * ruling); list mode keeps the list + editor columns. 模式感知布局：画布模式
+ * 只有画布面（用户裁定）；列表模式保留列表+编辑器双栏。 */
 function NotebookLayout({ state, t, view, actions, mode }: {
   readonly state: BodyProps['state']
   readonly t: BodyProps['t']
@@ -164,22 +206,25 @@ function NotebookLayout({ state, t, view, actions, mode }: {
   readonly actions: BodyProps['actions']
   readonly mode: 'canvas' | 'list'
 }) {
+  if (mode === 'canvas') {
+    return (
+      <div className="notebook-layout is-canvas">
+        <CanvasColumn state={state} t={t} view={view} actions={actions} />
+      </div>
+    )
+  }
   return (
-    <div className={`notebook-layout is-${mode}`}>
-      {mode === 'canvas'
-        ? <CanvasColumn state={state} t={t} view={view} />
-        : (
-          <NoteList
-            t={t}
-            notes={state.notes}
-            graphNodes={state.graph?.nodes ?? []}
-            selectedId={view.selectedId}
-            busy={view.busy}
-            canCreate={state.owner !== undefined}
-            onOpen={view.openFromList}
-            onCreate={view.startNew}
-          />
-        )}
+    <div className="notebook-layout is-list">
+      <NoteList
+        t={t}
+        notes={state.notes}
+        graphNodes={state.graph?.nodes ?? []}
+        selectedId={view.selectedId}
+        busy={view.busy}
+        canCreate={state.owner !== undefined}
+        onOpen={view.openFromList}
+        onCreate={view.startNew}
+      />
       <EditorColumn state={state} t={t} view={view} actions={actions} />
     </div>
   )

@@ -86,15 +86,17 @@ interface FollowInputs {
   readonly draftUpdatedAt: Draft['updatedAt']
 }
 
-/** The follow effect: select the first note once a notebook has notes, and
- * follow external edits only while the draft is clean — a dirty draft is the
- * user's, not the poll's. 跟随副作用：笔记本有笔记后选中第一条；只在草稿干净时
- * 跟随外部编辑——脏草稿属于用户，不属于轮询。 */
-function useNoteFollowEffect(inputs: FollowInputs, openNote: (note: NoteView) => void, resetSelection: () => void, deleted: { current: string | undefined }, setNotice: (notice: string) => void): void {
+/** The follow effect: select the first note once per box until the user clears
+ * the selection (an explicit clear stays cleared), and follow external edits
+ * only while the draft is clean — a dirty draft is the user's, not the poll's.
+ * 跟随副作用：每盒只自动选中第一条，直到用户显式清除（清了就保持清）；只在
+ * 草稿干净时跟随外部编辑——脏草稿属于用户，不属于轮询。 */
+function useNoteFollowEffect(inputs: FollowInputs, openNote: (note: NoteView) => void, resetSelection: () => void, deleted: { current: string | undefined }, everSelected: { current: boolean }, setNotice: (notice: string) => void): void {
   useEffect(() => {
     const { notes, selectedId, editingNew, dirty, draftUpdatedAt } = inputs
     if (editingNew) return
     if (selectedId === undefined) {
+      if (everSelected.current) return
       const first = notes[0]
       if (first !== undefined) openNote(first)
       return
@@ -182,8 +184,38 @@ function createNotebookHandlers(atoms: Parameters<typeof applyNoteSelection>[0])
   }
 }
 
-/** Hold the page's whole view state and derive its handlers. 持有页面全部视图状态并派生其处理器。 */
-export function useNotebookView(state: NotebookSnapshot, t: (key: NotebookKey) => string, actions: Omit<NotebookPanelInjected, 'hooks'>): NotebookView {
+/** 钩子体持有的全部状态原子与标记。The state atoms and markers the hook body holds. */
+interface HookState {
+  readonly state: NotebookSnapshot
+  readonly t: (key: NotebookKey) => string
+  readonly actions: Omit<NotebookPanelInjected, 'hooks'>
+  readonly selectedId: string | undefined
+  readonly draft: Draft
+  readonly editingNew: boolean
+  readonly dirty: boolean
+  readonly busy: boolean
+  readonly error: string
+  readonly notice: string
+  readonly confirmDelete: boolean
+  readonly setSelectedId: (id: string | undefined) => void
+  readonly setDraft: (draft: Draft | ((current: Draft) => Draft)) => void
+  readonly setEditingNew: (editing: boolean) => void
+  readonly setDirty: (dirty: boolean) => void
+  readonly setBusy: (busy: boolean) => void
+  readonly setError: (error: string) => void
+  readonly setNotice: (notice: string) => void
+  readonly setConfirmDelete: (confirm: boolean) => void
+  readonly deleted: { current: string | undefined }
+  readonly everSelected: { current: boolean }
+}
+
+/** 铸状态原子束；纯工厂，无 hook。Mint the atoms; a pure factory with no hooks. */
+function mintAtoms(hook: HookState): Parameters<typeof applyNoteSelection>[0] {
+  return { ...hook }
+}
+
+/** The page state's useState bundle. 页面状态的 useState 束。 */
+function useNotebookPageState() {
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
   const [editingNew, setEditingNew] = useState(false)
@@ -192,21 +224,37 @@ export function useNotebookView(state: NotebookSnapshot, t: (key: NotebookKey) =
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  return {
+    selectedId, setSelectedId, draft, setDraft, editingNew, setEditingNew, dirty, setDirty,
+    busy, setBusy, error, setError, notice, setNotice, confirmDelete, setConfirmDelete,
+  }
+}
+
+/** Hold the page's whole view state and derive its handlers. 持有页面全部视图状态并派生其处理器。 */
+export function useNotebookView(state: NotebookSnapshot, t: (key: NotebookKey) => string, actions: Omit<NotebookPanelInjected, 'hooks'>): NotebookView {
+  const page = useNotebookPageState()
   // The note this page just deleted, until the refreshed list drops it.
   // 本页刚删除的笔记，直到刷新后的列表不再包含它。
   const deleted = useRef<string | undefined>(undefined)
-  const atoms = {
-    state, t, actions, selectedId, draft, editingNew, dirty, busy, error, notice, confirmDelete,
-    setSelectedId, setDraft, setEditingNew, setDirty, setBusy, setError, setNotice, setConfirmDelete,
-    deleted,
-  }
-  useOwnerChangeReset(state.owner, () => { applySelectionReset(atoms); atoms.setNotice('') })
+  // Whether anything was selected since the owner switched — the auto-select gate.
+  // 换归属以来是否选中过——自动选中的闸门。
+  const everSelected = useRef(false)
+  const atoms = mintAtoms({
+    state, t, actions, ...page,
+    deleted, everSelected,
+  })
+  useOwnerChangeReset(state.owner, () => {
+    everSelected.current = false
+    applySelectionReset(atoms)
+    atoms.setNotice('')
+  })
   useNoteFollowEffect(
-    { notes: state.notes, selectedId, editingNew, dirty, draftUpdatedAt: draft.updatedAt },
+    { notes: state.notes, selectedId: page.selectedId, editingNew: page.editingNew, dirty: page.dirty, draftUpdatedAt: page.draft.updatedAt },
     note => { applyNoteSelection(atoms, note) },
     () => { applySelectionReset(atoms) },
     deleted,
-    setNotice,
+    everSelected,
+    page.setNotice,
   )
   return createNotebookHandlers(atoms)
 }

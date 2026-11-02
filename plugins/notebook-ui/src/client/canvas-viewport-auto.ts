@@ -86,52 +86,63 @@ export interface PointerPan {
   readonly onPointerEnd: (event: ReactPointerEvent<HTMLDivElement>) => void
 }
 
-/** Track a pointer pan; below the threshold nothing moves yet. 跟踪指针平移；阈值以下不动。 */
-function trackPan(dragRef: { current: DragState | undefined }, setView: Dispatch<SetStateAction<Viewport>>, event: ReactPointerEvent<HTMLDivElement>): void {
-  const drag = dragRef.current
-  if (drag === undefined || drag.pointerId !== event.pointerId) return
-  const dx = event.clientX - drag.startX
-  const dy = event.clientY - drag.startY
-  if (!drag.moved && Math.abs(dx) + Math.abs(dy) < PAN_THRESHOLD) return
-  drag.moved = true
-  setView(current => ({ ...current, x: drag.origin.x + dx, y: drag.origin.y + dy }))
-}
-
-/** Begin a pan on primary-button press, never on an interactive child. 主键按下才开始平移，交互子元素除外。 */
-function beginPan(dragRef: { current: DragState | undefined }, origin: Viewport, setDragging: Dispatch<SetStateAction<boolean>>, event: ReactPointerEvent<HTMLDivElement>): void {
+/** Begin a pan candidate on primary-button press: no capture yet — a plain
+ * click must reach its real target (nodes, edge hit lines); capture only
+ * starts once the drag crosses the threshold. 主键按下只立平移候选：先不捕获
+ * ——纯点击必须落到真目标（节点、边命中线）；越过阈值才开捕获。 */
+function beginPan(dragRef: { current: DragState | undefined }, origin: Viewport, event: ReactPointerEvent<HTMLDivElement>): void {
   if (event.button !== 0) return
   if ((event.target as Element).closest('button, a, [data-canvas-control]') !== null) return
   dragRef.current = {
     pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, origin, moved: false,
   }
-  event.currentTarget.setPointerCapture?.(event.pointerId)
-  setDragging(true)
 }
 
-/** Own the pointer pan for one stage element. 为一个舞台元素持有指针平移。 */
-export function usePointerPan(view: Viewport, setView: Dispatch<SetStateAction<Viewport>>, onBackgroundClick: () => void): PointerPan {
+/** Track a drag already past the threshold: capture now and pan. 越阈后的拖拽：此刻捕获并平移。 */
+function panBy(drag: DragState, setDragging: Dispatch<SetStateAction<boolean>>, setView: Dispatch<SetStateAction<Viewport>>, event: ReactPointerEvent<HTMLDivElement>): void {
+  if (!drag.moved) {
+    // The drag is real: capture now, so the rest of the gesture is ours and
+    // plain clicks stay untouched.
+    // 拖拽成立：此刻才捕获——后续手势归我们，纯点击不受影响。
+    drag.moved = true
+    setDragging(true)
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+  }
+  const dx = event.clientX - drag.startX
+  const dy = event.clientY - drag.startY
+  setView(current => ({ ...current, x: drag.origin.x + dx, y: drag.origin.y + dy }))
+}
+
+/** Own the pointer pan for one stage element; `onBackgroundClick` fires from
+ * the stage's own onClick for clicks that hit nothing interactive. 为一个舞台
+ * 元素持有指针平移；空白处的点击由舞台自身 onClick 经 `onBackgroundClick` 发出。 */
+export function usePointerPan(view: Viewport, setView: Dispatch<SetStateAction<Viewport>>): PointerPan {
   const dragRef = useRef<DragState | undefined>(undefined)
   const [dragging, setDragging] = useState(false)
   const onPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>): void => {
-    beginPan(dragRef, view, setDragging, event)
+    beginPan(dragRef, view, event)
   }, [view])
   const onPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>): void => {
-    trackPan(dragRef, setView, event)
+    const drag = dragRef.current
+    if (drag === undefined || drag.pointerId !== event.pointerId) return
+    const dx = event.clientX - drag.startX
+    const dy = event.clientY - drag.startY
+    if (!drag.moved && Math.abs(dx) + Math.abs(dy) < PAN_THRESHOLD) return
+    panBy(drag, setDragging, setView, event)
   }, [setView])
   const onPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>): void => {
     const drag = dragRef.current
     if (drag === undefined || drag.pointerId !== event.pointerId) return
     dragRef.current = undefined
     setDragging(false)
+    if (!drag.moved) return
     try {
       event.currentTarget.releasePointerCapture?.(event.pointerId)
     } catch {
       // The pointer may already be released; losing capture is harmless.
       // 指针可能早已释放；丢捕获无害。
     }
-    const target = event.target as Element
-    if (!drag.moved && target.closest('button, a, [data-canvas-control]') === null) onBackgroundClick()
-  }, [onBackgroundClick])
+  }, [])
   return { dragging, onPointerDown, onPointerMove, onPointerEnd }
 }
 

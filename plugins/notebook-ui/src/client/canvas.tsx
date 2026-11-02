@@ -120,7 +120,11 @@ function CanvasNode({ t, node, x, y, selected, dimmed, onSelect }: {
   )
 }
 
-/** The SVG edge layer: one hit group per edge. SVG 边层：每边一个命中组。 */
+/** The SVG edge layer: one hit group per edge. The svg viewport explicitly
+ * covers the drawing (a 0×0 svg relying on overflow has proven to clip in the
+ * wild), lines live in a translate group back in center-origin coordinates.
+ * SVG 边层：每边一个命中组。svg 视口显式盖住整幅图（0×0 靠 overflow 的写法在
+ * 野外被裁剪过），线画在 translate 组里，保持中心原点坐标。 */
 function EdgeLayer({ edges, layout, activeIds, onHover, onSelect }: {
   readonly edges: readonly CanvasEdgeView[]
   readonly layout: ReturnType<typeof layoutCanvas>
@@ -129,18 +133,26 @@ function EdgeLayer({ edges, layout, activeIds, onHover, onSelect }: {
   readonly onSelect: (id: string) => void
 }): React.ReactElement {
   return (
-    <svg className="notebook-canvas-edges" width="0" height="0" aria-hidden="true">
-      {edges.map((edge, index) => (
-        <CanvasEdgeHit
-          key={`${edge.sourceId}-${edge.targetId}`}
-          edge={edge}
-          index={index}
-          lit={activeIds === undefined || (activeIds.has(edge.sourceId) && activeIds.has(edge.targetId))}
-          layout={layout}
-          onHover={onHover}
-          onSelect={onSelect}
-        />
-      ))}
+    <svg
+      className="notebook-canvas-edges"
+      width={Math.max(1, layout.width)}
+      height={Math.max(1, layout.height)}
+      style={{ left: `${String(-layout.width / 2)}px`, top: `${String(-layout.height / 2)}px` }}
+      aria-hidden="true"
+    >
+      <g transform={`translate(${String(layout.width / 2)}, ${String(layout.height / 2)})`}>
+        {edges.map((edge, index) => (
+          <CanvasEdgeHit
+            key={`${edge.sourceId}-${edge.targetId}`}
+            edge={edge}
+            index={index}
+            lit={activeIds === undefined || (activeIds.has(edge.sourceId) && activeIds.has(edge.targetId))}
+            layout={layout}
+            onHover={onHover}
+            onSelect={onSelect}
+          />
+        ))}
+      </g>
     </svg>
   )
 }
@@ -189,6 +201,7 @@ function CanvasStage({ viewport, children }: {
       onPointerMove={viewport.onPointerMove}
       onPointerUp={viewport.onPointerEnd}
       onPointerCancel={viewport.onPointerEnd}
+      onClick={viewport.onBackgroundClick}
     >
       <div
         className="notebook-canvas-world"

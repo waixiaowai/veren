@@ -1,19 +1,22 @@
 # Notebook Canvas Interaction Spec + Spike Report
 
 > Status: **implemented, shipping with 4.0.0-rc.2**. Task book: docs/notebook-canvas-expiry-task.md (the D rulings in its §3).
-> This file combines P0 deliverable 2 (the interaction spec) with deliverable 1 (the spike report); the real-machine numbers live in the rc.2 acceptance report under docs/acceptance/.
+> **Three real-machine user rulings (2026-11-03, overriding D2's default form, all implemented)**: ① "all canvas, no editor" — canvas mode is full-bleed, the permanent editor column removed, the selected card shown in a floating inspector (top-left, × to close); ② "node relations as nodes and edges" — edges must be visible (explicit SVG viewport); ③ "no blank margins" — all width caps removed, the panel spans full width. The list mode stays as the index/accessible equivalent face.
+> This file combines P0 deliverable 2 (the interaction spec) with deliverable 1 (the spike report); the real-machine numbers live in the rc.2 acceptance report under docs/acceptance/notebook-4.0.0-rc.2/.
 
 ## 1. The three state machines
 
-### 1.1 Selection (canvas ↔ editor share one source)
+### 1.1 Selection (canvas ↔ floating inspector share one source)
 
 ```
-[none] --click node / click edge (target) / list row / dock title--> [selected id]
+[none] --click node / click edge (target) / list row / dock title--> [selected id] (inspector opens)
 [selected] --click another node / another edge--> [selected new id]  (local switch, zero network)
-[selected] --click empty canvas (no drag)--> [none]
+[selected] --click empty canvas / inspector ×--> [none] (an explicit clear stays cleared)
 [selected] --promote succeeds--> [selected new permanent id]         (driven by the promote return)
 [selected] --delete / trash succeeds--> [none]
 ```
+
+- The auto-select gate: each box auto-selects its first card only while nothing was ever selected; an explicit clear (empty canvas / ×) is never overridden; an owner switch resets the gate.
 
 - Selection loads the editor draft (`applyNoteSelection`); a dirty draft is never overwritten by the poll (the existing guard).
 - Selection is purely local: any selection switch on the canvas issues **zero network requests** (acceptance item 5).
@@ -25,8 +28,10 @@
 [fit] --wheel (cursor-anchored)--> [zoom 0.25–2.0]
 [fit/zoom] --pointer down → move ≥4px--> [pan] --release--> [previous]
 [any] --toolbar +/− --> [center-anchored zoom ×1.25 / ×0.8]
-[any] --double-click empty / toolbar "fit" --> [fit]
+[any] --toolbar "fit" --> [fit]
 ```
+
+- The click/pan boundary: within 4px it is a plain click (reaching the real target — node buttons, edge hit lines); only past the threshold is the pointer captured for panning — so native clicks are never swallowed by pointer capture.
 
 ### 1.3 Edge hover
 

@@ -37,8 +37,6 @@
   justify-content: space-between;
   gap: 18px;
   width: 100%;
-  max-width: 1120px;
-  margin: 0 auto;
   padding: 24px 32px 14px;
 }
 .notebook-heading-row { display: flex; align-items: center; gap: 10px; }
@@ -110,9 +108,9 @@
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  max-width: 1120px;
-  margin: 0 auto 8px;
+  margin: 0 32px 8px;
   padding: 9px 12px;
+  width: calc(100% - 64px);
   border: 1px solid color-mix(in srgb, var(--nb-danger) 22%, transparent);
   border-radius: 10px;
   background: color-mix(in srgb, var(--nb-danger) 8%, transparent);
@@ -125,9 +123,7 @@
   grid-template-columns: 310px minmax(0, 1fr);
   gap: 18px;
   width: 100%;
-  max-width: 1120px;
   min-height: 0;
-  margin: 0 auto;
   padding: 0 32px 28px;
 }
 .notebook-list, .notebook-editor {

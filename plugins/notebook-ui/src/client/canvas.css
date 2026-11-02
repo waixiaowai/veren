@@ -36,14 +36,64 @@
   box-shadow: var(--dsw-shadow-lv1);
 }
 
-/* ---- layout: the canvas column is the wide one; list keeps 310px ---- */
-.notebook-layout.is-canvas { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+/* ---- layout: canvas mode is full-bleed; list keeps the two columns ---- */
+.notebook-layout.is-canvas { grid-template-columns: minmax(0, 1fr); }
 .notebook-canvas-column {
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-height: 0;
   min-width: 0;
+}
+.notebook-canvas-wrap { position: relative; display: flex; flex: 1 1 auto; min-height: 0; }
+.notebook-canvas-wrap .notebook-canvas { flex: 1 1 auto; }
+
+/* ---- floating inspector over the canvas (top-left; zoom toolbar is top-right) ---- */
+.notebook-inspector {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  width: min(400px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  overflow: hidden;
+  border: 1px solid var(--nb-border-soft);
+  border-radius: 14px;
+  background: var(--nb-surface);
+  box-shadow: var(--dsw-shadow-lv2, var(--dsw-shadow-lv1));
+}
+.notebook-inspector-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 8px 8px 14px;
+  border-bottom: 1px solid var(--nb-border-soft);
+  font-weight: 650;
+  font-size: 12.5px;
+  color: var(--nb-secondary);
+}
+.notebook-inspector-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px;
+}
+/* The editor/links sections keep their own frames on the list face; inside the
+ * inspector the panel is the frame — flatten them. 编辑器/链接两段在列表面自带
+ * 边框；检查器里面板即边框——拍平。 */
+.notebook-inspector .notebook-editor,
+.notebook-inspector .notebook-links {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
 }
 
 /* ---- canvas frame ---- */
@@ -86,10 +136,10 @@
 .notebook-canvas-world { position: absolute; left: 0; top: 0; will-change: transform; }
 
 /* ---- edges: ink line + wide transparent hit line ---- */
-.notebook-canvas-edges { position: absolute; left: 0; top: 0; overflow: visible; }
+.notebook-canvas-edges { position: absolute; overflow: visible; }
 .notebook-canvas-edge {
-  stroke: color-mix(in srgb, var(--nb-accent) 55%, var(--nb-border));
-  stroke-width: 1.5;
+  stroke: color-mix(in srgb, var(--nb-accent) 62%, var(--nb-border));
+  stroke-width: 1.8;
   fill: none;
   pointer-events: none;
   transition: opacity .15s ease;

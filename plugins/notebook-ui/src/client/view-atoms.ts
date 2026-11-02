@@ -46,6 +46,10 @@ export interface ViewAtoms {
   readonly setNotice: (notice: string) => void
   readonly setConfirmDelete: (confirm: boolean) => void
   readonly deleted: { current: string | undefined }
+  /** Whether any card was selected since the last owner switch — gates the
+   * auto-select-first so an explicit clear stays cleared. 自上次换归属以来是否
+   * 选中过卡——给「自动选中第一条」上闸，显式清除后不再自动回选。 */
+  readonly everSelected: { current: boolean }
 }
 
 /** Render one failure as a single line. */
@@ -59,6 +63,7 @@ export function messageOf(error: unknown): string {
  * Select one note: remember the selection, load its draft, and clear the
  * leftover edit state. */
 export function applyNoteSelection(atoms: ViewAtoms, note: NoteView): void {
+  atoms.everSelected.current = true
   atoms.setSelectedId(note.id)
   atoms.setEditingNew(false)
   atoms.setDraft({ title: note.title, body: note.body, updatedAt: note.updatedAt })
