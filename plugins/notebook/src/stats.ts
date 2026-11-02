@@ -14,7 +14,7 @@
  */
 
 import { ledgerSince } from './ledger.ts'
-import { intakeView } from './queue.ts'
+import { FLEETING_DAYS, intakeView } from './queue.ts'
 import type { NotebookTable } from './storage.ts'
 import type { BoxIntakeView, BoxRateView, BoxStatsView, LedgerRecord, LinkRecord, NoteRecord } from './types.ts'
 
@@ -28,6 +28,7 @@ export const RATES_WINDOW_DAYS = 7
  * @param ledger - the lifecycle ledger table.
  * @param owner - preset id whose box is read.
  * @param nowMs - the current time in epoch milliseconds.
+ * @param days - the fleeting freshness window in days (default {@link FLEETING_DAYS}).
  * @returns the readout; density counts graph citizens only (fleeting cards are
  *   not on the graph, so they never dilute it).
  *
@@ -39,6 +40,7 @@ export function boxStats(
   ledger: NotebookTable<LedgerRecord>,
   owner: string,
   nowMs: number,
+  days = FLEETING_DAYS,
 ): BoxStatsView {
   const cards = { fleeting: 0, permanent: 0, project: 0 }
   for (const record of notes.all()) {
@@ -48,7 +50,7 @@ export function boxStats(
   let linkRows = 0
   for (const row of links.all()) if (row.owner === owner) linkRows += 1
   const citizens = cards.permanent + cards.project
-  const intake: BoxIntakeView = intakeView(notes, owner, nowMs)
+  const intake: BoxIntakeView = intakeView(notes, owner, nowMs, days)
   return {
     cards,
     links: linkRows,

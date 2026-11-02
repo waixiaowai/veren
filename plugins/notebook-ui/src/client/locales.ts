@@ -25,6 +25,8 @@ export type NotebookKey =
   | 'removed' | 'updatedAt' | 'selectNote' | 'close'
   | 'linksTitle' | 'linksLoading' | 'linksFailed' | 'outgoing' | 'outgoingEmpty' | 'incoming' | 'incomingEmpty'
   | 'kindFleeting' | 'kindPermanent' | 'kindProject'
+  | 'modeCanvas' | 'modeList' | 'canvasTitle' | 'canvasFit' | 'canvasZoomIn' | 'canvasZoomOut'
+  | 'intakeTitle' | 'intakeHint' | 'promote' | 'promoted' | 'trash' | 'dueIn' | 'overdueFor'
 
 /** Chinese dictionary. */
 export const zh: Record<NotebookKey, string> = {
@@ -73,6 +75,19 @@ export const zh: Record<NotebookKey, string> = {
   kindFleeting: '闪念',
   kindPermanent: '永久',
   kindProject: '项目',
+  modeCanvas: '画布',
+  modeList: '列表',
+  canvasTitle: '卡片画布',
+  canvasFit: '适配',
+  canvasZoomIn: '放大',
+  canvasZoomOut: '缩小',
+  intakeTitle: '进料口',
+  intakeHint: '过期的闪念在这里等加工：炼成永久卡，或扔掉',
+  promote: '炼成',
+  promoted: '已炼成永久卡',
+  trash: '扔',
+  dueIn: '剩 {d} 天',
+  overdueFor: '已过期 {d} 天',
 }
 
 /** English dictionary. */
@@ -122,4 +137,17 @@ export const en: Record<NotebookKey, string> = {
   kindFleeting: 'Fleeting',
   kindPermanent: 'Permanent',
   kindProject: 'Project',
+  modeCanvas: 'Canvas',
+  modeList: 'List',
+  canvasTitle: 'Card canvas',
+  canvasFit: 'Fit',
+  canvasZoomIn: 'Zoom in',
+  canvasZoomOut: 'Zoom out',
+  intakeTitle: 'Intake queue',
+  intakeHint: 'Overdue fleeting cards wait here: promote them, or trash them',
+  promote: 'Promote',
+  promoted: 'Promoted to a permanent card',
+  trash: 'Trash',
+  dueIn: '{d}d left',
+  overdueFor: 'overdue {d}d',
 }

@@ -39,6 +39,34 @@ export interface NotebookHeaderProps {
   readonly onRefresh: () => void
   readonly onStartNew: () => void
   readonly onExport: (owner: string) => void
+  /** The view mode toggle's state and labels; hidden when `undefined`. 视图模式切换的状态与文案；`undefined` 时隐藏。 */
+  readonly mode?: {
+    readonly value: 'canvas' | 'list'
+    readonly canvasLabel: string
+    readonly listLabel: string
+    readonly onChange: (mode: 'canvas' | 'list') => void
+  } | undefined
+}
+
+/** 画布/列表模式切换：两枚按钮的分段控件。The canvas/list mode toggle: a segmented two-button control. */
+function ViewModeToggle({ mode }: { readonly mode: NonNullable<NotebookHeaderProps['mode']> }) {
+  const option = (value: 'canvas' | 'list', label: string) => (
+    <button
+      key={value}
+      type="button"
+      className={`notebook-mode-btn${mode.value === value ? ' is-active' : ''}`}
+      aria-pressed={mode.value === value}
+      onClick={() => { mode.onChange(value) }}
+    >
+      {label}
+    </button>
+  )
+  return (
+    <div className="notebook-mode" role="group" aria-label={`${mode.canvasLabel} / ${mode.listLabel}`}>
+      {option('canvas', mode.canvasLabel)}
+      {option('list', mode.listLabel)}
+    </div>
+  )
 }
 
 /** The heading block: glyph + title + subtitle. 标题块：图形 + 标题 + 副标题。 */
@@ -120,6 +148,7 @@ export function NotebookHeader(props: NotebookHeaderProps) {
     <header className="notebook-header">
       <NotebookHeading heading={props.heading} subtitle={props.subtitle} />
       <div className="notebook-actions">
+        {props.mode !== undefined && <ViewModeToggle mode={props.mode} />}
         <NotebookOwnerSelect
           label={props.ownerLabel}
           hint={props.ownerHint}

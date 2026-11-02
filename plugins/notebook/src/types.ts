@@ -169,11 +169,15 @@ export interface NotePatch {
 }
 
 /**
- * Notebook plugin configuration. Empty today — the global-tools switch retired
- * with the global registration; the field set stays reserved.
- * 记事本插件配置。当前为空——全局注册退役时其开关一并删除；字段集保留备用。
+ * Notebook plugin configuration.
+ * 记事本插件配置。
  */
-/** One proposed unexpected connection: two cards sharing neighbors without linking. 一条被提议的意外连接：共享邻居却未互链的两张卡。 */
+export interface NotebookConfig {
+  /** Mount the consult/write tool face into every session of every preset. 把咨询/写入工具面挂进每个预设的任意会话。 */
+  readonly globalTools: { readonly enabled: boolean }
+  /** The fleeting card's freshness window, in days; optional — the service clamps and defaults it to 2. 闪念卡的保鲜窗（天）；可省——服务端钳制并默认取 2。 */
+  readonly freshness?: { readonly fleetingWindowDays: number }
+}
 export interface RiddleView {
   readonly aId: string
   readonly aTitle: string
@@ -246,9 +250,39 @@ export interface BoxStatsView {
   readonly rates: BoxRateView
 }
 
-export interface NotebookConfig {
-  /** Mount the consult/write tool face into every session of every preset. 把咨询/写入工具面挂进每个预设的任意会话。 */
-  readonly globalTools: { readonly enabled: boolean }
+/** One fleeting card's aging state, derived from the freshness window at read time. 由保鲜窗在读取时派生的闪念老化态。 */
+export type FleetingAging = 'fresh' | 'overdue'
+
+/** One card as the canvas face reads it: a list summary plus its two resolved link counts and, for fleeting cards, the derived aging. 画布面读到的一张卡：列表摘要加两个已解析的链接计数；闪念卡另带派生老化。 */
+export interface CanvasNodeView {
+  readonly id: string
+  readonly title: string
+  readonly excerpt: string
+  readonly createdAt: string
+  readonly updatedAt: string
+  readonly kind: NoteKind
+  /** Resolved inbound-link count; fleeting cards are never targets, so theirs is always 0. 已解析的入链数；闪念永不是目标，恒为 0。 */
+  readonly inbound: number
+  /** Resolved outbound-link count; fleeting bodies never join the graph, so theirs is always 0. 已解析的出链数；闪念正文不入图，恒为 0。 */
+  readonly outbound: number
+  /** Fleeting cards only: the derived aging state. 仅闪念卡：派生老化态。 */
+  readonly aging?: FleetingAging
+  /** Fleeting cards only: the derived deadline (updatedAt + window), ISO. 仅闪念卡：派生到期时刻（updatedAt + 窗口），ISO。 */
+  readonly expiresAt?: string
+}
+
+/** One resolved graph edge between two card ids; self-edges and dangling targets never surface. 两张卡之间的一条已解析边；自环与悬空目标绝不出现。 */
+export interface CanvasEdgeView {
+  readonly sourceId: string
+  readonly targetId: string
+}
+
+/** One box's whole graph face in one read: nodes, resolved edges, riddles, and the breathing readout. 一次读出的某盒整张图面：节点、已解析边、谜面与呼吸读数。 */
+export interface BoxGraphView {
+  readonly nodes: readonly CanvasNodeView[]
+  readonly edges: readonly CanvasEdgeView[]
+  readonly riddles: readonly RiddleView[]
+  readonly stats: BoxStatsView
 }
 
 /**

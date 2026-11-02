@@ -37,9 +37,9 @@ type LinksState =
   | { readonly kind: 'ready'; readonly links: CardLinkView }
   | { readonly kind: 'failed'; readonly message: string }
 
-/** Render the selected card's two link directions. 渲染选中卡片的两个链接方向。 */
-export function NoteLinks(props: NoteLinksProps): React.ReactElement | null {
-  const { t, owner, selectedId, editingNew, fetchLinks, onOpenCard } = props
+/** 选中卡的链接两向：选择变化即取，其余时刻不动。
+ * The selected card's two link directions: fetched on selection change, untouched otherwise. */
+function useCardLinks(owner: string | undefined, selectedId: string | undefined, editingNew: boolean, fetchLinks: NoteLinksProps['fetchLinks']): LinksState {
   const [state, setState] = useState<LinksState>({ kind: 'idle' })
   // The fetch callback rides a ref: it is an action, not data. Keying the
   // effect on the callback's identity refetched cardLinks on every render —
@@ -65,7 +65,13 @@ export function NoteLinks(props: NoteLinksProps): React.ReactElement | null {
       })
     return () => { live = false }
   }, [owner, selectedId, editingNew])
+  return state
+}
 
+/** Render the selected card's two link directions. 渲染选中卡片的两个链接方向。 */
+export function NoteLinks(props: NoteLinksProps): React.ReactElement | null {
+  const { t, owner, selectedId, editingNew, fetchLinks, onOpenCard } = props
+  const state = useCardLinks(owner, selectedId, editingNew, fetchLinks)
   if (state.kind === 'idle') return null
   return (
     <section className="notebook-links" aria-label={t('linksTitle')}>

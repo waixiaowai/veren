@@ -1,23 +1,19 @@
 /**
  * The notebook page's view state: one custom hook holding the selection, the
- * draft, and every handler the header/list/editor render. Pure view state on
- * top of the inject face's callbacks — it never touches `ctx`, and a re-render
- * on selection change stays local to the body that calls the hook. The two
- * lifecycle effects and the shared reset live in their own named helpers so
- * every function here stays small.
+ * draft, and every handler the header/canvas/list/editor render. Pure view
+ * state on top of the inject face's callbacks — it never touches `ctx`, and a
+ * re-render on selection change stays local to the body that calls the hook.
  *
- * 记事本页面的视图状态：一个自定义钩子，持有选中项、草稿与头部/列表/编辑器
- * 渲染所需的全部处理器。它只是注入面回调之上的纯视图状态——绝不碰 `ctx`，
- * 选中变化引起的重渲染也只落在调用钩子的页面主体上。两个生命周期副作用与
- * 共用重置各自成命名助手，保证这里每个函数都很小。
+ * The state atoms and the save/remove/promote flows live in `view-atoms.ts`;
+ * this file keeps only the React glue (useState / ref / effects / assembly)
+ * and the handler factory.
  *
- * 职责分域：状态原子（快照值 + setter）打包成 ViewAtoms 在钩子与模块级助手间
- * 传递；选中迁移、保存/删除流程与处理器铸造各自是模块级纯函数；钩子本体只留
- * React 粘合（useState / ref / effects / 装配）。
- * Duty domains: the state atoms (snapshot values + setters) travel as ViewAtoms
- * between the hook and the module-level helpers; the selection moves, the
- * save/remove flows, and the handler minting are module-level pure functions;
- * the hook body keeps only the React glue (useState / ref / effects / assembly).
+ * 记事本页面的视图状态：一个自定义钩子，持有选中项、草稿与头部/画布/列表/编辑
+ * 器渲染所需的全部处理器。它只是注入面回调之上的纯视图状态——绝不碰 `ctx`，
+ * 选中变化引起的重渲染也只落在调用钩子的页面主体上。
+ *
+ * 状态原子束与保存/删除/炼成流程在 `view-atoms.ts`；本文件只留 React 粘合
+ * （useState / ref / effects / 装配）与处理器铸造。
  *
  * @module @veren/notebook-ui/client/use-notebook-view
  */
@@ -25,8 +21,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { EMPTY_DRAFT } from './editor.tsx'
 import type { Draft } from './editor.tsx'
-import type { NoteView, NotebookPanelInjected, NotebookSnapshot } from './remote.ts'
+import type { NoteKind, NoteView, NotebookPanelInjected, NotebookSnapshot } from './remote.ts'
 import type { NotebookKey } from './locales.ts'
+import {
+  applyNoteSelection, applySelectionReset, promoteCard, removeCardById, removeCurrent, saveCurrent,
+} from './view-atoms.ts'
 
 /** Everything the page body needs, with the inject face already resolved. */
 export interface BodyProps {
@@ -38,6 +37,8 @@ export interface BodyProps {
 /** The view state and handlers the page body renders from. 页面主体渲染所依据的视图状态与处理器。 */
 export interface NotebookView {
   readonly selectedId: string | undefined
+  /** The selected card's kind, or `undefined` when nothing is selected. 选中卡的类别，未选中为 `undefined`。 */
+  readonly selectedKind: NoteKind | undefined
   readonly editingNew: boolean
   readonly draft: Draft
   readonly dirty: boolean
@@ -52,13 +53,14 @@ export interface NotebookView {
   edit(patch: Partial<Pick<Draft, 'title' | 'body'>>): void
   save(): Promise<void>
   remove(): Promise<void>
-}
-
-/** Render one failure as a single line. */
-function messageOf(error: unknown): string {
-  if (error instanceof Error) return error.message
-  if (typeof error === 'object' && error !== null && 'message' in error) return String(error.message)
-  return String(error)
+  /** Drop the selection (a click on empty canvas). 清除选中（点在空画布上）。 */
+  clearSelection(): void
+  /** Promote the selected fleeting card into a permanent card. 把选中的闪念卡炼成永久卡。 */
+  promoteSelected(): Promise<void>
+  /** Promote one card by id — the intake dock's entry. 按 id 炼成一张卡——进料口的入口。 */
+  promoteCard(id: string): Promise<void>
+  /** Remove one card by id — the intake dock's confirmed trash. 按 id 删除一张卡——进料口确认过的「扔」。 */
+  removeCard(id: string): Promise<void>
 }
 
 /** A different owner means a different notebook: drop the old draft first.
@@ -114,142 +116,16 @@ function useNoteFollowEffect(inputs: FollowInputs, openNote: (note: NoteView) =>
   }, [inputs.notes, inputs.selectedId, inputs.editingNew, inputs.dirty, inputs.draftUpdatedAt])
 }
 
-/** 钩子与模块级助手共享的状态原子束：快照值、setter、动作面与删除标记。
- * The atom bundle shared by the hook and the module-level helpers: snapshot
- * values, setters, the action face, and the deletion marker. */
-interface ViewAtoms {
-  readonly state: NotebookSnapshot
-  readonly t: (key: NotebookKey) => string
-  readonly actions: Omit<NotebookPanelInjected, 'hooks'>
-  readonly selectedId: string | undefined
-  readonly draft: Draft
-  readonly editingNew: boolean
-  readonly dirty: boolean
-  readonly busy: boolean
-  readonly error: string
-  readonly notice: string
-  readonly confirmDelete: boolean
-  readonly setSelectedId: (id: string | undefined) => void
-  readonly setDraft: (draft: Draft | ((current: Draft) => Draft)) => void
-  readonly setEditingNew: (editing: boolean) => void
-  readonly setDirty: (dirty: boolean) => void
-  readonly setBusy: (busy: boolean) => void
-  readonly setError: (error: string) => void
-  readonly setNotice: (notice: string) => void
-  readonly setConfirmDelete: (confirm: boolean) => void
-  readonly deleted: { current: string | undefined }
+/** 选中卡片的类别，从已加载的盒里找回。The selected card's kind, recovered from the loaded box. */
+function selectedKindOf(atoms: Parameters<typeof applyNoteSelection>[0]): NotebookView['selectedKind'] {
+  return atoms.selectedId === undefined
+    ? undefined
+    : atoms.state.notes.find(note => note.id === atoms.selectedId)?.kind
 }
 
-/** 选中一条笔记：记下选中、载入草稿并清掉残留的编辑态。
- * Select one note: remember the selection, load its draft, and clear the
- * leftover edit state. */
-function applyNoteSelection(atoms: ViewAtoms, note: NoteView): void {
-  atoms.setSelectedId(note.id)
-  atoms.setEditingNew(false)
-  atoms.setDraft({ title: note.title, body: note.body, updatedAt: note.updatedAt })
-  atoms.setDirty(false)
-  atoms.setConfirmDelete(false)
-  atoms.setError('')
-}
-
-/** 选中/新建之外的落定形状（不动 notice）。
- * The settled shape outside a selection or a new draft (notice untouched). */
-function applySelectionReset(atoms: ViewAtoms): void {
-  atoms.setSelectedId(undefined)
-  atoms.setEditingNew(false)
-  atoms.setDraft(EMPTY_DRAFT)
-  atoms.setDirty(false)
-  atoms.setConfirmDelete(false)
-  atoms.setError('')
-}
-
-/**
- * 保存流程的执行段：busy/错误行置位、按新建或更新写入、成功后选中并刷新。
- * The execution half of the save flow: set busy/error lines, write as create or
- * update, then select the saved note and refresh.
- */
-async function runSaveFlow(atoms: ViewAtoms, owner: string, title: string, openNote: (note: NoteView) => void): Promise<void> {
-  const { t, actions, editingNew, selectedId, draft } = atoms
-  atoms.setBusy(true)
-  atoms.setError('')
-  atoms.setNotice('')
-  try {
-    const note = editingNew
-      ? await actions.onCreate({ owner, title, body: draft.body })
-      : selectedId === undefined
-        ? undefined
-        : await actions.onUpdate({
-          owner,
-          id: selectedId,
-          title,
-          body: draft.body,
-          ...draft.updatedAt === undefined ? {} : { expectedUpdatedAt: draft.updatedAt },
-        })
-    if (note === undefined) return
-    openNote(note)
-    atoms.setNotice(t('saved'))
-    actions.onRefresh()
-  } catch (cause: unknown) {
-    atoms.setError(messageOf(cause))
-  } finally {
-    atoms.setBusy(false)
-  }
-}
-
-/** 保存入口：先校验归属与标题，通过后进入执行段。
- * The save entry: validate the owner and title first, then run the flow. */
-async function saveCurrent(atoms: ViewAtoms, openNote: (note: NoteView) => void): Promise<void> {
-  const owner = atoms.state.owner
-  if (owner === undefined) return
-  const title = atoms.draft.title.trim()
-  if (title === '') {
-    atoms.setError(atoms.t('titleRequired'))
-    return
-  }
-  await runSaveFlow(atoms, owner, title, openNote)
-}
-
-/**
- * 删除流程：首次点击只挂确认，确认后写删除、标记已删、复位选中并刷新。
- * The remove flow: the first click only arms the confirmation; once confirmed,
- * write the removal, mark the note deleted, reset the selection, and refresh.
- */
-async function removeCurrent(atoms: ViewAtoms): Promise<void> {
-  const owner = atoms.state.owner
-  const id = atoms.selectedId
-  if (owner === undefined || id === undefined) return
-  if (!atoms.confirmDelete) {
-    atoms.setConfirmDelete(true)
-    return
-  }
-  atoms.setBusy(true)
-  atoms.setError('')
-  atoms.setNotice('')
-  try {
-    await atoms.actions.onRemove({ owner, id })
-    atoms.deleted.current = id
-    applySelectionReset(atoms)
-    atoms.setNotice(atoms.t('deleted'))
-    atoms.actions.onRefresh()
-  } catch (cause: unknown) {
-    atoms.setError(messageOf(cause))
-  } finally {
-    atoms.setBusy(false)
-  }
-}
-
-/**
- * 由状态原子铸出页面处理器；纯工厂，不含任何 hook。
- * Mint the page handlers from the state atoms; a pure factory with no hooks.
- */
-function createNotebookHandlers(atoms: ViewAtoms): NotebookView {
-  const openNote = (note: NoteView): void => { applyNoteSelection(atoms, note) }
-  const resetSelection = (): void => { applySelectionReset(atoms) }
-  // Full reset, notice included (owner switch / start new). 全量重置，含 notice（换归属/新建）。
-  const resetAll = (): void => { resetSelection(); atoms.setNotice('') }
+/** 导航组处理器：开卡、换归属、新建与清除。The navigation handlers: open, choose owner, start new, clear. */
+function navigationHandlers(atoms: Parameters<typeof applyNoteSelection>[0], openNote: (note: NoteView) => void, resetAll: () => void): Pick<NotebookView, 'openNote' | 'openFromList' | 'startNew' | 'chooseOwner' | 'clearSelection'> {
   return {
-    selectedId: atoms.selectedId, editingNew: atoms.editingNew, draft: atoms.draft, dirty: atoms.dirty,
-    busy: atoms.busy, error: atoms.error, notice: atoms.notice, confirmDelete: atoms.confirmDelete,
     openNote,
     openFromList: (note: NoteView): void => { atoms.deleted.current = undefined; openNote(note) },
     startNew: (): void => {
@@ -262,6 +138,16 @@ function createNotebookHandlers(atoms: ViewAtoms): NotebookView {
       atoms.actions.onSelect(owner)
       resetAll()
     },
+    clearSelection: (): void => {
+      atoms.deleted.current = undefined
+      applySelectionReset(atoms)
+    },
+  }
+}
+
+/** 写入组处理器：编辑、保存、删除与炼成。The write handlers: edit, save, remove, promote. */
+function writeHandlers(atoms: Parameters<typeof applyNoteSelection>[0], openNote: (note: NoteView) => void): Pick<NotebookView, 'edit' | 'save' | 'remove' | 'promoteSelected' | 'promoteCard' | 'removeCard'> {
+  return {
     edit: (patch: Partial<Pick<Draft, 'title' | 'body'>>): void => {
       atoms.setDraft(current => ({ ...current, ...patch }))
       atoms.setDirty(true)
@@ -270,6 +156,29 @@ function createNotebookHandlers(atoms: ViewAtoms): NotebookView {
     },
     save: () => saveCurrent(atoms, openNote),
     remove: () => removeCurrent(atoms),
+    promoteSelected: async (): Promise<void> => {
+      if (atoms.selectedId !== undefined) await promoteCard(atoms, atoms.selectedId, openNote)
+    },
+    promoteCard: async (id: string): Promise<void> => { await promoteCard(atoms, id, openNote) },
+    removeCard: async (id: string): Promise<void> => { await removeCardById(atoms, id) },
+  }
+}
+
+/**
+ * 由状态原子铸出页面处理器；纯工厂，不含任何 hook。
+ * Mint the page handlers from the state atoms; a pure factory with no hooks.
+ */
+function createNotebookHandlers(atoms: Parameters<typeof applyNoteSelection>[0]): NotebookView {
+  const openNote = (note: NoteView): void => { applyNoteSelection(atoms, note) }
+  const resetSelection = (): void => { applySelectionReset(atoms) }
+  // Full reset, notice included (owner switch / start new). 全量重置，含 notice（换归属/新建）。
+  const resetAll = (): void => { resetSelection(); atoms.setNotice('') }
+  return {
+    selectedId: atoms.selectedId, selectedKind: selectedKindOf(atoms),
+    editingNew: atoms.editingNew, draft: atoms.draft, dirty: atoms.dirty,
+    busy: atoms.busy, error: atoms.error, notice: atoms.notice, confirmDelete: atoms.confirmDelete,
+    ...navigationHandlers(atoms, openNote, resetAll),
+    ...writeHandlers(atoms, openNote),
   }
 }
 
@@ -286,7 +195,7 @@ export function useNotebookView(state: NotebookSnapshot, t: (key: NotebookKey) =
   // The note this page just deleted, until the refreshed list drops it.
   // 本页刚删除的笔记，直到刷新后的列表不再包含它。
   const deleted = useRef<string | undefined>(undefined)
-  const atoms: ViewAtoms = {
+  const atoms = {
     state, t, actions, selectedId, draft, editingNew, dirty, busy, error, notice, confirmDelete,
     setSelectedId, setDraft, setEditingNew, setDirty, setBusy, setError, setNotice, setConfirmDelete,
     deleted,

@@ -1,0 +1,225 @@
+/*
+ * The canvas face's stylesheet, appended to panel.css at bundle time by
+ * scripts/bundle.mjs. Same token discipline as panel.css: every color rides
+ * the --nb-* aliases, which resolve the host theme's --dsw-alias-* variables,
+ * so the canvas re-themes with the shell and no color is hardcoded.
+ *
+ * 画布面的样式表，由 scripts/bundle.mjs 在打包时接在 panel.css 之后。与
+ * panel.css 同一 token 纪律：所有颜色都走 --nb-* 别名——它们解析宿主主题的
+ * --dsw-alias-* 变量——画布随外壳换主题，没有任何颜色写死。
+ */
+
+/* ---- view mode toggle ---- */
+.notebook-mode {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--nb-border-soft);
+  border-radius: 9px;
+  background: var(--nb-sunken);
+  gap: 2px;
+}
+.notebook-mode-btn {
+  border: none;
+  border-radius: 7px;
+  padding: 5px 14px;
+  background: transparent;
+  color: var(--nb-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.notebook-mode-btn:hover { color: var(--nb-text); }
+.notebook-mode-btn.is-active {
+  background: var(--nb-surface);
+  color: var(--nb-text);
+  font-weight: 600;
+  box-shadow: var(--dsw-shadow-lv1);
+}
+
+/* ---- layout: the canvas column is the wide one; list keeps 310px ---- */
+.notebook-layout.is-canvas { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+.notebook-canvas-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* ---- canvas frame ---- */
+.notebook-canvas {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--nb-border-soft);
+  border-radius: 14px;
+  background: var(--nb-surface);
+  box-shadow: var(--dsw-shadow-lv1);
+}
+.notebook-canvas-toolbar {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 1px solid var(--nb-border-soft);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--nb-surface) 88%, transparent);
+  backdrop-filter: blur(4px);
+}
+.notebook-canvas-count { padding: 0 4px; color: var(--nb-muted); font-size: 11.5px; }
+.notebook-canvas-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+.notebook-canvas-stage.is-dragging { cursor: grabbing; }
+.notebook-canvas-world { position: absolute; left: 0; top: 0; will-change: transform; }
+
+/* ---- edges: ink line + wide transparent hit line ---- */
+.notebook-canvas-edges { position: absolute; left: 0; top: 0; overflow: visible; }
+.notebook-canvas-edge {
+  stroke: color-mix(in srgb, var(--nb-accent) 55%, var(--nb-border));
+  stroke-width: 1.5;
+  fill: none;
+  pointer-events: none;
+  transition: opacity .15s ease;
+}
+.notebook-canvas-edge.is-dim { opacity: .18; }
+.notebook-canvas-edge-hit {
+  stroke: transparent;
+  stroke-width: 12;
+  fill: none;
+  cursor: pointer;
+}
+
+/* ---- card nodes ---- */
+.notebook-canvas-node {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--nb-border-soft);
+  border-radius: 10px;
+  background: var(--nb-surface);
+  color: var(--nb-text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  box-shadow: var(--dsw-shadow-lv1);
+  transition: opacity .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.notebook-canvas-node:hover { border-color: var(--nb-accent); }
+.notebook-canvas-node.is-selected {
+  border-color: var(--nb-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--nb-accent) 35%, transparent);
+}
+.notebook-canvas-node.is-dim { opacity: .3; }
+.notebook-canvas-node.is-fleeting { background: color-mix(in srgb, var(--nb-accent-soft) 30%, var(--nb-surface)); }
+.notebook-canvas-node.is-project { border-left: 3px solid var(--nb-success); }
+.notebook-canvas-node.is-overdue {
+  opacity: .82;
+  border-style: dashed;
+}
+.notebook-canvas-node-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.notebook-canvas-node-kind {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  color: var(--nb-secondary);
+  background: var(--nb-sunken);
+}
+.notebook-canvas-node-links { color: var(--nb-accent); font-size: 10.5px; }
+.notebook-canvas-node-title {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1.35;
+}
+.notebook-canvas-node-excerpt {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--nb-secondary);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.notebook-canvas-node-aging {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--nb-muted);
+}
+.notebook-canvas-node-aging.is-overdue { color: var(--nb-danger); font-weight: 600; }
+
+/* ---- intake dock ---- */
+.notebook-dock {
+  flex: 0 0 auto;
+  max-height: 168px;
+  overflow-y: auto;
+  padding: 10px 14px;
+  border: 1px dashed color-mix(in srgb, var(--nb-danger) 35%, var(--nb-border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--nb-danger) 5%, var(--nb-surface));
+}
+.notebook-dock-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.notebook-dock-head > span:first-child { font-weight: 650; font-size: 12.5px; color: var(--nb-danger); }
+.notebook-dock-count {
+  padding: 0 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--nb-danger) 14%, transparent);
+  color: var(--nb-danger);
+  font-size: 11px;
+  font-weight: 650;
+}
+.notebook-dock-hint { color: var(--nb-muted); font-size: 11px; }
+.notebook-dock-rows { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.notebook-dock-row { display: flex; align-items: center; gap: 10px; }
+.notebook-dock-title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: var(--nb-text);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.notebook-dock-title:hover { color: var(--nb-accent); }
+.notebook-dock-actions { display: flex; flex: 0 0 auto; gap: 6px; }
+.notebook-dock .notebook-btn { padding: 4px 10px; font-size: 11.5px; }
+.notebook-btn.is-accent {
+  border-color: color-mix(in srgb, var(--nb-accent) 40%, var(--nb-border));
+  color: var(--nb-accent);
+}
+.notebook-btn.is-accent:hover:not(:disabled) { background: color-mix(in srgb, var(--nb-accent) 10%, transparent); }
+
+/* ---- list aging chips (the list face mirrors the canvas) ---- */
+.notebook-item-aging { font-size: 10.5px; color: var(--nb-muted); }
+.notebook-item-aging.is-overdue { color: var(--nb-danger); font-weight: 600; }
+.notebook-item.is-overdue { border-color: color-mix(in srgb, var(--nb-danger) 30%, var(--nb-border)); }
+
+/* ---- narrow viewport: the canvas yields, the toggle hides ---- */
+@media (max-width: 719px) {
+  .notebook-mode { display: none; }
+  .notebook-layout.is-canvas { grid-template-columns: minmax(0, 1fr); }
+}

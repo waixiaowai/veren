@@ -36,9 +36,12 @@ export const MAX_BODY_CHARS = 100_000
  * forwards them instead of restating the same shapes. `import type` is erased
  * by esbuild at bundle time, so no server code reaches the client bundle.
  */
-import type { CardLinkView, HubView, LinkCountView, NoteView, OwnerView } from '../../../notebook/src/types.ts'
+import type {
+  BoxGraphView, CanvasEdgeView, CanvasNodeView, CardLinkView, FleetingAging, HubView, LinkCountView,
+  NoteKind, NoteView, OwnerView,
+} from '../../../notebook/src/types.ts'
 
-export type { CardLinkView, HubView, LinkCountView, NoteView, OwnerView }
+export type { BoxGraphView, CanvasEdgeView, CanvasNodeView, CardLinkView, FleetingAging, HubView, LinkCountView, NoteKind, NoteView, OwnerView }
 
 /** A Remote call result: the committed value, or the Host's structured refusal. */
 export type NotebookRemoteResult<Value> =
@@ -69,8 +72,8 @@ export interface NotebookSnapshot {
   readonly owner: string | undefined
   /** That owner's notes, newest update first. */
   readonly notes: readonly NoteView[]
-  /** Inbound-link count per card title, joined by title for the list badges. 按标题统计的入链数，供列表角标按标题连接。 */
-  readonly linkCounts: readonly LinkCountView[]
+  /** That owner's whole graph face: nodes, edges, riddles, stats — the canvas's and the badges' one read. 某归属的整张图面：节点、边、谜面与读数——画布与角标的一次读。 */
+  readonly graph: BoxGraphView | undefined
   /** `loading` is republished only before the first successful read. */
   readonly status: 'loading' | 'ready' | 'error'
   /** Whether an authoritative read has ever succeeded. */
@@ -95,6 +98,11 @@ export interface NotebookPanelInjected {
   readonly onUpdate: (input: UpdateNoteInput) => Promise<NoteView>
   /** Delete one note from the selected notebook. */
   readonly onRemove: (input: { readonly owner: string; readonly id: string }) => Promise<{ readonly deleted: boolean }>
+  /** Promote one fleeting card into a permanent card under the full write-time discipline. 按完整写入纪律把一张闪念炼成永久卡。 */
+  readonly onPromote: (input: {
+    readonly owner: string
+    readonly id: string
+  }) => Promise<NoteView>
   /** Read one card's outgoing and incoming links. 读一张卡的出链与入链。 */
   readonly onCardLinks: (input: { readonly owner: string; readonly id: string }) => Promise<CardLinkView>
   /** Export the selected notebook as one markdown download. 把选中的盒导出为一份 markdown 下载。 */
@@ -128,6 +136,13 @@ export interface NotebookRemoteApi {
     readonly owner: string
     readonly id: string
   }) => Promise<NotebookRemoteResult<{ readonly deleted: boolean }>>
+  /** Promote one fleeting card into a permanent card. 把一张闪念炼成永久卡。 */
+  readonly promoteNote: (request: {
+    readonly owner: string
+    readonly id: string
+  }) => Promise<NotebookRemoteResult<NoteView>>
+  /** Read one owner's whole graph face in one call. 一次读出某归属的整张图面。 */
+  readonly boxGraph: (request: { readonly owner: string }) => Promise<NotebookRemoteResult<BoxGraphView>>
   /** Read one card's outgoing and incoming links. 读一张卡的出链与入链。 */
   readonly cardLinks: (request: {
     readonly owner: string
@@ -156,6 +171,21 @@ const NOTE_SCHEMA = z.looseObject({
   body: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
+})
+
+const GRAPH_NODE_SCHEMA = z.looseObject({
+  id: z.string(),
+  title: z.string(),
+  kind: z.string(),
+  inbound: z.number(),
+  outbound: z.number(),
+})
+
+const BOX_GRAPH_SCHEMA = z.looseObject({
+  nodes: z.array(GRAPH_NODE_SCHEMA),
+  edges: z.array(z.looseObject({ sourceId: z.string(), targetId: z.string() })),
+  riddles: z.array(z.looseObject({ aId: z.string(), bId: z.string(), shared: z.number() })),
+  stats: z.looseObject({}),
 })
 
 const OWNERS_REQUEST = z.looseObject({})
@@ -223,6 +253,12 @@ export const notebookRemote = createTypertRemoteInfo({
     ...method('deleteNote', 'Delete one note from one preset\u2019s notebook.', 'deleteNote', [
       parameter('request', 'notebook:deleteNote:request', () => REMOVE_REQUEST),
     ], () => z.looseObject({ deleted: z.boolean() })),
+    ...method('promoteNote', 'Promote one fleeting card into a permanent card.', 'promoteNote', [
+      parameter('request', 'notebook:promoteNote:request', () => REMOVE_REQUEST),
+    ], () => NOTE_SCHEMA),
+    ...method('boxGraph', 'Read one owner\u2019s whole graph face in one call.', 'boxGraph', [
+      parameter('request', 'notebook:boxGraph:request', () => OWNER_REQUEST),
+    ], () => BOX_GRAPH_SCHEMA),
     ...method('cardLinks', 'Read one card\u2019s outgoing and incoming links.', 'cardLinks', [
       parameter('request', 'notebook:cardLinks:request', () => CARD_LINKS_REQUEST),
     ], () => z.looseObject({

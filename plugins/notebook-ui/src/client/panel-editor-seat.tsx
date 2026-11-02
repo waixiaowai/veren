@@ -39,6 +39,7 @@ function LiveEditor({ t, view }: { readonly t: (key: NotebookKey) => string; rea
     <NoteEditor
       t={t}
       editingNew={view.editingNew}
+      kind={view.selectedKind}
       draft={view.draft}
       busy={view.busy}
       dirty={view.dirty}
@@ -48,6 +49,7 @@ function LiveEditor({ t, view }: { readonly t: (key: NotebookKey) => string; rea
       onEdit={view.edit}
       onSave={() => { void view.save() }}
       onRemove={() => { void view.remove() }}
+      onPromote={() => { void view.promoteSelected() }}
     />
   )
 }

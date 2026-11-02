@@ -37,12 +37,13 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import z from '@deepseek-ai/schemastery'
 import type {
-  BacklinkView, BoxStatsView, CardLinkView, HubView, LinkCountView, NoteKind, NoteSummary, NoteView,
+  BacklinkView, BoxGraphView, BoxStatsView, CardLinkView, HubView, LinkCountView, NoteKind, NoteSummary, NoteView,
   NotebookConfig, NotebookToolsPort, OwnerView, RiddleView,
 } from './types.ts'
 import { NotebookStoreHandle } from './store.ts'
 import { registerNotebookGlobalTools } from './tools-global.ts'
 import { NotebookError } from './notes.ts'
+import { boxGraphView } from './boxgraph.ts'
 import {
   backlinkViewOf, cachedBacklinks, hubView, linkCounts as countLinks, outgoingOf, staleView,
 } from './graph.ts'
@@ -64,17 +65,43 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /**
- * Config schema: the one switch is the preset-wide global tool face (M1 of
- * docs/notebook-roadmap.cn.md); disable it to keep the box page-only.
- * Config schema：唯一的开关是预设全域工具面（docs/notebook-roadmap.cn.md 的 M1）；
- * 关掉它盒子就回到仅页面可用。
+ * Config schema: the preset-wide global tool face (M1 of
+ * docs/notebook-roadmap.cn.md) and the fleeting freshness window. Disable the
+ * former to keep the box page-only; the window only moves visibility, never
+ * deletes (docs/notebook-note-types.cn.md §2).
+ * Config schema：预设全域工具面（docs/notebook-roadmap.cn.md 的 M1）与闪念保鲜
+ * 窗。关掉前者盒子就回到仅页面可用；窗口只改变可见性，绝不删除
+ * （docs/notebook-note-types.cn.md §2）。
  */
 export const Config: z<NotebookConfig> = z.object({
   globalTools: z
     .object({ enabled: z.boolean().default(true).description('Mount the consult/write face in every session.') })
     .default({ enabled: true })
     .description('The preset-wide card-box face: consult and feed the box from any session of the preset; page sessions shadow it with the same names.'),
+  freshness: z
+    .object({
+      fleetingWindowDays: z
+        .number()
+        .default(2)
+        .description('Days a fleeting card stays fresh before the intake face flags it overdue; visibility only, never a timer.'),
+    })
+    .default({ fleetingWindowDays: 2 })
+    .description('The fleeting card freshness window.'),
 }).description('Notebook host-layer options.')
+
+/** Floor of the freshness window: a window below one day is meaningless. 保鲜窗下限：小于一天没有意义。 */
+const MIN_WINDOW_DAYS = 1
+
+/** Ceiling of the freshness window: guards against a fat-fingered config. 保鲜窗上限：防手滑配置。 */
+const MAX_WINDOW_DAYS = 365
+
+/**
+ * Clamp the configured window into the legal range, flooring to a whole day.
+ * 把配置的窗口钳制进合法区间，向下取整到整天。
+ */
+export function clampWindowDays(value: number): number {
+  return Math.min(MAX_WINDOW_DAYS, Math.max(MIN_WINDOW_DAYS, Math.floor(value)))
+}
 
 /** Hubs returned per ranking; enough entry points without flooding a first screen. 每次排名返回的枢纽数；足够做入口又不淹没首屏。 */
 const HUB_LIMIT = 10
@@ -102,16 +129,20 @@ export class NotebookService extends TypertRemoteService {
   private readonly host: Context
   /** Storage lifecycle: the open domain, its write chain, the migration rebuild. 存储生命周期：打开的域、写链与迁移重建。 */
   private readonly store: NotebookStoreHandle
+  /** The configured fleeting freshness window, clamped. 已钳制的闪念保鲜窗配置。 */
+  private readonly fleetingDays: number
 
   /**
    * @param ctx - Host services owning storage and the preset registry.
    * @param config - validated plugin configuration; `globalTools.enabled`
-   *   mounts the consult/write face into every session (M1).
+   *   mounts the consult/write face into every session (M1), and
+   *   `freshness.fleetingWindowDays` sets the intake visibility window.
    */
   constructor(ctx: Context, config: NotebookConfig) {
     super(ctx, 'notebook', { namespace: 'notebook' })
     this.host = ctx
     this.store = new NotebookStoreHandle(ctx)
+    this.fleetingDays = clampWindowDays(config.freshness?.fleetingWindowDays ?? 2)
     // 全局面：每个会话都能咨询与喂养盒子；页面会话以同名 agent 作用域注册遮蔽。
     // / The global face: every session consults and feeds the box; page sessions
     // shadow it with same-name agent-scope registrations.
@@ -206,7 +237,17 @@ export class NotebookService extends TypertRemoteService {
     const owner = requireOwner(request.owner)
     return this.store.read((domain) => {
       const { notes, links, ledger } = this.store.tables(domain)
-      return boxStats(notes, links, ledger, owner, Date.now())
+      return boxStats(notes, links, ledger, owner, Date.now(), this.fleetingDays)
+    })
+  }
+
+  /** Read one box's whole graph face in one call: nodes, edges, riddles, stats. 一次读出某盒的整张图面：节点、边、谜面与呼吸读数。 */
+  @Remote('boxGraph')
+  async boxGraph(request: { readonly owner: string }): Promise<BoxGraphView> {
+    const owner = requireOwner(request.owner)
+    return this.store.read((domain) => {
+      const { notes, links, ledger } = this.store.tables(domain)
+      return boxGraphView(notes, links, ledger, owner, Date.now(), this.fleetingDays)
     })
   }
 
@@ -379,7 +420,8 @@ export { mintFleetingTitle } from './lifecycle.ts'
 export { ensureExpected, resolveLinksOrThrow, validateCapture, validateCreate, validateUpdate } from './validate.ts'
 export { riddlePairs, RIDDLE_MIN_SHARED, riddleClosedByLink } from './riddles.ts'
 export { staleView, STALE_DAYS } from './graph.ts'
-export { FLEETING_DAYS, intakeView, isOverdue } from './queue.ts'
+export { boxGraphView } from './boxgraph.ts'
+export { DAY_MS, FLEETING_DAYS, agingOf, expiresAtOf, intakeView, isOverdue } from './queue.ts'
 export { appendLedger, ledgerSince } from './ledger.ts'
 export { boxStats, RATES_WINDOW_DAYS } from './stats.ts'
 export { extractLinks } from './links.ts'
@@ -396,7 +438,8 @@ export { buildNotebookBacklinksDefinition, buildNotebookFindDefinition, buildNot
 export { buildNotebookArchiveDefinition, buildNotebookPromoteDefinition } from './tools-lifecycle.ts'
 export { GLOBAL_TOOL_NAMES, registerNotebookGlobalTools } from './tools-global.ts'
 export type {
-  BacklinkView, BoxIntakeView, BoxRateView, BoxStatsView, CardLinkView, HubView, LedgerAction, LedgerRecord,
+  BacklinkView, BoxGraphView, BoxIntakeView, BoxRateView, BoxStatsView, CanvasEdgeView, CanvasNodeView,
+  CardLinkView, FleetingAging, HubView, LedgerAction, LedgerRecord,
   LinkCountView, LinkRecord, LinkTargetView, NoteKind, NoteRecord,
   NoteSummary, NoteView, NotebookConfig, NotebookErrorCode, NotebookToolsPort, OwnerView, RiddleView,
 } from './types.ts'

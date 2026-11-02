@@ -15,7 +15,10 @@
 
 import { noteSummary } from './notes.ts'
 import type { NotebookTable } from './storage.ts'
-import type { BoxIntakeView, NoteRecord } from './types.ts'
+import type { BoxIntakeView, FleetingAging, NoteRecord } from './types.ts'
+
+/** One day in milliseconds — the window arithmetic's unit. 一天的毫秒数——窗口算术的单位。 */
+export const DAY_MS = 24 * 60 * 60 * 1000
 
 /**
  * The freshness window before a fleeting card floats to the top of the intake
@@ -41,12 +44,40 @@ export function intakeView(notes: NotebookTable<NoteRecord>, owner: string, nowM
   const fleet = notes.all()
     .filter(record => record.owner === owner && record.kind === 'fleeting')
     .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id))
-  const cutoffMs = nowMs - days * 24 * 60 * 60 * 1000
+  const cutoffMs = nowMs - days * DAY_MS
   const overdue = fleet.filter(record => Date.parse(record.updatedAt) <= cutoffMs)
   return { fleet: fleet.map(noteSummary), overdue: overdue.map(noteSummary) }
 }
 
 /** One overdue check the window's tests reuse: is this card past its window? 窗口测试复用的一条过期判定：该卡过窗了吗？ */
 export function isOverdue(record: NoteRecord, nowMs: number, days = FLEETING_DAYS): boolean {
-  return Date.parse(record.updatedAt) <= nowMs - days * 24 * 60 * 60 * 1000
+  return Date.parse(record.updatedAt) <= nowMs - days * DAY_MS
+}
+
+/**
+ * One fleeting card's derived deadline — updatedAt plus the window, ISO. A
+ * derived read like every other window answer: no schema, no timer.
+ * 一张闪念卡的派生到期时刻——updatedAt 加窗口，ISO。与其他窗口应答一样是派生
+ * 读：不是 schema，不是定时器。
+ * @param record - the fleeting card as stored.
+ * @param days - the freshness window in days (default {@link FLEETING_DAYS}).
+ * @returns the ISO instant the card goes overdue.
+ */
+export function expiresAtOf(record: NoteRecord, days = FLEETING_DAYS): string {
+  return new Date(Date.parse(record.updatedAt) + days * DAY_MS).toISOString()
+}
+
+/**
+ * One fleeting card's aging state at `nowMs` — `overdue` past the window,
+ * `fresh` within it. Meaningful for fleeting cards only; other kinds are
+ * never on the intake clock.
+ * 一张闪念卡在 `nowMs` 的老化态——过窗即 `overdue`，窗内即 `fresh`。只对闪念卡
+ * 有意义；其他类别不在进料钟上。
+ * @param record - the card as stored.
+ * @param nowMs - the current time in epoch milliseconds.
+ * @param days - the freshness window in days (default {@link FLEETING_DAYS}).
+ * @returns the aging state.
+ */
+export function agingOf(record: NoteRecord, nowMs: number, days = FLEETING_DAYS): FleetingAging {
+  return isOverdue(record, nowMs, days) ? 'overdue' : 'fresh'
 }

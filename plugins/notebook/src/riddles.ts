@@ -43,6 +43,25 @@ export const RIDDLE_MIN_SHARED = 2
  * 更大的盒先基准再上。
  */
 export function riddlePairs(notes: NotebookTable<NoteRecord>, links: NotebookTable<LinkRecord>, owner: string, limit = 3): RiddleView[] {
+  const model = neighborModel(notes, links, owner)
+  return [...countSharedPairs(model).values()]
+    .filter(entry => entry.shared >= RIDDLE_MIN_SHARED)
+    .sort((left, right) => right.shared - left.shared || left.a.localeCompare(right.a))
+    .slice(0, limit)
+    .map(({ a, b, shared }) => ({
+      aId: a, aTitle: model.titleOfId.get(a) ?? '', bId: b, bTitle: model.titleOfId.get(b) ?? '', shared,
+    }))
+}
+
+/** The by-id graph model one riddle pass reads: titles, undirected neighbors, direct links. 一次谜面 pass 所读的按 id 图模型：标题、无向邻居、直链。 */
+interface NeighborModel {
+  readonly titleOfId: ReadonlyMap<string, string>
+  readonly neighbors: ReadonlyMap<string, ReadonlySet<string>>
+  readonly direct: ReadonlySet<string>
+}
+
+/** Build the model from the notes and links tables, owner-scoped. 从两表构建模型，按归属圈定。 */
+function neighborModel(notes: NotebookTable<NoteRecord>, links: NotebookTable<LinkRecord>, owner: string): NeighborModel {
   const idOfTitle = new Map<string, string>()
   const titleOfId = new Map<string, string>()
   for (const record of notes.all()) {
@@ -59,21 +78,32 @@ export function riddlePairs(notes: NotebookTable<NoteRecord>, links: NotebookTab
   }
   for (const row of links.all()) {
     if (row.owner !== owner) continue
-    const source = row.sourceId
     const target = idOfTitle.get(row.targetTitle)
-    if (source === undefined || target === undefined || source === target) continue
-    touch(source, target)
-    touch(target, source)
-    direct.add(pairKey(source, target))
+    if (target === undefined || row.sourceId === target) continue
+    touch(row.sourceId, target)
+    touch(target, row.sourceId)
+    direct.add(pairKey(row.sourceId, target))
   }
+  return { titleOfId, neighbors, direct }
+}
+
+/** One candidate pair's shared-neighbor count (`shared` grows while counting). 一张候选卡对的共享邻居数（计数期间 `shared` 递增）。 */
+interface SharedPair {
+  readonly a: string
+  readonly b: string
+  shared: number
+}
+
+/** Invert the neighbor sets into buckets and count each pair's overlaps. 把邻居集倒排成桶并数每对的重叠。 */
+function countSharedPairs(model: NeighborModel): Map<string, SharedPair> {
   const buckets = new Map<string, string[]>()
-  for (const [id, set] of neighbors) {
+  for (const [id, set] of model.neighbors) {
     for (const neighbor of set) {
       if (!buckets.has(neighbor)) buckets.set(neighbor, [])
       buckets.get(neighbor)!.push(id)
     }
   }
-  const overlap = new Map<string, { a: string; b: string; shared: number }>()
+  const overlap = new Map<string, SharedPair>()
   for (const members of buckets.values()) {
     for (let i = 0; i < members.length; i++) {
       for (let j = i + 1; j < members.length; j++) {
@@ -81,20 +111,14 @@ export function riddlePairs(notes: NotebookTable<NoteRecord>, links: NotebookTab
         const b = members[j]!
         if (a === b) continue
         const key = pairKey(a, b)
-        if (direct.has(key)) continue
+        if (model.direct.has(key)) continue
         const entry = overlap.get(key)
         if (entry !== undefined) entry.shared += 1
         else overlap.set(key, { a, b, shared: 1 })
       }
     }
   }
-  return [...overlap.values()]
-    .filter(entry => entry.shared >= RIDDLE_MIN_SHARED)
-    .sort((left, right) => right.shared - left.shared || left.a.localeCompare(right.a))
-    .slice(0, limit)
-    .map(({ a, b, shared }) => ({
-      aId: a, aTitle: titleOfId.get(a) ?? '', bId: b, bTitle: titleOfId.get(b) ?? '', shared,
-    }))
+  return overlap
 }
 
 /**

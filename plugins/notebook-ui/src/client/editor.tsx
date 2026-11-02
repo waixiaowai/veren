@@ -17,6 +17,7 @@
  */
 
 import { MAX_BODY_CHARS, MAX_TITLE_CHARS } from './remote.ts'
+import type { NoteKind } from './remote.ts'
 import type { NotebookKey } from './locales.ts'
 
 /** One note's editable fields plus the update time the draft was read at. */
@@ -29,10 +30,12 @@ export interface Draft {
 /** The empty draft shared by "new note" and "nothing selected". */
 export const EMPTY_DRAFT: Draft = { title: '', body: '', updatedAt: undefined }
 
-/** Everything the editor renders and the two actions it triggers. */
+/** Everything the editor renders and the actions it triggers. */
 export interface NoteEditorProps {
   readonly t: (key: NotebookKey) => string
   readonly editingNew: boolean
+  /** The open card's kind — a fleeting card gets the promote action. 所开卡的类别——闪念卡获得炼成动作。 */
+  readonly kind: NoteKind | undefined
   readonly draft: Draft
   readonly busy: boolean
   readonly dirty: boolean
@@ -42,22 +45,52 @@ export interface NoteEditorProps {
   readonly onEdit: (patch: Partial<Pick<Draft, 'title' | 'body'>>) => void
   readonly onSave: () => void
   readonly onRemove: () => void
+  readonly onPromote: () => void
 }
 
-/** Props of {@link EditorHead}: the title row and the two action buttons. */
+/** Props of {@link EditorHead}: the title row and the action buttons. */
 interface EditorHeadProps {
   readonly t: (key: NotebookKey) => string
   readonly editingNew: boolean
+  readonly kind: NoteKind | undefined
   readonly draft: Draft
   readonly busy: boolean
   readonly confirmDelete: boolean
   readonly onRemove: () => void
   readonly onSave: () => void
+  readonly onPromote: () => void
 }
 
-/** 编辑器头部：标题行与保存/删除按钮。The editor header: the title row and the save/delete buttons. */
+/** 炼成按钮：仅闪念卡有。The promote button: fleeting cards only. */
+function PromoteButton({ t, busy, onPromote }: {
+  readonly t: (key: NotebookKey) => string
+  readonly busy: boolean
+  readonly onPromote: () => void
+}): React.ReactElement {
+  return (
+    <button type="button" className="notebook-btn is-accent" disabled={busy} onClick={onPromote}>
+      {t('promote')}
+    </button>
+  )
+}
+
+/** 删除按钮：两次点击确认。The delete button: two clicks to confirm. */
+function DeleteButton({ t, busy, confirmDelete, onRemove }: {
+  readonly t: (key: NotebookKey) => string
+  readonly busy: boolean
+  readonly confirmDelete: boolean
+  readonly onRemove: () => void
+}): React.ReactElement {
+  return (
+    <button type="button" className="notebook-btn is-danger" disabled={busy} onClick={onRemove}>
+      {confirmDelete ? t('confirmDelete') : t('delete')}
+    </button>
+  )
+}
+
+/** 编辑器头部：标题行与保存/删除/炼成按钮。The editor header: the title row and the save/delete/promote buttons. */
 function EditorHead(props: EditorHeadProps): React.ReactElement {
-  const { t, editingNew, draft, busy, confirmDelete, onRemove, onSave } = props
+  const { t, editingNew, kind, draft, busy, confirmDelete, onRemove, onSave, onPromote } = props
   return (
     <div className="notebook-editor-head">
       <div>
@@ -69,14 +102,8 @@ function EditorHead(props: EditorHeadProps): React.ReactElement {
         </p>
       </div>
       <div className="notebook-editor-actions">
-        {!editingNew && (
-          <button
-            type="button" className="notebook-btn is-danger"
-            disabled={busy} onClick={onRemove}
-          >
-            {confirmDelete ? t('confirmDelete') : t('delete')}
-          </button>
-        )}
+        {!editingNew && kind === 'fleeting' && <PromoteButton t={t} busy={busy} onPromote={onPromote} />}
+        {!editingNew && <DeleteButton t={t} busy={busy} confirmDelete={confirmDelete} onRemove={onRemove} />}
         <button
           type="button" className="notebook-btn is-primary"
           disabled={busy} onClick={onSave}
@@ -125,11 +152,11 @@ function EditorForm(props: EditorFormProps): React.ReactElement {
 
 /** Render one note's editor. */
 export function NoteEditor(props: NoteEditorProps) {
-  const { t, editingNew, draft, busy, dirty, error, notice, confirmDelete } = props
+  const { t, editingNew, kind, draft, busy, dirty, error, notice, confirmDelete } = props
   return (
     <>
-      <EditorHead t={t} editingNew={editingNew} draft={draft} busy={busy} confirmDelete={confirmDelete}
-        onRemove={props.onRemove} onSave={props.onSave} />
+      <EditorHead t={t} editingNew={editingNew} kind={kind} draft={draft} busy={busy} confirmDelete={confirmDelete}
+        onRemove={props.onRemove} onSave={props.onSave} onPromote={props.onPromote} />
       <EditorForm t={t} draft={draft} dirty={dirty} error={error} notice={notice} onEdit={props.onEdit} />
     </>
   )

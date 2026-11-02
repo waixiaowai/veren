@@ -32,6 +32,7 @@ import { createNotebookSource } from './source.ts'
 // The page's single observable is owned by source.ts; this stays a thin
 // re-export so the export face is unchanged.
 export type { NotebookSource } from './source.ts'
+import type { NotebookSource } from './source.ts'
 import {
   notebookRemote, type NotebookPanelInjected, type NotebookRemoteApi, type NotebookRemoteResult,
 } from './remote.ts'
@@ -62,6 +63,57 @@ const PANEL_ID = 'notebook' as MainPanelId
  */
 export const inject = ['slots', 'locale', 'remote']
 
+/** 逃生门的交付动作：数据由客户端持有（Remote 只读返回），落成 Blob 触发浏览器
+ * 下载——宿主不写任何文件，存储域零改动。
+ * The escape hatch's delivery step: the data is client-held (the Remote returns
+ * read-only), turned into a Blob for a browser download — the host writes no
+ * files, the storage domain untouched. */
+async function downloadMarkdown(api: NotebookRemoteApi, owner: string): Promise<{ readonly count: number }> {
+  const result = await unwrap(api.exportAll({ owner }))
+  const blob = new Blob([result.markdown], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `notebook-${owner}.md`
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+  return { count: result.count }
+}
+
+/** 由挂载的命名空间与源铸出页面注入面。Mint the page's inject face from the mounted namespace and the source. */
+function panelInjected(api: NotebookRemoteApi, notebook: NotebookSource): NotebookPanelInjected {
+  return {
+    hooks: { notebook: notebook.source },
+    onSelect: notebook.select,
+    onRefresh: notebook.refresh,
+    onCreate: async input => unwrap(api.create(input)),
+    onUpdate: async input => unwrap(api.update(input)),
+    onRemove: async input => unwrap(api.deleteNote(input)),
+    onPromote: async input => unwrap(api.promoteNote(input)),
+    onCardLinks: async input => unwrap(api.cardLinks(input)),
+    onExport: owner => downloadMarkdown(api, owner),
+  }
+}
+
+/** 注册主面板槽位与侧栏入口。Register the main-panel slot and the sidebar entry. */
+function registerPanelSlots(ctx: Context, api: NotebookRemoteApi, notebook: NotebookSource, t: (key: NotebookKey) => string): void {
+  ctx.slots.inject('main', () => ctx.slots.register({
+    name: 'main',
+    key: PANEL_ID,
+    locale: NS,
+    inject: (): NotebookPanelInjected => panelInjected(api, notebook),
+  }, NotebookPanel))
+  ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+    name: 'sidebar.panellist',
+    id: PANEL_ID,
+    order: 21,
+    locale: NS,
+    label: () => t('panel'),
+  }, NotebookPanelIcon))
+}
+
 /**
  * The inner panel plugin: it injects the freshly mounted namespace, then
  * registers the page and its sidebar entry from its own fiber.
@@ -75,46 +127,7 @@ const PanelPlugin = {
     ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'notebook-ui:dictionaries')
     installPanelStyles(ctx)
     const t = ctx.locale.bind(NS)
-    const notebook = createNotebookSource(api)
-    ctx.slots.inject('main', () => ctx.slots.register({
-      name: 'main',
-      key: PANEL_ID,
-      locale: NS,
-      inject: (): NotebookPanelInjected => ({
-        hooks: { notebook: notebook.source },
-        onSelect: notebook.select,
-        onRefresh: notebook.refresh,
-        onCreate: async input => unwrap(api.create(input)),
-        onUpdate: async input => unwrap(api.update(input)),
-        onRemove: async input => unwrap(api.deleteNote(input)),
-        onCardLinks: async input => unwrap(api.cardLinks(input)),
-        onExport: async (owner) => {
-          const result = await unwrap(api.exportAll({ owner }))
-          // 逃生门的交付动作：数据由客户端持有（Remote 只读返回），落成 Blob 触发
-          // 浏览器下载——宿主不写任何文件，存储域零改动。
-          // / The escape hatch's delivery step: the data is client-held (the
-          // Remote returns read-only), turned into a Blob for a browser
-          // download — the host writes no files, the storage domain untouched.
-          const blob = new Blob([result.markdown], { type: 'text/markdown;charset=utf-8' })
-          const url = URL.createObjectURL(blob)
-          const anchor = document.createElement('a')
-          anchor.href = url
-          anchor.download = `notebook-${owner}.md`
-          document.body.appendChild(anchor)
-          anchor.click()
-          anchor.remove()
-          URL.revokeObjectURL(url)
-          return { count: result.count }
-        },
-      }),
-    }, NotebookPanel))
-    ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-      name: 'sidebar.panellist',
-      id: PANEL_ID,
-      order: 21,
-      locale: NS,
-      label: () => t('panel'),
-    }, NotebookPanelIcon))
+    registerPanelSlots(ctx, api, createNotebookSource(api), t)
   },
 } as const
 

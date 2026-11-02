@@ -39,12 +39,13 @@ function requestSchema(endpoint: string) {
 }
 
 describe('notebook remote contract / 记事本远端约定', () => {
-  it('publishes the nine endpoints under the notebook service', () => {
+  it('publishes the eleven endpoints under the notebook service', () => {
     expect(notebookRemote.package).toBe('@veren/notebook')
     const endpoints = notebookRemote.descriptors
       .map(entry => `${entry.namespace}/${entry.method}`)
       .sort()
     expect(endpoints).toEqual([
+      'notebook/boxGraph',
       'notebook/cardLinks',
       'notebook/create',
       'notebook/deleteNote',
@@ -53,6 +54,7 @@ describe('notebook remote contract / 记事本远端约定', () => {
       'notebook/linkCounts',
       'notebook/list',
       'notebook/owners',
+      'notebook/promoteNote',
       'notebook/update',
     ])
     for (const entry of notebookRemote.descriptors) {
@@ -73,13 +75,14 @@ describe('notebook remote contract / 记事本远端约定', () => {
     expect(requestSchema('notebook/owners').safeParse({}).success).toBe(true)
     expect(requestSchema('notebook/list').safeParse({}).success).toBe(false)
     expect(requestSchema('notebook/list').safeParse({ owner: 'ada' }).success).toBe(true)
-    for (const endpoint of ['notebook/create', 'notebook/update', 'notebook/deleteNote', 'notebook/cardLinks']) {
+    for (const endpoint of ['notebook/create', 'notebook/update', 'notebook/deleteNote', 'notebook/promoteNote', 'notebook/cardLinks']) {
       expect(requestSchema(endpoint).safeParse({ id: 'n1' }).success, endpoint).toBe(false)
     }
-    for (const endpoint of ['notebook/hubs', 'notebook/linkCounts']) {
+    for (const endpoint of ['notebook/hubs', 'notebook/linkCounts', 'notebook/boxGraph']) {
       expect(requestSchema(endpoint).safeParse({}).success, endpoint).toBe(false)
       expect(requestSchema(endpoint).safeParse({ owner: 'ada' }).success, endpoint).toBe(true)
     }
+    expect(requestSchema('notebook/promoteNote').safeParse({ owner: 'ada', id: 'n1' }).success).toBe(true)
   })
 
   it('requires title and body when creating, but not when updating', () => {
