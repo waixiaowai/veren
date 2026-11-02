@@ -10,7 +10,12 @@ import { runAsWorker, sameDirectory, withoutDirectory, workerBin } from './infra
 import { SetupError } from './setup.ts'
 
 const reason = (error: unknown): string => error instanceof Error ? error.message : String(error)
-const absolute = (description: string) => s.string().pattern(/^\//).description(`${description} Absolute path.`)
+// On win32 the DSH workspace registry requires a fully qualified path with a drive
+// letter (`realpathNormalize` rejects a `/x` root), so accept both POSIX-style and
+// `C:/`-style absolute paths; on POSIX the drive-letter arm never matches.
+// win32 上 DSH 的 workspace 注册表要求带盘符的完全限定路径（realpathNormalize 拒绝 `/x` 根），
+// 故同时接受 POSIX 风格与 `C:/` 风格的绝对路径；POSIX 平台上盘符分支不会命中。
+const absolute = (description: string) => s.string().pattern(/^(\/|[A-Za-z]:[\/\\])/).description(`${description} Absolute path.`)
 /** Plugin configuration of the dsh-superagent entry. Volatile fields apply without a restart because dsh-superagent reads them on each use; changing `stateDir` remounts the plugin. */
 /** dsh-superagent 入口的插件配置。Volatile 字段无需重启即生效（每次使用时读取）；改动 `stateDir` 会重挂插件。 */
 // Annotated with the global `Schemastery<S, T>` interface: the inferred type references the package's
