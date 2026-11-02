@@ -17,7 +17,16 @@
 
 ## 2. 工作节点注册与心跳（taskhub 语义，节点 → cms）
 
-节点连入后（或自身配置变化时）上报**一次**注册事件；运行期每 60s 上报一次心跳。
+节点连入后（或自身配置变化时）上报**两段**注册事件；运行期每 60s 上报一次心跳。
+
+**第一段 `node.identity`**（wsgw 连接注册表面，既有契约不动——`ws_nodes` UPSERT 是派发寻址的前提，缺它节点永不可派发）：
+
+```json
+{ "type": "event", "id": "evt_00", "name": "node.identity", "ts": 1762000000000,
+  "payload": { "nodeId": "3f2a…uuid", "nodeName": "Gitea 代码节点", "nodeDescription": "会写 Go/TS，能推 Gitea 仓库", "nodeIcon": "🛰️" } }
+```
+
+**第二段 `taskhub.worker.hello`**（taskhub 语义面，路由自述）：
 
 ```json
 { "type": "event", "id": "evt_01", "name": "taskhub.worker.hello", "ts": 1762000000000,
@@ -117,6 +126,7 @@ received ──match──▶ routed(lease) ──accepted──▶ accepted ─
 
 | 键 | 缺省 | 语义 |
 |----|------|------|
+| `task.hub.owner_user_id` | 空 | 任务归属的 cms 用户（工作节点池锚点）；空=intake 整体关闭 |
 | `task.hub.intake_mode` | `off` | `off` \| `all` \| `prefix`：哪些微信消息建任务 |
 | `task.hub.intake_prefix` | `任务` | prefix 模式的前缀（命中即建单，前缀本身剥除） |
 | `task.hub.intake_device` | 空 | 空=沿用 `im.hub.default_device` |

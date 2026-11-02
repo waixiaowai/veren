@@ -18,7 +18,16 @@
 
 ## 2. Worker registration & heartbeat (taskhub semantics, node → cms)
 
-A node reports registration once after connecting (or when its own config changes); a heartbeat every 60s while running.
+A node reports **two** registration events after connecting (or when its own config changes); a heartbeat every 60s while running.
+
+**First `node.identity`** (the existing wsgw connection-registry face — the `ws_nodes` UPSERT is the precondition for dispatch addressing; without it a node can never be dispatched to):
+
+```json
+{ "type": "event", "id": "evt_00", "name": "node.identity", "ts": 1762000000000,
+  "payload": { "nodeId": "3f2a…uuid", "nodeName": "Gitea code worker", "nodeDescription": "Writes Go/TS, pushes to Gitea", "nodeIcon": "🛰️" } }
+```
+
+**Second `taskhub.worker.hello`** (the taskhub semantics face, the routing self-description):
 
 ```json
 { "type": "event", "id": "evt_01", "name": "taskhub.worker.hello", "ts": 1762000000000,
@@ -118,6 +127,7 @@ received ──match──▶ routed(lease) ──accepted──▶ accepted ─
 
 | Key | Default | Meaning |
 |-----|---------|---------|
+| `task.hub.owner_user_id` | empty | the cms user tasks belong to (the worker-pool anchor); empty = intake fully off |
 | `task.hub.intake_mode` | `off` | `off` \| `all` \| `prefix`: which WeChat messages become tasks |
 | `task.hub.intake_prefix` | `任务` | prefix-mode prefix (a match creates the task, prefix stripped) |
 | `task.hub.intake_device` | empty | empty = follow `im.hub.default_device` |
