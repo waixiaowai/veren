@@ -16,6 +16,14 @@ packages:
   # commander/profile is a DSH profile template, not an npm unit; the installer
   # copies it into $DSH_HOME/profiles/commander, so workspace install must skip it.
   - "!packages/commander/profile"
+  # dsh-superagent 是 deepseek-ai/dsh-superagent-prototype 的 fork（自带 pnpm
+  # 锁文件与 @deepseek-ai/* peer 依赖），独立 `pnpm --ignore-workspace install`
+  # 安装；留在工作区会把它吸进根锁文件，@deepseek-ai/* 解析到 npm.veren.top 404。
+  # dsh-superagent is a fork of deepseek-ai/dsh-superagent-prototype (own lockfile
+  # and @deepseek-ai/* peers); it installs standalone via `pnpm --ignore-workspace`.
+  # Keeping it in the workspace pulls it into the root lockfile, whose @veren
+  # registry cannot resolve @deepseek-ai/*.
+  - "!plugins/dsh-superagent"
   # plugins/admin 是一个分组目录，下面的每个包各自是一个可安装单元；只写
   # `plugins/*` 匹配不到 `plugins/admin/kernel` 这一层，它们会静默不进工作区，
   # 于是既不安装依赖也不构建不测试。
