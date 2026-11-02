@@ -35,6 +35,7 @@ import { candidateCard, repliedTo, sourceLink, type LinkHost } from './links.ts'
 import { eventNotice, followupNotice } from './notices.ts'
 import { pullEndNotices } from '../sources/github-pull.ts'
 import { pullEndNotices as giteaPullEndNotices } from '../sources/gitea-pull.ts'
+import { notifyTaskhubEnded, notifyTaskhubIgnored } from '../sources/taskhub.ts'
 import { HealthBoard } from '../infra/health.ts'
 import { Outbox } from './outbox.ts'
 import { Passes } from './passes.ts'
@@ -154,6 +155,17 @@ export class Runtime extends Service implements SourceHost {
             for (const message of pullEndNotices(ended, request, setup.deployment.repository)) outbox.send(message)
             const gitea = setup.deployment.gitea
             if (gitea) for (const message of giteaPullEndNotices(ended, request, gitea)) outbox.send(message)
+          }
+          // taskhub (cms task router): report completion and refusals back to cms, which delivers them to the origin.
+          // A dropped report strands the cms task in `accepted` forever - log loudly instead of failing silent (2026-11-02 incident).
+          // taskhub（cms 任务路由）：把完成与拒绝回报给 cms，由它投递到来源渠道。
+          // 回报被丢弃会让任务在 cms 永远卡已接单——响亮告警而非静默（2026-11-02 事故）。
+          if (ended && notifyTaskhubEnded(store.triggers.get(ended.origin.triggerId), ended) === 'dropped') {
+            ctx.logger.warn('dsh-superagent: taskhub task %s ended but the completion report was dropped (taskhub source is off or reconnecting)', ended.id)
+          }
+          if (event.type === 'decision.recorded' && event.data.kind === 'ignore'
+            && notifyTaskhubIgnored(event.data.threadKey) === 'dropped') {
+            ctx.logger.warn('dsh-superagent: taskhub refusal for %s was dropped (taskhub source is off or reconnecting)', event.data.threadKey)
           }
         } })
       // Update the `evals` health entry on every pass if an evaluation failed as unavailable within the last hour.

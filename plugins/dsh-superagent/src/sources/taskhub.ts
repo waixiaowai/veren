@@ -123,22 +123,36 @@ export function triggerOf(envelope: DispatchEnvelope): Trigger {
   }
 }
 
-/** Runtime hook (ticket.ended): reports completion so cms can deliver the result. */
-/** 运行时挂点（ticket.ended）：回报完成，cms 据此向来源投递结果。 */
-export function notifyTaskhubEnded(trigger: Trigger | undefined, ended: Ticket): void {
+/** Result of a taskhub report attempt: normal skip, dispatched, or dropped (caller should log). */
+/** taskhub 回报尝试的结论：常态跳过、已上报、或被丢弃（调用方应告警）。 */
+export type TaskhubReport = 'skipped' | 'reported' | 'dropped'
+
+/** Runtime hook (ticket.ended): reports completion so cms can deliver the result.
+ *  Falls back to the ticket's taskhub channel for the task id, so a lost trigger record no longer drops the report. */
+/** 运行时挂点（ticket.ended）：回报完成，cms 据此向来源投递结果。任务 id 优先取
+ *  触发器线程、缺失时回退工单的 taskhub 通道——触发器记录丢失不再丢回报。 */
+export function notifyTaskhubEnded(trigger: Trigger | undefined, ended: Ticket): TaskhubReport {
+  if (!ended.ended) return 'skipped'
   const thread = trigger?.threads[0]
-  if (!thread || thread.source !== SOURCE || !ended.ended) return
-  void active?.report(EVENT_TASK_RESULT, {
-    taskId: thread.id, outcome: outcomeOf(ended.ended), summary: ended.ended.reason ?? '',
+  const channel = ended.channels.find(channel => channel.source === SOURCE)
+  const taskId = thread?.source === SOURCE && thread.id ? thread.id
+    : channel ? taskIdOf(channel.thread) : undefined
+  if (!taskId) return 'skipped'
+  if (!active) return 'dropped'
+  void active.report(EVENT_TASK_RESULT, {
+    taskId, outcome: outcomeOf(ended.ended), summary: ended.ended.reason ?? '',
   })
+  return 'reported'
 }
 
 /** Runtime hook (decision.recorded): an ignore on a taskhub thread means this node refused the task. */
 /** 运行时挂点（decision.recorded）：taskhub 线程上的 ignore 即本节点拒绝该任务。 */
-export function notifyTaskhubIgnored(threadKey: string): void {
+export function notifyTaskhubIgnored(threadKey: string): TaskhubReport {
   const task = taskIdOf(threadKey)
-  if (!task) return
-  void active?.report(EVENT_TASK_RESULT, { taskId: task, outcome: 'stopped', summary: '该节点评估后未接下此任务。' })
+  if (!task) return 'skipped'
+  if (!active) return 'dropped'
+  void active.report(EVENT_TASK_RESULT, { taskId: task, outcome: 'stopped', summary: '该节点评估后未接下此任务。' })
+  return 'reported'
 }
 
 export const name = 'dsh-superagent-taskhub'

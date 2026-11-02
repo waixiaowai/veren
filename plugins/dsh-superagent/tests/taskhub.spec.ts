@@ -95,16 +95,43 @@ describe('taskhub source kind', () => {
     const bridge = new FakeBridge()
     bindBridge(bridge)
     const trigger = triggerOf(ENVELOPE)
-    const ticket = (outcome: Ticket['ended']): Ticket => ({
-      id: 'ticket-1', title: 't', decisionId: 'd', mandate: {} as never, channels: [], assignments: [],
+    const ticket = (outcome: Ticket['ended'], channels: Ticket['channels'] = []): Ticket => ({
+      id: 'ticket-1', title: 't', decisionId: 'd', mandate: {} as never, channels, assignments: [],
       inputs: [], undelivered: [], origin: { triggerId: trigger.id, triggerIds: [trigger.id] },
       createdAt: '', updatedAt: '', ended: outcome,
     })
-    notifyTaskhubEnded(trigger, ticket({ at: 'now', by: 'executor', outcome: 'merged' }))
-    notifyTaskhubEnded(trigger, ticket({ at: 'now', by: 'human', outcome: 'stopped', reason: '人工叫停' }))
+    expect(notifyTaskhubEnded(trigger, ticket({ at: 'now', by: 'executor', outcome: 'merged' }))).toBe('reported')
+    expect(notifyTaskhubEnded(trigger, ticket({ at: 'now', by: 'human', outcome: 'stopped', reason: '人工叫停' }))).toBe('reported')
     expect(bridge.reports.filter(row => row.name === 'taskhub.task.result')).toHaveLength(2)
     expect(bridge.reports[0]!.payload).toMatchObject({ taskId: ENVELOPE.taskId, outcome: 'completed' })
     expect(bridge.reports[1]!.payload).toMatchObject({ taskId: ENVELOPE.taskId, outcome: 'stopped', summary: '人工叫停' })
+  })
+
+  it('falls back to the ticket taskhub channel for the task id when the trigger record is lost', () => {
+    const bridge = new FakeBridge()
+    bindBridge(bridge)
+    const ticket: Ticket = {
+      id: 'ticket-2', title: 't', decisionId: 'd', mandate: {} as never,
+      channels: [{ source: SOURCE, thread: `taskhub:${ENVELOPE.taskId}`, address: {} }], assignments: [],
+      inputs: [], undelivered: [], origin: { triggerId: 'gone', triggerIds: ['gone'] },
+      createdAt: '', updatedAt: '', ended: { at: 'now', by: 'executor', outcome: 'completed' },
+    }
+    // 触发器记录丢失不再丢回报（2026-11-02 事故的 worker 侧教训）。
+    expect(notifyTaskhubEnded(undefined, ticket)).toBe('reported')
+    expect(bridge.last('taskhub.task.result')).toMatchObject({ taskId: ENVELOPE.taskId, outcome: 'completed' })
+  })
+
+  it('distinguishes a skipped non-taskhub ticket from a dropped report without a bridge', () => {
+    bindBridge(undefined)
+    const trigger = triggerOf(ENVELOPE)
+    const otherTrigger = { ...trigger, threads: [{ source: 'email', id: 'x' }] } as Trigger
+    const ticket = (triggerUsed: Trigger, channels: Ticket['channels']): Ticket => ({
+      id: 'ticket-3', title: 't', decisionId: 'd', mandate: {} as never, channels, assignments: [],
+      inputs: [], undelivered: [], origin: { triggerId: triggerUsed.id, triggerIds: [triggerUsed.id] },
+      createdAt: '', updatedAt: '', ended: { at: 'now', by: 'executor', outcome: 'completed' },
+    })
+    expect(notifyTaskhubEnded(otherTrigger, ticket(otherTrigger, []))).toBe('skipped')
+    expect(notifyTaskhubEnded(trigger, ticket(trigger, [{ source: SOURCE, thread: `taskhub:${ENVELOPE.taskId}`, address: {} }]))).toBe('dropped')
   })
 
   it('evaluates a dispatched trigger on a real engine without a filtered rejection', async () => {
