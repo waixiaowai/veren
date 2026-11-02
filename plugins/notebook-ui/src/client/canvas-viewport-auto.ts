@@ -86,13 +86,13 @@ export interface PointerPan {
   readonly onPointerEnd: (event: ReactPointerEvent<HTMLDivElement>) => void
 }
 
-/** Begin a pan candidate on primary-button press: no capture yet — a plain
- * click must reach its real target (nodes, edge hit lines); capture only
- * starts once the drag crosses the threshold. 主键按下只立平移候选：先不捕获
- * ——纯点击必须落到真目标（节点、边命中线）；越过阈值才开捕获。 */
+/** Begin a pan candidate on primary-button press: never on a node (it owns its
+ * own drag) or an interactive child; capture only starts once the drag crosses
+ * the threshold. 主键按下只立平移候选：节点（有自己的拖拽）与交互子元素除外；
+ * 越过阈值才开捕获。 */
 function beginPan(dragRef: { current: DragState | undefined }, origin: Viewport, event: ReactPointerEvent<HTMLDivElement>): void {
   if (event.button !== 0) return
-  if ((event.target as Element).closest('button, a, [data-canvas-control]') !== null) return
+  if ((event.target as Element).closest('button, a, [data-canvas-control], [data-canvas-node]') !== null) return
   dragRef.current = {
     pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, origin, moved: false,
   }

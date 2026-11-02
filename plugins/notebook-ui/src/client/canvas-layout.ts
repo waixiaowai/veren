@@ -174,3 +174,23 @@ export function layoutCanvas(nodes: readonly CanvasNodeView[]): CanvasLayout {
   const byId = new Map(placed.map(node => [node.id, node]))
   return { placed, byId, width: bounds(placed, node => node.x, NODE_W), height: bounds(placed, node => node.y, NODE_H) }
 }
+
+/**
+ * Overlay the user's dragged positions on a base layout: known ids move to
+ * their dragged spot, unknown ids keep the deterministic spot, and the bounds
+ * are recomputed so fit still covers the whole drawing. Positions are view
+ * state — they ride localStorage, never the box's data.
+ * @param base - the deterministic layout.
+ * @param overrides - dragged positions by id (sparse).
+ * @returns a new layout with the overrides applied.
+ *
+ * 把用户拖过的位置叠加在基准布局上：已知 id 落在拖放点，未知 id 保持确定性
+ * 落位，边界重算让适配仍盖住整幅图。位置是视图态——走 localStorage，绝不入
+ * 盒的数据。
+ */
+export function applyOverrides(base: CanvasLayout, overrides: ReadonlyMap<string, PlacedNode>): CanvasLayout {
+  if (overrides.size === 0) return base
+  const placed = base.placed.map(node => overrides.get(node.id) ?? node)
+  const byId = new Map(placed.map(node => [node.id, node]))
+  return { placed, byId, width: bounds(placed, node => node.x, NODE_W), height: bounds(placed, node => node.y, NODE_H) }
+}

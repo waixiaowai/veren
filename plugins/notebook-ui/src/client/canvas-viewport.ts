@@ -20,7 +20,7 @@
  * @module @veren/notebook-ui/client/canvas-viewport
  */
 
-import { useCallback, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { CanvasLayout } from './canvas-layout.ts'
 import { useFitPerKey, usePointerPan, useViewportSize, useWheelZoom, useZoomActions } from './canvas-viewport-auto.ts'
 
@@ -41,20 +41,17 @@ export interface CanvasViewportController {
   readonly onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
   readonly onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void
   readonly onPointerEnd: (event: ReactPointerEvent<HTMLDivElement>) => void
-  readonly onBackgroundClick: (event: ReactMouseEvent<HTMLDivElement>) => void
 }
 
 /**
  * Own the viewport transform for one laid-out box.
  * @param layout - the current layout (its bounds drive fit).
  * @param fitKey - refit when this changes (the owner id): each box opens fitted.
- * @returns the controller the stage element binds; the background click goes
- *   through the returned `onBackgroundClick` wired to the stage's onClick.
+ * @returns the controller the stage element binds.
  *
- * 为一幅已布局的盒持有视口变换。fitKey 变化即重新适配（归属 id）：每盒打开即
- * 适配。空白点击经返回的 `onBackgroundClick` 接到舞台 onClick。
+ * 为一幅已布局的盒持有视口变换。fitKey 变化即重新适配（归属 id）：每盒打开即适配。
  */
-export function useCanvasViewport(layout: CanvasLayout, fitKey: string, onBackgroundClick: () => void): CanvasViewportController {
+export function useCanvasViewport(layout: CanvasLayout, fitKey: string): CanvasViewportController {
   const ref = useRef<HTMLDivElement | null>(null)
   const [view, setView] = useState<Viewport>({ x: 0, y: 0, zoom: 1 })
   const size = useViewportSize(ref)
@@ -62,18 +59,9 @@ export function useCanvasViewport(layout: CanvasLayout, fitKey: string, onBackgr
   const zoom = useZoomActions(layout, size, setView)
   useWheelZoom(ref, setView)
   useFitPerKey(layout, fitKey, size, setView)
-  // A click that lands on nothing interactive (node buttons, edge lines,
-  // controls) is a background click: clear the selection.
-  // 落在交互物（节点按钮、边线、控件）之外的点击即空白点击：清除选中。
-  const onBackgroundClickHandler = useCallback((event: ReactMouseEvent<HTMLDivElement>): void => {
-    const target = event.target as Element
-    if (target.closest('button, a, [data-canvas-control], line') !== null) return
-    onBackgroundClick()
-  }, [onBackgroundClick])
   return {
     ref, view, dragging: pan.dragging,
     zoomBy: zoom.zoomBy, fit: zoom.fit,
     onPointerDown: pan.onPointerDown, onPointerMove: pan.onPointerMove, onPointerEnd: pan.onPointerEnd,
-    onBackgroundClick: onBackgroundClickHandler,
   }
 }

@@ -97,48 +97,13 @@ function overdueQueue(graphNodes: readonly CanvasNodeView[]): readonly CanvasNod
     .sort((left, right) => (left.updatedAt < right.updatedAt ? -1 : 1))
 }
 
-/** The floating inspector: the selected card's editor and link sections,
- * overlaid on the canvas — the canvas is the whole face, editing rides on top
- * of it. 浮动检查器：选中卡的编辑器与链接两段，叠在画布上——画布即整个面，
- * 编辑骑在它上面。 */
-function CanvasInspector({ state, t, view, actions }: {
+/** The canvas face: the full-bleed draggable graph and the intake dock
+ * beneath — no editing on the canvas at all (the user's ruling). 画面：全幅
+ * 可拖拽图区与其下的进料口——画布上没有任何编辑（用户裁定）。 */
+function CanvasColumn({ state, t, view }: {
   readonly state: BodyProps['state']
   readonly t: BodyProps['t']
   readonly view: ReturnType<typeof useNotebookView>
-  readonly actions: BodyProps['actions']
-}) {
-  if (view.selectedId === undefined && !view.editingNew) return null
-  return (
-    <div className="notebook-inspector" data-canvas-control>
-      <div className="notebook-inspector-head">
-        <span>{view.editingNew ? t('newNote') : t('editNote')}</span>
-        <button type="button" className="notebook-btn" aria-label={t('close')} onClick={view.clearSelection}>×</button>
-      </div>
-      <div className="notebook-inspector-body">
-        <NotebookEditorSeat t={t} owner={state.owner} active view={view} />
-        {!view.editingNew && (
-          <NoteLinks
-            t={t}
-            owner={state.owner}
-            selectedId={view.selectedId}
-            editingNew={view.editingNew}
-            fetchLinks={actions.onCardLinks}
-            onOpenCard={openByIdIn(state, view)}
-          />
-        )}
-      </div>
-    </div>
-  )
-}
-
-/** The canvas face: the full-bleed graph, the floating inspector, and the
- * intake dock beneath — no permanent editor column (the user's ruling). 画布
- * 面：全幅图区、浮动检查器与其下的进料口——没有常驻编辑器栏（用户裁定）。 */
-function CanvasColumn({ state, t, view, actions }: {
-  readonly state: BodyProps['state']
-  readonly t: BodyProps['t']
-  readonly view: ReturnType<typeof useNotebookView>
-  readonly actions: BodyProps['actions']
 }) {
   const graphNodes = state.graph?.nodes ?? []
   return (
@@ -148,12 +113,8 @@ function CanvasColumn({ state, t, view, actions }: {
           t={t}
           nodes={graphNodes}
           edges={state.graph?.edges ?? []}
-          selectedId={view.selectedId}
-          onSelect={openByIdIn(state, view)}
-          onClearSelection={view.clearSelection}
           fitKey={state.owner ?? ''}
         />
-        <CanvasInspector state={state} t={t} view={view} actions={actions} />
       </div>
       <CanvasDock
         t={t}
@@ -161,7 +122,6 @@ function CanvasColumn({ state, t, view, actions }: {
         busy={view.busy}
         onPromote={(id) => { void view.promoteCard(id) }}
         onTrash={(id) => { void view.removeCard(id) }}
-        onOpen={openByIdIn(state, view)}
       />
     </div>
   )
@@ -209,7 +169,7 @@ function NotebookLayout({ state, t, view, actions, mode }: {
   if (mode === 'canvas') {
     return (
       <div className="notebook-layout is-canvas">
-        <CanvasColumn state={state} t={t} view={view} actions={actions} />
+        <CanvasColumn state={state} t={t} view={view} />
       </div>
     )
   }

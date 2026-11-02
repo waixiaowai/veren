@@ -108,6 +108,11 @@
   border-radius: 14px;
   background: var(--nb-surface);
   box-shadow: var(--dsw-shadow-lv1);
+  /* A spatial surface: text selection has no meaning here and a drag must
+   * never paint selection highlights (the user's ruling). 空间表面：文字选中
+   * 在这里没有意义，拖拽绝不能刷出选中高亮（用户裁定）。 */
+  user-select: none;
+  -webkit-user-select: none;
 }
 .notebook-canvas-toolbar {
   position: absolute;
@@ -152,7 +157,7 @@
   cursor: pointer;
 }
 
-/* ---- card nodes ---- */
+/* ---- card nodes (draggable) ---- */
 .notebook-canvas-node {
   position: absolute;
   box-sizing: border-box;
@@ -166,14 +171,16 @@
   color: var(--nb-text);
   text-align: left;
   font: inherit;
-  cursor: pointer;
+  cursor: grab;
   box-shadow: var(--dsw-shadow-lv1);
   transition: opacity .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
 .notebook-canvas-node:hover { border-color: var(--nb-accent); }
-.notebook-canvas-node.is-selected {
+.notebook-canvas-node.is-dragging {
+  cursor: grabbing;
+  z-index: 2;
   border-color: var(--nb-accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--nb-accent) 35%, transparent);
+  box-shadow: var(--dsw-shadow-lv2, var(--dsw-shadow-lv1), 0 8px 24px rgba(0, 0, 0, .12));
 }
 .notebook-canvas-node.is-dim { opacity: .3; }
 .notebook-canvas-node.is-fleeting { background: color-mix(in srgb, var(--nb-accent-soft) 30%, var(--nb-surface)); }
@@ -246,15 +253,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   padding: 2px 0;
-  border: none;
-  background: transparent;
   color: var(--nb-text);
   font: inherit;
   font-size: 12.5px;
   text-align: left;
-  cursor: pointer;
 }
-.notebook-dock-title:hover { color: var(--nb-accent); }
 .notebook-dock-actions { display: flex; flex: 0 0 auto; gap: 6px; }
 .notebook-dock .notebook-btn { padding: 4px 10px; font-size: 11.5px; }
 .notebook-btn.is-accent {

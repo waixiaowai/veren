@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { layoutCanvas } from '../src/client/canvas-layout.ts'
+import { applyOverrides, layoutCanvas } from '../src/client/canvas-layout.ts'
 import type { CanvasNodeView } from '../src/client/remote.ts'
 
 /** One node with only the fields the layout reads. 只带布局所读字段的节点。 */
@@ -142,4 +142,30 @@ describe('canvas layout — edges / 边界', () => {
     expect(layout.width).toBeGreaterThan(0)
     expect(layout.height).toBeGreaterThan(0)
   })
+})
+
+describe('canvas layout — dragged-position overrides / 拖拽位置叠加', () => {
+  it('moves only the dragged ids and keeps the rest deterministic', () => {
+    const nodes = [node({ id: 'a', inbound: 1 }), node({ id: 'b' })]
+    const base = layoutCanvas(nodes)
+    const moved = applyOverrides(base, new Map([['b', { id: 'b', x: 500, y: -300 }]]))
+    expect(moved.byId.get('a')).toEqual(base.byId.get('a'))
+    expect(moved.byId.get('b')).toEqual({ id: 'b', x: 500, y: -300 })
+    // The bounds grow to keep fit covering the dragged card.
+    // 边界随之增长，适配仍盖住被拖的卡。
+    expect(moved.width).toBeGreaterThan(base.width)
+    expect(moved.height).toBeGreaterThan(base.height)
+  })
+
+  it('is the identity for empty overrides and prunes unknown ids implicitly', () => {
+    const nodes = [node({ id: 'a' })]
+    const base = layoutCanvas(nodes)
+    expect(applyOverrides(base, new Map())).toBe(base)
+    // A stale override for a deleted card simply never lands (no id matches).
+    // 已删卡的陈旧覆盖自然无处落（无 id 命中）。
+    const stale = applyOverrides(base, new Map([['ghost', { id: 'ghost', x: 1, y: 1 }]]))
+    expect(stale.byId.get('a')).toEqual(base.byId.get('a'))
+    expect(stale.byId.has('ghost')).toBe(false)
+  })
+})
 })

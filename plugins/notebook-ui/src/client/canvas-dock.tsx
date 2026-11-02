@@ -16,7 +16,7 @@ import { agingLabelOf, agingText } from './aging.ts'
 import type { CanvasNodeView } from './remote.ts'
 import type { NotebookKey } from './locales.ts'
 
-/** Everything the dock renders and the three intents it hands back. */
+/** Everything the dock renders and the two intents it hands back. */
 export interface CanvasDockProps {
   readonly t: (key: NotebookKey) => string
   /** The overdue fleeting cards, oldest first (the graph face's order). 过期的闪念卡，最早优先（图面的顺序）。 */
@@ -24,7 +24,6 @@ export interface CanvasDockProps {
   readonly busy: boolean
   readonly onPromote: (id: string) => void
   readonly onTrash: (id: string) => void
-  readonly onOpen: (id: string) => void
 }
 
 /** The trash button: the first click arms, the second fires. 「扔」键：第一次点击挂确认，第二次执行。 */
@@ -54,23 +53,20 @@ function TrashButton({ t, id, busy, armed, onArm, onFire }: {
   )
 }
 
-/** One dock row: open by title, aging chip, and the two exits. 一行进料：标题可点、老化章、两个出口。 */
-function DockRow({ t, node, busy, armed, onPromote, onTrash, onOpen, onArm }: {
+/** One dock row: the title, aging chip, and the two exits. 一行进料：标题、老化章、两个出口。 */
+function DockRow({ t, node, busy, armed, onPromote, onTrash, onArm }: {
   readonly t: (key: NotebookKey) => string
   readonly node: CanvasNodeView
   readonly busy: boolean
   readonly armed: boolean
   readonly onPromote: (id: string) => void
   readonly onTrash: (id: string) => void
-  readonly onOpen: (id: string) => void
   readonly onArm: (id: string | undefined) => void
 }): React.ReactElement {
   const aging = node.expiresAt !== undefined ? agingLabelOf(node.expiresAt, Date.now()) : undefined
   return (
     <li className="notebook-dock-row">
-      <button type="button" className="notebook-dock-title" onClick={() => { onOpen(node.id) }}>
-        {node.title}
-      </button>
+      <span className="notebook-dock-title">{node.title}</span>
       {aging !== undefined && (
         <span className="notebook-canvas-node-aging is-overdue">{agingText(aging, t)}</span>
       )}
@@ -111,7 +107,6 @@ export function CanvasDock(props: CanvasDockProps): React.ReactElement | null {
             armed={armedId === node.id}
             onPromote={props.onPromote}
             onTrash={props.onTrash}
-            onOpen={props.onOpen}
             onArm={setArmedId}
           />
         ))}
