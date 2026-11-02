@@ -148,13 +148,24 @@ export class NotebookService extends TypertRemoteService {
     return this.store.read(domain => summariesOf(this.store.tables(domain).notes, preset, kind))
   }
 
-  /** Capture one fleeting card into one preset's box; the intake valve. 往某只卡片盒捕获一张闪念卡——进料阀。 */
+  /** Capture one card into one preset's box; an anchor files it as a project card. 往某只卡片盒捕获一张卡；带 anchor 即项目卡。 */
   @Remote('capture')
-  async capture(request: { readonly owner: string; readonly body: string; readonly title?: string }): Promise<NoteView> {
+  async capture(request: {
+    readonly owner: string
+    readonly body: string
+    readonly title?: string
+    readonly anchor?: string
+  }): Promise<NoteView> {
     const owner = requireOwner(request.owner)
     return this.store.write(async (domain) => {
       const record = await applyCardCapture(
-        this.store.tables(domain), owner, { body: request.body, ...(request.title === undefined ? {} : { title: request.title }) }, this.now(),
+        this.store.tables(domain), owner,
+        {
+          body: request.body,
+          ...(request.title === undefined ? {} : { title: request.title }),
+          ...(request.anchor === undefined ? {} : { anchor: request.anchor }),
+        },
+        this.now(),
       )
       return noteView(record)
     })
@@ -324,7 +335,11 @@ export class NotebookService extends TypertRemoteService {
       list: (owner, kind) => this.listSummaries(owner, kind),
       read: (owner, id) => this.readNote(owner, id),
       create: (owner, title, body) => this.create({ owner, title, body }),
-      capture: (owner, body, title) => this.capture({ owner, body, ...(title === undefined ? {} : { title }) }),
+      capture: (owner, body, title, anchor) => this.capture({
+        owner, body,
+        ...(title === undefined ? {} : { title }),
+        ...(anchor === undefined ? {} : { anchor }),
+      }),
       promote: (owner, id, patch) => this.promoteNote({ owner, id, ...patch }),
       update: (owner, id, patch) => this.update({ owner, id, ...patch }),
       remove: async (owner, id) => (await this.deleteNote({ owner, id })).deleted,

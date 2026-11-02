@@ -55,29 +55,35 @@ export function mintFleetingTitle(body: string): string {
 }
 
 /**
- * Capture one fleeting card: relaxed rules on purpose — the title may be
- * omitted (minted from the first line), the body may carry dangling
- * `[[links]]`, the card never joins the link graph. Ledger: `captured`.
+ * Capture one card at the loose end of the lifecycle: without an anchor it is
+ * a fleeting card (the intake); with an `anchor` (a task-workbench taskId) it
+ * lands as a project card — work in progress, same loose rules (title may be
+ * minted, `[[links]]` may dangle, off the graph). Ledger: `captured`.
  * @param tables - the notes, links, and ledger tables of the open domain.
  * @param owner - preset id whose box takes the capture.
- * @param input - the body, and an optional title (minted when absent).
+ * @param input - the body, an optional title (minted when absent), and an
+ *   optional project anchor (its presence makes the card a project card).
  * @param now - ISO instant recorded as both timestamps.
  * @param id - the card id; minted when omitted.
- * @returns the stored fleeting card.
- * @throws NotebookError on a bad body, a bad explicit title, or a title a
- *   link-target card already holds.
+ * @returns the stored card (fleeting, or project when anchored).
+ * @throws NotebookError on a bad body, a bad explicit title, a bad anchor, or a
+ *   title a link-target card already holds.
  */
 export async function applyCardCapture(
   tables: CardTables,
   owner: string,
-  input: { readonly title?: string; readonly body: string },
+  input: { readonly title?: string; readonly body: string; readonly anchor?: string },
   now: string,
   id?: string,
 ): Promise<NoteRecord> {
   const clean = validateCapture(input)
   const title = clean.title ?? mintFleetingTitle(clean.body)
   ensureTitleAvailable(tables.notes, owner, title)
-  const record = buildNote(owner, { title, body: clean.body }, now, id, 'fleeting')
+  const anchor = input.anchor === undefined ? undefined : input.anchor.trim()
+  if (input.anchor !== undefined && anchor === '') {
+    throw new NotebookError('notebook/input-invalid', 'a project anchor must be a non-empty taskId.')
+  }
+  const record = buildNote(owner, { title, body: clean.body }, now, id, anchor === undefined ? 'fleeting' : 'project', anchor)
   await tables.notes.put(noteKey(owner, record.id), record)
   await appendLedger(tables.ledger, owner, record.id, 'captured', now)
   return record

@@ -208,11 +208,16 @@ describe('archive — the honest project ending / 归档——项目体面的终
 
   it('creates project cards through capture with an anchor, visible via the kind filter', async () => {
     const box = tables()
-    const row = await applyCardCapture(box, 'ada', { title: 'IM 内容路由', body: '项目进行中' }, NOW, 'pr1')
-    await box.notes.put('ada/pr1', { ...row, kind: 'project', anchor: 'task-42' })
+    const row = await applyCardCapture(box, 'ada', { title: 'IM 内容路由', body: '项目进行中', anchor: 'task-42' }, NOW, 'pr1')
+    expect(row.kind).toBe('project')
+    expect(row.anchor).toBe('task-42')
+    // 空白 anchor 拒绝：锚必须是非空 taskId。/ A blank anchor refuses: an anchor must be a non-empty taskId.
+    expect(await refusedCode(() =>
+      applyCardCapture(box, 'ada', { body: '空锚', anchor: '   ' }, NOW),
+    )).toBe('notebook/input-invalid')
     const listed = intakeView(box.notes, 'ada', Date.parse(NOW))
     // 项目卡不在闪念队列里。/ Project cards are not in the intake queue.
-    expect(listed.fleet).toEqual([])
+    expect(listed.fleet.map(r => r.id)).toEqual([])
     const stored = box.notes.get('ada/pr1')
     expect(stored?.kind).toBe('project')
     expect(stored?.anchor).toBe('task-42')

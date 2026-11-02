@@ -262,8 +262,8 @@ export interface NotebookToolsPort {
   readonly read: (owner: string, id: string) => Promise<NoteView>
   /** Write one owner's permanent card. */
   readonly create: (owner: string, title: string, body: string) => Promise<NoteView>
-  /** Capture one owner's fleeting card; the title is minted from the body when omitted. 捕获一张闪念卡；标题省略时从正文首行铸出。 */
-  readonly capture: (owner: string, body: string, title?: string) => Promise<NoteView>
+  /** Capture one owner's card; the title is minted from the body when omitted; an anchor files it as a project card. 捕获一张卡；标题省略时从正文首行铸出；带 anchor 即归档为项目卡。 */
+  readonly capture: (owner: string, body: string, title?: string, anchor?: string) => Promise<NoteView>
   /** Promote one fleeting card into a permanent card under the full write-time discipline. 按完整写入纪律把一张闪念炼成永久卡。 */
   readonly promote: (
     owner: string,

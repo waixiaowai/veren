@@ -23,7 +23,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -40,22 +40,44 @@ const tarball = join(destination, `${manifest.name.replace('@', '').replace('/',
 /** The member dependency names this bundle rewrites, in declaration order. */
 const members = Object.keys(manifest.dependencies ?? {})
 
+/**
+ * Resolve one member's tarball in the destination by its OWN version — members
+ * run their own release lines (e.g. @veren/app-host-bundle is not bumped with
+ * this family), so the filename never assumed the bundle's version.
+ * 按成员自己的版本在目标目录解析 tarball——成员各走各的版本线
+ * （如 @veren/app-host-bundle 不随本家族升位），文件名不能假设与 bundle 同版本。
+ */
+function memberTarballOf(member) {
+  const prefix = `${member.replace('@', '').replace('/', '-')}-`
+  const hits = readdirSync(destination).filter((name) => name.startsWith(prefix) && name.endsWith('.tgz'))
+  if (hits.length !== 1) {
+    throw new Error(`expected exactly one ${prefix}*.tgz in ${destination}, found ${String(hits.length)} — pack every member into the destination first`)
+  }
+  return join(destination, hits[0])
+}
+
 const work = mkdtempSync(join(tmpdir(), 'forum-bundle-pack-'))
+// GNU tar on Windows: `C:\…` reads as a remote host spec (colon = hostname) and
+// backslashes get eaten as escapes — feed it forward-slash paths plus
+// --force-local; both are harmless elsewhere.
+// Windows 上的 GNU tar：`C:\…` 被读成远程主机（冒号=主机名），反斜杠又被当转义
+// 吃掉——喂正斜杠路径加 --force-local；两者在其他平台无害。
+const tarFlags = process.platform === 'win32' ? ['--force-local'] : []
+const toTarPath = (value) => value.replaceAll('\\', '/')
 try {
   // npm tarballs keep every entry under a leading `package/` directory, and pnpm
   // requires that layout when it reads the tarball back.
   mkdirSync(join(work, 'package'), { recursive: true })
-  execFileSync('tar', ['-xzf', tarball, '-C', work], { stdio: 'inherit' })
+  execFileSync('tar', [...tarFlags, '-xzf', toTarPath(tarball), '-C', toTarPath(work)], { stdio: 'inherit' })
   const packaged = JSON.parse(readFileSync(join(work, 'package', 'package.json'), 'utf8'))
   for (const member of members) {
-    const memberTarball = join(destination, `${member.replace('@', '').replace('/', '-')}-${version}.tgz`)
-    packaged.dependencies[member] = `file:${memberTarball.replaceAll('\\', '/')}`
+    packaged.dependencies[member] = `file:${memberTarballOf(member).replaceAll('\\', '/')}`
   }
   packaged.comment_dependencies = 'Rewritten by scripts/repack.mjs for local tarball installation; '
     + 'the committed manifest declares workspace ranges.'
   writeFileSync(join(work, 'package', 'package.json'), `${JSON.stringify(packaged, undefined, 2)}\n`)
   rmSync(tarball)
-  execFileSync('tar', ['-czf', tarball, '-C', work, 'package'], { stdio: 'inherit' })
+  execFileSync('tar', [...tarFlags, '-czf', toTarPath(tarball), '-C', toTarPath(work), 'package'], { stdio: 'inherit' })
   process.stdout.write(`repacked ${basename(tarball)} with ${String(members.length)} member tarball(s)\n`)
 } finally {
   rmSync(work, { recursive: true, force: true })

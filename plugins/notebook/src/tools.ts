@@ -218,24 +218,27 @@ export function buildNotebookWriteDefinition(ctx: Context, port: () => NotebookT
   })
 }
 
-/** 捕获工具构建器：进料一张闪念卡 / the capture tool builder: one fleeting intake card */
+/** 捕获工具构建器：进料一张闪念卡（带 anchor 即项目卡）/ the capture tool builder: one intake card (anchored = project card) */
 export function buildNotebookCaptureDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
   return defineTool({
     name: 'capture_note',
-    description: 'Capture a fleeting card \u2014 the raw intake of the card box (a sudden thought, or a brief '
-      + 'reading excerpt in your own words). Deliberately loose: the title is optional (minted from the first '
-      + 'body line), [[links]] may point at cards that do not exist yet, and the card stays off the link graph. '
-      + 'A fleeting card is a REMINDER, not knowledge: process it within a day or two \u2014 distill it into a '
-      + 'permanent card with promote_note, or throw it away with delete_note; list_notes(kind: fleeting) shows '
-      + 'the queue. Parameters: body, title?.',
+    description: 'Capture a card at the loose end of the lifecycle \u2014 the raw intake of the card box (a sudden '
+      + 'thought, or a brief reading excerpt in your own words). Deliberately loose: the title is optional (minted '
+      + 'from the first body line), [[links]] may point at cards that do not exist yet, and the card stays off the '
+      + 'link graph. Pass anchor (a task-workbench taskId) to file the card as a PROJECT card instead; omit it for a '
+      + 'fleeting card. A fleeting card is a REMINDER, not knowledge: process it within a day or two \u2014 distill '
+      + 'it into a permanent card with promote_note, or throw it away with delete_note; list_notes(kind: fleeting) '
+      + 'shows the queue. A project card closes with archive_note once its insights are distilled. Parameters: body, '
+      + 'title?, anchor?.',
     parameters: {
       body: { type: 'string', description: '闪念正文：原始想法或阅读摘录；[[链接]] 可悬空', required: true },
       title: { type: 'string', description: '可选标题；省略则取正文首行' },
+      anchor: { type: 'string', description: '可选：task-workbench 的 taskId；传入即把这张卡立为项目卡（kind=project）' },
     },
     output: { schema: NOTE_SCHEMA, render: renderValue },
     execute: (args, exec) => notebookToolValue(ctx, exec.agent,
-      async owner => ({ note: await port().capture(owner, args.body, args.title) })),
-    presentCall: args => present('捕获闪念', 'other', args.title ?? String(args.body ?? '').slice(0, 40)),
+      async owner => ({ note: await port().capture(owner, args.body, args.title, args.anchor) })),
+    presentCall: args => present('捕获卡片', 'other', args.title ?? String(args.body ?? '').slice(0, 40)),
   })
 }
 
