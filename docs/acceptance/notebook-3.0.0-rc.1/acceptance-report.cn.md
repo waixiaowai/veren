@@ -48,7 +48,7 @@
 
 ## 3. 其他发现（不阻塞，已记录）
 
-1. **深链不开页面会话**：浏览器直达 `/apps/notebook/list?rc1probe=1` 或 `/apps/notebook/note/:id`（含新标签冷启动）均不创建 `app_pages` 行，SPA 恢复上次的会话。影响「重开同 URL 总是新建」契约与 note 页工具的模型面验收路径（④⑤本次经面板人面完成——同一服务契约）。需单独排查（疑宿主壳层问题，非 notebook 一家）。
+1. **深链不开页面会话**：浏览器直达 `/apps/notebook/list?rc1probe=1` 或 `/apps/notebook/note/:id`（含新标签冷启动）均不创建 `app_pages` 行，SPA 恢复上次的会话。影响「重开同 URL 总是新建」契约与 note 页工具的模型面验收路径（④⑤本次经面板人面完成——同一服务契约）。**已定位（2026-11-02，非回归、是缺口）**：页面会话唯一创建入口是 `ctx.pageRegistry.openUrl`，仅被 `appHost.open` 网关（Remote）与 taskCenter 投递（deliverUrl）调用；客户端**没有任何代码在启动时读 `location.pathname`**——2026-10-24 修的「深链 SPA 回退」只保证深链能加载 SPA，加载后无人消费 URL，SPA 恢复上次会话。10-29 清单里的 live 行全部出自 deliverUrl 流，非浏览器导航。**修复方向（后续任务，跨壳层与 app-host 需一次小设计）**：SPA boot 时解析 `location.pathname`，匹配 `/apps/<appId>/…` 则调 `appHost.open(appId, url)` 并切到返回的 sessionId；未知应用/页面给如实错误行；「重开同 URL 总是新建」由 openUrl 现有语义免费获得。
 2. **owners 偶发 `Failed to fetch`**：面板顶部横幅出现过一次，为缺陷B socket 池饿死的伴生症状；B 修复后未复现。
 3. **僵尸进程坑复现**：多轮重启中 `dsh web` 子进程存活导致 EADDRINUSE、新进程绑口失败而旧僵尸继续服务（打补丁不生效的元凶之一）。已按记忆配方（逐 PID 清杀+端口归零校验）处置。
 
