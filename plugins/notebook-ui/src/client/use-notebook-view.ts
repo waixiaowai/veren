@@ -62,9 +62,16 @@ function messageOf(error: unknown): string {
 }
 
 /** A different owner means a different notebook: drop the old draft first.
- * 归属变了就是另一本笔记：先丢掉旧草稿。 */
+ * The reset closure rides a ref so the effect fires on owner changes only —
+ * keying the effect on the closure itself re-ran the reset after every render
+ * and ping-ponged against the follow effect (select first ↔ clear, forever).
+ * 归属变了就是另一本笔记：先丢掉旧草稿。重置闭包走 ref，effect 只在归属变化时
+ * 触发——把闭包本身放进依赖会让重置在每次渲染后重跑，与跟随副作用打成
+ * 「选中第一条↔清空」的死循环。 */
 function useOwnerChangeReset(owner: string | undefined, resetAll: () => void): void {
-  useEffect(() => { resetAll() }, [owner, resetAll])
+  const resetRef = useRef(resetAll)
+  resetRef.current = resetAll
+  useEffect(() => { resetRef.current() }, [owner])
 }
 
 /** Inputs of the follow effect, flattened so the dependency list stays explicit.

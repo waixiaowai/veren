@@ -15,7 +15,7 @@
  * @module @veren/notebook-ui/client/note-links
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { NotebookKey } from './locales.ts'
 import type { CardLinkView } from './remote.ts'
 
@@ -39,6 +39,14 @@ type LinksState =
 export function NoteLinks(props: NoteLinksProps): React.ReactElement | null {
   const { t, owner, selectedId, editingNew, fetchLinks } = props
   const [state, setState] = useState<LinksState>({ kind: 'idle' })
+  // The fetch callback rides a ref: it is an action, not data. Keying the
+  // effect on the callback's identity refetched cardLinks on every render —
+  // together with the owner-reset loop this stormed the endpoint until the
+  // browser exhausted its socket pool.
+  // 拉取回调走 ref：它是动作，不是数据。把回调身份放进 effect 依赖会让 cardLinks
+  // 每次渲染都重取——与归属重置循环叠加后把端点打成风暴，直到浏览器 socket 池耗尽。
+  const fetchRef = useRef(fetchLinks)
+  fetchRef.current = fetchLinks
   useEffect(() => {
     if (owner === undefined || selectedId === undefined || editingNew) {
       setState({ kind: 'idle' })
@@ -46,7 +54,7 @@ export function NoteLinks(props: NoteLinksProps): React.ReactElement | null {
     }
     let live = true
     setState({ kind: 'loading' })
-    fetchLinks({ owner, id: selectedId })
+    fetchRef.current({ owner, id: selectedId })
       .then((links) => { if (live) setState({ kind: 'ready', links }) })
       .catch((cause: unknown) => {
         if (!live) return
@@ -54,7 +62,7 @@ export function NoteLinks(props: NoteLinksProps): React.ReactElement | null {
         setState({ kind: 'failed', message })
       })
     return () => { live = false }
-  }, [owner, selectedId, editingNew, fetchLinks])
+  }, [owner, selectedId, editingNew])
 
   if (state.kind === 'idle') return null
   return (

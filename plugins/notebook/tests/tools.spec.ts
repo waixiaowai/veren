@@ -28,6 +28,7 @@ import NotebookService, {
   buildNotebookDeleteDefinition, buildNotebookListDefinition, buildNotebookReadDefinition,
   buildNotebookRewriteDefinition, buildNotebookWriteDefinition, Config,
 } from '../src/index.ts'
+import type { NotebookToolsPort } from '../src/types.ts'
 import type { NoteSummary, NoteView } from '../src/types.ts'
 
 /** The builder products in build order, keyed by local name. 按本地名为键、按构建顺序排列的构建产物。 */
@@ -71,6 +72,7 @@ function drivable(definition: ToolDefinition): RegisteredTool {
  * `composedPreset` 从 Agent 自己的 context 读取预设，这正是构建器解析归属的方式。
  */
 async function mount(): Promise<{
+  ctx: Context
   fiber: Fiber
   definitions: Map<string, ToolDefinition>
   run: (tool: string, args: unknown, exec: { agent?: unknown }) => Promise<unknown>
@@ -93,6 +95,7 @@ async function mount(): Promise<{
     ['delete_note', buildNotebookDeleteDefinition(ctx, () => port)],
   ])
   return {
+    ctx,
     fiber,
     definitions,
     run: async (tool, args, exec) => {
@@ -234,6 +237,36 @@ describe('notebook tool builders / 记事本工具构建器', () => {
 
     await expect(run('write_note', { title: '   ', body: 'B' }, execution('ada')))
       .rejects.toMatchObject({ name: 'NotebookToolError', code: 'notebook/title-required' })
+
+    await fiber.dispose()
+  })
+
+  it('translates a foreign-instance notebook refusal by structure, not instanceof', async () => {
+    // A second package instance (a nested node_modules copy) throws a
+    // structurally identical error whose class identity differs, so an
+    // instanceof check is falsely false and the refusal flattened into the
+    // generic internal text. The stub port throws exactly that shape: the
+    // structural marker and the code, from a different class.
+    // 第二份包实例（嵌套 node_modules 副本）抛出结构相同而类身份不同的错误，
+    // instanceof 因此假阴，拒绝被压成通用文案。桩端口抛的正是该形状：同结构
+    // 标记同码，来自另一个类。
+    class ForeignRealmNotebookError extends Error {
+      override name = 'RemoteError'
+      readonly isDSHRemoteError = true as const
+      constructor(readonly code: 'notebook/link-unresolved', message: string) {
+        super(message)
+      }
+    }
+
+    const { ctx, fiber } = await mount()
+    const foreignPort: NotebookToolsPort = {
+      ...ctx.notebook.toolsPort(),
+      create: async () => { throw new ForeignRealmNotebookError('notebook/link-unresolved', 'these link targets have no card in this notebook: [[missing target]].') },
+    }
+    const definition = drivable(buildNotebookWriteDefinition(ctx, () => foreignPort))
+
+    await expect(definition.execute({ title: 'rc1·跨实例拒绝', body: '正文' }, execution('ada')))
+      .rejects.toMatchObject({ name: 'NotebookToolError', code: 'notebook/link-unresolved' })
 
     await fiber.dispose()
   })

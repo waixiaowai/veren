@@ -28,7 +28,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { NotebookError } from './notes.ts'
+import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type { NotebookToolsPort } from './types.ts'
 // Type-only: pulls the `ctx.agentPresets` service declaration into this face
 // (a declared hard inject of the owning service; read directly, never probed).
@@ -94,9 +94,22 @@ function internalError(): NotebookToolError {
   return new NotebookToolError('internal_error', 'The notebook operation failed.')
 }
 
-/** Translate a structured refusal while withholding internal storage failures. */
+/**
+ * Translate one caught value into the model-facing refusal. Discrimination
+ * rides the framework's structural marker (`remoteErrorOf`) rather than
+ * `instanceof`: a dual package instance — a nested `node_modules` copy
+ * resolving the same import to a second class identity — makes instanceof
+ * falsely false and flattened every refusal into the generic text.
+ * 把捕获值翻译成面向模型的拒绝。识别走框架的结构标记（`remoteErrorOf`）而非
+ * `instanceof`：双包实例——嵌套 `node_modules` 副本把同一导入解析成第二个类
+ * 身份——会让 instanceof 假阴，把所有拒绝压成通用文案。
+ */
 function operationError(error: unknown): NotebookToolError {
-  return error instanceof NotebookError ? new NotebookToolError(error.code, error.message) : internalError()
+  const remote = remoteErrorOf(error)
+  if (remote !== undefined && remote.code.startsWith('notebook/')) {
+    return new NotebookToolError(remote.code, remote.message)
+  }
+  return internalError()
 }
 
 export { notebookToolValue, present, renderValue }
