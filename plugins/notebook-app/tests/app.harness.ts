@@ -77,7 +77,7 @@ export async function mount(): Promise<{
   fibers.push(await ctx.plugin(TaskCenter))
   // 宿主服务，配置按插件管理器的方式解析（0.2.0 起无配置项）。
   // The host service, config resolved the way the plugin manager resolves it (no options since 0.2.0).
-  fibers.push(await ctx.plugin(NotebookService, HostConfig({})))
+  fibers.push(await ctx.plugin(NotebookService, HostConfig({ globalTools: { enabled: false } })))
 
   // The real registries plus the mirror seam, wired exactly as the real host
   // assembly (app-host) does.

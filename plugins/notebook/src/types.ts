@@ -178,4 +178,6 @@ export interface NotebookToolsPort {
   readonly cardLinks: (owner: string, id: string) => Promise<CardLinkView>
   /** Find one owner's cards by a title fragment — the title-address lookup. 按标题片段找卡——标题寻址查询。 */
   readonly find: (owner: string, query: string) => Promise<readonly NoteSummary[]>
+  /** List one owner's waiting-to-be-processed cards (no inbound links, past the freshness window), oldest first. 列出某盒待加工的卡（无入链且过保鲜窗），最早优先。 */
+  readonly stale: (owner: string) => Promise<readonly NoteSummary[]>
 }

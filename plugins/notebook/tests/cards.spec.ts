@@ -14,6 +14,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { buildNote, noteKey, titlesContaining } from '../src/notes.ts'
+import { staleView, STALE_DAYS } from '../src/graph.ts'
 import { NotebookError } from '../src/notes.ts'
 import { applyCardCreate, applyCardRemove, applyCardUpdate } from '../src/cards.ts'
 import type { CardTables } from '../src/cards.ts'
@@ -198,5 +199,28 @@ describe('card write paths / 卡片写路径', () => {
     expect(suggested.length).toBeGreaterThan(0)
     const lookup = titlesContaining(box.notes, 'ada', missing.slice(0, 20)).map(row => row.title)
     for (const title of suggested) expect(lookup).toContain(title)
+  })
+
+  it('M2/S1: the stale queue is exactly unlinked cards past the freshness window, oldest first', async () => {
+    const box = tables()
+    const old = '2026-10-01T00:00:00.000Z'
+    const fresh = '2026-11-01T00:00:00.000Z'
+    await applyCardCreate(box, 'ada', { title: '老而孤', body: '谁也不链我' }, old, 's-old-lone')
+    await applyCardCreate(box, 'ada', { title: '老而有链目标', body: '被指着' }, old, 's-old-linked')
+    await applyCardCreate(box, 'ada', { title: '较新引用者', body: '指向 [[老而有链目标]]' }, fresh, 's-new-ref')
+    await applyCardCreate(box, 'ada', { title: '新而孤', body: '新来的孤儿' }, fresh, 's-new-lone')
+
+    const nowMs = Date.parse('2026-11-02T00:00:00.000Z')
+    const stale = staleView(box.notes, box.links, 'ada', nowMs)
+    expect(stale.map(row => row.title)).toEqual(['老而孤'])
+    // 保鲜窗内不浮出（默认 7 天）；窗口拉长到 0 天则所有无入链的卡都进队——
+    // 注意「较新引用者」有出链但无入链，按定义仍是孤儿（出链不锚定自己）。
+    // / Inside the window nothing surfaces (default 7 days); with the window at
+    // 0 days every unlinked card enters — note that the fresh referrer has
+    // outbound links but no inbound ones, so it is still an orphan by the
+    // definition (outbound links do not anchor the card itself).
+    expect(staleView(box.notes, box.links, 'ada', nowMs, 0).map(row => row.title))
+      .toEqual(['老而孤', '较新引用者', '新而孤'])
+    void STALE_DAYS
   })
 })

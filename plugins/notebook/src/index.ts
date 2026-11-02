@@ -44,7 +44,7 @@ import { NotebookStoreHandle } from './store.ts'
 import { registerNotebookGlobalTools } from './tools-global.ts'
 import { NotebookError } from './notes.ts'
 import {
-  backlinkViewOf, cachedBacklinks, hubView, linkCounts as countLinks, outgoingOf,
+  backlinkViewOf, cachedBacklinks, hubView, linkCounts as countLinks, outgoingOf, staleView,
 } from './graph.ts'
 import { applyCardCreate, applyCardRemove, applyCardUpdate } from './cards.ts'
 import {
@@ -222,6 +222,16 @@ export class NotebookService extends TypertRemoteService {
     })
   }
 
+  /** List one box's waiting-to-be-processed cards (no inbound links, past the freshness window), oldest first. 列出某盒待加工的卡（无入链且过保鲜窗），最早优先。 */
+  @Remote('stale')
+  async stale(request: { readonly owner: string }): Promise<readonly NoteSummary[]> {
+    const owner = requireOwner(request.owner)
+    return this.store.read((domain) => {
+      const { notes, links } = this.store.tables(domain)
+      return staleView(notes, links, owner, Date.now())
+    })
+  }
+
   /** Count inbound links per card title, for the panel's list badges. 按标题统计入链数，供面板列表角标。 */
   @Remote('linkCounts')
   async linkCounts(request: { readonly owner: string }): Promise<readonly LinkCountView[]> {
@@ -249,6 +259,7 @@ export class NotebookService extends TypertRemoteService {
       hubs: owner => this.hubs({ owner }),
       cardLinks: (owner, id) => this.cardLinks({ owner, id }),
       find: (owner, query) => this.findSummaries(owner, query),
+      stale: owner => this.stale({ owner }),
     }
   }
 
@@ -274,6 +285,7 @@ export {
   titlesContaining,
 } from './notes.ts'
 export { ensureExpected, resolveLinksOrThrow, validateCreate, validateUpdate } from './validate.ts'
+export { staleView, STALE_DAYS } from './graph.ts'
 export { extractLinks } from './links.ts'
 export { applyCardCreate, applyCardRemove, applyCardUpdate } from './cards.ts'
 export type { CardTables } from './cards.ts'

@@ -20,10 +20,10 @@
  */
 
 import { extractLinks, retargetOccurrences } from './links.ts'
-import { MAX_BODY_CHARS, applyUpdate, noteKey } from './notes.ts'
+import { MAX_BODY_CHARS, applyUpdate, noteKey, noteSummary } from './notes.ts'
 import { NotebookError } from './notes.ts'
 import type { NotebookTable } from './storage.ts'
-import type { HubView, LinkCountView, LinkRecord, LinkTargetView, NoteRecord } from './types.ts'
+import type { HubView, LinkCountView, LinkRecord, LinkTargetView, NoteRecord, NoteSummary } from './types.ts'
 
 /**
  * Compose the storage key of one cached link.
@@ -233,6 +233,43 @@ export function hubView(notes: NotebookTable<NoteRecord>, links: NotebookTable<L
  * @param owner - preset id whose box is counted.
  * @returns one row per owner card, title ascending; cards with no inbound links count zero.
  */
+/**
+ * The freshness window before an unlinked card surfaces in the waiting list.
+ * 无链接卡片浮出待加工区前的保鲜窗口（天）。
+ */
+export const STALE_DAYS = 7
+
+/**
+ * One box's waiting-to-be-processed cards — no inbound links and untouched for
+ * the freshness window — the lost cards Luhmann warned about (C4: unconnected
+ * notes get lost and are forgotten by the box). Derived entirely from the
+ * notes+links tables, oldest first: a query, never a schema.
+ * @param notes - the notes table.
+ * @param links - the links cache table.
+ * @param owner - preset id whose box is screened.
+ * @param nowMs - the current time in epoch milliseconds.
+ * @param days - the freshness window in days (default {@link STALE_DAYS}).
+ * @returns the stale orphan summaries, oldest first.
+ *
+ * 某盒的待加工卡片——没有入链且超过保鲜窗口未动——卢曼警告过的迷失卡片（C4：
+ * 不相连的笔记会迷失，会被盒遗忘）。完全派生自 notes+links 两表，最早优先：
+ * 是查询，不是 schema。
+ */
+export function staleView(notes: NotebookTable<NoteRecord>, links: NotebookTable<LinkRecord>, owner: string, nowMs: number, days = STALE_DAYS): NoteSummary[] {
+  const counts = new Map<string, number>()
+  for (const row of links.all()) {
+    if (row.owner !== owner) continue
+    counts.set(row.targetTitle, (counts.get(row.targetTitle) ?? 0) + 1)
+  }
+  const cutoffMs = nowMs - days * 24 * 60 * 60 * 1000
+  return notes.all()
+    .filter(record => record.owner === owner
+      && (counts.get(record.title) ?? 0) === 0
+      && Date.parse(record.updatedAt) <= cutoffMs)
+    .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt))
+    .map(noteSummary)
+}
+
 export function linkCounts(notes: NotebookTable<NoteRecord>, links: NotebookTable<LinkRecord>, owner: string): LinkCountView[] {
   const counts = new Map<string, number>()
   for (const row of links.all()) {
