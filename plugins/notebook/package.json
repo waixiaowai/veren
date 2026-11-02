@@ -1,7 +1,7 @@
 {
   "name": "@veren/notebook",
   "displayName": "Notebook",
-  "version": "3.0.0-rc.4",
+  "version": "3.0.0-rc.5",
   "icon": "./icon.svg",
   "description": "Use when a DSH deployment needs the notebook domain itself: one private durable card box per agent preset where cards carry [[title]] links to each other, served to people over the notebook Remote namespace and to models through exported tool builders that a mounter registers; this package registers no tools itself - install @veren/notebook-app to expose the box under /apps/notebook with notebook__* page tools including the box's talking-back face (list_backlinks, list_hubs). Skip it when agents need no private scratchpad.",
   "type": "module",
