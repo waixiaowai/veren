@@ -146,6 +146,16 @@ export interface NotePatch {
  * with the global registration; the field set stays reserved.
  * 记事本插件配置。当前为空——全局注册退役时其开关一并删除；字段集保留备用。
  */
+/** One proposed unexpected connection: two cards sharing neighbors without linking. 一条被提议的意外连接：共享邻居却未互链的两张卡。 */
+export interface RiddleView {
+  readonly aId: string
+  readonly aTitle: string
+  readonly bId: string
+  readonly bTitle: string
+  /** How many neighbors the two cards share. 两卡共享的邻居数。 */
+  readonly shared: number
+}
+
 export interface NotebookConfig {
   /** Mount the consult/write tool face into every session of every preset. 把咨询/写入工具面挂进每个预设的任意会话。 */
   readonly globalTools: { readonly enabled: boolean }
@@ -180,4 +190,6 @@ export interface NotebookToolsPort {
   readonly find: (owner: string, query: string) => Promise<readonly NoteSummary[]>
   /** List one owner's waiting-to-be-processed cards (no inbound links, past the freshness window), oldest first. 列出某盒待加工的卡（无入链且过保鲜窗），最早优先。 */
   readonly stale: (owner: string) => Promise<readonly NoteSummary[]>
+  /** List one owner's riddles: pairs sharing neighbors without linking. 列出盒的谜面：共享邻居却未互链的卡对。 */
+  readonly riddles: (owner: string) => Promise<readonly RiddleView[]>
 }

@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { buildNote, noteKey, titlesContaining } from '../src/notes.ts'
-import { staleView, STALE_DAYS } from '../src/graph.ts'
+import { riddlePairs, RIDDLE_MIN_SHARED, staleView, STALE_DAYS } from '../src/graph.ts'
 import { NotebookError } from '../src/notes.ts'
 import { applyCardCreate, applyCardRemove, applyCardUpdate } from '../src/cards.ts'
 import type { CardTables } from '../src/cards.ts'
@@ -222,5 +222,35 @@ describe('card write paths / 卡片写路径', () => {
     expect(staleView(box.notes, box.links, 'ada', nowMs, 0).map(row => row.title))
       .toEqual(['老而孤', '较新引用者', '新而孤'])
     void STALE_DAYS
+  })
+
+  it('M4/R1: riddles are exactly unlinked pairs sharing at least two neighbors, strongest first', async () => {
+    const box = tables()
+    // 甲、乙共享「邻一」「邻二」两个邻居且互不链接 → 谜面（恰好一对）
+    await applyCardCreate(box, 'ada', { title: '邻一', body: 'n1' }, NOW, 'n1')
+    await applyCardCreate(box, 'ada', { title: '邻二', body: 'n2' }, NOW, 'n2')
+    await applyCardCreate(box, 'ada', { title: '邻三', body: 'n3' }, NOW, 'n3')
+    await applyCardCreate(box, 'ada', { title: '甲', body: '见 [[邻一]] 与 [[邻二]]' }, NOW, 'a1')
+    await applyCardCreate(box, 'ada', { title: '乙', body: '见 [[邻一]] 与 [[邻二]]' }, NOW, 'b1')
+    // 丙、丁直接互链且仅共享一个邻居 → 直链取消资格
+    await applyCardCreate(box, 'ada', { title: '丙', body: '见 [[邻三]]' }, NOW, 'c1')
+    await applyCardCreate(box, 'ada', { title: '丁', body: '见 [[邻三]]，另有 [[丙]]' }, NOW, 'd1')
+    // 戊、己仅共享一个邻居 → 不足阈值
+    await applyCardCreate(box, 'ada', { title: '戊', body: '见 [[邻三]]' }, NOW, 'e1')
+    await applyCardCreate(box, 'ada', { title: '己', body: '见 [[邻三]]' }, NOW, 'f1')
+
+    const riddles = riddlePairs(box.notes, box.links, 'ada')
+    // 恰好两对：(甲,乙) 共享「邻一」「邻二」；(邻一,邻二) 被甲乙同引却互不链接——
+    // 对称定义下同样是合法谜面（被同一批作者引用的目标彼此也可提「该认识一下」）。
+    // 直链对（丙,丁）与共享数不足的对（戊,己 共享邻三=1）都不成谜。
+    expect(riddles.map(pair => [pair.aTitle, pair.bTitle, pair.shared])).toEqual([
+      ['甲', '乙', 2],
+      ['邻一', '邻二', 2],
+    ])
+    expect(riddles.some(pair => [pair.aTitle, pair.bTitle].includes('丙'))).toBe(false)
+    expect(riddles.some(pair => [pair.aTitle, pair.bTitle].includes('戊'))).toBe(false)
+    // 排除直链对：丙丁不成谜
+    expect(riddles.some(r => [r.aTitle, r.bTitle].includes('丙') && [r.aTitle, r.bTitle].includes('丁'))).toBe(false)
+    void RIDDLE_MIN_SHARED
   })
 })

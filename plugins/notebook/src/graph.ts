@@ -23,7 +23,7 @@ import { extractLinks, retargetOccurrences } from './links.ts'
 import { MAX_BODY_CHARS, applyUpdate, noteKey, noteSummary } from './notes.ts'
 import { NotebookError } from './notes.ts'
 import type { NotebookTable } from './storage.ts'
-import type { HubView, LinkCountView, LinkRecord, LinkTargetView, NoteRecord, NoteSummary } from './types.ts'
+import type { HubView, LinkCountView, LinkRecord, LinkTargetView, NoteRecord, NoteSummary, RiddleView } from './types.ts'
 
 /**
  * Compose the storage key of one cached link.
@@ -299,4 +299,83 @@ export function backlinkViewOf(notes: NotebookTable<NoteRecord>, owner: string, 
 function excerptLine(body: string): string {
   const flat = body.replaceAll(/\s+/g, ' ').trim()
   return flat.length <= 120 ? flat : `${flat.slice(0, 120)}…`
+}
+
+/** The shared-neighbor count below which a pair is not proposed as a riddle. 不足此共享邻居数的卡对不提出谜面。 */
+export const RIDDLE_MIN_SHARED = 2
+
+/**
+ * The box's riddles: card pairs that share neighbors — they keep touching the
+ * same ideas — yet never link to each other. Ahrens's principle 6 (let chance
+ * play a role) as a derived query: the graph answers questions; this one asks
+ * one. Undirected neighbors (outbound and inbound alike); a direct link in
+ * either direction disqualifies a pair; ranked by shared count then ids,
+ * capped. Cost note: inverted-bucket pairwise counting over the links cache —
+ * fine at the 10k-card design target's realistic sparse densities; benchmark
+ * before shipping to bigger boxes.
+ * @param notes - the notes table.
+ * @param links - the links cache table.
+ * @param owner - preset id whose box is mined.
+ * @param limit - how many riddles to return.
+ * @returns the riddle pairs, strongest first.
+ *
+ * 盒的谜面：共享邻居——不断触碰同一批想法——却从未互链的卡对。Ahrens 原则6
+ * （让偶然性扮演角色）的派生查询：图谱回答问题；这一条提出问题。邻居按无向计
+ * （出入链皆算）；任一方向有直链即取消资格；按共享数与 id 排序，限量返回。
+ * 成本注：links 缓存上的倒排桶成对计数——设计目标 1 万卡的现实稀疏密度下没问题；
+ * 更大的盒先基准再上。
+ */
+export function riddlePairs(notes: NotebookTable<NoteRecord>, links: NotebookTable<LinkRecord>, owner: string, limit = 3): RiddleView[] {
+  const idOfTitle = new Map<string, string>()
+  const titleOfId = new Map<string, string>()
+  for (const record of notes.all()) {
+    if (record.owner !== owner) continue
+    idOfTitle.set(record.title, record.id)
+    titleOfId.set(record.id, record.title)
+  }
+  const neighbors = new Map<string, Set<string>>()
+  const direct = new Set<string>()
+  const touch = (a: string, b: string): void => {
+    if (a === b || !titleOfId.has(a) || !titleOfId.has(b)) return
+    if (!neighbors.has(a)) neighbors.set(a, new Set())
+    neighbors.get(a)!.add(b)
+  }
+  for (const row of links.all()) {
+    if (row.owner !== owner) continue
+    const source = row.sourceId
+    const target = idOfTitle.get(row.targetTitle)
+    if (source === undefined || target === undefined || source === target) continue
+    touch(source, target)
+    touch(target, source)
+    direct.add(source < target ? `${source}${target}` : `${target}${source}`)
+  }
+  const buckets = new Map<string, string[]>()
+  for (const [id, set] of neighbors) {
+    for (const neighbor of set) {
+      if (!buckets.has(neighbor)) buckets.set(neighbor, [])
+      buckets.get(neighbor)!.push(id)
+    }
+  }
+  const overlap = new Map<string, { a: string; b: string; shared: number }>()
+  for (const members of buckets.values()) {
+    for (let i = 0; i < members.length; i++) {
+      for (let j = i + 1; j < members.length; j++) {
+        const a = members[i]!
+        const b = members[j]!
+        if (a === b) continue
+        const key = a < b ? `${a}${b}` : `${b}${a}`
+        if (direct.has(key)) continue
+        const entry = overlap.get(key)
+        if (entry !== undefined) entry.shared += 1
+        else overlap.set(key, { a, b, shared: 1 })
+      }
+    }
+  }
+  return [...overlap.values()]
+    .filter(entry => entry.shared >= RIDDLE_MIN_SHARED)
+    .sort((left, right) => right.shared - left.shared || left.a.localeCompare(right.a))
+    .slice(0, limit)
+    .map(({ a, b, shared }) => ({
+      aId: a, aTitle: titleOfId.get(a) ?? '', bId: b, bTitle: titleOfId.get(b) ?? '', shared,
+    }))
 }

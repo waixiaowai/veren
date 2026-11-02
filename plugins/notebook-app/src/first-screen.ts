@@ -76,6 +76,8 @@ export interface NotebookListFirstScreen {
   hubs: readonly HubView[]
   /** 待加工区：无入链且过保鲜窗的卡，最早优先 / the waiting list: unlinked cards past the freshness window, oldest first */
   stale: readonly { id: string; title: string; updatedAt: string }[]
+  /** 谜面：共享邻居却未互链的卡对 / riddles: pairs sharing neighbors without linking */
+  riddles: readonly { aTitle: string; bTitle: string; shared: number }[]
 }
 
 /** 详情页首屏快照形状（归属未知或笔记不存在时 note 为 null）
@@ -97,7 +99,8 @@ export function renderListFirstScreen(snap: NotebookListFirstScreen): string {
   const rows = snap.notes.map((note) => `- **${note.id}** ${note.title}（更新于 ${note.updatedAt}）\n  ${note.excerpt}`)
   const hubs = renderHubs(snap.hubs)
   const stale = renderStale(snap.stale)
-  return [`笔记列表（预设 ${snap.owner ?? '未知'}）：`, ...rows, '', hubs, '', stale, '', '列表此后变化以你调用工具返回的结果为准。'].join('\n')
+  const riddles = renderRiddles(snap.riddles)
+  return [`笔记列表（预设 ${snap.owner ?? '未知'}）：`, ...rows, '', hubs, '', stale, '', riddles, '', '列表此后变化以你调用工具返回的结果为准。'].join('\n')
 }
 
 /** 枢纽段：盒的入口，如实包括空态。/ The hubs section: the box's entry points, empty state stated honestly. */
@@ -116,6 +119,15 @@ function renderStale(stale: readonly { id: string; title: string; updatedAt: str
   }
   const rows = stale.map(card => `- ${card.title}（${card.id}，放置于 ${card.updatedAt}）`)
   return ['待加工区（这些卡还没有任何链接指向它们，且已放置超过 7 天——按卡片笔记法该加工了：让 AI 把它们炼成永久卡，或给它们链上归宿）：', ...rows].join(String.fromCharCode(10))
+}
+
+/** 谜面段：意外连接的提问式提示，如实包括空态。/ The riddle section: question-form hints at unexpected connections, empty state honest. */
+function renderRiddles(riddles: readonly { aTitle: string; bTitle: string; shared: number }[]): string {
+  if (riddles.length === 0) {
+    return '盒的谜面：暂无——卡与卡之间还没有可提出的意外连接。'
+  }
+  const rows = riddles.map(riddle => `- 「${riddle.aTitle}」与「${riddle.bTitle}」共享 ${String(riddle.shared)} 个邻居，却从未互链——它们该认识一下吗？`)
+  return ['盒的谜面（派生提示，当谜语听；认为成立就互链）：', ...rows].join('\n')
 }
 
 /** 详情首屏渲染成 Markdown 文本 / render the note first screen as Markdown text */
@@ -160,10 +172,10 @@ function renderIncoming(links: CardLinkView | null): string {
  * / the list page's first-screen read (the read half of the body's lifecycle; failures are information too) */
 export async function listFirstScreenText(agent: Agent): Promise<string> {
   const owner = ownerOf(agent)
-  if (owner === null) return renderListFirstScreen({ available: false, owner: null, notes: [], hubs: [], stale: [] })
+  if (owner === null) return renderListFirstScreen({ available: false, owner: null, notes: [], hubs: [], stale: [], riddles: [] })
   const port = requireServices().port()
   try {
-    const [notes, hubs, stale] = await Promise.all([port.list(owner), port.hubs(owner), port.stale(owner)])
+    const [notes, hubs, stale, riddles] = await Promise.all([port.list(owner), port.hubs(owner), port.stale(owner), port.riddles(owner)])
     return renderListFirstScreen({
       available: true,
       owner,
@@ -172,6 +184,7 @@ export async function listFirstScreenText(agent: Agent): Promise<string> {
       })),
       hubs,
       stale: stale.map(card => ({ id: card.id, title: card.title, updatedAt: card.updatedAt })),
+      riddles: riddles.map(riddle => ({ aTitle: riddle.aTitle, bTitle: riddle.bTitle, shared: riddle.shared })),
     })
   } catch (error: unknown) {
     return `首屏读取失败：${error instanceof Error ? error.message : String(error)}。重开本页 URL 即可重取；也可用 list_notes 自行取列表。`

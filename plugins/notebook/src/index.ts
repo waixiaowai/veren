@@ -38,13 +38,13 @@ import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import z from '@deepseek-ai/schemastery'
 import type {
   BacklinkView, CardLinkView, HubView, LinkCountView, NoteSummary, NoteView,
-  NotebookConfig, NotebookToolsPort, OwnerView,
+  NotebookConfig, NotebookToolsPort, OwnerView, RiddleView,
 } from './types.ts'
 import { NotebookStoreHandle } from './store.ts'
 import { registerNotebookGlobalTools } from './tools-global.ts'
 import { NotebookError } from './notes.ts'
 import {
-  backlinkViewOf, cachedBacklinks, hubView, linkCounts as countLinks, outgoingOf, staleView,
+  backlinkViewOf, cachedBacklinks, hubView, linkCounts as countLinks, outgoingOf, riddlePairs, staleView,
 } from './graph.ts'
 import { applyCardCreate, applyCardRemove, applyCardUpdate } from './cards.ts'
 import {
@@ -232,6 +232,16 @@ export class NotebookService extends TypertRemoteService {
     })
   }
 
+  /** List the box's riddles: card pairs sharing neighbors without linking each other. 列出盒的谜面：共享邻居却未互链的卡对。 */
+  @Remote('riddles')
+  async riddles(request: { readonly owner: string }): Promise<readonly RiddleView[]> {
+    const owner = requireOwner(request.owner)
+    return this.store.read((domain) => {
+      const { notes, links } = this.store.tables(domain)
+      return riddlePairs(notes, links, owner)
+    })
+  }
+
   /** Count inbound links per card title, for the panel's list badges. 按标题统计入链数，供面板列表角标。 */
   @Remote('linkCounts')
   async linkCounts(request: { readonly owner: string }): Promise<readonly LinkCountView[]> {
@@ -260,6 +270,7 @@ export class NotebookService extends TypertRemoteService {
       cardLinks: (owner, id) => this.cardLinks({ owner, id }),
       find: (owner, query) => this.findSummaries(owner, query),
       stale: owner => this.stale({ owner }),
+      riddles: owner => this.riddles({ owner }),
     }
   }
 
@@ -285,7 +296,7 @@ export {
   titlesContaining,
 } from './notes.ts'
 export { ensureExpected, resolveLinksOrThrow, validateCreate, validateUpdate } from './validate.ts'
-export { staleView, STALE_DAYS } from './graph.ts'
+export { riddlePairs, RIDDLE_MIN_SHARED, staleView, STALE_DAYS } from './graph.ts'
 export { extractLinks } from './links.ts'
 export { applyCardCreate, applyCardRemove, applyCardUpdate } from './cards.ts'
 export type { CardTables } from './cards.ts'
@@ -298,7 +309,7 @@ export { buildNotebookBacklinksDefinition, buildNotebookFindDefinition, buildNot
 export { GLOBAL_TOOL_NAMES, registerNotebookGlobalTools } from './tools-global.ts'
 export type {
   BacklinkView, CardLinkView, HubView, LinkCountView, LinkRecord, LinkTargetView, NoteRecord,
-  NoteSummary, NoteView, NotebookConfig, NotebookErrorCode, NotebookToolsPort, OwnerView,
+  NoteSummary, NoteView, NotebookConfig, NotebookErrorCode, NotebookToolsPort, OwnerView, RiddleView,
 } from './types.ts'
 
 export default NotebookService

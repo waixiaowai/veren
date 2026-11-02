@@ -22,11 +22,14 @@ describe('list first screen waiting-list section / 列表首屏待加工区', ()
         { id: 'old-1', title: 'Sub2API 运营playbook', updatedAt: '2026-10-21T06:48:09.327Z' },
         { id: 'old-2', title: '2.0.4 回归', updatedAt: '2026-10-24T14:34:00.760Z' },
       ],
+      riddles: [{ aTitle: '甲卡', bTitle: '乙卡', shared: 2 }],
     })
     expect(text).toContain('待加工区')
     expect(text).toContain('Sub2API 运营playbook（old-1')
     expect(text).toContain('2.0.4 回归（old-2')
     expect(text).toContain('炼成永久卡')
+    expect(text).toContain('盒的谜面')
+    expect(text).toContain('「甲卡」与「乙卡」共享 2 个邻居，却从未互链')
   })
 
   it('states the empty waiting list honestly', () => {
@@ -36,8 +39,10 @@ describe('list first screen waiting-list section / 列表首屏待加工区', ()
       notes: [{ id: 'n1', title: '某卡', excerpt: '摘要', updatedAt: '2026-11-01T00:00:00.000Z' }],
       hubs: [],
       stale: [],
+      riddles: [],
     })
     expect(text).toContain('待加工区：空')
     expect(text).toContain('每张卡都至少有一条入链指向它')
+    expect(text).toContain('盒的谜面：暂无')
   })
 })
