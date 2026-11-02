@@ -135,3 +135,10 @@ wsgw 指令回执是**同步等待且上限 10s**（`command.go:18`），而 sup
 - **测试**：cms 域 23 测 + wsgw 窄口 3 测 + 旅程 1 测 + 迁移 2 测全绿；fork 14 测绿（连接 5/契约 5/kind 4），typecheck + build 绿；全量套件与基线逐一对齐（Windows 预存环境失败零新增）。
 - **混沌剧本的在程覆盖**：杀节点=LeaseTick 重排（3 次到限停放+负回复，测在案）；杀 cms=节点离线 FIFO 补报（fork 连接测在案）；重复派发=节点 taskId 幂等 + cms UNIQUE(task_id,type,ref)（双侧测在案）。
 - **F 腿待真机**（见 §5，唯一剩余）：① staging cms 部署演练；② 生产 `deploy-local-pkg.sh`；③ 真机清单 = §2 Q4 六条（真实微信发单→手机收回复、SQLite 时间线、无匹配/拒绝负回复送达）；④ 节点侧真机 = 3080 或 Olares chart 启用 `dsh-superagent-taskhub` 行并配 url/token/title/tags。
+
+## 交付记录·F 腿（2026-11-02 续）
+
+- **F1 双进程演练**（cms `scripts/taskhub-rehearsal/`，f5652c9e）：真 cms 二进制 + 盲写假节点（只凭契约文档实现）+ mock iLink。**首跑即抓出 node.identity 缺失缺陷**（fork 真实客户端同款——in-process 旅程测被掩蔽的集成缺口），三处修复：契约 §2 钉两段注册、fork connection.ts 修（a87b9bb）、演练假节点修。混沌三剧本全过：杀节点=重排 2 次→停放+负回复送达；杀 cms=节点 1006→2s 自重连→死亡期间种的任务照常完成；重复派发=Engine intake `duplicate` 幂等（fork 真引擎测试钉死）。outbox 11 条 = 3 停放负回复 + 4 完成单×2，分毫不差。
+- **F2/F3 生产上线**（cms main 49c26606 → veren.top）：顺手修复 `copy-button.tsx` 缺 Button 导入的预存破损（a57832d5 起阻塞一切正规 web 构建，49c26606）；deploy-local-pkg.sh 全链（组包→scp→box 校验→原子换位→信封验证→自动回切就绪）EXIT=0，release `20261102130422`。部署后核验：schema_migrations MAX=210、taskhub 四表在册、公开面 `/v1/admin/taskhub/tasks` 回 1003（路由在册+守卫生效）、rbac 自动补绑 taskhub:read/manage 日志实证。
+- **取证**：生产微信会话 -14 失效首现于归档日志 11:15:25Z，早于部署（13:04Z）约两小时——iLink 服务端自行过期，与部署无关；真实微信链路需重新扫码授权（本来就是用户步骤）。
+- **F4 待用户**：①管理面重新扫码授权微信；②建节点 API Key；③平台参数设 task.hub.* 六键；④任一节点启用 `dsh-superagent-taskhub` 行（上线指南 = fork docs/009-taskhub.{cn,}.md）；⑤真机六条验收（§2 Q4）。
