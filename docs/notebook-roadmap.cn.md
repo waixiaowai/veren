@@ -32,6 +32,8 @@
 
 **执行前置**：深链/boot URL 消费者修复不是前置（两件事独立）；需要宿主 skills isolate 的挂载取证。
 
+**执行记录（2026-11-02，rc.4 已上线）**：取证推翻了 skill 方案——task-center 的全局 face 才是既成模式（service 构造器里 `ctx.tools.register`，插件作用域=全局）；注册表文档语义「scoped tools shadow globals」逐字在案，因此全局面直接沿用页面全名（`notebook__list_notes/find_cards/read_note/write_note`），页面会话同名遮蔽，每能力一个名字。`Config.globalTools.enabled` 默认开；rewrite/delete 仍页面独占（L2）。测试 G1-G3（注册序/开关/逆序 dispose+HMR 无碰撞）经记录型注册表断言，41/41 绿。真机裁决（rc.4）：普通会话 find_cards 命中 4 卡+write_note 落盘（92fb102b）；页面会话 read_note（页面不挂载、全局面供给）真调成功返回卡全文——遮蔽与可见性双验证。证据 11/12。
+
 ## 2. M2——加工节拍：闪念浮出面（迷失卡片救援）
 
 **灵感**：Ahrens 的三类卡工作流（闪念几天内必须加工，否则烂掉）；卢曼 C4「不相连的笔记会迷失，会被盒遗忘」。「上下文逼你思考」——加工的动作就是把孤卡拉进上下文。
