@@ -203,8 +203,8 @@
         "zh": "笔记本"
       },
       "description": {
-        "en": "A private card box per preset, Zettelkasten-style: atomic cards whose titles are link addresses, [[title]] links between cards with backlinks and hubs answered back, model-facing card tools plus the Web page where a person reads and edits them.",
-        "zh": "每预设一只私密卡片盒，卡片笔记法契约：卡片原子化、标题即链接地址，卡片间 [[标题]] 互链并应答反链与枢纽，模型用卡片工具读写，人在 Web 页面查看编辑。"
+        "en": "A private card box per preset, Zettelkasten-style: atomic cards whose titles are link addresses, [[title]] links with backlinks and hub entry points answered back, title lookup, surprise riddles proposing unconnected siblings, a waiting list surfacing lost cards, one-file Markdown export, and model-facing card tools in every session — plus the Web panel where a person reads, edits, and exports.",
+        "zh": "每预设一只私密卡片盒，卡片笔记法契约：原子卡、标题即链接地址，[[标题]] 互链并应答反链与枢纽入口，按标题寻卡，谜面提示未互链的同类卡，待加工区浮出迷失卡，一键导出 Markdown；模型在任意会话用卡片工具读写，人在 Web 面板查看、编辑与导出。"
       },
       "category": "knowledge",
       "labels": [
