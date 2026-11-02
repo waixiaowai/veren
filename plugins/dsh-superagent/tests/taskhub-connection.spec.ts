@@ -66,15 +66,24 @@ describe('taskhub connection', () => {
     connection.dispose()
   })
 
-  it('reports with event_ack resolution', async () => {
+  it('reports fire-and-forget while connected (wsgw emits no event_ack)', async () => {
     const socket = new FakeSocket()
     const connection = start(socket)
     socket.open()
-    const pending = connection.report('taskhub.task.reply', { taskId: 't1', messageId: 'm1', text: 'hi' })
-    const frameId = (JSON.parse(socket.sent.at(-1)!) as { id: string }).id
-    socket.server(`{"type":"event_ack","id":"${frameId}"}`)
-    await expect(pending).resolves.toBeUndefined()
+    // 契约 §1：event_ack 是可选帧且 wsgw 现状不发——上报在发送后即成功返回，
+    // 不等确认（等待确认会在生产上 10s 超时炸进程，2026-11-02 实录）。
+    const result = await connection.report('taskhub.task.reply', { taskId: 't1', messageId: 'm1', text: 'hi' })
+    expect(result).toEqual({ delivered: true })
+    expect(socket.sent.some(text => text.includes('taskhub.task.reply'))).toBe(true)
     connection.dispose()
+  })
+
+  it('reports delivered:false after dispose so the caller can retry', async () => {
+    const socket = new FakeSocket()
+    const connection = start(socket)
+    connection.dispose()
+    const result = await connection.report('taskhub.task.reply', { taskId: 't1' })
+    expect(result).toEqual({ delivered: false })
   })
 
   it('replays queued events in order after reconnect', async () => {
@@ -96,16 +105,9 @@ describe('taskhub connection', () => {
     expect(connection.bridgeState).toBe('reconnecting')
     await vi.advanceTimersByTimeAsync(1000) // 首次退避 1s → 工厂交出第二条。
     second.open()
-    // 逐轮 ack + 泵微任务：hello 与离线队列按序排水。
-    for (let round = 0; round < 4; round++) {
-      for (const text of [...second.sent]) {
-        const frame = JSON.parse(text) as { type?: string; id?: string }
-        if (frame.type === 'event' && frame.id) second.server(`{"type":"event_ack","id":"${frame.id}"}`)
-      }
-      await vi.advanceTimersByTimeAsync(1)
-    }
-    await expect(firstReport).resolves.toBeUndefined()
-    await expect(secondReport).resolves.toBeUndefined()
+    await vi.advanceTimersByTimeAsync(1) // 泵微任务：hello 与离线队列按序直发。
+    expect(await firstReport).toEqual({ delivered: true })
+    expect(await secondReport).toEqual({ delivered: true })
     const names = second.sent.map(text => (JSON.parse(text) as { name?: string }).name)
     expect(names).toContain('taskhub.worker.hello')
     expect(names.indexOf('taskhub.task.reply')).toBeLessThan(names.indexOf('taskhub.task.result'))

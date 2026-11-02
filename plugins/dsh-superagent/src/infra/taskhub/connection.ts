@@ -42,12 +42,11 @@ export interface ConnectionOptions {
   now?(): number
 }
 
-const ACK_TIMEOUT_MS = 10_000
 const HEARTBEAT_MS = 60_000
 const CREDENTIAL_CLOSE_CODES = new Set([4001, 4401])
 
 /** 一次待补报事件的排队形态（FIFO，保序） */
-interface PendingEvent { frame: EventFrame; resolve: (ok: boolean) => void }
+interface PendingEvent { frame: EventFrame; resolve: (result: { delivered: boolean }) => void }
 
 /**
  * The cms task-router connection: one live WebSocket per Source config, with reconnect backoff, credential parking,
@@ -65,8 +64,6 @@ export class TaskhubConnection {
   private queue: PendingEvent[] = []
   private flushing = false
   private running = 0
-  /** 在途事件的 ack 等待者（按帧 id；event_ack 命中即决） */
-  private pendingAcks = new Map<string, (ok: boolean) => void>()
 
   constructor(options: ConnectionOptions) {
     this.options = options
@@ -98,7 +95,7 @@ export class TaskhubConnection {
         nodeDescription: hello.description, nodeIcon: '🛰️' }).catch(() => { /* 补报队列兜底 */ })
       this.report(EVENT_WORKER_HELLO, hello).catch(() => { /* 补报队列兜底 */ })
       this.startHeartbeat()
-      void this.flush()
+      this.flush()
     })
     socket.onClose(code => {
       if (this.socket !== socket) return
@@ -118,18 +115,27 @@ export class TaskhubConnection {
     this.state = 'disposed'
     this.socket?.close()
     this.socket = null
+    for (const pending of this.queue.splice(0)) pending.resolve({ delivered: false })
   }
 
   /**
-   * 上报事件：在线等 event_ack（超时/断连抛错，调用方重试）；离线入 FIFO
-   * 队列，重连后按序补报。至少一次语义由 cms 侧 UNIQUE 去重兜底。
+   * 上报事件（fire-and-forget，**永不 reject**——DSH 把未处理拒绝判为进程致命，
+   * 2026-11-02 生产实测）：在线即发（wsgw 不回 event_ack，契约 §1 标注可选；
+   * 可达性由 WS 链路本身与 cms 侧 UNIQUE 去重兜底）；离线入 FIFO 队列，
+   * 重连后按序补报。返回是否已被发送或入队（false=已销毁，调用方据此重试）。
    */
-  report(name: string, payload: unknown): Promise<void> {
-    if (this.state === 'disposed') return Promise.resolve()
+  report(name: string, payload: unknown): Promise<{ delivered: boolean }> {
+    if (this.state === 'disposed') return Promise.resolve({ delivered: false })
+    const frame = this.eventFrame(name, payload)
     if (this.state !== 'connected' || this.socket === null) {
-      return new Promise(resolve => { this.queue.push({ frame: this.eventFrame(name, payload), resolve: () => resolve() }) })
+      return new Promise(resolve => { this.queue.push({ frame, resolve: () => resolve({ delivered: true }) }) })
     }
-    return this.awaitAck(this.eventFrame(name, payload))
+    try {
+      this.socket.send(serializeClientFrame(frame))
+    } catch {
+      this.enqueue(frame)
+    }
+    return Promise.resolve({ delivered: true })
   }
 
   private setState(state: BridgeState, detail?: string): void {
@@ -149,13 +155,7 @@ export class TaskhubConnection {
     const frame = parseServerFrame(text)
     if (!frame) return
     if (frame.type === 'command') { void this.runCommand(frame); return }
-    if (frame.type === 'event_ack') {
-      const waiter = this.pendingAcks.get(frame.id)
-      if (waiter) {
-        this.pendingAcks.delete(frame.id)
-        waiter(true)
-      }
-    }
+    // event_ack：wsgw 现状不发（契约 §1 可选帧）——收到也无需处理。
   }
 
   private async runCommand(frame: CommandFrame): Promise<void> {
@@ -169,39 +169,20 @@ export class TaskhubConnection {
     this.socket?.send(serializeClientFrame(result))
   }
 
-  private async awaitAck(frame: EventFrame): Promise<void> {
-    const socket = this.socket
-    if (!socket) return this.enqueue(frame)
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          this.pendingAcks.delete(frame.id)
-          reject(new Error('event acknowledgement timeout'))
-        }, ACK_TIMEOUT_MS)
-        this.pendingAcks.set(frame.id, () => { clearTimeout(timeout); resolve() })
-        socket.send(serializeClientFrame(frame))
-      })
-      if (this.socket !== socket) throw new Error('disconnected during report')
-    } catch (error) {
-      // 超时/断连：帧若已入队则交还队列（重连补报），否则上抛由调用方重试。
-      throw error
-    }
-  }
-
   private enqueue(frame: EventFrame): Promise<void> {
     return new Promise(resolve => { this.queue.push({ frame, resolve: () => resolve() }) })
   }
 
-  private async flush(): Promise<void> {
+  private flush(): void {
     if (this.flushing || this.state !== 'connected') return
     this.flushing = true
     try {
       while (this.queue.length > 0 && this.state === 'connected') {
         const pending = this.queue[0]!
         try {
-          await this.awaitAck(pending.frame)
+          this.socket?.send(serializeClientFrame(pending.frame))
           this.queue.shift()
-          pending.resolve(true)
+          pending.resolve({ delivered: true })
         } catch {
           break // 连接已断：整队保留，重连后重试（保序）。
         }

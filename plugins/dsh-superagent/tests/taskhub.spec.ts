@@ -27,9 +27,9 @@ const ENVELOPE: DispatchEnvelope = {
 /** In-memory bridge capturing every uplink report. */
 class FakeBridge implements TaskhubBridge {
   reports: { name: string; payload: unknown }[] = []
-  report(name: string, payload: unknown): Promise<void> {
+  report(name: string, payload: unknown): Promise<{ delivered: boolean }> {
     this.reports.push({ name, payload })
-    return Promise.resolve()
+    return Promise.resolve({ delivered: true })
   }
   last(name: string): unknown { return this.reports.filter(row => row.name === name).at(-1)?.payload }
 }
