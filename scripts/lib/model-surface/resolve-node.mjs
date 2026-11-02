@@ -26,12 +26,18 @@ export function resolveSlotNames(call, depth, ctx) {
   if (!ts.isPropertyAccessExpression(call.expression)) return { ok: false, items: [] }
   const base = call.expression.expression
   if (!ts.isCallExpression(base) || !ts.isIdentifier(base.expression)) return { ok: false, items: [] }
-  const requireFn = functionOf(declarationOf(ctx.world, ctx.unitPath, base.expression.text)?.node ?? undefined)
+  // 槽位赋值住在 requireFn 的**声明**文件里（如 first-screen.ts 的 `services = { … }`），
+  // 不在调用方页面文件里——按声明 unit 找，跨文件槽位形态才解析得动。
+  // / The slot assignment lives in the requireFn's DECLARING file (e.g. first-screen.ts's
+  // `services = { … }`), not in the calling page file — look in the declaring unit, or
+  // the cross-file slot shape never resolves.
+  const declared = declarationOf(ctx.world, ctx.unitPath, base.expression.text)
+  const requireFn = functionOf(declared?.node ?? undefined)
   const slotName = requireFn === undefined ? undefined : returnedIdentifier(requireFn)
   if (slotName === undefined) return { ok: false, items: [] }
-  const assignment = slotAssignment(ctx.world.units.get(ctx.unitPath), slotName)
+  const assignment = slotAssignment(declared?.unit ?? ctx.world.units.get(ctx.unitPath), slotName)
   if (assignment === undefined) return { ok: false, items: [] }
-  return slotPropNames(assignment, call.expression.name.text, depth, ctx)
+  return slotPropNames(assignment, call.expression.name.text, depth, ctx, declared?.unit ?? ctx.world.units.get(ctx.unitPath))
 }
 
 /** 函数体里 `return <identifier>` 的标识符名 / the identifier of a `return <identifier>` in a body */
@@ -81,9 +87,14 @@ function enclosingFunctionName(node) {
 }
 
 /** 槽位属性 → 装配实参 → 工具名 / slot property → assembly argument → tool names */
-function slotPropNames(assignment, prop, depth, ctx) {
+function slotPropNames(assignment, prop, depth, ctx, homeUnit) {
   if (assignment.fnName === undefined) return { ok: false, items: [] }
-  const setter = declarationOf(ctx.world, ctx.unitPath, assignment.fnName)
+  // bind 函数同样住在声明文件里（bindNotebookServices 是 first-screen.ts 的本地函数，
+  // 调用方页面没有它的导入）——按声明 unit 解析，跨文件才接得上。
+  // / The bind function lives in the declaring file too (bindNotebookServices is a
+  // local of first-screen.ts; the calling page imports nothing of it) — resolve in
+  // the declaring unit, or the cross-file chain never closes.
+  const setter = declarationOf(ctx.world, homeUnit.path, assignment.fnName)
   const fn = setter === undefined ? undefined : functionOf(setter.node)
   const index = fn === undefined ? -1 : fn.parameters.findIndex((param) => ts.isIdentifier(param.name) && param.name.text === prop)
   if (index < 0) return { ok: false, items: [] }
