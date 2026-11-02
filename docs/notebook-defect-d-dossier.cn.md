@@ -69,7 +69,21 @@ protected [symbols.filter](ctx: Context) {
 3. **loader-smoke 复现**（无 GUI）：标准 preset + 探针插件走真 loader，在探针里断言四时机一致性；隔离临时 DSH_HOME（脚本创建，测完删）。
 4. 修复方向（定罪后择一，最小面）：toolFaceOf 改走与模型组装**同一条解析通道**；或 mount 内的登记改经与快照同实例的引用（mount 返回登记句柄而非靠全局 accessor）；或 restrict/登记统一挪到 fork 物化之后（agent/created serial await 内完成）。
 
-## 6. 修复后的验收钩子
+## 6. 定罪（2026-11-03 插桩实测，证据 = 临时 boot 日志）
+
+四时机指纹插桩（dsh-tools register + app-host toolFaceOf/restrict/port.toolFace，globalThis 共享 WeakMap 实例 id）两轮 boot 采集，**机制坐实**：
+
+1. **实例非确定解析实锤**：同一会话 remount 的两次 toolFace 读（mount 前后相邻）解析到**两个不同 ToolRuntime 实例**（`inst=1 → inst=2`，`sameCtx=true` 但实例 id 变了）。body 的 register 若落在实例 1、快照读实例 2 → 差集为零 → DetailInvalid。boot 间差异 = fork 物化时序摆动（restart#2 时代 A=B 同实例 → 正常）。
+2. **`agentScope=undefined`**：页面会话 agent 的 ctx **无 kScope 标签**——`toolFaceOf` 的 `schemas(scopeOf(agent.ctx))` 实际读的是实例的**全局视图**；dsh-tools 的 scope 分层设计在真机上整体旁路，身份完全落在"哪个实例"上。
+3. **boot 期 92 条 register = 92 个实例**（每条一个，scope 全空）——`ctx.tools` 是 per-fiber fork 解析：每个触达它的 fiber 各得一个实例，provider 插件在 fork 上重放全局登记（所以每个 fork 都带 26 件全局工具），但**经 fork 登记的页面工具只活在那个 fork 里**。登记实例 ≠ 快照实例 ≠ 模型组装实例时，页面工具面即蒸发。
+4. 范围勘定：`@deepseek-ai/dsh-tools` 宿主实跑的是 **harness vendor 包**（`deepseek-harness/packages/core/tools`，tsx 直跑 TS 源码）——与 cordis 同为 vendor 化；profile node_modules 的同版本副本不被宿主加载（第一轮插桩打错位置零输出的原因）。
+
+**修复归属待裁决（不定罪单方面改官方源码）**：
+- 上游（deepseek-ai 官方仓）：ToolRuntime 的 per-fiber fork 对有状态注册表是否是设计意图？若是，app-host/page-registry 必须 pin 实例；若否，上游修 fork 语义。
+- 本仓可做的对症修复（app-host，干净泳道）：会话生命周期内 pin 一次实例——create 时捕获 `const tools = agent.ctx.tools` 存入 handles，toolFaceOf 与模型组装通道统一走捕获引用；body 的 `agent.ctx.tools` 与 pin 实例的一致性需一并验证（否则换汤不换药）。
+- 诊断补丁已全部还原（profile 双文件 + harness tools src，sha256 比对 byte-identical；harness git 树 clean）；采集日志留存于 `%TEMP%/defectd-boot.log`、`defectd-boot2.log`。
+
+## 7. 修复后的验收钩子
 
 - 单测：真件 ToolRuntime + 真 isolate 拓扑的 scope 层测试（补上 harness.ts:11 自认的盲区），断言「restrict → body register → 立即 schemas 可见」。
 - 真机：notebook 4.0.0-rc.1 十项清单 ③⑤⑥ 补验（acceptance-report §2）+ 取证审计预测 PR1-PR3 前置解锁。
