@@ -72,7 +72,9 @@ export const ListPage: PageFC = (_props, agent) => {
   agent.ctx.tools.register(toolOf('list_notes'))
   agent.ctx.tools.register(toolOf('find_cards'))
   agent.ctx.tools.register(toolOf('write_note'))
+  agent.ctx.tools.register(toolOf('capture_note'))
   agent.ctx.tools.register(toolOf('list_hubs'))
+  agent.ctx.tools.register(toolOf('box_stats'))
   // 投递回报面随页挂载 / the delivery-report face rides the page
   registerPageTaskFace(agent)
   // 首屏读取：组件体自己的 lifecycle（effect 发起、followup 送达——宿主不经手取数）
@@ -101,17 +103,21 @@ export const ListMeta: ComponentPageMeta = {
     evidence: '一句话点名新卡片的 id 与标题（write_note 返回值）；投递任务以 task_complete 的 summary+artifacts 收口',
     escape: '归属未知、存储失败或写入被拒（title-conflict/link-unresolved）时如实回报并停在该任务，不悬置；列表为空就如实说空；投递任务做不完用 task_fail 带稳定码',
   },
-  instructions: '这是记事本的首页（卡片列表）。首屏列表与盒的入口在打开后以一条消息送达：owner（归属预设）、'
-    + 'notes（该预设的卡片，id/title/excerpt/updatedAt）与 hubs（被链接最多的卡片——盒的入口）；'
+  instructions: '这是记事本的首页（卡片列表）。首屏在打开后以一条消息送达：owner（归属预设）、'
+    + 'notes（该预设的卡片，id/title/excerpt/updatedAt/kind）、hubs（被链接最多的卡片——盒的入口）、'
+    + '进料口（闪念队列，过期者优先）与待加工区、谜面；'
     + '归属未知或读取失败会在消息里如实说明——不要编造卡片。'
     + '此后变化以你调用工具返回的结果为准。'
-    + '用 list_notes 刷新列表，用 find_cards 按标题片段找卡（写前查重也用它），用 list_hubs 取入口，'
-    + '用 write_note 新建卡片（一卡一想法，标题=完整短语=链接地址，'
-    + '正文可用 [[标题]] 链接已有卡片，目标不存在会被 link-unresolved 拒绝并给出相近标题）；'
+    + '用 list_notes 刷新列表（可用 kind 参数只看 fleeting/permanent/project 一类），用 find_cards 按标题片段找卡（写前查重也用它），'
+    + '用 list_hubs 取入口，用 box_stats 看盒的呼吸读数（类别构成/链接密度/进料深度/7 天速率）。'
+    + '有原始想法或阅读摘录用 capture_note 捕获闪念（快、糙：标题可省、链接可悬空）；'
+    + '想清楚了一卡一想法用 write_note 写永久卡（标题=完整短语=链接地址，'
+    + '正文可用 [[标题]] 链接已有卡片——闪念不是合法目标，目标不存在会被 link-unresolved 拒绝并给出相近标题）；'
+    + '处理进料口：闪念只有两个出路——炼成永久卡，或把已蒸掉想法的扔掉；两个动作都在卡片详情页完成（见 map），未加工就扔等于丢掉想法。'
     + '新建后报出卡片 id 与标题（一句话证据回报），列表为空时如实说明。'
     + '投递到本页的任务另有三件页面作用域工具：task_take（无需参数，接取目标 URL 就是本页的那条）、'
     + 'task_complete（summary 必填+artifacts 引用）、task_fail（稳定错误码）——收到 TASK 块或 [task-center] 通知后按其指引执行。'
-    + '要读/改/删某一张卡时，打开 map 里的卡片详情页 URL。',
+    + '要读/改/炼/归档/删某一张卡时，打开 map 里的卡片详情页 URL。',
   instanceTitle: () => '卡片列表',
 }
 
@@ -122,6 +128,8 @@ export const NotePage: PageFC<{ noteId: string }> = (props, agent) => {
   agent.ctx.tools.register(toolOf('rewrite_note'))
   agent.ctx.tools.register(toolOf('delete_note'))
   agent.ctx.tools.register(toolOf('list_backlinks'))
+  agent.ctx.tools.register(toolOf('promote_note'))
+  agent.ctx.tools.register(toolOf('archive_note'))
   // 投递回报面随页挂载 / the delivery-report face rides the page
   registerPageTaskFace(agent)
   const noteId = String(props.noteId ?? '')
@@ -142,19 +150,21 @@ export const NoteMeta: ComponentPageMeta<{ noteId: string }> = {
   description: '卡片详情页：查看并改写单张卡片的标题与正文（含其链接），或删除它',
   writes: true,
   unattended: {
-    serves: '单张卡片读取/改写类投递任务（归属 = 会话头预设）',
+    serves: '单张卡片读取/改写/炼成/归档类投递任务（归属 = 会话头预设）',
     level: 'L2',
-    evidence: '一句话点名卡片 id 与改写后字段（工具返回值；rewrite 带 expectedUpdatedAt 防覆盖）；投递任务以 task_complete 的 summary+artifacts 收口',
-    escape: '删除（delete_note）是 L2：投递指令点名删除即视为显式确认，否则拒绝执行并回报 unattended/l2-refused，绝不挂起等确认；'
-      + '改写被拒（title-conflict/link-unresolved/card-referenced）时如实回报 task_fail 带稳定码，绝不静默重试；投递任务做不完用 task_fail 带稳定码',
+    evidence: '一句话点名卡片 id 与动作结果（rewrite 带 expectedUpdatedAt；archive 点名 distilledInto 证据）；投递以 task_complete 的 summary+artifacts 收口',
+    escape: 'delete_note 与 archive_note 皆 L2：投递点名动作才执行，否则回报 unattended/l2-refused；拒绝经 task_fail 带稳定码，绝不静默重试',
   },
   instructions: '这是卡片详情页，只处理 params.noteId 指定的这一张卡——这一页只干这一件事。'
-    + '该卡的首屏（字段、全文、出链与反链）在打开后以一条消息送达；消息说"不存在或归属未知"时不要凭空操作。'
+    + '该卡的首屏（字段含 kind、全文、出链与反链）在打开后以一条消息送达；消息说"不存在或归属未知"时不要凭空操作。'
     + '此后变化以你调用工具返回的结果为准。'
     + '用 read_note 读取全文；用 rewrite_note 改写，携带读到的 updatedAt 作 expectedUpdatedAt 防覆盖；'
     + '改标题时所有指向旧标题的入链自动跟随（引用方正文会被改写）；'
     + '用 list_backlinks 在改写或删除前查谁链接本卡。'
-    + 'delete_note 永久删除（本页唯一的 L2 动作）：投递指令点名删除这张卡时视为已获显式确认、直接执行；'
+    + '本卡 kind=fleeting（闪念）时用 promote_note 炼成永久卡：补完整短语标题、把 [[链接]] 全部落到已存在的卡上——'
+    + 'link-unresolved 拒绝时会列出相近标题；kind=project（项目）结项时用 archive_note：distilledInto 必须点名已承接洞见的永久卡 id（蒸馏回流的证据），'
+    + '证据不实会被 archive-undistilled 拒绝，仍有入链会被 card-referenced 拒绝。'
+    + 'delete_note 永久删除（与 archive_note 同为本页的 L2 动作）：投递指令点名删除这张卡时视为已获显式确认、直接执行；'
     + '无人值守且无投递指令时不要删除——如实回报 unattended/l2-refused 并停在该任务，绝不挂起等确认；'
     + '卡片仍被其他卡链接时删除会被 card-referenced 拒绝并点名引用方，先改写引用方去掉链接再删。'
     + '投递到本页的任务另有三件页面作用域工具：task_take（无需参数）、task_complete（summary 必填）、task_fail（稳定错误码）。',

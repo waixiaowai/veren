@@ -63,11 +63,13 @@ interface NoteItemsProps {
   readonly counts: ReadonlyMap<string, number>
   readonly selectedId: string | undefined
   readonly onOpen: (note: NoteView) => void
+  readonly t: (key: 'kindFleeting' | 'kindPermanent' | 'kindProject') => string
 }
 
-/** 条目集合：每条笔记一个可点按钮，带入链数角标。The item collection: one clickable button per note, with the inbound-link badge. */
+/** 条目集合：每条笔记一个可点按钮，带类别徽章与入链数角标。The item collection: one clickable button per note, with the kind badge and the inbound-link badge. */
 function NoteItems(props: NoteItemsProps): React.ReactElement {
-  const { notes, counts, selectedId, onOpen } = props
+  const { notes, counts, selectedId, onOpen, t } = props
+  const kindKey = { fleeting: 'kindFleeting', permanent: 'kindPermanent', project: 'kindProject' } as const
   return (
     <div className="notebook-items">
       {notes.map(note => (
@@ -79,6 +81,7 @@ function NoteItems(props: NoteItemsProps): React.ReactElement {
           onClick={() => { onOpen(note) }}
         >
           <span className="notebook-item-title">{note.title}</span>
+          <span className={`notebook-item-kind is-${note.kind}`}>{t(kindKey[note.kind])}</span>
           {(counts.get(note.title) ?? 0) > 0 && (
             <span className="notebook-item-links">{`⟲ ${String(counts.get(note.title))}`}</span>
           )}
@@ -102,7 +105,7 @@ export function NoteList(props: NoteListProps) {
       </div>
       {notes.length === 0
         ? <EmptyNotes t={t} canCreate={canCreate} busy={busy} onCreate={props.onCreate} />
-        : <NoteItems notes={notes} counts={counts} selectedId={selectedId} onOpen={props.onOpen} />}
+        : <NoteItems notes={notes} counts={counts} selectedId={selectedId} onOpen={props.onOpen} t={t} />}
     </section>
   )
 }

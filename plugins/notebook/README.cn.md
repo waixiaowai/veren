@@ -27,6 +27,16 @@
 名字。`rewrite_note` 与 `delete_note` 仍只在详情页（删除是 L2 契约）。关掉开关，
 盒子就回到仅页面可用。
 
+## 三类生命周期（Ahrens，4.0.0 起）
+
+卡片带 `kind`，三态一状态机：
+
+- **闪念 fleeting**——进料口。`capture_note` 快收（标题可省、链接可悬空），对链接图不可见（不可被 `[[…]]` 解析、不进枢纽/反链/谜面）。2 天保鲜窗（`FLEETING_DAYS`）只把它浮到进料队列顶部，**从不自动删除**——终局只有两个：`promote_note` 炼成永久卡，或 `delete_note` 扔掉（已蒸掉想法的滤渣）。
+- **永久 permanent**——化合产物，图中唯一永不退役的公民。`write_note` 直出（写入时纪律），或从闪念 `promote_note` 炼成。存量 v1 卡全部按永久落位（schema 默认，零迁移）。
+- **项目 project**——在制品，`anchor` 存 task-workbench taskId（弱锚，仅格式校验）。结项走 `archive_note`：`distilledInto` 必须点名已承接洞见的永久卡（蒸馏回流是硬要求），证据成立才删卡。
+
+标题唯一性收敛为"链接目标卡（非闪念）内唯一"——闪念不是地址，同题不歧义。每次转移与每条被新直链闭合的谜面都记入追加式 `ledger` 账表；`box_stats` 读出类别构成、密度、进料深度与 7 天速率——飞轮转没转，数字裁决。
+
 ## 归属与隔离
 
 卡片的归属永远是写入它的 Agent 的预设 id。工具构建器没有归属参数：`src/tools.ts`
@@ -67,6 +77,10 @@
 | `buildNotebookDeleteDefinition` | `delete_note` | 永久删除一张卡；被引用时被拒。 |
 | `buildNotebookBacklinksDefinition` | `list_backlinks` | 链到某张卡的那些卡。 |
 | `buildNotebookHubsDefinition` | `list_hubs` | 盒的入口，按入链数排名。 |
+| `buildNotebookCaptureDefinition` | `capture_note` | 捕获闪念（进料）：标题可省（首行铸出）、`[[链接]]` 可悬空、不入链接图。 |
+| `buildNotebookPromoteDefinition` | `promote_note` | 把闪念炼成永久卡：此刻适用完整写入纪律（一卡一想法、链接全解析），卡片入图。 |
+| `buildNotebookArchiveDefinition` | `archive_note` | 归档项目卡：`distilledInto` 须点名承接洞见的永久卡（蒸馏回流证据），然后删卡。 |
+| `buildNotebookStatsDefinition` | `box_stats` | 盒的呼吸读数：类别构成、链接密度、进料队列、7 天生命周期速率。 |
 
 `rewrite_note` 接受可选的 `expectedUpdatedAt`。传入后，如果卡片在读取之后又被改过，
 工具会以 `notebook/conflict` 拒绝，而不是覆盖更新的版本。
@@ -82,8 +96,8 @@
 
 | 页面 | URL | 页面工具 |
 | --- | --- | --- |
-| 卡片列表（入口） | `/apps/notebook/list` | `notebook__list_notes`、`notebook__write_note`、`notebook__list_hubs` |
-| 卡片详情 | `/apps/notebook/note/:noteId` | `notebook__read_note`、`notebook__rewrite_note`、`notebook__delete_note`、`notebook__list_backlinks` |
+| 卡片列表（入口） | `/apps/notebook/list` | `notebook__list_notes`（支持 `kind` 过滤）、`notebook__find_cards`、`notebook__write_note`、`notebook__capture_note`、`notebook__list_hubs`、`notebook__box_stats` |
+| 卡片详情 | `/apps/notebook/note/:noteId` | `notebook__read_note`、`notebook__rewrite_note`、`notebook__delete_note`、`notebook__list_backlinks`、`notebook__promote_note`、`notebook__archive_note` |
 
 注册走单入口：`notebook-app` 的 `src/app.ts` 只调用 `ctx.apps.register`、
 `ctx.apps.tools(id).define` 与 `ctx.apps.pages(id).register`，三步收在单个 `ctx.effect` 里，

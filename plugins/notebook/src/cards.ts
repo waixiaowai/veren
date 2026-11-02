@@ -20,23 +20,27 @@
  */
 
 import { buildNote, applyUpdate, noteKey, requireOwned } from './notes.ts'
-import { retargetLinks, rewriteReferrers, syncLinks, deleteSourceLinks } from './graph.ts'
+import { distinctTargets, retargetLinks, rewriteReferrers, syncRecordLinks, deleteSourceLinks } from './graph.ts'
+import { riddleClosedByLink } from './riddles.ts'
+import { appendLedger } from './ledger.ts'
 import {
   ensureExpected, ensureTitleAvailable, ensureUnreferenced, resolveLinksOrThrow, validateCreate, validateUpdate,
 } from './validate.ts'
 import type { NotebookTable } from './storage.ts'
-import type { LinkRecord, NoteFields, NotePatch, NoteRecord } from './types.ts'
+import type { LedgerRecord, LinkRecord, NoteFields, NotePatch, NoteRecord } from './types.ts'
 
-/** The two tables one write moves together. 一次写会一起移动的两张表。 */
+/** The three tables one write moves together. 一次写会一起移动的三张表。 */
 export interface CardTables {
   readonly notes: NotebookTable<NoteRecord>
   readonly links: NotebookTable<LinkRecord>
+  readonly ledger: NotebookTable<LedgerRecord>
 }
 
 /**
  * Create one card: field validation, uniqueness, link resolution, the row,
- * its cache rows.
- * @param tables - the notes and links tables of the open domain.
+ * its cache rows. A plain create writes a permanent card — the compounded
+ * product; raw intake goes through {@link applyCardCapture} instead.
+ * @param tables - the notes, links, and ledger tables of the open domain.
  * @param owner - preset id whose box gains the card.
  * @param fields - caller-supplied title and body.
  * @param now - ISO instant recorded as both timestamps.
@@ -56,7 +60,7 @@ export async function applyCardCreate(
   resolveLinksOrThrow(tables.notes, owner, clean.body)
   const record = buildNote(owner, clean, now, id)
   await tables.notes.put(noteKey(owner, record.id), record)
-  await syncLinks(tables.links, owner, record.id, record.body)
+  await syncRecordLinks(tables.links, owner, record)
   return record
 }
 
@@ -64,8 +68,10 @@ export async function applyCardCreate(
  * Update one card: optimistic guard, uniqueness (excluding itself), link
  * resolution, the row, and the maintenance its change implies — a rename
  * rewrites every referrer body and retargets the cache rows, a body rewrite
- * resyncs the card's outgoing rows.
- * @param tables - the notes and links tables of the open domain.
+ * resyncs the card's outgoing rows. A fleeting card stays loose: its body may
+ * dangle and it never joins the graph (adjudication #6). A graph citizen's new
+ * direct link that closes a riddle is recorded in the ledger.
+ * @param tables - the notes, links, and ledger tables of the open domain.
  * @param owner - preset id whose card is updated.
  * @param id - the card to update.
  * @param patch - the fields to replace, with the optional optimistic guard.
@@ -85,7 +91,11 @@ export async function applyCardUpdate(
   const fields = validateUpdate(patch)
   ensureTitleAvailable(tables.notes, owner, fields.title ?? record.title, id)
   const nextBody = fields.body ?? record.body
-  resolveLinksOrThrow(tables.notes, owner, nextBody)
+  // 谜面闭合检测跑在写入落行之前——riddleClosedByLink 对的是"落行前"的缓存。
+  // / the riddle-closure verdict runs before the write lands — it reads the cache as it stands before this write's rows.
+  const closedARiddle = fields.body !== undefined && record.kind !== 'fleeting'
+    && addedTargets(record.body, nextBody).some(target => riddleClosedByLink(tables.notes, tables.links, owner, id, target))
+  if (record.kind !== 'fleeting') resolveLinksOrThrow(tables.notes, owner, nextBody)
   const next = applyUpdate(record, fields, now)
   await tables.notes.put(noteKey(owner, id), next)
   if (next.title !== record.title) {
@@ -95,23 +105,33 @@ export async function applyCardUpdate(
     await rewriteReferrers(tables.notes, tables.links, owner, record.title, next.title, now)
     await retargetLinks(tables.links, owner, record.title, next.title)
   }
-  if (fields.body !== undefined) await syncLinks(tables.links, owner, id, next.body)
+  if (fields.body !== undefined) await syncRecordLinks(tables.links, owner, next)
+  if (closedARiddle) await appendLedger(tables.ledger, owner, id, 'riddle_closed', now)
   return next
+}
+
+/** Targets a rewrite adds, in first-occurrence order — the candidates that may close a riddle. 一次改写新增的目标，按首现顺序——可能闭合谜面的候选。 */
+function addedTargets(before: string, after: string): string[] {
+  const old = new Set(distinctTargets(before))
+  return distinctTargets(after).filter(title => !old.has(title))
 }
 
 /**
  * Delete one card: the reference guard first, then the row and its outgoing
- * cache rows.
- * @param tables - the notes and links tables of the open domain.
+ * cache rows. The deletion lands in the ledger — a fleeting card's deletion is
+ * the throw-away step, and the readout counts it.
+ * @param tables - the notes, links, and ledger tables of the open domain.
  * @param owner - preset id whose card is deleted.
  * @param id - the card to delete.
+ * @param now - ISO instant stamped on the ledger row.
  * @returns `true` once the card is gone.
  * @throws NotebookError `card-referenced` while other cards still link to it.
  */
-export async function applyCardRemove(tables: CardTables, owner: string, id: string): Promise<boolean> {
+export async function applyCardRemove(tables: CardTables, owner: string, id: string, now: string): Promise<boolean> {
   ensureUnreferenced(tables.links, tables.notes, owner, id)
   const record = requireOwned(tables.notes, owner, id)
   await tables.notes.del(noteKey(owner, id))
   await deleteSourceLinks(tables.links, owner, record.id)
+  await appendLedger(tables.ledger, owner, id, 'trashed', now)
   return true
 }

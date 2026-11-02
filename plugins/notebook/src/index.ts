@@ -37,16 +37,19 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import z from '@deepseek-ai/schemastery'
 import type {
-  BacklinkView, CardLinkView, HubView, LinkCountView, NoteSummary, NoteView,
+  BacklinkView, BoxStatsView, CardLinkView, HubView, LinkCountView, NoteKind, NoteSummary, NoteView,
   NotebookConfig, NotebookToolsPort, OwnerView, RiddleView,
 } from './types.ts'
 import { NotebookStoreHandle } from './store.ts'
 import { registerNotebookGlobalTools } from './tools-global.ts'
 import { NotebookError } from './notes.ts'
 import {
-  backlinkViewOf, cachedBacklinks, hubView, linkCounts as countLinks, outgoingOf, riddlePairs, staleView,
+  backlinkViewOf, cachedBacklinks, hubView, linkCounts as countLinks, outgoingOf, staleView,
 } from './graph.ts'
+import { riddlePairs } from './riddles.ts'
+import { boxStats } from './stats.ts'
 import { applyCardCreate, applyCardRemove, applyCardUpdate } from './cards.ts'
+import { applyCardArchive, applyCardCapture, applyCardPromote } from './lifecycle.ts'
 import {
   exportMarkdown, findCards, noteView, notesOf, ownersOf, requireOwner, requireOwned, summariesOf,
 } from './notes.ts'
@@ -128,9 +131,9 @@ export class NotebookService extends TypertRemoteService {
 
   /** Read one preset's cards, newest update first; the owner is chosen by the human. 读某个预设的全部卡片，最新更新在前；归属由人选定。 */
   @Remote('list')
-  async list(request: { readonly owner: string }): Promise<readonly NoteView[]> {
+  async list(request: { readonly owner: string; readonly kind?: NoteKind }): Promise<readonly NoteView[]> {
     const owner = requireOwner(request.owner)
-    return this.store.read(domain => notesOf(this.store.tables(domain).notes, owner))
+    return this.store.read(domain => notesOf(this.store.tables(domain).notes, owner, request.kind))
   }
 
   /** Read one card in one preset's box. 读某只卡片盒里的一张卡。 */
@@ -139,10 +142,61 @@ export class NotebookService extends TypertRemoteService {
     return this.store.read(domain => noteView(requireOwned(this.store.tables(domain).notes, preset, id)))
   }
 
-  /** Read one preset's list rows, newest update first. 读某个预设的列表行，最新更新在前。 */
-  private async listSummaries(owner: string): Promise<readonly NoteSummary[]> {
+  /** Read one preset's list rows, newest update first, optionally one kind. 读某个预设的列表行，最新更新在前，可只取一类。 */
+  private async listSummaries(owner: string, kind?: NoteKind): Promise<readonly NoteSummary[]> {
     const preset = requireOwner(owner)
-    return this.store.read(domain => summariesOf(this.store.tables(domain).notes, preset))
+    return this.store.read(domain => summariesOf(this.store.tables(domain).notes, preset, kind))
+  }
+
+  /** Capture one fleeting card into one preset's box; the intake valve. 往某只卡片盒捕获一张闪念卡——进料阀。 */
+  @Remote('capture')
+  async capture(request: { readonly owner: string; readonly body: string; readonly title?: string }): Promise<NoteView> {
+    const owner = requireOwner(request.owner)
+    return this.store.write(async (domain) => {
+      const record = await applyCardCapture(
+        this.store.tables(domain), owner, { body: request.body, ...(request.title === undefined ? {} : { title: request.title }) }, this.now(),
+      )
+      return noteView(record)
+    })
+  }
+
+  /** Promote one fleeting card into a permanent card — the compounding step. 把一张闪念炼成永久卡——化合步。 */
+  @Remote('promoteNote')
+  async promoteNote(request: {
+    readonly owner: string
+    readonly id: string
+    readonly title?: string
+    readonly body?: string
+    readonly expectedUpdatedAt?: string
+  }): Promise<NoteView> {
+    const owner = requireOwner(request.owner)
+    return this.store.write(async (domain) => {
+      const record = await applyCardPromote(this.store.tables(domain), owner, request.id, request, this.now())
+      return noteView(record)
+    })
+  }
+
+  /** Archive one project card with distill-back evidence. 凭蒸馏证据归档一张项目卡。 */
+  @Remote('archiveNote')
+  async archiveNote(request: {
+    readonly owner: string
+    readonly id: string
+    readonly distilledInto: readonly string[]
+  }): Promise<{ readonly archived: boolean }> {
+    const owner = requireOwner(request.owner)
+    return this.store.write(async domain => ({
+      archived: await applyCardArchive(this.store.tables(domain), owner, request.id, request.distilledInto, this.now()),
+    }))
+  }
+
+  /** Read one box's breathing readout: kind mix, density, intake, flywheel rates. 读某盒的呼吸读数：类别构成、密度、进料、飞轮速率。 */
+  @Remote('boxStats')
+  async boxStats(request: { readonly owner: string }): Promise<BoxStatsView> {
+    const owner = requireOwner(request.owner)
+    return this.store.read((domain) => {
+      const { notes, links, ledger } = this.store.tables(domain)
+      return boxStats(notes, links, ledger, owner, Date.now())
+    })
   }
 
   /** Find one preset's cards by a title fragment, newest first; a blank fragment is refused — list_notes is the everything view. 按标题片段找某预设的卡，最新在前；空白片段拒绝——要看全部用 list_notes。 */
@@ -193,8 +247,8 @@ export class NotebookService extends TypertRemoteService {
   @Remote('deleteNote')
   async deleteNote(request: { readonly owner: string; readonly id: string }): Promise<{ readonly deleted: boolean }> {
     const owner = requireOwner(request.owner)
-    return this.store.write(async (domain) => ({
-      deleted: await applyCardRemove(this.store.tables(domain), owner, request.id),
+    return this.store.write(async domain => ({
+      deleted: await applyCardRemove(this.store.tables(domain), owner, request.id, this.now()),
     }))
   }
 
@@ -267,17 +321,21 @@ export class NotebookService extends TypertRemoteService {
    */
   toolsPort(): NotebookToolsPort {
     return {
-      list: owner => this.listSummaries(owner),
+      list: (owner, kind) => this.listSummaries(owner, kind),
       read: (owner, id) => this.readNote(owner, id),
       create: (owner, title, body) => this.create({ owner, title, body }),
+      capture: (owner, body, title) => this.capture({ owner, body, ...(title === undefined ? {} : { title }) }),
+      promote: (owner, id, patch) => this.promoteNote({ owner, id, ...patch }),
       update: (owner, id, patch) => this.update({ owner, id, ...patch }),
       remove: async (owner, id) => (await this.deleteNote({ owner, id })).deleted,
+      archive: (owner, id, distilledInto) => this.archiveNote({ owner, id, distilledInto }),
       backlinks: async (owner, id) => (await this.cardLinks({ owner, id })).incoming,
       hubs: owner => this.hubs({ owner }),
       cardLinks: (owner, id) => this.cardLinks({ owner, id }),
       find: (owner, query) => this.findSummaries(owner, query),
       stale: owner => this.stale({ owner }),
       riddles: owner => this.riddles({ owner }),
+      stats: owner => this.boxStats({ owner }),
     }
   }
 
@@ -302,20 +360,29 @@ export {
   applyUpdate, buildNote, exportMarkdown, findCards, noteKey, noteSummary, noteView, notesOf,
   ownersOf, requireOwner, requireOwned, titlesContaining,
 } from './notes.ts'
-export { ensureExpected, resolveLinksOrThrow, validateCreate, validateUpdate } from './validate.ts'
-export { riddlePairs, RIDDLE_MIN_SHARED, staleView, STALE_DAYS } from './graph.ts'
+export { mintFleetingTitle } from './lifecycle.ts'
+export { ensureExpected, resolveLinksOrThrow, validateCapture, validateCreate, validateUpdate } from './validate.ts'
+export { riddlePairs, RIDDLE_MIN_SHARED, riddleClosedByLink } from './riddles.ts'
+export { staleView, STALE_DAYS } from './graph.ts'
+export { FLEETING_DAYS, intakeView, isOverdue } from './queue.ts'
+export { appendLedger, ledgerSince } from './ledger.ts'
+export { boxStats, RATES_WINDOW_DAYS } from './stats.ts'
 export { extractLinks } from './links.ts'
 export { applyCardCreate, applyCardRemove, applyCardUpdate } from './cards.ts'
+export { applyCardArchive, applyCardCapture, applyCardPromote } from './lifecycle.ts'
 export type { CardTables } from './cards.ts'
 export { NOTEBOOK_DOMAIN_NAME, NOTEBOOK_DOMAIN_VERSION, notebookDomain } from './storage.ts'
 export {
   buildNotebookDeleteDefinition, buildNotebookListDefinition, buildNotebookReadDefinition,
   buildNotebookRewriteDefinition, buildNotebookWriteDefinition,
 } from './tools.ts'
-export { buildNotebookBacklinksDefinition, buildNotebookFindDefinition, buildNotebookHubsDefinition } from './tools-graph.ts'
+export { buildNotebookCaptureDefinition } from './tools.ts'
+export { buildNotebookBacklinksDefinition, buildNotebookFindDefinition, buildNotebookHubsDefinition, buildNotebookStatsDefinition } from './tools-graph.ts'
+export { buildNotebookArchiveDefinition, buildNotebookPromoteDefinition } from './tools-lifecycle.ts'
 export { GLOBAL_TOOL_NAMES, registerNotebookGlobalTools } from './tools-global.ts'
 export type {
-  BacklinkView, CardLinkView, HubView, LinkCountView, LinkRecord, LinkTargetView, NoteRecord,
+  BacklinkView, BoxIntakeView, BoxRateView, BoxStatsView, CardLinkView, HubView, LedgerAction, LedgerRecord,
+  LinkCountView, LinkRecord, LinkTargetView, NoteKind, NoteRecord,
   NoteSummary, NoteView, NotebookConfig, NotebookErrorCode, NotebookToolsPort, OwnerView, RiddleView,
 } from './types.ts'
 

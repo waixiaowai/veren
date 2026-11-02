@@ -37,9 +37,10 @@ import type {} from '@veren/page-registry'
 import type {} from '@veren/task-center'
 import { buildPageTaskTools } from '@veren/task-center'
 import {
-  buildNotebookBacklinksDefinition, buildNotebookDeleteDefinition, buildNotebookFindDefinition,
-  buildNotebookHubsDefinition, buildNotebookListDefinition, buildNotebookReadDefinition,
-  buildNotebookRewriteDefinition, buildNotebookWriteDefinition,
+  buildNotebookArchiveDefinition, buildNotebookBacklinksDefinition, buildNotebookCaptureDefinition,
+  buildNotebookDeleteDefinition, buildNotebookFindDefinition, buildNotebookHubsDefinition,
+  buildNotebookListDefinition, buildNotebookPromoteDefinition, buildNotebookReadDefinition,
+  buildNotebookRewriteDefinition, buildNotebookStatsDefinition, buildNotebookWriteDefinition,
 } from '@veren/notebook'
 import type { NotebookToolsPort } from '@veren/notebook'
 import { bindNotebookServices } from './first-screen.ts'
@@ -55,9 +56,12 @@ export const APP_DEFINITION: ApplicationDefinition = {
   name: '记事本',
   description: '浏览、撰写、修订每个 agent 预设的私密持久笔记',
   entry: 'list' as PageKey,
-  instructions: '记事本负责私密卡片盒的浏览与撰写：列表页浏览/新建/看盒的入口，详情页读取/改写/删除单张卡并看它的链接。'
+  instructions: '记事本负责私密卡片盒的浏览、进料与加工：列表页浏览/捕获/写卡/看盒的入口与进料口，'
+    + '详情页读取/改写/删除单张卡、把闪念炼成永久卡（promote_note）或给项目卡归档（archive_note）并看它的链接。'
+    + '卡片分三类生命周期（Ahrens）：闪念 capture_note 快收快加工（一两天内炼成或扔掉）、永久卡一卡一想法永不退役、'
+    + '项目卡锚着任务做，结项先蒸馏再归档。'
     + '所有操作通过本页挂载的 notebook__* 工具完成；工具自动作用于调用者自己的预设，不需要也不能指定归属。'
-    + '卡片之间用 [[标题]] 互链，标题就是链接地址（归属内唯一）；list_backlinks 与 list_hubs 是盒的回话面。',
+    + '卡片之间用 [[标题]] 互链，标题就是链接地址（链接目标卡内唯一；闪念不是地址）；list_backlinks 与 list_hubs 是盒的回话面。',
   toolPrefix: 'notebook',
 }
 
@@ -84,10 +88,14 @@ export function createAppTools(ctx: Context, port: () => NotebookToolsPort): Too
     buildNotebookFindDefinition(ctx, port),
     buildNotebookReadDefinition(ctx, port),
     buildNotebookWriteDefinition(ctx, port),
+    buildNotebookCaptureDefinition(ctx, port),
     buildNotebookRewriteDefinition(ctx, port),
     buildNotebookDeleteDefinition(ctx, port),
     buildNotebookBacklinksDefinition(ctx, port),
     buildNotebookHubsDefinition(ctx, port),
+    buildNotebookPromoteDefinition(ctx, port),
+    buildNotebookArchiveDefinition(ctx, port),
+    buildNotebookStatsDefinition(ctx, port),
   ].map((tool) => ({ ...tool, name: `notebook__${tool.name}` }))
 }
 

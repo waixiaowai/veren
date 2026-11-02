@@ -287,3 +287,7 @@
 .notebook-links-id { font-family: monospace; font-size: 11px; color: var(--nb-secondary); }
 .notebook-links-excerpt { flex-basis: 100%; font-size: 12px; color: var(--nb-secondary); }
 .notebook-item-links { font-size: 11px; color: var(--nb-secondary); }
+/* 类别徽章：闪念/永久/项目一色一义，随主题变量走。The kind badge: one hue per lifecycle kind, riding the theme variables. */
+.notebook-item-kind { font-size: 10px; line-height: 1; padding: 2px 6px; border-radius: 999px; border: 1px solid var(--nb-border, currentColor); color: var(--nb-secondary); }
+.notebook-item-kind.is-fleeting { color: var(--nb-warning, #b45309); }
+.notebook-item-kind.is-project { color: var(--nb-accent, #1d4ed8); }

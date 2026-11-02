@@ -17,7 +17,7 @@
  */
 
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
-import type { NoteFields, NotePatch, NoteRecord, NotebookErrorCode, NoteSummary, NoteView, OwnerView } from './types.ts'
+import type { NoteFields, NoteKind, NotePatch, NoteRecord, NotebookErrorCode, NoteSummary, NoteView, OwnerView } from './types.ts'
 import type { NotebookTable } from './storage.ts'
 
 /** Longest title accepted, in characters. */
@@ -75,10 +75,15 @@ export function requireOwner(value: string): string {
  * @param fields - validated title and body.
  * @param now - ISO instant used for both timestamps.
  * @param id - note id; minted when omitted.
+ * @param kind - the lifecycle state; a plain write is a permanent card.
+ * @param anchor - the project anchor (taskId), when the card is a project card.
  * @returns the row to store.
  */
-export function buildNote(owner: string, fields: NoteFields, now: string, id = mintNoteId()): NoteRecord {
-  return { id, owner, title: fields.title, body: fields.body, createdAt: now, updatedAt: now }
+export function buildNote(owner: string, fields: NoteFields, now: string, id = mintNoteId(), kind: NoteKind = 'permanent', anchor?: string): NoteRecord {
+  return {
+    id, owner, title: fields.title, body: fields.body, createdAt: now, updatedAt: now, kind,
+    ...(anchor === undefined ? {} : { anchor }),
+  }
 }
 
 /**
@@ -103,8 +108,8 @@ export function applyUpdate(record: NoteRecord, patch: NotePatch, now: string): 
  * @returns the note without its owner.
  */
 export function noteView(record: NoteRecord): NoteView {
-  const { id, title, body, createdAt, updatedAt } = record
-  return { id, title, body, createdAt, updatedAt }
+  const { id, title, body, createdAt, updatedAt, kind } = record
+  return { id, title, body, createdAt, updatedAt, kind, ...(record.anchor === undefined ? {} : { anchor: record.anchor }) }
 }
 
 /**
@@ -119,6 +124,7 @@ export function noteSummary(record: NoteRecord): NoteSummary {
     excerpt: excerptOf(record.body),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
+    kind: record.kind,
   }
 }
 
@@ -133,26 +139,28 @@ function excerptOf(body: string): string {
  * Read one owner's notes, newest update first.
  * @param table - the notes table.
  * @param owner - preset id whose notebook is read.
+ * @param kind - optional lifecycle filter; absent means every kind.
  * @returns that owner's notes, never another owner's.
  */
-export function notesOf(table: NotebookTable<NoteRecord>, owner: string): NoteView[] {
-  return recordsOf(table, owner).map(noteView)
+export function notesOf(table: NotebookTable<NoteRecord>, owner: string, kind?: NoteKind): NoteView[] {
+  return recordsOf(table, owner, kind).map(noteView)
 }
 
 /**
  * Read one owner's notes as list rows, newest update first.
  * @param table - the notes table.
  * @param owner - preset id whose notebook is listed.
+ * @param kind - optional lifecycle filter; absent means every kind.
  * @returns that owner's summaries, never another owner's.
  */
-export function summariesOf(table: NotebookTable<NoteRecord>, owner: string): NoteSummary[] {
-  return recordsOf(table, owner).map(noteSummary)
+export function summariesOf(table: NotebookTable<NoteRecord>, owner: string, kind?: NoteKind): NoteSummary[] {
+  return recordsOf(table, owner, kind).map(noteSummary)
 }
 
-/** One owner's rows, newest update first. */
-function recordsOf(table: NotebookTable<NoteRecord>, owner: string): NoteRecord[] {
+/** One owner's rows, newest update first, optionally one kind only. 某归属的行，最新在前，可选只取一类。 */
+function recordsOf(table: NotebookTable<NoteRecord>, owner: string, kind?: NoteKind): NoteRecord[] {
   return table.all()
-    .filter(record => record.owner === owner)
+    .filter(record => record.owner === owner && (kind === undefined || record.kind === kind))
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id))
 }
 

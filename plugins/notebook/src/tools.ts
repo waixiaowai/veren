@@ -161,17 +161,29 @@ async function notebookToolValue<T>(
   }
 }
 
-/** 列表工具构建器：列出调用者预设的卡片，最新更新在前 / the list tool builder: the caller preset's cards, newest update first */
+/** 列表工具构建器：列出调用者预设的卡片，最新更新在前，可按类别过滤 / the list tool builder: the caller preset's cards, newest first, optional kind filter */
 export function buildNotebookListDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
   return defineTool({
     name: 'list_notes',
     description: 'List the cards in the caller preset\u2019s private card box, newest first; '
-      + 'rows carry ids, titles, excerpts, and timestamps. Parameters: none.',
-    parameters: {},
+      + 'rows carry ids, titles, excerpts, timestamps, and the lifecycle kind (fleeting/permanent/project). '
+      + 'Filter to fleeting to see the raw intake queue (process those first: promote or trash within a day '
+      + 'or two of capture). Parameters: kind?.',
+    parameters: {
+      kind: { type: 'string', description: '可选类别过滤：fleeting（闪念进料，先加工）/ permanent（永久卡）/ project（项目卡）；省略则全部' },
+    },
     output: { schema: LIST_SCHEMA, render: renderValue },
-    execute: (_args, exec) => notebookToolValue(ctx, exec.agent, async owner => ({ notes: await port().list(owner) })),
-    presentCall: () => present('列出卡片', 'read'),
+    execute: (args, exec) => notebookToolValue(ctx, exec.agent,
+      async owner => ({ notes: await port().list(owner, parseKind(args.kind)) })),
+    presentCall: args => present('列出卡片', 'read', args.kind ?? 'all'),
   })
+}
+
+/** Parse the optional kind filter, refusing an unknown word. 解析可选类别过滤，拒绝不认识的词。 */
+function parseKind(kind: unknown): 'fleeting' | 'permanent' | 'project' | undefined {
+  if (kind === undefined || kind === '') return undefined
+  if (kind === 'fleeting' || kind === 'permanent' || kind === 'project') return kind
+  throw new NotebookToolError('notebook/input-invalid', `unknown kind "${String(kind)}"; use fleeting, permanent, or project.`)
 }
 
 /** 读取工具构建器：读一张卡的全文 / the read tool builder: one card's whole body */
@@ -186,22 +198,44 @@ export function buildNotebookReadDefinition(ctx: Context, port: () => NotebookTo
   })
 }
 
-/** 新建工具构建器：写入一张新卡 / the write tool builder: one new card */
+/** 新建工具构建器：写入一张新永久卡 / the write tool builder: one new permanent card */
 export function buildNotebookWriteDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
   return defineTool({
     name: 'write_note',
-    description: 'Write a new card into the caller preset\u2019s card box. One card carries one idea and '
-      + 'reads on its own; the title is a complete phrase and doubles as the card\u2019s link address, so it '
-      + 'must be unique in the box. Link related cards inline with [[title]] — every target must already '
-      + 'exist, and the write is refused otherwise. Parameters: title, body.',
+    description: 'Write a new PERMANENT card into the caller preset\u2019s card box \u2014 the compounded product: '
+      + 'one card carries one idea and reads on its own; the title is a complete phrase and doubles as the '
+      + 'card\u2019s link address, so it must be unique among link-target cards. Link related cards inline with '
+      + '[[title]] \u2014 every target must already exist (fleeting cards are not targets), and the write is '
+      + 'refused otherwise. For a raw, unprocessed thought use capture_note instead. Parameters: title, body.',
     parameters: {
       title: { type: 'string', description: '完整短语标题，一卡一想法', required: true },
-      body: { type: 'string', description: '正文，可含 [[标题]] 链接；目标必须已存在', required: true },
+      body: { type: 'string', description: '正文，可含 [[标题]] 链接；目标必须已存在（闪念不可作目标）', required: true },
     },
     output: { schema: NOTE_SCHEMA, render: renderValue },
     execute: (args, exec) => notebookToolValue(ctx, exec.agent,
       async owner => ({ note: await port().create(owner, args.title, args.body) })),
     presentCall: args => present('新建卡片', 'other', args.title),
+  })
+}
+
+/** 捕获工具构建器：进料一张闪念卡 / the capture tool builder: one fleeting intake card */
+export function buildNotebookCaptureDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
+  return defineTool({
+    name: 'capture_note',
+    description: 'Capture a fleeting card \u2014 the raw intake of the card box (a sudden thought, or a brief '
+      + 'reading excerpt in your own words). Deliberately loose: the title is optional (minted from the first '
+      + 'body line), [[links]] may point at cards that do not exist yet, and the card stays off the link graph. '
+      + 'A fleeting card is a REMINDER, not knowledge: process it within a day or two \u2014 distill it into a '
+      + 'permanent card with promote_note, or throw it away with delete_note; list_notes(kind: fleeting) shows '
+      + 'the queue. Parameters: body, title?.',
+    parameters: {
+      body: { type: 'string', description: '闪念正文：原始想法或阅读摘录；[[链接]] 可悬空', required: true },
+      title: { type: 'string', description: '可选标题；省略则取正文首行' },
+    },
+    output: { schema: NOTE_SCHEMA, render: renderValue },
+    execute: (args, exec) => notebookToolValue(ctx, exec.agent,
+      async owner => ({ note: await port().capture(owner, args.body, args.title) })),
+    presentCall: args => present('捕获闪念', 'other', args.title ?? String(args.body ?? '').slice(0, 40)),
   })
 }
 
@@ -237,6 +271,8 @@ export function buildNotebookDeleteDefinition(ctx: Context, port: () => Notebook
     name: 'delete_note',
     description: 'Permanently delete one card of the caller preset\u2019s card box; confirm with the user '
       + 'before calling. Refused while other cards still link to it \u2014 remove those [[title]] links first. '
+      + 'On a fleeting card this is the method\u2019s throw-away step: only after the idea was distilled into a '
+      + 'permanent card (promote_note) \u2014 an unprocessed fleeting card deleted here is an idea lost. '
       + 'Parameters: id.',
     parameters: NOTE_ID_PARAM,
     output: { schema: DELETE_SCHEMA, render: renderValue },

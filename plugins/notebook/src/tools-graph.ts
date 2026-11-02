@@ -84,6 +84,32 @@ export function buildNotebookHubsDefinition(ctx: Context, port: () => NotebookTo
   })
 }
 
+/** Canonical stats value: the box's breathing readout. 规范读数值：盒的呼吸读数。 */
+const STATS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    stats: { type: 'json', required: true },
+  },
+} as const
+
+/** 呼吸读数工具构建器：盒的飞轮仪表 / the stats tool builder: the box's flywheel readout */
+export function buildNotebookStatsDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
+  return defineTool({
+    name: 'box_stats',
+    description: 'Read the caller preset\u2019s box breathing readout \u2014 the flywheel\u2019s numbers: card '
+      + 'counts per kind (fleeting/permanent/project), link density over the graph citizens, the intake queue '
+      + '(every fleeting card plus the overdue ones to process first), and the 7-day lifecycle rates (captured, '
+      + 'promoted, trashed, archived, riddles closed). Consult it when deciding what the box needs next; a box '
+      + 'that only grows without promoting is a hoard, not a second brain. Parameters: none.',
+    parameters: {},
+    output: { schema: STATS_SCHEMA, render: renderValue },
+    execute: (_args, exec) => notebookToolValue(ctx, exec.agent,
+      async owner => ({ stats: await port().stats(owner) })),
+    presentCall: () => present('读取盒读数', 'read'),
+  })
+}
+
 /** 寻卡工具构建器：按标题片段找卡 / the find tool builder: cards whose title contains a fragment */
 export function buildNotebookFindDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
   return defineTool({

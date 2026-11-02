@@ -67,7 +67,7 @@ describe('the preset-wide global face / 预设全域工具面', () => {
   it('G1: enabled by default-equivalent config, the four consult/write tools register under their full names in order', async () => {
     const { fiber, registered } = await mount(true)
     expect(registered).toEqual([...GLOBAL_TOOL_NAMES])
-    expect(registered).toEqual(['notebook__list_notes', 'notebook__find_cards', 'notebook__read_note', 'notebook__write_note'])
+    expect(registered).toEqual(['notebook__list_notes', 'notebook__find_cards', 'notebook__read_note', 'notebook__write_note', 'notebook__capture_note'])
     await fiber.dispose()
   })
 

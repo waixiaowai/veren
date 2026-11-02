@@ -18,7 +18,7 @@
  */
 
 import { MAX_BODY_CHARS, MAX_TITLE_CHARS, NotebookError, noteKey, requireOwned, titlesContaining } from './notes.ts'
-import { cachedBacklinks, distinctTargets, resolveTitle } from './graph.ts'
+import { cachedBacklinks, distinctTargets, resolveLinkTarget } from './graph.ts'
 import type { NotebookTable } from './storage.ts'
 import type { LinkRecord, NoteFields, NotePatch, NoteRecord } from './types.ts'
 
@@ -30,6 +30,28 @@ import type { LinkRecord, NoteFields, NotePatch, NoteRecord } from './types.ts'
  */
 export function validateCreate(input: NoteFields): NoteFields {
   return { title: cleanTitle(input.title), body: cleanBody(input.body) }
+}
+
+/**
+ * Validate a capture call and normalize its fields — the fleeting intake runs
+ * on purpose with the title rules relaxed: the title is optional (the first
+ * body line mints one) and the body may carry dangling `[[links]]`, because a
+ * fleeting card is a reminder, not yet a link address.
+ * 校验一次捕获并归一字段——闪念进料有意放宽标题规则：标题可省（首行铸出），
+ * 正文可携带悬空 `[[链接]]`，因为闪念是提醒物，还不是链接地址。
+ * @param input - caller-supplied optional title and body.
+ * @returns the fields as stored; the title stays absent for minting.
+ * @throws NotebookError when a supplied title is empty or the body exceeds its limit.
+ */
+export function validateCapture(input: { readonly title?: string; readonly body: string }): { readonly title?: string; readonly body: string } {
+  const body = cleanBody(input.body)
+  // 正文即闪念的全部内容：一张空闪念是噪声，落笔前拒绝。
+  // / The body is all a fleeting card is: an empty one is noise, refused before it lands.
+  if (body === '') throw new NotebookError('notebook/input-invalid', 'a fleeting card needs a body — it is the reminder.')
+  return {
+    ...(input.title === undefined ? {} : { title: cleanTitle(input.title) }),
+    body,
+  }
 }
 
 /**
@@ -63,8 +85,13 @@ export function ensureExpected(record: NoteRecord, expected: string | undefined)
 }
 
 /**
- * Refuse a title another owner card already carries — titles are link
- * addresses, so they must stay unique inside one box.
+ * Refuse a title another link-target card already carries — titles are link
+ * addresses, so they must stay unique among the cards a link can resolve to
+ * (the non-fleeting ones). Fleeting cards are not addresses, so two of them
+ * may share a title without ambiguity (invariant I2, lifecycle revision).
+ * 拒绝与另一张链接目标卡重名的标题——标题是链接地址，必须在链接可解析到的卡
+ * （非闪念）之间保持唯一。闪念不是地址，两张闪念同题不产生歧义（不变式 I2 的
+ * 生命周期修订）。
  * @param notes - the notes table.
  * @param owner - preset id whose box is written.
  * @param title - the title being claimed.
@@ -72,7 +99,8 @@ export function ensureExpected(record: NoteRecord, expected: string | undefined)
  * @throws NotebookError `title-conflict` naming the card that holds the title.
  */
 export function ensureTitleAvailable(notes: NotebookTable<NoteRecord>, owner: string, title: string, excludeId?: string): void {
-  const clash = notes.all().find(row => row.owner === owner && row.title === title && row.id !== excludeId)
+  const clash = notes.all()
+    .find(row => row.owner === owner && row.kind !== 'fleeting' && row.title === title && row.id !== excludeId)
   if (clash !== undefined) {
     throw new NotebookError(
       'notebook/title-conflict',
@@ -84,7 +112,10 @@ export function ensureTitleAvailable(notes: NotebookTable<NoteRecord>, owner: st
 
 /**
  * Refuse a body whose `[[links]]` do not all resolve inside the owner's box —
- * a dangling link must never reach storage (invariant I3).
+ * a dangling link must never reach storage (invariant I3). Fleeting cards are
+ * not link targets, so a link aimed at one refuses exactly like a missing one.
+ * 拒绝正文里 `[[链接]]` 未在归属盒内全部解析的写入——悬空链接绝不能进存储
+ * （不变式 I3）。闪念卡不是链接目标，指向闪念的链接与指向不存在的链接同样被拒。
  * @param notes - the notes table.
  * @param owner - preset id whose box is written.
  * @param body - the body being written.
@@ -92,7 +123,7 @@ export function ensureTitleAvailable(notes: NotebookTable<NoteRecord>, owner: st
  *   closest existing titles, so the writer can self-correct.
  */
 export function resolveLinksOrThrow(notes: NotebookTable<NoteRecord>, owner: string, body: string): void {
-  const missing = distinctTargets(body).filter(title => resolveTitle(notes, owner, title) === undefined)
+  const missing = distinctTargets(body).filter(title => resolveLinkTarget(notes, owner, title) === undefined)
   if (missing.length === 0) return
   const listed = missing.map(title => `[[${title}]]`).join('、')
   const first = missing[0]

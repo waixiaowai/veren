@@ -36,6 +36,16 @@ exactly one name. `rewrite_note` and `delete_note` remain page-only (deletion
 is the L2 contract). Flip the switch off and the box goes back to
 page-only.
 
+## Three lifecycle types (Ahrens, since 4.0.0)
+
+Every card carries a `kind`; three states, one state machine:
+
+- **Fleeting** — the intake. `capture_note` lands it fast (title optional, links may dangle); it is invisible to the link graph (never a `[[…]]` target, absent from hubs/backlinks/riddles). The 2-day freshness window (`FLEETING_DAYS`) only floats it to the top of the intake queue and **never deletes anything** — exactly two endings: `promote_note` distills it into a permanent card, or `delete_note` throws the residue away.
+- **Permanent** — the compounded product, the graph's only citizen that never retires. Written directly by `write_note` (the write-time discipline), or distilled from a fleeting card via `promote_note`. Every pre-kind v1 row lands here (schema default, zero migration).
+- **Project** — work in progress; `anchor` carries a task-workbench taskId (a weak anchor, format-validated only). Closure goes through `archive_note`: `distilledInto` must name the permanent cards that absorbed the insights (distill-back is mandatory), and only then is the card deleted.
+
+Title uniqueness narrows to "unique among link-target (non-fleeting) cards" — fleeting cards are not addresses, so duplicates are unambiguous. Every transition, and every riddle a new direct link closes, appends to the `ledger`; `box_stats` reads out kind mix, density, intake depth, and the 7-day rates — whether the flywheel turns is decided by numbers.
+
 ## Ownership and isolation
 
 The owner of a card is always the preset id of the Agent that wrote it. The
@@ -89,6 +99,10 @@ them into page sessions, where the registry composes the external
 | `buildNotebookDeleteDefinition` | `delete_note` | Delete one card permanently; refused while referenced. |
 | `buildNotebookBacklinksDefinition` | `list_backlinks` | The cards that link to one card. |
 | `buildNotebookHubsDefinition` | `list_hubs` | The box's entry points, ranked by inbound links. |
+| `buildNotebookCaptureDefinition` | `capture_note` | Capture a fleeting card (the intake): title optional (minted from the first line), `[[links]]` may dangle, off the link graph. |
+| `buildNotebookPromoteDefinition` | `promote_note` | Distill a fleeting card into a permanent one: the full write-time discipline applies here (one idea, all links resolved), the card joins the graph. |
+| `buildNotebookArchiveDefinition` | `archive_note` | Archive a project card: `distilledInto` must name the permanent cards that absorbed the value (distill-back evidence), then the card is deleted. |
+| `buildNotebookStatsDefinition` | `box_stats` | The box's breathing readout: kind mix, link density, the intake queue, 7-day lifecycle rates. |
 
 `rewrite_note` accepts an optional `expectedUpdatedAt`. When supplied and the
 card has moved on, the tool refuses with `notebook/conflict` instead of
@@ -108,8 +122,8 @@ app; that package hard-injects the framework and the `notebook` service.
 
 | Page | URL | Page tools |
 | --- | --- | --- |
-| Card list (entry) | `/apps/notebook/list` | `notebook__list_notes`, `notebook__write_note`, `notebook__list_hubs` |
-| Card detail | `/apps/notebook/note/:noteId` | `notebook__read_note`, `notebook__rewrite_note`, `notebook__delete_note`, `notebook__list_backlinks` |
+| Card list (entry) | `/apps/notebook/list` | `notebook__list_notes` (with the `kind` filter), `notebook__find_cards`, `notebook__write_note`, `notebook__capture_note`, `notebook__list_hubs`, `notebook__box_stats` |
+| Card detail | `/apps/notebook/note/:noteId` | `notebook__read_note`, `notebook__rewrite_note`, `notebook__delete_note`, `notebook__list_backlinks`, `notebook__promote_note`, `notebook__archive_note` |
 
 Registration is single-entry: `notebook-app`'s `src/app.ts` calls
 `ctx.apps.register`, `ctx.apps.tools(id).define`, and

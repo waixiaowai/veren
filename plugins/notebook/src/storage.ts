@@ -17,8 +17,18 @@
 import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { Domain, KvTable } from '@deepseek-ai/dsh-storage-domain'
-import type { LinkRecord, NoteRecord } from './types.ts'
+import type { LedgerRecord, LinkRecord, NoteRecord } from './types.ts'
 
+/**
+ * The note schema. `kind` defaults to `permanent` so every pre-kind v1 row —
+ * every card ever written under the permanent write-time discipline — parses
+ * as what it already was: zero-migration backfill (adjudication #4 of
+ * docs/notebook-note-types.cn.md).
+ *
+ * 笔记 schema。`kind` 默认 `permanent`，让每张先于 kind 存在的 v1 行——每张按
+ * 永久写入纪律写出的卡——解析成它本来所是：零迁移回填（docs/notebook-note-types.cn.md
+ * 裁决 #4）。
+ */
 const noteSchema = z.object({
   id: z.string().min(1),
   owner: z.string().min(1),
@@ -26,12 +36,32 @@ const noteSchema = z.object({
   body: z.string(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
+  kind: z.enum(['fleeting', 'permanent', 'project']).default('permanent'),
+  anchor: z.string().min(1).optional(),
 })
 
 const linkSchema = z.object({
   owner: z.string().min(1),
   sourceId: z.string().min(1),
   targetTitle: z.string().min(1),
+})
+
+/**
+ * The lifecycle ledger: one append-only row per transition (captured,
+ * promoted, trashed, archived) plus each riddle a new direct link closes —
+ * the fact base the box's breathing readout counts. Human-scale volume, keyed
+ * by uuid; never rewritten, only added.
+ *
+ * 生命周期账表：每次转移一行（captured / promoted / trashed / archived），
+ * 外加每条被新直链闭合的谜面——盒的呼吸读数所数的事实基底。人肉尺度的量级，
+ * uuid 作键；只追加，不改写。
+ */
+const ledgerSchema = z.object({
+  key: z.string().min(1),
+  owner: z.string().min(1),
+  cardId: z.string().min(1),
+  action: z.enum(['captured', 'promoted', 'trashed', 'archived', 'riddle_closed']),
+  at: z.string().min(1),
 })
 
 /**
@@ -74,6 +104,7 @@ export const notebookDomain = defineDomain({
   tables: {
     notes: domainTable<string, NoteRecord>(noteSchema),
     links: domainTable<string, LinkRecord>(linkSchema),
+    ledger: domainTable<string, LedgerRecord>(ledgerSchema),
   },
 })
 

@@ -35,6 +35,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'notebook/link-unresolved': Record<string, never>
     /** The card is still linked to by other cards, so deleting it is refused. */
     'notebook/card-referenced': Record<string, never>
+    /** The lifecycle action does not apply to this card's type. */
+    'notebook/kind-mismatch': Record<string, never>
+    /** An archive's distill-back evidence is missing or points at non-permanent cards. */
+    'notebook/archive-undistilled': Record<string, never>
   }
 }
 
@@ -49,6 +53,22 @@ export type NotebookErrorCode =
   | 'notebook/title-conflict'
   | 'notebook/link-unresolved'
   | 'notebook/card-referenced'
+  | 'notebook/kind-mismatch'
+  | 'notebook/archive-undistilled'
+
+/**
+ * The three lifecycle states of one card (Ahrens): `fleeting` is raw intake —
+ * fast capture, links may dangle, invisible to the link graph; `permanent` is
+ * the compounded product — one idea, resolved links, the graph's only citizen
+ * that never retires; `project` is work in progress anchored to a real task
+ * (a task-workbench taskId), closed by archiving with distill-back evidence.
+ *
+ * 卡片的三种生命周期状态（Ahrens）：`fleeting` 是原始进料——快收、链接可悬空、
+ * 对链接图不可见；`permanent` 是化合产物——一卡一想法、链接已解析、图中唯一
+ * 永不退役的公民；`project` 是在制品，锚在真实任务（task-workbench taskId）上，
+ * 结项时凭蒸馏证据归档。
+ */
+export type NoteKind = 'fleeting' | 'permanent' | 'project'
 
 /** One durable note row. `owner` is the preset id that owns it. */
 export interface NoteRecord {
@@ -58,6 +78,10 @@ export interface NoteRecord {
   readonly body: string
   readonly createdAt: string
   readonly updatedAt: string
+  /** The lifecycle state; storage defaults pre-kind v1 rows to `permanent`. */
+  readonly kind: NoteKind
+  /** Project anchor: the task-workbench taskId this card serves; fleeting cards carry none. */
+  readonly anchor?: string | undefined
 }
 
 /**
@@ -78,6 +102,8 @@ export interface NoteView {
   readonly body: string
   readonly createdAt: string
   readonly updatedAt: string
+  readonly kind: NoteKind
+  readonly anchor?: string | undefined
 }
 
 /** One note as a list row renders it. */
@@ -87,6 +113,7 @@ export interface NoteSummary {
   readonly excerpt: string
   readonly createdAt: string
   readonly updatedAt: string
+  readonly kind: NoteKind
 }
 
 /** One preset that owns a notebook, declared or only remembered by its notes. */
@@ -156,6 +183,69 @@ export interface RiddleView {
   readonly shared: number
 }
 
+/** The lifecycle actions one ledger row records. 账表一行所记录的生命周期动作。 */
+export type LedgerAction = 'captured' | 'promoted' | 'trashed' | 'archived' | 'riddle_closed'
+
+/** One append-only lifecycle ledger row — the fact base of the breathing readout. 一行追加式生命周期账——呼吸读数的事实基底。 */
+export interface LedgerRecord {
+  /** The row's storage key (a minted uuid). 行的存储键（铸出的 uuid）。 */
+  readonly key: string
+  readonly owner: string
+  /** The card the action touched; for `riddle_closed`, the card whose write closed it. 动作触及的卡；`riddle_closed` 时是闭合谜面的那张卡的写入者。 */
+  readonly cardId: string
+  readonly action: LedgerAction
+  /** ISO instant of the action. 动作发生的 ISO 时刻。 */
+  readonly at: string
+}
+
+/**
+ * The intake face of one box: its fleeting cards and the overdue ones — the
+ * feedstock queue the flywheel is fed through.
+ * 某盒的进料面：闪念卡与其中过期的那些——喂养飞轮的进料队列。
+ */
+export interface BoxIntakeView {
+  /** Every fleeting card, oldest first. 全部闪念卡，最早优先。 */
+  readonly fleet: readonly NoteSummary[]
+  /** Fleeting cards past the freshness window, oldest first. 过保鲜窗的闪念卡，最早优先。 */
+  readonly overdue: readonly NoteSummary[]
+}
+
+/** One windowed action count of the box's ledger. 账表在某窗口内的一种动作计数。 */
+export interface BoxRateView {
+  /** How many days the window spans. 窗口天数。 */
+  readonly days: number
+  /** Fleeting captures in the window. 窗口内的闪念捕获数。 */
+  readonly captured: number
+  /** Fleeting→permanent promotions in the window. 窗口内的炼成数。 */
+  readonly promoted: number
+  /** Card deletions in the window. 窗口内的删除数。 */
+  readonly trashed: number
+  /** Project archives in the window. 窗口内的归档数。 */
+  readonly archived: number
+  /** Riddles closed by a new direct link in the window. 窗口内被新直链闭合的谜面数。 */
+  readonly riddlesClosed: number
+}
+
+/**
+ * The box's breathing readout: kind mix, graph density, intake depth, and the
+ * windowed flywheel rates — the numbers that say whether the box compounds,
+ * replacing self-report with measurement.
+ * 盒的呼吸读数：类别构成、图密度、进料深度、窗口飞轮速率——这些数字说明盒在不在
+ * 复利，用测量替代自辩。
+ */
+export interface BoxStatsView {
+  /** Card count per kind. 按类别的卡片数。 */
+  readonly cards: { readonly fleeting: number; readonly permanent: number; readonly project: number }
+  /** Cached link rows of the box. 盒的链接缓存行数。 */
+  readonly links: number
+  /** Links per graph citizen (permanent + project), two decimals. 每张图内卡片的平均链接数，两位小数。 */
+  readonly density: number
+  /** The intake face. 进料面。 */
+  readonly intake: BoxIntakeView
+  /** The windowed ledger rates. 窗口内的账表速率。 */
+  readonly rates: BoxRateView
+}
+
 export interface NotebookConfig {
   /** Mount the consult/write tool face into every session of every preset. 把咨询/写入工具面挂进每个预设的任意会话。 */
   readonly globalTools: { readonly enabled: boolean }
@@ -166,12 +256,20 @@ export interface NotebookConfig {
  * 面向模型的工具读写的窄接口。
  */
 export interface NotebookToolsPort {
-  /** Read one owner's list rows. */
-  readonly list: (owner: string) => Promise<readonly NoteSummary[]>
+  /** Read one owner's list rows, optionally one kind only. */
+  readonly list: (owner: string, kind?: NoteKind) => Promise<readonly NoteSummary[]>
   /** Read one owner's whole note. */
   readonly read: (owner: string, id: string) => Promise<NoteView>
-  /** Write one owner's note. */
+  /** Write one owner's permanent card. */
   readonly create: (owner: string, title: string, body: string) => Promise<NoteView>
+  /** Capture one owner's fleeting card; the title is minted from the body when omitted. 捕获一张闪念卡；标题省略时从正文首行铸出。 */
+  readonly capture: (owner: string, body: string, title?: string) => Promise<NoteView>
+  /** Promote one fleeting card into a permanent card under the full write-time discipline. 按完整写入纪律把一张闪念炼成永久卡。 */
+  readonly promote: (
+    owner: string,
+    id: string,
+    patch: { readonly title?: string; readonly body?: string; readonly expectedUpdatedAt?: string },
+  ) => Promise<NoteView>
   /** Replace fields of one owner's note. */
   readonly update: (
     owner: string,
@@ -180,6 +278,8 @@ export interface NotebookToolsPort {
   ) => Promise<NoteView>
   /** Delete one owner's note; resolves to whether it existed. */
   readonly remove: (owner: string, id: string) => Promise<boolean>
+  /** Archive one project card after distill-back; refused while evidence is missing. 蒸馏回流后归档一张项目卡；证据缺失时被拒。 */
+  readonly archive: (owner: string, id: string, distilledInto: readonly string[]) => Promise<{ readonly archived: boolean }>
   /** Read one owner's cards that link to the queried card. 读链到被查卡片的那些卡。 */
   readonly backlinks: (owner: string, id: string) => Promise<readonly BacklinkView[]>
   /** Read one owner's most-linked cards — the box's entry points. 读某归属被链接最多的卡片——盒的入口。 */
@@ -192,4 +292,6 @@ export interface NotebookToolsPort {
   readonly stale: (owner: string) => Promise<readonly NoteSummary[]>
   /** List one owner's riddles: pairs sharing neighbors without linking. 列出盒的谜面：共享邻居却未互链的卡对。 */
   readonly riddles: (owner: string) => Promise<readonly RiddleView[]>
+  /** Read one owner's intake face and flywheel rates. 读某盒的进料面与飞轮速率。 */
+  readonly stats: (owner: string) => Promise<BoxStatsView>
 }

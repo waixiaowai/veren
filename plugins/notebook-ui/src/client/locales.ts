@@ -24,6 +24,7 @@ export type NotebookKey =
   | 'emptyTitle' | 'emptyBody' | 'saved' | 'deleted' | 'unsaved' | 'titleRequired' | 'bodyTooLong'
   | 'removed' | 'updatedAt' | 'selectNote' | 'close'
   | 'linksTitle' | 'linksLoading' | 'linksFailed' | 'outgoing' | 'outgoingEmpty' | 'incoming' | 'incomingEmpty'
+  | 'kindFleeting' | 'kindPermanent' | 'kindProject'
 
 /** Chinese dictionary. */
 export const zh: Record<NotebookKey, string> = {
@@ -69,6 +70,9 @@ export const zh: Record<NotebookKey, string> = {
   outgoingEmpty: '本卡还没有 [[标题]] 链接指向其他卡。',
   incoming: '反链（指向本卡的卡）',
   incomingEmpty: '还没有其他卡链接本卡。',
+  kindFleeting: '闪念',
+  kindPermanent: '永久',
+  kindProject: '项目',
 }
 
 /** English dictionary. */
@@ -115,4 +119,7 @@ export const en: Record<NotebookKey, string> = {
   outgoingEmpty: 'This card has no [[title]] link to another card yet.',
   incoming: 'Backlinks (cards pointing here)',
   incomingEmpty: 'No other card links here yet.',
+  kindFleeting: 'Fleeting',
+  kindPermanent: 'Permanent',
+  kindProject: 'Project',
 }

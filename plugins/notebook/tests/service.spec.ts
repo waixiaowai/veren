@@ -29,8 +29,8 @@ import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import NotebookService, { NOTEBOOK_DOMAIN_NAME, NotebookError } from '../src/index.ts'
-import { buildNote, noteKey } from '../src/notes.ts'
-import type { NoteRecord, NoteSummary } from '../src/types.ts'
+import { noteKey } from '../src/notes.ts'
+import type { NoteSummary } from '../src/types.ts'
 
 /** The roots one spec's temp storage lives under, removed after the spec. 每条用例的临时存储根，测后删除。 */
 const roots: string[] = []
@@ -57,11 +57,20 @@ async function storageStack(ctx: Context, root: string): Promise<void> {
 
 /** Seed one genuine v1 medium: the v1 domain, notes only, no global slot. 种出真正的 v1 介质：只有 notes 表的 v1 域，无全局槽。 */
 async function seedV1Medium(root: string): Promise<void> {
+  /** A pre-kind v1 row: exactly what the 2.x plugin wrote, no lifecycle field. 先于 kind 的 v1 行：2.x 插件所写的原样，没有生命周期字段。 */
+  interface LegacyNoteRow {
+    readonly id: string
+    readonly owner: string
+    readonly title: string
+    readonly body: string
+    readonly createdAt: string
+    readonly updatedAt: string
+  }
   const v1Domain = defineDomain({
     name: NOTEBOOK_DOMAIN_NAME,
     version: 1,
     tables: {
-      notes: domainTable<string, NoteRecord>(z.object({
+      notes: domainTable<string, LegacyNoteRow>(z.object({
         id: z.string().min(1),
         owner: z.string().min(1),
         title: z.string().min(1),
@@ -74,8 +83,9 @@ async function seedV1Medium(root: string): Promise<void> {
   const ctx = new Context()
   await storageStack(ctx, root)
   const domain = await ctx.storageDomain.open(v1Domain)
-  const legacy = (id: string, title: string, body: string): NoteRecord =>
-    buildNote('ada', { title, body }, '2026-01-01T00:00:00.000Z', id)
+  const legacy = (id: string, title: string, body: string): LegacyNoteRow => ({
+    id, owner: 'ada', title, body, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+  })
   const table = domain.table('notes')
   await table.put(noteKey('ada', 'legacy-1'), legacy('legacy-1', '迁移原则', '存量行必须原样幸存'))
   // 自由正文里的 [[迁移原则]] 早于语法规则存在——重建应把它收进缓存。

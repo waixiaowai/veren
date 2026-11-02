@@ -20,7 +20,7 @@
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type { BacklinkView, CardLinkView, HubView, NotebookToolsPort, NoteView } from '@veren/notebook'
+import type { BacklinkView, BoxIntakeView, CardLinkView, HubView, NotebookToolsPort, NoteView } from '@veren/notebook'
 
 /** 首屏列表条数上限 / the first-screen list cap */
 const FIRST_SCREEN_LIMIT = 50
@@ -72,12 +72,14 @@ export function ownerOf(agent: Agent): string | null {
 export interface NotebookListFirstScreen {
   available: boolean
   owner: string | null
-  notes: readonly { id: string; title: string; excerpt: string; updatedAt: string }[]
+  notes: readonly { id: string; title: string; excerpt: string; updatedAt: string; kind: string }[]
   hubs: readonly HubView[]
   /** 待加工区：无入链且过保鲜窗的卡，最早优先 / the waiting list: unlinked cards past the freshness window, oldest first */
   stale: readonly { id: string; title: string; updatedAt: string }[]
   /** 谜面：共享邻居却未互链的卡对 / riddles: pairs sharing neighbors without linking */
   riddles: readonly { aTitle: string; bTitle: string; shared: number }[]
+  /** 进料口：全部闪念与其中过期的 / the intake: every fleeting card and the overdue ones */
+  intake: BoxIntakeView
 }
 
 /** 详情页首屏快照形状（归属未知或笔记不存在时 note 为 null）
@@ -93,14 +95,15 @@ export function renderListFirstScreen(snap: NotebookListFirstScreen): string {
   if (!snap.available) {
     return '归属未知：本页拿不到当前会话的预设。如实告知用户；可用 list_notes 自行取列表，但不要编造笔记。'
   }
-  if (snap.notes.length === 0) {
-    return `预设 ${snap.owner ?? '未知'} 的卡片盒还是空的——用 write_note 新建第一张卡。`
+  if (snap.notes.length === 0 && snap.intake.fleet.length === 0) {
+    return `预设 ${snap.owner ?? '未知'} 的卡片盒还是空的——有原始想法就用 capture_note 捕获闪念，想清楚了一卡一想法就用 write_note 写永久卡。`
   }
-  const rows = snap.notes.map((note) => `- **${note.id}** ${note.title}（更新于 ${note.updatedAt}）\n  ${note.excerpt}`)
+  const rows = snap.notes.map((note) => `- **${note.id}** ${note.title}（${note.kind === 'fleeting' ? '闪念' : note.kind === 'project' ? '项目' : '永久'}，更新于 ${note.updatedAt}）\n  ${note.excerpt}`)
   const hubs = renderHubs(snap.hubs)
   const stale = renderStale(snap.stale)
   const riddles = renderRiddles(snap.riddles)
-  return [`笔记列表（预设 ${snap.owner ?? '未知'}）：`, ...rows, '', hubs, '', stale, '', riddles, '', '列表此后变化以你调用工具返回的结果为准。'].join('\n')
+  const intake = renderIntake(snap.intake)
+  return [`笔记列表（预设 ${snap.owner ?? '未知'}）：`, ...rows, '', hubs, '', intake, '', stale, '', riddles, '', '列表此后变化以你调用工具返回的结果为准。'].join('\n')
 }
 
 /** 枢纽段：盒的入口，如实包括空态。/ The hubs section: the box's entry points, empty state stated honestly. */
@@ -115,10 +118,21 @@ function renderHubs(hubs: readonly HubView[]): string {
 /** 待加工区段：迷失卡片浮出，如实包括空态。/ The waiting-list section: lost cards surface, empty state stated honestly. */
 function renderStale(stale: readonly { id: string; title: string; updatedAt: string }[]): string {
   if (stale.length === 0) {
-    return '待加工区：空——每张卡都至少有一条入链指向它，或还在 7 天保鲜期内。'
+    return '待加工区：空——每张永久/项目卡都至少有一条入链指向它，或还在 7 天保鲜期内。'
   }
   const rows = stale.map(card => `- ${card.title}（${card.id}，放置于 ${card.updatedAt}）`)
-  return ['待加工区（这些卡还没有任何链接指向它们，且已放置超过 7 天——按卡片笔记法该加工了：让 AI 把它们炼成永久卡，或给它们链上归宿）：', ...rows].join(String.fromCharCode(10))
+  return ['待加工区（这些永久/项目卡还没有任何链接指向它们，且已放置超过 7 天——卢曼的迷失卡片：链上归宿，或炼成枢纽）：', ...rows].join(String.fromCharCode(10))
+}
+
+/** 进料口段：闪念队列置顶过期项，如实包括空态。/ The intake section: the fleeting queue, overdue first, empty state honest. */
+function renderIntake(intake: BoxIntakeView): string {
+  if (intake.fleet.length === 0) {
+    return '进料口：空——没有待加工的闪念。有原始想法随时 capture_note，别让它溜走。'
+  }
+  const overdueIds = new Set(intake.overdue.map(row => row.id))
+  const ordered = [...intake.overdue, ...intake.fleet.filter(row => !overdueIds.has(row.id))]
+  const rows = ordered.map((card) => `- ${card.title}（${card.id}${overdueIds.has(card.id) ? '，已过 2 天保鲜窗' : ''}）`)
+  return ['进料口（闪念只是提醒物：一两天内炼成永久卡 promote_note，或把已蒸掉的扔掉 delete_note；过期者优先）：', ...rows].join(String.fromCharCode(10))
 }
 
 /** 谜面段：意外连接的提问式提示，如实包括空态。/ The riddle section: question-form hints at unexpected connections, empty state honest. */
@@ -172,19 +186,24 @@ function renderIncoming(links: CardLinkView | null): string {
  * / the list page's first-screen read (the read half of the body's lifecycle; failures are information too) */
 export async function listFirstScreenText(agent: Agent): Promise<string> {
   const owner = ownerOf(agent)
-  if (owner === null) return renderListFirstScreen({ available: false, owner: null, notes: [], hubs: [], stale: [], riddles: [] })
+  if (owner === null) {
+    return renderListFirstScreen({ available: false, owner: null, notes: [], hubs: [], stale: [], riddles: [], intake: { fleet: [], overdue: [] } })
+  }
   const port = requireServices().port()
   try {
-    const [notes, hubs, stale, riddles] = await Promise.all([port.list(owner), port.hubs(owner), port.stale(owner), port.riddles(owner)])
+    const [notes, hubs, stale, riddles, stats] = await Promise.all([
+      port.list(owner), port.hubs(owner), port.stale(owner), port.riddles(owner), port.stats(owner),
+    ])
     return renderListFirstScreen({
       available: true,
       owner,
       notes: notes.slice(0, FIRST_SCREEN_LIMIT).map((note) => ({
-        id: note.id, title: note.title, excerpt: note.excerpt, updatedAt: note.updatedAt,
+        id: note.id, title: note.title, excerpt: note.excerpt, updatedAt: note.updatedAt, kind: note.kind,
       })),
       hubs,
       stale: stale.map(card => ({ id: card.id, title: card.title, updatedAt: card.updatedAt })),
       riddles: riddles.map(riddle => ({ aTitle: riddle.aTitle, bTitle: riddle.bTitle, shared: riddle.shared })),
+      intake: stats.intake,
     })
   } catch (error: unknown) {
     return `首屏读取失败：${error instanceof Error ? error.message : String(error)}。重开本页 URL 即可重取；也可用 list_notes 自行取列表。`

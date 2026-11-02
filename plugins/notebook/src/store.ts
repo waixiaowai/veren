@@ -23,10 +23,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { NOTEBOOK_DOMAIN_NAME, NOTEBOOK_DOMAIN_VERSION, notebookDomain, view } from './storage.ts'
 import type { NotebookStore, NotebookTable } from './storage.ts'
-import { syncLinks } from './graph.ts'
+import { syncRecordLinks } from './graph.ts'
 import { NotebookError } from './notes.ts'
 import type { CardTables } from './cards.ts'
-import type { LinkRecord, NoteRecord } from './types.ts'
+import type { LedgerRecord, LinkRecord, NoteRecord } from './types.ts'
 
 export class NotebookStoreHandle {
   /** The plugin's own reference to the owning Context. */
@@ -69,12 +69,12 @@ export class NotebookStoreHandle {
   }
 
   /**
-   * Project both tables of one open domain.
+   * Project all tables of one open domain.
    * @param domain - the open notebook domain.
-   * @returns the notes and links views one write moves together.
+   * @returns the notes, links, and ledger views one write moves together.
    */
   tables(domain: NotebookStore): CardTables {
-    return { notes: this.notesTable(domain), links: this.linksTable(domain) }
+    return { notes: this.notesTable(domain), links: this.linksTable(domain), ledger: this.ledgerTable(domain) }
   }
 
   /**
@@ -134,7 +134,9 @@ export class NotebookStoreHandle {
     if (marker.linksSyncedAt >= NOTEBOOK_DOMAIN_VERSION) return
     const tables = this.tables(domain)
     for (const record of tables.notes.all()) {
-      await syncLinks(tables.links, record.owner, record.id, record.body)
+      // 闪念卡不入图：重建也走同一条守卫路径，与写入路径零漂移。
+      // / fleeting cards stay off the graph: the rebuild rides the same guard the write paths do.
+      await syncRecordLinks(tables.links, record.owner, record)
     }
     await domain.global.set({ linksSyncedAt: NOTEBOOK_DOMAIN_VERSION })
   }
@@ -147,5 +149,10 @@ export class NotebookStoreHandle {
   /** Project the links table onto the four-method view. 把链接表投影成四方法视图。 */
   private linksTable(domain: NotebookStore): NotebookTable<LinkRecord> {
     return view(domain.table('links'))
+  }
+
+  /** Project the ledger table onto the four-method view. 把账表投影成四方法视图。 */
+  private ledgerTable(domain: NotebookStore): NotebookTable<LedgerRecord> {
+    return view(domain.table('ledger'))
   }
 }

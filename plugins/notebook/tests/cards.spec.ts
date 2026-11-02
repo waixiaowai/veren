@@ -14,7 +14,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { buildNote, noteKey, titlesContaining } from '../src/notes.ts'
-import { riddlePairs, RIDDLE_MIN_SHARED, staleView, STALE_DAYS } from '../src/graph.ts'
+import { staleView, STALE_DAYS } from '../src/graph.ts'
+import { riddlePairs, RIDDLE_MIN_SHARED } from '../src/riddles.ts'
 import { exportMarkdown } from '../src/notes.ts'
 import { NotebookError } from '../src/notes.ts'
 import { applyCardCreate, applyCardRemove, applyCardUpdate } from '../src/cards.ts'
@@ -22,7 +23,7 @@ import type { CardTables } from '../src/cards.ts'
 import { cachedBacklinks, scanBacklinks, distinctTargets, outgoingOf } from '../src/graph.ts'
 import { extractLinks } from '../src/links.ts'
 import type { NotebookTable } from '../src/storage.ts'
-import type { LinkRecord, NoteRecord } from '../src/types.ts'
+import type { LedgerRecord, LinkRecord, NoteRecord } from '../src/types.ts'
 
 /** An in-memory stand-in for one domain table, so the paths run alone. 单张域表的内存替身，让写路径独立运行。 */
 function memoryTable<T>(): NotebookTable<T> {
@@ -35,9 +36,9 @@ function memoryTable<T>(): NotebookTable<T> {
   }
 }
 
-/** One fresh pair of notes+links tables per test. 每条用例一对全新的 notes+links 表。 */
+/** One fresh trio of notes+links+ledger tables per test. 每条用例一组全新的 notes+links+ledger 表。 */
 function tables(): CardTables {
-  return { notes: memoryTable<NoteRecord>(), links: memoryTable<LinkRecord>() }
+  return { notes: memoryTable<NoteRecord>(), links: memoryTable<LinkRecord>(), ledger: memoryTable<LedgerRecord>() }
 }
 
 /** The clock every write in one test shares. 单条用例内所有写共用的时钟。 */
@@ -123,7 +124,7 @@ describe('card write paths / 卡片写路径', () => {
         const id = box.notes.all().find(row => row.owner === owner && row.title === title)?.id
         if (id === undefined) continue
         try {
-          await applyCardRemove(box, owner, id)
+          await applyCardRemove(box, owner, id, NOW)
           titles.delete(title)
         } catch {
           // 被引用拒删：正常路径，图保持原样。/ Refused while referenced: the normal path; the graph stays.
@@ -168,10 +169,10 @@ describe('card write paths / 卡片写路径', () => {
     await applyCardCreate(box, 'ada', { title: 'Target', body: 'the target' }, NOW, 't1')
     await applyCardCreate(box, 'ada', { title: 'Referrer', body: 'links [[Target]]' }, NOW, 'r1')
 
-    expect(await refusedCode(() => applyCardRemove(box, 'ada', 't1'))).toBe('notebook/card-referenced')
+    expect(await refusedCode(() => applyCardRemove(box, 'ada', 't1', NOW))).toBe('notebook/card-referenced')
 
     await applyCardUpdate(box, 'ada', 'r1', { body: 'no longer links' }, NOW)
-    await expect(applyCardRemove(box, 'ada', 't1')).resolves.toBe(true)
+    await expect(applyCardRemove(box, 'ada', 't1', NOW)).resolves.toBe(true)
     expect(box.notes.get(noteKey('ada', 't1'))).toBeUndefined()
     // 删除卡的出链缓存行一并消失。/ The deleted card's outgoing cache rows go with it.
     expect(box.links.all().filter(row => row.sourceId === 't1')).toEqual([])
