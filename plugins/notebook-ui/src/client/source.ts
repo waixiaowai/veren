@@ -20,7 +20,7 @@
  */
 
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
-import type { NoteView, NotebookRemoteApi, NotebookSnapshot, OwnerView } from './remote.ts'
+import type { LinkCountView, NoteView, NotebookRemoteApi, NotebookSnapshot, OwnerView } from './remote.ts'
 
 /** How long the open page waits before re-reading, in milliseconds. */
 const POLL_MS = 8_000
@@ -43,7 +43,7 @@ interface NotebookSourceState {
 
 /** 初值快照；每次调用都给新对象，保持原来的引用语义。The initial snapshot; a new object per call keeps the original reference semantics. */
 const initialSnapshot = (): NotebookSnapshot => ({
-  owners: [], owner: undefined, notes: [], status: 'loading', settled: false, error: '',
+  owners: [], owner: undefined, notes: [], linkCounts: [], status: 'loading', settled: false, error: '',
 })
 
 /** 向全部监听者广播一次快照更新。Broadcast one snapshot update to every listener. */
@@ -64,13 +64,13 @@ async function runRound(api: NotebookRemoteApi, state: NotebookSourceState, mine
     state.owner = chosen
     if (chosen === undefined) {
       if (mine === state.epoch) {
-        publishSnapshot(state, { owners, owner: undefined, notes: [], status: 'ready', settled: true, error: '' })
+        publishSnapshot(state, { owners, owner: undefined, notes: [], linkCounts: [], status: 'ready', settled: true, error: '' })
       }
       return
     }
-    const notes = await readNotes(api, chosen)
+    const [notes, linkCounts] = await Promise.all([readNotes(api, chosen), readLinkCounts(api, chosen)])
     if (mine !== state.epoch) return
-    publishSnapshot(state, { owners, owner: chosen, notes, status: 'ready', settled: true, error: '' })
+    publishSnapshot(state, { owners, owner: chosen, notes, linkCounts, status: 'ready', settled: true, error: '' })
   } catch (error: unknown) {
     if (mine === state.epoch) publishSnapshot(state, { status: 'error', error: messageOf(error) })
   }
@@ -132,6 +132,13 @@ async function readOwners(api: NotebookRemoteApi): Promise<readonly OwnerView[]>
 /** Read one owner's notes or throw the Host's message. */
 async function readNotes(api: NotebookRemoteApi, owner: string): Promise<readonly NoteView[]> {
   const result = await api.list({ owner })
+  if (!result.ok) throw new Error(result.error.message)
+  return result.value
+}
+
+/** Read one owner's per-title inbound-link counts or throw the Host's message. 读某归属按标题的入链数，失败抛宿主消息。 */
+async function readLinkCounts(api: NotebookRemoteApi, owner: string): Promise<readonly LinkCountView[]> {
+  const result = await api.linkCounts({ owner })
   if (!result.ok) throw new Error(result.error.message)
   return result.value
 }

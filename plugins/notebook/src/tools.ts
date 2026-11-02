@@ -99,6 +99,8 @@ function operationError(error: unknown): NotebookToolError {
   return error instanceof NotebookError ? new NotebookToolError(error.code, error.message) : internalError()
 }
 
+export { notebookToolValue, present, renderValue }
+
 /** Refuse a call that cannot name its owner. */
 function noCaller(): NotebookToolError {
   return new NotebookToolError(
@@ -146,45 +148,47 @@ async function notebookToolValue<T>(
   }
 }
 
-/** 列表工具构建器：列出调用者预设的笔记，最新更新在前 / the list tool builder: the caller preset's notes, newest update first */
+/** 列表工具构建器：列出调用者预设的卡片，最新更新在前 / the list tool builder: the caller preset's cards, newest update first */
 export function buildNotebookListDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
   return defineTool({
     name: 'list_notes',
-    description: 'List the notes in the caller preset\u2019s private notebook, newest first; '
+    description: 'List the cards in the caller preset\u2019s private card box, newest first; '
       + 'rows carry ids, titles, excerpts, and timestamps. Parameters: none.',
     parameters: {},
     output: { schema: LIST_SCHEMA, render: renderValue },
     execute: (_args, exec) => notebookToolValue(ctx, exec.agent, async owner => ({ notes: await port().list(owner) })),
-    presentCall: () => present('列出笔记', 'read'),
+    presentCall: () => present('列出卡片', 'read'),
   })
 }
 
-/** 读取工具构建器：读一条笔记的全文 / the read tool builder: one note's whole body */
+/** 读取工具构建器：读一张卡的全文 / the read tool builder: one card's whole body */
 export function buildNotebookReadDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
   return defineTool({
     name: 'read_note',
-    description: 'Read one note of the caller preset\u2019s notebook, including its whole body. Parameters: id.',
+    description: 'Read one card of the caller preset\u2019s card box, including its whole body. Parameters: id.',
     parameters: NOTE_ID_PARAM,
     output: { schema: NOTE_SCHEMA, render: renderValue },
     execute: (args, exec) => notebookToolValue(ctx, exec.agent, async owner => ({ note: await port().read(owner, args.id) })),
-    presentCall: args => present('读取笔记', 'read', args.id),
+    presentCall: args => present('读取卡片', 'read', args.id),
   })
 }
 
-/** 新建工具构建器：写入一条新笔记 / the write tool builder: one new note */
+/** 新建工具构建器：写入一张新卡 / the write tool builder: one new card */
 export function buildNotebookWriteDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
   return defineTool({
     name: 'write_note',
-    description: 'Write a new note into the caller preset\u2019s notebook; the title must not be blank. '
-      + 'Parameters: title, body.',
+    description: 'Write a new card into the caller preset\u2019s card box. One card carries one idea and '
+      + 'reads on its own; the title is a complete phrase and doubles as the card\u2019s link address, so it '
+      + 'must be unique in the box. Link related cards inline with [[title]] — every target must already '
+      + 'exist, and the write is refused otherwise. Parameters: title, body.',
     parameters: {
-      title: { type: 'string', description: '简短标题', required: true },
-      body: { type: 'string', description: '正文，可为空', required: true },
+      title: { type: 'string', description: '完整短语标题，一卡一想法', required: true },
+      body: { type: 'string', description: '正文，可含 [[标题]] 链接；目标必须已存在', required: true },
     },
     output: { schema: NOTE_SCHEMA, render: renderValue },
     execute: (args, exec) => notebookToolValue(ctx, exec.agent,
       async owner => ({ note: await port().create(owner, args.title, args.body) })),
-    presentCall: args => present('新建笔记', 'other', args.title),
+    presentCall: args => present('新建卡片', 'other', args.title),
   })
 }
 
@@ -192,14 +196,15 @@ export function buildNotebookWriteDefinition(ctx: Context, port: () => NotebookT
 export function buildNotebookRewriteDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
   return defineTool({
     name: 'rewrite_note',
-    description: 'Replace the title, the body, or both of one note of the caller preset\u2019s notebook; '
-      + 'pass the updatedAt you read as expectedUpdatedAt to be refused instead of overwriting a newer edit. '
-      + 'Parameters: id, title?, body?, expectedUpdatedAt?.',
+    description: 'Replace the title, the body, or both of one card of the caller preset\u2019s card box. '
+      + 'Pass the updatedAt you read as expectedUpdatedAt to be refused instead of overwriting a newer edit. '
+      + 'Renaming the card retargets every inbound link automatically; a new body must still satisfy the '
+      + '[[title]] link rules. Parameters: id, title?, body?, expectedUpdatedAt?.',
     parameters: {
       ...NOTE_ID_PARAM,
-      title: { type: 'string', description: '新标题；省略则保留' },
-      body: { type: 'string', description: '新正文；省略则保留' },
-      expectedUpdatedAt: { type: 'string', description: '上次读到的 updatedAt；笔记已被改动时本次写入被拒绝' },
+      title: { type: 'string', description: '新标题；省略则保留；改名后入链自动跟随' },
+      body: { type: 'string', description: '新正文；省略则保留；[[标题]] 目标必须已存在' },
+      expectedUpdatedAt: { type: 'string', description: '上次读到的 updatedAt；卡片已被改动时本次写入被拒绝' },
     },
     output: { schema: NOTE_SCHEMA, render: renderValue },
     execute: (args, exec) => notebookToolValue(ctx, exec.agent, async owner => ({
@@ -209,20 +214,21 @@ export function buildNotebookRewriteDefinition(ctx: Context, port: () => Noteboo
         ...(args.expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt: args.expectedUpdatedAt }),
       }),
     })),
-    presentCall: args => present('改写笔记', 'other', args.id),
+    presentCall: args => present('改写卡片', 'other', args.id),
   })
 }
 
-/** 删除工具构建器：永久删除一条笔记 / the delete tool builder: one note, permanently */
+/** 删除工具构建器：永久删除一张卡 / the delete tool builder: one card, permanently */
 export function buildNotebookDeleteDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
   return defineTool({
     name: 'delete_note',
-    description: 'Permanently delete one note of the caller preset\u2019s notebook; confirm with the user '
-      + 'before calling. Parameters: id.',
+    description: 'Permanently delete one card of the caller preset\u2019s card box; confirm with the user '
+      + 'before calling. Refused while other cards still link to it \u2014 remove those [[title]] links first. '
+      + 'Parameters: id.',
     parameters: NOTE_ID_PARAM,
     output: { schema: DELETE_SCHEMA, render: renderValue },
     execute: (args, exec) => notebookToolValue(ctx, exec.agent,
       async owner => ({ deleted: await port().remove(owner, args.id) })),
-    presentCall: args => present('删除笔记', 'other', args.id),
+    presentCall: args => present('删除卡片', 'other', args.id),
   })
 }

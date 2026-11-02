@@ -70,55 +70,6 @@ export function requireOwner(value: string): string {
 }
 
 /**
- * Validate a create call and normalize its fields.
- * @param input - caller-supplied title and body.
- * @returns the fields as stored.
- * @throws NotebookError when the title is empty or the body exceeds its limit.
- */
-export function validateCreate(input: NoteFields): NoteFields {
-  return { title: cleanTitle(input.title), body: cleanBody(input.body) }
-}
-
-/**
- * Validate an update call and normalize only the supplied fields.
- * @param input - caller-supplied replacement fields.
- * @returns the fields to replace; absent fields stay untouched.
- * @throws NotebookError when neither field is supplied or a field is invalid.
- */
-export function validateUpdate(input: NotePatch): NotePatch {
-  if (input.title === undefined && input.body === undefined) {
-    throw new NotebookError('notebook/input-invalid', 'an update needs a title, a body, or both.')
-  }
-  return {
-    ...input.title === undefined ? {} : { title: cleanTitle(input.title) },
-    ...input.body === undefined ? {} : { body: cleanBody(input.body) },
-  }
-}
-
-/** Normalize a title, refusing an empty one. */
-function cleanTitle(value: string): string {
-  const title = value.trim()
-  if (title === '') throw new NotebookError('notebook/title-required', 'a note needs a title.')
-  if ([...title].length > MAX_TITLE_CHARS) {
-    throw new NotebookError('notebook/input-invalid', `a title is at most ${String(MAX_TITLE_CHARS)} characters.`)
-  }
-  return title
-}
-
-/** Normalize a body and enforce the stored limit. */
-function cleanBody(value: string): string {
-  const body = value.trim()
-  const length = [...body].length
-  if (length > MAX_BODY_CHARS) {
-    throw new NotebookError(
-      'notebook/body-too-long',
-      `a note body is at most ${String(MAX_BODY_CHARS)} characters; this one has ${String(length)}.`,
-    )
-  }
-  return body
-}
-
-/**
  * Build one durable note.
  * @param owner - preset id that owns the note.
  * @param fields - validated title and body.
@@ -144,20 +95,6 @@ export function applyUpdate(record: NoteRecord, patch: NotePatch, now: string): 
     ...patch.body === undefined ? {} : { body: patch.body },
     updatedAt: now,
   }
-}
-
-/**
- * Refuse an update based on a stale read.
- * @param record - the row as it exists now.
- * @param expected - the update time the caller last saw, when it checks.
- * @throws NotebookError `conflict` when the row moved on.
- */
-export function ensureExpected(record: NoteRecord, expected: string | undefined): void {
-  if (expected === undefined || expected === record.updatedAt) return
-  throw new NotebookError(
-    'notebook/conflict',
-    `this note changed at ${record.updatedAt}; read it again before saving.`,
-  )
 }
 
 /**

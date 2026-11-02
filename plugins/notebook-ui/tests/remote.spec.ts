@@ -39,14 +39,17 @@ function requestSchema(endpoint: string) {
 }
 
 describe('notebook remote contract / 记事本远端约定', () => {
-  it('publishes the five endpoints under the notebook service', () => {
+  it('publishes the eight endpoints under the notebook service', () => {
     expect(notebookRemote.package).toBe('@veren/notebook')
     const endpoints = notebookRemote.descriptors
       .map(entry => `${entry.namespace}/${entry.method}`)
       .sort()
     expect(endpoints).toEqual([
+      'notebook/cardLinks',
       'notebook/create',
       'notebook/deleteNote',
+      'notebook/hubs',
+      'notebook/linkCounts',
       'notebook/list',
       'notebook/owners',
       'notebook/update',
@@ -69,8 +72,12 @@ describe('notebook remote contract / 记事本远端约定', () => {
     expect(requestSchema('notebook/owners').safeParse({}).success).toBe(true)
     expect(requestSchema('notebook/list').safeParse({}).success).toBe(false)
     expect(requestSchema('notebook/list').safeParse({ owner: 'ada' }).success).toBe(true)
-    for (const endpoint of ['notebook/create', 'notebook/update', 'notebook/deleteNote']) {
+    for (const endpoint of ['notebook/create', 'notebook/update', 'notebook/deleteNote', 'notebook/cardLinks']) {
       expect(requestSchema(endpoint).safeParse({ id: 'n1' }).success, endpoint).toBe(false)
+    }
+    for (const endpoint of ['notebook/hubs', 'notebook/linkCounts']) {
+      expect(requestSchema(endpoint).safeParse({}).success, endpoint).toBe(false)
+      expect(requestSchema(endpoint).safeParse({ owner: 'ada' }).success, endpoint).toBe(true)
     }
   })
 

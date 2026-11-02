@@ -56,7 +56,7 @@ describe('应用可发现与可解析 / discoverable and resolvable', () => {
     const note = apps.listPages(APP_ID).find((page) => page.name === 'note')
     if (note === undefined) throw new Error('the note page is not registered')
     expect(note.url).toBe('/apps/notebook/note/:noteId')
-    expect(note.instanceTitle?.({ noteId: '7' })).toBe('笔记 #7')
+    expect(note.instanceTitle?.({ noteId: '7' })).toBe('卡片 #7')
 
     await fiber.dispose()
   })

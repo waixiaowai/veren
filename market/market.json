@@ -203,8 +203,8 @@
         "zh": "笔记本"
       },
       "description": {
-        "en": "Private notes inside DSH: a durable notebook service with model-facing note tools, plus the Web page where a person reads and edits them.",
-        "zh": "在 DSH 里保存私人笔记：持久化的笔记本服务和供模型读写笔记的工具，外加供人查看和编辑的 Web 页面。"
+        "en": "A private card box per preset, Zettelkasten-style: atomic cards whose titles are link addresses, [[title]] links between cards with backlinks and hubs answered back, model-facing card tools plus the Web page where a person reads and edits them.",
+        "zh": "每预设一只私密卡片盒，卡片笔记法契约：卡片原子化、标题即链接地址，卡片间 [[标题]] 互链并应答反链与枢纽，模型用卡片工具读写，人在 Web 页面查看编辑。"
       },
       "category": "knowledge",
       "labels": [
@@ -213,6 +213,8 @@
       "keywords": [
         "notebook",
         "notes",
+        "zettelkasten",
+        "卡片笔记",
         "笔记"
       ]
     },

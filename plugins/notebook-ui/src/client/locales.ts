@@ -23,6 +23,7 @@ export type NotebookKey =
   | 'save' | 'saving' | 'delete' | 'confirmDelete' | 'refresh' | 'loading' | 'failed' | 'retry'
   | 'emptyTitle' | 'emptyBody' | 'saved' | 'deleted' | 'unsaved' | 'titleRequired' | 'bodyTooLong'
   | 'removed' | 'updatedAt' | 'selectNote' | 'close'
+  | 'linksTitle' | 'linksLoading' | 'linksFailed' | 'outgoing' | 'outgoingEmpty' | 'incoming' | 'incomingEmpty'
 
 /** Chinese dictionary. */
 export const zh: Record<NotebookKey, string> = {
@@ -60,6 +61,13 @@ export const zh: Record<NotebookKey, string> = {
   updatedAt: '更新于',
   selectNote: '选择一条笔记',
   close: '关闭',
+  linksTitle: '卡片链接',
+  linksLoading: '正在读取链接…',
+  linksFailed: '链接读取失败。',
+  outgoing: '出链（本卡指向的卡）',
+  outgoingEmpty: '本卡还没有 [[标题]] 链接指向其他卡。',
+  incoming: '反链（指向本卡的卡）',
+  incomingEmpty: '还没有其他卡链接本卡。',
 }
 
 /** English dictionary. */
@@ -98,4 +106,11 @@ export const en: Record<NotebookKey, string> = {
   updatedAt: 'Updated',
   selectNote: 'Select a note',
   close: 'Close',
+  linksTitle: 'Card links',
+  linksLoading: 'Reading the links…',
+  linksFailed: 'Could not read the links.',
+  outgoing: 'Outgoing (cards this one points to)',
+  outgoingEmpty: 'This card has no [[title]] link to another card yet.',
+  incoming: 'Backlinks (cards pointing here)',
+  incomingEmpty: 'No other card links here yet.',
 }

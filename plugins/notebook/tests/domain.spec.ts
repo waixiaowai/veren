@@ -15,9 +15,9 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_BODY_CHARS, NotebookError, applyUpdate, buildNote, ensureExpected, noteKey, notesOf, ownersOf,
-  requireOwned, validateCreate, validateUpdate,
+  MAX_BODY_CHARS, NotebookError, applyUpdate, buildNote, noteKey, notesOf, ownersOf, requireOwned,
 } from '../src/notes.ts'
+import { ensureExpected, validateCreate, validateUpdate } from '../src/validate.ts'
 import type { NotebookTable } from '../src/storage.ts'
 import type { NoteRecord } from '../src/types.ts'
 

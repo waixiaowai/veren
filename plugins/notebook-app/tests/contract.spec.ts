@@ -26,8 +26,12 @@ const ROWS: readonly ContractPageRow[] = [
   { label: 'notebook/list', meta: ListMeta, tools: [
     { name: 'notebook__list_notes', level: 'L0' },
     { name: 'notebook__write_note', level: 'L1' },
+    { name: 'notebook__list_hubs', level: 'L0' },
   ] },
-  { label: 'notebook/note', meta: NoteMeta, tools: NOTE_TOOLS },
+  { label: 'notebook/note', meta: NoteMeta, tools: [
+    ...NOTE_TOOLS,
+    { name: 'notebook__list_backlinks', level: 'L0' },
+  ] },
 ]
 
 describe('记事本两页无人值守契约（§5 行 5–6）', () => {

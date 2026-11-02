@@ -36,9 +36,9 @@ export const MAX_BODY_CHARS = 100_000
  * forwards them instead of restating the same shapes. `import type` is erased
  * by esbuild at bundle time, so no server code reaches the client bundle.
  */
-import type { NoteView, OwnerView } from '../../../notebook/src/types.ts'
+import type { CardLinkView, HubView, LinkCountView, NoteView, OwnerView } from '../../../notebook/src/types.ts'
 
-export type { NoteView, OwnerView }
+export type { CardLinkView, HubView, LinkCountView, NoteView, OwnerView }
 
 /** A Remote call result: the committed value, or the Host's structured refusal. */
 export type NotebookRemoteResult<Value> =
@@ -69,6 +69,8 @@ export interface NotebookSnapshot {
   readonly owner: string | undefined
   /** That owner's notes, newest update first. */
   readonly notes: readonly NoteView[]
+  /** Inbound-link count per card title, joined by title for the list badges. 按标题统计的入链数，供列表角标按标题连接。 */
+  readonly linkCounts: readonly LinkCountView[]
   /** `loading` is republished only before the first successful read. */
   readonly status: 'loading' | 'ready' | 'error'
   /** Whether an authoritative read has ever succeeded. */
@@ -93,6 +95,8 @@ export interface NotebookPanelInjected {
   readonly onUpdate: (input: UpdateNoteInput) => Promise<NoteView>
   /** Delete one note from the selected notebook. */
   readonly onRemove: (input: { readonly owner: string; readonly id: string }) => Promise<{ readonly deleted: boolean }>
+  /** Read one card's outgoing and incoming links. 读一张卡的出链与入链。 */
+  readonly onCardLinks: (input: { readonly owner: string; readonly id: string }) => Promise<CardLinkView>
 }
 
 /** The mounted `ctx.remote.notebook` surface. */
@@ -120,6 +124,15 @@ export interface NotebookRemoteApi {
     readonly owner: string
     readonly id: string
   }) => Promise<NotebookRemoteResult<{ readonly deleted: boolean }>>
+  /** Read one card's outgoing and incoming links. 读一张卡的出链与入链。 */
+  readonly cardLinks: (request: {
+    readonly owner: string
+    readonly id: string
+  }) => Promise<NotebookRemoteResult<CardLinkView>>
+  /** Read one owner's most-linked cards — the box's entry points. 读某归属被链接最多的卡片——盒的入口。 */
+  readonly hubs: (request: { readonly owner: string }) => Promise<NotebookRemoteResult<readonly HubView[]>>
+  /** Count inbound links per card title. 按标题统计入链数。 */
+  readonly linkCounts: (request: { readonly owner: string }) => Promise<NotebookRemoteResult<readonly LinkCountView[]>>
 }
 
 /**
@@ -152,6 +165,8 @@ const UPDATE_REQUEST = z.looseObject({
   expectedUpdatedAt: z.string().optional(),
 })
 const REMOVE_REQUEST = z.looseObject({ owner: z.string(), id: z.string() })
+const CARD_LINKS_REQUEST = z.looseObject({ owner: z.string(), id: z.string() })
+const OWNER_REQUEST = z.looseObject({ owner: z.string() })
 
 /** Host service key owning these endpoints; the wire namespace is `notebook`. */
 const SERVICE = 'notebook'
@@ -204,5 +219,17 @@ export const notebookRemote = createTypertRemoteInfo({
     ...method('deleteNote', 'Delete one note from one preset\u2019s notebook.', 'deleteNote', [
       parameter('request', 'notebook:deleteNote:request', () => REMOVE_REQUEST),
     ], () => z.looseObject({ deleted: z.boolean() })),
+    ...method('cardLinks', 'Read one card\u2019s outgoing and incoming links.', 'cardLinks', [
+      parameter('request', 'notebook:cardLinks:request', () => CARD_LINKS_REQUEST),
+    ], () => z.looseObject({
+      outgoing: z.array(z.looseObject({ targetId: z.string(), targetTitle: z.string() })),
+      incoming: z.array(z.looseObject({ sourceId: z.string(), sourceTitle: z.string(), excerpt: z.string() })),
+    })),
+    ...method('hubs', 'Read one owner\u2019s most-linked cards.', 'hubs', [
+      parameter('request', 'notebook:hubs:request', () => OWNER_REQUEST),
+    ], () => z.array(z.looseObject({ id: z.string(), title: z.string(), inboundCount: z.number() }))),
+    ...method('linkCounts', 'Count inbound links per card title.', 'linkCounts', [
+      parameter('request', 'notebook:linkCounts:request', () => OWNER_REQUEST),
+    ], () => z.array(z.looseObject({ title: z.string(), count: z.number() }))),
   } as Record<string, never>,
 }, z)

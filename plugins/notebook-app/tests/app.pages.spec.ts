@@ -13,7 +13,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { createAppTools } from '../src/app.ts'
 import { buildPageTaskTools } from '@veren/task-center'
-import { bindNotebookServices, ListMeta, ListPage, NoteMeta, NotePage } from '../src/pages.tsx'
+import { bindNotebookServices } from '../src/first-screen.ts'
+import { ListMeta, ListPage, NoteMeta, NotePage } from '../src/pages.tsx'
 import { defineComponentPage } from '@veren/prompt-page'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { APP_DEFINITION, APP_ID } from '../src/index.ts'
@@ -202,7 +203,7 @@ describe('页面 = 信息 + 工具，缺一不可 / a page is its information pl
     // / the body renders through markdown (underscores escaped), so strip
     // escape backslashes before comparing.
     const plain = body.replaceAll('\\', '')
-    expect(plain).toContain('首屏随后以消息送达')
+    expect(plain).toContain('随后以消息送达')
     expect(plain).toContain('list_notes')
     await fiber.dispose()
   })

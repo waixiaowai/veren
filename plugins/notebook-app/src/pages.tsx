@@ -7,7 +7,8 @@
  * 首屏读取是组件体自己的生命周期：归属解析自会话头 `agentPreset`（与工具取
  * 调用者同源——身份走会话头，不进 URL）；异步读经 `agent.ctx.effect` 发起，
  * 读到的首屏（含失败态）经 `agent.followup` 以新消息进上下文。正文是打开时刻
- * 的静态框，绝不留白。
+ * 的静态框，绝不留白。首屏文本的形状与渲染在 `first-screen.ts`；本文件只留
+ * 页面本体与元数据。
  * The notebook's two pages in the one-shot form as MODULE-LEVEL components — no
  * factory wrapper. The body runs exactly once on the page session's real Agent
  * and its output becomes the PAGE block body; tools register via
@@ -18,63 +19,18 @@
  * from — identity rides the session header, never the url); the async read
  * starts via `agent.ctx.effect` and its result (failure states included) rides
  * `agent.followup` as a new message. The body itself is the static frame at
- * open time, never a blank.
+ * open time, never a blank. The first-screen shapes and rendering live in
+ * `first-screen.ts`; this file keeps only the page bodies and their metadata.
  * @module @veren/notebook-app/pages
  */
 import type { ComponentPageMeta, PageFC } from '@veren/prompt-page'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type { NotebookToolsPort } from '@veren/notebook'
+import { listFirstScreenText, noteFirstScreenText, requireServices } from './first-screen.ts'
 
 /** 应用内 URL 前缀 / the app-scoped url prefix */
 const URL_PREFIX = '/apps/notebook'
-
-/**
- * 装配期绑定的模块级槽位：组件体的工具登记与首屏读从这里取工具定义与服务面。
- * `taskFace` 是页面作用域完成回报面（task_take/task_complete/task_fail，名字与
- * 宿主全局面逐字相同——TASK 块与收件箱指引逐字为真；docs/unattended-page-contract
- * §6）。注册一定先于任何页面打开；未绑定即取 = 装配错误 fail loud。
- * The module-level slot bound at assembly time: the bodies' tool registrations
- * and first-screen reads take the tool definitions and the service face from
- * here. `taskFace` is the page-scoped completion face (task_take /
- * task_complete / task_fail — names matching the host global face verbatim so
- * the TASK block and inbox guidance read true; docs/unattended-page-contract
- * §6). Registration always precedes any page open; reading unbound is an
- * assembly error and fails loud.
- */
-let services: {
-  readonly port: () => NotebookToolsPort
-  readonly tools: readonly ToolDefinition[]
-  readonly taskFace: () => readonly ToolDefinition[]
-} | undefined
-
-/** 装配时绑定（app.ts 的单入口注册调用一次）/ bind at assembly time (called once by app.ts's registration) */
-export function bindNotebookServices(
-  port: () => NotebookToolsPort,
-  tools: readonly ToolDefinition[],
-  taskFace: () => readonly ToolDefinition[],
-): void {
-  services = { port, tools, taskFace }
-}
-
-/** 取绑定的服务面；未绑定 = 装配错误 fail loud / read the bound face; unbound = assembly error, fail loud */
-function requireServices(): { readonly port: () => NotebookToolsPort; readonly tools: readonly ToolDefinition[]; readonly taskFace: () => readonly ToolDefinition[] } {
-  if (services === undefined) {
-    throw new Error('[notebook-app] notebook services are not bound; registerNotebookApp must run before pages open')
-  }
-  return services
-}
-
-/** 按本地名取全名工具定义 / look up a full-named tool definition by local name */
-function toolOf(localName: string): ToolDefinition {
-  const found = requireServices().tools.find((tool) => tool.name === `notebook__${localName}`)
-  if (found === undefined) throw new Error(`[notebook-app] tool notebook__${localName} is not defined`)
-  return found
-}
-
-/** 首屏列表条数上限 / the first-screen list cap */
-const FIRST_SCREEN_LIMIT = 50
 
 /** 页面自推消息的 source kind（宿主装配的 PAGE 块同源；wire 值协议常量）
  * / the source kind of a page-pushed message (same source as the host assembly's PAGE block; a wire-value protocol constant) */
@@ -93,91 +49,16 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
-/** 归属解析：会话头 agentPreset——与页面工具取调用者的口径同源；身份不进 URL
- * / owner resolution: the session header's agentPreset — the same face the page tools read their caller from; identity never enters the url */
-function ownerOf(agent: Agent): string | null {
-  return (agent.session as { header?: { agentPreset?: string } } | undefined)?.header?.agentPreset ?? null
-}
-
 /** 把一条首屏文本作为新消息推进上下文（页面自己的送达路径）/ push one first-screen text into the context as a new message (the page's own delivery path) */
 function followupText(agent: Agent, text: string): void {
   agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: PAGE_SOURCE } }))
 }
 
-/** 列表页首屏快照形状（归属未知时 available=false，不编造数据）
- * / the list page's first-screen shape (owner unknown reads available=false, never faked) */
-interface NotebookListFirstScreen {
-  available: boolean
-  owner: string | null
-  notes: readonly { id: string; title: string; excerpt: string; updatedAt: string }[]
-}
-
-/** 详情页首屏快照形状（归属未知或笔记不存在时 note 为 null）
- * / the note page's first-screen shape (note=null on unknown owner or a missing note) */
-interface NotebookNoteFirstScreen {
-  owner: string | null
-  note: null | { id: string; title: string; body: string; createdAt: string; updatedAt: string }
-}
-
-/** 列表首屏渲染成 Markdown 文本（每种状态都如实表达，不静默空白）
- * / render the list first screen as Markdown text (every state stated honestly, never a silent blank) */
-function renderListFirstScreen(snap: NotebookListFirstScreen): string {
-  if (!snap.available) {
-    return '归属未知：本页拿不到当前会话的预设。如实告知用户；可用 list_notes 自行取列表，但不要编造笔记。'
-  }
-  if (snap.notes.length === 0) {
-    return `预设 ${snap.owner ?? '未知'} 的记事本还是空的——用 write_note 新建第一条笔记。`
-  }
-  const rows = snap.notes.map((note) => `- **${note.id}** ${note.title}（更新于 ${note.updatedAt}）\n  ${note.excerpt}`)
-  return [`笔记列表（预设 ${snap.owner ?? '未知'}）：`, ...rows, '列表此后变化以你调用工具返回的结果为准。'].join('\n')
-}
-
-/** 列表页首屏读取（组件体 lifecycle 的读半边；失败态也是信息）
- * / the list page's first-screen read (the read half of the body's lifecycle; failures are information too) */
-async function listFirstScreenText(agent: Agent): Promise<string> {
-  const owner = ownerOf(agent)
-  if (owner === null) return renderListFirstScreen({ available: false, owner: null, notes: [] })
-  try {
-    const notes = await requireServices().port().list(owner)
-    return renderListFirstScreen({
-      available: true,
-      owner,
-      notes: notes.slice(0, FIRST_SCREEN_LIMIT).map((note) => ({
-        id: note.id, title: note.title, excerpt: note.excerpt, updatedAt: note.updatedAt,
-      })),
-    })
-  } catch (error: unknown) {
-    return `首屏读取失败：${error instanceof Error ? error.message : String(error)}。重开本页 URL 即可重取；也可用 list_notes 自行取列表。`
-  }
-}
-
-/** 详情首屏渲染成 Markdown 文本 / render the note first screen as Markdown text */
-function renderNoteFirstScreen(snap: NotebookNoteFirstScreen, noteId: string): string {
-  if (snap.note === null) {
-    return `笔记 ${noteId} 不存在或归属未知——不要凭空操作。`
-  }
-  // 时间两行都给：createdAt 是事实，updatedAt 是 rewrite_note 守卫要用的值。
-  // / both timestamps: createdAt is a fact, updatedAt feeds the rewrite_note guard.
-  return [`# ${snap.note.id} ${snap.note.title}`, `创建于 ${snap.note.createdAt} · 更新于 ${snap.note.updatedAt}`, '', snap.note.body].join('\n')
-}
-
-/** 详情页首屏读取 / the note page's first-screen read */
-async function noteFirstScreenText(agent: Agent, noteId: string): Promise<string> {
-  const owner = ownerOf(agent)
-  if (owner === null) return renderNoteFirstScreen({ owner: null, note: null }, noteId)
-  try {
-    const note = await requireServices().port().read(owner, noteId)
-    return renderNoteFirstScreen({
-      owner,
-      note: { id: note.id, title: note.title, body: note.body, createdAt: note.createdAt, updatedAt: note.updatedAt },
-    }, noteId)
-  } catch (error: unknown) {
-    // 读取失败（笔记不存在/归属未知/存储异常）统一归入"找不到"语义——
-    // 绝不凭空操作；原因如实带上。
-    // / a read failure (missing note, unknown owner, storage trouble) folds into
-    // the not-found semantics — never act on a ghost; the reason rides along.
-    return `笔记 ${noteId} 不存在或归属未知——不要凭空操作。（读取失败：${error instanceof Error ? error.message : String(error)}）`
-  }
+/** 按本地名取全名工具定义 / look up a full-named tool definition by local name */
+function toolOf(localName: string): ToolDefinition {
+  const found = requireServices().tools.find((tool) => tool.name === `notebook__${localName}`)
+  if (found === undefined) throw new Error(`[notebook-app] tool notebook__${localName} is not defined`)
+  return found
 }
 
 /** 页面作用域完成回报面登记（两页同挂；§6 投递闭环的最后一环）/ register the page-scoped completion face (both pages; the delivery loop's last link, §6) */
@@ -185,11 +66,12 @@ function registerPageTaskFace(agent: Parameters<PageFC>[1]): void {
   for (const tool of requireServices().taskFace()) agent.ctx.tools.register(tool)
 }
 
-// ---- 列表页（首页 home / entry，笔记列表）---- List page (the home page / entry, the note list) ----
+// ---- 列表页（首页 home / entry，卡片列表）---- List page (the home page / entry, the card list) ----
 
 export const ListPage: PageFC = (_props, agent) => {
   agent.ctx.tools.register(toolOf('list_notes'))
   agent.ctx.tools.register(toolOf('write_note'))
+  agent.ctx.tools.register(toolOf('list_hubs'))
   // 投递回报面随页挂载 / the delivery-report face rides the page
   registerPageTaskFace(agent)
   // 首屏读取：组件体自己的 lifecycle（effect 发起、followup 送达——宿主不经手取数）
@@ -201,70 +83,78 @@ export const ListPage: PageFC = (_props, agent) => {
   // 正文是打开时刻的静态框：数据随后以消息送达，不留白。
   // / the body is the static frame at open time: data arrives as a message, never a blank.
   return (
-    <blockquote>笔记列表首屏随后以消息送达；也可直接用 list_notes 取列表。</blockquote>
+    <blockquote>卡片列表与盒的入口随后以消息送达；也可直接用 list_notes 与 list_hubs 取。</blockquote>
   )
 }
 
 export const ListMeta: ComponentPageMeta = {
   name: 'list',
   url: `${URL_PREFIX}/list`,
-  description: '记事本列表页：浏览当前预设的全部笔记，并可新建笔记',
+  description: '记事本列表页：浏览当前预设的全部卡片与盒的入口（枢纽），并可新建卡片',
   // 本页登记了写工具（write_note），如实声明写意图
   // / this page registers a write tool (write_note); declare the intent honestly
   writes: true,
   unattended: {
-    serves: '笔记新建与列表盘点类投递任务（归属 = 会话头预设）',
+    serves: '卡片新建与列表盘点类投递任务（归属 = 会话头预设）',
     level: 'L1',
-    evidence: '一句话点名新笔记的 id 与标题（write_note 返回值）；投递任务以 task_complete 的 summary+artifacts 收口',
-    escape: '归属未知或存储失败时如实回报并停在该任务，不悬置；列表为空就如实说空；投递任务做不完用 task_fail 带稳定码',
+    evidence: '一句话点名新卡片的 id 与标题（write_note 返回值）；投递任务以 task_complete 的 summary+artifacts 收口',
+    escape: '归属未知、存储失败或写入被拒（title-conflict/link-unresolved）时如实回报并停在该任务，不悬置；列表为空就如实说空；投递任务做不完用 task_fail 带稳定码',
   },
-  instructions: '这是记事本的首页（笔记列表）。首屏列表在打开后以一条消息送达：owner（归属预设）与 notes（该预设的笔记，id/title/excerpt/updatedAt）；'
-    + '归属未知或读取失败会在消息里如实说明——不要编造笔记。'
+  instructions: '这是记事本的首页（卡片列表）。首屏列表与盒的入口在打开后以一条消息送达：owner（归属预设）、'
+    + 'notes（该预设的卡片，id/title/excerpt/updatedAt）与 hubs（被链接最多的卡片——盒的入口）；'
+    + '归属未知或读取失败会在消息里如实说明——不要编造卡片。'
     + '此后变化以你调用工具返回的结果为准。'
-    + '用 list_notes 刷新列表，用 write_note 新建笔记；新建后报出笔记 id 与标题（一句话证据回报），列表为空时如实说明。'
+    + '用 list_notes 刷新列表，用 list_hubs 取入口，用 write_note 新建卡片（一卡一想法，标题=完整短语=链接地址，'
+    + '正文可用 [[标题]] 链接已有卡片，目标不存在会被 link-unresolved 拒绝并给出相近标题）；'
+    + '新建后报出卡片 id 与标题（一句话证据回报），列表为空时如实说明。'
     + '投递到本页的任务另有三件页面作用域工具：task_take（无需参数，接取目标 URL 就是本页的那条）、'
     + 'task_complete（summary 必填+artifacts 引用）、task_fail（稳定错误码）——收到 TASK 块或 [task-center] 通知后按其指引执行。'
-    + '要读/改/删某一条笔记时，打开 map 里的笔记详情页 URL。',
-  instanceTitle: () => '笔记列表',
+    + '要读/改/删某一张卡时，打开 map 里的卡片详情页 URL。',
+  instanceTitle: () => '卡片列表',
 }
 
-// ---- 笔记详情页（详情页 detail）---- Note detail page (the detail archetype) ----
+// ---- 卡片详情页（详情页 detail）---- Card detail page (the detail archetype) ----
 
 export const NotePage: PageFC<{ noteId: string }> = (props, agent) => {
   agent.ctx.tools.register(toolOf('read_note'))
   agent.ctx.tools.register(toolOf('rewrite_note'))
   agent.ctx.tools.register(toolOf('delete_note'))
+  agent.ctx.tools.register(toolOf('list_backlinks'))
   // 投递回报面随页挂载 / the delivery-report face rides the page
   registerPageTaskFace(agent)
   const noteId = String(props.noteId ?? '')
-  // 首屏读取：本页那一条笔记（effect 发起、followup 送达）
-  // / the first-screen read: this page's one note (an effect starts it, a followup delivers it)
+  // 首屏读取：本页那一张卡（effect 发起、followup 送达）
+  // / the first-screen read: this page's one card (an effect starts it, a followup delivers it)
   agent.ctx.effect(async () => {
     followupText(agent, await noteFirstScreenText(agent, noteId))
     return async () => undefined
   }, 'notebook:note-first-screen')
   return (
-    <blockquote>{`笔记 ${noteId} 的正文随后以消息送达；也可直接用 read_note 读取。`}</blockquote>
+    <blockquote>{`卡片 ${noteId} 的正文、出链与反链随后以消息送达；也可直接用 read_note 与 list_backlinks 取。`}</blockquote>
   )
 }
 
 export const NoteMeta: ComponentPageMeta<{ noteId: string }> = {
   name: 'note',
   url: `${URL_PREFIX}/note/:noteId`,
-  description: '笔记详情页：查看并改写单条笔记的标题与正文，或删除它',
+  description: '卡片详情页：查看并改写单张卡片的标题与正文（含其链接），或删除它',
   writes: true,
   unattended: {
-    serves: '单条笔记读取/改写类投递任务（归属 = 会话头预设）',
+    serves: '单张卡片读取/改写类投递任务（归属 = 会话头预设）',
     level: 'L2',
-    evidence: '一句话点名笔记 id 与改写后字段（工具返回值；rewrite 带 expectedUpdatedAt 防覆盖）；投递任务以 task_complete 的 summary+artifacts 收口',
-    escape: '删除（delete_note）是 L2：投递指令点名删除即视为显式确认，否则拒绝执行并回报 unattended/l2-refused，绝不挂起等确认；投递任务做不完用 task_fail 带稳定码',
+    evidence: '一句话点名卡片 id 与改写后字段（工具返回值；rewrite 带 expectedUpdatedAt 防覆盖）；投递任务以 task_complete 的 summary+artifacts 收口',
+    escape: '删除（delete_note）是 L2：投递指令点名删除即视为显式确认，否则拒绝执行并回报 unattended/l2-refused，绝不挂起等确认；'
+      + '改写被拒（title-conflict/link-unresolved/card-referenced）时如实回报 task_fail 带稳定码，绝不静默重试；投递任务做不完用 task_fail 带稳定码',
   },
-  instructions: '这是笔记详情页，只处理 params.noteId 指定的这一条笔记——这一页只干这一件事。'
-    + '该笔记的首屏（字段与全文）在打开后以一条消息送达；消息说"不存在或归属未知"时不要凭空操作。'
+  instructions: '这是卡片详情页，只处理 params.noteId 指定的这一张卡——这一页只干这一件事。'
+    + '该卡的首屏（字段、全文、出链与反链）在打开后以一条消息送达；消息说"不存在或归属未知"时不要凭空操作。'
     + '此后变化以你调用工具返回的结果为准。'
     + '用 read_note 读取全文；用 rewrite_note 改写，携带读到的 updatedAt 作 expectedUpdatedAt 防覆盖；'
-    + 'delete_note 永久删除（本页唯一的 L2 动作）：投递指令点名删除这条笔记时视为已获显式确认、直接执行；'
-    + '无人值守且无投递指令时不要删除——如实回报 unattended/l2-refused 并停在该任务，绝不挂起等确认。'
+    + '改标题时所有指向旧标题的入链自动跟随（引用方正文会被改写）；'
+    + '用 list_backlinks 在改写或删除前查谁链接本卡。'
+    + 'delete_note 永久删除（本页唯一的 L2 动作）：投递指令点名删除这张卡时视为已获显式确认、直接执行；'
+    + '无人值守且无投递指令时不要删除——如实回报 unattended/l2-refused 并停在该任务，绝不挂起等确认；'
+    + '卡片仍被其他卡链接时删除会被 card-referenced 拒绝并点名引用方，先改写引用方去掉链接再删。'
     + '投递到本页的任务另有三件页面作用域工具：task_take（无需参数）、task_complete（summary 必填）、task_fail（稳定错误码）。',
-  instanceTitle: (params) => `笔记 #${params.noteId ?? ''}`,
+  instanceTitle: (params) => `卡片 #${params.noteId ?? ''}`,
 }

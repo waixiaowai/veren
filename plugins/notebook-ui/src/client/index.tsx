@@ -87,6 +87,7 @@ const PanelPlugin = {
         onCreate: async input => unwrap(api.create(input)),
         onUpdate: async input => unwrap(api.update(input)),
         onRemove: async input => unwrap(api.deleteNote(input)),
+        onCardLinks: async input => unwrap(api.cardLinks(input)),
       }),
     }, NotebookPanel))
     ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({

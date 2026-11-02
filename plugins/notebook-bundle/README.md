@@ -6,9 +6,10 @@ one profile layer.
 ## When to use it
 
 Use this package when a DSH profile should get both the Host service with its
-`notebook_*` tools and the Web page a person uses, installed as one unit. Skip it
-if you want only the Host service, or if you compose the two rows in your own
-patch.
+`notebook__*` page tools (including the box's talking-back face,
+`list_backlinks` and `list_hubs`) and the Web page a person uses, installed as
+one unit. Skip it if you want only the Host service, or if you compose the rows
+in your own patch.
 
 ## What it inserts
 

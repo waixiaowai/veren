@@ -10,9 +10,9 @@ the `@veren/notebook` service's public tools port.
 
 - **App** `notebook` (tool prefix `notebook`), entry page `list`.
 - **Pages**
-  - `list` — `/apps/notebook/list` (entry): the calling preset's notes, tools `notebook__list_notes` / `notebook__write_note`;
-  - `note` — `/apps/notebook/note/:noteId`: one note's title/body/updatedAt, tools `notebook__read_note` / `notebook__rewrite_note` / `notebook__delete_note`.
-- **App-scoped tools** — the five `@veren/notebook` builders (the one
+  - `list` — `/apps/notebook/list` (entry): the calling preset's cards plus the box's hubs on open, tools `notebook__list_notes` / `notebook__write_note` / `notebook__list_hubs`;
+  - `note` — `/apps/notebook/note/:noteId`: one card's title/body/updatedAt plus its outgoing and incoming links, tools `notebook__read_note` / `notebook__rewrite_note` / `notebook__delete_note` / `notebook__list_backlinks`.
+- **App-scoped tools** — the seven `@veren/notebook` builders (the one
   model-facing implementation, prepared under full names `notebook__<local>` at
   registration and bound into the pages' module slot via `bindNotebookServices`;
   each page body registers its own tools via `agent.ctx.tools.register` in the

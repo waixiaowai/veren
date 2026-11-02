@@ -17,6 +17,7 @@
  */
 
 import { NoteList } from './note-list.tsx'
+import { NoteLinks } from './note-links.tsx'
 import type {
   InjectFace, PropsLocale, PropsRuntime,
 } from '@deepseek-ai/dsh-client-ui-slots'
@@ -65,11 +66,12 @@ function NotebookPageHeader({ state, t, actions, busy, onChooseOwner, onStartNew
   )
 }
 
-/** The two-column layout: the note list on the left, the editor seat on the right. 双栏布局：左列笔记列表，右列编辑器席位。 */
-function NotebookLayout({ state, t, view }: {
+/** The two-column layout: the note list on the left, the editor seat plus its link sections on the right. 双栏布局：左列卡片列表，右列编辑器席位与其链接两段。 */
+function NotebookLayout({ state, t, view, actions }: {
   readonly state: BodyProps['state']
   readonly t: BodyProps['t']
   readonly view: ReturnType<typeof useNotebookView>
+  readonly actions: BodyProps['actions']
 }) {
   const active = view.editingNew || view.selectedId !== undefined
   return (
@@ -77,6 +79,7 @@ function NotebookLayout({ state, t, view }: {
       <NoteList
         t={t}
         notes={state.notes}
+        linkCounts={state.linkCounts}
         selectedId={view.selectedId}
         busy={view.busy}
         canCreate={state.owner !== undefined}
@@ -84,12 +87,23 @@ function NotebookLayout({ state, t, view }: {
         onCreate={view.startNew}
       />
 
-      <NotebookEditorSeat
-        t={t}
-        owner={state.owner}
-        active={active}
-        view={view}
-      />
+      <div className="notebook-editor-column">
+        <NotebookEditorSeat
+          t={t}
+          owner={state.owner}
+          active={active}
+          view={view}
+        />
+        {!view.editingNew && (
+          <NoteLinks
+            t={t}
+            owner={state.owner}
+            selectedId={view.selectedId}
+            editingNew={view.editingNew}
+            fetchLinks={actions.onCardLinks}
+          />
+        )}
+      </div>
     </div>
   )
 }
@@ -112,7 +126,7 @@ function NotebookBody({ state, t, actions }: BodyProps) {
         <NotebookErrorBanner failedLabel={t('failed')} error={state.error} retryLabel={t('retry')} onRefresh={() => { actions.onRefresh() }} />
       )}
 
-      <NotebookLayout state={state} t={t} view={view} />
+      <NotebookLayout state={state} t={t} view={view} actions={actions} />
     </div>
   )
 }

@@ -16,8 +16,10 @@ tools write. Skip it for a headless, ACP, or SDK profile.
 - A full main-panel page with:
   - a preset selector (`Notebook owner`) that also lists owners whose preset was
     deleted, marked as retained;
-  - a note list with title, two-line excerpt, and update time;
+  - a note list with title, two-line excerpt, update time, and each row's inbound-link badge (`⟲ n`);
   - an editor with title, body, save, and a two-click delete;
+  - the selected card's link sections — outgoing and backlinks — fetched on
+    selection change, each direction with its honest empty state;
   - inline loading, empty, error, retry, saved, and conflict feedback.
 - The `notebook` Remote namespace, mounted by this plugin. The Host service is
   `@veren/notebook`; the page and the tools both call the same Host methods.

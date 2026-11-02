@@ -1,16 +1,20 @@
 # @veren/notebook
 
-One private, durable notebook per agent preset: a pure domain service served to
-people through the `notebook` Remote namespace and to models through exported
-tool builders that a mounter registers.
+One private, durable card box per agent preset — the Zettelkasten contract on
+the notebook domain (design: [docs/notebook-zettelkasten-design.cn.md](../../docs/notebook-zettelkasten-design.cn.md)):
+cards are atomic, the title is the card's link address, bodies carry `[[title]]`
+links, and the derived `links` cache answers the backlink/hub queries — the box
+talking back. Served to people through the `notebook` Remote namespace and to
+models through exported tool builders that a mounter registers.
 
 ## When to use it
 
-Use this package when presets should be able to keep private notes that follow
-the preset rather than the workspace, and a person should be able to open the
-same notes in the Web GUI. Do not use it for shared notes, team notes, or notes
-attached to a project. This package registers no tools itself; if models should
-reach the notebook at all, install **`@veren/notebook-app`** (or mount the
+Use this package when presets should be able to keep private cards that follow
+the preset rather than the workspace, link them into a knowledge network, and a
+person should be able to open the same box in the Web GUI. Do not use it for
+shared notes, team notes, notes attached to a project, a task list, or a
+full-text search engine. This package registers no tools itself; if models
+should reach the box at all, install **`@veren/notebook-app`** (or mount the
 exported builders from your own host code).
 
 ## Breaking change in 0.2.0
@@ -24,37 +28,59 @@ registration face, one place to look.
 
 ## Ownership and isolation
 
-The owner of a note is always the preset id of the Agent that wrote it. The
+The owner of a card is always the preset id of the Agent that wrote it. The
 tool builders have no owner parameter: `src/tools.ts` resolves the owner from
 the live Agent on every call. The storage key is composed as
-`encodeURIComponent(owner) + "/" + noteId`, so a preset that passes another
-preset's note id composes a key under its own owner and reaches no row. The Web
-page does let a person choose whose notebook to read; that is the point of the
-page, not a tool capability.
+`encodeURIComponent(owner) + "/" + cardId`, so a preset that passes another
+preset's card id composes a key under its own owner and reaches no row. The Web
+page does let a person choose whose box to read; that is the point of the page,
+not a tool capability.
 
-A note is not attached to a workspace. The same preset keeps one notebook in
-every workspace and in every session.
+A card is not attached to a workspace. The same preset keeps one box in every
+workspace and in every session.
+
+## Cards, titles, and links
+
+- **The title is the link address.** Titles are unique per owner
+  (`notebook/title-conflict` on a clash) and every `[[title]]` occurrence in a
+  body must resolve to an existing card of the same owner when the card is
+  written (`notebook/link-unresolved` with the closest existing titles
+  otherwise). A dangling link is never stored.
+- **Renaming follows.** A rename rewrites every referring body and retargets
+  the cache rows, so `[[old title]]` never dangles; the referrers' update
+  times move with the rewrite.
+- **Deleting is guarded.** `delete_note` is refused with
+  `notebook/card-referenced` (naming the referrers) while any card still links
+  to the target.
+- **Escapes and code.** `[[1,2],[3,4]]` stays literal (the inner span carries
+  brackets); a literal double bracket is written `\[[like this]]`.
+- **Backlinks are derived, never stored as truth.** The `links` table is a
+  disposable cache maintained by every write; the property test in
+  `tests/cards.spec.ts` holds it equal to a fresh body scan across random
+  op histories.
 
 ## Tool builders
 
-The package exports one builder per notebook operation
-(`buildNotebookListDefinition`, `buildNotebookReadDefinition`,
-`buildNotebookWriteDefinition`, `buildNotebookRewriteDefinition`,
-`buildNotebookDeleteDefinition`). Each returns a `defineTool` product scoped to
-its caller at execution time; nothing registers here. A mounter defines the
-products into an app catalog and mounts them into page sessions, where the
-registry composes the external `notebook__<local>` names.
+The package exports one builder per operation — the five CRUD builders plus
+the box's two talking-back builders
+(`buildNotebookBacklinksDefinition`, `buildNotebookHubsDefinition`). Each
+returns a `defineTool` product scoped to its caller at execution time; nothing
+registers here. A mounter defines the products into an app catalog and mounts
+them into page sessions, where the registry composes the external
+`notebook__<local>` names.
 
 | Builder | Tool (local) | Purpose |
 | --- | --- | --- |
-| `buildNotebookListDefinition` | `list_notes` | List the calling preset's notes, newest update first. |
-| `buildNotebookReadDefinition` | `read_note` | Read one note's whole body. |
-| `buildNotebookWriteDefinition` | `write_note` | Write a note (title required, body may be empty). |
-| `buildNotebookRewriteDefinition` | `rewrite_note` | Replace the title, the body, or both. |
-| `buildNotebookDeleteDefinition` | `delete_note` | Delete one note permanently. |
+| `buildNotebookListDefinition` | `list_notes` | List the calling preset's cards, newest update first. |
+| `buildNotebookReadDefinition` | `read_note` | Read one card's whole body. |
+| `buildNotebookWriteDefinition` | `write_note` | Write a card (unique title required; `[[title]]` links must resolve). |
+| `buildNotebookRewriteDefinition` | `rewrite_note` | Replace the title, the body, or both; a rename retargets inbound links. |
+| `buildNotebookDeleteDefinition` | `delete_note` | Delete one card permanently; refused while referenced. |
+| `buildNotebookBacklinksDefinition` | `list_backlinks` | The cards that link to one card. |
+| `buildNotebookHubsDefinition` | `list_hubs` | The box's entry points, ranked by inbound links. |
 
 `rewrite_note` accepts an optional `expectedUpdatedAt`. When supplied and the
-note has moved on, the tool refuses with `notebook/conflict` instead of
+card has moved on, the tool refuses with `notebook/conflict` instead of
 overwriting a newer edit.
 
 ## The notebook application: the only registration face
@@ -71,8 +97,8 @@ app; that package hard-injects the framework and the `notebook` service.
 
 | Page | URL | Page tools |
 | --- | --- | --- |
-| Note list (entry) | `/apps/notebook/list` | `notebook__list_notes`, `notebook__write_note` |
-| Note detail | `/apps/notebook/note/:noteId` | `notebook__read_note`, `notebook__rewrite_note`, `notebook__delete_note` |
+| Card list (entry) | `/apps/notebook/list` | `notebook__list_notes`, `notebook__write_note`, `notebook__list_hubs` |
+| Card detail | `/apps/notebook/note/:noteId` | `notebook__read_note`, `notebook__rewrite_note`, `notebook__delete_note`, `notebook__list_backlinks` |
 
 Registration is single-entry: `notebook-app`'s `src/app.ts` calls
 `ctx.apps.register`, `ctx.apps.tools(id).define`, and
@@ -84,10 +110,13 @@ and the whole layer tears down in reverse order when the plugin unloads.
 
 ## Storage
 
-The plugin opens one storage domain named `notebook` with one table, `notes`.
-With the JSON backend the file is `$DSH_HOME/storages/notebook.json`; with SQLite
-it is the same domain in the profile database. Notes survive a Harness restart,
-a browser refresh, and deleting a project directory.
+The plugin opens one storage domain named `notebook` (version 1, unchanged from
+2.x — a 2.x medium opens natively, no migration runs) with the `notes` table,
+the derived `links` cache table, and a `linksSyncedAt` global marker that
+triggers the one-time links rebuild from bodies on the first 3.0.0 open. With
+the JSON backend the file is `$DSH_HOME/storages/notebook.json`; with SQLite it
+is the same domain in the profile database. Cards survive a Harness restart, a
+browser refresh, and deleting a project directory.
 
 If the domain cannot open, the service records the failure and every operation
 reports `notebook/storage-unavailable`; the rest of the Harness keeps running.
@@ -105,6 +134,13 @@ reports `notebook/storage-unavailable`; the rest of the Harness keeps running.
 - **Both sides edit at once.** The page sends `expectedUpdatedAt`; a stale save is
   refused with `notebook/conflict` and the page keeps the draft. Tools use the
   same optional guard; without it, the last write wins.
+- **A link points nowhere.** The write is refused with `notebook/link-unresolved`
+  and the closest existing titles; write the target card first, or escape a
+  literal with `\[[`.
+- **A title collides.** Titles are addresses: the write is refused with
+  `notebook/title-conflict` naming the card that holds the title.
+- **Deleting a referenced card.** Refused with `notebook/card-referenced`
+  naming the referrers; remove those links first.
 - **Storage cannot open.** Reads and writes fail with a stable code; the page
   shows the failure and a retry button.
 

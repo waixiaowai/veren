@@ -1,0 +1,265 @@
+/**
+ * The link graph over one owner's cards: the disposable `links` cache and the
+ * queries that answer from it.
+ *
+ * Source of truth is the bodies. Every card write rewrites that card's cache
+ * rows; every read answers from the cache, joining with the notes table so an
+ * occurrence whose target has no card (possible only in legacy v1 bodies,
+ * which predate the grammar) never surfaces as a link. The identity that makes
+ * the cache honest — the cache equals a fresh syntactic body scan — is
+ * invariant I4 and is property-tested against {@link scanBacklinks}.
+ *
+ * 某个归属卡片集合上的链接图：可丢弃的 `links` 缓存，与应答它的查询。
+ *
+ * 事实源是正文。每次卡片写入都重写该卡的缓存行；每次读都应答自缓存，并与笔记表
+ * 连接——目标不存在的出现（只可能存在于早于语法规则的 v1 旧正文里）绝不以链接
+ * 面目露出。让缓存诚实的恒等式——缓存 ≡ 对正文的全新语法扫描——即不变式 I4，
+ * 在包套件里对 {@link scanBacklinks} 做属性测试。
+ *
+ * @module @veren/notebook/graph
+ */
+
+import { extractLinks, retargetOccurrences } from './links.ts'
+import { MAX_BODY_CHARS, applyUpdate, noteKey } from './notes.ts'
+import { NotebookError } from './notes.ts'
+import type { NotebookTable } from './storage.ts'
+import type { HubView, LinkCountView, LinkRecord, LinkTargetView, NoteRecord } from './types.ts'
+
+/**
+ * Compose the storage key of one cached link.
+ * @param owner - preset id that owns both cards.
+ * @param sourceId - id of the card whose body carries the link.
+ * @param targetTitle - the link's target title.
+ * @returns the owner-scoped cache key.
+ */
+export function linkKey(owner: string, sourceId: string, targetTitle: string): string {
+  return `${encodeURIComponent(owner)}/${sourceId}/${encodeURIComponent(targetTitle)}`
+}
+
+/**
+ * Distinct link targets of one body, in first-occurrence order.
+ * @param body - the stored body, read verbatim.
+ * @returns each target title once.
+ */
+export function distinctTargets(body: string): string[] {
+  const seen = new Set<string>()
+  const titles: string[] = []
+  for (const ref of extractLinks(body)) {
+    if (seen.has(ref.title)) continue
+    seen.add(ref.title)
+    titles.push(ref.title)
+  }
+  return titles
+}
+
+/**
+ * Rewrite one source card's cache rows to match its body.
+ * @param links - the links cache table.
+ * @param owner - preset id that owns the card.
+ * @param sourceId - id of the card being written.
+ * @param body - the card's new body.
+ */
+export async function syncLinks(
+  links: NotebookTable<LinkRecord>,
+  owner: string,
+  sourceId: string,
+  body: string,
+): Promise<void> {
+  for (const row of sourceLinks(links, owner, sourceId)) await links.del(linkKey(owner, sourceId, row.targetTitle))
+  for (const targetTitle of distinctTargets(body)) {
+    await links.put(linkKey(owner, sourceId, targetTitle), { owner, sourceId, targetTitle })
+  }
+}
+
+/**
+ * Drop one source card's cache rows (its body is going away).
+ * @param links - the links cache table.
+ * @param owner - preset id that owns the card.
+ * @param sourceId - id of the card being deleted.
+ */
+export async function deleteSourceLinks(links: NotebookTable<LinkRecord>, owner: string, sourceId: string): Promise<void> {
+  for (const row of sourceLinks(links, owner, sourceId)) await links.del(linkKey(owner, sourceId, row.targetTitle))
+}
+
+/**
+ * Re-key the cache rows that point at a renamed title.
+ * @param links - the links cache table.
+ * @param owner - preset id that owns the cards.
+ * @param fromTitle - the title as it was.
+ * @param toTitle - the title as it now is.
+ */
+export async function retargetLinks(
+  links: NotebookTable<LinkRecord>,
+  owner: string,
+  fromTitle: string,
+  toTitle: string,
+): Promise<void> {
+  for (const row of cachedBacklinks(links, owner, fromTitle)) {
+    await links.del(linkKey(owner, row.sourceId, fromTitle))
+    await links.put(linkKey(owner, row.sourceId, toTitle), { ...row, targetTitle: toTitle })
+  }
+}
+
+/**
+ * One owner's cache rows carried by one source card.
+ * @param links - the links cache table.
+ * @param owner - preset id that owns the card.
+ * @param sourceId - id of the source card.
+ * @returns the cached rows, cache order.
+ */
+function sourceLinks(links: NotebookTable<LinkRecord>, owner: string, sourceId: string): LinkRecord[] {
+  return links.all().filter(row => row.owner === owner && row.sourceId === sourceId)
+}
+
+/**
+ * Rewrite every referrer body on a rename, so `[[fromTitle]]` occurrences
+ * follow the title to `toTitle` — links address titles, so the referring text
+ * must move with them. All bodies are length-checked before the first put, so
+ * a rename either lands whole or not at all.
+ * @param notes - the notes table.
+ * @param links - the links cache table (who refers to the old title).
+ * @param owner - preset id whose box is renamed in.
+ * @param fromTitle - the exact old title.
+ * @param toTitle - the new title.
+ * @param now - ISO instant stamped as the referrers' new update time.
+ * @throws NotebookError `input-invalid` when a rewritten body would exceed the body limit.
+ */
+export async function rewriteReferrers(
+  notes: NotebookTable<NoteRecord>,
+  links: NotebookTable<LinkRecord>,
+  owner: string,
+  fromTitle: string,
+  toTitle: string,
+  now: string,
+): Promise<void> {
+  const referrers = cachedBacklinks(links, owner, fromTitle)
+    .map(row => notes.get(noteKey(owner, row.sourceId)))
+    .filter((row): row is NoteRecord => row !== undefined)
+  const rewritten = referrers.map(row => ({ row, body: retargetOccurrences(row.body, fromTitle, toTitle) }))
+  for (const { body } of rewritten) {
+    if ([...body].length > MAX_BODY_CHARS) {
+      throw new NotebookError(
+        'notebook/input-invalid',
+        `renaming "${fromTitle}" would push a referring card past the ${String(MAX_BODY_CHARS)}-character body limit; `
+          + 'shorten the new title or the referring card first.',
+      )
+    }
+  }
+  for (const { row, body } of rewritten) {
+    await notes.put(noteKey(owner, row.id), applyUpdate(row, { body }, now))
+  }
+}
+
+/**
+ * The cache's answer to "who links to this title".
+ * @param links - the links cache table.
+ * @param owner - preset id whose box is read.
+ * @param targetTitle - the target card's title.
+ * @returns every cached row pointing at the title.
+ */
+export function cachedBacklinks(links: NotebookTable<LinkRecord>, owner: string, targetTitle: string): LinkRecord[] {
+  return links.all().filter(row => row.owner === owner && row.targetTitle === targetTitle)
+}
+
+/**
+ * The equivalence oracle for I4: a fresh syntactic scan of the bodies.
+ * @param notes - the notes table.
+ * @param owner - preset id whose box is scanned.
+ * @param targetTitle - the target card's title.
+ * @returns every owner card whose body carries a `[[targetTitle]]` occurrence.
+ */
+export function scanBacklinks(notes: NotebookTable<NoteRecord>, owner: string, targetTitle: string): NoteRecord[] {
+  return notes.all().filter(row => row.owner === owner && distinctTargets(row.body).includes(targetTitle))
+}
+
+/**
+ * Resolve one title to its card.
+ * @param notes - the notes table.
+ * @param owner - preset id whose box is read.
+ * @param title - the exact card title.
+ * @returns the card, or `undefined` when no owner card carries the title.
+ */
+export function resolveTitle(notes: NotebookTable<NoteRecord>, owner: string, title: string): NoteRecord | undefined {
+  return notes.all().find(row => row.owner === owner && row.title === title)
+}
+
+/**
+ * One card's outgoing links, each resolved to its target id.
+ * @param notes - the notes table.
+ * @param owner - preset id that owns the card.
+ * @param body - the card's body.
+ * @returns one row per distinct target that resolves; legacy junk stays out.
+ */
+export function outgoingOf(notes: NotebookTable<NoteRecord>, owner: string, body: string): LinkTargetView[] {
+  const views: LinkTargetView[] = []
+  for (const title of distinctTargets(body)) {
+    const target = resolveTitle(notes, owner, title)
+    if (target !== undefined) views.push({ targetId: target.id, targetTitle: title })
+  }
+  return views
+}
+
+/**
+ * The most-linked cards of one box — its entry points — joined with ids.
+ * @param notes - the notes table.
+ * @param links - the links cache table.
+ * @param owner - preset id whose box is ranked.
+ * @param limit - how many hubs to return.
+ * @returns hubs by descending inbound count (ties by title), unresolved titles dropped.
+ */
+export function hubView(notes: NotebookTable<NoteRecord>, links: NotebookTable<LinkRecord>, owner: string, limit: number): HubView[] {
+  const counts = new Map<string, number>()
+  for (const row of links.all()) {
+    if (row.owner !== owner) continue
+    counts.set(row.targetTitle, (counts.get(row.targetTitle) ?? 0) + 1)
+  }
+  const ranked = [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, limit * 2)
+  const hubs: HubView[] = []
+  for (const [title, inboundCount] of ranked) {
+    const card = resolveTitle(notes, owner, title)
+    if (card === undefined) continue
+    hubs.push({ id: card.id, title, inboundCount })
+    if (hubs.length === limit) break
+  }
+  return hubs
+}
+
+/**
+ * Inbound-link count per card title of one box, for the panel's list badges.
+ * @param notes - the notes table.
+ * @param links - the links cache table.
+ * @param owner - preset id whose box is counted.
+ * @returns one row per owner card, title ascending; cards with no inbound links count zero.
+ */
+export function linkCounts(notes: NotebookTable<NoteRecord>, links: NotebookTable<LinkRecord>, owner: string): LinkCountView[] {
+  const counts = new Map<string, number>()
+  for (const row of links.all()) {
+    if (row.owner !== owner) continue
+    counts.set(row.targetTitle, (counts.get(row.targetTitle) ?? 0) + 1)
+  }
+  return notes.all()
+    .filter(row => row.owner === owner)
+    .sort((left, right) => left.title.localeCompare(right.title))
+    .map(card => ({ title: card.title, count: counts.get(card.title) ?? 0 }))
+}
+
+/**
+ * Project a cached row onto its referrer's view.
+ * @param notes - the notes table (the referrer's title and excerpt come from here).
+ * @param owner - preset id whose box is read.
+ * @param row - the cached link row.
+ * @returns the view row, or `undefined` when the referrer is gone (transient during delete).
+ */
+export function backlinkViewOf(notes: NotebookTable<NoteRecord>, owner: string, row: LinkRecord): { sourceId: string; sourceTitle: string; excerpt: string } | undefined {
+  const source = notes.get(noteKey(owner, row.sourceId))
+  if (source === undefined) return undefined
+  return { sourceId: source.id, sourceTitle: source.title, excerpt: excerptLine(source.body) }
+}
+
+/** One body's opening line, flattened and capped, as a referrer excerpt. 一条正文的首行，压平并截断，作引用方摘录。 */
+function excerptLine(body: string): string {
+  const flat = body.replaceAll(/\s+/g, ' ').trim()
+  return flat.length <= 120 ? flat : `${flat.slice(0, 120)}…`
+}

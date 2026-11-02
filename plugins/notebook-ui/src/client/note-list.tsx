@@ -17,12 +17,13 @@
 
 import { formatTime } from './editor.tsx'
 import type { NotebookKey } from './locales.ts'
-import type { NoteView } from './remote.ts'
+import type { LinkCountView, NoteView } from './remote.ts'
 
 /** Everything the list renders and the two actions it triggers. */
 export interface NoteListProps {
   readonly t: (key: NotebookKey) => string
   readonly notes: readonly NoteView[]
+  readonly linkCounts: readonly LinkCountView[]
   readonly selectedId: string | undefined
   readonly busy: boolean
   readonly canCreate: boolean
@@ -59,13 +60,14 @@ function EmptyNotes(props: EmptyNotesProps): React.ReactElement {
 /** Props of {@link NoteItems}. */
 interface NoteItemsProps {
   readonly notes: readonly NoteView[]
+  readonly counts: ReadonlyMap<string, number>
   readonly selectedId: string | undefined
   readonly onOpen: (note: NoteView) => void
 }
 
-/** 条目集合：每条笔记一个可点按钮。The item collection: one clickable button per note. */
+/** 条目集合：每条笔记一个可点按钮，带入链数角标。The item collection: one clickable button per note, with the inbound-link badge. */
 function NoteItems(props: NoteItemsProps): React.ReactElement {
-  const { notes, selectedId, onOpen } = props
+  const { notes, counts, selectedId, onOpen } = props
   return (
     <div className="notebook-items">
       {notes.map(note => (
@@ -77,6 +79,9 @@ function NoteItems(props: NoteItemsProps): React.ReactElement {
           onClick={() => { onOpen(note) }}
         >
           <span className="notebook-item-title">{note.title}</span>
+          {(counts.get(note.title) ?? 0) > 0 && (
+            <span className="notebook-item-links">{`⟲ ${String(counts.get(note.title))}`}</span>
+          )}
           {note.body !== '' && <span className="notebook-item-excerpt">{note.body}</span>}
           <span className="notebook-item-time">{formatTime(note.updatedAt)}</span>
         </button>
@@ -87,7 +92,8 @@ function NoteItems(props: NoteItemsProps): React.ReactElement {
 
 /** Render one notebook's note list. */
 export function NoteList(props: NoteListProps) {
-  const { t, notes, selectedId, busy, canCreate } = props
+  const { t, notes, linkCounts, selectedId, busy, canCreate } = props
+  const counts = new Map(linkCounts.map(row => [row.title, row.count]))
   return (
     <section className="notebook-list" aria-label={t('notes')}>
       <div className="notebook-list-head">
@@ -96,7 +102,7 @@ export function NoteList(props: NoteListProps) {
       </div>
       {notes.length === 0
         ? <EmptyNotes t={t} canCreate={canCreate} busy={busy} onCreate={props.onCreate} />
-        : <NoteItems notes={notes} selectedId={selectedId} onOpen={props.onOpen} />}
+        : <NoteItems notes={notes} counts={counts} selectedId={selectedId} onOpen={props.onOpen} />}
     </section>
   )
 }

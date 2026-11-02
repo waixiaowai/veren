@@ -37,11 +37,13 @@ import type {} from '@veren/page-registry'
 import type {} from '@veren/task-center'
 import { buildPageTaskTools } from '@veren/task-center'
 import {
-  buildNotebookDeleteDefinition, buildNotebookListDefinition, buildNotebookReadDefinition,
-  buildNotebookRewriteDefinition, buildNotebookWriteDefinition,
+  buildNotebookBacklinksDefinition, buildNotebookDeleteDefinition, buildNotebookHubsDefinition,
+  buildNotebookListDefinition, buildNotebookReadDefinition, buildNotebookRewriteDefinition,
+  buildNotebookWriteDefinition,
 } from '@veren/notebook'
 import type { NotebookToolsPort } from '@veren/notebook'
-import { bindNotebookServices, ListMeta, ListPage, NoteMeta, NotePage } from './pages.tsx'
+import { bindNotebookServices } from './first-screen.ts'
+import { ListMeta, ListPage, NoteMeta, NotePage } from './pages.tsx'
 
 // ---- 应用定义 / the application definition ----
 
@@ -53,8 +55,9 @@ export const APP_DEFINITION: ApplicationDefinition = {
   name: '记事本',
   description: '浏览、撰写、修订每个 agent 预设的私密持久笔记',
   entry: 'list' as PageKey,
-  instructions: '记事本负责私密笔记的浏览与撰写：列表页浏览/新建，详情页读取/改写/删除单条笔记。'
-    + '所有操作通过本页挂载的 notebook__* 工具完成；工具自动作用于调用者自己的预设，不需要也不能指定归属。',
+  instructions: '记事本负责私密卡片盒的浏览与撰写：列表页浏览/新建/看盒的入口，详情页读取/改写/删除单张卡并看它的链接。'
+    + '所有操作通过本页挂载的 notebook__* 工具完成；工具自动作用于调用者自己的预设，不需要也不能指定归属。'
+    + '卡片之间用 [[标题]] 互链，标题就是链接地址（归属内唯一）；list_backlinks 与 list_hubs 是盒的回话面。',
   toolPrefix: 'notebook',
 }
 
@@ -82,6 +85,8 @@ export function createAppTools(ctx: Context, port: () => NotebookToolsPort): Too
     buildNotebookWriteDefinition(ctx, port),
     buildNotebookRewriteDefinition(ctx, port),
     buildNotebookDeleteDefinition(ctx, port),
+    buildNotebookBacklinksDefinition(ctx, port),
+    buildNotebookHubsDefinition(ctx, port),
   ].map((tool) => ({ ...tool, name: `notebook__${tool.name}` }))
 }
 

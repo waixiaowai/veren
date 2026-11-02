@@ -8,9 +8,9 @@
 
 - **应用** `notebook`（工具前缀 `notebook`），入口页 `list`。
 - **页面**
-  - `list` —— `/apps/notebook/list`（入口）：调用者预设的笔记列表，工具 `notebook__list_notes` / `notebook__write_note`；
-  - `note` —— `/apps/notebook/note/:noteId`：单条笔记的标题/正文/更新时间，工具 `notebook__read_note` / `notebook__rewrite_note` / `notebook__delete_note`。
-- **应用级工具**——`@veren/notebook` 的五个构建器（唯一的面向模型实现）：注册时以全名
+  - `list` —— `/apps/notebook/list`（入口）：调用者预设的卡片列表，打开即送达盒的入口（枢纽），工具 `notebook__list_notes` / `notebook__write_note` / `notebook__list_hubs`；
+  - `note` —— `/apps/notebook/note/:noteId`：单张卡的标题/正文/更新时间与出链、反链两段，工具 `notebook__read_note` / `notebook__rewrite_note` / `notebook__delete_note` / `notebook__list_backlinks`。
+- **应用级工具**——`@veren/notebook` 的七个构建器（唯一的面向模型实现）：注册时以全名
   `notebook__<本地名>` 备好，经 `bindNotebookServices` 绑进页面模块槽位；各页组件体在唯一一次
   渲染里经 `agent.ctx.tools.register` 自行登记（随 agent fiber 生灭）；绝不注册进
   `ctx.tools`。归属规则一如既往：归属永远取自调用者的预设，绝不是参数。
