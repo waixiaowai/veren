@@ -1,7 +1,7 @@
 {
   "name": "@veren/zhihu-ops-bundle",
   "displayName": "知乎运营分析",
-  "version": "0.1.1",
+  "version": "2.3.0",
   "description": "Use when a DSH profile needs the Zhihu operations-analysis application installed and composed in one step: it is a configuration-only bundle whose patch inserts the single zhihu-ops row - the daily pull, the durable snapshots, the derived metrics, the four pages and the report delivery all live inside that one app, so there are no toggles; the application framework (app registry, page registry, task center, app-host) rides in through the @veren/app-host-bundle dependency, and the member plugin ships as a plain dependency without a bundle declaration of its own, so this patch is the stack's only profile layer; skip it when you want to compose the app row by row in your own patch.",
   "type": "module",
   "engines": {
