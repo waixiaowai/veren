@@ -70,6 +70,7 @@ function registerPageTaskFace(agent: Parameters<PageFC>[1]): void {
 
 export const ListPage: PageFC = (_props, agent) => {
   agent.ctx.tools.register(toolOf('list_notes'))
+  agent.ctx.tools.register(toolOf('find_cards'))
   agent.ctx.tools.register(toolOf('write_note'))
   agent.ctx.tools.register(toolOf('list_hubs'))
   // 投递回报面随页挂载 / the delivery-report face rides the page
@@ -83,7 +84,7 @@ export const ListPage: PageFC = (_props, agent) => {
   // 正文是打开时刻的静态框：数据随后以消息送达，不留白。
   // / the body is the static frame at open time: data arrives as a message, never a blank.
   return (
-    <blockquote>卡片列表与盒的入口随后以消息送达；也可直接用 list_notes 与 list_hubs 取。</blockquote>
+    <blockquote>卡片列表与盒的入口随后以消息送达；也可直接用 list_notes、find_cards 与 list_hubs 取。</blockquote>
   )
 }
 
@@ -104,7 +105,8 @@ export const ListMeta: ComponentPageMeta = {
     + 'notes（该预设的卡片，id/title/excerpt/updatedAt）与 hubs（被链接最多的卡片——盒的入口）；'
     + '归属未知或读取失败会在消息里如实说明——不要编造卡片。'
     + '此后变化以你调用工具返回的结果为准。'
-    + '用 list_notes 刷新列表，用 list_hubs 取入口，用 write_note 新建卡片（一卡一想法，标题=完整短语=链接地址，'
+    + '用 list_notes 刷新列表，用 find_cards 按标题片段找卡（写前查重也用它），用 list_hubs 取入口，'
+    + '用 write_note 新建卡片（一卡一想法，标题=完整短语=链接地址，'
     + '正文可用 [[标题]] 链接已有卡片，目标不存在会被 link-unresolved 拒绝并给出相近标题）；'
     + '新建后报出卡片 id 与标题（一句话证据回报），列表为空时如实说明。'
     + '投递到本页的任务另有三件页面作用域工具：task_take（无需参数，接取目标 URL 就是本页的那条）、'

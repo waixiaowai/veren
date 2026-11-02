@@ -25,14 +25,14 @@ import * as Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import NotebookService, {
-  buildNotebookDeleteDefinition, buildNotebookListDefinition, buildNotebookReadDefinition,
-  buildNotebookRewriteDefinition, buildNotebookWriteDefinition, Config,
+  buildNotebookDeleteDefinition, buildNotebookFindDefinition, buildNotebookListDefinition,
+  buildNotebookReadDefinition, buildNotebookRewriteDefinition, buildNotebookWriteDefinition, Config,
 } from '../src/index.ts'
 import type { NotebookToolsPort } from '../src/types.ts'
 import type { NoteSummary, NoteView } from '../src/types.ts'
 
 /** The builder products in build order, keyed by local name. 按本地名为键、按构建顺序排列的构建产物。 */
-const TOOL_NAMES = ['list_notes', 'read_note', 'write_note', 'rewrite_note', 'delete_note']
+const TOOL_NAMES = ['list_notes', 'find_cards', 'read_note', 'write_note', 'rewrite_note', 'delete_note']
 
 /** The roots one spec's temp storage lives under, removed after the spec. 每条用例的临时存储根，测后删除。 */
 const roots: string[] = []
@@ -89,6 +89,7 @@ async function mount(): Promise<{
   const port = ctx.notebook.toolsPort()
   const definitions = new Map<string, ToolDefinition>([
     ['list_notes', buildNotebookListDefinition(ctx, () => port)],
+    ['find_cards', buildNotebookFindDefinition(ctx, () => port)],
     ['read_note', buildNotebookReadDefinition(ctx, () => port)],
     ['write_note', buildNotebookWriteDefinition(ctx, () => port)],
     ['rewrite_note', buildNotebookRewriteDefinition(ctx, () => port)],
@@ -127,7 +128,7 @@ function toolValue<T>(result: unknown): T {
 }
 
 describe('notebook tool builders / 记事本工具构建器', () => {
-  it('builds exactly the five page tools under their local names', async () => {
+  it('builds exactly the six page tools under their local names', async () => {
     const { definitions, fiber } = await mount()
 
     expect([...definitions.keys()]).toEqual(TOOL_NAMES)
@@ -222,7 +223,7 @@ describe('notebook tool builders / 记事本工具构建器', () => {
 
   it('refuses every tool when the call has no agent', async () => {
     const { run, fiber } = await mount()
-    const args = { id: 'n1', title: 'T', body: 'B' }
+    const args = { id: 'n1', title: 'T', body: 'B', query: 'Q' }
 
     for (const name of TOOL_NAMES) {
       await expect(run(name, args, execution(undefined)), name)
@@ -238,6 +239,50 @@ describe('notebook tool builders / 记事本工具构建器', () => {
     await expect(run('write_note', { title: '   ', body: 'B' }, execution('ada')))
       .rejects.toMatchObject({ name: 'NotebookToolError', code: 'notebook/title-required' })
 
+    await fiber.dispose()
+  })
+
+  it('finds cards by an exact title fragment, newest first (F1)', async () => {
+    const { run, fiber } = await mount()
+    const exec = execution('ada')
+    for (const title of ['缓存命中决定利润', 'Cache warmup', '缓存穿透与雪崩', '无关卡']) {
+      await run('write_note', { title, body: `body of ${title}` }, exec)
+    }
+    const hit = toolValue<{ cards: NoteSummary[] }>(await run('find_cards', { query: '缓存' }, exec)).cards
+    expect(hit.map(card => card.title)).toEqual(['缓存穿透与雪崩', '缓存命中决定利润'])
+    const lower = toolValue<{ cards: NoteSummary[] }>(await run('find_cards', { query: 'cache' }, exec)).cards
+    expect(lower.map(card => card.title)).toEqual([])
+    const upper = toolValue<{ cards: NoteSummary[] }>(await run('find_cards', { query: 'Cache' }, exec)).cards
+    expect(upper.map(card => card.title)).toEqual(['Cache warmup'])
+    const none = toolValue<{ cards: NoteSummary[] }>(await run('find_cards', { query: '不存在的片段' }, exec)).cards
+    expect(none).toEqual([])
+    await expect(run('find_cards', { query: '   ' }, exec))
+      .rejects.toMatchObject({ name: 'NotebookToolError', code: 'notebook/input-invalid' })
+    await fiber.dispose()
+  })
+
+  it('caps find_cards at the 20-row limit (F1)', async () => {
+    const { run, fiber } = await mount()
+    const exec = execution('ada')
+    for (let index = 0; index < 22; index++) {
+      await run('write_note', { title: `寻卡样本 ${String(index).padStart(2, '0')}`, body: 'b' }, exec)
+    }
+    const hit = toolValue<{ cards: NoteSummary[] }>(await run('find_cards', { query: '寻卡样本' }, exec)).cards
+    expect(hit).toHaveLength(20)
+    await fiber.dispose()
+  })
+
+  it('keeps find_cards inside the caller notebook even with the fragment in hand (F2)', async () => {
+    const { run, fiber } = await mount()
+    await run('write_note', { title: 'ada 专属验收卡', body: 'b' }, execution('ada'))
+    const asAda = toolValue<{ cards: NoteSummary[] }>(
+      await run('find_cards', { query: '验收卡' }, execution('ada')),
+    ).cards
+    expect(asAda.map(card => card.title)).toEqual(['ada 专属验收卡'])
+    const asGraham = toolValue<{ cards: NoteSummary[] }>(
+      await run('find_cards', { query: '验收卡' }, execution('graham')),
+    ).cards
+    expect(asGraham).toEqual([])
     await fiber.dispose()
   })
 

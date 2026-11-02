@@ -173,4 +173,6 @@ export interface NotebookToolsPort {
   readonly hubs: (owner: string) => Promise<readonly HubView[]>
   /** Read one card's outgoing and incoming links in one call. 一次读出某卡的出链与入链。 */
   readonly cardLinks: (owner: string, id: string) => Promise<CardLinkView>
+  /** Find one owner's cards by a title fragment — the title-address lookup. 按标题片段找卡——标题寻址查询。 */
+  readonly find: (owner: string, query: string) => Promise<readonly NoteSummary[]>
 }

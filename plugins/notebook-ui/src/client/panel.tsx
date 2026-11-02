@@ -101,6 +101,13 @@ function NotebookLayout({ state, t, view, actions }: {
             selectedId={view.selectedId}
             editingNew={view.editingNew}
             fetchLinks={actions.onCardLinks}
+            onOpenCard={(id) => {
+              // Follow a link: resolve the id against the already-loaded box and
+              // select it — the same face a list-row click uses, zero new fetches.
+              // 顺链接走：在已加载的盒里按 id 找回并选中——与列表行点击同一面，零新增取数。
+              const note = state.notes.find(candidate => candidate.id === id)
+              if (note !== undefined) view.openFromList(note)
+            }}
           />
         )}
       </div>

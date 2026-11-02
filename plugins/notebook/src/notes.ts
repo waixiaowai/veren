@@ -157,6 +157,47 @@ function recordsOf(table: NotebookTable<NoteRecord>, owner: string): NoteRecord[
 }
 
 /**
+ * One owner's cards whose title contains the fragment, newest first — the one
+ * matcher behind `find_cards` and the refusal suggestions, so both faces always
+ * share the same title semantics. Titles are exact addresses: matching is
+ * case- and normalization-sensitive, never fuzzy, exactly like the link parser
+ * resolves them.
+ *
+ * 标题含某片段的归属内卡片，最新在前——`find_cards` 与拒绝建议共用的唯一匹配器，
+ * 两个面永远共享同一套标题语义。标题是精确地址：匹配区分大小写、不做归一、
+ * 绝不模糊，与链接解析器的语义一致。
+ * @param table - the notes table.
+ * @param owner - preset id whose box is searched.
+ * @param needle - the title fragment; trimmed here, empty yields nothing.
+ * @returns the matching records, newest update first.
+ */
+export function titlesContaining(table: NotebookTable<NoteRecord>, owner: string, needle: string): NoteRecord[] {
+  const fragment = needle.trim()
+  if (fragment === '') return []
+  return recordsOf(table, owner).filter(record => record.title.includes(fragment))
+}
+
+/** The row cap one find_cards call returns. 单次 find_cards 调用返回的行数上限。 */
+export const FIND_LIMIT = 20
+
+/**
+ * The title-address lookup behind find_cards: one owner's cards whose title
+ * contains the fragment, newest first, capped at {@link FIND_LIMIT}. Locating
+ * an older card by its address and checking for a near-duplicate title before
+ * writing are the same cheap query.
+ *
+ * find_cards 背后的标题寻址查询：标题含片段的归属内卡片，最新在前，上限
+ * {@link FIND_LIMIT}。按地址找旧卡与写前查重，是同一个廉价查询。
+ * @param table - the notes table.
+ * @param owner - preset id whose box is searched.
+ * @param query - the caller's title fragment.
+ * @returns the matching summaries, newest first.
+ */
+export function findCards(table: NotebookTable<NoteRecord>, owner: string, query: string): NoteSummary[] {
+  return titlesContaining(table, owner, query).slice(0, FIND_LIMIT).map(noteSummary)
+}
+
+/**
  * List every preset that has a notebook.
  * @param table - the notes table.
  * @param declared - preset ids the registry still declares.

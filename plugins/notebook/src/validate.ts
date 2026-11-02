@@ -17,7 +17,7 @@
  * @module @veren/notebook/validate
  */
 
-import { MAX_BODY_CHARS, MAX_TITLE_CHARS, NotebookError, noteKey, requireOwned } from './notes.ts'
+import { MAX_BODY_CHARS, MAX_TITLE_CHARS, NotebookError, noteKey, requireOwned, titlesContaining } from './notes.ts'
 import { cachedBacklinks, distinctTargets, resolveTitle } from './graph.ts'
 import type { NotebookTable } from './storage.ts'
 import type { LinkRecord, NoteFields, NotePatch, NoteRecord } from './types.ts'
@@ -156,12 +156,9 @@ function cleanBody(value: string): string {
   return body
 }
 
-/** Up to five existing owner titles containing the sought text. 最多五条含该文本的既有归属内标题。 */
+/** Up to five existing owner titles containing the sought text — the same matcher find_cards answers through, so a refusal's hints and the lookup can never drift apart. 最多五条含该文本的既有归属内标题——与 find_cards 共用同一匹配器，拒绝提示与寻卡工具永远不会分叉。 */
 function suggestions(notes: NotebookTable<NoteRecord>, owner: string, text: string): string[] {
-  const needle = text.trim().slice(0, 20)
-  if (needle === '') return []
-  return notes.all()
-    .filter(row => row.owner === owner && row.title.includes(needle))
+  return titlesContaining(notes, owner, text.trim().slice(0, 20))
     .map(row => `「${row.title}」`)
     .slice(0, 5)
 }

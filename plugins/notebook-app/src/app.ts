@@ -37,9 +37,9 @@ import type {} from '@veren/page-registry'
 import type {} from '@veren/task-center'
 import { buildPageTaskTools } from '@veren/task-center'
 import {
-  buildNotebookBacklinksDefinition, buildNotebookDeleteDefinition, buildNotebookHubsDefinition,
-  buildNotebookListDefinition, buildNotebookReadDefinition, buildNotebookRewriteDefinition,
-  buildNotebookWriteDefinition,
+  buildNotebookBacklinksDefinition, buildNotebookDeleteDefinition, buildNotebookFindDefinition,
+  buildNotebookHubsDefinition, buildNotebookListDefinition, buildNotebookReadDefinition,
+  buildNotebookRewriteDefinition, buildNotebookWriteDefinition,
 } from '@veren/notebook'
 import type { NotebookToolsPort } from '@veren/notebook'
 import { bindNotebookServices } from './first-screen.ts'
@@ -81,6 +81,7 @@ export function createAppTools(ctx: Context, port: () => NotebookToolsPort): Too
   // name IS the external name.
   return [
     buildNotebookListDefinition(ctx, port),
+    buildNotebookFindDefinition(ctx, port),
     buildNotebookReadDefinition(ctx, port),
     buildNotebookWriteDefinition(ctx, port),
     buildNotebookRewriteDefinition(ctx, port),

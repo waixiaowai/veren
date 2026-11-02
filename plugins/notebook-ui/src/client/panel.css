@@ -275,6 +275,14 @@
 .notebook-links-label { margin: 0 0 4px; font-size: 11px; font-weight: 600; color: var(--nb-secondary); }
 .notebook-links-rows { margin: 0; padding: 0; list-style: none; }
 .notebook-links-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 3px 0; font-size: 12px; }
+/* The follow-a-link button: a reset button wearing the row's typography —
+   clicking it selects the card, no network, no navigation. */
+/* 顺链接按钮：穿着行排版的复位按钮——点击即选中该卡，零网络、零导航。 */
+.notebook-links-open { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; width: 100%;
+  margin: 0; padding: 2px 4px; border: none; background: none; cursor: pointer;
+  font: inherit; font-size: 12px; text-align: left; color: inherit; border-radius: 4px; }
+.notebook-links-open:hover { background: var(--nb-hover, rgba(128, 128, 128, 0.12)); }
+.notebook-links-open:focus-visible { outline: 2px solid var(--nb-focus, #4a90d9); outline-offset: 1px; }
 .notebook-links-title-text { font-weight: 600; color: var(--nb-text); }
 .notebook-links-id { font-family: monospace; font-size: 11px; color: var(--nb-secondary); }
 .notebook-links-excerpt { flex-basis: 100%; font-size: 12px; color: var(--nb-secondary); }

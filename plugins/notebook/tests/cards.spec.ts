@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { buildNote, noteKey } from '../src/notes.ts'
+import { buildNote, noteKey, titlesContaining } from '../src/notes.ts'
 import { NotebookError } from '../src/notes.ts'
 import { applyCardCreate, applyCardRemove, applyCardUpdate } from '../src/cards.ts'
 import type { CardTables } from '../src/cards.ts'
@@ -180,5 +180,23 @@ describe('card write paths / 卡片写路径', () => {
     const record = await applyCardCreate(box, 'ada', { title: 'T', body: 'b' }, NOW)
     expect(record).toEqual(buildNote('ada', { title: 'T', body: 'b' }, NOW, record.id))
     expect(box.notes.get(noteKey('ada', record.id))).toBeDefined()
+  })
+
+  it('F3: a refusal’s suggestions stay inside the same fragment’s title lookup', async () => {
+    const box = tables()
+    await applyCardCreate(box, 'ada', { title: 'rename-follows-the-referrer-body', body: 'x' }, NOW, 's1')
+    const missing = 'rename-follows-the-referrer-body-and-more'
+    let message = ''
+    try {
+      await applyCardCreate(box, 'ada', { title: '写前查重', body: `链接 [[${missing}]]` }, NOW)
+    } catch (error: unknown) {
+      if (error instanceof NotebookError) message = error.message
+      else throw error
+    }
+    expect(message).toContain('Existing titles containing the text')
+    const suggested = [...message.matchAll(/「([^」]+)」/g)].map(match => match[1] as string)
+    expect(suggested.length).toBeGreaterThan(0)
+    const lookup = titlesContaining(box.notes, 'ada', missing.slice(0, 20)).map(row => row.title)
+    for (const title of suggested) expect(lookup).toContain(title)
   })
 })

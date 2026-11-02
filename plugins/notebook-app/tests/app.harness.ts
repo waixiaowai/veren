@@ -155,4 +155,4 @@ export interface AppTool {
 }
 
 /** The app tools in registration order. 按注册顺序的应用工具名。 */
-export const TOOL_NAMES = ['list_notes', 'read_note', 'write_note', 'rewrite_note', 'delete_note', 'list_backlinks', 'list_hubs']
+export const TOOL_NAMES = ['list_notes', 'find_cards', 'read_note', 'write_note', 'rewrite_note', 'delete_note', 'list_backlinks', 'list_hubs']

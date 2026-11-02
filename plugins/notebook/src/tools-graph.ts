@@ -44,6 +44,15 @@ const HUBS_SCHEMA = {
   },
 } as const
 
+/** Canonical find value: cards whose title contains a fragment. 规范寻卡值：标题含片段的卡片。 */
+const FIND_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    cards: { type: 'array', required: true, items: { type: 'json' } },
+  },
+} as const
+
 /** 反链工具构建器：读链到某张卡的那些卡 / the backlinks tool builder: the cards that link to one card */
 export function buildNotebookBacklinksDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
   return defineTool({
@@ -72,5 +81,23 @@ export function buildNotebookHubsDefinition(ctx: Context, port: () => NotebookTo
     execute: (_args, exec) => notebookToolValue(ctx, exec.agent,
       async owner => ({ hubs: await port().hubs(owner) })),
     presentCall: () => present('读取枢纽', 'read'),
+  })
+}
+
+/** 寻卡工具构建器：按标题片段找卡 / the find tool builder: cards whose title contains a fragment */
+export function buildNotebookFindDefinition(ctx: Context, port: () => NotebookToolsPort): ToolDefinition {
+  return defineTool({
+    name: 'find_cards',
+    description: 'Find the caller preset\u2019s cards whose TITLE contains a fragment \u2014 titles are link '
+      + 'addresses, so this is the cheap way to locate an older card, survey a topic by its title prefix, or '
+      + 'check for a near-duplicate title before writing. Exact contains-match (case- and normalization-'
+      + 'sensitive, never fuzzy), newest first, at most 20 rows. Parameters: query.',
+    parameters: {
+      query: { type: 'string', description: '标题片段，精确包含匹配（区分大小写、不做归一、不搜正文）', required: true },
+    },
+    output: { schema: FIND_SCHEMA, render: renderValue },
+    execute: (args, exec) => notebookToolValue(ctx, exec.agent,
+      async owner => ({ cards: await port().find(owner, args.query) })),
+    presentCall: args => present('按标题找卡', 'read', args.query),
   })
 }

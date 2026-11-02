@@ -41,12 +41,13 @@ import type {
   NotebookConfig, NotebookToolsPort, OwnerView,
 } from './types.ts'
 import { NotebookStoreHandle } from './store.ts'
+import { NotebookError } from './notes.ts'
 import {
   backlinkViewOf, cachedBacklinks, hubView, linkCounts as countLinks, outgoingOf,
 } from './graph.ts'
 import { applyCardCreate, applyCardRemove, applyCardUpdate } from './cards.ts'
 import {
-  noteView, notesOf, ownersOf, requireOwner, requireOwned, summariesOf,
+  findCards, noteView, notesOf, ownersOf, requireOwner, requireOwned, summariesOf,
 } from './notes.ts'
 // Type-only: pulls the `ctx.agentPresets` service declaration into this face.
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
@@ -131,6 +132,18 @@ export class NotebookService extends TypertRemoteService {
   private async listSummaries(owner: string): Promise<readonly NoteSummary[]> {
     const preset = requireOwner(owner)
     return this.store.read(domain => summariesOf(this.store.tables(domain).notes, preset))
+  }
+
+  /** Find one preset's cards by a title fragment, newest first; a blank fragment is refused — list_notes is the everything view. 按标题片段找某预设的卡，最新在前；空白片段拒绝——要看全部用 list_notes。 */
+  private async findSummaries(owner: string, query: string): Promise<readonly NoteSummary[]> {
+    const preset = requireOwner(owner)
+    if (query.trim() === '') {
+      throw new NotebookError(
+        'notebook/input-invalid',
+        'a title lookup needs a non-blank fragment; list_notes shows every card.',
+      )
+    }
+    return this.store.read(domain => findCards(this.store.tables(domain).notes, preset, query))
   }
 
   /** Write one card into one preset's box; returns the stored card. 往某只卡片盒写一张卡，返回存储后的卡片。 */
@@ -224,6 +237,7 @@ export class NotebookService extends TypertRemoteService {
       backlinks: async (owner, id) => (await this.cardLinks({ owner, id })).incoming,
       hubs: owner => this.hubs({ owner }),
       cardLinks: (owner, id) => this.cardLinks({ owner, id }),
+      find: (owner, query) => this.findSummaries(owner, query),
     }
   }
 
@@ -244,8 +258,9 @@ export class NotebookService extends TypertRemoteService {
 }
 
 export {
-  EXCERPT_CHARS, MAX_BODY_CHARS, MAX_TITLE_CHARS, NotebookError, applyUpdate, buildNote, noteKey,
-  noteSummary, noteView, notesOf, ownersOf, requireOwner, requireOwned,
+  EXCERPT_CHARS, FIND_LIMIT, MAX_BODY_CHARS, MAX_TITLE_CHARS, NotebookError, applyUpdate, buildNote,
+  findCards, noteKey, noteSummary, noteView, notesOf, ownersOf, requireOwner, requireOwned,
+  titlesContaining,
 } from './notes.ts'
 export { ensureExpected, resolveLinksOrThrow, validateCreate, validateUpdate } from './validate.ts'
 export { extractLinks } from './links.ts'
@@ -256,7 +271,7 @@ export {
   buildNotebookDeleteDefinition, buildNotebookListDefinition, buildNotebookReadDefinition,
   buildNotebookRewriteDefinition, buildNotebookWriteDefinition,
 } from './tools.ts'
-export { buildNotebookBacklinksDefinition, buildNotebookHubsDefinition } from './tools-graph.ts'
+export { buildNotebookBacklinksDefinition, buildNotebookFindDefinition, buildNotebookHubsDefinition } from './tools-graph.ts'
 export type {
   BacklinkView, CardLinkView, HubView, LinkCountView, LinkRecord, LinkTargetView, NoteRecord,
   NoteSummary, NoteView, NotebookConfig, NotebookErrorCode, NotebookToolsPort, OwnerView,
