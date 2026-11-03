@@ -39,7 +39,9 @@
   [gate-check] build rev MISMATCH: runtime=79e89191 expected=deadbeef → EXPECTED_FAIL
   ```
 
-  原文：`docs/evidence/l3-20261103/deploy-rev-gate.log`。
+  原文：`docs/evidence/l3-20261103/deploy-rev-gate.log`。此后并行会话又部署了
+  `2ccf9571`（02:49Z），`/versionz` 继续自述新 rev——门禁对每个构建点都要求一致，
+  这正是它的作用。
 - 节点侧同规则：镜像 `LABEL org.opencontainers.image.revision` + 入口首行
   `[boot] image git_rev=…`；r9 容器实测 `git_rev=69cd81e1c4d2…`（02:39:53Z）。
 

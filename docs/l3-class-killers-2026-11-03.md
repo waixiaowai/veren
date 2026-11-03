@@ -46,7 +46,9 @@
   [gate-check] build rev MISMATCH: runtime=79e89191 expected=deadbeef → EXPECTED_FAIL
   ```
 
-  Transcript: `docs/evidence/l3-20261103/deploy-rev-gate.log`.
+  Transcript: `docs/evidence/l3-20261103/deploy-rev-gate.log`. A concurrent
+  session then deployed `2ccf9571` (02:49Z) and `/versionz` kept naming the new
+  rev — the gate demands agreement per build point, which is its job.
 - The node follows the same rule: image `LABEL org.opencontainers.image.revision`
   plus the entrypoint's first `[boot] image git_rev=…` line; the r9 container
   reported `git_rev=69cd81e1c4d2…` at 02:39:53Z.
