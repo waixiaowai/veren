@@ -5,6 +5,12 @@
 # 然后在 Pod 自身地址上提供面板。
 set -e
 
+# L3① boot identity line: the runtime rev travels from the image label to the
+# container log, so "which commit is this worker running" is one grep away.
+# L3① 启动身份行：运行时 rev 从镜像标签走到容器日志——"这个 worker 跑的是哪个
+# commit" 一次 grep 可答。
+echo "[boot] image git_rev=${DSH_IMAGE_GIT_REV:-unknown} dsh=$(dsh --version 2>/dev/null || echo unknown)"
+
 PROFILE_DIR="$DSH_HOME/profiles/superagent"
 
 # dsh-superagent requires a loopback Web server (its management API fences Host to
