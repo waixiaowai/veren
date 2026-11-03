@@ -42,6 +42,17 @@ spec:
           - 223.5.5.5
           - 119.29.29.29
       dnsPolicy: ClusterFirst
+      # musl races the two resolvers and takes whichever answer arrives first, so one
+      # flaky answer from 119.29.29.29 makes veren.top resolve to NXDOMAIN at random —
+      # the taskhub socket then dies while the bridge still reports "connected". Pin the
+      # one address we depend on below DNS entirely.
+      # musl 会并发询问两个 DNS 并取先到者，119.29.29.29 的一次坏应答就会让
+      # veren.top 随机解析失败——taskhub 连接随之死掉而桥仍报"已连接"。
+      # 把唯一硬依赖的地址钉到 DNS 之下。
+      hostAliases:
+        - ip: 43.240.223.138
+          hostnames:
+            - veren.top
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000
