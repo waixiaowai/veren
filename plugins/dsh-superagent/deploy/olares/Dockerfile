@@ -26,7 +26,12 @@ COPY tools/gitea-cli /opt/gitea-cli
 RUN printf '#!/bin/sh\nexec node /opt/gitea-cli/gitea.mjs "$@"\n' > /usr/local/bin/gitea && chmod +x /usr/local/bin/gitea
 
 COPY deploy/olares/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Normalize the line endings whatever the build context carried: a CRLF shebang
+# makes the kernel exec "/bin/sh\r", which the container reports as "no such file
+# or directory" and then crash-loops on every boot.
+# 无论构建上下文带什么行尾都归一化：CRLF 的 shebang 会让内核 exec "/bin/sh\r"，
+# 容器报 "no such file or directory"，然后每次启动都崩溃重启。
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 # L3① deployment-integrity anchor: the build stamps the git revision it was cut
 # from, the entrypoint prints it at boot, and the operator compares it with the

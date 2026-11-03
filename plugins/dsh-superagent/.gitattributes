@@ -1,0 +1,10 @@
+# Shell scripts and shebang-carrying scripts must keep LF endings.
+# A CRLF shebang makes the kernel exec "/bin/sh\r", which fails with
+# "no such file or directory" — the image builds, then the container crash-loops
+# on every boot. Git archives honour this attribute, so the line endings survive
+# the trip into the build context.
+# shell 脚本与带 shebang 的脚本必须保持 LF 行尾。CRLF 的 shebang 会让内核 exec
+# "/bin/sh\r"，报 "no such file or directory"——镜像能构建，容器却在每次启动时
+# 崩溃重启。git archive 认这条属性，所以行尾能活着进入构建上下文。
+*.sh text eol=lf
+tools/gitea-cli/gitea.mjs text eol=lf

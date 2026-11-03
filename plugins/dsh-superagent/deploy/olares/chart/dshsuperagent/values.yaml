@@ -6,7 +6,7 @@
 # REQUIRE_SIGNIN_VIEW=false）。
 image:
   repository: gitea.bowong.cc/comi-logic/olares-images
-  tag: dsh-superagent-0.1.0-r7
+  tag: dsh-superagent-0.1.0-r9
 workloads:
   dshsuperagent:
     replicaCount: 1
