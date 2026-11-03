@@ -78,5 +78,54 @@ Verdict rules:
 
 ## 6. Verdict table (appended after the rerun)
 
-(pending; filled line by line from the raw corpus and watcher output under
-`docs/evidence/l1-rerun-20261103/`.)
+- Run id: task `01M6FMP8V33AKWED5EBXA782R4`
+- Trigger: 2026-11-03T02:44:21Z (`trigger-b.txt` = 1793673861)
+- cms rev during the run: `78429e47` (deployed by a concurrent session at 02:40; see §6.3);
+  node rev: `69cd81e1c4d2…`
+- Judge: `scripts/l1-rerun/verdict.py` (the table is its output; raw output `verdict-b.json`)
+- Evidence: `docs/evidence/l1-rerun-20261103/`
+
+| Prediction | Grade | Criterion (verbatim judge output) |
+|------------|-------|-----------------------------------|
+| P1 | **PASS** | notify_ts=2026-11-03T02:43:45.042049794Z ret=0 send_ts=2026-11-03T02:44:26.041486044Z same_token=True |
+| P2 | **PASS** | header=132102 |
+| P3 | **PASS** | ret=0 message_id=7523213472945919000 |
+| P4 | **PASS** | sequence=received->routed->accepted->reported->replied; events received:1 matched:1 accepted:1 result:1 reply_sent(result):1 |
+| P5 | **PASS** | result_sendmessage_frames=1; reply_sent(result)=1; reply_sent(all)=2; reply_failed=0 |
+| P6 | **PASS** | latency_s=2.0 (bound=180, refusal path) |
+| P7 | **PASS** | frames_with_ret_-14=0 |
+
+### 6.1 Evidence index
+
+| File | Content |
+|------|---------|
+| `records-slice-b.jsonl` | recording-proxy slice (02:43:40–02:44:35: notifystart, getupdates, two sendmessage frames with ret/errcode and all headers) |
+| `watch-b.jsonl` | external watcher's per-change samples (task row + event table) |
+| `transitions-b.jsonl` | DB-trigger state transitions (one each: received→routed→accepted→reported→replied) |
+| `verdict-b.json` / `verdict-b.md` | judge output (machine criteria) |
+| `trigger-b.txt` | trigger epoch |
+
+### 6.2 P5 wording note (no criterion change, only the counted object)
+
+The node first sent a **process reply** (`task_reply`, "这条消息仍只有范围询问…") and then the
+**result reply** (`task_result`, "该节点评估后未接下此任务。"). They are distinct events, each
+delivered exactly once; P5's "negative reply" is counted as the **result** reply (`reply_sent`
+with `ref=result`), hence PASS. Total outbound is 2 with `reply_failed=0` — no duplicate delivery.
+
+### 6.3 Deviations (recorded as they happened)
+
+1. **Instrument upgrade**: the pre-registration named a 200ms row sampler; `received→routed→accepted`
+   happen within one second, so the sampler only saw `accepted` onward. To get exact transitions an
+   append-only DB trigger (`taskhub_status_probe`, AFTER UPDATE OF status) was added; its stream is
+   `transitions-b.jsonl`. This strengthens observation; it does not relax criteria.
+2. **First trial void**: task `01M6FMGSR21SCYFXGH3WEQ4GSH` (02:41) was triggered after a concurrent
+   session had restored `im.hub.base_url` to the official host at 02:20 and stopped the recorder, so
+   its sends never entered the corpus. It is not judged; only task B (the table above) is the rerun.
+3. **Build-point drift**: §2 recorded `cee7ac12`; a concurrent session deployed `78429e47` at 02:40
+   (`accepted` events, delivery dedupe). The rerun actually ran on `78429e47`. Both builds contain
+   the four incident fixes and `/versionz` verifies the revision; P1–P7 criteria read only wire
+   bodies and the ledger, so the drift does not change them.
+4. **PASS is not causation**: P1–P3 passing proves the send face is alive and the request shape is
+   accepted. The 11-02 `-14` was a dead session (`errcode:-14, errmsg:"session timeout"`); request
+   shape does not clear it. H1 (notifystart necessity) remains neither cleanly falsified nor proven;
+   see `docs/ilink-send-contract.md` §4 F1.

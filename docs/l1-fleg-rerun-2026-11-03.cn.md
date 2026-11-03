@@ -69,4 +69,51 @@
 
 ## 6. 判级表（重跑后追加）
 
-（待重跑；由 `docs/evidence/l1-rerun-20261103/` 下的原始语料与观察器输出逐条填写。）
+- 重跑 id：task `01M6FMP8V33AKWED5EBXA782R4`
+- 触发时刻：2026-11-03T02:44:21Z（`trigger-b.txt` = 1793673861）
+- 运行期 cms rev：`78429e47`（并发会话在 02:40 部署，见 §6.3 偏差）；节点 rev：`69cd81e1c4d2…`
+- 判级器：`scripts/l1-rerun/verdict.py`（输出即下表；原始输出 `verdict-b.json`）
+- 证据：`docs/evidence/l1-rerun-20261103/`
+
+| 预测 | 判级 | 依据（判级器原文） |
+|------|------|---------------------|
+| P1 | **PASS** | notify_ts=2026-11-03T02:43:45.042049794Z ret=0 send_ts=2026-11-03T02:44:26.041486044Z same_token=True |
+| P2 | **PASS** | header=132102 |
+| P3 | **PASS** | ret=0 message_id=7523213472945919000 |
+| P4 | **PASS** | sequence=received->routed->accepted->reported->replied；events received:1 matched:1 accepted:1 result:1 reply_sent(result):1 |
+| P5 | **PASS** | result_sendmessage_frames=1；reply_sent(result)=1；reply_sent(all)=2；reply_failed=0 |
+| P6 | **PASS** | latency_s=2.0（bound=180，拒绝路径） |
+| P7 | **PASS** | frames_with_ret_-14=0 |
+
+### 6.1 证据索引
+
+| 文件 | 内容 |
+|------|------|
+| `records-slice-b.jsonl` | 录制反代原文切片（02:43:40–02:44:35：notifystart、getupdates、两帧 sendmessage，含 ret/errcode 与全部头） |
+| `watch-b.jsonl` | 外部观察器逐次变化（任务行 + 事件表） |
+| `transitions-b.jsonl` | 数据库触发器的状态迁移流水（received→routed→accepted→reported→replied 各 1） |
+| `verdict-b.json` / `verdict-b.md` | 判级器输出（机器判据） |
+| `trigger-b.txt` | 触发时刻 epoch |
+
+### 6.2 P5 的口径说明（不改预注册，只说明计数对象）
+
+节点先发了一条**过程回复**（`task_reply`，正文「这条消息仍只有范围询问…」），再发**结果回复**
+（`task_result`，正文「该节点评估后未接下此任务。」）。两者是不同事件、各自恰一次外打；
+P5 的"负回复"按**结果回复**计（`reply_sent` 且 `ref=result`），故判 PASS。全部外打计数为 2，
+`reply_failed=0`——不存在重复投递。
+
+### 6.3 偏差与处置（如实记录）
+
+1. **观测器升级**：预注册写的是 200ms 采样任务行；`received→routed→accepted` 发生在同一秒内，
+   采样只能看到 `accepted` 之后。为拿到精确迁移，追加了一个**只增不改**的数据库触发器
+   （`taskhub_status_probe`，AFTER UPDATE OF status），其流水见 `transitions-b.jsonl`。
+   这是观测手段的加强，不是判据的回退。
+2. **首个试验作废**：task `01M6FMGSR21SCYFXGH3WEQ4GSH`（02:41）触发时，`im.hub.base_url`
+   已被并发会话在 02:20 恢复为官方地址、录制器被停，外打未进语料，故不作判级；只把 task B
+   （上表）作为正式重跑。
+3. **构建点漂移**：预注册 §2 记的是 `cee7ac12`；并发会话在 02:40 部署了 `78429e47`
+   （新增 `accepted` 事件、投递去重等），重跑实际跑在 `78429e47` 上。两版都含本任务的四笔
+   修复，且 `/versionz` 可核对；该偏差不影响 P1–P7 的判据（判据只看线上原文与账本）。
+4. **PASS 不证明因果**：P1–P3 全 PASS 只证明「当前发送面活、请求形状合格」。11-02 的 `-14`
+   是会话判死（`errcode:-14, errmsg:"session timeout"`），请求形状不改变它；H1（notifystart
+   必要性）仍未被干净证伪/证实，见 `docs/ilink-send-contract.cn.md` §4 F1。
