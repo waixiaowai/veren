@@ -8,7 +8,7 @@ import { SourceRegistry } from '../src/sources/registry.ts'
 import { feishuKind } from '../src/sources/feishu.ts'
 import { githubKind } from '../src/sources/github.ts'
 import { snapshot, threadSummary, ticketSummary, triggerView } from '../src/app/views/records.ts'
-import { basisFacts, ticketDetail } from '../src/app/views/tickets.ts'
+import { basisFacts, executorLoad, ticketCounts, ticketDetail, ticketList } from '../src/app/views/tickets.ts'
 import { threadDetail } from '../src/app/views/threads.ts'
 import { droppedReplies, sourcesStatus } from '../src/app/views/sources.ts'
 import { overview } from '../src/app/views/overview.ts'
@@ -19,7 +19,7 @@ import { feishuLink } from '../src/sources/feishu-channel.ts'
 import { feishuChannel, feishuTriggerId } from '../src/sources/feishu-trigger.ts'
 import { githubLink } from '../src/sources/github-channel.ts'
 import { githubChannel } from '../src/sources/github-trigger.ts'
-import { followupOwners, type ChannelRef } from '../src/core/index.ts'
+import { followupOwners, type ChannelRef, type Ticket } from '../src/core/index.ts'
 
 let directory: string
 let store: Store
@@ -303,12 +303,11 @@ it('counts each Execution filter from the predicate that pages it, so no number 
   const host = views()
   // One Ticket per stage: no Assignment queues, a running Assignment works, a question awaits a person, an ended
   // Assignment rests idle, and an ended Ticket is gone from the live set.
-  const base = { decisionId: 'd', channels: [], undelivered: [] as string[], createdAt: at, updatedAt: at,
-    mandate: { strength: 'explicit' as const, policyVersion: 'v', basis: { via: 'listed' as const }, actor: { source: 'feishu',
-      id: 'ou_alice' }, scope: '' }, origin: { triggerId: 'e1', triggerIds: ['e1'] }, inputs: [] as never[] }
-  const save = (id: string, fields: Record<string, unknown>) => store.tickets.save({ ...base, id, title: id, assignments: [],
-    ...fields } as never)
-  save('queued', {})
+  const base: Ticket = { id: '', title: '', decisionId: 'd', channels: [], undelivered: [], createdAt: at, updatedAt: at,
+    mandate: { strength: 'explicit', policyVersion: 'v', basis: { via: 'listed' }, actor: { source: 'feishu', id: 'ou_alice' },
+      scope: '' }, origin: { triggerId: 'e1', triggerIds: ['e1'] }, assignments: [], inputs: [] }
+  const save = (id: string, fields: Partial<Ticket> = {}) => store.tickets.save({ ...base, id, title: id, ...fields })
+  save('queued')
   save('running', { assignments: [{ id: 'a1', state: 'running', createdAt: at, startedAt: at }] })
   save('asking', { attention: { id: 'q1', question: 'Which copy?' } })
   save('idle', { assignments: [{ id: 'a2', state: 'ended', createdAt: at, endedAt: at }] })
@@ -325,6 +324,7 @@ it('counts each Execution filter from the predicate that pages it, so no number 
   expect(executorLoad(store, 3)).toEqual({ running: 3, queued: 1 })
 })
 
+it('reads each ticket a page\'s follow-ups reached once, and nothing for a message no ticket can decide', () => {
   const host = views()
   live('t1')
   store.threads.save({ key: 'feishu:oc_1:om_root', ref: { source: 'feishu', id: 'oc_1:om_root' }, createdAt: at, subscriptions: ['t1'],

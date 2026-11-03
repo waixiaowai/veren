@@ -93,6 +93,8 @@ export interface PanelServer {
   threads: ThreadRow[]
   threadPages: (key: string, query: { before?: string; around?: string }) => ThreadPageView | undefined
   person: TicketRow[]; search: Pick<ApiResponse<'GET search'>, 'items' | 'threads'>; history: HistoryView
+  /** When true, `GET tickets` answers as a host older than the counter contract did: no `counts` beside the rows. */
+  legacyTicketList?: boolean
   requests: { path: string; method: string; body?: unknown }[]
   /** Requests with undeclared query params or invalid body presence; asserted empty after each test. */
   misuse: string[]
@@ -289,6 +291,8 @@ type Answer<K extends keyof Api> = ApiResponse<K> | Refusal
 type Route<K extends keyof Api> = { query?: readonly Query<K>[]; answer: (request: Request<K>) => Answer<K> | Promise<Answer<K>> }
   & (Api[K] extends { body: unknown } ? { body: true } : { body?: never })
 const page = <T>(items: T[]) => ({ items, total: items.length, next_offset: null })
+/** A host older than the counter contract served no counts; the cast is what makes the fixture answer like that host. */
+const withoutCounts = (payload: ReturnType<typeof page>) => payload as unknown as ApiResponse<'GET tickets'>
 /** As on the host, each filter's count comes from the same rows its list pages. */
 const ticketCounts = (): ApiResponse<'GET tickets'>['counts'] => {
   const open = server.tickets.open
@@ -333,8 +337,10 @@ const ROUTES: { [K in keyof Api]: Route<K> } = {
     ({ items: query.kind === 'ignore' ? [] : [acceptDecision()], next_offset: null }) },
   'POST decisions/:id/dismiss': { answer: ({ params }) => params.id === 'u1' ? { dismissed: true } : refuse(404,
     'Unavailable Eval not found') },
-  'GET tickets': { query: ['state', 'offset', 'limit'], answer: ({ query }) => ({ ...page(server.tickets[query.state === 'ended' ? 'ended'
-    : 'open']), counts: ticketCounts() }) },
+  'GET tickets': { query: ['state', 'offset', 'limit'], answer: ({ query }) => {
+    const payload = page(server.tickets[query.state === 'ended' ? 'ended' : 'open'])
+    return server.legacyTicketList ? withoutCounts(payload) : { ...payload, counts: ticketCounts() }
+  } },
   'GET tickets/:id': { answer: ({ params }) => server.ticketDetails[params.id] ?? refuse(404, 'Ticket not found') },
   'POST tickets/:id/retry': { answer: ({ params }) => {
     const ticket = ticketOf(params.id)

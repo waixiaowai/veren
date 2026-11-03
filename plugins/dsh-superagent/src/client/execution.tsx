@@ -37,7 +37,10 @@ export function ExecutionStatus({ filter: current, state, reload }: {
         onConfirm={pause} />
     </div>
     <div className="dt-filters">
-      {TICKET_FILTERS.map(value => <Pill key={value} active={current === value} count={data?.counts[value]}
+      {/* A host older than the counter contract pages Tickets without counts; the filter on screen still shows its own
+          total, and the others show none rather than borrowing a number. */}
+      {TICKET_FILTERS.map(value => <Pill key={value} active={current === value}
+        count={data?.counts?.[value] ?? (current === value ? data?.total : undefined)}
         onClick={() => { setLimit(20); navigate({ page: 'execution', query: value === 'open' ? {} : { filter: value } },
           true) }}>{t(`ticketFilter.${value}`)}</Pill>)}
     </div>

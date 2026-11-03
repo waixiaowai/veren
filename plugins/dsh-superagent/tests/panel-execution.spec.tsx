@@ -40,6 +40,31 @@ it('lists Tickets under Execution by who they wait on, with the Executor state a
   expect(server.settings).toMatchObject({ paused: true, executor: { maxWorkers: 4 } })
 })
 
+it('counts every filter beside it, apart from the Executor slots the status line reports', async () => {
+  // No worker holds a slot while two Tickets wait in the working stage: the status line and the filters report
+  // different quantities, and a filter's number must match the rows under it.
+  server.load = { running: 0, queued: 0 }
+  server.tickets.open = [ticketSummary(), ticketSummary({ id: 't2', title: '第二条执行中工单' })]
+  await mount()
+  await click(zh['tab.execution'])
+  expect(all('.dt-status-line .dt-lv').map(item => item.textContent)).toEqual(['执行槽位 0 / 3', '排队 0'])
+  expect(pill(zh['ticketFilter.working']).textContent).toBe(`${zh['ticketFilter.working']}2`)
+  await click(pill(zh['ticketFilter.working']))
+  expect(all('.dt-list .dt-ticket')).toHaveLength(2)
+  expect(pill(zh['ticketFilter.ended']).textContent).toBe(`${zh['ticketFilter.ended']}1`)
+})
+
+it('renders a host that pages Tickets without counts, counting only the filter on screen', async () => {
+  // A panel updated before its host restarts must not crash on the missing field, and must not borrow a number.
+  server.legacyTicketList = true
+  server.tickets.open = [ticketSummary(), ticketSummary({ id: 't2', title: '第二条执行中工单' })]
+  await mount()
+  await click(zh['tab.execution'])
+  expect(all('.dt-list .dt-ticket')).toHaveLength(2)
+  expect(pill(zh['ticketFilter.open']).textContent).toBe(`${zh['ticketFilter.open']}2`)
+  expect(pill(zh['ticketFilter.working']).textContent).toBe(zh['ticketFilter.working'])
+})
+
 it('stops an open Ticket from its page after confirmation', async () => {
   await mount()
   await click('修复回归')
