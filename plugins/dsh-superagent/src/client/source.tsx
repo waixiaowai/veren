@@ -11,6 +11,17 @@ import { ConfigHistory, Fields, SourceField, useBlockDraft, useSettings } from '
 import { actorName, healthText, localized, readableMarkers, reasonLabel, valueLabel, when } from './text.ts'
 import { CheckSetupButton, Hint, LabelValue, LoadState, SetupMessage, StatusHead, When } from './widgets.tsx'
 
+/** Keys of the Source's plain-string list fields, found by their field spec rather than by the stored value's shape. */
+const listKeys = (source: SourceView): string[] => source.fields.flatMap(spec => spec.type === 'list' ? [spec.key] : [])
+/**
+ * Drops the blank entry a freshly added list row leaves behind, and trims the rest, so a Source never stores or reports an
+ * empty value.
+ * 剔除新增列表行留下的空条目并去空白，来源不会存下或上报空值。
+ */
+const withoutBlankEntries = (keys: string[]) => (block: SourceView['value']): SourceView['value'] => ({ ...block,
+  config: Object.fromEntries(Object.entries(block.config).map(([key, value]) => [key, keys.includes(key) && Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string').map(item => item.trim()).filter(Boolean) : value])) })
+
 function SourceCard({ source }: { source: SourceView }) {
   const { t, call } = usePanel()
   const { running } = usePanelData()
@@ -18,7 +29,7 @@ function SourceCard({ source }: { source: SourceView }) {
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const refreshLabels = async () => { const { added } = await call('POST sources/:id/labels',
     { id: source.id }); await reload(); return added }
-  const draft = useBlockDraft(`source:${source.id}`, source.value, source.revision)
+  const draft = useBlockDraft(`source:${source.id}`, source.value, source.revision, withoutBlankEntries(listKeys(source)))
   const value = draft.value
   const { problem, value: saved } = source
   const changed = (key: string) => String(value.config[key] ?? '') !== String(saved.config[key] ?? '')

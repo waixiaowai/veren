@@ -6,6 +6,7 @@ import type { FieldSpec, Localized } from '../sources/kind.ts'
 import { usePoll, type HistoryView, type Settings, type SettingsView, type SourceView } from './api.ts'
 import { Button, DisclosureRow, Icon, InfoTip, Input, SegmentedControl, Switch } from './controls.tsx'
 import { useDraft } from './draft.tsx'
+import { ListField } from './list-field.tsx'
 import { useAction, usePanel, usePanelData } from './provider.tsx'
 import { settingsRoute } from './route.ts'
 import { errorText, localized, valueLabel, when, type T } from './text.ts'
@@ -272,6 +273,7 @@ export function SourceField({ field, value, saved, fact, onChange, labels, refre
           onClick={() => navigate(settingsRoute(field.settings!))}>{t(`openSettingsOf.${field.settings}`)}</button>
       </small>}
     </div>
+    case 'list': return <ListField field={field} value={value} onChange={onChange} />
     case 'rows': return <RowsField field={field} value={value} saved={saved} onChange={onChange} labels={labels}
       refreshLabels={refreshLabels} />
   }

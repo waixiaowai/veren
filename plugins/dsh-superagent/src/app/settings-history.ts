@@ -16,13 +16,26 @@ export interface SettingsChange {
   field?: string; part?: true
 }
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+const names = (value: unknown): string[] => Array.isArray(value) ? value.map(String) : []
+/**
+ * A plain string list diffs by membership, under the codes the panel already localizes for `rows`.
+ * One entry edited into another reads as its removal plus its addition.
+ */
+/** 纯字符串列表按成员比较，沿用面板已本地化的 `rows` 变更码；一条改成另一条读作一删一增。 */
+function listChanges(field: string, from: unknown, to: unknown, at: { source: string; part?: true }): SettingsChange[] {
+  const [old, next] = [new Set(names(from)), new Set(names(to))]
+  const added = [...next].filter(item => !old.has(item)), removed = [...old].filter(item => !next.has(item))
+  return [...added.length ? [{ code: 'sourceRowsAdded' as const, ...at, field, items: added }] : [],
+    ...removed.length ? [{ code: 'sourceRowsRemoved' as const, ...at, field, items: removed }] : []]
+}
 function fieldChanges(id: string, fields: readonly FieldSpec[], a: Record<string, unknown>, b: Record<string, unknown>, part?: true): SettingsChange[] {
   const changes: SettingsChange[] = []
   const at = { source: id, ...part ? { part } : {} }
   for (const field of fields) {
     const from = a[field.key], to = b[field.key]
     if (same(from, to)) continue
-    if (field.type === 'rows') {
+    if (field.type === 'list') changes.push(...listChanges(field.key, from, to, at))
+    else if (field.type === 'rows') {
       const rowKey = field.columns[0]!.key
       const rows = (value: unknown) => new Map((Array.isArray(value) ? value as Record<string, unknown>[] : []).map(row => [String(row[rowKey]), row]))
       // Prefer the second column (human-readable label) over the row key when naming changed rows.

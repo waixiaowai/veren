@@ -155,4 +155,13 @@ describe('taskhub source kind', () => {
     // onCommand 据此照答 accepted，不重复建工单（契约 §3 幂等规则）。
     expect(h.engine.receive(trigger)).toBe('duplicate')
   })
+
+  it('edits its routing tags as a plain string list, the shape the schema and the hello frame carry', () => {
+    const field = taskhubKind.fields.find(item => item.key === 'tags')
+    // `rows` fields submit records (`{ id }`), which the schema refused as `tags.0`; the panel needs a plain string list.
+    // `rows` 字段提交记录（`{ id }`），schema 会以 `tags.0` 拒绝；面板需要纯字符串列表。
+    expect(field?.type).toBe('list')
+    const config = TaskhubConfigSchema.parse({ tags: ['loomart', '编码', '源码'] })
+    expect(config.tags).toEqual(['loomart', '编码', '源码'])
+  })
 })
