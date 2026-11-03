@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { applyOverrides, edgePath, layoutCanvas } from '../src/client/canvas-layout.ts'
+import { applyOverrides, connectedComponent, edgePath, layoutCanvas } from '../src/client/canvas-layout.ts'
 import { DEFAULT_ZOOM, initialView } from '../src/client/canvas-viewport-math.ts'
 import type { CanvasNodeView } from '../src/client/remote.ts'
 
@@ -233,5 +233,24 @@ describe('canvas edges — curved paths / 曲线边', () => {
 
   it('degenerates to a point for coincident nodes', () => {
     expect(edgePath({ x: 5, y: 5 }, { x: 5, y: 5 })).toBe('M 5 5')
+  })
+})
+
+describe('connectedComponent — the selection chain / 选中链', () => {
+  const edge = (sourceId: string, targetId: string) => ({ sourceId, targetId })
+
+  it('grows the whole chain from the selected card, both directions', () => {
+    // a ←→ b ←→ c   d (isolated)
+    const edges = [edge('a', 'b'), edge('b', 'c')]
+    const chain = connectedComponent('b', edges)
+    expect(chain.has('a')).toBe(true)
+    expect(chain.has('b')).toBe(true)
+    expect(chain.has('c')).toBe(true)
+    expect(chain.has('d')).toBe(false)
+  })
+
+  it('keeps the isolated card alone and includes the selected card always', () => {
+    expect(connectedComponent('d', [edge('a', 'b')])).toEqual(new Set(['d']))
+    expect(connectedComponent('x', [])).toEqual(new Set(['x']))
   })
 })

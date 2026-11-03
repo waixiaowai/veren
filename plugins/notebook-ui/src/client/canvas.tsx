@@ -17,9 +17,9 @@
  * @module @veren/notebook-ui/client/canvas
  */
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { CanvasStage } from './canvas-stage.tsx'
-import { applyOverrides, layoutCanvas } from './canvas-layout.ts'
+import { applyOverrides, connectedComponent, layoutCanvas } from './canvas-layout.ts'
 import { useDragPositions } from './canvas-positions.ts'
 import { useCanvasPalette } from './canvas-theme.ts'
 import { useCanvasViewport } from './canvas-viewport.ts'
@@ -75,6 +75,23 @@ function CanvasEmpty({ t, onCreate }: {
   )
 }
 
+/** The selection chain hook: a click selects a card, the empty stage clears,
+ * an owner switch resets; the chain is the flood fill over the edges.
+ * 选中链钩子：点击选卡、空白舞台清除、换归属重置；链即沿边的洪泛填充。 */
+function useSelectionChain(edges: readonly CanvasEdgeView[], viewKey: string): {
+  readonly selectedId: string | undefined
+  readonly select: (id: string | undefined) => void
+  readonly chain: ReadonlySet<string> | undefined
+} {
+  const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
+  useEffect(() => { setSelectedId(undefined) }, [viewKey])
+  const chain = useMemo(
+    () => (selectedId === undefined ? undefined : connectedComponent(selectedId, edges)),
+    [selectedId, edges],
+  )
+  return { selectedId, select: setSelectedId, chain }
+}
+
 /** Render the box canvas. */
 export function CanvasGraph(props: CanvasGraphProps): React.ReactElement {
   const { t, nodes, edges, viewKey, onCreate } = props
@@ -85,6 +102,7 @@ export function CanvasGraph(props: CanvasGraphProps): React.ReactElement {
   const viewport = useCanvasViewport(layout, viewKey)
   const palette = useCanvasPalette(viewport.ref)
   const nodesById = useMemo(() => new Map(nodes.map(node => [node.id, node])), [nodes])
+  const { selectedId, select, chain } = useSelectionChain(edges, viewKey)
   return (
     <section className="notebook-canvas" aria-label={t('canvasTitle')}>
       <CanvasToolbar t={t} zoomBy={viewport.zoomBy} fit={viewport.fit} count={nodes.length} />
@@ -95,6 +113,9 @@ export function CanvasGraph(props: CanvasGraphProps): React.ReactElement {
         edges={edges}
         palette={palette}
         t={t}
+        selectedId={selectedId}
+        selection={chain}
+        onNodeSelect={select}
         onNodeDragEnd={move}
       />
       {nodes.length === 0 && !loading && <CanvasEmpty t={t} onCreate={onCreate} />}

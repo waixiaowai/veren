@@ -72,11 +72,13 @@ const KIND_KEY: Record<NoteKind, NotebookKey> = {
   project: 'kindProject',
 }
 
-/** What a card reports back while it is dragged. 卡片被拖动时回报的三件事。 */
+/** What a card reports back while it is dragged or clicked. 卡片被拖动或点选时回报的事。 */
 export interface CardDragHandlers {
   readonly onDragStart: (id: string) => void
   readonly onDragMove: (id: string) => void
   readonly onDragEnd: (id: string, x: number, y: number) => void
+  /** A plain click (no drag): select the card and its chain. 纯点击（未拖动）：选中该卡及其链。 */
+  readonly onSelect: (id: string) => void
 }
 
 /** Everything one card is built from. 构建一张卡所需的全部输入。 */
@@ -94,11 +96,13 @@ function cardBody(node: CanvasNodeView, palette: CanvasPalette): Rect {
   const overdue = node.aging === 'overdue'
   return new Rect({
     x: -CARD_W / 2, y: TOP, width: CARD_W, height: CARD_H, cornerRadius: RADIUS,
+    name: 'body',
     fill: node.kind === 'fleeting' ? palette.fleetingFill : palette.surface,
     stroke: overdue ? palette.border : palette.borderSoft,
     strokeWidth: 1,
     shadowColor: palette.shadow, shadowBlur: 10, shadowOffsetY: 2, shadowOpacity: 1,
     shadowForStrokeEnabled: false,
+    listening: false,
     ...(overdue ? { dash: [4, 3] } : {}),
   })
 }
@@ -169,7 +173,7 @@ function agingLine(node: CanvasNodeView, palette: CanvasPalette, t: Translate, f
   })
 }
 
-/** Wire the library drag gesture to the canvas' persistence face. 把库的拖拽手势接到画布的持久化面。 */
+/** Wire the library drag gesture and the plain-click select to the canvas faces. 把库的拖拽手势与纯点选接到画布两面。 */
 function wireDrag(group: Group, id: string, handlers: CardDragHandlers): void {
   group.on('dragstart', () => {
     group.moveToTop()
@@ -177,6 +181,10 @@ function wireDrag(group: Group, id: string, handlers: CardDragHandlers): void {
   })
   group.on('dragmove', () => { handlers.onDragMove(id) })
   group.on('dragend', () => { handlers.onDragEnd(id, group.x(), group.y()) })
+  // Konva's dragDistance already separates the two: a click only fires when
+  // the pointer never became a drag.
+  // Konva 的 dragDistance 已把两者分开：只有指针从未变成拖拽时 click 才触发。
+  group.on('click', () => { handlers.onSelect(id) })
 }
 
 /**

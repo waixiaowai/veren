@@ -20,13 +20,9 @@
 
 import { useState } from 'react'
 import { agingLabelOf, agingText } from './aging.ts'
+import { dockView } from './canvas-dock-fold.ts'
 import type { CanvasNodeView } from './remote.ts'
 import type { NotebookKey } from './locales.ts'
-
-/** Up to this many overdue cards the dock keeps its full list; beyond it the
- * queue collapses to one count line until expanded. 过期卡不超过此数时进料口
- * 保持完整列表；超过则收成一行计数，直到展开。 */
-const DOCK_VISIBLE_LIMIT = 3
 
 /** Everything the dock renders and the two intents it hands back. */
 export interface CanvasDockProps {
@@ -154,10 +150,6 @@ function DockRows({ t, rows, busy, armedId, onPromote, onTrash, onArm }: {
 }
 
 /** Whether the queue folds, and whether its rows show right now. 队列是否折叠、此刻是否显示各行。 */
-function dockView(count: number, expanded: boolean): { readonly folded: boolean; readonly showRows: boolean } {
-  const folded = count > DOCK_VISIBLE_LIMIT
-  return { folded, showRows: expanded || !folded }
-}
 
 /** Render the intake dock; nothing renders while the queue is empty. */
 export function CanvasDock(props: CanvasDockProps): React.ReactElement | null {

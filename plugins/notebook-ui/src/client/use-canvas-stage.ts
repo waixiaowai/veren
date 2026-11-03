@@ -43,8 +43,14 @@ export interface CanvasStageProps {
   /** `undefined` until the theme is read; the canvas stays blank for that frame. 主题读取完成前为 `undefined`；那一帧画布保持空白。 */
   readonly palette: CanvasPalette | undefined
   readonly t: Translate
+  /** The selected card's id, or `undefined` when nothing is selected. 选中卡的 id；未选中为 `undefined`。 */
+  readonly selectedId: string | undefined
+  /** The selected card's connected chain — the lit set. 选中卡的连通链——被点亮的集合。 */
+  readonly selection: ReadonlySet<string> | undefined
   /** Called once per dropped card, in layout coordinates. 每张卡落下时调用一次，坐标为布局坐标。 */
   readonly onNodeDragEnd: (id: string, x: number, y: number) => void
+  /** A plain card click selects it; `undefined` clears the selection. 纯点选卡即选中；`undefined` 清除选中。 */
+  readonly onNodeSelect: (id: string | undefined) => void
 }
 
 /** The imperative handles the scene and the stage share. 场景与舞台共享的命令式句柄。 */
@@ -66,9 +72,9 @@ function useStageHandles(): StageHandles {
 }
 
 /** Keep the latest props for imperative listeners that outlive a render. 为跨渲染存活的命令式监听器保留最新 props。 */
-function useLiveProps(props: CanvasStageProps): { readonly current: Pick<CanvasStageProps, 'viewport' | 'onNodeDragEnd'> } {
-  const live = useRef({ viewport: props.viewport, onNodeDragEnd: props.onNodeDragEnd })
-  live.current = { viewport: props.viewport, onNodeDragEnd: props.onNodeDragEnd }
+function useLiveProps(props: CanvasStageProps): { readonly current: Pick<CanvasStageProps, 'viewport' | 'onNodeDragEnd' | 'onNodeSelect'> } {
+  const live = useRef({ viewport: props.viewport, onNodeDragEnd: props.onNodeDragEnd, onNodeSelect: props.onNodeSelect })
+  live.current = { viewport: props.viewport, onNodeDragEnd: props.onNodeDragEnd, onNodeSelect: props.onNodeSelect }
   return live
 }
 
@@ -85,11 +91,34 @@ function useCanvasGesture(ref: { current: HTMLDivElement | null }): void {
   }, [ref])
 }
 
+/** Wire the stage's pan/hover/clear events. 接舞台的平移/悬停/清除事件。 */
+function wireStageEvents(stage: Stage, callbacks: {
+  readonly onPanState: (dragging: boolean) => void
+  readonly onHover: (index: number) => void
+  readonly syncView: (x: number, y: number) => void
+  readonly onClearSelection: () => void
+}, sync: () => void): void {
+  stage.on('dragstart', event => { if (event.target === stage) callbacks.onPanState(true) })
+  stage.on('dragmove', event => { if (event.target === stage) sync() })
+  stage.on('dragend', event => {
+    if (event.target !== stage) return
+    callbacks.onPanState(false)
+    sync()
+  })
+  stage.on('mouseleave', () => { callbacks.onHover(-1) })
+  // A click on empty stage (the target is the stage itself) clears the selection.
+  // 点在空白舞台（目标是舞台自身）即清除选中。
+  stage.on('click', event => {
+    if (event.target === stage) callbacks.onClearSelection()
+  })
+}
+
 /** Build the stage and its one layer; the disposer drops both and the scene. 建舞台与它唯一的图层；disposer 连场景一起丢掉。 */
 function createStage(container: HTMLDivElement, handles: StageHandles, callbacks: {
   readonly onPanState: (dragging: boolean) => void
   readonly onHover: (index: number) => void
   readonly syncView: (x: number, y: number) => void
+  readonly onClearSelection: () => void
 }): () => void {
   const stage = new Stage({
     container,
@@ -104,14 +133,7 @@ function createStage(container: HTMLDivElement, handles: StageHandles, callbacks
     const point = stage.position()
     callbacks.syncView(point.x, point.y)
   }
-  stage.on('dragstart', event => { if (event.target === stage) callbacks.onPanState(true) })
-  stage.on('dragmove', event => { if (event.target === stage) sync() })
-  stage.on('dragend', event => {
-    if (event.target !== stage) return
-    callbacks.onPanState(false)
-    sync()
-  })
-  stage.on('mouseleave', () => { callbacks.onHover(-1) })
+  wireStageEvents(stage, callbacks, sync)
   handles.stage.current = stage
   handles.layer.current = layer
   return () => {
@@ -123,7 +145,7 @@ function createStage(container: HTMLDivElement, handles: StageHandles, callbacks
 }
 
 /** Own the stage for the element's lifetime. 为元素一生持有舞台。 */
-function useStageLifecycle(ref: { current: HTMLDivElement | null }, handles: StageHandles, live: { current: Pick<CanvasStageProps, 'viewport' | 'onNodeDragEnd'> }, onHover: (index: number) => void, setPanning: (dragging: boolean) => void): void {
+function useStageLifecycle(ref: { current: HTMLDivElement | null }, handles: StageHandles, live: { current: Pick<CanvasStageProps, 'viewport' | 'onNodeDragEnd' | 'onNodeSelect'> }, onHover: (index: number) => void, setPanning: (dragging: boolean) => void, onClearSelection: () => void): void {
   useEffect(() => {
     const container = ref.current
     if (container === null) return
@@ -135,8 +157,9 @@ function useStageLifecycle(ref: { current: HTMLDivElement | null }, handles: Sta
           current.x === x && current.y === y ? current : { ...current, x, y }
         ))
       },
+      onClearSelection,
     })
-  }, [ref, handles, live, onHover, setPanning])
+  }, [ref, handles, live, onHover, setPanning, onClearSelection])
 }
 
 /** The stage fills the measured viewport. 舞台铺满量得的视口。 */
@@ -160,8 +183,8 @@ function useStageTransform(stage: RefObject<Stage | null>, view: { readonly x: n
   }, [stage, view.x, view.y, view.zoom])
 }
 
-/** The card drag face: start lifts the card, move re-routes its edges, drop persists and renews a deferred scene. 卡片的拖拽面：起手抬起，移动重接边，落下持久化并续上被推迟的场景。 */
-function useCardHandlers(handles: StageHandles, live: { current: Pick<CanvasStageProps, 'viewport' | 'onNodeDragEnd'> }, setDragging: (dragging: boolean) => void, renewScene: () => void): CardDragHandlers {
+/** The card drag face: start lifts the card, move re-routes its edges, drop persists and renews a deferred scene; a plain click selects. 卡片的拖拽面：起手抬起，移动重接边，落下持久化并续上被推迟的场景；纯点击即选中。 */
+function useCardHandlers(handles: StageHandles, live: { current: Pick<CanvasStageProps, 'viewport' | 'onNodeDragEnd' | 'onNodeSelect'> }, setDragging: (dragging: boolean) => void, renewScene: () => void): CardDragHandlers {
   return useMemo<CardDragHandlers>(() => ({
     onDragStart: (): void => {
       handles.nodeDragging.current = true
@@ -179,12 +202,13 @@ function useCardHandlers(handles: StageHandles, live: { current: Pick<CanvasStag
         renewScene()
       }
     },
+    onSelect: (id: string): void => { live.current.onNodeSelect(id) },
   }), [handles, live, setDragging, renewScene])
 }
 
 /** Rebuild the scene when its inputs change; never mid-drag — the drop re-runs this. 输入变化即重建场景；绝不在拖拽中重建——落下时再跑一次。 */
 function useStageScene(props: CanvasStageProps, handles: StageHandles, nonce: number, onHover: (index: number) => void, handlers: CardDragHandlers): void {
-  const { layout, nodesById, edges, palette, t } = props
+  const { layout, nodesById, edges, palette, t, selectedId, selection } = props
   useEffect(() => {
     const layer = handles.layer.current
     if (layer === null || palette === undefined) return
@@ -195,6 +219,7 @@ function useStageScene(props: CanvasStageProps, handles: StageHandles, nonce: nu
     const scene = createScene({
       layer, layout, nodesById, edges, palette, t,
       hovered: handles.hovered.current, onHover, handlers,
+      selectedId, selection,
     })
     handles.scene.current = scene
     layer.batchDraw()
@@ -202,7 +227,7 @@ function useStageScene(props: CanvasStageProps, handles: StageHandles, nonce: nu
       scene.destroy()
       if (handles.scene.current === scene) handles.scene.current = null
     }
-  }, [handles, layout, nodesById, edges, palette, t, nonce, onHover, handlers])
+  }, [handles, layout, nodesById, edges, palette, t, nonce, onHover, handlers, selectedId, selection])
 }
 
 /**
@@ -225,8 +250,9 @@ export function useCanvasStage(props: CanvasStageProps): { readonly ref: { curre
   }, [handles])
   const renewScene = useCallback((): void => { setNonce(current => current + 1) }, [])
   const handlers = useCardHandlers(handles, live, setDragging, renewScene)
+  const onClearSelection = useCallback((): void => { live.current.onNodeSelect(undefined) }, [live])
   useCanvasGesture(ref)
-  useStageLifecycle(ref, handles, live, onHover, setDragging)
+  useStageLifecycle(ref, handles, live, onHover, setDragging, onClearSelection)
   useStageSize(handles.stage, props.viewport.size)
   useStageTransform(handles.stage, props.viewport.view)
   useStageScene(props, handles, nonce, onHover, handlers)

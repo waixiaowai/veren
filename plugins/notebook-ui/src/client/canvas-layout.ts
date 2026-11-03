@@ -23,7 +23,7 @@
  * @module @veren/notebook-ui/client/canvas-layout
  */
 
-import type { CanvasNodeView } from './remote.ts'
+import type { CanvasEdgeView, CanvasNodeView } from './remote.ts'
 
 /** Rendered card width, px — the layout's unit of spacing. 卡片渲染宽（px）——布局的间距单位。 */
 export const NODE_W = 176
@@ -265,4 +265,41 @@ export function edgePath(from: CanvasPoint, to: CanvasPoint): string {
   const controlX = round2((from.x + to.x) / 2 - (dy / length) * bend)
   const controlY = round2((from.y + to.y) / 2 + (dx / length) * bend)
   return `M ${String(from.x)} ${String(from.y)} Q ${String(controlX)} ${String(controlY)} ${String(to.x)} ${String(to.y)}`
+}
+
+/**
+ * The connected component of one card: everything reachable from the selected
+ * card along the box's edges, the selected card included — the "whole chain"
+ * a selection highlights (the user's ruling). Undirected traversal: a link
+ * lights the chain in both directions.
+ * @param selectedId - the card the selection starts from.
+ * @param edges - the box's resolved edges.
+ * @returns every reachable card id, selected id included.
+ *
+ * 一张卡的连通分量：从选中卡沿盒的边可达的一切，含选中卡自己——即选中时要点亮
+ * 的「整条链」（用户裁定）。无向遍历：一条链接向两个方向点亮链。
+ */
+export function connectedComponent(selectedId: string, edges: readonly CanvasEdgeView[]): ReadonlySet<string> {
+  const adjacency = new Map<string, string[]>()
+  const touch = (from: string, to: string): void => {
+    const list = adjacency.get(from)
+    if (list === undefined) adjacency.set(from, [to])
+    else list.push(to)
+  }
+  for (const edge of edges) {
+    if (edge.sourceId === edge.targetId) continue
+    touch(edge.sourceId, edge.targetId)
+    touch(edge.targetId, edge.sourceId)
+  }
+  const seen = new Set<string>([selectedId])
+  const queue = [selectedId]
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    for (const neighbor of adjacency.get(current) ?? []) {
+      if (seen.has(neighbor)) continue
+      seen.add(neighbor)
+      queue.push(neighbor)
+    }
+  }
+  return seen
 }

@@ -30,6 +30,11 @@ export function CanvasStage(props: CanvasStageProps): React.ReactElement {
       ref={ref}
       className={`notebook-canvas-stage${dragging ? ' is-dragging' : ''}`}
       data-canvas-stage
+      // The live zoom is the only readable number left after the DOM cards
+      // became pixels; acceptance reads it (title px = 13 × zoom).
+      // 卡片变成像素之后，实时缩放是唯一还能读到的数字；验收据此读标题像素
+      // （标题 px = 13 × zoom）。
+      data-canvas-zoom={String(props.viewport.view.zoom)}
       aria-hidden="true"
     />
   )
