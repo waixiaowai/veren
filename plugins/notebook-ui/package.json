@@ -60,6 +60,7 @@
     "@types/react-dom": "^19",
     "@veren/platform-modules": "workspace:*",
     "esbuild": "^0.28.2",
+    "konva": "^10.9.1",
     "vitest": "^5.0.4"
   },
   "license": "MIT"
