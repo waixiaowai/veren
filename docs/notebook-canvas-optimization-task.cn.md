@@ -1,8 +1,8 @@
 # notebook 画布优化方案：四问加深任务书
 
-> 状态：**已加深，待执行**。来源：2026-11-03 用户判定「有太多不合理的地方了」。
+> 状态：**已实现并真机验收（4.0.0-rc.3，2026-11-03）**。验收报告：docs/acceptance/notebook-4.0.0-rc.3/report.cn.md。来源：2026-11-03 用户判定「有太多不合理的地方了」。
 > 前置：docs/notebook-canvas-expiry-task.cn.md（画布化）+ docs/notebook-canvas-interaction.cn.md（四轮裁定）+ docs/acceptance/notebook-4.0.0-rc.2/report.cn.md。
-> 纪律：每一项都必须挂取证（file:line 或截图读数）；执行走稳定节点 3080；版本折入未定稿的 4.0.0-rc.2。
+> 纪律：每一项都必须挂取证（file:line 或截图读数）；执行走稳定节点 3080；版本折入 4.0.0-rc.3（rc.2 已交付，Konva 基座与 O1–O7 合并后按规范升 PATCH 位）。
 
 ## §0 已取证的「不合理」清单（P0=功能性断头，P1=专业手感，P2=打磨）
 
@@ -62,3 +62,19 @@
 
 ## §4 执行序
 O1+O5（选举+记忆）→ O2（新建流程）→ O4（默认缩放）→ O3（空态）→ O6+O7（打磨）。每步真机裁决后再下一步。
+
+## §5 落地与取证（4.0.0-rc.3，2026-11-03）
+
+> 基座变更：用户在 2026-11-03 11:23 裁定「以 Konva 为基座」，覆盖 §2 边界中的「不拆 canvas.tsx」。渲染层改为 Konva 10 场景图，`canvas.tsx` 缩为组装层；§3.6 的「行数不变」不再适用，改以真实挂载为准。
+
+| 项 | 落点 | 单测 | 真机读数 |
+|---|---|---|---|
+| O1 | `source.ts` `electOwner`：记忆优先 → 有卡盒按卡数/最近活跃 → 声明空盒殿后；宿主 `OwnerView.lastActiveAt` | `tests/source.spec.ts` 9 条 | 清 localStorage 首开 `owner=standard`（9 卡），`lastOwner=null` |
+| O5 | `source.ts` `readStoredOwner`/`storeOwner`（`notebook-last-owner`），仅显式切换写入 | 同上 | 切 `cordis` 后 `lastOwner=cordis`；reload 仍 `cordis` |
+| O2 | `panel.tsx` `useAuthoringMode` 状态机 + `use-notebook-view` `startNew` 先复位后置位 + `saveCurrent` 返回布尔 | —（真机流程） | 画布新建 → 列表编辑器 → 保存 → 回画布 `笔记 1`；截图 03/04 |
+| O3 | `canvas.tsx` `CanvasEmpty` + `canvas.css`；文案复用 `noNotes`，新增 `canvasEmptyHint` | —（真机展示） | 空盒 cordis 中央空态卡；截图 02 |
+| O4 | `canvas-layout` `focus`（枢纽质心）+ `canvas-viewport-math` `initialView`/`DEFAULT_ZOOM=0.85`；卡片标题 13px | `tests/canvas-layout.spec.ts` 打开焦点/视口 5 条 | 默认 `zoom=0.85`；标题 13×0.85=11.05px；适配 0.931 仍全见；截图 01/06 |
+| O6 | `canvas-layout.edgePath` 二次贝塞尔 + `canvas-scene` 每条边同路径 12px 命中线 | `tests/canvas-layout.spec.ts` 曲线 4 条 | 8 条曲线边；悬停边中点两端点亮、其余压暗；截图 05 |
+| O7 | `canvas-dock.tsx` + `canvas-dock-fold.ts` `dockView`：≤3 全列表，≥4 一行计数 + 展开 | `tests/dock.spec.ts` 4 条 | 真实盒 0 条过期，>3 形态用同组件/CSS 的 5 条合成卡预览（截图 08/09） |
+
+真机报告与截图：docs/acceptance/notebook-4.0.0-rc.3/report.cn.md（英文版 report.md）。

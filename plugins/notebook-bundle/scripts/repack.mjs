@@ -61,12 +61,20 @@ function memberTarballOf(member) {
 }
 
 const work = mkdtempSync(join(tmpdir(), 'forum-bundle-pack-'))
-// GNU tar on Windows: `C:\…` reads as a remote host spec (colon = hostname) and
-// backslashes get eaten as escapes — feed it forward-slash paths plus
-// --force-local; both are harmless elsewhere.
-// Windows 上的 GNU tar：`C:\…` 被读成远程主机（冒号=主机名），反斜杠又被当转义
-// 吃掉——喂正斜杠路径加 --force-local；两者在其他平台无害。
-const tarFlags = process.platform === 'win32' ? ['--force-local'] : []
+// GNU tar on Windows needs `--force-local` for drive-letter paths, but the
+// bsdtar shipped in System32 rejects the flag outright. Probe the capability
+// once instead of assuming every Windows `tar` is GNU.
+// Windows 上的 GNU tar 需要 `--force-local` 才能正确读盘符路径，而 System32
+// 自带的 bsdtar 直接拒绝这个开关。探测一次能力，不要假设 Windows 的 tar 都是 GNU。
+function supportsForceLocal() {
+  try {
+    execFileSync('tar', ['--force-local', '--version'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+const tarFlags = process.platform === 'win32' && supportsForceLocal() ? ['--force-local'] : []
 const toTarPath = (value) => value.replaceAll('\\', '/')
 
 /**

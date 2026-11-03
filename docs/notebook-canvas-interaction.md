@@ -71,9 +71,11 @@ Rationale: the canvas is the "see the relations" face; editing is the "change on
 
 | Cards | Form |
 |---|---|
-| ≤30 | full detail (title + two-line excerpt + badges) — today's real box has 13 cards, in this tier |
+| ≤30 | full detail (title + two-line excerpt + badges) — the default 0.85 opening tier; today's real box has 9 cards here |
 | 31–150 | unchanged this round (the layout already widens rings by arc length); LOD-driven culling stays P1 |
 | >150 | drawable this round (200-card synthetic passes, bounds 5258×6758); coarse tier stays P1 |
+
+The 0.85 tier is “full detail”: card titles are 13px, which is 11.05px on screen and readable without any gesture; Fit is an explicit action, not the default readability strategy.
 
 ## 4. Theme tokens (Konva has no CSS inheritance, so the live document is read)
 

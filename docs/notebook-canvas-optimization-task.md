@@ -1,8 +1,8 @@
 # Notebook Canvas Optimization Plan: Deepened Task Book
 
-> Status: **deepened, awaiting execution**. Origin: 2026-11-03 user verdict "too many unreasonable things".
+> Status: **implemented and accepted on the real host (4.0.0-rc.3, 2026-11-03)**. Acceptance report: docs/acceptance/notebook-4.0.0-rc.3/report.md. Origin: 2026-11-03 user verdict "too many unreasonable things".
 > Predecessors: docs/notebook-canvas-expiry-task.md (canvas build) + docs/notebook-canvas-interaction.md (four rulings) + docs/acceptance/notebook-4.0.0-rc.2/report.md.
-> Discipline: every item carries forensics (file:line or screenshot readings); execution on the stable node 3080; versions fold into the unfinalized 4.0.0-rc.2.
+> Discipline: every item carries forensics (file:line or screenshot readings); execution on the stable node 3080; versions fold into 4.0.0-rc.3 (rc.2 shipped; the Konva base and O1–O7 move the PATCH position under the versioning rules).
 
 ## §0 The forensics-backed "unreasonable" list (P0 = functional dead-end, P1 = professional feel, P2 = polish)
 
@@ -62,3 +62,19 @@
 
 ## §4 Execution order
 O1+O5 (election + memory) → O2 (new-note flow) → O4 (default zoom) → O3 (empty state) → O6+O7 (polish). Each step adjudicated on the machine before the next.
+
+## §5 Landing and evidence (4.0.0-rc.3, 2026-11-03)
+
+> Base change: on 2026-11-03 11:23 the user ruled "Konva as the base", superseding the §2 boundary "do not split canvas.tsx". Rendering moved to a Konva 10 scene graph and `canvas.tsx` became a 103-line assembly layer; §3.6's "line count unchanged" no longer applies — the real-host mount is the criterion.
+
+| Item | Where it landed | Tests | Real-host reading |
+|---|---|---|---|
+| O1 | `source.ts` `electOwner`: memory first → boxes with cards by count/recency → declared empty boxes last; Host `OwnerView.lastActiveAt` | `tests/source.spec.ts` (9) | clean localStorage opens `owner=standard` (9 cards), `lastOwner=null` |
+| O5 | `source.ts` `readStoredOwner`/`storeOwner` (`notebook-last-owner`), written only on explicit selection | same | selecting `cordis` sets `lastOwner=cordis`; reload keeps `cordis` |
+| O2 | `panel.tsx` `useAuthoringMode` state machine + `startNew` reset-then-arm + `saveCurrent` boolean | — (real flow) | canvas New → list editor → Save → canvas `笔记 1`; shots 03/04 |
+| O3 | `canvas.tsx` `CanvasEmpty` + `canvas.css`; list copy + new `canvasEmptyHint` | — (real display) | empty cordis box shows the centre guide card; shot 02 |
+| O4 | `canvas-layout` `focus` (hub centroid) + `canvas-viewport-math` `initialView`/`DEFAULT_ZOOM=0.85`; 13px title | `tests/canvas-layout.spec.ts` (5 focus/viewport cases) | default `zoom=0.85`; title 13×0.85=11.05px; Fit 0.931 still shows all; shots 01/06 |
+| O6 | `canvas-layout.edgePath` quadratic Bézier + `canvas-scene` 12px hit stroke on the same path | `tests/canvas-layout.spec.ts` (4 curve cases) | 8 curved edges; hovering an edge midpoint lights both ends and dims the rest; shot 05 |
+| O7 | `canvas-dock.tsx` + `canvas-dock-fold.ts` `dockView`: ≤3 full list, ≥4 one count line + expand | `tests/dock.spec.ts` (4) | real box has 0 overdue; the >3 form was previewed with the same component/CSS and 5 synthetic cards (shots 08/09) |
+
+Real-host report and screenshots: docs/acceptance/notebook-4.0.0-rc.3/report.md (Chinese: report.cn.md).
