@@ -29,7 +29,7 @@ must not replace a bisection.
 | Session bot | `959aef235f2b@im.bot` | `im_hub_session.bot_id` |
 | Token fingerprint | `sha256:12797c93e7 len=58` (never the plaintext) | recorder Authorization redaction fingerprint |
 | Latest inbound | `2026-11-03T01:38:29Z` (seq 9) | `im_hub_messages` + cms log |
-| Node image | `dsh-superagent-0.1.0-r6` (contains `8873935`: completion/refusal reporting) | image build log + source fingerprint of `lib/taskhub-watch-*.js` in the container |
+| Node image | `dsh-superagent-0.1.0-r9` (boots with `image git_rev=69cd81e1c4d2…`, a descendant of `8873935`) | the container's first `[boot] image git_rev=…` line (02:39:53Z) |
 
 Precondition: the node image is rebuilt and deployed and `taskhub_workers.last_seen_at` is within
 120s; otherwise the rerun is not triggered.

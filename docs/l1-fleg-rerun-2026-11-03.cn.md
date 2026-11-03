@@ -25,7 +25,7 @@
 | 会话 bot | `959aef235f2b@im.bot` | `im_hub_session.bot_id` |
 | token 指纹 | `sha256:12797c93e7 len=58`（不落明文） | 录制器 Authorization 脱敏指纹 |
 | 最近入站 | `2026-11-03T01:38:29Z`（seq 9） | `im_hub_messages` + cms 日志 |
-| 节点镜像 | `dsh-superagent-0.1.0-r6`（含 `8873935`：完成/拒绝回报接线） | 镜像构建日志 + 容器内 `lib/taskhub-watch-*.js` 源码指纹 |
+| 节点镜像 | `dsh-superagent-0.1.0-r9`（启动打印 `image git_rev=69cd81e1c4d2…`，为 `8873935` 的后代） | 容器首行 `[boot] image git_rev=…`（02:39:53Z） |
 
 前置：节点重建镜像并部署完成、`taskhub_workers.last_seen_at` 在 120s 内；否则不触发重跑。
 
