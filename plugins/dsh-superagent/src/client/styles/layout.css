@@ -1,0 +1,56 @@
+/* Page scaffolding and layout grids: page shell, header, toolbars, save bar, settings/prompt splits. */
+/* 页面骨架与布局栅格：页壳、页头、工具条、保存条、设置/提示词分栏。规则自 client.css 按原序迁入。 */
+.dt-page { box-sizing: border-box; height: 100%; overflow: auto; scrollbar-gutter: stable; scroll-padding: 48px 0 72px; container-type: inline-size; padding: 28px clamp(24px, 4vw, 48px) 0; color: var(--dsw-alias-label-primary); }
+/* Deployment page rendered inside DSH Plugin Manager, which owns scrolling and padding. */
+/* 部署页渲染在 DSH 插件管理器内，滚动与内边距归宿主管。 */
+.dt-embedded { container-type: inline-size; color: var(--dsw-alias-label-primary); }
+/* Disable sticky positioning inside DSH Plugin Manager, where the host container owns scrolling and bottom padding. */
+/* 插件管理器内禁用粘性定位：宿主容器自管滚动与底部内边距。 */
+.dt-embedded .dt-savebar { position: static; }
+.dt-page > .dt-column { max-width: 1200px; margin: 0 auto; padding-bottom: 48px; display: flex; flex-direction: column; gap: 24px; }
+.dt-head { position: relative; z-index: 3; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.dt-search { position: relative; width: 240px; max-width: 100%; }
+.dt-search-results { position: absolute; top: calc(100% + 6px); right: 0; width: min(560px, 90cqw); max-height: 60vh; overflow: auto; padding: 8px 16px; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 12px; background: var(--dsw-alias-bg-layer-2); box-shadow: var(--dsw-elevation-prominent); z-index: 5; display: flex; flex-direction: column; gap: 8px; }
+[data-platform='darwin'] .dt-page .dt-head { padding-top: var(--dsh-frame-top-clearance, 0px); }
+.dt-title { margin: 0; font-size: 15px; line-height: 22px; font-weight: 600; color: var(--dsw-alias-label-secondary); }
+.dt-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.dt-main { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.dt-grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.dt-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dt-filters .dt-search { margin-left: auto; }
+.dt-form { display: flex; flex-direction: column; gap: 24px; }
+.dt-fieldset { display: flex; flex-direction: column; gap: inherit; min-width: 0; margin: 0; padding: 0; border: 0; }
+.dt-savebar { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; padding: 12px 0; background: var(--dsw-alias-bg-base, var(--dsw-alias-bg-layer-1)); border-top: 0.5px solid var(--dsw-alias-border-l2); }
+.dt-savebar .dt-hint { margin-right: auto; }
+.dt-savebar .dt-error { white-space: pre-line; }
+.dt-card > .dt-savebar, .dt-block > .dt-savebar { margin: 0 -16px -16px; padding: 12px 16px; border-radius: 0 0 16px 16px; }
+.dt-settings { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 24px; align-items: start; }
+.dt-settings-nav { position: sticky; top: 0; display: flex; flex-direction: column; gap: 2px; }
+.dt-settings-link { padding: 6px 10px; border: 0; border-radius: 8px; background: none; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.dt-settings-link:hover { color: var(--dsw-alias-label-primary); }
+.dt-settings-link[aria-current='page'] { background: var(--dsw-alias-bg-module-platform); color: var(--dsw-alias-label-primary); font-weight: 500; }
+.dt-settings-link[data-stage] + .dt-settings-link:not([data-stage]) { margin-top: 10px; }
+.dt-settings-body { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.dt-prompt { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px; align-items: start; }
+.dt-prompt-nav { display: flex; flex-direction: column; gap: 2px; }
+.dt-prompt-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.dt-editor { min-height: 360px; }
+.dt-page-head { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.dt-page-head > .dt-btn { margin-left: -10px; }
+.dt-page-title { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; width: 100%; }
+.dt-page-title h2 { margin: 0; flex: 1 1 auto; min-width: 0; font-size: 20px; line-height: 28px; font-weight: 500; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dt-status-line { margin-top: -16px; }
+.dt-nav-group { margin: 10px 10px 2px; font-size: 12px; font-weight: 600; color: var(--dsw-alias-label-secondary); }
+.dt-nav-group:first-child { margin-top: 0; }
+@container (max-width: 640px) {
+  .dt-head { align-items: center; }
+  .dt-search-results { right: auto; left: 0; width: 100%; }
+  .dt-page-title h2 { font-size: 17px; line-height: 24px; }
+  .dt-status-line { margin-top: -12px; }
+  .dt-grid3, .dt-prompt { grid-template-columns: 1fr; }
+  .dt-search { width: 100%; }
+  .dt-filters .dt-search { margin-left: 0; }
+  .dt-settings { grid-template-columns: 1fr; gap: 12px; }
+  .dt-settings-nav { position: static; flex-direction: row; flex-wrap: wrap; }
+  .dt-settings-link[data-stage] + .dt-settings-link:not([data-stage]) { margin-top: 0; }
+}

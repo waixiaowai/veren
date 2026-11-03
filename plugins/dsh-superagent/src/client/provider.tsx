@@ -3,7 +3,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { createPortal } from 'react-dom'
 import { caller, usePoll, type ApiMessages, type Call, type SetupView, type StateView } from './api.ts'
 import type { Route } from './route.ts'
-import STYLES from './client.css?raw'
+import CONTROLS from './styles/controls.css?raw'
+import CONTENT from './styles/content.css?raw'
+import LAYOUT from './styles/layout.css?raw'
+import PULSE from './styles/pulse.css?raw'
+/** Stylesheets joined in cascade order: primitives, scaffolding, domain content, composition vocabulary. */
+/* 样式按级联顺序拼接：交互原语 → 页面骨架 → 领域内容 → 构图词汇。 */
+const STYLES = [CONTROLS, LAYOUT, CONTENT, PULSE].join('\n')
 import { errorText, setupText, valueLabel, type T } from './text.ts'
 
 export interface PanelContext {

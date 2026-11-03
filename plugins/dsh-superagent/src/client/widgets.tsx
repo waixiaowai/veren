@@ -4,7 +4,7 @@ import type { SetupProblem } from '../setup.ts'
 import { Button, Icon, InfoTip, Modal, StateDot, type DotState, type IconName } from './controls.tsx'
 import { inlines, linkify, markdownBlocks, type Inline } from './markdown.ts'
 import { useAction, usePanel, usePanelData } from './provider.tsx'
-import { settingsRoute, type SettingsGroup } from './route.ts'
+import { settingsRoute, type Route, type SettingsGroup } from './route.ts'
 import { errorText, fullTime, readableMarkers, setupText, when } from './text.ts'
 
 const external = { target: '_blank', rel: 'noopener noreferrer' } as const
@@ -34,6 +34,25 @@ export function Section({ title, count, children, action, hint, badge, icon }: {
   </section>
 }
 export function Hint({ children }: { children: ReactNode }) { return <p className="dt-hint">{children}</p> }
+export interface MetricItem {
+  label: string
+  value: ReactNode
+  /** `muted` de-emphasizes zeros; `error` colors failures. `muted` 弱化零值；`error` 标出故障。 */
+  state?: 'muted' | 'error'
+  /** Optional drill-down route; when set the tile renders as a button. 可选下钻路由；有则渲染为按钮。 */
+  to?: Route
+}
+/** Metric tiles: value-led stat cards; `to` tiles navigate. 度量瓦片：值为主的统计卡；带 `to` 的可点击跳转。 */
+export function Metrics({ items }: { items: MetricItem[] }) {
+  const { navigate } = usePanel()
+  return <div className="dt-metrics">{items.map(item => {
+    const body = <><span className="dt-metric-value">{item.value}</span><span className="dt-metric-label">{item.label}</span></>
+    return item.to
+      ? <button key={item.label} type="button" className="dt-metric" data-state={item.state}
+        onClick={() => navigate(item.to!)}>{body}</button>
+      : <span key={item.label} className="dt-metric" data-state={item.state}>{body}</span>
+  })}</div>
+}
 export function LabelValue({ label, value }: { label: string; value: ReactNode }) {
   return <span className="dt-lv"><span className="dt-lv-label">{label}</span> <span className="dt-lv-value">{value}</span></span>
 }
