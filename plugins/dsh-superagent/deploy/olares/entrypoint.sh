@@ -57,6 +57,13 @@ cat > "$PROFILE_DIR/cordis.patch.yml" <<EOF
 # 本 fork 的 Gitea 来源，在 Olares 部署里默认打开。
 - id: dsh-superagent-gitea
   disabled: false
+# The CMS task-router Source of this fork, on by default in the Olares deployment.
+# Its url, API Key and node id live in the panel's Source card (settings), not here:
+# the row only decides whether the Source kind is loaded at all.
+# 本 fork 的 CMS 任务路由来源，在 Olares 部署里默认打开。端点、API Key 与节点 ID 放在
+# 面板的来源卡（设置）里，不写在这里——这一行只决定该来源 kind 是否被装载。
+- id: dsh-superagent-taskhub
+  disabled: false
 - id: llm-pi-ai
   name: "@deepseek-ai/dsh-llm-pi-ai"
   config:
