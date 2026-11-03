@@ -174,6 +174,12 @@ CI duties:
 3. **Token lifetime**: at least a week of passive observation (authorization
    time vs first `-14`) is needed before quoting a TTL range; this contract
    records points, not a curve.
+4. **The old-token probe cell was not run**: the only older real token belongs
+   to the TS direct account (`32beb5e8`, refreshed 2026-10-26), a different bot
+   family, and moving a desktop credential onto the production box exceeds this
+   wave's credential policy. The axis is marked "not exercised (needs a new
+   user-minted token or explicit permission to migrate the old one)"; see
+   `docs/evidence/ilink-send-20261103/ts-send-history.json`.
 
 ## Appendix A: send-face facts (append-only appendix for `taskhub-protocol`)
 
@@ -195,5 +201,6 @@ CI duties:
 |------|---------|
 | `docs/evidence/ilink-send-20261103/probe-matrix.jsonl` | per-cell probe results (baseline / 4102 / no-context / no-notifystart / dead-token / bad-target) |
 | `docs/evidence/ilink-send-20261103/history.json` | production authorization/staleness/delivery timeline (no credentials) |
+| `docs/evidence/ilink-send-20261103/ts-send-history.json` | the TS direct account's token time and the checkable "no direct send record" fact |
 | `docs/evidence/ilink-send-20261103/ilink-send-cases.jsonl` | recorded corpus (redacted) |
 | `docs/l1-fleg-rerun-2026-11-03.md` | L1 pre-registration and verdict table |

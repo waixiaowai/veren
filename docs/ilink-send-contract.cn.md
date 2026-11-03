@@ -162,6 +162,10 @@ CI 义务：
    必须按 §2 改成会话失效并停止重试。
 3. **token 生命周期**：需要至少一周的被动观测（记录授权时间与首个 `-14` 时间）
    才能给出 TTL 区间；本契约只记录已观测点。
+4. **old-token 探针格未执行**：唯一可得的更老真实 token 是 TS 直连账号（`32beb5e8`，
+   2026-10-26 刷新）的 bot token，与生产 bot 不同族，且把桌面凭据搬进生产箱超出本波
+   凭据红线；该轴标记为"未执行（需用户提供新 token 或授权迁移旧 token）"，见
+   `docs/evidence/ilink-send-20261103/ts-send-history.json`。
 
 ## 附录 A：发送面事实（给 `taskhub-protocol` 的只增附录）
 
@@ -180,5 +184,6 @@ CI 义务：
 |------|------|
 | `docs/evidence/ilink-send-20261103/probe-matrix.jsonl` | 探针矩阵逐格结果（baseline / 4102 / no-context / no-notifystart / dead-token / bad-target） |
 | `docs/evidence/ilink-send-20261103/history.json` | 生产授权/失效/投递事件时间线（无凭据） |
+| `docs/evidence/ilink-send-20261103/ts-send-history.json` | TS 直连账号的令牌时间与「无直连发送记录」的可复核事实 |
 | `docs/evidence/ilink-send-20261103/ilink-send-cases.jsonl` | 录制语料（脱敏） |
 | `docs/l1-fleg-rerun-2026-11-03.cn.md` | L1 预注册单与判级表 |
