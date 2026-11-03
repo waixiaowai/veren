@@ -38,6 +38,29 @@ export function request(config, path, { method = 'GET', fields = [], headers = [
 /** Performs one API call and prints the body; throws a GiteaCliError with exit 1 on any HTTP failure. */
 /** 执行一次 API 调用并打印响应体；任何 HTTP 失败都抛出退出码为 1 的 GiteaCliError。 */
 export async function api(config, path, options = {}) {
+  // GETs are retried: the frp tunnel to a self-hosted Gitea drops roughly a third of
+  // new connections, and the poller reads lists every round. Non-GET requests are never
+  // retried here — a POST that actually landed must not fire twice (senders carry their
+  // own idempotency markers).
+  // GET 会重试：自建 Gitea 的 frp 隧道大约丢弃三分之一的新建连接，而轮询每轮都要读列表。
+  // 非 GET 绝不在此重试——已到达的 POST 不能触发两次（发送方自带幂等标记）。
+  const retriable = (options.method ?? 'GET') === 'GET'
+  const attempts = retriable ? 3 : 1
+  let lastError
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await apiOnce(config, path, options)
+    } catch (error) {
+      lastError = error
+      const transient = !(error instanceof GiteaCliError) || error.exitCode === undefined && /fetch failed|ECONNRESET|ETIMEDOUT|socket/i.test(String(error.message))
+      if (!retriable || !transient || attempt === attempts) throw error
+      await new Promise(resolve => setTimeout(resolve, attempt * 750))
+    }
+  }
+  throw lastError
+}
+
+async function apiOnce(config, path, options = {}) {
   const { url, init } = request(config, path, options)
   const response = await fetch(url, { ...init, redirect: 'follow' })
   const text = await response.text()
