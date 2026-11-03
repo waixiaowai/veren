@@ -357,6 +357,8 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/infra/environment.ts` | The agent's process environment: command shims, the git configuration and credential helper, `runAsWorker`, and the checks of the environment and of a Ticket's directory |
 | `src/infra/paths.ts` | The package's root, where packaged files are |
 | `src/infra/text.ts` | Word counts and the chat message limit, `fill` and `sameName` |
+| `src/infra/taskhub/protocol.ts` | The taskhub wire frames, the dispatch envelope and its validation, and the event names, pinned to `docs/taskhub-protocol` |
+| `src/infra/taskhub/connection.ts` | `TaskhubConnection`, the thin cms WebSocket: reconnect backoff, credential parking, acked offline event replay, and command dispatch |
 | `src/infra/health.ts` | The `HealthBoard`, every part's health entry, each claimed by its one writer |
 | `src/sources/kind.ts` | The `SourceKind` protocol |
 | `src/sources/registry.ts` | `SourceRegistry` |
@@ -373,6 +375,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/sources/gitea-channel.ts` | The Gitea Channel: conversation comments with an idempotency marker, `sent` or `gone` |
 | `src/sources/gitea-read.ts` | Gitea CI status snapshots, the `gitea/` resources, and `giteaThreadContext`: an Issue's or pull request's conversation by page |
 | `src/sources/gitea-poll.ts` | The Gitea polling loops: notifications, repository streams, the pull requests of open Tickets, and subscribed Threads |
+| `src/sources/taskhub.ts` | The cms task-router kind and plugin entry, exported as `./taskhub-watch` (this fork's addition): worker registration, dispatch intake, reply and completion uplink |
 | `src/sources/feishu.ts` | The Feishu kind and plugin entry, exported as `./feishu-watch` |
 | `src/sources/feishu-trigger.ts` | Feishu messages as Triggers, by one rule for live events, history pages and topic pages |
 | `src/sources/feishu-loops.ts` | The Feishu loops: the event consumer, history recovery, chat names and polling of subscribed topics |
@@ -401,9 +404,9 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `src/client/text.ts` | Copy by key and the wording of domain values, reasons, senders and times |
 | `src/client/marks.ts` | The marks of the states the views classify: a Ticket's or a Thread's stage, a Source's state and a Decision's outcome, each as a dot, an icon, a tone and a label |
 | `src/client/locales.ts` | All copy in both languages, and the glossary of [001 Domain model](001-domain.md) |
-| `src/client/client.css`, `css.d.ts` | The panel's stylesheet, loaded as text |
+| `src/client/styles/controls.css`, `layout.css`, `content.css`, `pulse.css`, `src/client/css.d.ts` | The panel's stylesheets in cascade order — primitives, scaffolding, domain content, and the composition vocabulary (system pulse, metric tiles, empty states) — loaded as text |
 
-`src/sources/github.ts`, `src/sources/gitea.ts`, and `src/sources/feishu.ts` are also the entries of the Source plugins, built by `tsdown.config.ts` and exported in `package.json` as `./github-watch`, `./gitea-watch`, and `./feishu-watch`. The bundle's `cordis.patch.yml` inserts the four plugins, with Gitea and Feishu disabled.
+`src/sources/github.ts`, `src/sources/gitea.ts`, and `src/sources/feishu.ts` are also the entries of the Source plugins, built by `tsdown.config.ts` and exported in `package.json` as `./github-watch`, `./gitea-watch`, and `./feishu-watch`. The bundle's `cordis.patch.yml` inserts the five plugins, with Gitea, Feishu and taskhub disabled.
 
 ## Tests
 
@@ -415,6 +418,7 @@ Some generic modules still refer directly to GitHub or Feishu:
 | `tests/registry.spec.ts` | `SourceRegistry`: instances, validation, Policy parts, Channels and Thread context |
 | `tests/sources.spec.ts` | The Feishu and GitHub Sources on a `SourceContext`: translation, polls and read positions, the pull request rules, health |
 | `tests/gitea.spec.ts` | The Gitea Source on a `SourceContext`: registration, notification and comment polls, the pull request rules, the Channel, the Policy part, and the execution environment |
+| `tests/taskhub.spec.ts`, `tests/taskhub-connection.spec.ts`, `tests/taskhub-protocol.spec.ts` | The cms task-router Source on a `SourceContext` (dispatch intake, Channel, end hooks), the thin connection (reconnect, replay, parking, commands), and the wire-contract pins |
 | `tests/commands.spec.ts` | CLI calls as the deployment's accounts, the Channels' answers, and repository-scoped GitHub calls |
 | `tests/feishu-read.spec.ts`, `tests/github-read.spec.ts` | Feishu and GitHub reads |
 | `tests/admission-context.spec.ts`, `tests/feishu-image.spec.ts` | The Thread window of assessments, and Feishu image reads |

@@ -133,6 +133,12 @@ const TEXT = {
   sourceErrorHint: ['来源会在每次轮询时自动重试。持续出现时检查网络和该来源的登录状态。', 'The Source retries on every poll. If this persists, check the network and the Source\'s sign-in.'],
   details: ['详情 ›', 'Details ›'],
   lastDay: ['过去 24 小时', 'Last 24 hours'],
+  pulseOk: ['一切安静', 'All quiet'],
+  pulseOkNote: ['没有需要你处理的事，正在等待新触发。', 'Nothing needs you. Waiting for new triggers.'],
+  pulseDegraded: ['{count} 个问题需要留意', '{count} issue(s) need attention'],
+  pulseSetupTitle: ['需要先完成设置', 'Finish setup first'],
+  pulseSetupNote: ['设置完成前不评估、不派工、不发送回复。', 'No Evals, Assignments, or replies until setup passes.'],
+  pulsePausedNote: ['不开始新的评估，不派工，不发送回复。', 'No new Evals, Assignments, or replies.'],
   flowReceivedLabel: ['到达', 'Arrived'],
   flowFilteredLabel: ['被过滤', 'Filtered'],
   flowDroppedLabel: ['放弃发送', 'Not sent'],
@@ -760,6 +766,10 @@ const TEXT = {
   'healthCode.feishuBotMissing': ['等待飞书机器人', HEALTH_TEXT.feishuBotMissing],
   'healthCode.giteaCliUnset': ['来源已打开，还没有设置站点、仓库或智能体的 CLI', HEALTH_TEXT.giteaCliUnset],
   'healthCode.pollFailures': ['连续 {count} 次轮询失败，最近一次：{error}', HEALTH_TEXT.pollFailures],
+  'healthCode.taskhubUnset': ['来源已打开，还没有设置 cms WS 端点或 API Key', HEALTH_TEXT.taskhubUnset],
+  'healthCode.taskhubConnecting': ['正在连接 cms（{state}）', HEALTH_TEXT.taskhubConnecting],
+  'healthCode.taskhubConnected': ['已连接 cms', HEALTH_TEXT.taskhubConnected],
+  'healthCode.taskhubCredential': ['cms 凭证被拒，等待新的 API Key', HEALTH_TEXT.taskhubCredential],
 } as const satisfies Record<string, readonly [string, string]>
 export type DshSuperagentKey = keyof typeof TEXT
 const language = (index: 0 | 1) => Object.fromEntries(Object.entries(TEXT).map(([key, pair]) => [key, pair[index]])) as Record<DshSuperagentKey, string>

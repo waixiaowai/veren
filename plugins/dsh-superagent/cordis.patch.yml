@@ -15,6 +15,11 @@
     - id: dsh-superagent-feishu
       name: dsh-superagent/feishu-watch
       disabled: true
+    # Optional cms task-router worker (this fork's addition); requires the cms WS endpoint and a user API Key after enabling.
+    # 可选的 cms 任务路由工作节点（本 fork 新增）；启用后需配置 cms WS 端点与用户 API Key。
+    - id: dsh-superagent-taskhub
+      name: dsh-superagent/taskhub-watch
+      disabled: true
     # The agent preset of every Executor Session (WORKER_PRESET in src/app/sessions.ts); the main Session has its own, below.
     # It is DSH's `standard` preset with only what a worker needs, and a shell whose foreground command moves to a background job
     # after 5 seconds, so a long command does not hold back a person's message, which the Session takes at its next step. Left

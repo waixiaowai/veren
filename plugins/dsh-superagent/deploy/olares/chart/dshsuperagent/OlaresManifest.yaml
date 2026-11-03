@@ -1,0 +1,61 @@
+olaresManifest.version: 0.12.0
+olaresManifest.type: app
+apiVersion: v3
+metadata:
+  name: dshsuperagent
+  appid: dshsuperagent
+  title: Superagent
+  description: A proactive coding agent for one Gitea repository, with an optional Feishu bot
+  icon: https://app.cdn.olares.com/appstore/default/defaulticon.webp
+  version: 0.1.15
+  categories:
+    - Developer Tools
+spec:
+  versionName: "0.1.0"
+  runAsUser: true
+  supportArch:
+    - amd64
+  requiredCpu: 200m
+  limitedCpu: "2"
+  requiredMemory: 512Mi
+  limitedMemory: 4Gi
+  requiredDisk: 1Gi
+  limitedDisk: 20Gi
+entrances:
+  - name: panel
+    host: dsh-superagent-svc
+    port: 3082
+    title: Superagent
+    authLevel: private
+    openMethod: window
+permission:
+  appData: true
+envs:
+  - envName: OPENCODE_GO_API_KEY
+    required: true
+    type: password
+    editable: false
+    description: Model provider key used by the agent's sessions
+  - envName: GITEA_URL
+    required: true
+    type: url
+    editable: false
+    description: Gitea host the agent listens to and acts on
+  - envName: GITEA_TOKEN
+    required: true
+    type: password
+    editable: false
+    description: Gitea access token of the agent's account
+  - envName: GITEA_LOGIN
+    required: true
+    type: string
+    editable: false
+    description: Login name of the agent's Gitea account
+options:
+  apiTimeout: 0
+  dependencies:
+    - name: olares
+      version: '>=1.12.6-0'
+      type: system
+workloadReplicas:
+  dshsuperagent: 1

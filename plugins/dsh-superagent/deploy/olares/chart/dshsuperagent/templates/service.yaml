@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  # The entrance names this Service as its host.
+  # 入口以该 Service 为其 host。
+  name: dsh-superagent-svc
+  namespace: '{{ .Release.Namespace }}'
+  labels:
+    io.kompose.service: dsh-superagent
+spec:
+  selector:
+    io.kompose.service: dshsuperagent
+  ports:
+    - name: http
+      port: 3082
+      targetPort: panel
+      protocol: TCP

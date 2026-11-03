@@ -1,0 +1,12 @@
+# Image reference; every rebuild MUST change the tag (the node caches layers of an old tag).
+# The giteaclone instance now answers anonymous pulls for this public package
+# (REQUIRE_SIGNIN_VIEW=false is injected by chart 0.1.7-restore.41).
+# 镜像引用；每次重建必须换 tag（节点会缓存旧 tag 的层）。
+# giteaclone 实例已对该公开包应答匿名拉取（chart 0.1.7-restore.41 注入
+# REQUIRE_SIGNIN_VIEW=false）。
+image:
+  repository: gitea.bowong.cc/comi-logic/olares-images
+  tag: dsh-superagent-0.1.0-r5
+workloads:
+  dshsuperagent:
+    replicaCount: 1

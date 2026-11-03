@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dshsuperagent
+  namespace: '{{ .Release.Namespace }}'
+  labels:
+    io.kompose.service: dshsuperagent
+spec:
+  # Recreate: the userspace mount is a hostPath, which rolling updates cannot handle.
+  # Recreate：userspace 挂载是 hostPath，滚动更新无法处理。
+  strategy:
+    type: Recreate
+  replicas: {{ (index .Values.workloads "dshsuperagent").replicaCount }}
+  selector:
+    matchLabels:
+      io.kompose.service: dshsuperagent
+  template:
+    metadata:
+      labels:
+        io.kompose.service: dshsuperagent
+      # One annotations map only: duplicate `annotations:` keys are silently collapsed
+      # by the YAML loader and the checksum would be shadowed by the linkerd block.
+      # 只能有一个 annotations 映射：YAML 加载器会静默合并重复键，checksum 会被
+      # linkerd 块遮蔽。
+      annotations:
+        checksum/panel-proxy: 0d6967548df120bd7b993dde8d32b62a788173ddd3fadbd346a6586c9e5ef0dc
+        # Outbound TLS to gitea.bowong.cc must bypass the mesh (same as the gitearunner
+        # chart); through linkerd the internal nginx resets the connection.
+        # 到 gitea.bowong.cc 的出站 TLS 必须绕过 mesh（与 gitearunner chart 相同）；
+        # 走 linkerd 时内部 nginx 会重置连接。
+        config.linkerd.io/skip-inbound-ports: "443"
+        config.linkerd.io/skip-outbound-ports: "443"
+    spec:
+      enableServiceLinks: false
+      # The cluster DNS maps gitea.bowong.cc to a dead address, so this pod resolves
+      # through public DNS exactly like the gitearunner chart does; the domain's real
+      # route is its public frp entrance.
+      # 集群 DNS 把 gitea.bowong.cc 指到死地址，因此本 pod 与 gitearunner chart 一样
+      # 用公共 DNS 解析；该域名的真实路由是它的公网 frp 入口。
+      dnsConfig:
+        nameservers:
+          - 223.5.5.5
+          - 119.29.29.29
+      dnsPolicy: ClusterFirst
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      # The registry is private; the chart builds the pull secret from install-time envs.
+      # 仓库是私有的；chart 用安装时 env 生成拉取凭据。
+      imagePullSecrets:
+        - name: '{{ .Release.Name }}-registry'
+      initContainers:
+        - name: init-permissions
+          image: beclab/aboveos-busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              for d in /dsh /dsh/home /dsh/state; do
+                mkdir -p "$d" && chown 1000:1000 "$d"
+              done
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: app-data
+              mountPath: /dsh
+      containers:
+        - name: dsh-superagent
+          image: '{{ .Values.image.repository }}:{{ .Values.image.tag }}'
+          ports:
+            - name: http
+              containerPort: 3082
+              protocol: TCP
+          env:
+            - name: OPENCODE_GO_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: '{{ .Release.Name }}-app'
+                  key: OPENCODE_GO_API_KEY
+            - name: GITEA_URL
+              valueFrom:
+                secretKeyRef:
+                  name: '{{ .Release.Name }}-app'
+                  key: GITEA_URL
+            - name: GITEA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: '{{ .Release.Name }}-app'
+                  key: GITEA_TOKEN
+            - name: GITEA_LOGIN
+              valueFrom:
+                secretKeyRef:
+                  name: '{{ .Release.Name }}-app'
+                  key: GITEA_LOGIN
+            - name: PUBLIC_URL
+              value: 'https://{{ index .Values.domain "panel" }}'
+            - name: TRUSTED_HOST
+              value: '{{ index .Values.domain "panel" }}'
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: '2'
+              memory: 4Gi
+          volumeMounts:
+            - name: app-data
+              mountPath: /dsh
+        # Proxy sidecar: dsh binds loopback only (its management API demands it); this
+        # container re-exposes the panel on the pod address for the entrance Service.
+        # 代理 sidecar：dsh 只绑 loopback（管理 API 所要求）；本容器把面板重新
+        # 暴露到 Pod 地址，供入口 Service 使用。
+        - name: panel-proxy
+          image: '{{ .Values.image.repository }}:{{ .Values.image.tag }}'
+          command: ['node', '/panel/panel-proxy.js']
+          ports:
+            - name: panel
+              containerPort: 3081
+              protocol: TCP
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: '500m', memory: 256Mi}
+          volumeMounts:
+            - name: panel-proxy
+              mountPath: /panel
+              readOnly: true
+      volumes:
+        - name: panel-proxy
+          configMap:
+            name: dshsuperagent-panel-proxy
+            defaultMode: 0444
+        - name: app-data
+          hostPath:
+            path: {{ .Values.userspace.appData }}
+            type: DirectoryOrCreate

@@ -16,6 +16,10 @@ export const HEALTH_TEXT = {
   feishuBotMissing: 'Waiting for the Feishu bot',
   giteaCliUnset: 'The Source is on, and its host, repository, or agent CLI is not set',
   pollFailures: '{count} consecutive failed polls; last: {error}',
+  taskhubUnset: 'The Source is on, and its cms url or API Key is not set',
+  taskhubConnecting: 'Connecting to cms ({state})',
+  taskhubConnected: 'Connected to cms',
+  taskhubCredential: 'The cms credential was rejected; waiting for a new API Key',
 } as const
 export type HealthCode = keyof typeof HEALTH_TEXT
 export type Health = { state: 'starting' | 'ready' | 'paused' | 'error'; detail: string; at?: string; code?: HealthCode; values?: Record<string, string> }

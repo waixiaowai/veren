@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dshsuperagent-panel-proxy
+  namespace: '{{ .Release.Namespace }}'
+data:
+  panel-proxy.js: |
+{{ .Files.Get "panel-proxy.js" | indent 4 }}

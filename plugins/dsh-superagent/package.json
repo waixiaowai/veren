@@ -17,6 +17,7 @@
     "./github-watch": "./lib/github-watch.js",
     "./gitea-watch": "./lib/gitea-watch.js",
     "./feishu-watch": "./lib/feishu-watch.js",
+    "./taskhub-watch": "./lib/taskhub-watch.js",
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json"
   },
@@ -59,6 +60,7 @@
   "packageManager": "pnpm@11.7.0",
   "dependencies": {
     "proper-lockfile": "4.1.2",
+    "ws": "8.22.0",
     "zod": "4.4.3"
   },
   "peerDependencies": {

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: dshsuperagent
+description: The dsh-superagent proactive coding agent (Gitea fork) as an Olares app
+type: application
+version: 0.1.15
+appVersion: "0.1.0"
