@@ -113,6 +113,12 @@
 路径是重新扫码。请求形状（版本头、context_token、notifystart）**不改变**一个已死
 会话的 `-14`。
 
+**生料：notifystart 在参考实现里的形态**。Node 尖刺 `apps/im-hub/src/session.ts`
+的 `startPolling` 直接调 `getUpdates`，**不调** `notifyStart`；而 TS 参照
+`@veren/im-wechat` 的 `monitor.ts` 在长轮询循环前先调 `notifyStart`。Go hub 是从
+尖刺移植的，缺 notifystart 的来源在此——这是"移植时跟了错的参照"的证据，但它本身
+不证明 notifystart 对 `-14` 的必要性（见 F1）。
+
 ## 4. 裁决（预注册假设 → 线上证据）
 
 | 编号 | 假设 | 证据 | 裁决 |

@@ -119,6 +119,14 @@ within a week; the only proven recovery is a fresh QR scan. Request shape
 (version header, context_token, notifystart) does **not** clear `-14` on a dead
 session.
 
+**Raw material: notifystart in the reference implementations.** The Node spike
+`apps/im-hub/src/session.ts` (`startPolling`) calls `getUpdates` directly and
+does **not** call `notifyStart`; the TS reference `@veren/im-wechat`
+(`monitor.ts`) calls `notifyStart` before the long-poll loop. The Go hub was
+ported from the spike, which is where the omission came from — evidence that the
+port followed the wrong reference, not evidence that notifystart is necessary
+for `-14` (see F1).
+
 ## 4. Adjudication (pre-registered assumptions → wire evidence)
 
 | Id | Assumption | Evidence | Verdict |
