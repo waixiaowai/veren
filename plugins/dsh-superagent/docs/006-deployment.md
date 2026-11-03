@@ -88,7 +88,7 @@ Run the profile-creation command only for a new installation. If the profile alr
 
 ## Machine configuration
 
-Copy [examples/profile.cordis.patch.yml](../examples/profile.cordis.patch.yml) to `~/.dsh/profiles/superagent/cordis.patch.yml`, replacing that file, and replace every `<placeholder>`. For Feishu, also enable the `dsh-superagent-feishu` entry there. The `webserver` entry sets the panel's port.
+Copy [examples/profile.cordis.patch.yml](../examples/profile.cordis.patch.yml) to `~/.dsh/profiles/superagent/cordis.patch.yml`, replacing that file, and replace every `<placeholder>`. The bundle inserts only the CMS task-router worker Source; to use the GitHub, Gitea or Feishu Sources, insert their rows (`dsh-superagent/github-watch`, `dsh-superagent/gitea-watch`, `dsh-superagent/feishu-watch`) in that file as well. The `webserver` entry sets the panel's port.
 
 | Key | Required | Meaning |
 | --- | --- | --- |

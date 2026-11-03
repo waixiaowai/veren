@@ -28,7 +28,9 @@ const presetOf = (rows: readonly Row[], id: string) => rows.map(row => row.confi
 
 it('defines the worker preset Executor Sessions run under, with a shell that moves long commands to the background', async () => {
   const rows = await patched()
-  expect(rows.map(row => row.id)).toEqual(['dsh-superagent', 'dsh-superagent-github', 'dsh-superagent-gitea', 'dsh-superagent-feishu', 'dsh-superagent-taskhub',
+  // The bundle wires exactly one Source: the cms task-router worker. GitHub, Gitea and Feishu Source kinds still ship in the
+  // package, but a profile must insert their rows, so this list names no other Source.
+  expect(rows.map(row => row.id)).toEqual(['dsh-superagent', 'dsh-superagent-taskhub',
     'dsh-superagent-worker-preset', 'dsh-superagent-router-preset'])
   const preset = presetOf(rows, WORKER_PRESET)
   expect(preset.id).toBe(WORKER_PRESET)

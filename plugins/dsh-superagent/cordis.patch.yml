@@ -1,22 +1,17 @@
-# dsh-superagent bundle layer: inserts the plugins without configuration, and the agent presets its Sessions run under. The
-# profile supplies the `dsh-superagent` entry's stateDir (see docs/006-deployment.md and examples/profile.cordis.patch.yml); the plugin
-# refuses to start without stateDir.
+# dsh-superagent bundle layer: inserts the plugin and the agent presets its Sessions run under. This bundle wires exactly one
+# Source: the cms task-router worker (`dsh-superagent-taskhub`), which a profile enables and configures with its WS endpoint and
+# user API Key (docs/009-taskhub.md). The GitHub, Gitea and Feishu Source kinds still ship in this package; they register only
+# when a profile inserts their rows (`dsh-superagent/github-watch`, `dsh-superagent/gitea-watch`, `dsh-superagent/feishu-watch`).
+# The profile supplies the `dsh-superagent` entry's stateDir (see docs/006-deployment.md and examples/profile.cordis.patch.yml);
+# the plugin refuses to start without stateDir.
+# dsh-superagent 组合包层：装载插件本体与它各 Session 运行的 agent preset。本组合包只接一条来源：cms 任务路由工作节点
+# `dsh-superagent-taskhub`，由 profile 启停并配置 WS 端点与用户 API Key（见 docs/009-taskhub.cn.md）。GitHub / Gitea / 飞书
+# 三种来源仍随包提供，只有在 profile 插入对应行时才注册。profile 必须提供 `dsh-superagent` 行的 stateDir。
 - insert:
     - id: dsh-superagent
       name: dsh-superagent
-    - id: dsh-superagent-github
-      name: dsh-superagent/github-watch
-    # Optional Gitea Source (this fork's addition); requires configuring host, repository and the agent's gitea CLI after enabling.
-    # 可选的 Gitea 来源（本 fork 新增）；启用后需配置站点、仓库与智能体的 gitea CLI。
-    - id: dsh-superagent-gitea
-      name: dsh-superagent/gitea-watch
-      disabled: true
-    # Optional Feishu Source; requires configuring a bot CLI after enabling.
-    - id: dsh-superagent-feishu
-      name: dsh-superagent/feishu-watch
-      disabled: true
-    # Optional cms task-router worker (this fork's addition); requires the cms WS endpoint and a user API Key after enabling.
-    # 可选的 cms 任务路由工作节点（本 fork 新增）；启用后需配置 cms WS 端点与用户 API Key。
+    # The one Source this bundle wires. A profile enables it (`disabled: false`) and sets url, token and nodeId on its row.
+    # 本组合包唯一接的来源。profile 需把它启用（`disabled: false`）并在该行配置 url、token 与 nodeId。
     - id: dsh-superagent-taskhub
       name: dsh-superagent/taskhub-watch
       disabled: true
