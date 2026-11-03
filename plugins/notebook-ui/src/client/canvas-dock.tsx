@@ -4,9 +4,16 @@
  * throw-away stays a conscious terminal action: the trash button arms on the
  * first click and acts on the second, exactly like the editor's delete.
  *
+ * A long queue collapses to its count line: past three overdue cards the list
+ * costs more canvas height than it returns, so it waits behind one expand
+ * button until the reader asks for it.
+ *
  * 进料口：过期的闪念卡，钉在画布下方，每张的两个出口都在手边——炼成永久卡，
  * 或扔掉。「扔」保持为有意识的终局动作：扔键第一次点击只挂确认，第二次才执行，
  * 与编辑器的删除同款。
+ *
+ * 长队列收成计数行：过期超过三张时，列表吃掉的画布高度超过它的价值，因此藏在
+ * 一个展开钮后面，等读者自己要看。
  *
  * @module @veren/notebook-ui/client/canvas-dock
  */
@@ -15,6 +22,11 @@ import { useState } from 'react'
 import { agingLabelOf, agingText } from './aging.ts'
 import type { CanvasNodeView } from './remote.ts'
 import type { NotebookKey } from './locales.ts'
+
+/** Up to this many overdue cards the dock keeps its full list; beyond it the
+ * queue collapses to one count line until expanded. 过期卡不超过此数时进料口
+ * 保持完整列表；超过则收成一行计数，直到展开。 */
+const DOCK_VISIBLE_LIMIT = 3
 
 /** Everything the dock renders and the two intents it hands back. */
 export interface CanvasDockProps {
@@ -86,31 +98,97 @@ function DockRow({ t, node, busy, armed, onPromote, onTrash, onArm }: {
   )
 }
 
+/** The dock's count line: title, count, hint while compact, and the queue's
+ * expand/collapse switch when it is long enough to fold. 进料口的计数行：标题、
+ * 计数、紧凑时的提示，以及长到可折叠时的展开/收起开关。 */
+function DockHead({ t, count, folded, expanded, onToggle }: {
+  readonly t: (key: NotebookKey) => string
+  readonly count: number
+  readonly folded: boolean
+  readonly expanded: boolean
+  readonly onToggle: () => void
+}): React.ReactElement {
+  return (
+    <div className="notebook-dock-head">
+      <span>{t('intakeTitle')}</span>
+      <span className="notebook-dock-count">{count}</span>
+      {!folded && <span className="notebook-dock-hint">{t('intakeHint')}</span>}
+      {folded && (
+        <button
+          type="button" className="notebook-btn notebook-dock-toggle"
+          aria-expanded={expanded} onClick={onToggle}
+        >
+          {expanded ? t('dockCollapse') : t('dockExpand')}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** The queue's rows: one dock row per overdue card, in the face's order. 队列各行：每张过期卡一行，顺序同图面。 */
+function DockRows({ t, rows, busy, armedId, onPromote, onTrash, onArm }: {
+  readonly t: (key: NotebookKey) => string
+  readonly rows: readonly CanvasNodeView[]
+  readonly busy: boolean
+  readonly armedId: string | undefined
+  readonly onPromote: (id: string) => void
+  readonly onTrash: (id: string) => void
+  readonly onArm: (id: string | undefined) => void
+}): React.ReactElement {
+  return (
+    <ul className="notebook-dock-rows">
+      {rows.map(node => (
+        <DockRow
+          key={node.id}
+          t={t}
+          node={node}
+          busy={busy}
+          armed={armedId === node.id}
+          onPromote={onPromote}
+          onTrash={onTrash}
+          onArm={onArm}
+        />
+      ))}
+    </ul>
+  )
+}
+
+/** Whether the queue folds, and whether its rows show right now. 队列是否折叠、此刻是否显示各行。 */
+function dockView(count: number, expanded: boolean): { readonly folded: boolean; readonly showRows: boolean } {
+  const folded = count > DOCK_VISIBLE_LIMIT
+  return { folded, showRows: expanded || !folded }
+}
+
 /** Render the intake dock; nothing renders while the queue is empty. */
 export function CanvasDock(props: CanvasDockProps): React.ReactElement | null {
   const [armedId, setArmedId] = useState<string | undefined>(undefined)
+  const [expanded, setExpanded] = useState(false)
   if (props.overdue.length === 0) return null
+  const { folded, showRows } = dockView(props.overdue.length, expanded)
+  const toggle = (): void => {
+    setExpanded(value => !value)
+    setArmedId(undefined)
+  }
   return (
-    <section className="notebook-dock" aria-label={props.t('intakeTitle')}>
-      <div className="notebook-dock-head">
-        <span>{props.t('intakeTitle')}</span>
-        <span className="notebook-dock-count">{props.overdue.length}</span>
-        <span className="notebook-dock-hint">{props.t('intakeHint')}</span>
-      </div>
-      <ul className="notebook-dock-rows">
-        {props.overdue.map(node => (
-          <DockRow
-            key={node.id}
-            t={props.t}
-            node={node}
-            busy={props.busy}
-            armed={armedId === node.id}
-            onPromote={props.onPromote}
-            onTrash={props.onTrash}
-            onArm={setArmedId}
-          />
-        ))}
-      </ul>
+    <section className={`notebook-dock${showRows ? '' : ' is-folded'}`} aria-label={props.t('intakeTitle')}>
+      <DockHead
+        t={props.t}
+        count={props.overdue.length}
+        folded={folded}
+        expanded={expanded}
+        onToggle={toggle}
+      />
+      {showRows && (
+        <DockRows
+          t={props.t}
+          rows={props.overdue}
+          busy={props.busy}
+          armedId={armedId}
+          onPromote={props.onPromote}
+          onTrash={props.onTrash}
+          onArm={setArmedId}
+        />
+      )}
     </section>
   )
 }

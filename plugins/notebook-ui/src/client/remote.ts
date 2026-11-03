@@ -163,6 +163,10 @@ const OWNER_SCHEMA = z.looseObject({
   id: z.string(),
   declared: z.boolean(),
   noteCount: z.number(),
+  // Optional on the wire so a page can still read an older Host's roster; the
+  // election treats a missing value as "no activity yet".
+  // 线上可选，让页面仍能读旧宿主的归属名册；选举把缺失值当作「暂无活跃」。
+  lastActiveAt: z.string().optional(),
 })
 
 const NOTE_SCHEMA = z.looseObject({

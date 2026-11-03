@@ -20,7 +20,7 @@
  * @module @veren/notebook-ui/client/panel
  */
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { CanvasDock } from './canvas-dock.tsx'
 import { CanvasGraph } from './canvas.tsx'
 import { useMinWidth } from './canvas-viewport-auto.ts'
@@ -98,12 +98,15 @@ function overdueQueue(graphNodes: readonly CanvasNodeView[]): readonly CanvasNod
 }
 
 /** The canvas face: the full-bleed draggable graph and the intake dock
- * beneath — no editing on the canvas at all (the user's ruling). 画面：全幅
- * 可拖拽图区与其下的进料口——画布上没有任何编辑（用户裁定）。 */
-function CanvasColumn({ state, t, view }: {
+ * beneath — no editing on the canvas at all (the user's ruling). The empty
+ * state's action borrows the list (the writing surface) for a new draft.
+ * 画面：全幅可拖拽图区与其下的进料口——画布上没有任何编辑（用户裁定）。
+ * 空态的动作借用列表（创作面）开始新草稿。 */
+function CanvasColumn({ state, t, view, onStartNew }: {
   readonly state: BodyProps['state']
   readonly t: BodyProps['t']
   readonly view: ReturnType<typeof useNotebookView>
+  readonly onStartNew: () => void
 }) {
   const graphNodes = state.graph?.nodes ?? []
   return (
@@ -113,7 +116,9 @@ function CanvasColumn({ state, t, view }: {
           t={t}
           nodes={graphNodes}
           edges={state.graph?.edges ?? []}
-          fitKey={state.owner ?? ''}
+          viewKey={state.owner ?? ''}
+          loading={state.status === 'loading'}
+          onCreate={onStartNew}
         />
       </div>
       <CanvasDock
@@ -128,11 +133,12 @@ function CanvasColumn({ state, t, view }: {
 }
 
 /** The editor column: the seat plus the selected card's link sections. 编辑器列：席位加选中卡的链接两段。 */
-function EditorColumn({ state, t, view, actions }: {
+function EditorColumn({ state, t, view, actions, onSave }: {
   readonly state: BodyProps['state']
   readonly t: BodyProps['t']
   readonly view: ReturnType<typeof useNotebookView>
   readonly actions: BodyProps['actions']
+  readonly onSave: () => void
 }) {
   return (
     <div className="notebook-editor-column">
@@ -141,6 +147,7 @@ function EditorColumn({ state, t, view, actions }: {
         owner={state.owner}
         active={view.editingNew || view.selectedId !== undefined}
         view={view}
+        onSave={onSave}
       />
       {!view.editingNew && (
         <NoteLinks
@@ -159,17 +166,19 @@ function EditorColumn({ state, t, view, actions }: {
 /** The mode-aware layout: canvas mode is the canvas face alone (the user's
  * ruling); list mode keeps the list + editor columns. 模式感知布局：画布模式
  * 只有画布面（用户裁定）；列表模式保留列表+编辑器双栏。 */
-function NotebookLayout({ state, t, view, actions, mode }: {
+function NotebookLayout({ state, t, view, actions, mode, onStartNew, onSave }: {
   readonly state: BodyProps['state']
   readonly t: BodyProps['t']
   readonly view: ReturnType<typeof useNotebookView>
   readonly actions: BodyProps['actions']
   readonly mode: 'canvas' | 'list'
+  readonly onStartNew: () => void
+  readonly onSave: () => void
 }) {
   if (mode === 'canvas') {
     return (
       <div className="notebook-layout is-canvas">
-        <CanvasColumn state={state} t={t} view={view} />
+        <CanvasColumn state={state} t={t} view={view} onStartNew={onStartNew} />
       </div>
     )
   }
@@ -185,7 +194,7 @@ function NotebookLayout({ state, t, view, actions, mode }: {
         onOpen={view.openFromList}
         onCreate={view.startNew}
       />
-      <EditorColumn state={state} t={t} view={view} actions={actions} />
+      <EditorColumn state={state} t={t} view={view} actions={actions} onSave={onSave} />
     </div>
   )
 }
@@ -199,10 +208,45 @@ function useViewMode(): { readonly mode: 'canvas' | 'list'; readonly wide: boole
   return { mode: wide ? mode : 'list', wide, setMode }
 }
 
+/** The authoring state machine: a draft started from the canvas returns to the
+ * canvas once saved (idle → authoring(list) → saved(canvas)). A draft started
+ * in the list stays in the list. 创作状态机：从画布开始的草稿保存后回到画布
+ * （idle → authoring(list) → saved(canvas)）；从列表开始的草稿留在列表。 */
+function useAuthoringMode(mode: 'canvas' | 'list', setMode: (mode: 'canvas' | 'list') => void, view: ReturnType<typeof useNotebookView>): {
+  readonly startNew: () => void
+  readonly chooseOwner: (owner: string) => void
+  readonly changeMode: (next: 'canvas' | 'list') => void
+  readonly save: () => void
+} {
+  const returnToCanvas = useRef(false)
+  const startNew = (): void => {
+    if (mode === 'canvas') returnToCanvas.current = true
+    setMode('list')
+    view.startNew()
+  }
+  const chooseOwner = (owner: string): void => {
+    returnToCanvas.current = false
+    view.chooseOwner(owner)
+  }
+  const changeMode = (next: 'canvas' | 'list'): void => {
+    if (next === 'canvas') returnToCanvas.current = false
+    setMode(next)
+  }
+  const save = (): void => {
+    void view.save().then((saved) => {
+      if (!saved || !returnToCanvas.current) return
+      returnToCanvas.current = false
+      setMode('canvas')
+    })
+  }
+  return { startNew, chooseOwner, changeMode, save }
+}
+
 /** The page body: it holds the view state, so only it re-renders on selection. */
 function NotebookBody({ state, t, actions }: BodyProps) {
   const view = useNotebookView(state, t, actions)
   const { mode, wide, setMode } = useViewMode()
+  const authoring = useAuthoringMode(mode, setMode, view)
   return (
     <div className="notebook-page">
       <NotebookPageHeader
@@ -210,23 +254,24 @@ function NotebookBody({ state, t, actions }: BodyProps) {
         t={t}
         actions={actions}
         busy={view.busy}
-        onChooseOwner={view.chooseOwner}
-        onStartNew={view.startNew}
+        onChooseOwner={authoring.chooseOwner}
+        onStartNew={authoring.startNew}
         mode={wide
           ? {
             value: mode,
             canvasLabel: t('modeCanvas'),
             listLabel: t('modeList'),
-            onChange: setMode,
+            onChange: authoring.changeMode,
           }
           : undefined}
       />
-
       {state.status === 'error' && (
         <NotebookErrorBanner failedLabel={t('failed')} error={state.error} retryLabel={t('retry')} onRefresh={() => { actions.onRefresh() }} />
       )}
-
-      <NotebookLayout state={state} t={t} view={view} actions={actions} mode={mode} />
+      <NotebookLayout
+        state={state} t={t} view={view} actions={actions} mode={mode}
+        onStartNew={authoring.startNew} onSave={authoring.save}
+      />
     </div>
   )
 }

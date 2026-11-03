@@ -64,9 +64,10 @@ export function Tag({ tone = 'outline', title, children }: { tone?: TagTone; tit
   return <span className="dt-tag" data-tone={tone} title={title}>{children}</span>
 }
 
-export function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+export function Pill({ active, onClick, count, children }: { active: boolean; onClick: () => void; count?: number
+  children: ReactNode }) {
   return <button type="button" className={cx('dt-pill', active && 'dt-pill-active')} aria-pressed={active}
-    onClick={onClick}>{children}</button>
+    onClick={onClick}>{children}{count !== undefined && <span className="dt-count">{count}</span>}</button>
 }
 
 function walk<V extends string>(event: KeyboardEvent, values: readonly V[], value: V, onChange: (next: V) => void) {

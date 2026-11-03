@@ -84,11 +84,13 @@ export function applySelectionReset(atoms: ViewAtoms): void {
 }
 
 /**
- * 保存流程的执行段：busy/错误行置位、按新建或更新写入、成功后选中并刷新。
+ * 保存流程的执行段：busy/错误行置位、按新建或更新写入、成功后选中并刷新，
+ * 返回是否真的写入（画布发起的新建据此决定何时切回关系面）。
  * The execution half of the save flow: set busy/error lines, write as create or
- * update, then select the saved note and refresh.
+ * update, then select the saved note and refresh; returns whether a write
+ * happened (the canvas-initiated draft uses it to decide when to return).
  */
-export async function runSaveFlow(atoms: ViewAtoms, owner: string, title: string, openNote: (note: NoteView) => void): Promise<void> {
+export async function runSaveFlow(atoms: ViewAtoms, owner: string, title: string, openNote: (note: NoteView) => void): Promise<boolean> {
   const { t, actions, editingNew, selectedId, draft } = atoms
   atoms.setBusy(true)
   atoms.setError('')
@@ -105,28 +107,31 @@ export async function runSaveFlow(atoms: ViewAtoms, owner: string, title: string
           body: draft.body,
           ...draft.updatedAt === undefined ? {} : { expectedUpdatedAt: draft.updatedAt },
         })
-    if (note === undefined) return
+    if (note === undefined) return false
     openNote(note)
     atoms.setNotice(t('saved'))
     actions.onRefresh()
+    return true
   } catch (cause: unknown) {
     atoms.setError(messageOf(cause))
+    return false
   } finally {
     atoms.setBusy(false)
   }
 }
 
-/** 保存入口：先校验归属与标题，通过后进入执行段。
- * The save entry: validate the owner and title first, then run the flow. */
-export async function saveCurrent(atoms: ViewAtoms, openNote: (note: NoteView) => void): Promise<void> {
+/** 保存入口：先校验归属与标题，通过后进入执行段，返回是否写入成功。
+ * The save entry: validate the owner and title first, then run the flow and
+ * report whether the write succeeded. */
+export async function saveCurrent(atoms: ViewAtoms, openNote: (note: NoteView) => void): Promise<boolean> {
   const owner = atoms.state.owner
-  if (owner === undefined) return
+  if (owner === undefined) return false
   const title = atoms.draft.title.trim()
   if (title === '') {
     atoms.setError(atoms.t('titleRequired'))
-    return
+    return false
   }
-  await runSaveFlow(atoms, owner, title, openNote)
+  return runSaveFlow(atoms, owner, title, openNote)
 }
 
 /**

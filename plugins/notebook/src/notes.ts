@@ -213,13 +213,25 @@ export function findCards(table: NotebookTable<NoteRecord>, owner: string, query
  */
 export function ownersOf(table: NotebookTable<NoteRecord>, declared: readonly string[]): OwnerView[] {
   const counts = new Map<string, number>()
-  for (const record of table.all()) counts.set(record.owner, (counts.get(record.owner) ?? 0) + 1)
+  const latest = new Map<string, string>()
+  for (const record of table.all()) {
+    counts.set(record.owner, (counts.get(record.owner) ?? 0) + 1)
+    const seen = latest.get(record.owner)
+    // ISO-8601 strings sort chronologically, so the plain `>` compare is exact.
+    // ISO-8601 字符串按时间排序，因此直接 `>` 比较即可。
+    if (seen === undefined || record.updatedAt > seen) latest.set(record.owner, record.updatedAt)
+  }
   const names = new Set<string>(declared)
   for (const owner of counts.keys()) names.add(owner)
   const declaredSet = new Set(declared)
   return [...names]
     .sort((left, right) => left.localeCompare(right))
-    .map(id => ({ id, declared: declaredSet.has(id), noteCount: counts.get(id) ?? 0 }))
+    .map(id => ({
+      id,
+      declared: declaredSet.has(id),
+      noteCount: counts.get(id) ?? 0,
+      lastActiveAt: latest.get(id) ?? '',
+    }))
 }
 
 /**

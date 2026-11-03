@@ -25,6 +25,68 @@ import type { BoxGraphView, NoteView, NotebookRemoteApi, NotebookSnapshot, Owner
 /** How long the open page waits before re-reading, in milliseconds. */
 const POLL_MS = 8_000
 
+/** Where the browser remembers the owner the human last chose explicitly. 浏览器记住人上次显式选中的归属。 */
+export const LAST_OWNER_KEY = 'notebook-last-owner'
+
+/** Read the remembered owner, tolerating privacy modes that refuse storage. 读记忆中的归属，容忍拒绝存储的隐私模式。 */
+function readStoredOwner(): string | undefined {
+  try {
+    const value = globalThis.localStorage?.getItem(LAST_OWNER_KEY)
+    return value === null || value === undefined || value === '' ? undefined : value
+  } catch {
+    return undefined
+  }
+}
+
+/** Remember one explicit owner choice; a refusal only costs this session's memory. 记住一次显式归属选择；存储被拒只损失本会话之外的记忆。 */
+function storeOwner(owner: string): void {
+  try {
+    globalThis.localStorage?.setItem(LAST_OWNER_KEY, owner)
+  } catch {
+    // Quota or privacy modes refuse storage; the in-session selection stands.
+    // 配额或隐私模式会拒绝存储；本会话内的选择不受影响。
+  }
+}
+
+/** Rank two owners: more cards first, then more recent activity, then id. 两个归属的排序：卡数多者先，其次更近活跃，最后按 id 稳定。 */
+function compareOwners(left: OwnerView, right: OwnerView): number {
+  return right.noteCount - left.noteCount
+    || (right.lastActiveAt ?? '').localeCompare(left.lastActiveAt ?? '')
+    || left.id.localeCompare(right.id)
+}
+
+/** When no box holds a card, declared presets still outrank remembered-only ones. 无盒有卡时，仍被声明的预设排在只剩卡片的归属之前。 */
+function preferDeclared(owners: readonly OwnerView[]): readonly OwnerView[] {
+  const declared = owners.filter(owner => owner.declared)
+  return declared.length > 0 ? declared : owners
+}
+
+/**
+ * Elect the owner the page opens on.
+ *
+ * Invariants: an explicit memory wins while that owner still exists; otherwise
+ * a box with cards wins over any empty box (the old declaration-first rule
+ * opened a new reader on a blank canvas); card count ranks first, recent
+ * activity breaks ties, and the id makes the outcome deterministic. Empty
+ * declared boxes only win when no box has cards.
+ *
+ * @param owners - the live owner roster.
+ * @param lastOwner - the browser's remembered explicit choice, if any.
+ * @returns the elected owner id, or `undefined` for an empty roster.
+ *
+ * 选出页面打开时落在的归属。
+ *
+ * 不变式：显式记忆只要该归属仍存在就优先；否则有卡的盒胜过任何空盒（旧的
+ * 「声明优先」规则会把新读者扔进空白画布）；卡数是第一排序键，最近活跃破平，
+ * id 保证结果确定。只有所有盒都没有卡时，声明过的空盒才胜出。
+ */
+export function electOwner(owners: readonly OwnerView[], lastOwner: string | undefined): string | undefined {
+  if (lastOwner !== undefined && owners.some(owner => owner.id === lastOwner)) return lastOwner
+  const withCards = owners.filter(owner => owner.noteCount > 0)
+  const candidates = withCards.length > 0 ? withCards : preferDeclared(owners)
+  return [...candidates].sort(compareOwners)[0]?.id
+}
+
 /** The observable plus the owner selection and manual refresh the page uses. */
 export interface NotebookSource {
   readonly source: HostObservable<NotebookSnapshot>
@@ -60,7 +122,7 @@ function publishSnapshot(state: NotebookSourceState, next: Partial<NotebookSnaps
 async function runRound(api: NotebookRemoteApi, state: NotebookSourceState, mine: number): Promise<void> {
   try {
     const owners = await readOwners(api)
-    const chosen = chooseOwner(owners, state.owner)
+    const chosen = electOwner(owners, state.owner)
     state.owner = chosen
     if (chosen === undefined) {
       if (mine === state.epoch) {
@@ -98,7 +160,7 @@ function unsubscribeSource(state: NotebookSourceState, listener: () => void): vo
  * @returns the observable, its owner selection, and its manual refresh.
  */
 export function createNotebookSource(api: NotebookRemoteApi): NotebookSource {
-  const state: NotebookSourceState = { snapshot: initialSnapshot(), owner: undefined, epoch: 0, timer: undefined, listeners: new Set() }
+  const state: NotebookSourceState = { snapshot: initialSnapshot(), owner: readStoredOwner(), epoch: 0, timer: undefined, listeners: new Set() }
   return {
     source: {
       getSnapshot: () => state.snapshot,
@@ -111,18 +173,12 @@ export function createNotebookSource(api: NotebookRemoteApi): NotebookSource {
         return () => { unsubscribeSource(state, listener) }
       },
     },
-    select: (next) => { state.owner = next; loadRound(api, state) },
+    select: (next) => { state.owner = next; storeOwner(next); loadRound(api, state) },
     refresh: () => { loadRound(api, state) },
   }
 }
 
-/** Keep the selected owner when it still exists, else prefer a declared preset. */
-function chooseOwner(owners: readonly OwnerView[], current: string | undefined): string | undefined {
-  if (current !== undefined && owners.some(owner => owner.id === current)) return current
-  return owners.find(owner => owner.declared)?.id ?? owners[0]?.id
-}
-
-/** Read the owner list or throw the Host's message. */
+/** Read the owner roster or throw the Host's message. */
 async function readOwners(api: NotebookRemoteApi): Promise<readonly OwnerView[]> {
   const result = await api.owners({})
   if (!result.ok) throw new Error(result.error.message)

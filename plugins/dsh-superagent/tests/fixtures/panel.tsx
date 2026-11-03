@@ -51,6 +51,12 @@ export function find(name: string, selector = CONTROLS): HTMLElement {
   return match
 }
 export const tab = (name: string) => find(name, '[role="tab"]')
+/** A filter pill by its label; a pill renders its count after the label, so the text never equals the label alone. */
+export const pill = (name: string) => {
+  const match = all('.dt-pill').find(item => item.textContent?.startsWith(name))
+  if (!match) throw new Error(`No pill ${name}`)
+  return match
+}
 export async function click(target: string | HTMLElement) {
   const element = typeof target === 'string' ? find(target) : target
   await act(async () => { element.click() })

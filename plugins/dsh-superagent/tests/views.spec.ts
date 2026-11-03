@@ -299,7 +299,32 @@ it('offers a person to send a follow-up to Eval while a ticket decides it, or on
   expect(row()).toMatchObject({ actions: { requeue: false }, disposition: { queued: true } })
 })
 
-it('reads each ticket a page\'s follow-ups reached once, and nothing for a message no ticket can decide', () => {
+it('counts each Execution filter from the predicate that pages it, so no number can drift from its list', () => {
+  const host = views()
+  // One Ticket per stage: no Assignment queues, a running Assignment works, a question awaits a person, an ended
+  // Assignment rests idle, and an ended Ticket is gone from the live set.
+  const base = { decisionId: 'd', channels: [], undelivered: [] as string[], createdAt: at, updatedAt: at,
+    mandate: { strength: 'explicit' as const, policyVersion: 'v', basis: { via: 'listed' as const }, actor: { source: 'feishu',
+      id: 'ou_alice' }, scope: '' }, origin: { triggerId: 'e1', triggerIds: ['e1'] }, inputs: [] as never[] }
+  const save = (id: string, fields: Record<string, unknown>) => store.tickets.save({ ...base, id, title: id, assignments: [],
+    ...fields } as never)
+  save('queued', {})
+  save('running', { assignments: [{ id: 'a1', state: 'running', createdAt: at, startedAt: at }] })
+  save('asking', { attention: { id: 'q1', question: 'Which copy?' } })
+  save('idle', { assignments: [{ id: 'a2', state: 'ended', createdAt: at, endedAt: at }] })
+  save('old', { ended: { at, by: 'human', outcome: 'completed' } })
+  const counts = ticketCounts(store)
+  expect(counts).toEqual({ open: 4, person: 1, working: 2, idle: 1, ended: 1 })
+  for (const filter of ['open', 'person', 'working', 'idle', 'ended'] as const) {
+    const list = ticketList(host, filter, 0, 100)
+    // The filter's count, the page's total, and its rows agree by construction, at any page size.
+    expect([filter, list.counts[filter], list.total, list.items.length]).toEqual([filter, counts[filter], counts[filter], counts[filter]])
+  }
+  expect(ticketList(host, 'working', 0, 100).items.map(item => item.id).sort()).toEqual(['queued', 'running'])
+  // The Executor's slot count is its own number: three slots can hold four live Tickets.
+  expect(executorLoad(store, 3)).toEqual({ running: 3, queued: 1 })
+})
+
   const host = views()
   live('t1')
   store.threads.save({ key: 'feishu:oc_1:om_root', ref: { source: 'feishu', id: 'oc_1:om_root' }, createdAt: at, subscriptions: ['t1'],

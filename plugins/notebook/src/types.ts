@@ -122,6 +122,11 @@ export interface OwnerView {
   /** Whether the preset registry still declares this preset. */
   readonly declared: boolean
   readonly noteCount: number
+  /** The newest card update in this box, ISO-8601; an empty box reports ''.
+   * The owner election reads it to break card-count ties by real activity.
+   * 该盒最近一次卡片更新时间（ISO-8601），空盒为 ''。归属选举据此在卡数相同时
+   * 按真实活跃度裁决。 */
+  readonly lastActiveAt: string
 }
 
 /** One card that links to the queried card, as a view row renders it. 链到被查卡片的某张卡，视图行的形状。 */

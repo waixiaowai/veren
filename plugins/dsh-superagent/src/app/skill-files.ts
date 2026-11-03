@@ -21,7 +21,12 @@ function load(name: string) {
   if (!match) throw new Error(`Invalid packaged skill: ${path}`)
   return { name: match[1]!, description: match[2]!, content: match[3]!, path }
 }
-export const bundledSkills = { feishu: load('feishu'), github: load('github'), gitea: load('gitea') }
+export const bundledSkills = { feishu: load('feishu'), github: load('github'), gitea: load('gitea'), deepen: load('deepen') }
+/** The key of a bundled skill in `bundledSkills` / `sourceSkills`. */
+export type BundledSkillName = keyof typeof bundledSkills
+/** Is `name` a bundled skill's key? Guards the lookup of its packaged SKILL.md. */
+/* `name` 是不是内置技能的键？用于守卫对其打包 SKILL.md 的查找。 */
+export const isBundledSkill = (name: string): name is BundledSkillName => Object.hasOwn(bundledSkills, name)
 /**
  * Loads a built-in prompt file (`prompts/<name>.md`). Source `.md` files are written one sentence per line for
  * readable diffs; `promptFile` joins lines within each paragraph with spaces while keeping blank-line paragraph breaks.

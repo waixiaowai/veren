@@ -3,7 +3,7 @@
 import { act } from 'react'
 import { expect, it } from 'vitest'
 import { en, zh } from '../src/client/locales.ts'
-import { usePanel, mount, remount, all, find, tab, click, type, text, field, at } from './fixtures/panel.tsx'
+import { usePanel, mount, remount, all, find, pill, tab, click, type, text, field, at } from './fixtures/panel.tsx'
 import { MEMBER, server, ticketSummary, threadSummary } from './fixtures/panel-server.ts'
 
 usePanel()
@@ -17,13 +17,13 @@ it('lists Tickets under Execution by who they wait on, with the Executor state a
   expect(server.requests.some(request => request.path === 'tickets?state=open&limit=20')).toBe(true)
   expect(text()).toContain(zh.executorRunning)
   expect(all('.dt-chip').map(chip => chip.textContent)).toContain('GitHub#7自动合并已开启')
-  await click(zh.idleLabel)
+  await click(pill(zh.idleLabel))
   expect(server.requests.some(request => request.path === 'tickets?state=idle&limit=20')).toBe(true)
   expect(text()).toContain('执行器结束了当前回合')
-  await click(zh['ticket.ended'])
+  await click(pill(zh['ticket.ended']))
   expect(text()).toContain('旧工单')
   expect(text()).toContain(zh['outcome.stopped'])
-  expect(all('.dt-status-line .dt-lv').map(item => item.textContent)).toEqual(['执行中 2 / 3', '排队 0'])
+  expect(all('.dt-status-line .dt-lv').map(item => item.textContent)).toEqual(['执行槽位 2 / 3', '排队 0'])
   // The pause is its own action: an Execution settings draft started before it still saves.
   await click(find(zh['tab.settings'], '.dt-status-head button'))
   expect(tab(zh['tab.settings']).getAttribute('aria-selected')).toBe('true')
@@ -56,7 +56,7 @@ it('shows a Ticket with its stage, its Mandate details with the Trigger and Deci
   expect(document.querySelector('.dt-page-title h2')?.textContent).toBe('修复回归')
   // Progress is in the Channels and the Session, so the page has no report section.
   expect(all('.dt-section-title').map(title => title.querySelector('.dt-section-name')?.textContent)).toEqual(['授权详情', '未送达的输入', '订阅的线程'])
-  expect(document.querySelector('.dt-status-line .dt-stage')?.textContent).toBe(zh.executingLabel)
+  expect(document.querySelector('.dt-status-line .dt-stage')?.textContent).toBe(zh['stage.working'])
   expect(document.querySelector('.dt-status-line .dt-stage .dt-spinner')).not.toBeNull()
   // A Thread this Ticket follows reads as subscribed on its page, though no other Ticket follows it.
   expect(all('.dt-list .dt-ticket .dt-stage').map(stage => stage.textContent)).toContain(zh.threadSubscribed)
@@ -202,7 +202,7 @@ it('words an ended Ticket by its outcome, on its row and its page, with a person
   server.ticketDetails.t3 = { ...server.ticketDetails.t1!, ...fields, stage: 'ended' }
   await mount()
   await click(zh['tab.execution'])
-  await click(zh['ticket.ended'])
+  await click(pill(zh['ticket.ended']))
   expect(all('.dt-ticket-stage').map(stage => stage.textContent)).toEqual([zh['outcome.merged'], zh['outcome.stopped']])
   await click('已合并的工单')
   expect(document.querySelector('.dt-status-line .dt-stage')?.textContent).toBe(zh['outcome.merged'])

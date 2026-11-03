@@ -1,5 +1,6 @@
 /** Built-in prompt sections, role policies, and transcript projections for orchestrator and worker Sessions. */
 import { bundledSkills, promptFile } from './skill-files.ts'
+import type { BundledSkillName } from './skill-files.ts'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 export { textPage } from './cards.ts'
 
@@ -10,9 +11,10 @@ export const workerPrompt = promptFile('worker')
 /** Built-in policy sections referenced by role prompts; a team may override them. */
 export const guides: Readonly<Record<string, string>> = Object.fromEntries(['subscriptions', 'replies', 'dispatch', 'work']
   .map(name => [name, promptFile(name)]))
-/** Bundled Source skills registered by dsh-superagent; a team may override their text. */
-export const sourceSkills: Readonly<Record<'feishu' | 'github' | 'gitea', string>> =
-  { feishu: bundledSkills.feishu.content, github: bundledSkills.github.content, gitea: bundledSkills.gitea.content }
+/** Bundled skills registered by dsh-superagent (the Source skills and the deepen skill); a team may override their text. */
+/* dsh-superagent 注册的内置技能（各来源技能与加深技能）；团队可以改写其文本。 */
+export const sourceSkills: Readonly<Record<BundledSkillName, string>> =
+  { feishu: bundledSkills.feishu.content, github: bundledSkills.github.content, gitea: bundledSkills.gitea.content, deepen: bundledSkills.deepen.content }
 export const cliNotes = promptFile('cli')
 /** Default text for the team-editable prompt sections (communication, ticket scope, and PR delivery). */
 export const teamDefaults = {

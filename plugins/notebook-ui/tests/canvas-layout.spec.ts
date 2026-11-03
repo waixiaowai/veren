@@ -10,7 +10,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { applyOverrides, layoutCanvas } from '../src/client/canvas-layout.ts'
+import { applyOverrides, edgePath, layoutCanvas } from '../src/client/canvas-layout.ts'
+import { DEFAULT_ZOOM, initialView } from '../src/client/canvas-viewport-math.ts'
 import type { CanvasNodeView } from '../src/client/remote.ts'
 
 /** One node with only the fields the layout reads. 只带布局所读字段的节点。 */
@@ -151,10 +152,12 @@ describe('canvas layout — dragged-position overrides / 拖拽位置叠加', ()
     const moved = applyOverrides(base, new Map([['b', { id: 'b', x: 500, y: -300 }]]))
     expect(moved.byId.get('a')).toEqual(base.byId.get('a'))
     expect(moved.byId.get('b')).toEqual({ id: 'b', x: 500, y: -300 })
-    // The bounds grow to keep fit covering the dragged card.
-    // 边界随之增长，适配仍盖住被拖的卡。
+    // The bounds grow to keep fit covering the dragged card — outward drags
+    // expand them, they never clip the card.
+    // 边界随之增长，适配始终盖住被拖的卡——向外拖必扩张，绝不裁掉卡片。
     expect(moved.width).toBeGreaterThan(base.width)
-    expect(moved.height).toBeGreaterThan(base.height)
+    const far = applyOverrides(base, new Map([['b', { id: 'b', x: 500, y: 900 }]]))
+    expect(far.height).toBeGreaterThan(base.height)
   })
 
   it('is the identity for empty overrides and prunes unknown ids implicitly', () => {
@@ -166,6 +169,69 @@ describe('canvas layout — dragged-position overrides / 拖拽位置叠加', ()
     const stale = applyOverrides(base, new Map([['ghost', { id: 'ghost', x: 1, y: 1 }]]))
     expect(stale.byId.get('a')).toEqual(base.byId.get('a'))
     expect(stale.byId.has('ghost')).toBe(false)
+    // Dragging changes card positions, not the box's opening focus.
+    // 拖拽改变卡片位置，不改变盒的打开焦点。
+    expect(stale.focus).toEqual(base.focus)
   })
 })
+
+describe('canvas layout — opening focus / 打开焦点', () => {
+  it('focuses the hub ring centroid, not the drawing bounds', () => {
+    const layout = layoutCanvas([node({ id: 'hub', inbound: 2 })])
+    const hub = layout.byId.get('hub')!
+    expect(layout.focus).toEqual({ x: hub.x, y: hub.y })
+  })
+
+  it('falls back to the intake strip for a fleeting-only box', () => {
+    const layout = layoutCanvas([
+      node({ id: 'f1', kind: 'fleeting', aging: 'fresh' }),
+      node({ id: 'f2', kind: 'fleeting', aging: 'fresh' }),
+    ])
+    expect(layout.focus.y).toBeGreaterThan(0)
+  })
+
+  it('keeps the origin for an empty box', () => {
+    expect(layoutCanvas([]).focus).toEqual({ x: 0, y: 0 })
+  })
+})
+
+describe('canvas viewport — readable opening view / 可读打开视口', () => {
+  const size = { width: 800, height: 600 }
+
+  it('opens at the readable default zoom, never a fit squeeze', () => {
+    expect(DEFAULT_ZOOM).toBe(0.85)
+    expect(initialView(layoutCanvas([]), size).zoom).toBe(0.85)
+  })
+
+  it('centers the hub centroid in the viewport', () => {
+    const layout = layoutCanvas([node({ id: 'hub', inbound: 2 })])
+    const view = initialView(layout, size)
+    const hub = layout.byId.get('hub')!
+    // Screen point of the focus: focus * zoom + translate == viewport centre.
+    // 焦点在屏上的位置：焦点×缩放+平移 == 视口中心。
+    expect(hub.x * view.zoom + view.x).toBeCloseTo(size.width / 2)
+    expect(hub.y * view.zoom + view.y).toBeCloseTo(size.height / 2)
+  })
+})
+
+describe('canvas edges — curved paths / 曲线边', () => {
+  it('bends one chord along its normal instead of drawing a straight line', () => {
+    const path = edgePath({ x: 0, y: 0 }, { x: 100, y: 0 })
+    expect(path).toBe('M 0 0 Q 50 18 100 0')
+  })
+
+  it('mirrors the bend when the edge direction reverses', () => {
+    expect(edgePath({ x: 100, y: 0 }, { x: 0, y: 0 })).toBe('M 100 0 Q 50 -18 0 0')
+  })
+
+  it('keeps a minimum bend on short edges and a cap on long ones', () => {
+    expect(edgePath({ x: 0, y: 0 }, { x: 10, y: 0 })).toBe('M 0 0 Q 5 16 10 0')
+    // A 2000px chord would bend 360px; the cap keeps it at 110.
+    // 2000px 的弦本应弯 360px；封顶把它留在 110。
+    expect(edgePath({ x: 0, y: 0 }, { x: 2000, y: 0 })).toBe('M 0 0 Q 1000 110 2000 0')
+  })
+
+  it('degenerates to a point for coincident nodes', () => {
+    expect(edgePath({ x: 5, y: 5 }, { x: 5, y: 5 })).toBe('M 5 5')
+  })
 })

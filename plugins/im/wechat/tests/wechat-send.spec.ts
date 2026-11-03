@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { WEIXIN_FEATURES, splitText } from '../src/provider.ts'
 import { bodyOf, hangUntilAbort, jsonResponse, seedAccount, seedContext, setupProvider } from './support.ts'
+import { corpusCase, loadCorpus, recordedResponse } from './ilink-corpus.ts'
+
+// 发送面用例喂录制语料（L2）：成功帧与拒绝帧逐字取自真实上游响应，不再手写
+// `{ret:0}` 桩。语料来源与 SHA256 见 docs/ilink-send-contract.cn.md §5。
+const corpus = loadCorpus()
 
 describe('WeChat sending', () => {
   it('segments at 1,800 code units and reuses the cached context_token', async () => {
+    const ok = corpusCase(corpus, 'sendmessage-ok')
     const bodies: Record<string, unknown>[] = []
     const { provider, store, secrets } = await setupProvider((url, init) => {
       if (url.pathname.endsWith('/notifystart')) return jsonResponse({ ret: 0 })
@@ -11,7 +17,7 @@ describe('WeChat sending', () => {
       if (url.pathname.endsWith('/notifystop')) return jsonResponse({ ret: 0 })
       if (url.pathname.endsWith('/sendmessage')) {
         bodies.push(bodyOf(init))
-        return jsonResponse({ ret: 0 })
+        return recordedResponse(ok)
       }
       return jsonResponse({})
     })
@@ -36,7 +42,8 @@ describe('WeChat sending', () => {
     await provider.stop()
   })
 
-  it('rejects ret=-2 once as IM_SEND_REJECTED and does not retry', async () => {
+  it('rejects the recorded -3 delivery failure once as IM_SEND_REJECTED and does not retry', async () => {
+    const rejected = corpusCase(corpus, 'sendmessage-ret-3')
     let sendCalls = 0
     const { provider, store, secrets } = await setupProvider((url, init) => {
       if (url.pathname.endsWith('/notifystart')) return jsonResponse({ ret: 0 })
@@ -44,7 +51,7 @@ describe('WeChat sending', () => {
       if (url.pathname.endsWith('/notifystop')) return jsonResponse({ ret: 0 })
       if (url.pathname.endsWith('/sendmessage')) {
         sendCalls += 1
-        return jsonResponse({ ret: -2 })
+        return recordedResponse(rejected)
       }
       return jsonResponse({})
     })
@@ -53,7 +60,7 @@ describe('WeChat sending', () => {
     await expect(provider.send({
       target: { accountId: 'acc-1', conversationId: 'p2p:user-1' },
       content: { type: 'text', text: 'hi' },
-    })).rejects.toMatchObject({ code: 'IM_SEND_REJECTED', providerCode: '-2' })
+    })).rejects.toMatchObject({ code: 'IM_SEND_REJECTED', providerCode: '-3' })
     expect(sendCalls).toBe(1)
     await provider.stop()
   })

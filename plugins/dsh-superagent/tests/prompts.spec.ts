@@ -95,7 +95,7 @@ it('rejects unknown keys, built-in skill names and oversized configuration befor
     const prompts = promptsOf(store)
     expect(() => prompts.save({ ...defaultPrompts(), shared: 'x' }, 0, 'panel')).toThrow()
     expect(() => prompts.save({ communication: '', scope: '' }, 0, 'panel')).toThrow()
-    for (const name of ['github', 'feishu']) expect(() => prompts.save({ ...defaultPrompts(), skills: { [name]: 'mine' } }, 0, 'panel')).toThrow('built-in skill')
+    for (const name of ['github', 'feishu', 'deepen']) expect(() => prompts.save({ ...defaultPrompts(), skills: { [name]: 'mine' } }, 0, 'panel')).toThrow('built-in skill')
     expect(() => prompts.save({ ...defaultPrompts(), skills: { 'Bad Name': 'x' } }, 0, 'panel')).toThrow()
     expect(() => promptsOf(store, 1000).save(defaultPrompts(), 0, 'panel')).toThrow('exceeds')
     expect(prompts.current().revision).toBe(0)
@@ -112,14 +112,17 @@ it('lists a ticket\'s execution environment in its prompt, and says setup is inc
   })
 })
 
-it('registers the built-in Source skills, Feishu only with a Feishu bot, before the team skills', () => {
+it('registers the built-in skills, Feishu only with a Feishu bot, before the team skills', () => {
   withStore(store => {
     const config = { ...defaultPrompts(), skills: { release: 'Tag releases.' } }
     const skills = promptsOf(store).skills(config)
-    expect(skills.map(([name]) => name)).toEqual(['feishu', 'github', 'release'])
+    expect(skills.map(([name]) => name)).toEqual(['feishu', 'github', 'deepen', 'release'])
+    // The Source skills read the packaged CLI notes; the deepen skill is methodology and carries none.
     expect(skills[1]![1]).toContain('## CLI usage')
-    expect(skills[2]![1]).toBe('Tag releases.')
-    expect(new Prompts(store, () => 100000, variables, () => false).skills(config).map(([name]) => name)).toEqual(['github', 'release'])
+    expect(skills[2]![0]).toBe('deepen')
+    expect(skills[2]![1]).not.toContain('## CLI usage')
+    expect(skills[3]![1]).toBe('Tag releases.')
+    expect(new Prompts(store, () => 100000, variables, () => false).skills(config).map(([name]) => name)).toEqual(['github', 'deepen', 'release'])
   })
 })
 
@@ -131,7 +134,8 @@ describe('overrides of built-in parts', () => {
     withStore(store => {
       const prompts = promptsOf(store)
       const edited = prompts.validate(config({ 'runtime/shared': { text: 'Shared, the team way.' }, 'runtime/dispatch': { text: '## dispatch\nRoute well.' },
-        'runtime/handoff/worker': { text: 'Hand off as a worker.' }, 'skill/github': { text: 'GitHub, the team way.' } }))
+        'runtime/handoff/worker': { text: 'Hand off as a worker.' }, 'skill/github': { text: 'GitHub, the team way.' },
+        'skill/deepen': { text: 'Deepen, the team way.' } }))
       const main = prompts.compose(edited, 'orchestrator'), worker = prompts.compose(edited, 'worker')
       for (const prompt of [main, worker]) expect(prompt.startsWith('Shared, the team way.\n\n')).toBe(true)
       expect(main).toContain('## dispatch\nRoute well.')
@@ -139,6 +143,7 @@ describe('overrides of built-in parts', () => {
       expect(worker).toContain('Hand off as a worker.')
       expect(main).toContain(handoffPolicy('orchestrator'))
       expect(prompts.skills(edited)).toContainEqual(['github', 'GitHub, the team way.'])
+      expect(prompts.skills(edited)).toContainEqual(['deepen', 'Deepen, the team way.'])
       // The parts say what they are edited by.
       expect(promptParts(edited, 'worker').find(part => part.name === 'runtime/handoff')).toMatchObject({ key: 'runtime/handoff/worker',
         text: 'Hand off as a worker.' })

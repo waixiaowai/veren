@@ -42,6 +42,7 @@ The three tracks never cross: a device key on the user plane → denied; a JWT o
 |------|------|------|
 | `GET /v1/im/user/overview` | auth tri-state + `imhub:view` | session state (bot liveness/owner) + message/people counts |
 | `GET /v1/im/user/messages` | same | message log (newest first, limit) |
+| `GET /v1/im/user/timeline` | same | message timeline (inbound + replies + execution nodes merged, newest first; replies carry delivery state) |
 | `GET /v1/im/user/people` | same | people directory (with address bindings) |
 | `PATCH /v1/im/user/people/{id}` | same | rename display name / note (mirrors the device renamePerson semantics) |
 | `POST /v1/im/user/authorize` | auth tri-state + `imhub:manage` | re-authorization trigger (delegates to the manage permission) |

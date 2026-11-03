@@ -1,6 +1,6 @@
 /** Ticket list, ticket detail, mandate basis formatting, and executor load views. */
-import { liveTicket, threadKey, ticketStage, type AcceptMode, type AdmissionCell, type MandateBasis, type Ticket,
-  type TicketStage } from '../../core/index.ts'
+import type { TicketFilter } from '../api.ts'
+import { liveTicket, threadKey, ticketStage, type AcceptMode, type AdmissionCell, type MandateBasis, type Ticket } from '../../core/index.ts'
 import { workerSessionId } from '../../executor/dsh.ts'
 import type { Store } from '../store.ts'
 import { channelLink, decisionView, newestFirst, page, snapshot, threadSummary, ticketLine, type Snapshot,
@@ -32,13 +32,30 @@ export function basisFacts(basis: MandateBasis, rule: Snapshot['rule']): { facts
   if (authority) facts.push({ name: 'legacyAuthority', value: authority })
   return { facts, legacy: authority !== undefined }
 }
-export function ticketList(host: ViewHost, stage: 'open' | TicketStage['stage'], offset: number, limit: number) {
+/** Tickets one Execution filter lists: `open` every live Ticket, `ended` the ended set, every other filter one stage. */
+/* 单个执行过滤条件下列出的工单：open 是所有存活工单，ended 是已结束集合，其余各按一个阶段。 */
+export function ticketsForFilter(store: Store, filter: TicketFilter): Ticket[] {
+  // Ended Tickets exist only in `list()`; every other filter reads live Tickets from `open()`.
+  /* 已结束工单只存在于 list() 中；其余过滤条件都从 open() 读存活工单。 */
+  const source = filter === 'ended' ? store.tickets.list() : store.tickets.open()
+  return source.filter(ticket => filter === 'open' ? liveTicket(ticket) : ticketStage(ticket).stage === filter)
+}
+/** How many Tickets each Execution filter lists, keyed so a new filter cannot be added without a count. */
+/* 每个执行过滤条件下的工单条数；新增过滤条件而不补计数会编译失败。 */
+export type TicketCounts = Record<TicketFilter, number>
+/** Counts the Tickets of every Execution filter from the same predicates that list them. */
+/* 用与列表相同的谓词统计每个执行过滤条件下的工单，数字与列表因此不会漂移。 */
+export function ticketCounts(store: Store): TicketCounts {
+  const count = (filter: TicketFilter) => ticketsForFilter(store, filter).length
+  return { open: count('open'), person: count('person'), working: count('working'), idle: count('idle'), ended: count('ended') }
+}
+export function ticketList(host: ViewHost, filter: TicketFilter, offset: number, limit: number) {
   const view = snapshot(host)
   const { store } = view
-  const shown = (ticket: Ticket) => stage === 'open' ? liveTicket(ticket) : ticketStage(ticket).stage === stage
-  const tickets = (stage === 'ended' ? store.tickets.list() : store.tickets.open()).filter(shown).sort(newestFirst)
-  const result = page(tickets, offset, limit)
-  return { ...result, items: result.items.map(ticket => ticketRow(view, ticket)) }
+  const result = page(ticketsForFilter(store, filter).sort(newestFirst), offset, limit)
+  // The rows and every filter's count come from one read, so a rendered number cannot disagree with its list.
+  /* 行与所有过滤条件的计数来自同一次读取，渲染出的数字不可能与它的列表对不上。 */
+  return { ...result, counts: ticketCounts(store), items: result.items.map(ticket => ticketRow(view, ticket)) }
 }
 export type TicketListView = ReturnType<typeof ticketList>
 export function ticketRow(view: Snapshot, ticket: Ticket) {
@@ -50,8 +67,11 @@ export function ticketRow(view: Snapshot, ticket: Ticket) {
 /** Executor slot utilization: `running` worker Sessions in an active turn (which occupy slots and are interrupted by a restart), and tickets `queued` for a slot. */
 export interface ExecutorLoad { running: number; queued: number }
 export function executorLoad(store: Store, running: number): ExecutorLoad {
-  const queued = (ticket: Ticket) => { const stage = ticketStage(ticket); return stage.stage === 'working' && stage.action === 'queued' }
-  return { running, queued: store.tickets.open().filter(queued).length }
+  // Queued Tickets are the subset of the `working` filter that no worker has taken up yet.
+  /* 排队工单是 working 过滤条件里还没有 worker 接手的那部分。 */
+  const queued = ticketsForFilter(store, 'working').filter(ticket => { const stage = ticketStage(ticket)
+    return stage.stage === 'working' && stage.action === 'queued' }).length
+  return { running, queued }
 }
 export function ticketDetail(host: ViewHost, id: string) {
   const { store } = host

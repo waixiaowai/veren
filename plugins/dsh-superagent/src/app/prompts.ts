@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { UserError, key } from '../core/index.ts'
 import { policyVersion, type Settings, type SettingsOrigin } from '../policy.ts'
 import { masterPrompt, workerPrompt, sharedPrompt, guides, mainAdmissionPolicy, handoffPolicy, teamDefaults, sourceSkills, cliNotes } from './context.ts'
+import { isBundledSkill } from './skill-files.ts'
 import { environmentLines, type Variable } from './execution-environment.ts'
 import { promptsNotice } from './notices.ts'
 import type { Sessions } from './sessions.ts'
@@ -23,7 +24,7 @@ const SkillNameSchema = z.string().regex(SKILL_NAME).refine(name => !(Object.key
 /** The built-in parts a team may override, by key: both roles' parts, the Source skills, and the generated parts' templates. */
 const PART_KEYS = ['runtime/shared', 'runtime/orchestrator', 'runtime/worker', 'runtime/subscriptions', 'runtime/replies',
   'runtime/dispatch', 'runtime/work', 'runtime/admission', 'runtime/handoff/orchestrator', 'runtime/handoff/worker', 'runtime/environment',
-  'runtime/policy', 'runtime/policy/none', 'skill/feishu', 'skill/github', 'skill/gitea'] as const
+  'runtime/policy', 'runtime/policy/none', 'skill/feishu', 'skill/github', 'skill/gitea', 'skill/deepen'] as const
 export type PartKey = typeof PART_KEYS[number]
 /** A team's text for a built-in part, and `base`, the key of the built-in text it was edited from. */
 const OverrideSchema = z.object({ text: z.string(),
@@ -68,6 +69,9 @@ export const builtInParts = (): Readonly<Record<PartKey, BuiltInPart>> => parts 
   'skill/feishu': { roles: BOTH, text: `${sourceSkills.feishu}\n\n## CLI usage\n${cliNotes}` },
   'skill/github': { roles: BOTH, text: `${sourceSkills.github}\n\n## CLI usage\n${cliNotes}` },
   'skill/gitea': { roles: BOTH, text: `${sourceSkills.gitea}\n\n## CLI usage\n${cliNotes}` },
+  // The deepen skill is methodology, not a Source's CLI, so it carries no CLI notes.
+  /* 加深技能讲的是方法论，不是某个来源的 CLI，因此不带 CLI 说明。 */
+  'skill/deepen': { roles: BOTH, text: sourceSkills.deepen },
 }
 /** The key of a built-in text, which an override's `base` records. */
 export const builtInBase = (text: string): string => key('prompt-built-in', text)
@@ -119,7 +123,7 @@ export function composePrompt(config: PromptConfig, role: Role, environment?: st
   return promptParts(config, role, environment, policy).map(part => part.text).join('\n\n')
 }
 export function composeSkill(config: PromptConfig, name: string): string {
-  return name === 'feishu' || name === 'github' || name === 'gitea' ? builtIn(config, `skill/${name}`) : config.skills[name] ?? ''
+  return isBundledSkill(name) ? builtIn(config, `skill/${name}`) : config.skills[name] ?? ''
 }
 
 /** An override whose built-in text changed since its `base`, with that text when kept, or whose part this version no longer has. */
@@ -143,10 +147,10 @@ export class Prompts {
   compose(config: PromptConfig, role: Role, variables = this.environment()): string {
     return composePrompt(config, role, environmentSection(config, variables), role === 'orchestrator' ? policySection(this.store.settings(), config) : undefined)
   }
-  /** Returns skills to register in every Session: built-in Source skills (`feishu` only when a Feishu bot is configured, `gitea` only when a Gitea account is) followed by team skills. */
-  /** 返回要在每个 Session 注册的技能：内置来源技能（飞书仅在配置了机器人时、Gitea 仅在有账号时），后跟团队技能。 */
+  /** Returns skills to register in every Session: built-in Source skills (`feishu` only when a Feishu bot is configured, `gitea` only when a Gitea account is), the deepen skill, then team skills. */
+  /** 返回要在每个 Session 注册的技能：内置来源技能（飞书仅在配置了机器人时、Gitea 仅在有账号时）、加深技能，后跟团队技能。 */
   skills(config: PromptConfig): [string, string][] {
-    return [...this.feishu() ? ['feishu'] : [], ...this.gitea() ? ['gitea'] : [], 'github', ...Object.keys(config.skills)]
+    return [...this.feishu() ? ['feishu'] : [], ...this.gitea() ? ['gitea'] : [], 'github', 'deepen', ...Object.keys(config.skills)]
       .map(name => [name, composeSkill(config, name)])
   }
   current(): PromptVersion {

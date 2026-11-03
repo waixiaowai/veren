@@ -62,12 +62,22 @@ export interface PlacedNode {
   readonly y: number
 }
 
+/** One point in canvas coordinates (centers, not corners). 画布坐标中的一个点（中心，非左上角）。 */
+export interface CanvasPoint {
+  readonly x: number
+  readonly y: number
+}
+
 /** The layout result: every node exactly once, plus the drawing's bounds. 布局结果：每卡恰好一次，外加图幅边界。 */
 export interface CanvasLayout {
   readonly placed: readonly PlacedNode[]
   readonly byId: ReadonlyMap<string, PlacedNode>
   readonly width: number
   readonly height: number
+  /** Where the initial view centers: the hub ring's centroid, falling back to
+   * all citizens, then the intake strip, then the origin. 初始视口的居中点：
+   * 枢纽环质心，退化到全部图内公民，再到进料带，最后原点。 */
+  readonly focus: CanvasPoint
 }
 
 /** Order-insensitive string compare — code-unit order, locale-free. 与顺序无关、与 locale 无关的字符串比较（码元序）。 */
@@ -99,6 +109,20 @@ interface CitizenPlacement {
   readonly placed: readonly PlacedNode[]
   readonly citizens: number
   readonly outerRadius: number
+  /** The hub ring's centroid, or the whole citizen cloud's when no hub exists. 枢纽环质心；无枢纽时取全部公民的质心。 */
+  readonly focus: CanvasPoint
+}
+
+/** The centroid of a set of placed cards; the origin for an empty set. 一组落位卡的质心；空集取原点。 */
+function centroidOf(placed: readonly PlacedNode[]): CanvasPoint {
+  if (placed.length === 0) return { x: 0, y: 0 }
+  let x = 0
+  let y = 0
+  for (const node of placed) {
+    x += node.x
+    y += node.y
+  }
+  return { x: round2(x / placed.length), y: round2(y / placed.length) }
 }
 
 /** Place the graph citizens on up to three rings: hubs, outflow, islands. 把图内公民排到最多三圈环上：枢纽、流出口、孤岛。 */
@@ -120,10 +144,14 @@ function placeCitizens(nodes: readonly CanvasNodeView[]): CitizenPlacement {
       : Math.max(floor, fitRadius(tiers[tier]!.length, RING_MIN[tier]!))
   }
   const placed: PlacedNode[] = []
+  const hubPlaced: PlacedNode[] = []
   for (let tier = 0; tier < tiers.length; tier++) {
-    placed.push(...placeRing(tiers[tier]!.map(node => node.id), radii[tier]!))
+    const ring = placeRing(tiers[tier]!.map(node => node.id), radii[tier]!)
+    if (tier === 0) hubPlaced.push(...ring)
+    placed.push(...ring)
   }
-  return { placed, citizens: citizens.length, outerRadius: radii[2]! }
+  const focus = centroidOf(hubPlaced.length > 0 ? hubPlaced : placed)
+  return { placed, citizens: citizens.length, outerRadius: radii[2]!, focus }
 }
 
 /** Place the fleeting cards on the intake grid: overdue first, each oldest first. 把闪念卡排上进料网格：过期在前，各自最早优先。 */
@@ -172,7 +200,10 @@ export function layoutCanvas(nodes: readonly CanvasNodeView[]): CanvasLayout {
   const zone = placeCitizens(nodes)
   const placed = [...zone.placed, ...placeIntake(nodes, zone)]
   const byId = new Map(placed.map(node => [node.id, node]))
-  return { placed, byId, width: bounds(placed, node => node.x, NODE_W), height: bounds(placed, node => node.y, NODE_H) }
+  // A fleeting-only box has no ring centroid: center on the intake strip.
+  // 只有闪念的盒没有环质心：居中到进料带。
+  const focus = zone.citizens > 0 ? zone.focus : centroidOf(placed)
+  return { placed, byId, width: bounds(placed, node => node.x, NODE_W), height: bounds(placed, node => node.y, NODE_H), focus }
 }
 
 /**
@@ -192,5 +223,46 @@ export function applyOverrides(base: CanvasLayout, overrides: ReadonlyMap<string
   if (overrides.size === 0) return base
   const placed = base.placed.map(node => overrides.get(node.id) ?? node)
   const byId = new Map(placed.map(node => [node.id, node]))
-  return { placed, byId, width: bounds(placed, node => node.x, NODE_W), height: bounds(placed, node => node.y, NODE_H) }
+  // Dragging moves cards, not the frame the box opens on: keep the base focus.
+  // 拖拽移动卡片，不移动盒打开时对准的框：保留基准质心。
+  return {
+    placed, byId, focus: base.focus,
+    width: bounds(placed, node => node.x, NODE_W), height: bounds(placed, node => node.y, NODE_H),
+  }
+}
+
+/** How much of a chord becomes the Bézier bend; capped so long edges stay readable. 弦长转为贝塞尔弯曲的比例；封顶让长边仍可读。 */
+const EDGE_BEND_RATIO = 0.18
+const EDGE_BEND_MIN = 16
+const EDGE_BEND_MAX = 110
+
+/**
+ * The SVG path of one edge: a quadratic Bézier bent along the ring's tangent
+ * instead of a straight chord. Two chords that met in an X at the centre are
+ * pushed onto opposite arcs, so the relation's direction reads without the
+ * lines covering the cards between them.
+ *
+ * The control point sits at the chord midpoint plus the unit normal times the
+ * bend, consistent for every edge, so the result is deterministic and
+ * order-free just like the layout.
+ *
+ * @param from - the source card's centre.
+ * @param to - the target card's centre.
+ * @returns an SVG path (`M … Q … …`), or a degenerate point for coincident nodes.
+ *
+ * 一条边的 SVG 路径：二次贝塞尔沿环的切线方向弯曲，而不是直线弦。两条在圆心
+ * 交叉成 X 的弦被推到相反的弧上，关系走向因此可读，线也不会盖住中间的卡。
+ *
+ * 控制点在弦中点加单位法线乘弯曲量，所有边同一规则，因此与布局一样确定且
+ * 与顺序无关。
+ */
+export function edgePath(from: CanvasPoint, to: CanvasPoint): string {
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  const length = Math.hypot(dx, dy)
+  if (length < 0.01) return `M ${String(from.x)} ${String(from.y)}`
+  const bend = Math.min(EDGE_BEND_MAX, Math.max(EDGE_BEND_MIN, length * EDGE_BEND_RATIO))
+  const controlX = round2((from.x + to.x) / 2 - (dy / length) * bend)
+  const controlY = round2((from.y + to.y) / 2 + (dx / length) * bend)
+  return `M ${String(from.x)} ${String(from.y)} Q ${String(controlX)} ${String(controlY)} ${String(to.x)} ${String(to.y)}`
 }

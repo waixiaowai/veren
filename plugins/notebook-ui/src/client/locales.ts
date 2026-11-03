@@ -25,8 +25,8 @@ export type NotebookKey =
   | 'removed' | 'updatedAt' | 'selectNote' | 'close'
   | 'linksTitle' | 'linksLoading' | 'linksFailed' | 'outgoing' | 'outgoingEmpty' | 'incoming' | 'incomingEmpty'
   | 'kindFleeting' | 'kindPermanent' | 'kindProject'
-  | 'modeCanvas' | 'modeList' | 'canvasTitle' | 'canvasFit' | 'canvasZoomIn' | 'canvasZoomOut'
-  | 'intakeTitle' | 'intakeHint' | 'promote' | 'promoted' | 'trash' | 'dueIn' | 'overdueFor'
+  | 'modeCanvas' | 'modeList' | 'canvasTitle' | 'canvasFit' | 'canvasZoomIn' | 'canvasZoomOut' | 'canvasEmptyHint'
+  | 'intakeTitle' | 'intakeHint' | 'promote' | 'promoted' | 'trash' | 'dueIn' | 'overdueFor' | 'dockExpand' | 'dockCollapse'
 
 /** Chinese dictionary. */
 export const zh: Record<NotebookKey, string> = {
@@ -81,6 +81,7 @@ export const zh: Record<NotebookKey, string> = {
   canvasFit: '适配',
   canvasZoomIn: '放大',
   canvasZoomOut: '缩小',
+  canvasEmptyHint: '切到列表，写下第一条——画布只负责看关系。',
   intakeTitle: '进料口',
   intakeHint: '过期的闪念在这里等加工：炼成永久卡，或扔掉',
   promote: '炼成',
@@ -88,6 +89,8 @@ export const zh: Record<NotebookKey, string> = {
   trash: '扔',
   dueIn: '剩 {d} 天',
   overdueFor: '已过期 {d} 天',
+  dockExpand: '展开',
+  dockCollapse: '收起',
 }
 
 /** English dictionary. */
@@ -143,6 +146,7 @@ export const en: Record<NotebookKey, string> = {
   canvasFit: 'Fit',
   canvasZoomIn: 'Zoom in',
   canvasZoomOut: 'Zoom out',
+  canvasEmptyHint: 'Switch to the list and write the first one — the canvas only shows relations.',
   intakeTitle: 'Intake queue',
   intakeHint: 'Overdue fleeting cards wait here: promote them, or trash them',
   promote: 'Promote',
@@ -150,4 +154,6 @@ export const en: Record<NotebookKey, string> = {
   trash: 'Trash',
   dueIn: '{d}d left',
   overdueFor: 'overdue {d}d',
+  dockExpand: 'Expand',
+  dockCollapse: 'Collapse',
 }

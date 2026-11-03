@@ -1,12 +1,12 @@
 /** Overview view: active system problems, tickets awaiting human action, executor load, and 24-hour trigger flow. */
-import { reasonText, ticketStage, type Decision, type Thread } from '../../core/index.ts'
+import { reasonText, type Decision, type Thread } from '../../core/index.ts'
 import type { Health } from '../../sources/host.ts'
 import type { SetupProblem } from '../../setup.ts'
 import { anyoneAllowed } from '../../policy.ts'
 import type { Store } from '../store.ts'
 import { awaitingEval, dayAgo, newestFirst, ownersOf, snapshot, threadSummary, type ViewHost } from './records.ts'
 import { sourceHealth, type HealthMap } from './sources.ts'
-import { ticketRow, type ExecutorLoad } from './tickets.ts'
+import { ticketCounts, ticketsForFilter, ticketRow, type ExecutorLoad } from './tickets.ts'
 import { preview } from './text.ts'
 
 /** Threads whose latest decision since `since` is an undismissed `unavailable` eval and that are neither evaluating nor queued. */
@@ -64,14 +64,14 @@ export function overview(host: ViewHost, health: HealthMap, policyVersionValue: 
       text: preview(item.text),
       attempts: item.attempts, error: item.error } })),
   ]
-  const open = store.tickets.open().sort(newestFirst)
+  const counts = ticketCounts(store)
   const stats = Object.values(store.read.triggerStats(since))
   const received = stats.reduce((sum, item) => sum + item.received, 0), filtered = stats.reduce((sum, item) => sum + item.filtered, 0)
   const judgement = store.read.flow(since)
   return {
     problems,
-    person: open.filter(ticket => ticketStage(ticket).stage === 'person').map(ticket => ticketRow(view, ticket)),
-    executor: { ...load, maxWorkers: settings.executor.maxWorkers, idle: open.filter(ticket => ticketStage(ticket).stage === 'idle').length },
+    person: ticketsForFilter(store, 'person').sort(newestFirst).map(ticket => ticketRow(view, ticket)),
+    executor: { ...load, maxWorkers: settings.executor.maxWorkers, idle: counts.idle },
     flow: { received, filtered, triggers: received - filtered, judged: judgement.judged, accepted: judgement.accepted,
       evaluating: evaluating.length, dropped: store.read.droppedSince(since) },
     policyVersion: policyVersionValue,

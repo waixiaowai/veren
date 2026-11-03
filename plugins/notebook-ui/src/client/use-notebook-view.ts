@@ -51,7 +51,8 @@ export interface NotebookView {
   startNew(): void
   chooseOwner(owner: string): void
   edit(patch: Partial<Pick<Draft, 'title' | 'body'>>): void
-  save(): Promise<void>
+  /** Save the draft; resolves true once a write completed. 保存草稿；写入完成即解析为 true。 */
+  save(): Promise<boolean>
   remove(): Promise<void>
   /** Drop the selection (a click on empty canvas). 清除选中（点在空画布上）。 */
   clearSelection(): void
@@ -132,8 +133,12 @@ function navigationHandlers(atoms: Parameters<typeof applyNoteSelection>[0], ope
     openFromList: (note: NoteView): void => { atoms.deleted.current = undefined; openNote(note) },
     startNew: (): void => {
       atoms.deleted.current = undefined
-      atoms.setEditingNew(true)
+      // Reset first, then arm the draft: the reset clears `editingNew`, so the
+      // old order (arm, reset) left the editor closed — the canvas-side dead end.
+      // 先复位再进入草稿：复位会清掉 `editingNew`，旧顺序（先置位再复位）让
+      // 编辑器从未打开——这就是画布侧的死端。
       resetAll()
+      atoms.setEditingNew(true)
     },
     chooseOwner: (owner: string): void => {
       atoms.deleted.current = undefined

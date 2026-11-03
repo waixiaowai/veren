@@ -42,6 +42,7 @@ IM 全景视图（账号/会话/人员/采集四 tab）的宿主 = **DSH 面板*
 |------|------|------|
 | `GET /v1/im/user/overview` | auth 三态 + `imhub:view` | 会话状态（bot 存活/owner）+ 消息/人员计数 |
 | `GET /v1/im/user/messages` | 同上 | 消息日志（新→旧，limit） |
+| `GET /v1/im/user/timeline` | 同上 | 消息时间轴（入站+回复+执行节点合流，新→旧；回复带投递态） |
 | `GET /v1/im/user/people` | 同上 | 人员目录（含地址绑定） |
 | `PATCH /v1/im/user/people/{id}` | 同上 | 改显示名/备注（对齐设备 renamePerson 语义） |
 | `POST /v1/im/user/authorize` | auth 三态 + `imhub:manage` | 重授权触发（转管理面权限） |

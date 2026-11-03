@@ -1,67 +1,61 @@
 /**
- * The canvas viewport controller: cursor-anchored wheel zoom, pointer pan with
- * a 4px threshold, one fit per box, and center-anchored zoom buttons.
+ * The canvas viewport controller: cursor-anchored wheel zoom, one readable
+ * opening view per box, and center-anchored zoom buttons. Panning is the Konva
+ * stage's own drag gesture now, so the controller only publishes the transform
+ * it holds and the setter the stage writes back through; the stage binds the
+ * same element ref.
  *
  * Replicated from the flow-canvas-panel precedent
  * (packages/graph/flow-canvas-panel/src/client/useCanvasViewport.ts) and cut to
  * what the box canvas needs — no per-flow auto-fit rules, no keep-node-visible
- * follower, no re-centering. The content is centered on the origin, so fit is
- * one arithmetic line and pan needs no clamping. The auto-adjust halves live in
- * `canvas-viewport-auto.ts`; this file keeps only the assembly.
+ * follower. The content is centered on the origin, so pan needs no clamping.
+ * The auto-adjust halves live in `canvas-viewport-auto.ts`; this file keeps
+ * only the assembly.
  *
- * 画布视口控制器：以光标为锚的滚轮缩放、带 4px 阈值的指针平移、每盒一次的适
- * 配，以及以视口中心为锚的缩放按钮。
+ * 画布视口控制器：以光标为锚的滚轮缩放、每盒一次的可读打开视口，以及以视口中心为
+ * 锚的缩放按钮。平移现在是 Konva 舞台自带的拖拽手势，因此控制器只发布它持有的变换
+ * 和舞台回写的 setter；舞台绑定同一个元素 ref。
  *
- * 自 flow-canvas-panel 先例（packages/graph/flow-canvas-panel/src/client/
- * useCanvasViewport.ts）复刻，裁剪到盒画布所需——没有逐 flow 的自动适配规则、
- * 没有选中跟随、没有重居中。内容以原点为中心，因此适配只是一行算术，平移也无
- * 需钳制。自动调整半边在 `canvas-viewport-auto.ts`；本文件只留装配。
+ * 自 flow-canvas-panel 先例复刻，裁剪到盒画布所需——没有逐 flow 的自动适配规则、
+ * 没有选中跟随。内容以原点为中心，因此平移无需钳制。自动调整半边在
+ * `canvas-viewport-auto.ts`；本文件只留装配。
  *
  * @module @veren/notebook-ui/client/canvas-viewport
  */
 
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { CanvasLayout } from './canvas-layout.ts'
-import { useFitPerKey, usePointerPan, useViewportSize, useWheelZoom, useZoomActions } from './canvas-viewport-auto.ts'
+import { useInitialViewPerKey, useViewportSize, useWheelZoom, useZoomActions } from './canvas-viewport-auto.ts'
+import type { Viewport } from './canvas-viewport-math.ts'
 
-/** The viewport transform: content point p lands at screen p·zoom + (x, y). 视口变换：内容点 p 落在屏幕 p·zoom + (x, y)。 */
-export interface Viewport {
-  readonly x: number
-  readonly y: number
-  readonly zoom: number
-}
+export type { Viewport } from './canvas-viewport-math.ts'
 
-/** The controller `CanvasGraph` binds to the stage element. `CanvasGraph` 绑定到舞台元素的控制器。 */
+/** The controller the stage element binds to. 舞台元素绑定的控制器。 */
 export interface CanvasViewportController {
   readonly ref: { current: HTMLDivElement | null }
   readonly view: Viewport
-  readonly dragging: boolean
+  /** Measured stage size in CSS px; the stage resizes to it. 量得的舞台尺寸（CSS px）；舞台按其调整大小。 */
+  readonly size: { readonly width: number; readonly height: number }
+  /** The stage writes its drag position back through this. 舞台经此回写自己的拖拽位置。 */
+  readonly setView: Dispatch<SetStateAction<Viewport>>
   readonly zoomBy: (factor: number) => void
   readonly fit: () => void
-  readonly onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
-  readonly onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void
-  readonly onPointerEnd: (event: ReactPointerEvent<HTMLDivElement>) => void
 }
 
 /**
  * Own the viewport transform for one laid-out box.
- * @param layout - the current layout (its bounds drive fit).
- * @param fitKey - refit when this changes (the owner id): each box opens fitted.
+ * @param layout - the current layout (its hub focus drives the opening frame).
+ * @param viewKey - apply the opening view when this changes (the owner id).
  * @returns the controller the stage element binds.
  *
- * 为一幅已布局的盒持有视口变换。fitKey 变化即重新适配（归属 id）：每盒打开即适配。
+ * 为一幅已布局的盒持有视口变换。viewKey 变化即应用打开视口（归属 id）。
  */
-export function useCanvasViewport(layout: CanvasLayout, fitKey: string): CanvasViewportController {
+export function useCanvasViewport(layout: CanvasLayout, viewKey: string): CanvasViewportController {
   const ref = useRef<HTMLDivElement | null>(null)
   const [view, setView] = useState<Viewport>({ x: 0, y: 0, zoom: 1 })
   const size = useViewportSize(ref)
-  const pan = usePointerPan(view, setView)
   const zoom = useZoomActions(layout, size, setView)
   useWheelZoom(ref, setView)
-  useFitPerKey(layout, fitKey, size, setView)
-  return {
-    ref, view, dragging: pan.dragging,
-    zoomBy: zoom.zoomBy, fit: zoom.fit,
-    onPointerDown: pan.onPointerDown, onPointerMove: pan.onPointerMove, onPointerEnd: pan.onPointerEnd,
-  }
+  useInitialViewPerKey(layout, viewKey, size, setView)
+  return { ref, view, size, setView, zoomBy: zoom.zoomBy, fit: zoom.fit }
 }

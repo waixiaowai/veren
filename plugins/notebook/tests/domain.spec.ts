@@ -78,8 +78,8 @@ describe('notebook ownership', () => {
 
     const owners = ownersOf(table, ['alice'])
     expect(owners).toEqual([
-      { id: 'alice', declared: true, noteCount: 0 },
-      { id: 'gone', declared: false, noteCount: 1 },
+      { id: 'alice', declared: true, noteCount: 0, lastActiveAt: '' },
+      { id: 'gone', declared: false, noteCount: 1, lastActiveAt: '2026-01-03T00:00:00.000Z' },
     ])
   })
 })

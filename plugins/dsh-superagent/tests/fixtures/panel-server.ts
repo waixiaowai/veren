@@ -100,6 +100,8 @@ export interface PanelServer {
   searching?: (query: string) => Promise<void>
   setup: SetupView
   health: Record<string, Health>
+  /** Executor load the fake reports; defaults to two occupied slots so tests can make slots and Tickets disagree. */
+  load?: { running: number; queued: number }
   /** When true, all API requests return an empty 404 to simulate the host plugin being stopped. */
   down: boolean
   /** Count of responses not yet consumed by the client. */
@@ -157,8 +159,9 @@ function sourceStatuses(): SourceStatusRow[] {
       dropped: server.dropped.filter(item => item.channel.source === kind.kind && item.dropped.at >= dayAgo()) }
   })
 }
+const executorLoadView = () => ({ running: server.setup.problem ? 0 : 2, queued: 0, ...server.load })
 const stateView = (): StateView => ({
-  setup: server.setup, load: { running: server.setup.problem ? 0 : 2, queued: 0, maxWorkers: server.settings.executor.maxWorkers },
+  setup: server.setup, load: { ...executorLoadView(), maxWorkers: server.settings.executor.maxWorkers },
   masterId: 'master', paused: server.settings.paused,
   // The panel does not read health; the service script does.
   health: {},
@@ -195,7 +198,7 @@ const overviewView = (): ApiResponse<'GET overview'> => {
         .map(([name, item]) => ({ kind: 'runtime-error' as const, name, detail: item.detail })),
       ...Object.values(server.settings.policy.sources).some(part => part.allowed.length) ? [] : [{ kind: 'no-allowed' as const }],
       ...server.failing.map(outgoing => ({ kind: 'outgoing' as const, outgoing }))],
-    person: server.person, executor: { running: 2, queued: 0, maxWorkers: server.settings.executor.maxWorkers, idle: 1 },
+    person: server.person, executor: { ...executorLoadView(), maxWorkers: server.settings.executor.maxWorkers, idle: ticketCounts().idle },
     flow: { received: 12, filtered: 2, triggers: 10, judged: 5, accepted: 1, evaluating: 0,
       dropped: server.dropped.filter(item => item.dropped.at >= dayAgo()).length },
     policyVersion: 'abcdef1234567890',
@@ -286,6 +289,12 @@ type Answer<K extends keyof Api> = ApiResponse<K> | Refusal
 type Route<K extends keyof Api> = { query?: readonly Query<K>[]; answer: (request: Request<K>) => Answer<K> | Promise<Answer<K>> }
   & (Api[K] extends { body: unknown } ? { body: true } : { body?: never })
 const page = <T>(items: T[]) => ({ items, total: items.length, next_offset: null })
+/** As on the host, each filter's count comes from the same rows its list pages. */
+const ticketCounts = (): ApiResponse<'GET tickets'>['counts'] => {
+  const open = server.tickets.open
+  const staged = (stage: TicketRow['stage']) => open.filter(ticket => ticket.stage === stage).length
+  return { open: open.length, person: staged('person'), working: staged('working'), idle: staged('idle'), ended: server.tickets.ended.length }
+}
 const ticketOf = (id: string) =>
   [...server.tickets.open, ...server.person, ...server.tickets.ended].find(ticket => ticket.id === id) ?? server.ticketDetails[id]
 const SourceSave = z.object({ enabled: z.boolean(), config: z.unknown() })
@@ -324,8 +333,8 @@ const ROUTES: { [K in keyof Api]: Route<K> } = {
     ({ items: query.kind === 'ignore' ? [] : [acceptDecision()], next_offset: null }) },
   'POST decisions/:id/dismiss': { answer: ({ params }) => params.id === 'u1' ? { dismissed: true } : refuse(404,
     'Unavailable Eval not found') },
-  'GET tickets': { query: ['state', 'offset', 'limit'], answer: ({ query }) => page(server.tickets[query.state === 'ended' ? 'ended'
-    : 'open']) },
+  'GET tickets': { query: ['state', 'offset', 'limit'], answer: ({ query }) => ({ ...page(server.tickets[query.state === 'ended' ? 'ended'
+    : 'open']), counts: ticketCounts() }) },
   'GET tickets/:id': { answer: ({ params }) => server.ticketDetails[params.id] ?? refuse(404, 'Ticket not found') },
   'POST tickets/:id/retry': { answer: ({ params }) => {
     const ticket = ticketOf(params.id)

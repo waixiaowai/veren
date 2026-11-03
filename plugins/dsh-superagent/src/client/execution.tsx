@@ -37,7 +37,7 @@ export function ExecutionStatus({ filter: current, state, reload }: {
         onConfirm={pause} />
     </div>
     <div className="dt-filters">
-      {TICKET_FILTERS.map(value => <Pill key={value} active={current === value}
+      {TICKET_FILTERS.map(value => <Pill key={value} active={current === value} count={data?.counts[value]}
         onClick={() => { setLimit(20); navigate({ page: 'execution', query: value === 'open' ? {} : { filter: value } },
           true) }}>{t(`ticketFilter.${value}`)}</Pill>)}
     </div>
