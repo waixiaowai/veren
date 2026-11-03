@@ -1,12 +1,15 @@
 /**
- * The forum page's view stage: the shell (header, board bar, main column,
- * composer, toasts) and the main column's branches (error banner, settings
- * page, feed, thread). Pure presentation — every value and callback arrives
- * through the one {@link ForumPage} prop, so this module holds no state.
+ * The forum page's view stage: the shell (header, main column flanked by the
+ * two wide-screen rails, composer, toasts) and the main column's branches
+ * (error banner, settings page, feed, thread). Pure presentation — every value
+ * and callback arrives through the one {@link ForumPage} prop, so this module
+ * holds no state. The rails render always; CSS shows them only in a wide page
+ * container, so the markup is one shape at every width.
  *
- * 论坛页面的视图阶段：外壳（页头、板块栏、主列、写作框、提示）与主列的分支（错误横幅、
- * 配置页、信息流、主题）。纯展示——所有取值与回调都经唯一的 {@link ForumPage} prop 传入，
- * 本模块不持有状态。
+ * 论坛页面的视图阶段：外壳（页头、被两条宽屏侧栏夹住的主列、写作框、提示）与主列的
+ * 分支（错误横幅、配置页、信息流、主题）。纯展示——所有取值与回调都经唯一的
+ * {@link ForumPage} prop 传入，本模块不持有状态。侧栏始终渲染；CSS 只在宽容器里显示
+ * 它们，因此标记在任意宽度下都是同一个形状。
  *
  * @module @veren/forum-ui/client/panel-page-view
  */
@@ -16,6 +19,7 @@ import type { PostDetailView } from './remote.ts'
 import { BoardBar, PageHeader } from './panel-chrome.tsx'
 import { ComposerModal } from './panel-composer.tsx'
 import { Feed } from './panel-feed.tsx'
+import { BoardRail, CommunityRail } from './panel-rail.tsx'
 import { SettingsPage } from './panel-settings.tsx'
 import { Thread } from './panel-thread.tsx'
 import { ToastStack } from './panel-kit.tsx'
@@ -79,11 +83,19 @@ function ThreadBranch(props: { readonly page: ForumPage; readonly detail: PostDe
   )
 }
 
-/** The main column: the error banner, then the settings/feed/thread branch. 主列：错误横幅，然后是配置/信息流/主题分支。 */
-function ForumMain(props: { readonly page: ForumPage }) {
+/**
+ * The page shell: the boards rail, the main column (error banner, then the
+ * settings/feed/thread branch), and the community rail.
+ * 页面外壳：板块栏、主列（错误横幅，然后是配置/信息流/主题分支）与社区栏。
+ */
+function ForumShell(props: { readonly page: ForumPage }) {
   const { page } = props
   return (
-    <div className="forum-layout">
+    <div className="forum-shell">
+      <BoardRail
+        t={page.t} boards={page.view.boards} shownBoard={page.shownBoard}
+        onSelect={page.selectBoard}
+      />
       <main className="forum-main">
         {page.catalog.status === 'error' && !page.configOpen && (
           <CatalogErrorBanner t={page.t} error={page.catalog.error} onRetry={() => { page.refresh() }} />
@@ -94,11 +106,15 @@ function ForumMain(props: { readonly page: ForumPage }) {
             ? <FeedBranch page={page} />
             : <ThreadBranch page={page} detail={page.open} />}
       </main>
+      <CommunityRail
+        t={page.t} view={page.view} activeTag={page.filters.tag} onTag={page.onTag}
+        onPostAs={name => { page.setActor(name); page.openComposer() }}
+      />
     </div>
   )
 }
 
-/** The page shell the body composes: chrome, main column, composer, toasts. 页面体组合的外壳：镶边、主列、写作框与提示。 */
+/** The page shell the body composes: chrome, shell grid, composer, toasts. 页面体组合的外壳：镶边、外壳网格、写作框与提示。 */
 export function ForumPageView(props: { readonly page: ForumPage }) {
   const { page } = props
   return (
@@ -108,7 +124,7 @@ export function ForumPageView(props: { readonly page: ForumPage }) {
         onActor={page.setActor} onToggleConfig={page.toggleConfig} onOpenComposer={page.openComposer}
       />
       <BoardBar t={page.t} boards={page.view.boards} shownBoard={page.shownBoard} onSelect={page.selectBoard} />
-      <ForumMain page={page} />
+      <ForumShell page={page} />
       {page.composerOpen && (
         <ComposerModal
           t={page.t} boards={page.view.boards} people={page.people} actor={page.active}

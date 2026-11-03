@@ -131,7 +131,7 @@ export const TOASTS_CSS = `
 @keyframes forum-toast-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
 
 @media (max-width: 1120px) {
-  .forum-header, .forum-boardbar, .forum-layout { padding-left: 24px; padding-right: 24px; }
+  .forum-header, .forum-boardbar, .forum-shell { padding-left: 24px; padding-right: 24px; }
   .forum-page { overflow-y: auto; }
   .forum-main { overflow: visible; }
 }

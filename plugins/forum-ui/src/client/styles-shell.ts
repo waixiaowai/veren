@@ -1,10 +1,13 @@
 /**
  * The forum page's shell styles: the root token set, the page header, the
- * board pill bar, and the single-column layout. Colors come only from the
- * shared `--dsw-*` semantic tokens, so the page follows every theme.
+ * board pill bar, and the shell grid. Colors come only from the shared
+ * `--dsw-*` semantic tokens, so the page follows every theme. The page is a
+ * size container (`forum`), so the wide-screen tiers in `styles-rail` adapt to
+ * the width the host actually gives the page, not to the viewport.
  *
- * 论坛页面的外壳样式：根 token 集、页头、板块标签栏与单列布局。颜色只取自共享的
- * `--dsw-*` 语义 token，因此页面跟随所有主题。
+ * 论坛页面的外壳样式：根 token 集、页头、板块胶囊栏与外壳网格。颜色只取自共享的
+ * `--dsw-*` 语义 token，因此页面跟随所有主题。页面自身是尺寸容器（`forum`），
+ * `styles-rail` 里的宽屏档位据此适配宿主实际给页面的宽度，而不是视口宽度。
  *
  * @module @veren/forum-ui/client/styles-shell
  */
@@ -12,6 +15,7 @@
 /** Shell slice of the page stylesheet: tokens, header, board bar, layout. 页面样式表的外壳片段：token、页头、板块栏与布局。 */
 export const SHELL_CSS = `
 .forum-page {
+  container: forum / inline-size;
   --forum-canvas: var(--dsw-alias-bg-module-platform);
   --forum-surface: var(--dsw-alias-bg-layer-1);
   --forum-sunken: var(--dsw-alias-turn-trigger-bg);
@@ -58,9 +62,7 @@ export const SHELL_CSS = `
   justify-content: space-between;
   gap: 24px;
   width: 100%;
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 26px 40px 14px;
+  padding: 26px 32px 14px;
 }
 .forum-heading-row { display: flex; align-items: center; gap: 11px; }
 .forum-mark {
@@ -120,9 +122,7 @@ export const SHELL_CSS = `
   align-items: center;
   gap: 8px;
   width: 100%;
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 0 40px 15px;
+  padding: 0 32px 15px;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -174,16 +174,17 @@ export const SHELL_CSS = `
   color: inherit;
 }
 
-/* ---------- single-column body ---------- */
-.forum-layout {
+/* ---------- shell grid ---------- */
+/* Narrow default: one main column. The wide tiers that add the two rails live
+   in styles-rail inside @container blocks. */
+/* 窄屏默认：单主列。加入两侧栏的宽屏档位在 styles-rail 的 @container 块里。 */
+.forum-shell {
   flex: 1 1 auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   width: 100%;
-  max-width: 1180px;
   min-height: 0;
-  margin: 0 auto;
-  padding: 4px 40px 30px;
+  padding: 4px 32px 30px;
 }
 .forum-main { min-width: 0; min-height: 0; overflow-y: auto; padding-right: 4px; }
 .forum-main::-webkit-scrollbar { width: 8px; }

@@ -30,6 +30,8 @@ export type ForumKey =
   | 'everyMinutes' | 'lastAt' | 'never' | 'save' | 'read' | 'unread' | 'mentionsYou' | 'repliedYou' | 'workspaces'
   | 'emptyTitle' | 'emptyBody' | 'emptyCta' | 'noReplies' | 'originalPoster' | 'pickBoard' | 'close' | 'retry'
   | 'notifyMethod' | 'replyBody' | 'sort' | 'config' | 'configSubtitle'
+  | 'community' | 'statTopics' | 'members' | 'topTags' | 'noTags' | 'postAs'
+
   | 'toastPublished' | 'toastComment' | 'toastPinned' | 'toastUnpinned' | 'toastVoted' | 'toastVoteCleared'
   | 'toastSaved' | 'toastMarkedRead' | 'toastInbox' | 'toastError'
 
@@ -116,6 +118,12 @@ export const zh: Record<ForumKey, string> = {
   sort: '排序',
   config: '配置',
   configSubtitle: '通知与自动发帖设置，只影响当前身份。',
+  community: '社区一览',
+  statTopics: '主题',
+  members: '成员',
+  topTags: '热门标签',
+  noTags: '还没有标签，发帖时写上标签就会出现在这里。',
+  postAs: '以此身份发帖',
   toastPublished: '发布成功',
   toastComment: '回复已发送',
   toastPinned: '已置顶',
@@ -211,6 +219,12 @@ export const en: Record<ForumKey, string> = {
   sort: 'Sort',
   config: 'Settings',
   configSubtitle: 'Notifications and auto-posting, for the acting identity only.',
+  community: 'At a glance',
+  statTopics: 'Topics',
+  members: 'Members',
+  topTags: 'Top tags',
+  noTags: 'No tags yet — tag a post and it shows up here.',
+  postAs: 'Post as this member',
   toastPublished: 'Post published',
   toastComment: 'Reply sent',
   toastPinned: 'Pinned',
