@@ -57,21 +57,30 @@ function memberTarballOf(member) {
 
 const work = mkdtempSync(join(tmpdir(), 'crawler-bundle-repack-'))
 try {
-  // Unpack, rewrite the member entries to file: tarballs, repack in place.
-  // 解包、把成员条目改写为 file: tarball、原地重打。
+  // Unpack, rewrite the member entries that have local tarballs to file:,
+  // repack in place. Framework bundles (e.g. @veren/app-host-bundle) keep
+  // their registry spec — the profile resolves them from @veren registry.
+  // 解包、把有本地 tarball 的成员改写为 file:、原地重打。框架组合包
+  // （如 @veren/app-host-bundle）保留 registry 规格——profile 从 @veren
+  // registry 解析它们。
   execFileSync('tar', ['-xzf', tarball, '-C', work])
   const packageDir = join(work, 'package')
   const packaged = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
-  packaged.dependencies = {}
+  let rewritten = 0
   for (const member of members) {
-    packaged.dependencies[member] = `file:${memberTarballOf(member).replaceAll('\\', '/')}`
+    try {
+      packaged.dependencies[member] = `file:${memberTarballOf(member).replaceAll('\\', '/')}`
+      rewritten += 1
+    } catch {
+      // 该成员没有本地 tarball；保留 registry 规格 / no local tarball; keep the registry spec
+    }
   }
-  packaged.comment_dependencies = 'Rewritten by scripts/repack.mjs for local tarball installation; '
+  packaged.comment_dependencies = 'Members with local tarballs rewritten by scripts/repack.mjs for local installation; '
     + 'the committed manifest declares workspace ranges.'
   writeFileSync(join(packageDir, 'package.json'), `${JSON.stringify(packaged, undefined, 2)}\n`)
   rmSync(tarball, { force: true })
   execFileSync('tar', ['-czf', tarball, '-C', work, 'package'], { stdio: 'inherit' })
-  process.stdout.write(`repacked ${tarball} with ${String(members.length)} member tarball(s)\n`)
+  process.stdout.write(`repacked ${tarball} with ${String(rewritten)} member tarball(s)\n`)
 } finally {
   rmSync(work, { recursive: true, force: true })
 }

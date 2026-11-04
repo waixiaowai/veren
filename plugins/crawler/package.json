@@ -31,9 +31,15 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-agent": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-host-webserver": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-llm": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-storage-domain": ">=0.2.1-rc.2 <0.3.0",
-    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0"
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0",
+    "@veren/app-registry": "workspace:^",
+    "@veren/page-registry": "workspace:^",
+    "@veren/prompt-core": "workspace:^",
+    "@veren/prompt-page": "workspace:^"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.4",
@@ -42,10 +48,16 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-agent": "0.2.1-rc.2",
     "@deepseek-ai/dsh-host-webserver": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
     "@deepseek-ai/dsh-storage-domain": "0.2.1-rc.2",
     "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/app-registry": "workspace:^",
+    "@veren/page-registry": "workspace:^",
+    "@veren/prompt-core": "workspace:^",
+    "@veren/prompt-page": "workspace:^",
     "typescript": "^5.6.0",
     "vitest": "^5.0.4"
   },

@@ -63,11 +63,13 @@ function loadRows(): PatchRow[] {
 }
 
 describe('composition shape', () => {
-  it('inserts exactly one row: the crawler plugin', () => {
+  it('inserts exactly two rows: the crawler plugin and its skill', () => {
     const rows = loadRows()
-    expect(rows).toHaveLength(1)
+    expect(rows).toHaveLength(2)
     expect(rows[0]?.id).toBe('crawler')
     expect(rows[0]?.name).toBe('@veren/crawler')
+    expect(rows[1]?.id).toBe('crawler-skill')
+    expect(rows[1]?.name).toBe('@veren/crawler-skill')
   })
 
   it('carries no per-feature toggle rows', () => {

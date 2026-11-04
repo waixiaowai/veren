@@ -17,6 +17,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@veren/app-registry'
+import type {} from '@veren/page-registry'
 import { Config, resolveConfig } from './config.ts'
 import type { RuntimeConfig } from './config.ts'
 import { CrawlerManager } from './control/manager.ts'
@@ -26,14 +28,16 @@ import { createInProcessRunner } from './runner/inprocess-runner.ts'
 import { realDeps } from './runner/real-deps.ts'
 import { CRAWLER_DOMAIN_NAME, crawlerDomain, type CrawlerStore } from './store/domain.ts'
 import { bindToolPort, createCrawlerTools } from './tools.ts'
+import { bindOverviewRuntime, provideToolStubs, OverviewPage, OverviewMeta } from './page-overview.tsx'
+import { APP_DEFINITION, APP_ID } from './app.ts'
 import type { CrawlerRunRequest, RunnerSpawner } from './control/runner.ts'
 
 export { Config } from './config.ts'
 
 export const name = 'veren-crawler'
 
-/** 宿主 web 服务器、存储域与工具表是显式依赖 / the host web server, storage domain and tool table are the explicit dependencies */
-export const inject = ['webServer', 'storageDomain', 'tools']
+/** 宿主服务全显式声明（G13）：web 服务器、存储域、工具表与应用注册表 / all host services declared explicitly (G13): web server, storage domain, tools, app registry */
+export const inject = ['webServer', 'storageDomain', 'tools', 'apps']
 export const provide = []
 
 /** 装配好的控制面 / the assembled control faces */
@@ -88,10 +92,31 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   // 工具面：`crawler__<本地名>` 全名注册，disposer 逆序即卸（意见 4）。
   // The tool face: registered under `crawler__<localName>` full names;
   // reverse-order dispose unregisters (directive 4).
+  const tools = createCrawlerTools().map((tool) => ({ ...tool, name: `crawler__${tool.name}` }))
   bindToolPort({ manager: runtime.manager, domain: () => runtime.domain, dataRoot: runtime.config.dataRoot })
-  ctx.effect(() => createCrawlerTools().map((tool) => ctx.tools.register({ ...tool, name: `crawler__${tool.name}` })), 'veren-crawler:tools')
-  // 卸载逆序清理：API 路由 → 运行中任务 → 存储域。
-  // Reverse-order dispose: api routes → running task → storage domain.
+  // 页面挂载用同一组全名工具（意见 5）：组件体在唯一一次渲染里登记。
+  // The page mounts the same full-name tools (directive 5): the body
+  // registers them in its one render.
+  provideToolStubs(tools)
+  bindOverviewRuntime({ manager: runtime.manager, domain: () => runtime.domain })
+  ctx.effect(() => tools.map((tool) => ctx.tools.register(tool)), 'veren-crawler:tools')
+  // 卸载逆序清理：应用与页面 → API 路由 → 运行中任务 → 存储域（G13 规则 3：
+  // 定义 → 工具 → 页面一条 effect 收线，任一步失败逆序回滚）。
+  // Reverse-order dispose: app+pages → api routes → running task → storage
+  // domain (G13 rule 3: definition → tools → pages in one effect, rolling
+  // back finished steps in reverse on any failure).
+  ctx.effect(() => {
+    const done: Array<() => void> = []
+    try {
+      done.push(ctx.apps.register(APP_DEFINITION, ctx))
+      const pages = ctx.apps.pages(APP_ID, ctx)
+      done.push(pages.register(OverviewPage, OverviewMeta))
+    } catch (error: unknown) {
+      for (const dispose of done.reverse()) dispose()
+      throw error
+    }
+    return () => undefined
+  }, 'veren-crawler:app')
   const api = new ControlApi({ manager: runtime.manager, dataRoot: runtime.config.dataRoot })
   ctx.effect(() => api.register(ctx), 'veren-crawler:api')
   ctx.effect(() => async () => {

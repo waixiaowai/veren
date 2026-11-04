@@ -23,6 +23,7 @@ import {
   type RouteDeps,
   type RouteResult,
 } from './http-routes.ts'
+import { WsSession, writeHandshake } from './ws.ts'
 import { CrawlerError } from '../errors.ts'
 
 /** 读请求体（限 1MB）/ read the request body (capped at 1MB) */
@@ -87,6 +88,9 @@ async function dispatch(method: string, pathname: string, query: URLSearchParams
 /** 控制服务注册的路由族前缀 / the route-family prefixes this api claims */
 const API_PREFIXES = ['/api/crawler', '/api/data', '/api/config', '/api/health'] as const
 
+/** WS 推送状态帧间隔毫秒（design/api.md §6：每秒推送）/ the ws-status frame interval in ms (design api.md §6: once a second) */
+const WS_STATUS_INTERVAL_MS = 1_000
+
 /**
  * 控制服务 API：把路由族注册进宿主 web 服务器，卸载逆序清理。
  * The control api: registers the route families into the host web server,
@@ -96,8 +100,9 @@ export class ControlApi {
   constructor(private readonly deps: RouteDeps) {}
 
   /**
-   * 注册到宿主 webServer；返回统一 disposer。
-   * Registers into the host webServer; returns one unified disposer.
+   * 注册到宿主 webServer；返回统一 disposer（HTTP 路由族 + WS 推送通道）。
+   * Registers into the host webServer; returns one unified disposer (the
+   * http route families plus the ws push channels).
    */
   register(ctx: Context): () => void {
     const disposers = API_PREFIXES.map((prefix) =>
@@ -109,9 +114,70 @@ export class ControlApi {
         },
       }),
     )
+    // ws-logs：连接即补发历史日志再进入实时推送（design/api.md §6）。
+    // ws-logs: replays buffered logs on connect, then pushes live (§6).
+    // 宿主不支持 upgrade 注册时跳过 WS 通道（轮询端点提供同等能力）。
+    // Skip the ws channels when the host lacks upgrade registration (the
+    // polling endpoints provide the same capability).
+    if (typeof ctx.webServer.registerUpgrade === 'function') {
+      disposers.push(ctx.webServer.registerUpgrade({
+        path: '/api/ws/logs',
+        handler: (req, socket, head) => {
+          this.serveLogsSocket(req, socket as import('node:stream').Duplex, head)
+        },
+      }))
+      // ws-status：每秒推送状态对象（design/api.md §6）。
+      // ws-status: pushes the status object once a second (§6).
+      disposers.push(ctx.webServer.registerUpgrade({
+        path: '/api/ws/status',
+        handler: (req, socket, head) => {
+          this.serveStatusSocket(req, socket as import('node:stream').Duplex, head)
+        },
+      }))
+    }
     return () => {
       for (const dispose of disposers.reverse()) dispose()
     }
+  }
+
+  /** ws-logs 通道：握手 → 补发历史 → 订阅实时 / the ws-logs channel: handshake → replay → live subscription */
+  private serveLogsSocket(req: { headers: Record<string, string | string[] | undefined> }, socket: import('node:stream').Duplex, head: Buffer): void {
+    const key = req.headers['sec-websocket-key']
+    if (typeof key !== 'string') {
+      socket.destroy()
+      return
+    }
+    writeHandshake(socket, key)
+    if (head.length > 0) socket.write(head)
+    const session = new WsSession(socket, () => undefined)
+    for (const entry of this.deps.manager.logs.recent(500)) {
+      session.sendText(JSON.stringify(entry))
+    }
+    const unsubscribe = this.deps.manager.logs.subscribe((entry) => {
+      session.sendText(JSON.stringify(entry))
+    })
+    socket.on('data', (chunk: Buffer) => session.feed(chunk))
+    socket.on('close', unsubscribe)
+  }
+
+  /** ws-status 通道：握手 → 每秒推送状态 / the ws-status channel: handshake → status once a second */
+  private serveStatusSocket(req: { headers: Record<string, string | string[] | undefined> }, socket: import('node:stream').Duplex, head: Buffer): void {
+    const key = req.headers['sec-websocket-key']
+    if (typeof key !== 'string') {
+      socket.destroy()
+      return
+    }
+    writeHandshake(socket, key)
+    if (head.length > 0) socket.write(head)
+    const session = new WsSession(socket, () => undefined)
+    const timer = setInterval(() => {
+      session.sendText(JSON.stringify(this.deps.manager.status()))
+    }, WS_STATUS_INTERVAL_MS)
+    timer.unref?.()
+    socket.on('data', (chunk: Buffer) => session.feed(chunk))
+    socket.on('close', () => {
+      clearInterval(timer)
+    })
   }
 
   /** 处理单请求 / serve one request */

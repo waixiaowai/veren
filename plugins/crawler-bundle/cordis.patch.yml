@@ -1,23 +1,33 @@
 # Crawler bundle: mounts the multi-platform content crawler in one profile layer.
 # 多平台内容采集组合包：用一个 profile 层装好多平台内容采集插件。
 #
-# This bundle is the ONLY profile layer of the crawler stack: the member
-# does not declare `dsh.bundle.patch`, so the dsh plugin reconciliation
+# This bundle is the ONLY profile layer of the crawler stack: the members
+# do not declare `dsh.bundle.patch`, so the dsh plugin reconciliation
 # activates exactly this layer - installing the bundle can never double-insert
-# a row. The member rides along as a plain dependency.
+# a row. The members ride along as plain dependencies.
 # 本组合包是采集技术栈唯一的 profile 层：成员不声明 `dsh.bundle.patch`，
-# dsh plugin 的 reconciliation 因此只会激活这一层——安装组合包绝不会重复插行。
-# 成员只作为普通依赖随行。
+# dsh plugin 的 reconciliation 因此只会激活这一层——安装组合包绝不会重复
+# 插行。成员只作为普通依赖随行。
 #
-# The bundle carries zero runtime code. The single `insert` row resolves by
-# package name from the bundle's own dependencies.
-# 组合包零运行时代码。唯一一条 `insert` 行按包名从组合包自身的 dependencies 解析。
+# The bundle carries zero runtime code. The `insert` rows resolve by package
+# name from the bundle's own dependencies.
+# 组合包零运行时代码。`insert` 行按包名从组合包自身的 dependencies 解析。
+#
+# Row order matters: the crawler first (the plain plugin: pipeline, storage
+# adapter, control api on the host web server), then the skill (needs the
+# `skills` service; a profile without it leaves this row pending and never
+# takes down the crawler row).
+# 行顺序有讲究：先 crawler（普通插件：管线、存储适配、挂宿主 web 服务器的
+# 控制 API），再 crawler-skill（依赖 `skills` 服务；没有该服务的 profile
+# 只会让本行 pending，绝不会拖垮 crawler 行）。
 #
 # No application-framework rows here: the crawler is a plain plugin today (the
-# control service and panel pages are later iterations); when the client panel
-# lands as an app, its framework dependency joins this bundle.
-# 这里没有应用框架行：采集插件今天是普通插件（控制服务与面板页面属后续迭代）；
-# 客户端面板以应用形态落地后，其框架依赖并入本组合包。
+# client panel lands as an app in a later iteration); when that happens its
+# framework dependency joins this bundle.
+# 这里没有应用框架行：采集插件今天是普通插件（客户端面板属后续迭代）；
+# 面板以应用形态落地后，其框架依赖并入本组合包。
 - insert:
     - id: crawler
       name: '@veren/crawler'
+    - id: crawler-skill
+      name: '@veren/crawler-skill'

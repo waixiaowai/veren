@@ -32,21 +32,33 @@ function hangingHandle(): RunnerHandle {
   }
 }
 
-/** 极小 webServer 替身：capture register 调用并转发到真 http 服务器 / a minimal webServer double: captures register and forwards to a real http server */
+/** 极小 webServer 替身：capture register/registerUpgrade 调用并转发到真 http 服务器 / a minimal webServer double: captures register/registerUpgrade and forwards to a real http server */
 interface RegisteredRoute {
   kind: string
   path: string
   handler: (req: unknown, res: unknown) => void
 }
 
-async function mountApi(manager: CrawlerManager, dataRoot: string): Promise<{ base: string; dispose: () => void; routes: RegisteredRoute[]; close: () => Promise<void> }> {
+interface RegisteredUpgrade {
+  path: string
+  handler: (req: unknown, socket: unknown, head: Buffer) => void
+}
+
+async function mountApi(manager: CrawlerManager, dataRoot: string): Promise<{ base: string; dispose: () => void; routes: RegisteredRoute[]; upgrades: RegisteredUpgrade[]; close: () => Promise<void> }> {
   const routes: RegisteredRoute[] = []
+  const upgrades: RegisteredUpgrade[] = []
   const fakeCtx = {
     webServer: {
       register: (route: RegisteredRoute) => {
         routes.push(route)
         return () => {
           routes.splice(routes.indexOf(route), 1)
+        }
+      },
+      registerUpgrade: (route: RegisteredUpgrade) => {
+        upgrades.push(route)
+        return () => {
+          upgrades.splice(upgrades.indexOf(route), 1)
         }
       },
     },
@@ -71,6 +83,7 @@ async function mountApi(manager: CrawlerManager, dataRoot: string): Promise<{ ba
     base: `http://127.0.0.1:${port}`,
     dispose,
     routes,
+    upgrades,
     close: async () => {
       await new Promise<void>((resolve) => {
         server.close(() => resolve())
@@ -79,7 +92,7 @@ async function mountApi(manager: CrawlerManager, dataRoot: string): Promise<{ ba
   }
 }
 
-async function makeApi(): Promise<{ base: string; dispose: () => void; close: () => Promise<void>; root: string; routes: RegisteredRoute[] }> {
+async function makeApi(): Promise<{ base: string; dispose: () => void; close: () => Promise<void>; root: string; routes: RegisteredRoute[]; upgrades: RegisteredUpgrade[] }> {
   const root = await mkdtemp(join(tmpdir(), 'crawler-http-'))
   await writeFile(join(root, 'xhs.jsonl'), '{"id":"n1"}\n')
   const manager = new CrawlerManager(() => hangingHandle(), { stopTimeoutMs: 200 })
@@ -88,10 +101,11 @@ async function makeApi(): Promise<{ base: string; dispose: () => void; close: ()
 }
 
 describe('ControlApi on host webServer', () => {
-  it('registers exactly the four claimed route prefixes', async () => {
+  it('registers exactly the four claimed route prefixes plus the two ws channels', async () => {
     const ctx = await makeApi()
     try {
       expect(ctx.routes.map((route) => route.path).sort()).toEqual(['/api/config', '/api/crawler', '/api/data', '/api/health'])
+      expect(ctx.upgrades.map((route) => route.path).sort()).toEqual(['/api/ws/logs', '/api/ws/status'])
     } finally {
       ctx.dispose()
       await ctx.close()

@@ -9,6 +9,7 @@
 import { chromium as playwrightChromium } from 'playwright-core'
 import { createDualModeLauncher } from '../browser/launcher.ts'
 import { userDataDirOf } from '../auth/flow.ts'
+import { CrawlerError } from '../errors.ts'
 import type { BrowserSession, PlaywrightLike } from '../browser/contract.ts'
 import type { PipelineDeps } from '../pipeline.ts'
 import type { CrawlerRunRequest } from '../control/runner.ts'
@@ -18,9 +19,16 @@ function playwright(): PlaywrightLike {
   return { chromium: playwrightChromium } as unknown as PlaywrightLike
 }
 
-/** 宿主 fetch 的 JSON 获取实现（微博公开接口可用）/ the host-fetch json implementation (works for weibo public endpoints) */
+/** 宿主 fetch 的 JSON 获取实现：HTML 响应（登录墙）归类为访问拒绝 / the host-fetch json implementation: an html response (a login wall) classifies as access denied */
 async function hostFetchJson(url: string): Promise<unknown> {
   const response = await fetch(url)
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!contentType.includes('json')) {
+    // 登录墙/风控页返回 HTML：按设计折成稳定错误码（errors.md）。
+    // Login walls and risk-control pages return html: fold into a stable
+    // code per errors.md.
+    throw new CrawlerError('PLATFORM_ACCESS_DENIED', '目标平台返回非 JSON 响应（可能未登录或被风控）', { url, contentType })
+  }
   return (await response.json()) as unknown
 }
 

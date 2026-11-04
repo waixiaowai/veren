@@ -1,0 +1,47 @@
+{
+  "name": "@veren/crawler-skill",
+  "displayName": "多平台内容采集技能",
+  "version": "0.1.0",
+  "description": "Use when a DSH profile installs the crawler stack and agents must know when and how to drive the content crawler: it contributes one bundled, model-invocable skill named crawler that explains when collecting public content is the right request, the five crawler__ tools (start/stop/status/logs/data), the single-task mutex, the save media (dsh writes the host storage domain), the login requirement, and failure handling; skip it when the crawler stack is absent or agents never collect content.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "assets",
+    "README.md",
+    "README.cn.md"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {},
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-skill": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-skill": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "typescript": "^5.6.0",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}

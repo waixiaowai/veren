@@ -113,6 +113,16 @@ function wireSub2ApiApp(ctx: Context, client: Sub2AdminClient, store: Sub2ApiSto
 }
 
 export const apply = (ctx: Context, config: Config): void => {
+  // baseUrl 允许不配置：来自 config yaml（或环境变量兜底）；未配置则本插件
+  // 不运行——只告警不注册，绝不让启动失败。
+  // baseUrl is optional: it comes from the config yaml (env as the fallback);
+  // when absent the plugin simply does not run — warn without registering,
+  // never fail the boot.
+  const baseUrl = (config as AdminConfig | undefined)?.baseUrl ?? process.env.SUB2API_BASE_URL ?? ''
+  if (String(baseUrl).trim().length === 0) {
+    ctx.logger.warn('[sub2api-admin] baseUrl 未配置（config yaml 的 baseUrl 或 SUB2API_BASE_URL），本插件不运行')
+    return
+  }
   // 页面与工具共用同一客户端与凭据 / pages and tools share one client and one credential config
   const client = new Sub2AdminClient((config ?? {}) as AdminConfig)
   const store = new Sub2ApiStore()

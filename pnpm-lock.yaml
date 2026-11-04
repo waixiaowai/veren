@@ -1983,7 +1983,13 @@ importers:
       '@deepseek-ai/cordis':
         specifier: ^4.0.5
         version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.10)(@deepseek-ai/cordis-plugin-loader@1.0.6)
+      '@deepseek-ai/dsh-agent':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(77aa00311ccd1db3f3706cf88c30da0a)
       '@deepseek-ai/dsh-host-webserver':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-llm':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)
       '@deepseek-ai/dsh-storage-domain':
@@ -1992,6 +1998,18 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: '>=0.2.1-rc.2 <0.3.0'
         version: 0.2.1-rc.2(39679b028ccad1643d383935c6a869a6)
+      '@veren/app-registry':
+        specifier: workspace:^
+        version: link:../app-registry
+      '@veren/page-registry':
+        specifier: workspace:^
+        version: link:../page-registry
+      '@veren/prompt-core':
+        specifier: workspace:^
+        version: link:../../packages/prompt-core
+      '@veren/prompt-page':
+        specifier: workspace:^
+        version: link:../../packages/prompt-page
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
@@ -2001,13 +2019,38 @@ importers:
 
   plugins/crawler-bundle:
     dependencies:
+      '@veren/app-host-bundle':
+        specifier: workspace:^
+        version: link:../app-host-bundle
       '@veren/crawler':
         specifier: workspace:^
         version: link:../crawler
+      '@veren/crawler-skill':
+        specifier: workspace:^
+        version: link:../crawler-skill
     devDependencies:
       js-yaml:
         specifier: ^4.1.0
         version: 4.3.2
+      vitest:
+        specifier: ^5.0.4
+        version: 5.0.4(@types/node@26.6.5)(vite@7.3.7(@types/node@26.6.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1))
+
+  plugins/crawler-skill:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.4
+        version: 3.18.4
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.5
+        version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.10)(@deepseek-ai/cordis-plugin-loader@1.0.6)
+      '@deepseek-ai/dsh-skill':
+        specifier: 0.2.1-rc.2
+        version: 0.2.1-rc.2(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-llm@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))(@deepseek-ai/dsh-scope@0.2.1-rc.2(@deepseek-ai/cordis@4.0.5))
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
       vitest:
         specifier: ^5.0.4
         version: 5.0.4(@types/node@26.6.5)(vite@7.3.7(@types/node@26.6.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1))

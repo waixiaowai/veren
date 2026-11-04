@@ -26,7 +26,7 @@ describe('crawler tools', () => {
     bindToolPort({ manager: {} as CrawlerManager, domain: () => domain, dataRoot: '.' })
     const data = createCrawlerTools().find((tool) => tool.name === 'data')
     expect(data).toBeDefined()
-    const rendered = await data.execute({})
+    const rendered = await data!.execute({}, {} as never)
     expect(JSON.stringify(rendered)).toContain('contents 3')
     expect(JSON.stringify(rendered)).toContain('wb: 2 contents')
   })
@@ -34,7 +34,7 @@ describe('crawler tools', () => {
   it('folds illegal enums into error canonical values on start', async () => {
     bindToolPort({ manager: {} as CrawlerManager, domain: () => undefined, dataRoot: '.' })
     const start = createCrawlerTools().find((tool) => tool.name === 'start')
-    const rendered = await start.execute({ platform: 'twitter', crawlerType: 'search' })
+    const rendered = await start!.execute({ platform: 'twitter', crawlerType: 'search' }, {} as never)
     expect(JSON.stringify(rendered)).toContain('INVALID_PLATFORM')
   })
 })

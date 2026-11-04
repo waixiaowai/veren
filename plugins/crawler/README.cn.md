@@ -30,6 +30,9 @@ DSH 多平台内容采集插件 —— 面向学习研究场景，采集主流�
 - 全链路管线：启动请求 → 平台爬取器 → 存储数据汇（整形脱敏）→ 介质落盘 → 收尾，依赖全可注入；CLI 入口接真实浏览器会话与宿主 fetch（`src/pipeline.ts`、`src/sink.ts`）。
 - 评论伴随采集与会话内取数：微博评论游标分页（comments/hotflow、数量上限）、上下文内接口请求自动携带登录态（`src/platform/wb/comments.ts`、`src/browser/context-fetch.ts`）。
 - 存储适配宿主 storageDomain（意见 2）：新增 `dsh` 介质（第九种，宿主集成扩展）——统一实体按业务主键 upsert 进宿主存储域 `crawler` 域（contents/comments 两表），重跑幂等；`dsh` 介质在宿主进程内跑（进程内运行器，协作式取消），文件介质仍走子进程 CLI（`src/store/domain.ts`、`dsh-store.ts`、`src/runner/inprocess-runner.ts`）。
+- 模型工具面（意见 4）：`crawler__start/stop/status/logs/data` 五工具（`ctx.tools.register`，错误走规范值 `kind:'error'`），模型可启停采集、读状态、看日志、汇总存储域数据（`src/tools.ts`）。
+- 技能指导（意见 4）：`../crawler-skill/`——bundled 技能 `crawler`，讲清何时采集、五工具行为、单任务互斥、保存介质、登录要求、失败处理与合规红线；独立成行，无 `skills` 服务的 profile 仅 pending 不拖垮主行。
+- 客户端入口（意见 5）：应用 `crawler`（`/apps/crawler/overview` 总览页）——任务状态机快照、存储域数据量、页面会话挂载五工具；`ctx.apps.register` + pages 单条 effect 收线，任一步失败逆序回滚（`src/app.ts`、`src/page-overview.tsx`）。
 - 组合包：`../crawler-bundle/`（配置-only，插入唯一 `crawler` 行，成员为普通依赖）——安装入口。
 - 存储适配：脱敏（`store/mask.ts`）、整形（`store/shape.ts`）、文件介质 json/jsonl/csv（`store/`）、介质工厂。
 - 插件入口与 schemastery 配置（`src/config.ts`）。
