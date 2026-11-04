@@ -25,6 +25,7 @@ import { MediaCompanionSink } from './media/companion.ts'
 import { MediaDownloader } from './media/downloader.ts'
 import { WbCrawler, type FetchJson } from './platform/wb/crawler.ts'
 import { TiebaCrawler } from './platform/tieba/crawler.ts'
+import { XhsCrawler } from './platform/xhs/crawler.ts'
 import { BiliCrawler } from './platform/bili/crawler.ts'
 import type { AbstractCrawler, DataSink } from './crawler/contract.ts'
 import type { BrowserSession } from './browser/contract.ts'
@@ -34,7 +35,7 @@ import type { CancelFlag } from './runner/inprocess-runner.ts'
 import type { Platform } from './types.ts'
 
 /** 平台注册表：当前已接入的平台 / the platform registry: currently wired platforms */
-const WIRED_PLATFORMS: readonly Platform[] = ['wb', 'tieba', 'bili']
+const WIRED_PLATFORMS: readonly Platform[] = ['wb', 'tieba', 'bili', 'xhs']
 
 /** 管线可注入依赖 / the injectable pipeline dependencies */
 export interface PipelineDeps {
@@ -71,6 +72,24 @@ export function createPlatformCrawler(request: CrawlerRunRequest, fetchJson: Fet
   if (request.platform === 'bili') {
     return new BiliCrawler({
       fetchJson,
+      targets: {
+        keywords: request.keywords,
+        specifiedId: request.specifiedIds,
+        creatorId: request.creatorIds,
+      },
+      startPage: request.startPage,
+      maxNotesCount: request.maxNotesCount,
+      pageIntervalMs: 2000,
+    })
+  }
+  if (request.platform === 'xhs') {
+    return new XhsCrawler({
+      fetchJson: (url) => fetchJson(url),
+      signProducer: async (keyword) => {
+        // evaluate 通道产出签名头四件套（签名脚本内容待数据填充）。
+        // The evaluate channel produces the four-piece headers (script content pending).
+        throw new Error('xhs 签名脚本待填充')
+      },
       targets: {
         keywords: request.keywords,
         specifiedId: request.specifiedIds,
