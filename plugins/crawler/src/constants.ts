@@ -20,6 +20,3 @@ export const LOGIN_TYPES: readonly LoginType[] = ['qrcode', 'phone', 'cookie']
 
 /** 全部代理服务商 / all proxy provider names */
 export const PROXY_PROVIDER_NAMES: readonly ProxyProviderName[] = ['kuaidaili', 'wandouhttp', 'static']
-
-/** 首次中断的优雅清理限时（毫秒）/ graceful cleanup window on first interrupt (ms) */
-export const INTERRUPT_GRACE_MS = 15_000
