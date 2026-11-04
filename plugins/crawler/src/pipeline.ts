@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 采集管线：会话 → 登录 → 平台爬取器 → 数据汇 → 介质落盘的全链路装配。
  * The crawl pipeline: session → login → platform crawler → data sink →
  * media persistence, assembled end to end.
@@ -18,6 +18,7 @@ import { createSessionFetchJson } from './browser/context-fetch.ts'
 import { createPlatformAuth, type PlatformAuth } from './platform/login.ts'
 import { report } from './runner/report.ts'
 import { StoreSink, assertStoreSupports } from './sink.ts'
+import { writeWordFrequencyTable } from './wordcloud.ts'
 import { WbCrawler, type FetchJson } from './platform/wb/crawler.ts'
 import { TiebaCrawler } from './platform/tieba/crawler.ts'
 import type { AbstractCrawler } from './crawler/contract.ts'
@@ -131,10 +132,17 @@ async function crawlWithSink(
   })
   try {
     await crawler.run(session, sink)
-    return 0
   } finally {
     await sink.finalize()
   }
+  // 收尾如实报数：0 条也要说出来（静默空结果是最难查的故障）。
+  // Honest closing counts, zeros included (a silent empty result is the
+  // hardest failure to diagnose).
+  report(
+    `落盘完成：内容 ${sink.contentsWritten} 条，评论 ${sink.commentsWritten} 条 / ` +
+      `persisted ${sink.contentsWritten} contents, ${sink.commentsWritten} comments`,
+  )
+  return 0
 }
 
 /**
@@ -155,6 +163,24 @@ export async function runPipeline(
     const auth = deps.auth ?? createPlatformAuth(request.platform, session, request)
     await loginBeforeCrawl(request, deps, auth)
     const code = await crawlWithSink(request, deps, session, dataRoot, options)
+    // 词云旁路：jsonl 介质采集结束后按设计命名产出词频表；失败只记不抛
+    // （旁路失败不中断采集主流程）。
+    // The wordcloud bypass: after a jsonl crawl, produce the frequency
+    // table under the design naming; failures are logged, never thrown
+    // (a bypass failure must not break the crawl).
+    if (request.saveOption === 'jsonl') {
+      try {
+        const table = await writeWordFrequencyTable({
+          dataRoot,
+          platform: request.platform,
+          crawlerType: request.crawlerType,
+          day: new Date().toISOString().slice(0, 10),
+        })
+        if (table !== null) report(`词频表已生成：${table}`)
+      } catch (error: unknown) {
+        report(`词频表生成失败（不影响采集数据）：${String(error)}`)
+      }
+    }
     report('采集结束 / crawl finished')
     return code
   } finally {

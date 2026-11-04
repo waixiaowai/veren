@@ -6,18 +6,24 @@
  * raw items (crawler.md §5: wb has no encrypted signature, dual-site
  * cookies, and truncated long posts needing full-text fetch).
  *
+ * 真实搜索响应里 `user` 常只带数字 `id`（没有 `idstr`），且 mblog 可能嵌在
+ * `card_group` 里——两处都必须兼容，否则会静默产出 0 条。
+ * Real search responses often carry only the numeric `user.id` (no
+ * `idstr`), and mblogs may nest inside `card_group` — both must be tolerated,
+ * otherwise the parse silently yields zero items.
+ *
  * @module @veren/crawler/platform/wb/parse
  */
 import type { RawItem } from '../../crawler/contract.ts'
 
 /** mblog 卡片的宽松形状 / the loose shape of an mblog card */
 interface WbMblog {
-  id: string
+  id?: string | number
   bid?: string
   text?: string
   isLongText?: boolean
   created_at?: string
-  user?: { idstr?: string; screen_name?: string }
+  user?: { idstr?: string; id?: number; screen_name?: string }
   attitudes_count?: number
   comments_count?: number
   reposts_count?: number
@@ -25,10 +31,17 @@ interface WbMblog {
   page_info?: { media_info?: { stream_url?: string } }
 }
 
+/** 搜索结果卡片（可嵌套 card_group）/ a search card (may nest card_group) */
+interface WbCard {
+  mblog?: WbMblog
+  card_type?: number
+  card_group?: WbCard[]
+}
+
 /** 搜索响应的宽松形状 / the loose shape of a search response */
 interface WbSearchResponse {
   ok?: number
-  data?: { cards?: Array<{ mblog?: WbMblog; card_type?: number }> }
+  data?: { cards?: WbCard[] }
 }
 
 /** 图片地址列表聚合 / aggregates the picture urls */
@@ -38,14 +51,23 @@ function picsOf(mblog: WbMblog): string[] {
     .filter((url) => url.length > 0)
 }
 
+/** 创作者标识：优先 idstr，缺失时回退数字 id / the creator id: idstr first, the numeric id otherwise */
+function creatorIdOf(mblog: WbMblog): string | null {
+  const idstr = mblog.user?.idstr
+  if (typeof idstr === 'string' && idstr.length > 0) return idstr
+  const numeric = mblog.user?.id
+  return typeof numeric === 'number' ? String(numeric) : null
+}
+
 /** 单卡转原始条目；长文标记 isLongText 供上层补全文 / one card to a raw item; long posts are flagged for full-text fetch upstream */
 function mblogToRawItem(mblog: WbMblog): RawItem | null {
-  if (mblog.id === undefined || mblog.user?.idstr === undefined) return null
+  const creatorId = creatorIdOf(mblog)
+  if (mblog.id === undefined || creatorId === null) return null
   return {
-    id: mblog.id,
+    id: String(mblog.id),
     title: null,
     desc: mblog.text ?? null,
-    url: `https://m.weibo.cn/status/${mblog.bid ?? mblog.id}`,
+    url: `https://m.weibo.cn/status/${mblog.bid ?? String(mblog.id)}`,
     publishTime: mblog.created_at ?? null,
     likedCount: mblog.attitudes_count ?? null,
     commentCount: mblog.comments_count ?? null,
@@ -54,9 +76,19 @@ function mblogToRawItem(mblog: WbMblog): RawItem | null {
     imageList: picsOf(mblog),
     videoUrl: mblog.page_info?.media_info?.stream_url ?? null,
     tagList: null,
-    creatorId: mblog.user.idstr,
-    nickname: mblog.user.screen_name ?? '',
+    creatorId,
+    nickname: mblog.user?.screen_name ?? '',
   }
+}
+
+/** 卡片展平：卡片组内嵌的卡片一并展开 / flattens cards, including those nested in a card group */
+function flattenCards(cards: readonly WbCard[]): WbCard[] {
+  const flat: WbCard[] = []
+  for (const card of cards) {
+    flat.push(card)
+    if (Array.isArray(card.card_group)) flat.push(...flattenCards(card.card_group))
+  }
+  return flat
 }
 
 /**
@@ -67,9 +99,8 @@ function mblogToRawItem(mblog: WbMblog): RawItem | null {
 export function parseWbSearchResponse(payload: unknown): RawItem[] {
   if (payload === null || typeof payload !== 'object') return []
   const response = payload as WbSearchResponse
-  const cards = response.data?.cards ?? []
   const items: RawItem[] = []
-  for (const card of cards) {
+  for (const card of flattenCards(response.data?.cards ?? [])) {
     if (card.mblog === undefined) continue
     const parsed = mblogToRawItem(card.mblog)
     if (parsed !== null) items.push(parsed)

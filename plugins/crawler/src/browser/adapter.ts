@@ -63,6 +63,7 @@ function wrapPage(raw: RawPageLike): PageLike {
 export function wrapContext(raw: RawContextLike): BrowserContextLike {
   return {
     newPage: async () => wrapPage(await raw.newPage()),
+    pages: async () => raw.pages().map(wrapPage),
     addCookies: async (cookies) => await raw.addCookies(cookies),
     cookies: async (urls) => await raw.cookies(urls),
     requestJson: async (url: string) => await parseJson(url, await raw.request.get(url, { headers: defaultHeaders(url) })),

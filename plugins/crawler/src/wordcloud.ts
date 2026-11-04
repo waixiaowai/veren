@@ -16,6 +16,7 @@
  * @module @veren/crawler/wordcloud
  */
 import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 
 /** 一条词频 / one word-frequency entry */
 export interface WordFrequency {
@@ -79,7 +80,13 @@ export function wordFrequencies(comments: readonly string[], options: WordFreque
  * line, keyed by the `content` field.
  */
 export async function wordFrequenciesFromJsonl(file: string, options: WordFrequencyOptions = {}): Promise<WordFrequency[]> {
-  const text = await readFile(file, 'utf8')
+  let text: string
+  try {
+    text = await readFile(file, 'utf8')
+  } catch {
+    // 评论文件缺失 = 没有评论可统计 / a missing comments file means nothing to count
+    return []
+  }
   const comments: string[] = []
   for (const line of text.split('\n')) {
     const trimmed = line.trim()
@@ -92,4 +99,32 @@ export async function wordFrequenciesFromJsonl(file: string, options: WordFreque
     }
   }
   return wordFrequencies(comments, options)
+}
+
+/**
+ * 生成词频表文件（design/data.md §5 词云产物：数据根/平台/words/，前缀
+ * 采集模式_comments_日期）。评论文件缺失时静默跳过——词云是旁路产物。
+ * Writes the word-frequency table file (the wordcloud artifact per
+ * design/data.md §5: dataRoot/platform/words/, prefixed
+ * mode_comments_date). Skips silently when the comments file is missing —
+ * the wordcloud is a bypass artifact.
+ *
+ * @returns 写出的文件路径；未生成时为 null / the written path, or null when skipped
+ */
+export async function writeWordFrequencyTable(options: {
+  dataRoot: string
+  platform: string
+  crawlerType: string
+  day: string
+  topK?: number
+}): Promise<string | null> {
+  const { mkdir, writeFile } = await import('node:fs/promises')
+  const commentsFile = join(options.dataRoot, options.platform, 'jsonl', `${options.crawlerType}_comments_${options.day}.jsonl`)
+  const frequencies = await wordFrequenciesFromJsonl(commentsFile, { topK: options.topK })
+  if (frequencies.length === 0) return null
+  const wordsDir = join(options.dataRoot, options.platform, 'words')
+  await mkdir(wordsDir, { recursive: true })
+  const target = join(wordsDir, `${options.crawlerType}_comments_${options.day}.json`)
+  await writeFile(target, `${JSON.stringify(frequencies, null, 2)}\n`, 'utf8')
+  return target
 }

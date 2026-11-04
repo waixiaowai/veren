@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 浏览器自动化契约：双模式浏览器（CDP 接管优先 / 标准启动回退）
  * （design/modules/crawler.md 关键决策 1 与 §3 契约）。
  * Browser automation contracts: the dual-mode browser (CDP attach first,
@@ -41,6 +41,7 @@ export interface RawPageLike {
 /** 原始上下文（playwright-core 子集，含带登录态的请求通道）/ the raw context (a playwright-core subset with the session-carrying request channel) */
 export interface RawContextLike {
   newPage(): Promise<RawPageLike>
+  pages(): RawPageLike[]
   addCookies(cookies: CookieLike[]): Promise<void>
   cookies(urls?: string[]): Promise<CookieLike[]>
   close(): Promise<void>
@@ -75,6 +76,8 @@ export interface PageLike {
 export interface BrowserContextLike {
   /** 新建页面 / open a new page */
   newPage(): Promise<PageLike>
+  /** 会话内已有页面（复用活动页，避免标签堆积）/ existing pages in the session (reuse the working one, no tab piling) */
+  pages(): Promise<PageLike[]>
   /** Cookie 注入与回写 / cookie injection and read-back */
   addCookies(cookies: CookieLike[]): Promise<void>
   cookies(urls?: string[]): Promise<CookieLike[]>

@@ -14,7 +14,7 @@
 import { CrawlerError } from '../../errors.ts'
 import { injectCookies } from '../../browser/cookies.ts'
 import type { AbstractLogin, LoginProbe } from '../../auth/contract.ts'
-import type { BrowserSession } from '../../browser/contract.ts'
+import type { BrowserSession, PageLike } from '../../browser/contract.ts'
 import type { CrawlerRunRequest } from '../../control/runner.ts'
 
 /** 登录探测接口 / the login-probe endpoint */
@@ -23,6 +23,9 @@ export const WB_PROBE_URL = 'https://m.weibo.cn/api/config'
 /** 移动端登录页（成功后回到 m.weibo.cn）/ the mobile login page (returns to m.weibo.cn on success) */
 export const WB_LOGIN_PAGE_URL =
   'https://passport.weibo.cn/signin/login?entry=mweibo&r=https%3A%2F%2Fm.weibo.cn%2F'
+
+/** 移动站首页（站点预热落点）/ the mobile index (the warm-up destination) */
+export const WB_INDEX_URL = 'https://m.weibo.cn/'
 
 /** 双站 Cookie 域：桌面站与移动站各一套 / the dual-site cookie domains: desktop and mobile */
 export const WB_COOKIE_DOMAINS: readonly string[] = ['.weibo.com', '.weibo.cn']
@@ -81,8 +84,34 @@ export async function waitForWbLogin(session: BrowserSession, options: WbLoginWa
 
 /** 打开登录页（可见窗口：扫码必须由人完成）/ opens the login page (a visible window: a human must scan) */
 async function openLoginPage(session: BrowserSession): Promise<void> {
-  const page = await session.context.newPage()
+  const page = await workingPage(session)
   await page.goto(WB_LOGIN_PAGE_URL)
+}
+
+/**
+ * 取活动页面：优先复用会话里已有的页面，没有才新建。
+ * Picks the working page: reuse an existing page in the session, creating
+ * one only when the session has none.
+ */
+async function workingPage(session: BrowserSession): Promise<PageLike> {
+  const pages = await session.context.pages()
+  return pages[0] ?? (await session.context.newPage())
+}
+
+/**
+ * 站点预热：把活动页面停在移动站首页，离开登录页。
+ * Site warm-up: park the working page on the mobile index, leaving the
+ * login page behind.
+ *
+ * 登录页残留标签会持续改写 Cookie，导致下一次探测把已登录会话判成未登录
+ * ——预热以导航的方式终结这条残留页。
+ * A leftover login tab keeps rewriting cookies, so the next probe can read a
+ * logged-in session as logged out — the warm-up navigates that stale tab
+ * away.
+ */
+export async function prepareWbSession(session: BrowserSession): Promise<void> {
+  const page = await workingPage(session)
+  await page.goto(WB_INDEX_URL)
 }
 
 /** cookie 方式缺凭证 / the cookie method without a credential */

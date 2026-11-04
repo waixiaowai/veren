@@ -57,6 +57,19 @@ describe('parseWbSearchResponse', () => {
     expect(wbHasMore(payloadOf([]))).toBe(false)
     expect(wbHasMore(payloadOf([mblog('a')], 0))).toBe(false)
   })
+
+  it('falls back to the numeric user id when idstr is missing (real search payloads)', () => {
+    // 真实搜索响应：user 只有数字 id / real search responses: user carries a numeric id only
+    const items = parseWbSearchResponse(
+      payloadOf([{ mblog: { id: 5361482364879426, text: '正文', user: { id: 2391044612, screen_name: '山废酛' } } }]),
+    )
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ id: '5361482364879426', creatorId: '2391044612', nickname: '山废酛' })
+  })
+
+  it('flattens mblogs nested inside a card group', () => {
+    expect(parseWbSearchResponse(payloadOf([{ card_type: 11, card_group: [mblog('g1')] }])).map((item) => item.id)).toEqual(['g1'])
+  })
 })
 
 function makeCrawler(fetchJson: (url: string) => Promise<unknown>) {

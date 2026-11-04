@@ -43,6 +43,8 @@ export interface StoreSinkOptions {
 export class StoreSink implements DataSink {
   private readonly store: AbstractStore
   private readonly shapeContext: ShapeContext
+  private contentCount = 0
+  private commentCount = 0
 
   constructor(options: StoreSinkOptions) {
     const now = options.now ?? (() => Date.now())
@@ -57,14 +59,26 @@ export class StoreSink implements DataSink {
     this.store = factory(options.saveDataOption)
   }
 
+  /** 已写内容条数（收尾日志与验收用）/ contents written (for the closing log and acceptance) */
+  get contentsWritten(): number {
+    return this.contentCount
+  }
+
+  /** 已写评论条数 / comments written */
+  get commentsWritten(): number {
+    return this.commentCount
+  }
+
   /** 交出一条内容：整形 → 介质写入 / hand over one content: shape then persist */
   async content(item: RawItem): Promise<void> {
     await this.store.storeContent(shapeContent({ ...item }, this.shapeContext))
+    this.contentCount += 1
   }
 
   /** 交出一条评论：整形 → 介质写入 / hand over one comment: shape then persist */
   async comment(item: RawComment): Promise<void> {
     await this.store.storeComment(shapeComment(item, this.shapeContext))
+    this.commentCount += 1
   }
 
   /** 介质收尾（Excel 落盘等）/ media finalize (excel flush etc.) */
