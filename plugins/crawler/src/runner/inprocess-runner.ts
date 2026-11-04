@@ -53,11 +53,14 @@ export const createInProcessRunner =
   (request: CrawlerRunRequest, logs: LogBuffer): RunnerHandle => {
     const flag = new CancelFlag()
     logs.append('[INFO] in-process crawl starting')
-    const exit = runPipeline(request, options.deps(request), {
+    const deps = options.deps(request)
+    // 进度报告管道：管线 report() 写进 LogBuffer（模型侧 crawler__logs 可读）。
+    // Progress pipe: pipeline report() writes into the LogBuffer (readable by crawler__logs).
+    const depsWithReport: PipelineDeps = { ...deps, report: (message: string) => logs.append(message) }
+    const exit = runPipeline(request, depsWithReport, {
       domain: options.domain(),
       cancelFlag: flag,
       ...(options.mediaRoot === undefined ? {} : { mediaRoot: options.mediaRoot }),
-      report: (message: string) => logs.append(message),
     })
       .then((code) => {
         logs.append(`[INFO] in-process crawl finished with code ${code}`)
