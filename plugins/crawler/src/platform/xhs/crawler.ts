@@ -119,7 +119,7 @@ export class XhsCrawler extends BaseCrawler {
     return await this.options.signProducer(keyword)
   }
 
-  /** 详情模式：复用搜索缓存中的 xsec_token 构造详情页访问（§5 平台差异）/ detail mode: reuses the cached xsec_token from search (§5) */
+  /** 详情模式：复用搜索缓存中的 xsec_token 构造详情页访问；错误响应 fail loud / detail mode: reuses the cached xsec_token; error responses fail loud */
   async detail(id: string, sink: DataSink): Promise<void> {
     const token = this.tokenStore.get(id)
     if (token === undefined) {
@@ -127,7 +127,11 @@ export class XhsCrawler extends BaseCrawler {
     }
     const headers = await this.produceSignHeaders(id)
     const url = `https://edith.xiaohongshu.com/api/sns/web/v1/feed?note_id=${id}&xsec_token=${encodeURIComponent(token)}`
-    const payload = await this.options.fetchJson(url, headers)
+    const payload = await this.options.fetchJson(url, headers) as { code?: unknown; success?: unknown } | null
+    if (payload === null || typeof payload !== 'object' || payload.code !== 0) {
+      const bizCode = typeof payload === 'object' && payload !== null && payload.code !== undefined ? payload.code : null
+      throw new CrawlerError('CONTENT_NOT_FOUND', `xhs 详情接口未返回内容（code=${String(bizCode)}，id=${id}）`, { id })
+    }
     const items: RawItem[] = parseXhsSearchResponse({ code: 0, data: { items: [{ id, note_card: payload as never }] } })
     for (const raw of items) await sink.content(raw)
   }

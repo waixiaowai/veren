@@ -79,7 +79,7 @@ describe('XhsCrawler xsec_token reuse', () => {
       if (url.includes('search/notes')) return searchPayload([{ id: 'n1', token: 'tok-search' }], false)
       if (url.includes('/feed')) {
         expect(url).toContain('xsec_token=tok-search')
-        return { title: '详情正文', desc: '完整内容', user: { user_id: 'u1', nickname: '小红书用户' } }
+        return { code: 0, title: '详情正文', desc: '完整内容', user: { user_id: 'u1', nickname: '小红书用户' } }
       }
       return { code: -1 }
     })
