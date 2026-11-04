@@ -27,6 +27,7 @@ import { WbCrawler, type FetchJson } from './platform/wb/crawler.ts'
 import { TiebaCrawler } from './platform/tieba/crawler.ts'
 import { XhsCrawler } from './platform/xhs/crawler.ts'
 import { ZhihuCrawler } from './platform/zhihu/crawler.ts'
+import { DyCrawler, type DySignResult } from './platform/dy/crawler.ts'
 import { BiliCrawler } from './platform/bili/crawler.ts'
 import type { AbstractCrawler, DataSink } from './crawler/contract.ts'
 import type { BrowserSession } from './browser/contract.ts'
@@ -37,7 +38,7 @@ import type { CancelFlag } from './runner/inprocess-runner.ts'
 import type { Platform } from './types.ts'
 
 /** 平台注册表：当前已接入的平台 / the platform registry: currently wired platforms */
-const WIRED_PLATFORMS: readonly Platform[] = ['wb', 'tieba', 'bili', 'xhs', 'zhihu']
+const WIRED_PLATFORMS: readonly Platform[] = ['wb', 'tieba', 'bili', 'xhs', 'zhihu', 'dy']
 
 /** 管线可注入依赖 / the injectable pipeline dependencies */
 export interface PipelineDeps {
@@ -78,6 +79,22 @@ export function createPlatformCrawler(request: CrawlerRunRequest, fetchJson: Fet
   if (request.platform === 'bili') {
     return new BiliCrawler({
       fetchJson,
+      targets: {
+        keywords: request.keywords,
+        specifiedId: request.specifiedIds,
+        creatorId: request.creatorIds,
+      },
+      startPage: request.startPage,
+      maxNotesCount: request.maxNotesCount,
+      pageIntervalMs: 2000,
+    })
+  }
+  if (request.platform === 'dy') {
+    return new DyCrawler({
+      fetchJson,
+      signProducer: async () => {
+        throw new Error('dy 签名脚本待从真实页面捕获')
+      },
       targets: {
         keywords: request.keywords,
         specifiedId: request.specifiedIds,
