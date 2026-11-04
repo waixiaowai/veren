@@ -127,4 +127,12 @@ describe('WbCrawler', () => {
     await crawler.detail('d1', { content: async (i) => void handed.push(i.id), comment: async () => {} })
     expect(handed).toEqual(['d1'])
   })
+
+  it('detail fails loud (CONTENT_NOT_FOUND) on error responses instead of silent 0-item success', async () => {
+    const fetchJson = vi.fn(async () => ({ ok: 0, msg: '需要登录' }))
+    const crawler = makeCrawler(fetchJson)
+    await expect(
+      crawler.detail('d1', { content: async () => {}, comment: async () => {} }),
+    ).rejects.toMatchObject({ code: 'CONTENT_NOT_FOUND' })
+  })
 })
