@@ -29,7 +29,7 @@ description: Use when the user asks to collect public contents or comments from 
 
 ## 登录 / Login
 
-采集依赖目标平台登录态：`cookie` 方式需要用户先提供 Cookie 串（配置或接口传入）；`qrcode`/`phone` 方式需要用户交互完成扫码。登录探测失败且登录被放弃时，**不会发出任何业务请求**——不要在未登录状态下反复重试。
+采集依赖目标平台登录态：wb/tieba 搜索与创作者时间线支持**访客会话免登录**（首页 Cookie 自动获取）；wb 详情与评论伴随、以及全部平台的 `cookie` 方式需要用户先提供 Cookie 串；`qrcode`/`phone` 方式需要用户交互完成扫码。登录探测失败且登录被放弃时，**不会发出任何业务请求**——不要在未登录状态下反复重试。
 
 ## 失败处理 / Failure handling
 
