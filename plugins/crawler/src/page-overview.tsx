@@ -84,6 +84,7 @@ export const OverviewPage: PageFC = (_props, agent) => {
     const domain = runtime.domain()
     const contents = domain === undefined ? [] : [...domain.table('contents').entries()]
     const comments = domain === undefined ? [] : [...domain.table('comments').entries()]
+    const recentLogs = runtime.manager.logs.recent(10)
     return (
       <>
         <h1>多平台内容采集</h1>
@@ -92,6 +93,13 @@ export const OverviewPage: PageFC = (_props, agent) => {
           {status.status} · 平台 {status.platform ?? '—'} · 模式 {status.crawlerType ?? '—'} · 起始 {status.startedAt ?? '—'}
           {status.errorMessage === null ? '' : ` · 错误：${status.errorMessage}`}
         </p>
+        <h2>最近日志（10 条）</h2>
+        <ul>
+          {recentLogs.map((entry) => (
+            <li key={entry.id}>{entry.level} · {entry.message}</li>
+          ))}
+          {recentLogs.length === 0 ? <li>暂无日志。</li> : null}
+        </ul>
         <h2>已采数据（宿主存储域）</h2>
         <ul>
           <li>内容 {contents.length} 条</li>
