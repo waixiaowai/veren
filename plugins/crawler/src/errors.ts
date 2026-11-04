@@ -10,7 +10,7 @@
  */
 
 import { PLATFORMS } from './constants.ts'
-import type { CrawlerType, InitDbOption, LoginType, Platform } from './types.ts'
+import type { CrawlerType, LoginType, Platform } from './types.ts'
 
 /** 全局错误码闭集 / the closed set of global error codes */
 export type CrawlerErrorCode =
@@ -94,9 +94,3 @@ export function assertCrawlerType(value: string): CrawlerType {
   return value
 }
 
-/** 数据库初始化目标守卫（数据库介质归 dsh 其他插件，本守卫暂留枚举文档用）/ init-db guard retained for documentation; db media belong to other dsh plugins */
-export function assertInitDb(value: string | null): InitDbOption | null {
-  if (value === null) return null
-  if (value !== 'sqlite' && value !== 'mysql' && value !== 'postgres') throw invalidArgument('initDb', value)
-  return value
-}

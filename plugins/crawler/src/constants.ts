@@ -6,7 +6,7 @@
  * @module @veren/crawler/constants
  */
 
-import type { CrawlerType, InitDbOption, LoginType, Platform, ProxyProviderName } from './types.ts'
+import type { CrawlerType, LoginType, Platform, ProxyProviderName } from './types.ts'
 
 /** 全部合法平台 / all legal platforms */
 export const PLATFORMS: readonly Platform[] = ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu']
@@ -17,8 +17,6 @@ export const CRAWLER_TYPES: readonly CrawlerType[] = ['search', 'detail', 'creat
 /** 全部登录方式 / all login methods */
 export const LOGIN_TYPES: readonly LoginType[] = ['qrcode', 'phone', 'cookie']
 
-/** 全部数据库初始化目标 / all database init targets */
-export const INIT_DB_OPTIONS: readonly InitDbOption[] = ['sqlite', 'mysql', 'postgres']
 
 /** 全部代理服务商 / all proxy provider names */
 export const PROXY_PROVIDER_NAMES: readonly ProxyProviderName[] = ['kuaidaili', 'wandouhttp', 'static']
