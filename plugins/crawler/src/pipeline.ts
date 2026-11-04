@@ -31,6 +31,7 @@ import type { AbstractCrawler, DataSink } from './crawler/contract.ts'
 import type { BrowserSession } from './browser/contract.ts'
 import type { CrawlerRunRequest } from './control/runner.ts'
 import type { CrawlerStore } from './store/domain.ts'
+import type { XhsSignHeaders } from './platform/xhs/crawler.ts'
 import type { CancelFlag } from './runner/inprocess-runner.ts'
 import type { Platform } from './types.ts'
 
@@ -71,7 +72,7 @@ function assertWiredPlatform(platform: Platform): void {
 }
 
 /** 平台爬取器实例化（未接入平台抛 INVALID_PLATFORM）/ instantiates a platform crawler (unwired platforms throw INVALID_PLATFORM) */
-export function createPlatformCrawler(request: CrawlerRunRequest, fetchJson: FetchJson, fetchText?: (url: string) => Promise<string>): AbstractCrawler {
+export function createPlatformCrawler(request: CrawlerRunRequest, fetchJson: FetchJson, fetchText?: (url: string) => Promise<string>, sessionEvaluate?: (script: string) => Promise<unknown>): AbstractCrawler {
   assertWiredPlatform(request.platform)
   if (request.platform === 'bili') {
     return new BiliCrawler({
@@ -89,11 +90,16 @@ export function createPlatformCrawler(request: CrawlerRunRequest, fetchJson: Fet
   if (request.platform === 'xhs') {
     return new XhsCrawler({
       fetchJson: (url) => fetchJson(url),
-      signProducer: async (keyword) => {
-        // evaluate 通道产出签名头四件套（签名脚本内容待数据填充）。
-        // The evaluate channel produces the four-piece headers (script content pending).
-        throw new Error('xhs 签名脚本待填充')
-      },
+      signProducer: sessionEvaluate
+        ? async (keyword) => {
+            // evaluate 通道在页面内运行签名脚本，产出签名头四件套。
+            // The evaluate channel runs the signing script in-page, producing the four-piece headers.
+            const script = `XhsSignHeaders.produce(${JSON.stringify(keyword)})`;
+            return await sessionEvaluate(script) as XhsSignHeaders;
+          }
+        : async () => {
+          throw new Error('xhs 签名需要会话 evaluate 通道')
+        },
       targets: {
         keywords: request.keywords,
         specifiedId: request.specifiedIds,
