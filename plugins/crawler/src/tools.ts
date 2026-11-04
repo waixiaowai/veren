@@ -262,7 +262,7 @@ function dataSummary(platformFilter: string | null): string {
 function wordcloudTool() {
   return defineTool({
     name: 'wordcloud',
-    description: 'Compute a word-frequency table from the comments stored in the host storage domain (chinese bigrams + latin tokens, stopwords filtered). Read-only. Use it to summarize what collected comments talk about; the table feeds external wordcloud renderers.',
+    description: 'Compute a word-frequency table from the comments stored in the host storage domain (chinese bigrams + latin tokens, stopwords filtered), optionally filtered to one platform and capped to topK entries. Read-only. Use it to summarize what collected comments talk about; the table feeds external wordcloud renderers.',
     parameters: {
       topK: { type: 'number' },
       platform: { type: 'string' },
