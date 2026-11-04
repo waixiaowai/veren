@@ -216,12 +216,15 @@ function logsTool() {
 function dataTool() {
   return defineTool({
     name: 'data',
-    description: 'List collected data: the count of contents and comments stored in the host storage domain per platform. Read-only.',
-    parameters: {},
+    description: 'List collected data: the count of contents and comments stored in the host storage domain per platform, optionally filtered to one platform. Read-only.',
+    parameters: {
+      platform: { type: 'string' },
+    },
     output: { schema: OUTPUT_SCHEMA, render: renderValue },
-    execute: async () => {
+    execute: async (args: unknown) => {
       try {
-        return textValue(dataSummary())
+        const platform = (args as { platform?: string }).platform ?? null
+        return textValue(dataSummary(platform))
       } catch (error: unknown) {
         return toErrorValue(error)
       }
@@ -229,12 +232,13 @@ function dataTool() {
   })
 }
 
-/** 汇总存储域内数据量 / summarizes the stored data volume */
-function dataSummary(): string {
+/** 汇总存储域内数据量（platform 过滤可选）/ summarizes the stored data volume (optional platform filter) */
+function dataSummary(platformFilter: string | null): string {
   const domain = portOf().domain()
   if (domain === undefined) return '(storage domain not open)'
-  const contents = [...domain.table('contents').entries()]
-  const comments = [...domain.table('comments').entries()]
+  const matches = (key: string): boolean => platformFilter === null || key.startsWith(platformFilter + '::')
+  const contents = [...domain.table('contents').entries()].filter(([key]) => matches(key))
+  const comments = [...domain.table('comments').entries()].filter(([key]) => matches(key))
   const byPlatform = new Map<string, number>()
   for (const [key] of contents) {
     const platform = key.split('::')[0] ?? '?'
