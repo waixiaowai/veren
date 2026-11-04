@@ -94,6 +94,7 @@ interface StartToolInput {
   headless?: boolean
   maxNotesCount?: number
   enableComments?: boolean
+  enableMedia?: boolean
 }
 
 /** 启动采集工具 / the start tool */
@@ -112,6 +113,7 @@ function startTool() {
       headless: { type: 'boolean' },
       maxNotesCount: { type: 'number' },
       enableComments: { type: 'boolean' },
+      enableMedia: { type: 'boolean' },
     },
     output: { schema: OUTPUT_SCHEMA, render: renderValue },
     timeoutMs: 30_000,
@@ -142,7 +144,7 @@ async function startCrawl(input: StartToolInput): Promise<string> {
     creatorIds: input.creatorIds ?? [],
     enableComments: input.enableComments ?? false,
     enableSubComments: false,
-    enableMedia: false,
+    enableMedia: input.enableMedia ?? false,
     cookies: input.cookies ?? null,
     headless: headlessOf(loginType, input.headless),
     maxNotesCount: input.maxNotesCount ?? 20,
