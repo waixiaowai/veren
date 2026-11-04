@@ -54,7 +54,7 @@ lastUpdated: 2026-11-04
 | 内容根 | `design/` 整体复制到 `src/content/docs/design/` |
 | `id` | 相对内容根的路径去掉 `.md`，`/` 分隔，无扩展名 |
 | 路由 | `/design/<id>/`，尾斜杠 |
-| 首页 | `index.md` → `/design/`；链接写 `/design/`，不写 `/design/index/` |
+| 首页 | `index.md` → `/design/`；其他页链接封面写 `./` 或 `../`（按层级），不写 `./index/` |
 | 文件名 | 小写 ASCII kebab-case：`^[a-z0-9]+(-[a-z0-9]+)*$`；禁止中文、空格、大写、下划线 |
 | 目录 | 目录即路由层级；`modules/<module>.md` → `/design/modules/<module>/` |
 | 正文标题 | 不写 H1；从 H2 开始，不跳级 |
@@ -102,18 +102,24 @@ sidebar:
 
 ## 5. 链接
 
+站内页间链接一律写**相对路由**（不含 `.md` 后缀）：路由结构与文件层级一一对应（`modules/cli.md` → `/design/modules/cli/`），相对链接在任何部署基路径（含子路径）下都能被浏览器正确解析；根绝对路由 `/design/…` 在子路径部署后会失效，禁止写进正文。
+
 | 形态 | 写法 | 例子 |
 | --- | --- | --- |
-| 页间 | `/design/<id>/#<锚点>` | `[权限矩阵](/design/permissions/#183-permission-matrix)` |
-| 页间（章首） | `/design/<id>/` | `[CLI](/design/modules/cli/)` |
+| 页间（同目录） | `./<id>/#<锚点>` | `[权限矩阵](./permissions/#183-permission-matrix)` |
+| 页间（跨目录） | `../<id>/#<锚点>` | `[CLI](../modules/cli/#12-command-line)` |
+| 页间（章首） | `./<id>/` 或 `../<id>/` | `[架构](./architecture/)` |
+| 链回封面 | `./`、`../`（按层级） | `[返回目录](../)` |
 | 页内 | `#<锚点>` | `[见下文](#183-permission-matrix)` |
 | 外链 | `https://…` | 仅 https；`http://localhost` 例外 |
 
-禁止：`.md` 后缀、`./`、`../`、裸文件名、`file://`、`/public/…`、`/_astro/…`、绝对文件系统路径。
+规则：
 
-原因：Astro 不会把 Markdown 文件链接改写成路由；`./permissions.md` 会原样进入 `href`，发布后 404。
-
-子路径部署（如站点在 `/docs`）时，链接前缀由构建期统一加，不能写进正文；本契约默认站点根部署。
+- 目录路由必须带尾斜杠（`./permissions/`，不是 `./permissions`）；`./` 与 `../` 指向内容根（封面）。
+- 禁止：`.md` 后缀、根绝对路由 `/design/…`、裸文件名（不带尾斜杠）、`file://`、`/public/…`、`/_astro/…`、绝对文件系统路径。
+- 原因一：Astro 不会把 Markdown 文件链接改写成路由，`.md` 链接会原样进入 `href`，发布后 404。
+- 原因二：根绝对链接不做 base 改写，站点部署到 `/docs` 等子路径时全部失效；相对路由天然免疫。
+- `../` 层级必须与当前文件位置一致，越出内容根属于错误（校验器会报 DOC-LINK-002）。
 
 ## 6. 资源与 Mermaid
 
@@ -199,7 +205,7 @@ graph TD
 | 遗留语法 | 产物中没有字面量 `{#`，没有 `href` 以 `.md` 结尾 |
 | H1 | 每页恰好一个 H1，正文无 H1 |
 | 锚点 | 每个标题 id 与 github-slugger 输出一致；重复标题带 `-1` |
-| 链接 | 所有 `/design/…` 链接可达；`#fragment` 在目标页存在 |
+| 链接 | 所有相对路由链接（`./`、`../`）可达；`#fragment` 在目标页存在；无根绝对路由与 `.md` 链接 |
 | TOC | 不含 `footnote-label`；H2–H3 齐全 |
 | 图片 | 有 alt、来自内容目录、相对引用、无远程 |
 | Mermaid | 显示 SVG；源码在 `<details>` 内；无可见的 `data-language="mermaid"` 代码块 |

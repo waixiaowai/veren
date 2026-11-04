@@ -116,7 +116,7 @@ export const DemoComponent: React.FC<{}> = (props: DemoProps) => {
 - Astro：Markdown 直接导入 `src/content/docs/design/` 即可构建；用 `scripts` 的 build/check/dev 构建、检查、预览，不生成自定义 HTML
 - 每个文件顶部写 frontmatter（title/description/sidebar/draft/lastUpdated），正文不写 H1
 - 章节标题固定“编号 + 英文”，不写 `{#id}`；锚点按 github-slugger 规则自动生成
-- 站内链接写 `/design/<id>/#<anchor>`，不写 `.md` 相对链接
+- 站内页间链接写相对路由 `./<id>/` 或 `../<id>/#<anchor>`（带尾斜杠），页内写 `#anchor`；不写 `.md` 链接，不写根绝对路由 `/design/…`
 - Mermaid 先渲染成 SVG，用 Markdown 图片引用，源码放 `<details>`
 - 图片用相对路径，禁止远程图与 `<img>`；不用 emoji 充当图标
 - 生成 Markdown 文件保存整个方案，适当分级、分段、分文件
