@@ -57,6 +57,7 @@ export const createInProcessRunner =
       domain: options.domain(),
       cancelFlag: flag,
       ...(options.mediaRoot === undefined ? {} : { mediaRoot: options.mediaRoot }),
+      report: (message: string) => logs.append(message),
     })
       .then((code) => {
         logs.append(`[INFO] in-process crawl finished with code ${code}`)

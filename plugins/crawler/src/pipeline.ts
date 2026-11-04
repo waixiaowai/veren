@@ -61,6 +61,8 @@ export interface PipelineRunOptions {
   cancelFlag?: CancelFlag
   /** 媒体文件根目录（媒体开关开启时必需）/ the media file root (required when the media switch is on) */
   mediaRoot?: string
+  /** 进度报告管道（进程内运行器注入 LogBuffer）/ the progress report channel (injected by the in-process runner's LogBuffer) */
+  report?: (message: string) => void
 }
 
 /** 未接入平台在启动浏览器之前拒绝 / unwired platforms are rejected before the browser launch */
