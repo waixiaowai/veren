@@ -15,6 +15,7 @@
  */
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { assertCrawlerType, assertLoginType, assertPlatform } from './errors.ts'
+import { wordFrequencies } from './wordcloud.ts'
 import type { CrawlerManager } from './control/manager.ts'
 import type { CrawlerRunRequest } from './control/runner.ts'
 import type { CrawlerStore } from './store/domain.ts'
@@ -78,7 +79,7 @@ function textValue(text: string): { kind: 'text'; text: string } {
  * them under `crawler__<localName>`).
  */
 export function createCrawlerTools(): ReturnType<typeof defineTool>[] {
-  return [startTool(), stopTool(), statusTool(), logsTool(), dataTool()]
+  return [startTool(), stopTool(), statusTool(), logsTool(), dataTool(), wordcloudTool()]
 }
 
 /** 启动参数（工具面形状）/ the start arguments (the tool-face shape) */
@@ -241,6 +242,34 @@ function dataSummary(): string {
   }
   const parts = [...byPlatform.entries()].map(([platform, count]) => `${platform}: ${count} contents`)
   return `contents ${contents.length}, comments ${comments.length}${parts.length > 0 ? ` (${parts.join(', ')})` : ''}`
+}
+
+/** 词云工具 / the wordcloud tool */
+function wordcloudTool() {
+  return defineTool({
+    name: 'wordcloud',
+    description: 'Compute a word-frequency table from the comments stored in the host storage domain (chinese bigrams + latin tokens, stopwords filtered). Read-only. Use it to summarize what collected comments talk about; the table feeds external wordcloud renderers.',
+    parameters: {
+      topK: { type: 'number' },
+    },
+    output: { schema: OUTPUT_SCHEMA, render: renderValue },
+    execute: async (args: unknown) => {
+      try {
+        const topK = (args as { topK?: number }).topK ?? 30
+        const domain = portOf().domain()
+        if (domain === undefined) return textValue('(storage domain not open)')
+        const comments = [...domain.table('comments').entries()].map(([, row]) => {
+          const record = row as { content?: unknown }
+          return typeof record.content === 'string' ? record.content : ''
+        })
+        const frequencies = wordFrequencies(comments, { topK })
+        if (frequencies.length === 0) return textValue('(no comments stored yet)')
+        return textValue(frequencies.map((entry) => `${entry.word}: ${entry.count}`).join('\n'))
+      } catch (error: unknown) {
+        return toErrorValue(error)
+      }
+    },
+  })
 }
 
 /** 工具端口（装配时绑定，bindRuntime 同款）/ the tool port (bound at assembly, like bindRuntime) */
