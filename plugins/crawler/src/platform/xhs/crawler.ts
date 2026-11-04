@@ -102,7 +102,12 @@ export class XhsCrawler extends BaseCrawler {
     const url = SEARCH_URL
       .replace('{keyword}', encodeURIComponent(keyword))
       .replace('{page}', String(page))
-    const payload = await this.options.fetchJson(url, headers)
+    const payload = await this.options.fetchJson(url, headers) as { code?: unknown } | null
+    const bizCode = typeof payload === 'object' && payload !== null && payload.code !== undefined ? payload.code : null
+    if (bizCode !== null && bizCode !== 0) {
+      // 业务码非零上抛归引擎（-100 风控/限频等，重试退避接管）/ nonzero business code surfaces to the engine (backoff retry)
+      throw new CrawlerError('RATE_LIMITED', `xhs 搜索业务码 ${String(bizCode)}`, { code: String(bizCode) })
+    }
     const items: RawItem[] = parseXhsSearchResponse(payload)
     // xsec_token 随内容缓存供详情复用（§5 令牌随内容入库）
     for (const item of items) {

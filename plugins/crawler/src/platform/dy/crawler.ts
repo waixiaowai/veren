@@ -87,7 +87,12 @@ export class DyCrawler extends BaseCrawler {
       .replace('{keyword}', encodeURIComponent(keyword))
       .replace('{offset}', String(offset))
     const fullUrl = `${url}&msToken=${encodeURIComponent(sign.msToken)}&a_bogus=${encodeURIComponent(sign.aBogus)}`
-    const payload = await this.options.fetchJson(fullUrl)
+    const payload = await this.options.fetchJson(fullUrl) as { status_code?: unknown } | null
+    const bizCode = typeof payload === 'object' && payload !== null && payload.status_code !== undefined ? payload.status_code : null
+    if (bizCode !== null && bizCode !== 0) {
+      // 业务码非零上抛归引擎（风控/限频，重试退避接管）/ nonzero business code surfaces to the engine (backoff retry)
+      throw new CrawlerError('RATE_LIMITED', `dy 搜索业务码 ${String(bizCode)}`, { code: String(bizCode) })
+    }
     const items: RawItem[] = parseDySearchResponse(payload)
     return { items, hasMore: dyHasMoreOf(payload), next: { page: page + 1, cursor: null, sessionId: null } }
   }
