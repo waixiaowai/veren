@@ -83,13 +83,22 @@ const config: Config = {
 }
 
 describe('crawler composition on real cordis ctx', () => {
-  it('registers six tools after apply', async () => {
-    const { ctx } = testContext(undefined)
+  it('registers six tools and API routes after apply', async () => {
+    const { ctx, routes, upgrades } = testContext(undefined)
     await apply(ctx, config)
+    // 六工具注册 / six tools registered
     const names = ctx.tools.schemas().map((schema: { name: string }) => schema.name)
     for (const tool of ['start', 'stop', 'status', 'logs', 'data', 'wordcloud']) {
       expect(names).toContain(`crawler__${tool}`)
     }
+    // API 路由前缀注册（4 条 HTTP + 2 条 WS）/ api route prefixes registered (4 HTTP + 2 WS)
+    expect(routes.length).toBeGreaterThanOrEqual(4)
+    expect(upgrades.length).toBeGreaterThanOrEqual(2)
+    const paths = routes.map((route) => route.path)
+    expect(paths).toContain('/api/crawler')
+    expect(paths).toContain('/api/data')
+    expect(paths).toContain('/api/config')
+    expect(paths).toContain('/api/health')
   })
 
   it('plugin name is stable for Loader registration', () => {
