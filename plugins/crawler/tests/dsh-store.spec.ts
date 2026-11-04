@@ -64,6 +64,18 @@ describe('in-process runner', () => {
     const runner = createInProcessRunner({
       deps: {
         fetchJson: async () => ({ ok: 0, data: { cards: [] } }),
+        // 登录面直中：本用例只验运行器语义，不验登录（登录有独立 spec）。
+        // A logged-in face: this case only covers runner semantics; login has its own spec.
+        auth: {
+          probe: async () => ({ loggedIn: true, probeMethod: 'api' }),
+          login: {
+            platform: 'wb',
+            begin: async () => {},
+            loginByQrcode: async () => true,
+            loginByMobile: async () => true,
+            loginByCookies: async () => {},
+          },
+        },
         launchSession: async () => ({
           context: {
             newPage: async () => ({ goto: async () => undefined, content: async () => '' }),

@@ -19,7 +19,7 @@ DSH 多平台内容采集插件 —— 面向学习研究场景，采集主流�
 - 爬取器契约与平台注册表工厂：未知平台在采集开始前报错（`src/crawler/`）。
 - 登录与凭证：三段式流程（探测→登录→持久化）+ 登录会话状态机，Cookie 注入必复验、凭证不落数据介质（`src/auth/`）。
 - 控制服务核心：任务管理器（单任务互斥、停止超时强杀）、500 条日志环形缓冲、数据文件列表/预览/越界防护（`src/control/`）。
-- 控制服务 API：挂在宿主 web 服务器上的路由族（`ctx.webServer.register` 前缀注册，**不启动独立端口**），覆盖启停/状态/日志/数据/配置/健康端点，卸载逆序清理（`src/control/http-server.ts`，依赖 `@deepseek-ai/dsh-host-webserver`）；ws-logs/ws-status 实时推送属后续迭代。
+- 控制服务 API：挂在宿主 web 服务器上的路由族（`ctx.webServer.register` 前缀注册，**不启动独立端口**），覆盖启停/状态/日志/数据/配置/健康端点，卸载逆序清理（`src/control/http-server.ts`，依赖 `@deepseek-ai/dsh-host-webserver`）；**ws-logs/ws-status 推送通道已落地**——宿主 `registerUpgrade` + 最小 RFC6455 服务端（握手/文本帧/ping-pong/close），连接即补发历史日志、状态每秒推送（`src/control/ws.ts`）。
 - 进程模型与入口集成：node 子进程运行器（环境净洗、日志泵、终止/强杀）、CLI 入口（单参数 JSON 进程约定）、插件 apply 装配任务管理器与控制服务器、卸载逆序清理（`src/runner/`、`src/cli.ts`、`src/index.ts`）。
 - 采集引擎核心（平台无关）：并发信号量、限频分类与指数退避重试、统一翻页主循环（数量上限/空页终止/页间固定限频/单条失败隔离）（`src/crawler/semaphore.ts`、`ratelimit.ts`、`engine.ts`）。
 - 缓存（外围域）：带过期时间的键值缓存抽象，内存后端（即时过期判断+后台周期清理），工厂分发未知类型报错（`src/cache/`）。

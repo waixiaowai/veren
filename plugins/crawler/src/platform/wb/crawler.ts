@@ -28,9 +28,6 @@ export type FetchJson = (url: string) => Promise<unknown>
 /** 微博爬取器构造依赖 / weibo crawler construction dependencies */
 export interface WbCrawlerOptions {
   fetchJson: FetchJson
-  launchSession: BaseCrawlerDeps['launchSession']
-  probeLoggedIn: BaseCrawlerDeps['probeLoggedIn']
-  login: BaseCrawlerDeps['login']
   targets: BaseCrawlerDeps['targets']
   startPage: number
   /** 内容数量上限 / the content count cap */
@@ -63,10 +60,7 @@ export class WbCrawler extends BaseCrawler {
 
   constructor(private readonly options: WbCrawlerOptions) {
     super({
-      launchSession: options.launchSession,
       indexUrl: 'https://m.weibo.cn/',
-      probeLoggedIn: options.probeLoggedIn,
-      login: options.login,
       targets: options.targets,
       startPage: options.startPage,
     })

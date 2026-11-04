@@ -71,6 +71,8 @@ export interface LoginFlowDeps {
   probe: LoginProbeFn
   /** 登录态持久化 / login-state persistence */
   persist: PersistLoginFn
+  /** 浏览器档案根目录（缺省 ./browser-data）/ the profile root directory (defaults to ./browser-data) */
+  profileRoot?: string
 }
 
 /** 登录流程对外可观测的状态源 / the observable login-state source of the flow */

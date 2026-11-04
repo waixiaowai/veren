@@ -62,7 +62,7 @@ export async function runLoginFlow(deps: LoginFlowDeps): Promise<LoginFlowResult
   await deps.persist({
     platform: deps.login.platform,
     cookieSnapshot: [],
-    persistedDir: userDataDirOf(deps.login.platform),
+    persistedDir: userDataDirOf(deps.login.platform, deps.profileRoot),
   })
   return { state, probeHit: null }
 }
@@ -70,7 +70,12 @@ export async function runLoginFlow(deps: LoginFlowDeps): Promise<LoginFlowResult
 /**
  * 登录档案目录：按平台隔离（数据根外独立目录）。
  * The login profile directory: isolated per platform, outside the data root.
+ *
+ * 根目录可注入：宿主进程的工作目录不可假定可写，装配面按配置传入
+ * `config.browserDataRoot`。
+ * The root is injectable: the host process working directory is not assumed
+ * writable, so the assembly passes `config.browserDataRoot`.
  */
-export function userDataDirOf(platform: string): string {
-  return `./browser-data/${platform}_user_data_dir`
+export function userDataDirOf(platform: string, baseRoot = './browser-data'): string {
+  return `${baseRoot.replace(/[\\/]+$/u, '')}/${platform}_user_data_dir`
 }

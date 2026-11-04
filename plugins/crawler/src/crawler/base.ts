@@ -1,14 +1,14 @@
 /**
- * 平台爬取器统一骨架：启动浏览器 → 校验登录 → 按模式分发 → 清理
- * （design/modules/crawler.md §4 主流程伪代码）。
- * The unified crawler skeleton: launch browser → verify login → dispatch
- * by mode → clean up (the §4 main-flow pseudocode in crawler.md).
+ * 平台爬取器统一骨架：在已登录会话上导航首页 → 按模式分发 → 采集
+ * （design/modules/crawler.md §4 主流程）。
+ * The unified crawler skeleton: navigate the index on the logged-in session,
+ * dispatch by mode, then crawl (the §4 main flow in crawler.md).
  *
- * 铁律「先凭证后请求」：登录探测失败且登录流程被放弃时，不以未登录
- * 状态发出任何业务请求（验收 2）；成功失败都执行会话清理。
- * Invariant "credentials before requests": a failed probe with an abandoned
- * login never issues any business request (acceptance 2); cleanup runs on
- * success and failure alike.
+ * 会话生命周期归管线：登录在采集之前完成，爬取器既不启动浏览器也不关闭
+ * 会话，只消费一个已登录会话。
+ * The session lifecycle belongs to the pipeline: login finishes before any
+ * crawl, and a crawler neither launches the browser nor closes the session;
+ * it only consumes a logged-in session.
  *
  * @module @veren/crawler/crawler/base
  */
@@ -17,14 +17,8 @@ import type { BrowserSession } from '../browser/contract.ts'
 
 /** 骨架依赖 / the skeleton dependencies */
 export interface BaseCrawlerDeps {
-  /** 浏览器会话工厂 / the browser-session factory */
-  launchSession: () => Promise<BrowserSession>
-  /** 平台首页地址（会话建立后先导航）/ the platform index url (navigated once after launch) */
+  /** 平台首页地址（会话建立后先导航）/ the platform index url (navigated first on the session) */
   indexUrl: string
-  /** 登录探测 / the login probe */
-  probeLoggedIn: () => Promise<boolean>
-  /** 登录流程（含 Cookie 注入复验）；放弃登录抛错 / the login flow (with cookie re-verification); throws when abandoned */
-  login: () => Promise<void>
   /** 三模式目标（关键词/内容 id/创作者 id 列表）/ the mode targets (keyword, content-id, or creator-id lists) */
   targets: { keywords: string[]; specifiedId: string[]; creatorId: string[] }
   /** 起始页码 / the starting page */
@@ -46,22 +40,21 @@ export abstract class BaseCrawler implements AbstractCrawler {
 
   protected constructor(protected readonly deps: BaseCrawlerDeps) {}
 
-  /** 主流程：启动 → 探测/登录 → 采集 → 清理（成功失败都清理）/ the main flow: launch, probe/login, crawl, cleanup (always) */
-  async start(sink: DataSink): Promise<void> {
-    const session = await this.deps.launchSession()
-    try {
-      await session.context.newPage().then((page) => page.goto(this.deps.indexUrl))
-      if (!(await this.deps.probeLoggedIn())) {
-        await this.deps.login()
-      }
-      this.keywords = this.deps.targets.keywords
-      this.startPage = this.deps.startPage
-      // 业务请求全部发生在登录探测通过之后（铁律 1）。
-      // Every business request happens after a passing probe (invariant 1).
-      await this.crawlAll(sink)
-    } finally {
-      await session.close().catch(() => undefined)
-    }
+  /** 主流程：导航首页 → 按模式采集（会话由管线持有）/ the main flow: navigate the index, crawl by mode (the session belongs to the pipeline) */
+  async run(session: BrowserSession, sink: DataSink): Promise<void> {
+    await this.openIndex(session)
+    this.keywords = this.deps.targets.keywords
+    this.startPage = this.deps.startPage
+    // 业务请求全部发生在登录之后（铁律 1，由管线保证）。
+    // Every business request happens after login (invariant 1, guaranteed
+    // by the pipeline).
+    await this.crawlAll(sink)
+  }
+
+  /** 在会话里打开平台首页（建立站点上下文与 Cookie 作用域）/ opens the platform index in the session (site context and cookie scope) */
+  private async openIndex(session: BrowserSession): Promise<void> {
+    const page = await session.context.newPage()
+    await page.goto(this.deps.indexUrl)
   }
 
   /** 三模式分发：子类按平台实现 / mode dispatch: implemented per platform */

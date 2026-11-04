@@ -2,11 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { parseWbSearchResponse, wbHasMore } from '../src/platform/wb/parse.ts'
 import { WbCrawler } from '../src/platform/wb/crawler.ts'
 import type { DataSink, RawItem } from '../src/crawler/contract.ts'
+import { fakeSession } from './helpers/session.ts'
 
 // 微博爬取器（design/modules/crawler.md §5）：解析、空页终止、长文补全、
-// 登录探测门禁（先凭证后请求）。
+// 会话只消费不持有（生命周期归管线）。
 // The weibo crawler (crawler.md §5): parsing, empty-page stop, long-post
-// completion, and the probe gate (credentials before requests).
+// completion, and consuming—not owning—the session (the pipeline owns it).
 function payloadOf(cards: unknown[], ok = 1): unknown {
   return { ok, data: { cards } }
 }
@@ -58,31 +59,15 @@ describe('parseWbSearchResponse', () => {
   })
 })
 
-function makeCrawler(fetchJson: (url: string) => Promise<unknown>, probes: boolean[]) {
-  const probe = vi.fn(async () => probes.shift() ?? true)
-  const login = vi.fn(async () => {})
-  const sessionClosed = vi.fn(async () => {})
-  const crawler = new WbCrawler({
+function makeCrawler(fetchJson: (url: string) => Promise<unknown>) {
+  return new WbCrawler({
     fetchJson,
-    launchSession: async () => ({
-      context: {
-        newPage: async () => ({ goto: async () => undefined, content: async () => '' }),
-        addCookies: async () => {},
-        cookies: async () => [],
-        requestJson: async () => ({}),
-        close: async () => {},
-      },
-      close: sessionClosed,
-    }),
-    probeLoggedIn: probe,
-    login,
     targets: { keywords: ['美食'], specifiedId: [], creatorId: [] },
     startPage: 1,
     maxNotesCount: 5,
     pageIntervalMs: 0,
     fullTextUrl: (id) => `https://m.weibo.cn/statuses/extend?id=${id}`,
   })
-  return { crawler, probe, login, sessionClosed }
 }
 
 const sink: DataSink = { content: async () => {}, comment: async () => {} }
@@ -97,7 +82,7 @@ describe('WbCrawler', () => {
       if (url.includes('page=2')) return payloadOf([])
       return payloadOf([mblog('a', { isLongText: true })])
     })
-    const { crawler } = makeCrawler(fetchJson, [true])
+    const crawler = makeCrawler(fetchJson)
     crawler.keywords = ['美食']
     await crawler.search('美食', { content: async (i) => void handed.push(i), comment: async () => {} })
     expect(handed).toHaveLength(1)
@@ -107,18 +92,13 @@ describe('WbCrawler', () => {
     expect(fetchJson).toHaveBeenCalledTimes(3)
   })
 
-  it('aborts without business requests when the probe fails and login is abandoned', async () => {
-    const fetchJson = vi.fn(async () => payloadOf([mblog('a')]))
-    const { crawler, probe, login, sessionClosed } = makeCrawler(fetchJson, [false])
-    login.mockRejectedValueOnce(new Error('login abandoned'))
-    crawler.keywords = ['美食']
-    await expect(
-      crawler.start({ content: async () => {}, comment: async () => {} }),
-    ).rejects.toThrowError(/login abandoned/)
-    expect(probe).toHaveBeenCalledTimes(1)
-    expect(login).toHaveBeenCalledTimes(1)
-    expect(fetchJson).not.toHaveBeenCalled()
-    expect(sessionClosed).toHaveBeenCalledTimes(1)
+  it('navigates the index on the given session and never closes it', async () => {
+    const goto = vi.fn(async () => undefined)
+    const session = fakeSession({ newPage: async () => ({ goto, content: async () => '' }) })
+    const crawler = makeCrawler(async () => payloadOf([mblog('a')]))
+    await crawler.run(session, sink)
+    expect(goto).toHaveBeenCalledWith('https://m.weibo.cn/')
+    expect(session.close).not.toHaveBeenCalled()
   })
 
   it('dispatches detail mode for specified ids', async () => {
@@ -129,7 +109,7 @@ describe('WbCrawler', () => {
       }
       return payloadOf([])
     })
-    const { crawler } = makeCrawler(fetchJson, [true])
+    const crawler = makeCrawler(fetchJson)
     // 直接以 detail 入口验证 / verify the detail entry directly
     await crawler.detail('d1', { content: async (i) => void handed.push(i.id), comment: async () => {} })
     expect(handed).toEqual(['d1'])

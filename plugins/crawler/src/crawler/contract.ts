@@ -10,6 +10,7 @@
  * @module @veren/crawler/crawler/contract
  */
 import type { CrawlerType, Platform } from '../types.ts'
+import type { BrowserSession } from '../browser/contract.ts'
 
 export type { CrawlerType, Platform }
 
@@ -78,12 +79,18 @@ export interface RawItem {
  * 统一爬取器骨架：七平台各自实现，采集动作只回吐内存数据。
  * The unified crawler skeleton: implemented per platform; crawl actions
  * only hand back in-memory data through the sink.
+ *
+ * 会话由管线创建与关闭（登录必须在采集之前完成），爬取器只接收已登录
+ * 的会话并负责按模式分发。
+ * The pipeline creates and closes the session (login must finish before any
+ * crawl); a crawler only receives the logged-in session and dispatches by
+ * mode.
  */
 export interface AbstractCrawler {
   /** 当前平台 / the platform this crawler serves */
   readonly platform: Platform
-  /** 启动浏览器 → 校验登录 → 按模式分发采集 → 清理 / launch browser, verify login, crawl by mode, clean up */
-  start(sink: DataSink): Promise<void>
+  /** 在已登录会话上按模式采集（不启动、不关闭会话）/ crawl on the logged-in session (no launch, no close) */
+  run(session: BrowserSession, sink: DataSink): Promise<void>
   /** 搜索模式 / search mode */
   search(keyword: string, sink: DataSink): Promise<void>
   /** 详情模式 / detail mode */

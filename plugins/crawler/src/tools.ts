@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 模型工具面：启停采集、查状态、看日志、列数据（意见 4：dsh tools 注册）。
  * The model tool face: start/stop crawls, read status, tail logs, and list
  * data (directive 4: dsh tools registration).
@@ -14,10 +14,11 @@
  * @module @veren/crawler/tools
  */
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { assertCrawlerType, assertPlatform, assertSaveOption } from './errors.ts'
+import { assertCrawlerType, assertLoginType, assertPlatform, assertSaveOption } from './errors.ts'
 import type { CrawlerManager } from './control/manager.ts'
 import type { CrawlerRunRequest } from './control/runner.ts'
 import type { CrawlerStore } from './store/domain.ts'
+import type { LoginType } from './types.ts'
 
 /** 工具端口：工具取数的唯一正道 / the tool port: the only straight path for tool data */
 export interface CrawlerToolPort {
@@ -82,11 +83,26 @@ export function createCrawlerTools(): ReturnType<typeof defineTool>[] {
   return [startTool(), stopTool(), statusTool(), logsTool(), dataTool()]
 }
 
+/** 启动参数（工具面形状）/ the start arguments (the tool-face shape) */
+interface StartToolInput {
+  platform: string
+  crawlerType: string
+  keywords?: string[]
+  specifiedIds?: string[]
+  creatorIds?: string[]
+  saveOption?: string
+  loginType?: string
+  cookies?: string
+  headless?: boolean
+  maxNotesCount?: number
+  enableComments?: boolean
+}
+
 /** 启动采集工具 / the start tool */
 function startTool() {
   return defineTool({
     name: 'start',
-    description: 'Start a content-crawl task on this machine (single-task mutex: a running task rejects new starts). Provide the platform (xhs/dy/ks/bili/wb/tieba/zhihu), mode (search/detail/creator), targets, and the save medium (dsh stores into the host storage domain; jsonl/csv/json write files). Read-only against the platforms: it only reads public contents.',
+    description: 'Start a content-crawl task on this machine (single-task mutex: a running task rejects new starts). Provide the platform (xhs/dy/ks/bili/wb/tieba/zhihu), mode (search/detail/creator), targets, and the save medium (dsh stores into the host storage domain; jsonl/csv/json write files). loginType defaults to qrcode: a visible Chrome window opens on the platform login page and the run waits up to 300 seconds for you to scan; cookie login instead takes a cookies string. Read-only against the platforms: it only reads public contents.',
     parameters: {
       platform: { type: 'string', required: true },
       crawlerType: { type: 'string', required: true },
@@ -94,14 +110,17 @@ function startTool() {
       specifiedIds: { type: 'array', items: { type: 'string' } },
       creatorIds: { type: 'array', items: { type: 'string' } },
       saveOption: { type: 'string' },
+      loginType: { type: 'string' },
+      cookies: { type: 'string' },
+      headless: { type: 'boolean' },
+      maxNotesCount: { type: 'number' },
+      enableComments: { type: 'boolean' },
     },
     output: { schema: OUTPUT_SCHEMA, render: renderValue },
     timeoutMs: 30_000,
     execute: async (args: unknown) => {
       try {
-        const input = args as { platform: string; crawlerType: string; keywords?: string[]; specifiedIds?: string[]; creatorIds?: string[]; saveOption?: string }
-        const outcome = await startCrawl(input)
-        return textValue(outcome)
+        return textValue(await startCrawl(args as StartToolInput))
       } catch (error: unknown) {
         return toErrorValue(error)
       }
@@ -109,27 +128,34 @@ function startTool() {
   })
 }
 
+/** 扫码/短信登录必须可见窗口；cookie 方式可无头 / qr and sms need a visible window; cookie login may run headless */
+function headlessOf(loginType: LoginType, value: boolean | undefined): boolean {
+  return value ?? loginType === 'cookie'
+}
+
 /** 组装启动请求并调用管理器：枚举在此守卫，非法值折成错误规范值 / assembles the request and calls the manager: enums guarded here, illegal values fold into error values */
-async function startCrawl(input: { platform: string; crawlerType: string; keywords?: string[]; specifiedIds?: string[]; creatorIds?: string[]; saveOption?: string }): Promise<string> {
+async function startCrawl(input: StartToolInput): Promise<string> {
+  const loginType = assertLoginType(input.loginType ?? 'qrcode')
   const request: CrawlerRunRequest = {
     platform: assertPlatform(input.platform),
-    loginType: 'cookie',
+    loginType,
     crawlerType: assertCrawlerType(input.crawlerType),
     keywords: input.keywords ?? [],
     specifiedIds: input.specifiedIds ?? [],
     creatorIds: input.creatorIds ?? [],
-    enableComments: false,
+    enableComments: input.enableComments ?? false,
     enableSubComments: false,
     enableMedia: false,
     saveOption: assertSaveOption(input.saveOption ?? 'dsh'),
-    cookies: null,
-    headless: true,
-    maxNotesCount: 20,
+    cookies: input.cookies ?? null,
+    headless: headlessOf(loginType, input.headless),
+    maxNotesCount: input.maxNotesCount ?? 20,
     maxCommentsCount: 10,
     startPage: 1,
   }
   const outcome = await portOf().manager.start(request)
-  return `${outcome.status}: ${outcome.message}`
+  const hint = loginType === 'qrcode' ? '（扫码请在弹出的浏览器窗口完成，最多等 300 秒）' : ''
+  return `${outcome.status}: ${outcome.message}${hint}`
 }
 
 /** 停止采集工具 / the stop tool */

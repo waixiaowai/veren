@@ -4,8 +4,15 @@
  * The dual-mode launcher: CDP attach first, standard launch on failure
  * (crawler.md decision 1).
  *
+ * 两条路径都把库对象交给 `wrapContext` 包装：插件其余部分只见内部契约，
+ * `requestJson` 才可能真正携带登录态。
+ * Both paths hand library objects to `wrapContext`: the rest of the plugin
+ * only sees the internal contract, so `requestJson` really carries the
+ * login session.
+ *
  * @module @veren/crawler/browser/launcher
  */
+import { wrapContext } from './adapter.ts'
 import type {
   BrowserLaunchOptions,
   BrowserLauncher,
@@ -40,7 +47,7 @@ export function createCdpLauncher(playwright: PlaywrightLike): BrowserLauncher {
       throw new Error('CDP browser exposes no context')
     }
     return {
-      context,
+      context: wrapContext(context),
       close: async () => {
         await browser.close()
       },
@@ -55,11 +62,16 @@ export function createCdpLauncher(playwright: PlaywrightLike): BrowserLauncher {
  */
 export function createStandardLauncher(playwright: PlaywrightLike): BrowserLauncher {
   return async (options) => {
-    const context = await playwright.chromium.launchPersistentContext(options.userDataDir, {
+    const raw = await playwright.chromium.launchPersistentContext(options.userDataDir, {
       headless: options.headless,
       proxy: proxyOption(options),
       userAgent: options.userAgent ?? undefined,
+      // 系统浏览器渠道：本机没装 playwright 自带 chromium 时的唯一可用路径。
+      // The system browser channel: the only path when playwright's bundled
+      // chromium is absent on this machine.
+      ...(options.channel === undefined ? {} : { channel: options.channel }),
     })
+    const context = wrapContext(raw)
     return {
       context,
       close: async () => {

@@ -4,12 +4,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runPipeline } from '../src/pipeline.ts'
 import type { CrawlerRunRequest } from '../src/control/runner.ts'
-import type { BrowserSession } from '../src/browser/contract.ts'
+import type { PlatformAuth } from '../src/platform/login.ts'
+import { fakeSession } from './helpers/session.ts'
 
-// 管线全链路（架构铁律 2）：请求 → 爬取器 → 整形脱敏 → 介质落盘；
-// 未接入平台在采集开始前拒绝。
-// The full pipeline (invariant 2): request → crawler → shape/mask →
-// medium persistence; unwired platforms reject before any crawl.
+// 管线全链路（架构铁律 2）：会话 → 登录 → 爬取器 → 整形脱敏 → 介质落盘；
+// 未接入平台在启动前拒绝；登录失败绝不发业务请求且会话必定关闭。
+// The full pipeline (invariant 2): session → login → crawler → shape/mask
+// → medium persistence; unwired platforms reject before launch; a failed
+// login never issues a business request and the session always closes.
 const request: CrawlerRunRequest = {
   platform: 'wb', loginType: 'cookie', crawlerType: 'search', keywords: ['美食'],
   specifiedIds: [], creatorIds: [], enableComments: true, enableSubComments: false,
@@ -28,16 +30,17 @@ function mblogPayload(id: string): unknown {
   }
 }
 
-function fakeSession(): BrowserSession {
+/** 已登录的登录面：探针直中，登录器不被调用 / a logged-in face: the probe hits, no login runs */
+function loggedInAuth(): PlatformAuth {
   return {
-    context: {
-      newPage: async () => ({ goto: async () => undefined, content: async () => '' }),
-      addCookies: async () => {},
-      cookies: async () => [],
-      requestJson: async () => ({}),
-      close: async () => {},
+    probe: async () => ({ loggedIn: true, probeMethod: 'api' }),
+    login: {
+      platform: 'wb',
+      begin: async () => {},
+      loginByQrcode: async () => true,
+      loginByMobile: async () => true,
+      loginByCookies: async () => {},
     },
-    close: async () => {},
   }
 }
 
@@ -51,7 +54,7 @@ describe('runPipeline', () => {
       })
       const code = await runPipeline(
         request,
-        { fetchJson, launchSession: async () => fakeSession() },
+        { fetchJson, launchSession: async () => fakeSession(), auth: loggedInAuth() },
         root,
       )
       expect(code).toBe(0)
@@ -67,17 +70,45 @@ describe('runPipeline', () => {
     }
   })
 
-  it('rejects unwired platforms before any crawl or file output', async () => {
+  it('rejects unwired platforms before launching anything', async () => {
     const fetchJson = vi.fn(async () => mblogPayload('n1'))
+    const launchSession = vi.fn(async () => fakeSession())
     await expect(
-      runPipeline({ ...request, platform: 'xhs' }, { fetchJson, launchSession: async () => fakeSession() }, '.'),
+      runPipeline({ ...request, platform: 'xhs' }, { fetchJson, launchSession }, '.'),
     ).rejects.toMatchObject({ code: 'INVALID_PLATFORM' })
     expect(fetchJson).not.toHaveBeenCalled()
+    expect(launchSession).not.toHaveBeenCalled()
   })
 
   it('rejects store media that has not landed yet', async () => {
     await expect(
-      runPipeline({ ...request, saveOption: 'excel' }, { fetchJson: async () => ({}), launchSession: async () => fakeSession() }, '.'),
+      runPipeline({ ...request, saveOption: 'excel' }, { launchSession: async () => fakeSession(), auth: loggedInAuth() }, '.'),
     ).rejects.toMatchObject({ code: 'INVALID_SAVE_OPTION' })
+  })
+
+  it('aborts before business requests when the probe fails and login is abandoned, closing the session', async () => {
+    const fetchJson = vi.fn(async () => mblogPayload('n1'))
+    const session = fakeSession()
+    const auth: PlatformAuth = {
+      probe: async () => ({ loggedIn: false, probeMethod: 'api' }),
+      login: {
+        platform: 'wb',
+        begin: async () => {},
+        loginByQrcode: async () => {
+          throw new Error('login abandoned')
+        },
+        loginByMobile: async () => false,
+        loginByCookies: async () => {},
+      },
+    }
+    await expect(
+      runPipeline(
+        { ...request, loginType: 'qrcode' },
+        { fetchJson, launchSession: async () => session, auth },
+        '.',
+      ),
+    ).rejects.toThrowError(/login abandoned/)
+    expect(fetchJson).not.toHaveBeenCalled()
+    expect(session.close).toHaveBeenCalledTimes(1)
   })
 })

@@ -55,10 +55,11 @@ export interface CrawlerRuntime {
  * Picks the runner per medium: the `dsh` medium runs in-process (storage-domain
  * access), file media take the subprocess CLI.
  */
-function pickRunner(child: RunnerSpawner, domain: CrawlerStore, dataRoot: string): RunnerSpawner {
+function pickRunner(child: RunnerSpawner, domain: CrawlerStore, config: RuntimeConfig): RunnerSpawner {
   return (request: CrawlerRunRequest, logs) => {
     if (request.saveOption === 'dsh') {
-      return createInProcessRunner({ deps: realDeps(request), dataRoot, domain })(request, logs)
+      const deps = realDeps(request, { browserDataRoot: config.browserDataRoot, channel: config.browserChannel })
+      return createInProcessRunner({ deps, dataRoot: config.dataRoot, domain })(request, logs)
     }
     return child(request, logs)
   }
@@ -88,7 +89,7 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   }
   const domain = await ctx.storageDomain.open(crawlerDomain)
   runtime.domain = domain
-  runtime.manager.swapRunner(pickRunner(createChildRunner(), domain, runtime.config.dataRoot))
+  runtime.manager.swapRunner(pickRunner(createChildRunner(), domain, runtime.config))
   // 工具面：`crawler__<本地名>` 全名注册，disposer 逆序即卸（意见 4）。
   // The tool face: registered under `crawler__<localName>` full names;
   // reverse-order dispose unregisters (directive 4).

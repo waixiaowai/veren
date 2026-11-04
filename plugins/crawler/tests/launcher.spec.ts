@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { resolveCommandArgs, type RawCommandArgs } from '../src/launcher/args.ts'
 import { createCrawlerFactory } from '../src/crawler/registry.ts'
 import type { AbstractCrawler, DataSink } from '../src/crawler/contract.ts'
+import type { BrowserSession } from '../src/browser/contract.ts'
 import { CrawlerError } from '../src/errors.ts'
+import { fakeSession } from './helpers/session.ts'
 
 // 启动器验收（design/modules/launcher.md）：未知平台在创建爬取器前报错；
 // 模式专属必填项与 cookie 凭证缺失拒绝；正整数守卫生效。
@@ -85,7 +87,7 @@ describe('crawler registry', () => {
   it('returns the registered crawler', () => {
     const stub: AbstractCrawler = {
       platform: 'zhihu',
-      start: async () => {},
+      run: async () => {},
       search: async () => {},
       detail: async () => {},
       creator: async () => {},
@@ -106,14 +108,14 @@ describe('data sink isolation', () => {
     }
     const stub: AbstractCrawler = {
       platform: 'wb',
-      start: async (s) => {
+      run: async (_session, s) => {
         await s.content({ id: 'n1', creatorId: 'u', nickname: '张三' })
       },
       search: async () => {},
       detail: async () => {},
       creator: async () => {},
     }
-    await stub.start(sink)
+    await stub.run(fakeSession(), sink)
     expect(handed).toEqual(['n1'])
   })
 })
