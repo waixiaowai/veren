@@ -42,6 +42,8 @@ export interface PipelineDeps {
   fetchJson?: FetchJson
   /** 登录面覆写（测试注入；缺省按平台造）/ the login-face override (tests; built per platform by default) */
   auth?: PlatformAuth
+  /** 评论页 HTML 获取（tieba 渲染页）/ the raw-text fetch for tieba comment pages */
+  fetchText?: (url: string) => Promise<string>
   /** 浏览器档案根目录（登录态摘要落盘位置）/ the profile root (where the login summary lands) */
   profileRoot?: string
 }
@@ -60,7 +62,7 @@ function assertWiredPlatform(platform: Platform): void {
 }
 
 /** 平台爬取器实例化（未接入平台抛 INVALID_PLATFORM）/ instantiates a platform crawler (unwired platforms throw INVALID_PLATFORM) */
-export function createPlatformCrawler(request: CrawlerRunRequest, fetchJson: FetchJson): AbstractCrawler {
+export function createPlatformCrawler(request: CrawlerRunRequest, fetchJson: FetchJson, fetchText?: (url: string) => Promise<string>): AbstractCrawler {
   assertWiredPlatform(request.platform)
   if (request.platform === 'bili') {
     return new BiliCrawler({
@@ -78,6 +80,9 @@ export function createPlatformCrawler(request: CrawlerRunRequest, fetchJson: Fet
   if (request.platform === 'tieba') {
     return new TiebaCrawler({
       fetchJson,
+      fetchText,
+      enableComments: request.enableComments,
+      maxCommentsCount: request.maxCommentsCount,
       targets: {
         keywords: request.keywords,
         specifiedId: request.specifiedIds,
@@ -136,7 +141,7 @@ async function crawlWithSink(
   session: BrowserSession,
   domain: CrawlerStore,
 ): Promise<number> {
-  const crawler = createPlatformCrawler(request, deps.fetchJson ?? createSessionFetchJson(session))
+  const crawler = createPlatformCrawler(request, deps.fetchJson ?? createSessionFetchJson(session), deps.fetchText)
   const sink = new StoreSink({
     platform: request.platform,
     sourceKeyword: request.keywords[0] ?? null,

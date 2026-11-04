@@ -54,6 +54,7 @@ export async function launchSession(request: CrawlerRunRequest, options: RealDep
 export function realDeps(request: CrawlerRunRequest, options: RealDepsOptions = {}): PipelineDeps {
   return {
     launchSession: async () => await launchSession(request, options),
+    fetchText: async (url: string) => await (await fetch(url)).text(),
     ...(options.browserDataRoot === undefined ? {} : { profileRoot: options.browserDataRoot }),
   }
 }

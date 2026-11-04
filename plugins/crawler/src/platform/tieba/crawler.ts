@@ -17,6 +17,7 @@ import { BaseCrawler, type BaseCrawlerDeps } from '../../crawler/base.ts'
 import { runCrawlLoop } from '../../crawler/engine.ts'
 import type { CrawledPage, DataSink, PageCursor, Platform, RawItem } from '../../crawler/contract.ts'
 import { parseTiebaSearchResponse, tiebaHasMore } from './parse.ts'
+import { collectTiebaComments, type FetchText } from './comments.ts'
 
 /** 搜索接口地址模板 / the search endpoint template */
 const SEARCH_URL = 'https://tieba.baidu.com/mo/q/search/thread?word={word}&pn={page}'
@@ -27,12 +28,18 @@ export type FetchJson = (url: string) => Promise<unknown>
 /** 贴吧爬取器构造依赖 / tieba crawler construction dependencies */
 export interface TiebaCrawlerOptions {
   fetchJson: FetchJson
+  /** 评论页 HTML 获取（免登录渲染页）/ the raw-text fetch for comment pages */
+  fetchText?: FetchText
   targets: BaseCrawlerDeps['targets']
   startPage: number
   /** 内容数量上限 / the content count cap */
   maxNotesCount: number
   /** 页间固定限频毫秒 / the fixed inter-page interval in ms */
   pageIntervalMs: number
+  /** 评论伴随采集开关（默认关）/ the companion-comment switch (off by default) */
+  enableComments?: boolean
+  /** 单条内容评论上限 / the comment cap per content */
+  maxCommentsCount?: number
 }
 
 /**
@@ -63,11 +70,19 @@ export class TiebaCrawler extends BaseCrawler {
     for (const keyword of this.keywords) await this.search(keyword, sink)
   }
 
-  /** 搜索模式：关键词走全吧帖子搜索（设计差异条目）/ search mode: the keyword drives the cross-bar thread search (the design's tieba difference) */
+  /** 搜索模式：关键词走全吧帖子搜索；评论伴随采集按开关跟随 / search mode: the keyword drives the cross-bar thread search; companion comments follow the switch */
   async search(keyword: string, sink: DataSink): Promise<void> {
+    const collectedIds: string[] = []
+    const recording: DataSink = {
+      content: async (item) => {
+        collectedIds.push(item.id)
+        await sink.content(item)
+      },
+      comment: async (comment) => await sink.comment(comment),
+    }
     await runCrawlLoop(
       async (_target, cursor) => await this.fetchSearchPage(keyword, cursor),
-      sink,
+      recording,
       {
         target: keyword,
         startPage: this.startPage,
@@ -76,6 +91,19 @@ export class TiebaCrawler extends BaseCrawler {
         maxConcurrencyNum: 1,
       },
     )
+    // 评论伴随采集：开关控制，单帖失败不中断内容（验收 4）。
+    // Companion comments: switch-gated; a failure costs only this thread's
+    // comments, never the contents (acceptance 4).
+    if (this.options.enableComments === true) {
+      for (const id of collectedIds) {
+        await collectTiebaComments({
+          contentId: id,
+          fetchText: this.options.fetchText ?? (async () => ''),
+          sink,
+          maxCount: this.options.maxCommentsCount ?? 10,
+        }).catch(() => undefined)
+      }
+    }
   }
 
   /** 抓取并整形一页搜索结果 / fetches and shapes one page of search results */
