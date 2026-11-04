@@ -36,6 +36,8 @@ export interface RawResponseLike {
 export interface RawPageLike {
   goto(url: string, options?: { waitUntil?: 'load' | 'domcontentloaded' | 'commit' }): Promise<unknown>
   content(): Promise<string>
+  /** 页面内执行 JS（签名脚本引擎通道）/ in-page JS execution (the signing-script engine channel) */
+  evaluate<T = unknown>(script: string): Promise<T>
 }
 
 /** 原始上下文（playwright-core 子集，含带登录态的请求通道）/ the raw context (a playwright-core subset with the session-carrying request channel) */
@@ -70,6 +72,8 @@ export interface PlaywrightLike {
 export interface PageLike {
   goto(url: string): Promise<unknown>
   content(): Promise<string>
+  /** 页面内执行 JS：签名脚本在此运行（自动携带页面环境） / in-page JS: signing scripts run here (with the page environment) */
+  evaluate<T = unknown>(script: string): Promise<T>
 }
 
 /** 插件内部上下文契约：请求通道一定携带登录态 / the in-plugin context contract: the request channel always carries the session */

@@ -107,7 +107,7 @@ describe('WbCrawler', () => {
 
   it('navigates the index on the given session and never closes it', async () => {
     const goto = vi.fn(async () => undefined)
-    const session = fakeSession({ newPage: async () => ({ goto, content: async () => '' }) })
+    const session = fakeSession({ newPage: async () => ({ goto, content: async () => '', evaluate: async () => undefined as never }) })
     const crawler = makeCrawler(async () => payloadOf([mblog('a')]))
     await crawler.run(session, sink)
     expect(goto).toHaveBeenCalledWith('https://m.weibo.cn/')

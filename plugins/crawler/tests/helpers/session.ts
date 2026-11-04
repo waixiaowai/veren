@@ -7,7 +7,7 @@ import type { BrowserContextLike, BrowserSession, PageLike } from '../../src/bro
 
 /** 假页面 / a fake page */
 export function fakePage(): PageLike {
-  return { goto: async () => undefined, content: async () => '' }
+  return { goto: async () => undefined, content: async () => '', evaluate: async <T = unknown>(_script: string) => undefined as never }
 }
 
 /** 假上下文（可覆写单个方法）/ a fake context (single methods overridable) */

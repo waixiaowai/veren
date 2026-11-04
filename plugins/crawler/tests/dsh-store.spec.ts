@@ -72,7 +72,7 @@ describe('in-process runner', () => {
         },
         launchSession: async () => ({
           context: {
-            newPage: async () => ({ goto: async () => undefined, content: async () => '' }),
+            newPage: async () => ({ goto: async () => undefined, content: async () => '', evaluate: async () => ({}) as never }),
             pages: async () => [],
             addCookies: async () => {},
             cookies: async () => [],

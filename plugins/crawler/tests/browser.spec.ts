@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createCdpLauncher, createDualModeLauncher, createStandardLauncher } from '../src/browser/launcher.ts'
 import { wrapContext } from '../src/browser/adapter.ts'
 import { cookiesToString, injectCookies, parseCookieString } from '../src/browser/cookies.ts'
@@ -39,7 +39,7 @@ function fakeResponse(body: unknown, contentType = 'application/json; charset=ut
 function fakeRawContext(response: RawResponseLike = fakeResponse({ data: { login: true } })) {
   const requests: Array<{ url: string; headers: Readonly<Record<string, string>> }> = []
   const context: RawContextLike = {
-    newPage: async () => ({ goto: async () => undefined, content: async () => '<html/>' }),
+    newPage: async () => ({ goto: async () => undefined, content: async () => '<html/>', evaluate: async () => undefined as never }),
     pages: () => [],
     addCookies: async () => {},
     cookies: async () => [],

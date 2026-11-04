@@ -60,7 +60,7 @@ describe('waitForWbLogin', () => {
 describe('createWbLogin', () => {
   it('opens the mobile passport page before waiting, then leaves it for the index', async () => {
     const goto = vi.fn(async () => undefined)
-    const page = { goto, content: async () => '' }
+    const page = { goto, content: async () => '', evaluate: async () => undefined as never }
     const session = fakeSession({
       pages: async () => [page],
       newPage: async () => page,

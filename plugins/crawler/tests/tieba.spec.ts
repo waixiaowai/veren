@@ -71,7 +71,7 @@ describe('TiebaCrawler', () => {
 
   const session: BrowserSession = {
     context: {
-      newPage: async () => ({ goto: async () => undefined, content: async () => '' }),
+      newPage: async () => ({ goto: async () => undefined, content: async () => '', evaluate: async () => undefined as never }),
       pages: async () => [],
       addCookies: async () => {},
       cookies: async () => [],

@@ -52,6 +52,7 @@ function wrapPage(raw: RawPageLike): PageLike {
   return {
     goto: async (url: string) => await raw.goto(url, { waitUntil: 'domcontentloaded' }),
     content: async () => await raw.content(),
+    evaluate: async <T = unknown>(script: string) => await raw.evaluate<T>(script),
   }
 }
 
