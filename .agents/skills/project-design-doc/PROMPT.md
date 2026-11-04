@@ -113,14 +113,18 @@ export const DemoComponent: React.FC<{}> = (props: DemoProps) => {
 将用到的技术术语统一罗列加简短解释
 
 ## 输出形式
-- html页面由 markdown 构建生成，不手写第二份正文，风格清晰简洁，大段文字折叠，左侧导航方便阅读，点击速达
-- 生成的页面必须离线可打开：图在构建时预渲染为本地 SVG，不依赖 CDN
-- 章节标题固定“编号 + 英文 slug”，正文链接与页面深链共用同一锚点
-- 生成markdown文件保存整个方案，适当分级、分段、分文件
+- Astro 站点优先：Markdown 直接导入 `src/content/docs/design/` 即可构建；需要离线阅读页时再由同一份 Markdown 生成
+- 每个文件顶部写 frontmatter（title/description/sidebar/draft/lastUpdated），正文不写 H1
+- 章节标题固定“编号 + 英文”，不写 `{#id}`；锚点按 github-slugger 规则自动生成
+- 站内链接写 `/design/<id>/#<anchor>`，不写 `.md` 相对链接
+- Mermaid 先渲染成 SVG，用 Markdown 图片引用，源码放 `<details>`
+- 图片用相对路径，禁止远程图与 `<img>`；不用 emoji 充当图标
+- 生成 Markdown 文件保存整个方案，适当分级、分段、分文件
 - 总体叙事，先总后分方便阅读
 - 多文件输出，保持文件职责单一
 - 禁止写具体的业务代码，全部是伪代码，能表达清楚的情况下最简
 
 ## 输出结果校验
 - 检查结果的一致性，逻辑严谨性，覆盖权限矩阵、错误码、状态转移、四态、无障碍与国际化
+- Astro 构建通过；链接/锚点可达；每页一个 H1；无 `{#` 与 `.md` 链接；草稿不进生产
 - 更新技能
