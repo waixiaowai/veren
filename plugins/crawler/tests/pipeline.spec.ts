@@ -78,7 +78,7 @@ describe('runPipeline', () => {
     const domain = fakeDomain()
     const fetchJson = vi.fn(async () => mblogPayload('n1'))
     await expect(
-      runPipeline({ ...request, platform: 'zhihu' }, { fetchJson, launchSession: async () => fakeSession(), auth: loggedInAuth() }, { domain }),
+      runPipeline({ ...request, platform: 'dy' }, { fetchJson, launchSession: async () => fakeSession(), auth: loggedInAuth() }, { domain }),
     ).rejects.toMatchObject({ code: 'INVALID_PLATFORM' })
     expect(fetchJson).not.toHaveBeenCalled()
     expect(domain.rows.size).toBe(0)
