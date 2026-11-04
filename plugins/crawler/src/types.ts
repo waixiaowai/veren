@@ -18,7 +18,14 @@ export type CrawlerType = 'search' | 'detail' | 'creator'
 /** 登录方式 / login methods */
 export type LoginType = 'qrcode' | 'phone' | 'cookie'
 
-/** 数据保存介质 / save data options */
+/**
+ * 数据保存介质 / save data options
+ *
+ * `dsh` 为宿主集成扩展（意见 2：存储适配 dsh storageDomain），其余八项
+ * 与 design/modules/launcher.md 枚举一致。
+ * `dsh` is the host-integration extension (directive 2); the other eight
+ * match the launcher enum in design/modules/launcher.md.
+ */
 export type SaveDataOption =
   | 'csv'
   | 'db'
@@ -28,6 +35,7 @@ export type SaveDataOption =
   | 'mongodb'
   | 'excel'
   | 'postgres'
+  | 'dsh'
 
 /** 数据库初始化目标 / database init targets */
 export type InitDbOption = 'sqlite' | 'mysql' | 'postgres'

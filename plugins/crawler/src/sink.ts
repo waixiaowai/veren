@@ -12,6 +12,7 @@ import type { DataSink, RawComment, RawItem } from './crawler/contract.ts'
 import { shapeComment, shapeContent, type ShapeContext } from './store/shape.ts'
 import { createStoreFactory } from './store/factory.ts'
 import type { AbstractStore } from './store/contract.ts'
+import type { CrawlerStore } from './store/domain.ts'
 import type { SaveDataOption } from './types.ts'
 
 /** 数据汇构造参数 / sink construction options */
@@ -30,6 +31,8 @@ export interface StoreSinkOptions {
   day?: string
   /** 当前时刻（测试注入）/ the clock (injected in tests) */
   now?: () => number
+  /** 已打开的宿主存储域（`dsh` 介质必需）/ the opened host storage domain (required by the `dsh` medium) */
+  domain?: CrawlerStore
 }
 
 /**
@@ -49,6 +52,7 @@ export class StoreSink implements DataSink {
       platform: options.platform,
       crawlerType: options.crawlerType,
       day: options.day ?? new Date(now()).toISOString().slice(0, 10),
+      domain: options.domain,
     })
     this.store = factory(options.saveDataOption)
   }

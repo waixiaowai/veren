@@ -31,6 +31,8 @@ export interface EngineOptions {
   sleep?: (ms: number) => Promise<void>
   /** 每页抓取的重试参数 / per-page retry options */
   retry?: RetryOptions
+  /** 协作式取消探测（进程内运行器注入）/ the cooperative-cancellation probe (injected by the in-process runner) */
+  shouldStop?: () => boolean
 }
 
 /** 单页抓取函数：平台实现注入 / the per-page fetcher injected by the platform implementation */
@@ -57,6 +59,8 @@ export async function runCrawlLoop(
   let cursor = initCursor(options.startPage)
   let fetched = 0
   while (fetched < options.maxNotesCount) {
+    // 协作式取消：页间检查（进程内运行器）/ cooperative cancellation: checked between pages (in-process runner)
+    if (options.shouldStop?.() === true) break
     const page = await retryable(() => fetchPage(options.target, cursor, sink), retry)
     if (page.items.length === 0) break
     fetched += await handOverBatch(page, sink, semaphore, options.maxNotesCount - fetched)

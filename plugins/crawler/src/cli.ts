@@ -41,8 +41,11 @@ async function launchSession(request: CrawlerRunRequest): Promise<BrowserSession
   const playwright = {
     chromium: playwrightChromium,
   } as unknown as PlaywrightLike
+  // 设计关键决策 1：CDP 接管优先（保留真实指纹与登录态），失败回退标准启动。
+  // Design decision 1: CDP attach first (real fingerprint and session
+  // preserved), standard launch as the fallback.
   return await createDualModeLauncher(playwright)({
-    mode: 'standard',
+    mode: 'cdp',
     cdpPort: 9222,
     userDataDir: userDataDirOf(request.platform),
     headless: request.headless,

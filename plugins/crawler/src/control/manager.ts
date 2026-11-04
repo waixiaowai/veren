@@ -35,9 +35,19 @@ export class CrawlerManager {
   private handle: RunnerHandle | null = null
   readonly logs = new LogBuffer()
   private readonly stopTimeoutMs: number
+  private spawnRunner: RunnerSpawner
 
-  constructor(private readonly spawnRunner: RunnerSpawner, options: CrawlerManagerOptions = {}) {
+  constructor(spawnRunner: RunnerSpawner, options: CrawlerManagerOptions = {}) {
+    this.spawnRunner = spawnRunner
     this.stopTimeoutMs = options.stopTimeoutMs ?? STOP_TIMEOUT_MS
+  }
+
+  /** 运行器热替换：`dsh` 介质需要进程内运行器（存储域就绪后装配）/ hot-swap the runner: the `dsh` medium needs the in-process runner assembled once the storage domain is open */
+  swapRunner(spawner: RunnerSpawner): void {
+    if (this.statusValue.status !== 'idle') {
+      throw new CrawlerError('CRAWLER_ALREADY_RUNNING', '仅空闲时可更换运行器', { status: this.statusValue.status })
+    }
+    this.spawnRunner = spawner
   }
 
   /** 当前状态快照 / the current status snapshot */

@@ -31,10 +31,6 @@ export interface Config {
   loginType: (typeof LOGIN_TYPES)[number]
   /** 默认保存介质 / default save option */
   saveDataOption: (typeof SAVE_DATA_OPTIONS)[number]
-  /** 是否启动 HTTP 控制服务（默认关，稳定节点验证后再开）/ whether to start the http control service (off by default) */
-  enableApi: boolean
-  /** 控制服务监听端口（0 = 随机可用端口）/ the control-service port (0 = a free port) */
-  apiPort: number
 }
 
 /**
@@ -52,8 +48,6 @@ export const Config: z<Config> = z
     crawlerType: z.union(CRAWLER_TYPES).default('search').description('默认采集模式 / default crawler type'),
     loginType: z.union(LOGIN_TYPES).default('qrcode').description('默认登录方式 / default login type'),
     saveDataOption: z.union(SAVE_DATA_OPTIONS).default('jsonl').description('默认保存介质 / default save option'),
-    enableApi: z.boolean().default(false).description('是否启动 HTTP 控制服务 / enable the http control service'),
-    apiPort: z.number().default(0).description('控制服务端口，0 为随机 / control-service port, 0 picks a free one'),
   })
   .description('多平台内容采集配置 / multi-platform content crawler configuration')
 
@@ -71,8 +65,6 @@ export const DEFAULT_CONFIG: Config = {
   crawlerType: 'search',
   loginType: 'qrcode',
   saveDataOption: 'jsonl',
-  enableApi: false,
-  apiPort: 0,
 }
 
 /**

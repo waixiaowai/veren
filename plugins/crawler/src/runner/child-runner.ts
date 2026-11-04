@@ -12,14 +12,14 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import type { CrawlerRunRequest, RunnerHandle, RunnerSpawner } from '../control/runner.ts'
 import type { LogBuffer } from '../control/logs.ts'
 
-/** CLI 入口的 dist 路径（源码侧经 rewriteRelativeImportExtensions 发射）/ the CLI entry dist path */
+/** CLI 入口的 dist 路径（本文件在 dist/runner/ 下，CLI 在 dist 根）/ the CLI entry dist path (this file is dist/runner/, the CLI is the dist root) */
 function cliEntryPath(): string {
   const here = dirname(fileURLToPath(import.meta.url))
-  return join(here, 'cli.js')
+  return resolve(here, '../cli.js')
 }
 
 /**

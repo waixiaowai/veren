@@ -1,18 +1,20 @@
 /**
- * HTTP 服务器：node:http 实现的单端口控制面板后端（design/modules/api.md）。
- * The http server: the single-port control-panel backend on node:http
- * (design/modules/api.md).
+ * 控制服务 API：挂载在 DSH 宿主 web 服务器上的路由族
+ * （不启动独立端口；宿主注入 `webServer`，register 返回 disposer）。
+ * The control-service api: route families mounted on the DSH host web
+ * server (no standalone port; the host injects `webServer`, register
+ * returns a disposer).
  *
  * 单机本地使用、不设账号体系（设计边界记录于 review.md）；WebSocket 实时
  * 推送（ws-logs/ws-status）属后续迭代，当前以轮询端点提供同等能力。
  * Local single-machine use, no account system (a design boundary recorded
- * in review.md); the websocket push channels (ws-logs/ws-status) land in a
- * later iteration — polling endpoints provide the same capability today.
+ * in review.md); the websocket push channels land in a later iteration —
+ * polling endpoints provide the same capability today.
  *
  * @module @veren/crawler/control/http-server
  */
-import { createServer, type Server } from 'node:http'
-import type { AddressInfo } from 'node:net'
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-host-webserver'
 import {
   handleConfigRoutes,
   handleCrawlerRoutes,
@@ -82,24 +84,34 @@ async function dispatch(method: string, pathname: string, query: URLSearchParams
   return await handleDataRoutes(method, pathname, query, deps)
 }
 
-/** 控制服务器 / the control server */
-export class ControlServer {
-  private server: Server | null = null
+/** 控制服务注册的路由族前缀 / the route-family prefixes this api claims */
+const API_PREFIXES = ['/api/crawler', '/api/data', '/api/config', '/api/health'] as const
 
+/**
+ * 控制服务 API：把路由族注册进宿主 web 服务器，卸载逆序清理。
+ * The control api: registers the route families into the host web server,
+ * disposing in reverse order on unload.
+ */
+export class ControlApi {
   constructor(private readonly deps: RouteDeps) {}
 
-  /** 监听随机可用端口，返回实际端口 / listen on a free port and return the actual port */
-  async start(preferredPort: number = 0): Promise<number> {
-    const server = createServer((req, res) => {
-      void this.serve(req, res)
-    })
-    this.server = server
-    return await new Promise((resolve, reject) => {
-      server.once('error', reject)
-      server.listen(preferredPort, '127.0.0.1', () => {
-        resolve((server.address() as AddressInfo).port)
-      })
-    })
+  /**
+   * 注册到宿主 webServer；返回统一 disposer。
+   * Registers into the host webServer; returns one unified disposer.
+   */
+  register(ctx: Context): () => void {
+    const disposers = API_PREFIXES.map((prefix) =>
+      ctx.webServer.register({
+        kind: 'prefix',
+        path: prefix,
+        handler: (req, res) => {
+          void this.serve(req, res)
+        },
+      }),
+    )
+    return () => {
+      for (const dispose of disposers.reverse()) dispose()
+    }
   }
 
   /** 处理单请求 / serve one request */
@@ -116,15 +128,5 @@ export class ControlServer {
     } catch (error) {
       writeError(res, error)
     }
-  }
-
-  /** 停止监听 / stop listening */
-  async stop(): Promise<void> {
-    const server = this.server
-    this.server = null
-    if (server === null) return
-    await new Promise<void>((resolve) => {
-      server.close(() => resolve())
-    })
   }
 }

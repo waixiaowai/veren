@@ -17,7 +17,7 @@ export const CRAWLER_TYPES: readonly CrawlerType[] = ['search', 'detail', 'creat
 /** 全部登录方式 / all login methods */
 export const LOGIN_TYPES: readonly LoginType[] = ['qrcode', 'phone', 'cookie']
 
-/** 全部保存介质 / all save options */
+/** 全部保存介质（`dsh` 为宿主集成扩展介质）/ all save options (`dsh` is the host-integration medium) */
 export const SAVE_DATA_OPTIONS: readonly SaveDataOption[] = [
   'csv',
   'db',
@@ -27,6 +27,7 @@ export const SAVE_DATA_OPTIONS: readonly SaveDataOption[] = [
   'mongodb',
   'excel',
   'postgres',
+  'dsh',
 ]
 
 /** 全部数据库初始化目标 / all database init targets */
