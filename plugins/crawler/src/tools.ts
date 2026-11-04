@@ -255,17 +255,22 @@ function wordcloudTool() {
     description: 'Compute a word-frequency table from the comments stored in the host storage domain (chinese bigrams + latin tokens, stopwords filtered). Read-only. Use it to summarize what collected comments talk about; the table feeds external wordcloud renderers.',
     parameters: {
       topK: { type: 'number' },
+      platform: { type: 'string' },
     },
     output: { schema: OUTPUT_SCHEMA, render: renderValue },
     execute: async (args: unknown) => {
       try {
-        const topK = (args as { topK?: number }).topK ?? 30
+        const input = args as { topK?: number; platform?: string }
+        const topK = input.topK ?? 30
+        const platform = input.platform ?? null
         const domain = portOf().domain()
         if (domain === undefined) return textValue('(storage domain not open)')
-        const comments = [...domain.table('comments').entries()].map(([, row]) => {
-          const record = row as { content?: unknown }
-          return typeof record.content === 'string' ? record.content : ''
-        })
+        const comments = [...domain.table('comments').entries()]
+          .filter(([key]) => platform === null || key.startsWith(platform + '::'))
+          .map(([, row]) => {
+            const record = row as { content?: unknown }
+            return typeof record.content === 'string' ? record.content : ''
+          })
         const frequencies = wordFrequencies(comments, { topK })
         if (frequencies.length === 0) return textValue('(no comments stored yet)')
         return textValue(frequencies.map((entry) => `${entry.word}: ${entry.count}`).join('\n'))
