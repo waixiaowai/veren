@@ -15,6 +15,7 @@ import { runCrawlLoop } from '../../crawler/engine.ts'
 import type { CrawledPage, DataSink, Platform, PageCursor, RawItem } from '../../crawler/contract.ts'
 import { parseWbSearchResponse, wbHasMore } from './parse.ts'
 import { collectWbComments } from './comments.ts'
+import { CrawlerError } from '../../errors.ts'
 
 /** 搜索接口地址模板 / the search endpoint template */
 const SEARCH_URL = 'https://m.weibo.cn/api/container/getIndex?containerid=100103type%3D1%26q%3D{query}&page_type=searchall&page={page}'
@@ -120,8 +121,14 @@ export class WbCrawler extends BaseCrawler {
   }
 
   /** 详情模式：单条正文（评论开关由上层控制）/ detail mode: one post (comments gated upstream) */
+  /** 详情模式：statuses/show 全文补齐；错误响应 fail loud（静默 0 条违反 fail-loud 原则）/ detail mode: statuses/show full text; error responses fail loud */
   async detail(id: string, sink: DataSink): Promise<void> {
-    const payload = await this.options.fetchJson(DETAIL_URL.replace('{id}', id))
+    const payload = await this.options.fetchJson(DETAIL_URL.replace('{id}', id)) as { id?: unknown; ok?: unknown } | null
+    if (payload === null || typeof payload !== 'object' || payload.id === undefined) {
+      // 错误响应（ok=0 / HTML 登录墙 / 空对象）→ 结构化上抛 / error response → structured error
+      const bizOk = typeof payload === 'object' && payload !== null && payload.ok !== undefined ? payload.ok : null
+      throw new CrawlerError('CONTENT_NOT_FOUND', `wb 详情接口未返回内容（ok=${String(bizOk)}，id=${id}）——详情接口需登录 Cookie`, { id })
+    }
     const items = parseWbSearchResponse({ data: { cards: [{ mblog: payload as never }] } })
     for (const raw of items) await sink.content(raw)
   }
