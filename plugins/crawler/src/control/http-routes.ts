@@ -102,7 +102,7 @@ export async function handleDataRoutes(
   deps: RouteDeps,
 ): Promise<RouteResult | null> {
   if (pathname === '/api/data/domain' && method === 'GET') {
-    return json(200, domainSummary(deps))
+    return json(200, domainSummary(deps, query.get('platform')))
   }
   return null
 }
@@ -110,16 +110,17 @@ export async function handleDataRoutes(
 
 /**
  * 存储域数据面：按平台统计 contents/comments 行数与首屏预览（`dsh` 介质
- * 的只读浏览面；域未开时明确返回 open:false）。
+ * 的只读浏览面；域未开时明确返回 open:false；`platform` 查询参数过滤）。
  * The storage-domain data face: per-platform contents/comments counts plus
- * a first-screen preview (read-only; returns open:false when the domain is
- * not open).
+ * a first-screen preview (read-only; open:false when the domain is not
+ * open; the `platform` query filters).
  */
-function domainSummary(deps: RouteDeps): { open: boolean; contents: number; comments: number; by_platform: Record<string, number>; preview: unknown[] } {
+function domainSummary(deps: RouteDeps, platformFilter: string | null): { open: boolean; contents: number; comments: number; by_platform: Record<string, number>; preview: unknown[] } {
   const domain = deps.domain?.()
   if (domain === undefined) return { open: false, contents: 0, comments: 0, by_platform: {}, preview: [] }
-  const contents = [...domain.table('contents').entries()]
-  const comments = [...domain.table('comments').entries()]
+  const matches = (key: string): boolean => platformFilter === null || key.startsWith(platformFilter + '::')
+  const contents = [...domain.table('contents').entries()].filter(([key]) => matches(key))
+  const comments = [...domain.table('comments').entries()].filter(([key]) => matches(key))
   const byPlatform: Record<string, number> = {}
   for (const [key] of contents) {
     const platform = key.split('::')[0] ?? '?'
