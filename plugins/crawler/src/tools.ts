@@ -241,12 +241,20 @@ function dataSummary(platformFilter: string | null): string {
   const matches = (key: string): boolean => platformFilter === null || key.startsWith(platformFilter + '::')
   const contents = [...domain.table('contents').entries()].filter(([key]) => matches(key))
   const comments = [...domain.table('comments').entries()].filter(([key]) => matches(key))
-  const byPlatform = new Map<string, number>()
+  const byPlatform = new Map<string, { contents: number; comments: number }>()
   for (const [key] of contents) {
     const platform = key.split('::')[0] ?? '?'
-    byPlatform.set(platform, (byPlatform.get(platform) ?? 0) + 1)
+    const entry = byPlatform.get(platform) ?? { contents: 0, comments: 0 }
+    entry.contents += 1
+    byPlatform.set(platform, entry)
   }
-  const parts = [...byPlatform.entries()].map(([platform, count]) => `${platform}: ${count} contents`)
+  for (const [key] of comments) {
+    const platform = key.split('::')[0] ?? '?'
+    const entry = byPlatform.get(platform) ?? { contents: 0, comments: 0 }
+    entry.comments += 1
+    byPlatform.set(platform, entry)
+  }
+  const parts = [...byPlatform.entries()].map(([platform, counts]) => `${platform}: ${counts.contents}c/${counts.comments}m`)
   return `contents ${contents.length}, comments ${comments.length}${parts.length > 0 ? ` (${parts.join(', ')})` : ''}`
 }
 
