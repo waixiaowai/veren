@@ -49,6 +49,17 @@ describe('crawler tools', () => {
     expect(JSON.stringify(rendered)).toContain('好吃: 2')
   })
 
+  it('wordcloud platform filter restricts frequencies to one platform', async () => {
+    bindToolPort({ manager: {} as CrawlerManager, domain: () => fakeDomain() })
+    const wordcloud = createCrawlerTools().find((tool) => tool.name === 'wordcloud')
+    // 仅统计 wb 平台评论 / count only wb comments
+    const rendered = await wordcloud!.execute({ platform: 'wb' }, {} as never)
+    expect(JSON.stringify(rendered)).toContain('美食: 3')
+    // 非 wb 平台过滤后无评论可算 / a non-matching platform yields no comments
+    const renderedXhs = await wordcloud!.execute({ platform: 'xhs' }, {} as never)
+    expect(JSON.stringify(renderedXhs)).toContain('no comments')
+  })
+
   it('reports an empty table when comments are absent', async () => {
     bindToolPort({ manager: {} as CrawlerManager, domain: () => fakeDomain() })
     // comments 空表路径：用不含 comments 的域 / an empty-comments path: use a domain without comments
