@@ -1,0 +1,21 @@
+---
+import { getCollection, render } from 'astro:content';
+
+export async function getStaticPaths() {
+  const entries = await getCollection('docs', ({ data }) => !data.draft);
+  return entries.map((entry) => ({
+    params: { slug: entry.id === 'index' ? undefined : entry.id },
+    props: { entry },
+  }));
+}
+
+const { entry } = Astro.props;
+const { Content, headings } = await render(entry);
+const toc = headings.filter((h) => h.slug !== 'footnote-label' && h.depth >= 2 && h.depth <= 3);
+---
+
+<h1>{entry.data.title}</h1>
+<nav>
+  {toc.map((h) => <a href={`#${h.slug}`}>{h.text}</a>)}
+</nav>
+<article><Content /></article>

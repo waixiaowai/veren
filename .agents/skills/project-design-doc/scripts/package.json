@@ -1,0 +1,15 @@
+{
+  "name": "design-doc-skill-scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "node cli.mjs setup",
+    "build": "node cli.mjs build",
+    "check": "node cli.mjs check",
+    "dev": "node cli.mjs dev"
+  },
+  "dependencies": {
+    "github-slugger": "2.0.0",
+    "yaml": "2.9.1"
+  }
+}

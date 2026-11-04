@@ -113,7 +113,7 @@ export const DemoComponent: React.FC<{}> = (props: DemoProps) => {
 将用到的技术术语统一罗列加简短解释
 
 ## 输出形式
-- Astro 站点优先：Markdown 直接导入 `src/content/docs/design/` 即可构建；需要离线阅读页时再由同一份 Markdown 生成
+- Astro：Markdown 直接导入 `src/content/docs/design/` 即可构建；用 `scripts` 的 build/check/dev 构建、检查、预览，不生成自定义 HTML
 - 每个文件顶部写 frontmatter（title/description/sidebar/draft/lastUpdated），正文不写 H1
 - 章节标题固定“编号 + 英文”，不写 `{#id}`；锚点按 github-slugger 规则自动生成
 - 站内链接写 `/design/<id>/#<anchor>`，不写 `.md` 相对链接

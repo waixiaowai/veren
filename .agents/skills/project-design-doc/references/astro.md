@@ -163,87 +163,33 @@ graph TD
 - Starlight 生产构建排除 `draft: true`；最小内容集合的页面模板必须自己过滤 `data.draft`。
 - `lastUpdated` 为可选；Starlight 配置了 `lastUpdated` 才显示。
 
-## 9. 站点配置参考
+## 9. 站点配置
 
-### 9.1 Starlight
+直接使用模板，不手抄配置：
 
-`src/content.config.ts`：
+| 模板 | 适用 | 内容根 |
+| --- | --- | --- |
+| `templates/site-starlight` | 文档站（默认） | `src/content/docs/design/` |
+| `templates/site-minimal` | 已有站点或最小集合 | 同上 |
 
-```ts
-import { defineCollection } from 'astro:content';
-import { docsLoader } from '@astrojs/starlight/loaders';
-import { docsSchema } from '@astrojs/starlight/schema';
+`scripts build/dev` 会按 `--minimal` 复制对应模板；接入已有站点用 `--site <dir>`，由站点自己提供 `content.config.ts` 与页面路由。
 
-export const collections = {
-  docs: defineCollection({ loader: docsLoader(), schema: docsSchema() }),
-};
-```
+模板中的关键文件：
 
-把 `design/` 放到 `src/content/docs/design/`，路由即 `/design/…`；无需改正文。
+- `package.json`：Astro/Starlight/`@astrojs/check`/TypeScript 版本；
+- `astro.config.mjs`：站点配置；
+- `src/content.config.ts`：集合 schema；
+- `src/pages/design/[...slug].astro`（仅 minimal）：路由、H1、TOC、draft 过滤。
 
-### 9.2 最小内容集合
-
-`src/content.config.ts`：
-
-```ts
-import { defineCollection, z } from 'astro:content';
-import { glob } from 'astro/loaders';
-
-export const collections = {
-  docs: defineCollection({
-    loader: glob({ pattern: '**/*.md', base: './src/content/docs/design' }),
-    schema: z.object({
-      title: z.string(),
-      description: z.string().optional(),
-      sidebar: z
-        .object({
-          order: z.number().optional(),
-          label: z.string().optional(),
-          hidden: z.boolean().optional(),
-        })
-        .optional(),
-      draft: z.boolean().default(false),
-      lastUpdated: z.coerce.date().optional(),
-    }),
-  }),
-};
-```
-
-`src/pages/design/[...slug].astro`：
-
-```astro
----
-import { getCollection, render } from 'astro:content';
-
-export async function getStaticPaths() {
-  const entries = await getCollection('docs', ({ data }) => !data.draft);
-  return entries.map((entry) => ({
-    params: { slug: entry.id === 'index' ? undefined : entry.id },
-    props: { entry },
-  }));
-}
-
-const { entry } = Astro.props;
-const { Content, headings } = await render(entry);
-const toc = headings.filter((h) => h.slug !== 'footnote-label' && h.depth >= 2 && h.depth <= 3);
----
-
-<h1>{entry.data.title}</h1>
-<nav>
-  {toc.map((h) => <a href={`#${h.slug}`}>{h.text}</a>)}
-</nav>
-<article><Content /></article>
-```
-
-`index.md` 的 `id` 是 `index`；若 `params: { slug: undefined }` 在你的 Astro 版本不匹配 `/design/`，为封面单独放 `src/pages/design/index.astro`，或在路由层把 `index` 映射为空 slug。
+`index.md` 的 `id` 是 `index`；若 `params: { slug: undefined }` 不匹配 `/design/`，为封面单独放 `src/pages/design/index.astro`，或在路由层把 `index` 映射为空 slug。
 
 ## 10. 导入与验收清单
 
 导入步骤：
 
-1. 复制 `design/` 到 `src/content/docs/design/`。
-2. 按 §9 加 `content.config.ts`（Starlight 或最小集合）。
-3. 运行 `astro build`。
+1. 运行 `node scripts/cli.mjs build <design>`（首次加 `--install`）；或手工复制 `design/` 到 `src/content/docs/design/`。
+2. 按 §9 选模板，或让已有站点提供 `content.config.ts`。
+3. 运行 `node scripts/cli.mjs check <design>`，再 `build`。
 4. 逐项核对下表。
 
 | 检查 | 通过标准 |
@@ -258,11 +204,20 @@ const toc = headings.filter((h) => h.slug !== 'footnote-label' && h.depth >= 2 &
 | 图片 | 有 alt、来自内容目录、相对引用、无远程 |
 | Mermaid | 显示 SVG；源码在 `<details>` 内；无可见的 `data-language="mermaid"` 代码块 |
 | draft | `draft: true` 不出现在生产产物 |
-| 离线阅读页 | 仅在生成时要求 `file://` 断网可读；Astro 产物不承诺 |
+
+### 10.1 本地命令
+
+```bash
+node scripts/cli.mjs check <design>
+node scripts/cli.mjs build <design> --install
+node scripts/cli.mjs dev <design> --port 4321
+```
+
+脚本不渲染 HTML，只做校验、同步与调用 Astro；生成站点在 `<design>/.design-doc/`。
 
 ## 11. 已知边界
 
 - Astro 7 内容层不再提供 `entry.slug`；路由以 `entry.id` 和文件路径为准。
 - Astro 7 默认 Markdown 处理器是 Sätteri；`remarkPlugins`/`rehypePlugins` 需另装 `@astrojs/markdown-remark`。本契约不依赖这两个插件。
-- Astro 静态产物使用根绝对资源路径（`/_astro/…`），不能直接 `file://` 打开；`file://` 只适用于单独的离线阅读页。
+- Astro 静态产物使用根绝对资源路径（`/_astro/…`），按 HTTP 访问；本地预览用 `scripts dev`，不提供 `file://` 阅读页。
 - 升级 Astro/Starlight 后重跑 §10 清单；版本差异记录在 `review.md`。
