@@ -142,7 +142,7 @@ export const OverviewMeta: ComponentPageMeta = {
   },
   instructions: [
     '这是多平台内容采集的控制台首页。正文给出任务状态机快照与存储域数据量。',
-    '要启停采集：调 crawler__start / crawler__stop；要看进度或失败原因：crawler__logs；要数据量：crawler__data。',
+    '要启停采集：调 crawler__start / crawler__stop；要看进度或失败原因：crawler__logs；要数据量：crawler__data；要评论词频表：crawler__wordcloud。',
     '单任务互斥：running/starting 时再 start 会被拒绝，先 stop 或等完成。本应用对目标平台严格只读。',
   ].join(''),
 }
