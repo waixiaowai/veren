@@ -60,6 +60,9 @@ export interface XhsCrawlerOptions {
 export class XhsCrawler extends BaseCrawler {
   readonly platform: Platform = 'xhs'
 
+  /** xsec_token 缓存：搜索时缓存，详情时复用（§5 令牌随内容入库） */
+  private readonly tokenStore = new Map<string, string>()
+
   constructor(private readonly options: XhsCrawlerOptions) {
     super({
       indexUrl: 'https://www.xiaohongshu.com/',
@@ -92,7 +95,7 @@ export class XhsCrawler extends BaseCrawler {
     )
   }
 
-  /** 抓取并整形一页签名搜索结果 / fetches and shapes one signed search page */
+  /** 抓取并整形一页签名搜索结果；缓存 xsec_token 供详情复用 / fetches and shapes one signed search page; caches xsec_tokens for detail reuse */
   private async fetchSearchPage(keyword: string, cursor: { page: number | null }): Promise<CrawledPage> {
     const page = cursor.page ?? 1
     const headers = await this.produceSignHeaders(keyword)
@@ -101,6 +104,10 @@ export class XhsCrawler extends BaseCrawler {
       .replace('{page}', String(page))
     const payload = await this.options.fetchJson(url, headers)
     const items: RawItem[] = parseXhsSearchResponse(payload)
+    // xsec_token 随内容缓存供详情复用（§5 令牌随内容入库）
+    for (const item of items) {
+      if (item.xsecToken) this.tokenStore.set(item.id, item.xsecToken)
+    }
     return { items, hasMore: xhsHasMore(payload), next: { page: page + 1, cursor: null, sessionId: null } }
   }
 
@@ -112,9 +119,17 @@ export class XhsCrawler extends BaseCrawler {
     return await this.options.signProducer(keyword)
   }
 
-  /** 详情模式：依赖搜索结果带出的 xsec_token（§5 平台差异）/ detail mode: depends on xsec_token from search (§5) */
+  /** 详情模式：复用搜索缓存中的 xsec_token 构造详情页访问（§5 平台差异）/ detail mode: reuses the cached xsec_token from search (§5) */
   async detail(id: string, sink: DataSink): Promise<void> {
-    throw new CrawlerError('CONTENT_NOT_FOUND', 'xhs 详情依赖搜索带出的 xsec_token，请通过搜索模式采集', { id })
+    const token = this.tokenStore.get(id)
+    if (token === undefined) {
+      throw new CrawlerError('CONTENT_NOT_FOUND', `xhs 详情需要先通过搜索获取 xsec_token: ${id}`, { id })
+    }
+    const headers = await this.produceSignHeaders(id)
+    const url = `https://edith.xiaohongshu.com/api/sns/web/v1/feed?note_id=${id}&xsec_token=${encodeURIComponent(token)}`
+    const payload = await this.options.fetchJson(url, headers)
+    const items: RawItem[] = parseXhsSearchResponse({ code: 0, data: { items: [{ id, note_card: payload as never }] } })
+    for (const raw of items) await sink.content(raw)
   }
 
   /** 创作者模式：按创作者关键词兜底 / creator mode: falls back to keyword search */
