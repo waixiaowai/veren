@@ -39,6 +39,8 @@ export interface InProcessRunnerOptions {
   domain: () => CrawlerStore
   /** 媒体文件根目录 / the media file root */
   mediaRoot?: string
+  /** 日志缓冲管道（report 消息写入此处）/ the log buffer channel (report messages pipe into it) */
+  logs?: LogBuffer
 }
 
 /**
