@@ -13,13 +13,14 @@ description: Use when the user asks to collect public contents or comments from 
 
 ## 工具 / Tools
 
-全部工具以 `crawler__` 为前缀：
+全部工具（六个）以 `crawler__` 为前缀：
 
 - `crawler__start` — 启动采集任务。参数：`platform`（必填，七平台枚举）、`crawlerType`（search/detail/creator，必填）、`keywords`（search 模式必填非空）、`specifiedIds`（detail 模式必填）、`creatorIds`（creator 模式必填）、`saveOption`（默认 `dsh`）。**单任务互斥**：已有任务运行中再启动会被拒绝，先 `crawler__status` 查看再决定是否 `crawler__stop`。
 - `crawler__stop` — 停止运行中任务（优雅终止，超时强杀；空闲时返回 not_running）。
 - `crawler__status` — 任务状态机快照：idle/starting/running/stopping/error + 平台、模式、起始时刻、错误信息。
 - `crawler__logs` — 日志环形缓冲尾部（默认 50 条），失败时用它看每页进度或失败原因。
 - `crawler__data` — 存储域数据汇总（contents/comments 总量与按平台计数）。
+- `crawler__wordcloud` — 词频表（从存储域评论计算，中文二元/英文词元 + 停用词过滤）；供总结评论话题或喂外部词云渲染器。
 
 ## 数据存储 / Storage
 
