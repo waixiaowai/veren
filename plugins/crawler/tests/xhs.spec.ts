@@ -113,4 +113,23 @@ describe('XhsCrawler xsec_token reuse', () => {
       crawler.detail('unknown-id', { content: async () => {}, comment: async () => {} }),
     ).rejects.toMatchObject({ code: 'CONTENT_NOT_FOUND' })
   })
+
+  it('detail fails loud (CONTENT_NOT_FOUND) when the feed api returns a business error', async () => {
+    const crawler = new XhsCrawler({
+      fetchJson: async (url: string) => {
+        // 搜索返回正常结果（缓存 token）；详情 feed 返回业务错误 / search ok (caches token); feed returns a business error
+        if (url.includes('/feed')) return { code: -100, success: false }
+        return searchPayload([{ id: 'n1', token: 'tok' }], false)
+      },
+      signProducer: async () => ({ timestamp: '1', sign: 's', common: 'c', traceId: 't' }),
+      targets: { keywords: [], specifiedId: [], creatorId: [] },
+      startPage: 1,
+      maxNotesCount: 5,
+      pageIntervalMs: 0,
+    })
+    // 先通过搜索缓存 token，再以错误响应验证 detail 上抛 / cache the token via search, then verify the error path
+    const sink: DataSink = { content: async () => {}, comment: async () => {} }
+    await crawler.search('美食', sink)
+    await expect(crawler.detail('n1', sink)).rejects.toMatchObject({ code: 'CONTENT_NOT_FOUND' })
+  })
 })
