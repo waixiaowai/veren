@@ -19,7 +19,7 @@ import { runLoginFlow } from './auth/flow.ts'
 import { persistLoginState } from './auth/persist.ts'
 import { createSessionFetchJson } from './browser/context-fetch.ts'
 import { createPlatformAuth, type PlatformAuth } from './platform/login.ts'
-import { report } from './runner/report.ts'
+import { report as consoleReport } from './runner/report.ts'
 import { StoreSink } from './sink.ts'
 import { MediaCompanionSink } from './media/companion.ts'
 import { MediaDownloader } from './media/downloader.ts'
@@ -49,6 +49,8 @@ export interface PipelineDeps {
   fetchText?: (url: string) => Promise<string>
   /** 浏览器档案根目录（登录态摘要落盘位置）/ the profile root (where the login summary lands) */
   profileRoot?: string
+  /** 进度报告（缺省 console.log；进程内运行器注入 LogBuffer 管道）/ the progress reporter (defaults to console.log; the in-process runner injects the LogBuffer channel) */
+  report?: (message: string) => void
 }
 
 /** 管线运行选项 / the pipeline run options */
@@ -133,6 +135,7 @@ export function createPlatformCrawler(request: CrawlerRunRequest, fetchJson: Fet
 
 /** 登录前置：探测 → 登录 → 持久化；未登录即抛错，绝不带未登录状态采集 / login prerequisite: probe, login, persist; throws when not logged in */
 async function loginBeforeCrawl(request: CrawlerRunRequest, deps: PipelineDeps, auth: PlatformAuth): Promise<void> {
+  const report = deps.report ?? consoleReport
   const probe = await auth.probe()
   if (probe.loggedIn) {
     report(`登录探测命中（${probe.probeMethod}），跳过登录 / probe hit, skipping login`)
@@ -165,6 +168,7 @@ async function crawlWithSink(
   domain: CrawlerStore,
   mediaRoot: string | undefined,
 ): Promise<number> {
+  const report = deps.report ?? consoleReport
   const crawler = createPlatformCrawler(request, deps.fetchJson ?? createSessionFetchJson(session), deps.fetchText)
   const inner = new StoreSink({
     platform: request.platform,
@@ -198,6 +202,7 @@ export async function runPipeline(
     throw new CrawlerError('DB_CONNECT_FAILED', '宿主存储域未打开，无法落库', {})
   }
   assertWiredPlatform(request.platform)
+  const report = deps.report ?? consoleReport
   report(`启动采集：平台=${request.platform} 模式=${request.crawlerType} 登录=${request.loginType} 无头=${request.headless}`)
   const session = await deps.launchSession()
   try {
