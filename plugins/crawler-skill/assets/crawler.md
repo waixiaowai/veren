@@ -21,11 +21,10 @@ description: Use when the user asks to collect public contents or comments from 
 - `crawler__logs` — 日志环形缓冲尾部（默认 50 条），失败时用它看每页进度或失败原因。
 - `crawler__data` — 存储域数据汇总（contents/comments 总量与按平台计数）。
 
-## 保存介质 / Save media
+## 数据存储 / Storage
 
-- `dsh`（默认）：数据进宿主存储域 `crawler` 域（contents/comments 两表），按业务主键 upsert，重跑幂等；任务在宿主进程内跑。
-- `jsonl` / `json` / `csv`：数据文件写进数据根目录（采集子进程运行）。
-- 其余介质（db/sqlite/mongodb/excel/postgres）尚未实现，明确报错。
+- 数据只写**宿主存储域** `crawler` 域（contents/comments 两表），按业务主键 upsert，重跑幂等。启动请求无介质参数——存储由宿主统一管理。
+- 媒体开关开启时，图片/视频按目录规则落盘（数据根/平台/media/内容ID/）。
 
 ## 登录 / Login
 
