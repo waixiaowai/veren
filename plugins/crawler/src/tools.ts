@@ -101,7 +101,7 @@ interface StartToolInput {
 function startTool() {
   return defineTool({
     name: 'start',
-    description: 'Start a content-crawl task on this machine (single-task mutex: a running task rejects new starts). Provide the platform (xhs/dy/ks/bili/wb/tieba/zhihu), mode (search/detail/creator), targets, data always lands in the host storage domain (dsh storage). loginType defaults to qrcode: a visible Chrome window opens on the platform login page and the run waits up to 300 seconds for you to scan; cookie login instead takes a cookies string. Read-only against the platforms: it only reads public contents.',
+    description: 'Start a content-crawl task on this machine (single-task mutex: a running task rejects new starts). Provide the platform (xhs/dy/ks/bili/wb/tieba/zhihu), mode (search/detail/creator), targets; data always lands in the host storage domain. wb/tieba search and creator modes run login-free through a guest session; other platforms and wb detail/comments need loginType: qrcode opens a visible Chrome window for scanning (waits up to 300s) and cookie takes a cookies string. Optional switches: enableComments collects companion comments, enableMedia downloads images/videos to the media root, maxNotesCount/maxCommentsCount cap collection. Read-only against the platforms: it only reads public contents.',
     parameters: {
       platform: { type: 'string', required: true },
       crawlerType: { type: 'string', required: true },
