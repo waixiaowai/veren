@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 微博登录实现：登录探测、扫码/短信等待、双站 Cookie 注入
  * （design/modules/auth.md §4 与 crawler.md §5 双站 Cookie）。
  * The weibo login implementation: the login probe, the qr/sms wait, and
@@ -82,10 +82,11 @@ export async function waitForWbLogin(session: BrowserSession, options: WbLoginWa
   return false
 }
 
-/** 打开登录页（可见窗口：扫码必须由人完成）/ opens the login page (a visible window: a human must scan) */
-async function openLoginPage(session: BrowserSession): Promise<void> {
+/** 打开登录页并返回该页面（可见窗口：扫码必须由人完成）/ opens the login page and returns it (a visible window: a human must scan) */
+async function openLoginPage(session: BrowserSession): Promise<PageLike> {
   const page = await workingPage(session)
   await page.goto(WB_LOGIN_PAGE_URL)
+  return page
 }
 
 /**
@@ -99,19 +100,25 @@ async function workingPage(session: BrowserSession): Promise<PageLike> {
 }
 
 /**
- * 站点预热：把活动页面停在移动站首页，离开登录页。
- * Site warm-up: park the working page on the mobile index, leaving the
- * login page behind.
+ * 收尾：把登录页导航回移动站首页。
+ * Wraps up: navigates the login page back to the mobile index.
  *
- * 登录页残留标签会持续改写 Cookie，导致下一次探测把已登录会话判成未登录
- * ——预热以导航的方式终结这条残留页。
- * A leftover login tab keeps rewriting cookies, so the next probe can read a
- * logged-in session as logged out — the warm-up navigates that stale tab
- * away.
+ * 登录页残留标签会持续改写 Cookie，让下一次探测把已登录会话读成未登录；
+ * 登录成功即离开该页，杜绝残留。
+ * A leftover login tab keeps rewriting cookies, so the next probe reads a
+ * logged-in session as logged out; leaving the page on success eliminates
+ * that residue.
  */
-export async function prepareWbSession(session: BrowserSession): Promise<void> {
-  const page = await workingPage(session)
+async function leaveLoginPage(page: PageLike): Promise<void> {
   await page.goto(WB_INDEX_URL)
+}
+
+/** 交互式登录（扫码或短信同页）：成功后离开登录页并回报结果 / interactive login (qr or sms on one page): leaves the page on success */
+async function interactiveLogin(session: BrowserSession): Promise<boolean> {
+  const page = await openLoginPage(session)
+  const ok = await waitForWbLogin(session)
+  if (ok) await leaveLoginPage(page)
+  return ok
 }
 
 /** cookie 方式缺凭证 / the cookie method without a credential */
@@ -134,14 +141,8 @@ export function createWbLogin(session: BrowserSession, request: CrawlerRunReques
   return {
     platform: request.platform,
     begin: async () => undefined,
-    loginByQrcode: async () => {
-      await openLoginPage(session)
-      return await waitForWbLogin(session)
-    },
-    loginByMobile: async () => {
-      await openLoginPage(session)
-      return await waitForWbLogin(session)
-    },
+    loginByQrcode: async () => await interactiveLogin(session),
+    loginByMobile: async () => await interactiveLogin(session),
     loginByCookies: async () => await injectDualSiteCookies(session, request.cookies),
   }
 }

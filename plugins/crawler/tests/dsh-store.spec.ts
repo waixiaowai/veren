@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+﻿import { describe, expect, it, vi } from 'vitest'
 import { DshStore } from '../src/store/dsh-store.ts'
 import { commentKey, contentKey } from '../src/store/domain.ts'
 import { createInProcessRunner, CancelFlag } from '../src/runner/inprocess-runner.ts'
@@ -79,6 +79,7 @@ describe('in-process runner', () => {
         launchSession: async () => ({
           context: {
             newPage: async () => ({ goto: async () => undefined, content: async () => '' }),
+            pages: async () => [],
             addCookies: async () => {},
             cookies: async () => [],
             requestJson: async () => ({}),

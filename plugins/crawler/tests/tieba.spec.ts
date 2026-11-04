@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+﻿import { describe, expect, it, vi } from 'vitest'
 import { parseTiebaSearchResponse, tiebaHasMore } from '../src/platform/tieba/parse.ts'
 import { TiebaCrawler } from '../src/platform/tieba/crawler.ts'
 import { createPlatformCrawler } from '../src/pipeline.ts'
@@ -72,6 +72,7 @@ describe('TiebaCrawler', () => {
   const session: BrowserSession = {
     context: {
       newPage: async () => ({ goto: async () => undefined, content: async () => '' }),
+      pages: async () => [],
       addCookies: async () => {},
       cookies: async () => [],
       requestJson: async () => ({}),

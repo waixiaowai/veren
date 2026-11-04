@@ -14,6 +14,7 @@ export function fakePage(): PageLike {
 export function fakeContext(overrides: Partial<BrowserContextLike> = {}): BrowserContextLike {
   return {
     newPage: async () => fakePage(),
+    pages: async () => [fakePage()],
     addCookies: async () => {},
     cookies: async () => [],
     requestJson: async () => ({}),

@@ -58,15 +58,18 @@ describe('waitForWbLogin', () => {
 })
 
 describe('createWbLogin', () => {
-  it('opens the mobile passport page before waiting for the scan', async () => {
+  it('opens the mobile passport page before waiting, then leaves it for the index', async () => {
     const goto = vi.fn(async () => undefined)
+    const page = { goto, content: async () => '' }
     const session = fakeSession({
-      newPage: async () => ({ goto, content: async () => '' }),
+      pages: async () => [page],
+      newPage: async () => page,
       requestJson: async () => ({ data: { login: true } }),
     })
     await expect(createWbLogin(session, request).loginByQrcode()).resolves.toBe(true)
-    expect(goto).toHaveBeenCalledWith(expect.stringContaining('passport.weibo.cn'))
-    expect(goto).toHaveBeenCalledWith(expect.stringContaining('m.weibo.cn'))
+    expect(goto).toHaveBeenNthCalledWith(1, expect.stringContaining('passport.weibo.cn'))
+    // 成功后离开登录页，杜绝残留页改写 Cookie / leaves the login page on success so it stops rewriting cookies
+    expect(goto).toHaveBeenLastCalledWith('https://m.weibo.cn/')
   })
 
   it('injects the cookie string into both weibo domains', async () => {
