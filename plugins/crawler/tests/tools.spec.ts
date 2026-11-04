@@ -36,8 +36,8 @@ describe('crawler tools', () => {
     const data = createCrawlerTools().find((tool) => tool.name === 'data')
     expect(data).toBeDefined()
     const rendered = await data!.execute({}, {} as never)
-    expect(JSON.stringify(rendered)).toContain('contents 3')
-    expect(JSON.stringify(rendered)).toContain('wb: 2 contents')
+    expect(JSON.stringify(rendered)).toContain('contents 3, comments 2')
+    expect(JSON.stringify(rendered)).toContain('wb: 2c/2m')
   })
 
   it('computes the word-frequency table from stored comments', async () => {
