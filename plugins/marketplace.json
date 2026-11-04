@@ -17,6 +17,20 @@
         "zh-CN": "ZCode 的人机管家：person-agent 子代理负责判断请求、把劳动派给后台子代理、用平实中文汇报结果；dispatch 技能规定何时派活、怎么派活；renhua 技能保证给人看的文字好读。DSH person-agent 套件的 ZCode 移植版。"
       },
       "category": "productivity"
+    },
+    {
+      "name": "crawler-bundle",
+      "source": "./crawler-bundle",
+      "version": "0.1.0",
+      "description": "Use when a DSH profile needs the multi-platform content crawler installed and composed in one step: it collects public contents and comments from Chinese content communities (xhs/dy/ks/bili/wb/tieba/zhihu) under keyword/detail/creator modes through a logged-in browser, anonymizes every person identifier before persistence, and stores shaped records into the host storage domain or data files; strictly read-only against the platforms. The bundle composes the crawler plugin and its bundled skill.",
+      "displayName": "Multi-Platform Content Crawler",
+      "displayName_i18n": {
+        "zh-CN": "多平台内容采集"
+      },
+      "description_i18n": {
+        "zh-CN": "面向学习研究场景的多平台公开内容采集：通过已登录浏览器以关键词搜索、内容详情、创作者主页三种模式采集主流中文内容社区的公开内容与评论；所有人物标识在落地前强制匿名化（标识哈希化、昵称遮蔽）；数据可写入宿主存储域或数据文件。对目标平台严格只读。组合包含采集插件与其内置使用技能。"
+      },
+      "category": "productivity"
     }
   ]
 }

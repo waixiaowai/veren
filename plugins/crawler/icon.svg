@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- 多平台内容采集：爬虫网与四数据流 -->
+  <!-- Multi-platform content crawler: a web with four data flows -->
+  <rect x="4" y="4" width="56" height="56" rx="12" fill="#1e293b"/>
+  <circle cx="32" cy="32" r="18" fill="none" stroke="#38bdf8" stroke-width="3"/>
+  <circle cx="32" cy="32" r="9" fill="none" stroke="#7dd3fc" stroke-width="2"/>
+  <line x1="32" y1="8" x2="32" y2="56" stroke="#38bdf8" stroke-width="2" opacity="0.7"/>
+  <line x1="8" y1="32" x2="56" y2="32" stroke="#38bdf8" stroke-width="2" opacity="0.7"/>
+  <line x1="15" y1="15" x2="49" y2="49" stroke="#7dd3fc" stroke-width="1.5" opacity="0.5"/>
+  <line x1="49" y1="15" x2="15" y2="49" stroke="#7dd3fc" stroke-width="1.5" opacity="0.5"/>
+  <circle cx="32" cy="32" r="4" fill="#f59e0b"/>
+</svg>

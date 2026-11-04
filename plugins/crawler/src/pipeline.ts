@@ -21,6 +21,7 @@ import { StoreSink, assertStoreSupports } from './sink.ts'
 import { writeWordFrequencyTable } from './wordcloud.ts'
 import { WbCrawler, type FetchJson } from './platform/wb/crawler.ts'
 import { TiebaCrawler } from './platform/tieba/crawler.ts'
+import { BiliCrawler } from './platform/bili/crawler.ts'
 import type { AbstractCrawler } from './crawler/contract.ts'
 import type { BrowserSession } from './browser/contract.ts'
 import type { CrawlerRunRequest } from './control/runner.ts'
@@ -29,7 +30,7 @@ import type { CancelFlag } from './runner/inprocess-runner.ts'
 import type { Platform } from './types.ts'
 
 /** 平台注册表：当前已接入的平台 / the platform registry: currently wired platforms */
-const WIRED_PLATFORMS: readonly Platform[] = ['wb', 'tieba']
+const WIRED_PLATFORMS: readonly Platform[] = ['wb', 'tieba', 'bili']
 
 /** 管线可注入依赖 / the injectable pipeline dependencies */
 export interface PipelineDeps {
@@ -59,6 +60,19 @@ function assertWiredPlatform(platform: Platform): void {
 /** 平台爬取器实例化（未接入平台抛 INVALID_PLATFORM）/ instantiates a platform crawler (unwired platforms throw INVALID_PLATFORM) */
 export function createPlatformCrawler(request: CrawlerRunRequest, fetchJson: FetchJson): AbstractCrawler {
   assertWiredPlatform(request.platform)
+  if (request.platform === 'bili') {
+    return new BiliCrawler({
+      fetchJson,
+      targets: {
+        keywords: request.keywords,
+        specifiedId: request.specifiedIds,
+        creatorId: request.creatorIds,
+      },
+      startPage: request.startPage,
+      maxNotesCount: request.maxNotesCount,
+      pageIntervalMs: 2000,
+    })
+  }
   if (request.platform === 'tieba') {
     return new TiebaCrawler({
       fetchJson,

@@ -1,4 +1,4 @@
-# @veren/crawler
+﻿# @veren/crawler
 
 Multi-platform content crawler for DSH — collects public contents and comments from mainstream Chinese content communities (Xiaohongshu, Douyin, Kuaishou, Bilibili, Weibo, Tieba, Zhihu) for study and research, anonymizes every person identifier before persistence, and stores shaped records into the configured medium.
 
@@ -35,7 +35,8 @@ Implemented per `design/` (see `design/index.md` for the full plan):
 - Client entry (directive 5): the `crawler` app (`/apps/crawler/overview`) — the task-status snapshot, storage-domain data volume, and the page session mounting the five tools; `ctx.apps.register` + pages wired in one effect that rolls back finished steps in reverse on failure (`src/app.ts`, `src/page-overview.tsx`).
 - The bundle: `../crawler-bundle/` (configuration-only, inserts the single `crawler` row, the member rides as a plain dependency) — the install entry.
 - Storage adapter: anonymization (`store/mask.ts`), shaping (`store/shape.ts`), file media json/jsonl/csv (`store/`), media factory.
-- Plugin entry with schemastery config (`src/config.ts`).
+- Plugin entry with schemastery config (src/config.ts).
+- Real weibo login and session-carrying fetches: platform/wb/auth.ts probes m.weibo.cn/api/config, waits for the mobile passport qr/sms login (leaving the login page afterwards so a stale tab cannot rewrite cookies), and injects dual-site cookies; rowser/adapter.ts wraps the playwright-core context into the plugin contract so equestJson runs inside the context and folds login walls; the pipeline now runs session → login → crawl and always closes the session.
 
 Planned next iterations (per design docs, not yet built): browser automation layer, platform crawlers, login/credential module, media downloader, proxy pool, cache, wordcloud, HTTP control service, client panel pages.
 

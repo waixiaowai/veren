@@ -13,6 +13,7 @@
   },
   "files": [
     "cordis.patch.yml",
+    "icon.svg",
     "README.md",
     "README.cn.md"
   ],

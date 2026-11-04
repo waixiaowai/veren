@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- 采集组合包：插件行 + 技能行叠合 -->
+  <!-- Crawler bundle: the plugin row and the skill row stacked -->
+  <rect x="4" y="4" width="56" height="56" rx="12" fill="#312e81"/>
+  <rect x="12" y="14" width="40" height="12" rx="4" fill="#818cf8"/>
+  <rect x="12" y="30" width="40" height="12" rx="4" fill="#a5b4fc"/>
+  <rect x="12" y="46" width="28" height="8" rx="4" fill="#c7d2fe"/>
+</svg>

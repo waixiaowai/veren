@@ -118,7 +118,7 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
     }
     return () => undefined
   }, 'veren-crawler:app')
-  const api = new ControlApi({ manager: runtime.manager, dataRoot: runtime.config.dataRoot })
+  const api = new ControlApi({ manager: runtime.manager, dataRoot: runtime.config.dataRoot, domain: () => runtime.domain })
   ctx.effect(() => api.register(ctx), 'veren-crawler:api')
   ctx.effect(() => async () => {
     if (runtime.manager.status().status === 'running' || runtime.manager.status().status === 'starting') {

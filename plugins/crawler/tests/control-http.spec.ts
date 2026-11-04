@@ -44,7 +44,7 @@ interface RegisteredUpgrade {
   handler: (req: unknown, socket: unknown, head: Buffer) => void
 }
 
-async function mountApi(manager: CrawlerManager, dataRoot: string): Promise<{ base: string; dispose: () => void; routes: RegisteredRoute[]; upgrades: RegisteredUpgrade[]; close: () => Promise<void> }> {
+async function mountApi(manager: CrawlerManager, dataRoot: string, extraDeps: Partial<{ domain: () => unknown }> = {}): Promise<{ base: string; dispose: () => void; routes: RegisteredRoute[]; upgrades: RegisteredUpgrade[]; close: () => Promise<void> }> {
   const routes: RegisteredRoute[] = []
   const upgrades: RegisteredUpgrade[] = []
   const fakeCtx = {
@@ -77,7 +77,7 @@ async function mountApi(manager: CrawlerManager, dataRoot: string): Promise<{ ba
   const port = await new Promise<number>((resolve) => {
     server.listen(0, '127.0.0.1', () => resolve((server.address() as { port: number }).port))
   })
-  const api = new ControlApi({ manager, dataRoot })
+  const api = new ControlApi({ manager, dataRoot, ...extraDeps } as never)
   const dispose = api.register(fakeCtx)
   return {
     base: `http://127.0.0.1:${port}`,
@@ -183,6 +183,27 @@ describe('ControlApi on host webServer', () => {
       ctx.dispose()
       await ctx.close()
       await rm(ctx.root, { recursive: true, force: true })
+    }
+  })
+
+  it('serves the storage-domain data face', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'crawler-http-'))
+    try {
+      const rows = new Map<string, unknown>([['wb::n1', { id: 'n1', title: 'x' }]])
+      const manager = new CrawlerManager(() => hangingHandle(), { stopTimeoutMs: 200 })
+      const mounted = await mountApi(manager, root, { domain: () => ({
+        table: () => ({ put: async () => {}, entries: () => rows.entries() }),
+      }) as never })
+      try {
+        const payload = (await (await fetch(`${mounted.base}/api/data/domain`)).json()) as { open: boolean; contents: number; by_platform: Record<string, number> }
+        expect(payload).toMatchObject({ open: true, contents: 1 })
+        expect(payload.by_platform).toEqual({ wb: 1 })
+      } finally {
+        mounted.dispose()
+        await mounted.close()
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true })
     }
   })
 

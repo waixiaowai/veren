@@ -13,6 +13,7 @@
 import { listDataFiles, previewDataFile, readDataFile, type DataFileInfo } from './data.ts'
 import type { CrawlerManager } from './manager.ts'
 import type { CrawlerRunRequest } from './runner.ts'
+import type { CrawlerStore } from '../store/domain.ts'
 import { CRAWLER_TYPES, LOGIN_TYPES, PLATFORMS, SAVE_DATA_OPTIONS } from '../constants.ts'
 import { CrawlerError } from '../errors.ts'
 
@@ -20,6 +21,8 @@ import { CrawlerError } from '../errors.ts'
 export interface RouteDeps {
   manager: CrawlerManager
   dataRoot: string
+  /** 已打开存储域（`dsh` 介质数据面）/ the opened storage domain (the `dsh` medium data face) */
+  domain?: () => CrawlerStore | undefined
 }
 
 /** 统一响应 / the uniform response envelope */
@@ -100,6 +103,9 @@ export async function handleDataRoutes(
   query: URLSearchParams,
   deps: RouteDeps,
 ): Promise<RouteResult | null> {
+  if (pathname === '/api/data/domain' && method === 'GET') {
+    return json(200, domainSummary(deps))
+  }
   if (pathname === '/api/data/files' && method === 'GET') {
     const files = await listDataFiles(deps.dataRoot)
     const platform = query.get('platform')
@@ -154,4 +160,25 @@ async function dataStats(dataRoot: string): Promise<{ total_files: number; total
     byPlatform[platform] = (byPlatform[platform] ?? 0) + 1
   }
   return { total_files: files.length, total_size: totalSize, by_platform: byPlatform }
+}
+
+/**
+ * 存储域数据面：按平台统计 contents/comments 行数与首屏预览（`dsh` 介质
+ * 的只读浏览面；域未开时明确返回 open:false）。
+ * The storage-domain data face: per-platform contents/comments counts plus
+ * a first-screen preview (read-only; returns open:false when the domain is
+ * not open).
+ */
+function domainSummary(deps: RouteDeps): { open: boolean; contents: number; comments: number; by_platform: Record<string, number>; preview: unknown[] } {
+  const domain = deps.domain?.()
+  if (domain === undefined) return { open: false, contents: 0, comments: 0, by_platform: {}, preview: [] }
+  const contents = [...domain.table('contents').entries()]
+  const comments = [...domain.table('comments').entries()]
+  const byPlatform: Record<string, number> = {}
+  for (const [key] of contents) {
+    const platform = key.split('::')[0] ?? '?'
+    byPlatform[platform] = (byPlatform[platform] ?? 0) + 1
+  }
+  const preview = contents.slice(0, 5).map(([, row]) => row)
+  return { open: true, contents: contents.length, comments: comments.length, by_platform: byPlatform, preview }
 }

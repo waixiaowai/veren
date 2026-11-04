@@ -1,4 +1,4 @@
-# @veren/crawler
+﻿# @veren/crawler
 
 DSH 多平台内容采集插件 —— 面向学习研究场景，采集主流中文内容社区（小红书、抖音、快手、B 站、微博、贴吧、知乎）的公开内容与评论；所有人物标识在落地前强制匿名化，整形后的统一实体写入所选介质。
 
@@ -35,7 +35,8 @@ DSH 多平台内容采集插件 —— 面向学习研究场景，采集主流�
 - 客户端入口（意见 5）：应用 `crawler`（`/apps/crawler/overview` 总览页）——任务状态机快照、存储域数据量、页面会话挂载五工具；`ctx.apps.register` + pages 单条 effect 收线，任一步失败逆序回滚（`src/app.ts`、`src/page-overview.tsx`）。
 - 组合包：`../crawler-bundle/`（配置-only，插入唯一 `crawler` 行，成员为普通依赖）——安装入口。
 - 存储适配：脱敏（`store/mask.ts`）、整形（`store/shape.ts`）、文件介质 json/jsonl/csv（`store/`）、介质工厂。
-- 插件入口与 schemastery 配置（`src/config.ts`）。
+- 插件入口与 schemastery 配置（src/config.ts）。
+- 微博真实登录与带登录态取数：platform/wb/auth.ts 用 m.weibo.cn/api/config 探测、移动端 passport 扫码/短信等待（成功后离开登录页，避免残留页改写 Cookie）、双站 Cookie 注入；rowser/adapter.ts 把 playwright-core 上下文包成插件契约，equestJson 在上下文内发请求并折叠登录墙；管线改为「会话 → 登录 → 采集」且会话在两条路径上必关。
 
 后续迭代（设计已定、代码未建）：浏览器自动化层、各平台爬取器、登录与凭证、媒体下载、代理池、缓存、词云、HTTP 控制服务、客户端面板页面。
 

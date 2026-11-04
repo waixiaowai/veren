@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- 采集技能：灯泡 + 指南针 -->
+  <!-- Crawler skill: a bulb with a compass needle -->
+  <rect x="4" y="4" width="56" height="56" rx="12" fill="#064e3b"/>
+  <circle cx="32" cy="27" r="14" fill="#fbbf24"/>
+  <rect x="26" y="41" width="12" height="5" rx="2.5" fill="#d1fae5"/>
+  <rect x="27" y="48" width="10" height="5" rx="2.5" fill="#a7f3d0"/>
+  <path d="M32 18 L36 29 L32 26 L28 29 Z" fill="#065f46"/>
+</svg>
