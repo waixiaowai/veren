@@ -11,7 +11,7 @@
 import type { ImPersonContact } from '../src/contract.ts'
 import { ImPeople } from '../src/people.ts'
 import type { ImPersonSaveRequest } from '../src/people.ts'
-import type { ImLogger } from '../src/router.ts'
+import type { ImLogger } from '../src/runtime-seams.ts'
 import { MemoryStore } from './memory-store.ts'
 
 export const silent: ImLogger = { warn() {}, error() {} }

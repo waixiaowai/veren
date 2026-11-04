@@ -1,0 +1,50 @@
+{
+  "name": "@veren/im-conversation",
+  "displayName": "Veren IM Conversation",
+  "version": "3.0.0-rc.1",
+  "description": "Use when the IM family needs the durable team-fact store: rooms and members with idempotent joins, messages with room-exclusive server-assigned sequences, monotonic read cursors, and the channel-to-room ingest that turns provider observations into facts; emits im/message-new after every commit so coordination, turn, and channel delivery can each react without touching each other. Pair with @veren/im (core) upstream and @veren/im-coordination/@veren/im-turn downstream.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**/*.js",
+    "src/**/*.ts",
+    "README.md",
+    "README.cn.md"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {},
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/core": "workspace:*",
+    "@veren/im": "workspace:^",
+    "zod": "4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-storage-domain": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-storage-domain": "0.2.1-rc.2",
+    "@types/node": "^26.6.5",
+    "typescript": "^5.8.3",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}

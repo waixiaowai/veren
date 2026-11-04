@@ -16,8 +16,8 @@
 
 import { defineTool, type InferArgs, type ParameterSchemaSpec } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
-import { ImError } from '@veren/im'
-import type { ImRouter } from '@veren/im'
+import { ImError, ImRegistry, ImBindings } from '@veren/im'
+import type { ImProvider } from '@veren/im'
 import { OUTPUT, bindRequestOf, bindView, run } from './values.ts'
 
 /** `im_bind` description: one authorization attempt, started or polled. */
@@ -55,18 +55,18 @@ type BindArgs = InferArgs<typeof IM_BIND_PARAMETERS>
 
 /** Poll an existing attempt, with the verify code when one is due. */
 /** 轮询一次进行中的授权；到期需要验证码时一并提交。 */
-async function pollBind(router: ImRouter, args: BindArgs): Promise<JsonValue> {
+async function pollBind(deps: BindDeps, args: BindArgs): Promise<JsonValue> {
   const polled = args.code === undefined
-    ? await router.pollBind(args.bindId as string)
-    : await router.submitBindCode(args.bindId as string, args.code)
+    ? await deps.bindings.pollBind(args.bindId as string)
+    : await deps.bindings.submitBindCode(args.bindId as string, args.code)
   return bindView(polled.attempt, polled.account)
 }
 
 /** Start one authorization attempt with the requested method. */
 /** 以指定方式发起一次授权尝试。 */
-async function startBind(router: ImRouter, args: BindArgs): Promise<JsonValue> {
-  const provider = router.resolveProvider(args.provider)
-  const attempt = await router.beginBind(
+async function startBind(deps: BindDeps, args: BindArgs): Promise<JsonValue> {
+  const provider = resolveProvider(deps.registry, args.provider)
+  const attempt = await deps.bindings.beginBind(
     provider.id,
     bindRequestOf(args.method as 'qrcode' | 'oauth' | 'token' | 'password', args),
   )
@@ -75,7 +75,7 @@ async function startBind(router: ImRouter, args: BindArgs): Promise<JsonValue> {
 
 /** The `im_bind` execution: exactly one of method (start) or bindId (poll). */
 /** `im_bind` 执行：method（发起）与 bindId（轮询）二选一。 */
-function bindExecute(router: ImRouter): (args: BindArgs) => Promise<JsonValue> {
+function bindExecute(deps: BindDeps): (args: BindArgs) => Promise<JsonValue> {
   return async args => run(async () => {
     const hasBind = args.bindId !== undefined
     const hasMethod = args.method !== undefined
@@ -85,21 +85,44 @@ function bindExecute(router: ImRouter): (args: BindArgs) => Promise<JsonValue> {
     if (args.code !== undefined && !hasBind) {
       throw new ImError('IM_INVALID_REQUEST', 'code requires bindId')
     }
-    if (hasBind) return pollBind(router, args)
-    return startBind(router, args)
+    if (hasBind) return pollBind(deps, args)
+    return startBind(deps, args)
   })
 }
 
+/** The account-authorization collaborators the tool needs. */
+/** 账号授权工具需要的协作者。 */
+export interface BindDeps {
+  readonly bindings: ImBindings
+  readonly registry: ImRegistry
+}
+
 /**
- * Build the `im_bind` tool over the router.
- * @param router - the active-binding router.
+ * Resolve an optional provider id, defaulting only when exactly one exists
+ * (the same rule the old router applied).
+ * 解析可选的 provider id；仅当恰好注册了一个 provider 时才允许缺省（与旧 router 同一规则）。
  */
-export function imBindTool(router: ImRouter) {
+function resolveProvider(registry: ImRegistry, id?: string): ImProvider {
+  if (id !== undefined) return registry.get(id)
+  const providers = registry.list()
+  const first = providers[0]
+  if (providers.length === 1 && first !== undefined) return first
+  if (providers.length === 0) {
+    throw new ImError('IM_NOT_FOUND', 'no IM provider is registered')
+  }
+  throw new ImError('IM_INVALID_REQUEST', 'provider is required when more than one provider is registered')
+}
+
+/**
+ * Build the `im_bind` tool over the authorization faces.
+ * @param deps - bindings and registry.
+ */
+export function imBindTool(deps: BindDeps) {
   return defineTool({
     name: 'im_bind',
     description: IM_BIND_DESCRIPTION,
     parameters: IM_BIND_PARAMETERS,
     output: OUTPUT,
-    execute: bindExecute(router),
+    execute: bindExecute(deps),
   })
 }

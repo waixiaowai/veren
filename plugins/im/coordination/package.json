@@ -1,0 +1,51 @@
+{
+  "name": "@veren/im-coordination",
+  "displayName": "Veren IM Coordination",
+  "description": "Use when the IM family needs the arbitration layer that keeps multi-agent rooms civil: deterministic wake triage (direct human messages wake, agent-authored messages stay quiet, group mentions route to one agent), the low-priority wake budget, per-agent seen watermarks, and the write gates — freshness (reject with the unseen messages attached) and verbatim (reject a duplicate body) — that run inside the conversation write chain so two agents drafting at once cannot both post. Pair with @veren/im and @veren/im-conversation; @veren/im-turn consumes its wake requests.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**/*.js",
+    "src/**/*.ts",
+    "README.md",
+    "README.cn.md"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {},
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/core": "workspace:*",
+    "@veren/im": "workspace:^",
+    "@veren/im-conversation": "workspace:^",
+    "zod": "4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-storage-domain": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-storage-domain": "0.2.1-rc.2",
+    "@types/node": "^26.6.5",
+    "typescript": "^5.8.3",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT",
+  "version": "3.0.0-rc.1"
+}

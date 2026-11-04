@@ -1,45 +1,66 @@
-# IM bundle: mounts the whole instant-messaging stack in one profile layer.
-# IM 组合包：用一个 profile 层装好整个即时消息技术栈。
+# IM bundle: mounts the whole redesigned collaboration stack in one profile layer.
+# IM 组合包：用一个 profile 层装好重设计后的整套协作栈。
 #
 # The bundle carries zero runtime code. Each `insert` row resolves by package
 # name from the bundle's own dependencies (pnpm installs them into the profile
-# alongside this bundle), so the three @veren plugins travel together as one
+# alongside this bundle), so the @veren plugins travel together as one
 # installable unit and can be toggled as one from the plugin manager.
 # 组合包零运行时代码。每条 `insert` 行按包名从组合包自身的 dependencies 解析
-# （pnpm 会把它们和组合包一起装进 profile），三个 @veren 插件因此作为一个可
-# 安装单元随行，并在插件管理页作为一个开关整体启停。
+# （pnpm 会把它们和组合包一起装进 profile），@veren 插件因此作为一个可安装单元随行，
+# 并在插件管理页作为一个开关整体启停。
 #
-# Row order matters: the core first (it provides the `im`, `imRouter`, and
-# `imPeople` services the other two inject), then the channel provider, then
-# the tools. Missing services never half-activate: a row whose inject cannot
-# resolve stays pending, loudly visible in the plugin page and boot logs.
-# 行顺序有讲究：先装核心（它提供另外两个包注入的 `im` / `imRouter` / `imPeople`
-# 服务），再装渠道 provider，最后是工具。服务缺失绝不会半激活：inject 解析不到
-# 的行保持 pending——在插件页与启动日志里响亮可见。
+# Row order matters and follows the fact pipeline: the core provides the
+# `im` services everyone injects; conversation turns channel observations
+# into durable room facts; coordination decides who wakes; turn runs the
+# replies; then the channel provider, the tools, and the panel. Missing
+# services never half-activate: a row whose inject cannot resolve stays
+# pending, loudly visible in the plugin page and boot logs.
+# 行顺序跟着事实管线走：核心提供人人注入的 `im` 服务；会话域把渠道观察变成持久的房间
+# 事实；协调域决定谁被唤醒；回合域跑出回复；然后是渠道 provider、工具与面板。服务缺失
+# 绝不会半激活：inject 解析不到的行保持 pending——在插件页与启动日志里响亮可见。
 - insert:
-    # The core: durable accounts, conversations, bindings, the people directory,
-    # stranger intake with its audit trail, and the active-binding router that
-    # feeds inbound messages into DSH Sessions. Also owns the `im` Remote
-    # namespace the web panel reads (gateway-remote.ts).
-    # 核心：持久化的账号、会话、绑定，人员目录，带审计的陌生人采集，以及把入站
-    # 消息喂进 DSH 会话的 active-binding 路由。同时拥有 Web 面板读取的 `im` 远端
-    # 命名空间（gateway-remote.ts）。
+    # The core: durable accounts, the people directory with strict name
+    # resolution, the participant roster, agent memory, stranger intake with
+    # its audit trail, the provider registry (emits im/message-observed), and
+    # the `im` Remote namespace the web panel reads.
+    # 核心：持久账号、严格名字解析的人员目录、参与者名册、智能体记忆、带审计的陌生人
+    # 采集、provider 注册表（发出 im/message-observed），以及 Web 面板读取的 `im` 远端
+    # 命名空间。
     - id: im
       name: '@veren/im'
-    # The WeChat channel: iLink QR authorization, long-poll inbound, text send.
-    # It registers itself into the registry provided by the core row above.
-    # 微信渠道：iLink 扫码授权、长轮询入站、文本发送。它把自己注册进上一行核心
-    # 提供的注册表。
+    # The conversation domain: rooms, room-exclusive sequences, monotonic
+    # read cursors, and the channel ingest that turns observations into
+    # durable facts (emits im/message-new).
+    # 会话域：房间、房间独占序号、只进不退的已读游标，以及把观察变成持久事实的渠道
+    # 吸收（发出 im/message-new）。
+    - id: im-conversation
+      name: '@veren/im-conversation'
+    # The coordination domain: deterministic wake triage, the low-priority
+    # budget, per-agent seen watermarks, and the write gates judged inside
+    # the conversation chain (emits im/wake-request — the only wake source).
+    # 协调域：确定性唤醒分流、低优先预算、按智能体的已见水位，以及在会话写链内判定的
+    # 写入闸门（发出 im/wake-request——唯一的唤醒源）。
+    - id: im-coordination
+      name: '@veren/im-coordination'
+    # The turn domain: durable run records with event timelines, per-agent
+    # preset-backed DSH sessions, hold loops, and terminal states.
+    # 回合域：带事件时间线的持久运行记录、按智能体的 preset 会话、被拒循环与终态。
+    - id: im-turn
+      name: '@veren/im-turn'
+    # The WeChat channel: iLink QR authorization, long-poll inbound, and
+    # outbound delivery of agent-authored room messages.
+    # 微信渠道：iLink 扫码授权、长轮询入站，以及智能体房间消息的出站投递。
     - id: im-wechat
       name: '@veren/im-wechat'
-    # The model-facing `im_*` tools over accounts, people, and bindings.
-    # 面向模型的 `im_*` 工具：账号、人员与绑定的操作面。
+    # The model-facing `im_*` tools and the collaboration skill, over the
+    # conversation, directory, intake, and memory faces.
+    # 面向模型的 `im_*` 工具与协作技能，架在会话、目录、采集与记忆面之上。
     - id: im-tool
       name: '@veren/im-tool'
-    # The web panel: sidebar entry, in-page QR bind wizard, bindings, people,
-    # and intake audit. It injects the mounted `remote.im` namespace, so it
-    # stays last.
-    # Web 面板：侧栏入口、页面内扫码绑定向导、绑定、人员与采集审计。它注入挂载好
-    # 的 `remote.im` 命名空间，因此排在最后。
+    # The web panel: sidebar entry, in-page QR bind wizard, accounts, people,
+    # intake audit, and the conversation tab. It injects the mounted `remote`
+    # namespaces, so it stays last.
+    # Web 面板：侧栏入口、页面内扫码绑定向导、账号、人员、采集审计与会话页。它注入挂载
+    # 好的 `remote` 命名空间，因此排在最后。
     - id: im-ui
       name: '@veren/im-ui'

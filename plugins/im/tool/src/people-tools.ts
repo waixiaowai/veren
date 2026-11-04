@@ -13,12 +13,13 @@
  * @module @veren/im-tool/people-tools
  */
 
-import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool, type InferArgs, type ParameterSchemaSpec } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { ImError } from '@veren/im'
-import type { ImPersonContact, ImPersonSaveInput, ImRouter } from '@veren/im'
+import type { ImPersonContact, ImPersonSaveInput } from '@veren/im'
+import { ImDirectory } from '@veren/im'
+import type { ImStrangerIntake } from '@veren/im'
 import { ok, requireString, run } from './values.ts'
 
 /** One canonical tool value as model text. */
@@ -152,9 +153,9 @@ type IntakeArgs = InferArgs<typeof INTAKE_PARAMETERS>
 
 /** The `im_people` execution: one filtered read of the directory. */
 /** `im_people` 执行：一次带过滤的目录读取。 */
-function peopleListExecute(router: ImRouter): (args: PeopleListArgs) => Promise<JsonValue> {
+function peopleListExecute(directory: ImDirectory): (args: PeopleListArgs) => Promise<JsonValue> {
   return async args => run(async () => {
-    const people = router.listPeople({
+    const people = directory.list({
       ...(args.query === undefined ? {} : { query: args.query }),
       ...(args.provider === undefined ? {} : { provider: args.provider }),
       ...(args.accountId === undefined ? {} : { accountId: args.accountId }),
@@ -209,70 +210,67 @@ function personSaveRequestOf(args: PersonSaveArgs): ImPersonSaveInput {
 
 /** The `im_person_save` execution: one validated create-or-enrich. */
 /** `im_person_save` 执行：一次带校验的创建/补充。 */
-function personSaveExecute(router: ImRouter): (args: PersonSaveArgs) => Promise<JsonValue> {
+function personSaveExecute(directory: ImDirectory): (args: PersonSaveArgs) => Promise<JsonValue> {
   return async args => run(async () => {
-    const person = await router.savePerson(personSaveRequestOf(args))
+    const person = await directory.save(personSaveRequestOf(args))
     return ok({ person })
   })
 }
 
 /** The `im_intake` execution: one read of the switch and its audit trail. */
 /** `im_intake` 执行：一次读取开关与审计轨迹。 */
-function intakeExecute(router: ImRouter): (args: IntakeArgs) => Promise<JsonValue> {
+function intakeExecute(intake: ImStrangerIntake): (args: IntakeArgs) => Promise<JsonValue> {
   return async args => run(async () => {
-    const status = router.intakeStatus(args.limit)
+    const status = intake.status(args.limit)
     return ok({ ...status })
   })
 }
 
 /** Build the `im_people` tool definition. */
 /** 构造 `im_people` 工具定义。 */
-function definePeopleListTool(router: ImRouter) {
+function definePeopleListTool(directory: ImDirectory) {
   return defineTool({
     name: 'im_people',
     description: PEOPLE_LIST_DESCRIPTION,
     parameters: PEOPLE_LIST_PARAMETERS,
     output: OUTPUT,
-    execute: peopleListExecute(router),
+    execute: peopleListExecute(directory),
   })
 }
 
 /** Build the `im_person_save` tool definition. */
 /** 构造 `im_person_save` 工具定义。 */
-function definePersonSaveTool(router: ImRouter) {
+function definePersonSaveTool(directory: ImDirectory) {
   return defineTool({
     name: 'im_person_save',
     description: PERSON_SAVE_DESCRIPTION,
     parameters: PERSON_SAVE_PARAMETERS,
     output: OUTPUT,
-    execute: personSaveExecute(router),
+    execute: personSaveExecute(directory),
   })
 }
 
 /** Build the `im_intake` tool definition. */
 /** 构造 `im_intake` 工具定义。 */
-function defineIntakeTool(router: ImRouter) {
+function defineIntakeTool(intake: ImStrangerIntake) {
   return defineTool({
     name: 'im_intake',
     description: INTAKE_DESCRIPTION,
     parameters: INTAKE_PARAMETERS,
     output: OUTPUT,
-    execute: intakeExecute(router),
+    execute: intakeExecute(intake),
   })
 }
 
 /**
- * Register the people-directory tools in the mounting scope.
- * @param ctx - Context owning the `tools` registry.
- * @param router - the active-binding router, which owns the directory.
+ * Build the three people/intake tool definitions.
+ * @param directory - the directory face.
+ * @param intake - the stranger-intake service.
  */
-export function registerPeopleTools(ctx: Context, router: ImRouter): void {
-  ctx.effect(() => {
-    const disposers = [
-      ctx.tools.register(definePeopleListTool(router)),
-      ctx.tools.register(definePersonSaveTool(router)),
-      ctx.tools.register(defineIntakeTool(router)),
-    ]
-    return () => { for (const dispose of disposers.reverse()) dispose() }
-  }, 'im:people-tools()')
+export function peopleTools(directory: ImDirectory, intake: ImStrangerIntake) {
+  return [
+    definePeopleListTool(directory),
+    definePersonSaveTool(directory),
+    defineIntakeTool(intake),
+  ]
 }

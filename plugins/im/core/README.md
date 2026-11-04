@@ -1,209 +1,74 @@
 # @veren/im
 
-Provider-neutral IM contract, registry, storage, and active-binding router for
-the DeepSeek Harness.
+The provider-neutral core of the redesigned im family: the channel contract and
+registry, the participant roster, agent memory, the people directory, stranger
+intake, and account authorization — the mouth of the fact pipeline.
 
 ## When to use it
 
 Use this package when a DSH host must expose one IM abstraction to multiple
-channels: accounts, conversations, bindings, inbound routing, and explicit
-outbound targets. It is the core package, not a channel implementation and not
-the tool surface.
+channels: providers register one `ImProvider` each, every inbound observation
+leaves as one `im/message-observed` event, and the downstream domains
+(`@veren/im-conversation`, `@veren/im-coordination`, `@veren/im-turn`) turn
+those observations into durable facts, wake decisions, and replies.
 
-Do not use it as a place to add channel-specific branches. A channel belongs in
-its own provider package (`@veren/im-wechat` in this repository), registered as
-one `ImProvider`.
+Do not add channel-specific branches here — a channel belongs in its own
+provider package (`@veren/im-wechat` in this repository). Do not add wake
+policy here — the core ships no routing, no queue, and no session code since
+the 3.0 redesign.
 
 ## Package set
 
+See `docs/redesign-mapping.md` (in the family root) for the full
+Cumora→DSH mapping. The family:
+
 | Package | Role |
 |---|---|
-| `@veren/im` | Contract, `ImRegistry`, `ImError`, storage, router, DSH Session bridge |
-| `@veren/im-tool` | Model-facing `im_*` tools |
+| `@veren/im` | Contract, `ImRegistry`, `ImError`, roster, memory, people, intake, accounts |
+| `@veren/im-conversation` | Rooms, sequences, read cursors, channel ingest |
+| `@veren/im-coordination` | Triage, budgets, watermarks, write gates |
+| `@veren/im-turn` | Run records, per-agent preset sessions, hold loops |
+| `@veren/im-tool` | Model-facing `im_*` tools + the collaboration skill |
 | `@veren/im-wechat` | WeChat iLink provider |
-| `@veren/im-testkit` | Fake provider and reusable conformance suite |
+| `@veren/im-hub` | CMS cloud-gateway provider |
+| `@veren/im-ui` | Web panel (conversations / cloud / intake) |
+| `@veren/im-testkit` | Fake provider and reusable test seams |
 
 ## Contract
 
 The contract is the source of truth:
 
-- `ImAccount`: `id`, `displayName`, `ownerId?`, `status`
-- `ImConversation`: `id`, `kind` (`direct` / `group` / `thread`), `title?`
-- `ImMessage`: `id`, `accountId`, `conversationId`, `sender`, `sentAt`,
-  `content`, `replyTo?`, `threadId?`
-- `ImMessageContent`: `text`, `markdown`, `image`, `file`
-- `ImFeatures`: direct/group/threads/markdown/media/typing/auth/limits
-- `ImBindRequest`: a union discriminated by `method`; no generic options pocket
-- `ImBindAttempt`: `bindId`, `status`, `challenge`, `submitCode`, `wait`,
-  `cancel`
-- `ImSendRequest`: explicit `target`, `content`, optional `replyToMessageId`
-- `ImSendResult`: `id`, `sentAt`, `uncertain?`
-- `ImBinding`: `id`, `accountId`, `conversationId`, `sessionId`, `active`,
-  `settings`
-- `ImBindingSettings`: `presetId`, `provider`, `model`, `reasoning`
-- `ImPersonContact`: `kind` (`wechat` / `email` / `phone` / `other`), `value`, `label?`
-- `ImPersonClaim`: an unverified self-report (`name?`, `contacts`, `source`,
-  provider/account/conversation, message id, time)
-- `ImPersonView`: `id`, `displayName`, `realName?`, `aliases`, `contacts`, `bio?`,
-  `notes?`, `claimedName?`, `claimedContacts`, `claimedAt?`, `identityStatus`,
-  `addresses`, `updatedAt`
-- `ImPersonMatch`: the person plus the evidence (`matchedBy`, `matchedValue`)
-- `ImPersonResolution`: `matched` / `ambiguous` / `not-found`
-- `ImError`: `code`, optional `providerCode`, optional JSON-safe `details`
+- `ImProvider` / `ImService`: the six operations every channel implements
+  (`start`, `stop`, `accounts`, `listen`, `bind`, `send`, optional
+  `removeAccount`).
+- `ImRegistry` (`im` token): registration with reconciliation triggers,
+  `observeInbound` (people bookkeeping + cloud push), and the cloud-directory
+  attach.
+- `ImError`: stable codes in two segments — `IM_*` for the channel scope and
+  the design's core-loop codes (`CONVERSATION_NOT_FOUND`, `HELD_*`, `TURN_*`,
+  …) — plus a `retryable` judgment per code.
+- `ImParticipants` (`imParticipants` token): the roster. Agents are DSH
+  presets (`agent:<presetId>`), the owner is `human:owner`, external humans
+  come from the people directory.
+- `ImMemory` (`imMemory` token): durable agent memories, recency-first recall
+  with pinned entries on top, project (DSH workspace) scoping.
+- `ImPeople` / `ImDirectory`: the strict name-resolution directory with
+  unverified self-reports, plus the model-facing directory face.
+- `ImStrangerIntake` (`imIntake` token): the once-per-stranger question with
+  its rate limits and audit trail.
+- `ImBindings` (`imBindings` token): account authorization attempts and the
+  durable account table.
+- Channel room ids: `chan:<provider>:<account>:<conversation>` (deterministic,
+  restart-stable) and `conv:*` for internal rooms.
 
-`ImService` has exactly `start`, `stop`, `accounts`, `listen`, `bind`, and
-`send`. Provider identity and capabilities live on the `ImProvider` descriptor
-(`id`, `displayName`, `features`, `service`).
+## Events
 
-`ImRegistry` has exactly `register`, `get`, and `list`; `get` throws
-`IM_NOT_FOUND`. Every registration is disposed through the registering fiber.
+- Emits `im/message-observed` — one channel observation, exactly once.
+- Consumes nothing.
 
-## Routing rules
+## Configuration
 
-1. An inbound message resolves the active binding for its
-   `(accountId, conversationId)`.
-2. With no active binding, `autoCreateSession` decides between creating a
-   Session plus an active binding, or logging and ignoring the message.
-3. Source metadata and message body are rendered as two separate sections; the
-   body is untrusted input.
-4. Messages from one conversation are serialized.
-5. The answer returns to the exact conversation that produced the turn, never to
-   "the current active binding".
-6. Activating a binding turns every other active binding for that conversation
-   off in the same serialized write.
-
-## People and name resolution
-
-An account is what this host authorized; a person is a human. `ImAccount` has
-no identity data beyond its live display name, so sending by name needs this
-separate layer:
-
-- `im_people` stores one profile per human: `display_name`, optional
-  `real_name`, `aliases` (remarks or other names), `contacts`, `bio`, `notes`,
-  and `updated_at`.
-- `im_person_addresses` stores provider-scoped destinations. `external_id` is
-  the provider's own user id; `conversation_id` is what a send ultimately
-  targets. One person may have several addresses (for example two WeChat
-  accounts).
-
-Resolution rules are deliberately strict:
-
-1. One exact match sends. Exact means normalized equality (NFKC, trim, collapse
-   spaces, case-fold) against the person id, real name, display name, an alias,
-   a contact (phone numbers ignore separators and a country prefix), or an
-   address.
-2. Two or more people matching exactly is `IM_AMBIGUOUS`; nothing is sent and
-   the candidates are returned (at most 20).
-3. Zero exact matches is `IM_NOT_FOUND` with up to five close-name suggestions;
-   a partial match is never promoted to a send.
-4. One person with several names is one match: aliases are additional keys onto
-   the same person, not additional people.
-5. One person with several reachable addresses is `IM_AMBIGUOUS` too; the
-   caller must narrow with `provider` or `accountId`.
-6. A person with a profile but no address is `IM_NO_ADDRESS`; a profile alone
-   cannot receive a message.
-
-The router records every inbound sender into the directory before routing, and
-seeds direct conversations already in storage at activation. A provider that can
-enumerate its own contacts may contribute addresses through the `imPeople`
-service (`ctx.imPeople.observeConversation` / `.save`) without changing
-`ImService`. WeChat V1 cannot enumerate contacts; see `@veren/im-wechat`.
-
-## Automatic stranger intake
-
-When a message arrives from an address the directory cannot identify, the
-router sends one fixed question to the sender before routing the message. The
-typical case is a new WeChat `wxid` whose display name is still the raw id; a
-person with a human-recorded nickname, real name, alias, bio, notes, or extra
-contact is never asked.
-
-- The question is sent once per person. A burst of messages cannot produce a
-  second question, and a declined or unanswered question is never repeated.
-  The persisted `im_person_intakes` row is the gate and the audit record: it
-  stores the exact text, account, conversation, ask message id, and time.
-- The reply parser is deterministic and deliberately narrow. It accepts a
-  whole-line name, a small set of explicit prefixes (`我叫`, `叫我`, `名字是`,
-  `my name is`, and so on), or an unmistakable phone/email/WeChat id. Greetings,
-  roles such as "我是学生", prose, emoji, and anything uncertain are discarded;
-  a wrong guess is never written. A clear refusal (`不方便`, `不用了`) settles
-  the intake as `declined`; otherwise an answer is still accepted until
-  `replyWindowMs` elapses, after which the record is `expired`.
-- The collected data is an `ImPersonClaim`, never `realName`, never an alias,
-  and never a rename of `displayName`. The view exposes `claimedName`,
-  `claimedContacts`, `claimedAt`, and `identityStatus: 'self-reported'`.
-  `im_person_save` remains authoritative; its `realName`/aliases/contacts are
-  untouched by a claim, and `clearClaim: true` removes a bad self-report.
-- A claimed name participates in exact matching as `matchedBy: 'claimedName'`
-  (contacts as `claimedContact`). It is never promoted to a verified name. If it
-  collides with another person, resolution returns `IM_AMBIGUOUS`; the router
-  sends nothing and returns both candidates, so a stranger cannot be mistaken
-  for a known contact.
-- Wire-level pacing is per account: `maxAsksPerHour` (default 10) and
-  `minAskIntervalMs` (default 10 seconds). A skipped request is logged and is
-  not recorded, so it may be asked on a later message. The iLink protocol has no
-  published rate-limit contract in this repository; `ret=-2` is treated as a
-  rejection (it may be frequency control or a stale context token).
-- The total switch is `strangerIntake.enabled` in the plugin config (default
-  `true`). When false, the router sends nothing and writes no intake row. The
-  current state and the exact question are visible through `im_intake` and in
-  the plugin startup log.
-
-## Storage
-
-The storage domain is `im`, version 1:
-
-```text
-im_accounts(id, provider, token_ref, owner_id)
-im_conversations(account_id, conversation_id, kind, title)
-im_bindings(id, account_id, conversation_id, session_id, active, settings_json)
-im_people(id, display_name, real_name, aliases, contacts, bio, notes, claim?, updated_at)
-im_person_addresses(person_id, provider, account_id, conversation_id, external_id, display_name, updated_at)
-im_person_intakes(person_id, provider, account_id, conversation_id, status,
-                  asked_at, ask_message_id, ask_text, settled_at?, outcome?,
-                  reply_message_id?, reply_excerpt?)
-```
-
-No online status and no creation time are persisted. `token_ref` is only a
-credential reference; secrets live in `ctx.credentials`.
-
-## Plugin
-
-- name: `im`
-- injects: `storageDomain`, `credentials`, `agents`
-- provides: `im` (`ImRegistry`), `imRouter` (`ImRouter`), and `imPeople`
-  (`ImPeople`)
-- config: `autoCreateSession` (default `false`), `replyTimeoutMs` (default
-  `120000`), `strangerIntake.enabled` (default `true`),
-  `strangerIntake.replyWindowMs` (default `120000`),
-  `strangerIntake.maxAsksPerHour` (default `10`),
-  `strangerIntake.minAskIntervalMs` (default `10000`)
-
-The DSH session bridge delivers one `createUserMessage` with source kind
-`im-message`, captures that turn's `assistant/message` text, and settles at
-`turn/end`.
-
-## Limitations
-
-- No message history, archive, or full-text search.
-- No binding-management UI; the data model already allows many bindings per
-  conversation and many bindings per Session.
-- Model settings (`provider` / `model` / `reasoning`) apply when a Session is
-  created; changing them on an existing Session is not implemented.
-- Reply capture assumes one routed turn per Session at a time; the router
-  serializes prompts per Session, but a human using the same Session in the GUI
-  at the same moment is outside V1.
-- The directory only knows what a provider exposes or a human records. It is not
-  a global address book, and it does not merge identities across channels
-  automatically: one human with two providers is two addresses on one person
-  only after `im_person_save` links them.
-- The intake parser does not understand arbitrary prose. A name written inside a
-  sentence is not recorded; the person stays unverified until a human saves the
-  authoritative value or the person answers in a supported form.
-
-## Commands
-
-```bash
-pnpm --filter @veren/im typecheck
-pnpm --filter @veren/im test
-pnpm --filter @veren/im build
-```
+- `ownerName` — the owner human's display name in prompts and rosters.
+- `roster` — the preset-backed agents of this workspace.
+- `strangerIntake` — the automatic stranger question (enabled, reply window,
+  hourly cap, minimum gap).

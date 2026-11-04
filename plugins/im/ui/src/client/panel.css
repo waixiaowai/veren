@@ -298,3 +298,54 @@
   flex: 0 1 260px;
   min-width: 0;
 }
+
+/* ---- 会话页：房间列表 + 时间线 / conversations tab: room list + timeline ---- */
+.im-rooms {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 12px;
+  min-height: 320px;
+}
+.im-rooms-side {
+  border-right: 1px solid var(--im-line);
+  padding-right: 8px;
+}
+.im-room-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.im-room {
+  width: 100%;
+  text-align: left;
+  padding: 8px 8px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.im-room:hover { background: var(--dsw-alias-bg-layer-2, var(--im-surface)); }
+.im-room-open { background: var(--dsw-alias-bg-layer-3, var(--im-surface)); }
+.im-room-title { font-weight: 600; font-size: 13px; }
+.im-room-kind { font-size: 11px; opacity: 0.7; }
+.im-rooms-main { display: flex; flex-direction: column; gap: 8px; }
+.im-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+.im-line { display: flex; flex-direction: column; gap: 2px; }
+.im-line-system { opacity: 0.75; font-size: 12px; }
+.im-line-meta { font-size: 11px; opacity: 0.6; }
+.im-line-body { font-size: 13px; white-space: pre-wrap; word-break: break-word; }

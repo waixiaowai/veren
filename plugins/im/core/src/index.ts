@@ -1,21 +1,20 @@
 /**
- * @veren/im plugin entry: registry, router, storage, people directory, and the
- * DSH session bridge.
- * The core package owns no channel-specific code. It opens the durable IM
- * domain, constructs the people directory, the registry, and the router,
- * publishes them under `imPeople` and `imRouter`, and hands inbound messages to
- * the active-binding router. The model-facing `im_*` tools are registered by
- * @veren/im-tool.
+ * @veren/im plugin entry: storage, the people directory, the participant
+ * roster, agent memory, the provider registry, and stranger intake.
  *
- * @veren/im 插件入口：注册表、路由、存储、人员目录与 DSH 会话桥。
+ * The core owns the fact pipeline's mouth: providers register here, and every
+ * inbound observation leaves as one `im/message-observed` event. Downstream
+ * domains own their own stages — @veren/im-conversation turns observations
+ * into durable room messages, @veren/im-coordination decides who wakes,
+ * @veren/im-turn runs the replies. The core ships no wake policy and no
+ * session code.
  *
- * 核心包不含任何渠道特判。它打开持久化 IM 域，构造人员目录、注册表与路由，把它们发布为
- * `imPeople` 与 `imRouter`，并把入站消息交给 active-binding 路由。面向模型的 `im_*` 工具由
- * @veren/im-tool 注册。
+ * @veren/im 插件入口：存储、人员目录、参与者名册、智能体记忆、provider 注册表与陌生人采集。
  *
- * The DSH session gateway lives in `gateway.ts`; the module split keeps the
- * plugin assembly under the file-size ceiling.
- * DSH 会话网关在 `gateway.ts`；模块拆分让插件装配保持在单文件行数上限内。
+ * 核心拥有事实管线的入口：provider 在此注册，每一条入站观察都以一次 `im/message-observed`
+ * 事件离开。下游各域拥有自己的阶段——@veren/im-conversation 把观察变成持久的房间消息，
+ * @veren/im-coordination 决定谁被唤醒，@veren/im-turn 跑出回复。核心不带唤醒策略，也不带
+ * 会话代码。
  *
  * @module @veren/im
  */
@@ -23,29 +22,29 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { ImRegistry, ImToken, imCredentialKey } from './contract.ts'
-import type { ImMessage } from './contract.ts'
 import { ImStorage } from './store.ts'
 import { ImPeople, ImPeopleToken } from './people.ts'
 import { consolidatePeople } from './people-merge.ts'
-import { ImMessageQueue } from './queue.ts'
-import { reconcileProviderAccounts, retireOwnerAccounts as retireAccounts } from './account-replace.ts'
-import { ImRouter, ImRouterToken } from './router.ts'
-import type { ImRouterOptions } from './router-types.ts'
-import { errorMessage } from './runtime-seams.ts'
+import { ImBindings, ImBindingsToken } from './bindings.ts'
 import type { ImCredentialStore, ImLogger } from './runtime-seams.ts'
-import { ImGatewayService } from './gateway-remote.ts'
-import { DshSessionGateway } from './gateway.ts'
+import { ImCredentialToken, ImLoggerToken, errorMessage } from './runtime-seams.ts'
+import { ImParticipants, ImParticipantsToken } from './participants.ts'
+import type { ImRosterEntry } from './participants.ts'
+import { ImMemory, ImMemoryToken } from './memory.ts'
+import { ImDirectory, ImDirectoryToken } from './directory.ts'
+import { ImStrangerIntake, ImIntakeToken } from './intake.ts'
 import { STRANGER_INTAKE_ASK, STRANGER_INTAKE_DEFAULTS } from './intake.ts'
 import type { ImStrangerIntakeConfig } from './intake.ts'
+import { reconcileProviderAccounts, retireOwnerAccounts as retireAccounts } from './account-replace.ts'
+import { ImRemoteService } from './remote.ts'
+import './events.ts'
 
 export * from './contract.ts'
 export * from './people.ts'
-export * from './router.ts'
 export * from './intake.ts'
 export {
   IM_DOMAIN_NAME, ImStorage, conversationKey, imDomain, messageKey, personAddressKey,
 } from './store.ts'
-export { ImMessageQueue, MAX_MESSAGE_ATTEMPTS } from './queue.ts'
 export type {
   ImAccountRow,
   ImBindingRow,
@@ -53,6 +52,8 @@ export type {
   ImConversationSessionRow,
   ImCoreStore,
   ImIntakeStatus,
+  ImMemoryRow,
+  ImMemoryStore,
   ImMessageRow,
   ImMessageStatus,
   ImPersonAddressRow,
@@ -61,8 +62,12 @@ export type {
   ImPersonStore,
   ImStore,
 } from './store.ts'
+export { ImBindings } from './bindings.ts'
+export type { ImBindPollResult, ImBindingsOptions } from './bindings.ts'
+export { ImRemoteService } from './remote.ts'
 
 /** DSH credential-backed account removal. */
+/** 基于 DSH 凭据的账号删除。 */
 class DshCredentialStore implements ImCredentialStore {
   /**
    * @param ctx - context carrying `credentials`.
@@ -105,87 +110,6 @@ async function seedPeople(people: ImPeople, storage: ImStorage, logger: ImLogger
   }
 }
 
-/** Plugin name. */
-export const name = 'im'
-/**
- * Host services the core needs. `agentDefaultModel` and `workspaceRegistry`
- * back the session gateway's create/resume paths — missing either used to
- * throw (or silently fall back to cwd) inside ensureSession, killing every
- * inbound message with three instant retries (live defect, 2026-10-27).
- * 核心依赖的宿主服务。`agentDefaultModel` 与 `workspaceRegistry` 支撑会话网关的
- * 创建/恢复路径——缺了任何一个，ensureSession 内部就会抛错（或静默退回 cwd），
- * 每条入站消息三次立死（真机缺陷，2026-10-27）。
- */
-export const inject = ['storageDomain', 'credentials', 'agents', 'agentDefaultModel', 'workspaceRegistry'] as const
-/** Services this plugin provides. */
-export const provide = [ImToken, ImRouterToken, ImPeopleToken] as const
-
-/**
- * Build the registry and the router it feeds, then publish the router.
- *
- * The registry starts delivering as soon as a provider registers, so messages
- * that arrive before the router exists are buffered and replayed in order
- * instead of being dropped silently.
- * 构建注册表与它供养的 router，然后发布 router。
- *
- * registry 在 provider 注册后即刻投递消息，router 就绪前到达的消息先缓冲，router 建好后
- * 按序回放，而不是被静默丢弃。
- *
- * @param ctx - host context.
- * @param options - router construction options without the registry.
- */
-function wireRouter(ctx: Context, options: Omit<ImRouterOptions, 'registry'>): void {
-  let router: ImRouter | undefined
-  const early: Array<{ providerId: string; message: ImMessage }> = []
-  const registry = new ImRegistry(ctx, (providerId, message) => {
-    const live = router
-    if (live === undefined) {
-      early.push({ providerId, message })
-      return
-    }
-    void live.handle(providerId, message)
-  }, provider => {
-    // Provider 就绪即对账：崩溃或清理失手窗口留下的同主死账号行，以服务器的活名单为裁决自愈。
-    // Reconcile the moment a provider is ready: same-owner rows left by a crash
-    // or a missed cleanup heal against the server's own live-account list.
-    void reconcileProviderAccounts({ store: options.store, logger: options.logger }, provider.id, provider.service)
-      .catch((error: unknown) => options.logger.warn(
-        `[im:bindings] account reconciliation failed: ${errorMessage(error)}`,
-      ))
-  })
-  router = new ImRouter({ ...options, registry })
-  const liveRouter = router
-  for (const { providerId, message } of early.splice(0)) void liveRouter.handle(providerId, message)
-  ctx.effect(() => ctx.provide(ImRouterToken, liveRouter), 'im:router')
-  // Registered last so it runs first on unload: drop the remembered bind
-  // attempts before the router service itself leaves the context.
-  // 最后注册、卸载时最先执行：在 router 服务离开 context 之前丢弃已记住的 bind 尝试。
-  ctx.effect(() => () => liveRouter.dispose(), 'im:bindings')
-}
-/** Plugin configuration. */
-export interface Config {
-  /** Auto-create a Session for an inbound conversation without an active binding. */
-  autoCreateSession: boolean
-  /** Maximum wait for one Session turn to finish. */
-  replyTimeoutMs: number
-  /**
-   * Automatic stranger-intake question. `enabled: false` is the total switch:
-   * no question is sent and no intake row is written.
-   * 自动陌生人询问。`enabled: false` 是总开关：一条都不发，也不写 intake 记录。
-   */
-  strangerIntake: ImStrangerIntakeConfig
-}
-/** Configuration schema. */
-export const Config: z<Config> = z.object({
-  autoCreateSession: z.boolean().default(false),
-  replyTimeoutMs: z.number().default(120_000),
-  strangerIntake: z.object({
-    enabled: z.boolean().default(STRANGER_INTAKE_DEFAULTS.enabled),
-    replyWindowMs: z.number().min(1).default(STRANGER_INTAKE_DEFAULTS.replyWindowMs),
-    maxAsksPerHour: z.number().min(1).default(STRANGER_INTAKE_DEFAULTS.maxAsksPerHour),
-    minAskIntervalMs: z.number().min(0).default(STRANGER_INTAKE_DEFAULTS.minAskIntervalMs),
-  }),
-})
 /**
  * Open the durable IM domain and register its disposer.
  * 打开持久化 IM 域并注册其释放器。
@@ -224,64 +148,199 @@ async function buildPeople(ctx: Context, storage: ImStorage, logger: ImLogger): 
 }
 
 /**
- * Recover in-flight queue rows left by a crash back to the queued state.
- * 把崩溃遗留的在途队列行恢复回排队状态。
+ * Build the registry: providers it will receive emit `im/message-observed`,
+ * and a provider joining triggers the account reconciliation self-heal.
+ * 构建注册表：后续注册的 provider 发出 `im/message-observed`；provider 加入的瞬间触发
+ * 账号对账自愈。
  */
-async function recoverQueue(ctx: Context, storage: ImStorage): Promise<void> {
-  // 重启恢复：消费中的行回到排队（至少一次契约），消息绝不因崩溃而消失。
-  // Restart recovery: consuming rows return to queued (the at-least-once
-  // contract); a crash never makes a message vanish.
-  const queue = new ImMessageQueue({ store: storage })
-  const recovered = await queue.recoverStuck()
-  if (recovered > 0) {
-    ctx.logger.warn(`im: ${recovered} in-flight message(s) returned to the queue after the restart`)
-  }
-}
-
-/**
- * Wire the session gateway and the queue-fed router, with disposers in
- * unload order.
- * 接线会话网关与队列供养的 router，并按卸载顺序注册释放器。
- */
-function wireRuntime(ctx: Context, storage: ImStorage, logger: ImLogger, config: Config, people: ImPeople): void {
-  const gateway = new DshSessionGateway(ctx, config.replyTimeoutMs)
-  ctx.effect(() => () => gateway.dispose(), 'im:gateway')
-  wireRouter(ctx, {
-    store: storage,
-    gateway,
-    credentials: new DshCredentialStore(ctx),
-    people,
-    logger,
-    // 一个微信号 = 一只活 bot：新授权确认时把同 owner 死账号的行整体迁移过来。
-    // One WeChat, one live bot: a fresh confirmation migrates the owner's dead
-    // accounts' rows onto the new account before it is persisted.
-    retireOwnerAccounts: (providerId, account) =>
-      retireAccounts({ store: storage, logger }, providerId, account).then(() => undefined),
-    config: {
-      strangerIntake: config.strangerIntake,
-    },
+function buildRegistry(ctx: Context, storage: ImStorage, logger: ImLogger): ImRegistry {
+  const registry = new ImRegistry(ctx, provider => {
+    // Provider 就绪即对账：崩溃或清理失手窗口留下的同主死账号行，以服务器的活名单为裁决自愈。
+    // Reconcile the moment a provider is ready: same-owner rows left by a crash
+    // or a missed cleanup heal against the server's own live-account list.
+    void reconcileProviderAccounts({ store: storage, logger }, provider.id, provider.service)
+      .catch((error: unknown) => logger.warn(
+        `[im:bindings] account reconciliation failed: ${errorMessage(error)}`,
+      ))
   })
+  ctx.effect(() => ctx.provide(ImToken, registry), 'im:registry')
+  return registry
 }
 
+/** Plugin name. */
+/** 插件名。 */
+export const name = 'im'
+
 /**
- * Apply the IM core plugin.
+ * Host services the core needs: durable storage and credentials. Session
+ * provisioning belongs to the turn domain — the core injects no agent-facing
+ * services.
+ * 核心依赖的宿主服务：持久化存储与凭据。会话筹备属于回合域——核心不注入任何面向 agent 的
+ * 服务。
+ */
+export const inject = ['storageDomain', 'credentials'] as const
+/** Services this plugin provides. */
+/** 本插件提供的服务。 */
+export const provide = [
+  ImToken, ImPeopleToken, ImParticipantsToken, ImMemoryToken, ImBindingsToken, ImDirectoryToken,
+  ImIntakeToken,
+] as const
+
+/** Plugin configuration. */
+/** 插件配置。 */
+export interface Config {
+  /** Display name of the owner human in prompts and rosters. */
+  /** prompt 与名册中所有者人类的展示名。 */
+  ownerName: string
+  /**
+   * The preset-backed agents of this workspace. Each entry is one agent
+   * participant (`agent:<presetId>`); the preset carries persona, model, and
+   * engine.
+   * 本工作区的 preset 智能体。每条是一个智能体参与者（`agent:<presetId>`）；preset 承载
+   * 人格、模型与引擎。
+   */
+  roster: ImRosterEntry[]
+  /**
+   * Automatic stranger-intake question. `enabled: false` is the total switch:
+   * no question is sent and no intake row is written.
+   * 自动陌生人询问。`enabled: false` 是总开关：一条都不发，也不写 intake 记录。
+   */
+  strangerIntake: ImStrangerIntakeConfig
+}
+/** Configuration schema. */
+/** 配置 schema。 */
+export const Config: z<Config> = z.object({
+  ownerName: z.string().default('Owner'),
+  roster: z.array(z.object({
+    presetId: z.string().min(1),
+    name: z.string().min(1).required(false),
+  })).default([]),
+  strangerIntake: z.object({
+    enabled: z.boolean().default(STRANGER_INTAKE_DEFAULTS.enabled),
+    replyWindowMs: z.number().min(1).default(STRANGER_INTAKE_DEFAULTS.replyWindowMs),
+    maxAsksPerHour: z.number().min(1).default(STRANGER_INTAKE_DEFAULTS.maxAsksPerHour),
+    minAskIntervalMs: z.number().min(0).default(STRANGER_INTAKE_DEFAULTS.minAskIntervalMs),
+  }),
+})
+
+/**
+ * Apply the IM core plugin: storage, people, roster, memory, registry,
+ * bindings, intake, and the web remote.
+ * 应用 IM 核心插件：存储、人员、名册、记忆、注册表、绑定、采集与 Web 远端。
+ *
  * @param ctx - host context.
  * @param config - validated plugin configuration.
  */
 export const apply = async (ctx: Context, config: Config): Promise<void> => {
   const storage = await openStorage(ctx)
   const logger = buildLogger(ctx)
+  ctx.effect(() => ctx.provide(ImLoggerToken, logger), 'im:logger')
+  ctx.effect(() => ctx.provide(ImCredentialToken, new DshCredentialStore(ctx)), 'im:credentials')
+
   const people = await buildPeople(ctx, storage, logger)
+  ctx.effect(
+    () => ctx.provide(ImParticipantsToken, new ImParticipants({
+      roster: config.roster,
+      ownerName: config.ownerName,
+      people,
+    })),
+    'im:participants',
+  )
+  ctx.effect(() => ctx.provide(ImMemoryToken, new ImMemory({ store: storage })), 'im:memory')
+
+  const registry = buildRegistry(ctx, storage, logger)
+  const bindings = buildBindings(ctx, storage, logger, registry, people)
+  buildIntake(ctx, config, logger, people, bindings, registry)
   ctx.logger.info(
     `im: stranger intake is ${config.strangerIntake.enabled ? 'enabled' : 'disabled'}`
     + ` (ask: ${STRANGER_INTAKE_ASK})`,
   )
-  await recoverQueue(ctx, storage)
-  wireRuntime(ctx, storage, logger, config, people)
-  // Web 面板的后端：`im` 远端命名空间（QR data URL、目录/绑定/采集的读写面）。
-  // router 由注入解析，挂载顺序无关。
+  // Web 面板的后端：`im` 远端命名空间（QR data URL、账号/目录/采集的读写面）。
   // The web panel's backend: the `im` remote namespace (QR data URLs plus the
-  // read/write faces for catalog, bindings, and intake). The router resolves
-  // by injection, so mount order is irrelevant.
-  ctx.plugin(ImGatewayService)
+  // read/write faces for accounts, directory, and intake).
+  ctx.plugin(ImRemoteService)
+}
+
+/**
+ * Wire the account-authorization service and its disposers.
+ * 接线账号授权服务及其释放器。
+ */
+function buildBindings(
+  ctx: Context,
+  storage: ImStorage,
+  logger: ImLogger,
+  registry: ImRegistry,
+  people: ImPeople,
+): ImBindings {
+  const bindings = new ImBindings({
+    store: storage,
+    registry,
+    logger,
+    // 一个微信号 = 一只活 bot：新授权确认时把同 owner 死账号的行整体迁移过来。
+    // One WeChat, one live bot: a fresh confirmation migrates the owner's dead
+    // accounts' rows onto the new account before it is persisted.
+    retireOwnerAccounts: (providerId, account) =>
+      retireAccounts({ store: storage, logger }, providerId, account).then(() => undefined),
+  })
+  ctx.effect(() => ctx.provide(ImBindingsToken, bindings), 'im:bindings')
+  ctx.effect(() => ctx.provide(ImDirectoryToken, new ImDirectory({ bindings, people })), 'im:directory')
+  // Registered last so it runs first on unload: drop the remembered bind
+  // attempts before the registry service itself leaves the context.
+  // 最后注册、卸载时最先执行：在 registry 服务离开 context 之前丢弃已记住的 bind 尝试。
+  ctx.effect(() => () => bindings.dispose(), 'im:bindings-dispose')
+  return bindings
+}
+
+/**
+ * Wire stranger intake over the registry's own send path, and consume the
+ * observed-message event.
+ * 在注册表自己的发送路径上接线陌生人采集，并消费观察消息事件。
+ */
+function buildIntake(
+  ctx: Context,
+  config: Config,
+  logger: ImLogger,
+  people: ImPeople,
+  bindings: ImBindings,
+  registry: ImRegistry,
+): ImStrangerIntake {
+  // 陌生人采集直接消费观察事件：提问是确定性动作，不是回合。
+  // Stranger intake consumes observations directly: the question is a
+  // deterministic act, not a turn.
+  const intake = new ImStrangerIntake({
+    people,
+    logger,
+    config: config.strangerIntake,
+    send: async request => sendThroughRegistry(registry, bindings, request),
+  })
+  ctx.effect(() => ctx.provide(ImIntakeToken, intake), 'im:intake')
+  ctx.effect(
+    () => ctx.on('im/message-observed', async ({ providerId, message }) => {
+      // Directory bookkeeping (including the cloud push) must never drop a
+      // message: a storage failure is reported, then intake proceeds.
+      // 目录记账（含云端上报）绝不能丢消息：存储失败只记日志，采集继续。
+      const person = await registry.observeInbound(providerId, message)
+      await intake.handle(providerId, message, person)
+    }),
+    'im:intake-observe',
+  )
+  return intake
+}
+
+/** Send one intake question through the account's own provider path. */
+/** 经账号自身的 provider 路径发送一条采集询问。 */
+async function sendThroughRegistry(
+  registry: ImRegistry,
+  bindings: ImBindings,
+  request: { accountId: string; conversationId: string; text: string },
+): Promise<import('./contract-bind.ts').ImSendResult> {
+  const account = bindings.account(request.accountId)
+  if (account === undefined) {
+    throw new Error(`unknown account: ${request.accountId}`)
+  }
+  const provider = registry.get(account.provider)
+  return provider.service.send({
+    target: { accountId: request.accountId, conversationId: request.conversationId },
+    content: { type: 'text', text: request.text },
+  })
 }

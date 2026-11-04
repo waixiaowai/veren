@@ -11,8 +11,8 @@
  */
 
 import type {
-  ImAccountRow, ImConversationRow, ImConversationSessionRow, ImMessageRow, ImPersonAddressRow,
-  ImPersonIntakeRow, ImPersonRow,
+  ImAccountRow, ImConversationRow, ImConversationSessionRow, ImMemoryRow, ImMessageRow,
+  ImPersonAddressRow, ImPersonIntakeRow, ImPersonRow,
 } from './store-rows.ts'
 
 // ---- unchanged export surface (rows/keys live in store-rows.ts, the domain in
@@ -31,6 +31,7 @@ export type {
   ImConversationRow,
   ImConversationSessionRow,
   ImIntakeStatus,
+  ImMemoryRow,
   ImMessageRow,
   ImMessageStatus,
   ImPersonAddressRow,
@@ -38,6 +39,18 @@ export type {
   ImPersonRow,
 } from './store-rows.ts'
 export { ImStorage } from './store-storage.ts'
+
+/**
+ * Storage seam for the agent memory table, kept separate from
+ * {@link ImCoreStore} so tests can implement only what they exercise.
+ * 智能体记忆表的存储接缝。与 {@link ImCoreStore} 分开，测试只需实现自己用到的部分。
+ */
+export interface ImMemoryStore {
+  getMemory(id: string): ImMemoryRow | undefined
+  memories(): ImMemoryRow[]
+  putMemory(row: ImMemoryRow): Promise<void>
+  deleteMemory(id: string): Promise<void>
+}
 
 /**
  * Storage seam for the people directory. Kept separate from

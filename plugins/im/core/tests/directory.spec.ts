@@ -2,8 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { ImRegistry } from '../src/contract.ts'
 import type { ImDirectoryRemote, ImDirectorySnapshot, ImDirectoryUpsert, ImFeatures, ImMessage } from '../src/contract.ts'
-import { ImRouter } from '../src/router.ts'
-import type { ImSessionGateway } from '../src/runtime-seams.ts'
 import { ImPeople } from '../src/people.ts'
 import { MemoryStore } from './memory-store.ts'
 
@@ -16,30 +14,6 @@ class FakeDirectory implements ImDirectoryRemote {
   }
   async pull(): Promise<ImDirectorySnapshot> {
     return this.snapshot
-  }
-}
-
-/** 最小网关：ask 即回答。 */
-class EchoGateway implements ImSessionGateway {
-  async ensureSession(): Promise<{ sessionId: string; created: boolean }> {
-    return { sessionId: 'session-x', created: true }
-  }
-  async ask(): Promise<string | undefined> {
-    return '回'
-  }
-  dispose(): void {}
-}
-
-let clock = 5_000
-function message(text: string): ImMessage {
-  clock += 1
-  return {
-    id: `m${clock}`,
-    accountId: 'acc',
-    conversationId: 'p2p:u1@im.wechat',
-    sender: { id: 'u1@im.wechat' },
-    sentAt: clock,
-    content: { type: 'text', text },
   }
 }
 
@@ -58,22 +32,25 @@ function snapshotOf(displayName: string): ImDirectorySnapshot {
   }
 }
 
-function build(snapshot: ImDirectorySnapshot): { router: ImRouter; people: ImPeople; directory: FakeDirectory; detach: () => void } {
+function build(snapshot: ImDirectorySnapshot): {
+  observe: (inbound: ImMessage) => Promise<void>
+  people: ImPeople
+  directory: FakeDirectory
+  detach: () => void
+} {
   const store = new MemoryStore()
   const people = new ImPeople({ store, logger: silent })
   const directory = new FakeDirectory(snapshot)
-  const registry = new ImRegistry(new Context(), () => {}, undefined, people)
+  const registry = new ImRegistry(new Context(), undefined, people)
   const detach = registry.attachDirectory(directory, { provider: 'fake', accountId: 'acc' })
   registry.register({ id: 'fake', displayName: 'Fake', features: FEATURES, service: {
     async start() {}, async stop() {}, async accounts() { return [] }, listen: () => () => {},
     async bind() { throw new Error('no bind') }, async send() { return { id: 's1', sentAt: 1 } },
   } })
-  const router = new ImRouter({
-    store, registry, gateway: new EchoGateway(),
-    credentials: { async remove() {} },
-    people, logger: silent, config: {},
-  })
-  return { router, people, directory, detach }
+  const observe = async (inbound: ImMessage): Promise<void> => {
+    await registry.observeInbound('fake', inbound)
+  }
+  return { observe, people, directory, detach }
 }
 
 const FEATURES: ImFeatures = {
@@ -82,8 +59,21 @@ const FEATURES: ImFeatures = {
   limits: {},
 }
 
-/** 静默 logger（与 router.spec 同款）。 */
+/** 静默 logger。 */
 const silent = { info: () => {}, warn: () => {}, error: () => {} } as never
+
+let clock = 5_000
+function message(text: string): ImMessage {
+  clock += 1
+  return {
+    id: `m${clock}`,
+    accountId: 'acc',
+    conversationId: 'p2p:u1@im.wechat',
+    sender: { id: 'u1@im.wechat' },
+    sentAt: clock,
+    content: { type: 'text', text },
+  }
+}
 
 describe('cloud directory seam', () => {
   it('attaching adopts the pulled snapshot into the local cache', async () => {
@@ -96,18 +86,18 @@ describe('cloud directory seam', () => {
   })
 
   it('observing a sender pushes the identity upstream', async () => {
-    const { router, directory } = build(snapshotOf('杨明明'))
-    await router.handle('fake', message('你好'))
+    const { observe, directory } = build(snapshotOf('杨明明'))
+    await observe(message('你好'))
     expect(directory.upserts.length).toBe(1)
     expect(directory.upserts[0]?.provider).toBe('fake')
     expect(directory.upserts[0]?.externalId).toBe('u1@im.wechat')
   })
 
   it('detaching clears the remote so later observes stay local', async () => {
-    const { router, directory, detach } = build(snapshotOf('杨明明'))
+    const { observe, directory, detach } = build(snapshotOf('杨明明'))
     await vi.waitFor(() => expect(directory.upserts.length).toBe(0))
     detach()
-    await router.handle('fake', message('第二条'))
+    await observe(message('第二条'))
     expect(directory.upserts.length).toBe(0)
   })
 })

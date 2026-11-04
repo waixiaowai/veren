@@ -48,8 +48,29 @@ export type {
 export { ImError } from './contract-errors.ts'
 export type { ImErrorCode } from './contract-errors.ts'
 export type {
-  ImMessageHandler,
   ImProvider,
   ImService,
 } from './contract-service.ts'
 export { ImRegistry, ImToken, imCredentialKey } from './contract-registry.ts'
+export type { ImMessageObserved } from './events.ts'
+export {
+  channelRoomId, parseChannelRoomId,
+} from './channel-room.ts'
+export type { ImChannelRoomCoordinates } from './channel-room.ts'
+export {
+  DEFAULT_AGENT_PARTICIPANT_ID, ImParticipants, ImParticipantsToken, OWNER_PARTICIPANT_ID,
+  agentParticipantId, humanParticipantId,
+} from './participants.ts'
+export type { ImRosterEntry, ImParticipantView, ParticipantKind } from './participants.ts'
+export { DEFAULT_RECALL_LIMIT, ImMemory, ImMemoryToken } from './memory.ts'
+export type { ImRecallQuery, ImRememberInput } from './memory.ts'
+export { unbindAccount } from './accounts.ts'
+export { contentToPrompt, degradeContent } from './outbound.ts'
+export type { ImUnbindAccountResult, UnbindAccountDeps } from './accounts.ts'
+export { ImDirectory, ImDirectoryToken } from './directory.ts'
+export type { ImPersonSaveInput } from './directory.ts'
+export { ImBindingsToken } from './bindings.ts'
+export type { ImBindPollResult } from './bindings.ts'
+export { ImIntakeToken } from './intake.ts'
+export { ImCredentialToken, ImLoggerToken } from './runtime-seams.ts'
+export type { ImCredentialStore, ImLogger } from './runtime-seams.ts'

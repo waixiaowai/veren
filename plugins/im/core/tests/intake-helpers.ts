@@ -1,9 +1,10 @@
 /**
  * Shared fixtures for the stranger-intake specs: a recording fake provider
- * service, a deterministic clock, and a fully wired router with intake on.
+ * service, a deterministic clock, and the same observe-then-intake handle the
+ * plugin's own listener builds.
  *
- * 陌生人采集测试的共享夹具：记录型假 provider 服务、确定性时钟，以及一只开启采集、
- * 接线完整的 router。
+ * 陌生人采集测试的共享夹具：记录型假 provider 服务、确定性时钟，以及与插件自身监听一致的
+ * 「观察后采集」处理把手。
  *
  * @module tests/intake-helpers
  */
@@ -21,11 +22,8 @@ import type {
 } from '../src/contract.ts'
 import { ImError, ImRegistry } from '../src/contract.ts'
 import { ImPeople } from '../src/people.ts'
-import { ImRouter } from '../src/router.ts'
-import type { ImStrangerIntakeConfig } from '../src/intake.ts'
-import { Config } from '../src/index.ts'
-import type { Config as ImConfig } from '../src/index.ts'
-import type { ImCredentialStore, ImLogger, ImSessionGateway } from '../src/router.ts'
+import { ImStrangerIntake } from '../src/intake.ts'
+import type { ImLogger } from '../src/runtime-seams.ts'
 import { MemoryStore } from './memory-store.ts'
 
 export const FEATURES: ImFeatures = {
@@ -42,18 +40,23 @@ export const FEATURES: ImFeatures = {
 export const silent: ImLogger = { warn() {}, error() {} }
 
 /**
- * Parse a partial config through the real schema. The `z<Config>` call face
- * demands a fully populated Config, but every field carries a `.default`, so
- * the runtime fills missing fields — this helper only widens the spec's input
- * type so defaults can actually be tested.
- * 经真实 schema 解析部分配置。`z<Config>` 的调用面要求全量 Config，但每个字段
- * 都带 `.default`，运行时会补齐缺省——本助手只放宽测试入参的类型，让缺省值
- * 可被真实地测到。
+ * Resolve the intake section of the plugin config the way the schema's
+ * defaults would: only the intake fields matter to these specs, and the real
+ * full-Config validation lives in index's Config schema.
+ * 按缺省值的方式解析插件配置的采集段：这些测试只关心采集字段；完整的 Config 校验在
+ * index 的 Config schema 里。
  */
 export function parseConfig(
-  input: Partial<Omit<ImConfig, 'strangerIntake'>> & { strangerIntake?: Partial<ImStrangerIntakeConfig> },
-): ImConfig {
-  return Config(input as ImConfig)
+  input: { strangerIntake?: { enabled?: boolean } },
+): { strangerIntake: { enabled: boolean; replyWindowMs: number; maxAsksPerHour: number; minAskIntervalMs: number } } {
+  return {
+    strangerIntake: {
+      enabled: input.strangerIntake?.enabled ?? true,
+      replyWindowMs: 120_000,
+      maxAsksPerHour: 10,
+      minAskIntervalMs: 10_000,
+    },
+  }
 }
 
 /** One ImService that records every send instead of reaching a channel. */
@@ -76,17 +79,6 @@ export class RecordingService implements ImService {
   async send(request: ImSendRequest): Promise<ImSendResult> {
     this.sent.push(request)
     return { id: `sent-${this.sent.length}`, sentAt: now() }
-  }
-}
-
-/** A session gateway fake whose sessions never answer. */
-/** 一只会话永不回答的会话网关假实现。 */
-export class TestGateway implements ImSessionGateway {
-  async ensureSession(): Promise<{ sessionId: string; created: boolean }> {
-    return { sessionId: 'session-1', created: true }
-  }
-  async ask(): Promise<string | undefined> {
-    return undefined
   }
 }
 
@@ -116,8 +108,12 @@ export function message(id: string, externalId: string, text: string): ImMessage
   }
 }
 
-/** Wire a registry + people + router over a memory store with the given intake config. */
-/** 在内存存储上按给定采集配置接线 registry + people + router。 */
+/**
+ * Wire a registry + people + intake over a memory store with the given intake
+ * config, and return the same inbound handle the plugin's own listener builds.
+ * 在内存存储上按给定采集配置接线 registry + people + intake，返回与插件自身监听一致的
+ * 入站处理把手。
+ */
 export function setup(options: {
   enabled?: boolean
   replyWindowMs?: number
@@ -128,31 +124,31 @@ export function setup(options: {
   const ctx = new Context()
   const store = new MemoryStore()
   const service = new RecordingService()
-  const registry = new ImRegistry(ctx, () => {})
-  registry.register({ id: 'fake', displayName: 'Fake', features: FEATURES, service })
   let counter = 0
   const newId = (prefix: string): string => `${prefix}-${++counter}`
   const people = new ImPeople({ store, logger: silent, now, newId })
-  const credentials: ImCredentialStore = { async remove() {} }
-  const router = new ImRouter({
-    store,
-    registry,
-    gateway: new TestGateway(),
-    credentials,
+  const registry = new ImRegistry(ctx, undefined, people)
+  registry.register({ id: 'fake', displayName: 'Fake', features: FEATURES, service })
+  const intake = new ImStrangerIntake({
     people,
     logger: silent,
     config: {
-      strangerIntake: {
-        enabled: options.enabled ?? true,
-        replyWindowMs: options.replyWindowMs ?? 120_000,
-        maxAsksPerHour: options.maxAsksPerHour ?? 10,
-        minAskIntervalMs: options.minAskIntervalMs ?? 0,
-      },
+      enabled: options.enabled ?? true,
+      replyWindowMs: options.replyWindowMs ?? 120_000,
+      maxAsksPerHour: options.maxAsksPerHour ?? 10,
+      minAskIntervalMs: options.minAskIntervalMs ?? 0,
     },
     now,
-    newId,
+    send: async request => service.send({
+      target: { accountId: request.accountId, conversationId: request.conversationId },
+      content: { type: 'text', text: request.text },
+    }),
   })
-  return { store, service, people, router }
+  const handle = async (providerId: string, inbound: ImMessage): Promise<void> => {
+    const person = await registry.observeInbound(providerId, inbound)
+    await intake.handle(providerId, inbound, person)
+  }
+  return { store, service, people, intake, registry, handle }
 }
 
 /** Seed the one account every fixture routes through. */

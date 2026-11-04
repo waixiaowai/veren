@@ -17,12 +17,12 @@
  * @module @veren/im-tool/report-tool
  */
 
-import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool, type InferArgs, type ParameterSchemaSpec } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { ImError } from '@veren/im'
-import type { ImPersonContact, ImPersonView, ImRouter } from '@veren/im'
+import type { ImPersonContact, ImPersonView } from '@veren/im'
+import type { ImDirectory, ImStrangerIntake } from '@veren/im'
 import { contactsOf } from './people-tools.ts'
 import { ok, requireString, run } from './values.ts'
 
@@ -152,14 +152,21 @@ function intakeDetailOf(report: { name?: string; contacts: ImPersonContact[] }):
 
 /** Close the open intake question as declined; nothing is recorded. */
 /** 把未决的采集问题按「拒绝回答」收尾；不记录任何内容。 */
-async function declinedResult(router: ImRouter, person: { id: string }): Promise<JsonValue> {
-  const settled = await router.settleIntake(person.id, 'declined')
+async function declinedResult(intake: ImStrangerIntake, person: { id: string }): Promise<JsonValue> {
+  const settled = await intake.settleByModel(person.id, 'declined')
   return ok({ recorded: false, declined: true, settled, personId: person.id })
+}
+
+/** The collaborators the report tool needs. */
+/** 自述工具需要的协作者。 */
+export interface ReportDeps {
+  readonly directory: ImDirectory
+  readonly intake: ImStrangerIntake
 }
 
 /** Guard the reported fields, record the claim, then settle the intake. */
 /** 护栏过滤上报字段，记录自述，然后收尾采集。 */
-async function recordedResult(router: ImRouter, person: ImPersonView, args: ReportArgs): Promise<JsonValue> {
+async function recordedResult(deps: ReportDeps, person: ImPersonView, args: ReportArgs): Promise<JsonValue> {
   const report = guardedReport(args)
   if (report.name === undefined && report.contacts.length === 0) {
     return ok({
@@ -170,14 +177,14 @@ async function recordedResult(router: ImRouter, person: ImPersonView, args: Repo
     })
   }
   const provenance = provenanceOf(person, args)
-  const updated = await router.reportPersonClaim(person.id, {
+  const updated = await deps.directory.reportClaim(person.id, {
     ...(report.name === undefined ? {} : { name: report.name }),
     ...(report.contacts.length === 0 ? {} : { contacts: report.contacts }),
     accountId: provenance.accountId,
     conversationId: provenance.conversationId,
     messageId: 'im_person_report',
   })
-  const settled = await router.settleIntake(person.id, 'answered', intakeDetailOf(report))
+  const settled = await deps.intake.settleByModel(person.id, 'answered', intakeDetailOf(report))
   return ok({
     recorded: true,
     settled,
@@ -189,47 +196,35 @@ async function recordedResult(router: ImRouter, person: ImPersonView, args: Repo
 
 /** The `im_person_report` execution: declined closes the question; otherwise record. */
 /** `im_person_report` 执行：拒绝则收尾问题，否则记录自述。 */
-function personReportExecute(router: ImRouter): (args: ReportArgs) => Promise<JsonValue> {
+function personReportExecute(deps: ReportDeps): (args: ReportArgs) => Promise<JsonValue> {
   return async args => run(async () => {
-    const person = personOf(router, args)
-    if (args.refused === true) return declinedResult(router, person)
-    return recordedResult(router, person, args)
+    const person = personOf(deps.directory, args)
+    if (args.refused === true) return declinedResult(deps.intake, person)
+    return recordedResult(deps, person, args)
   })
-}
-
-/**
- * Register the report tool in the mounting scope.
- * @param ctx - Context owning the `tools` registry.
- * @param router - the active-binding router, which owns the directory and intake.
- */
-export function registerReportTool(ctx: Context, router: ImRouter): void {
-  ctx.effect(() => {
-    const dispose = ctx.tools.register(defineReportTool(router))
-    return () => { dispose() }
-  }, 'im:report-tool()')
 }
 
 /** Build the `im_person_report` tool definition. */
 /** 构造 `im_person_report` 工具定义。 */
-function defineReportTool(router: ImRouter) {
+export function imPersonReportTool(deps: ReportDeps) {
   return defineTool({
     name: 'im_person_report',
     description: REPORT_DESCRIPTION,
     parameters: REPORT_PARAMETERS,
     output: OUTPUT,
-    execute: personReportExecute(router),
+    execute: personReportExecute(deps),
   })
 }
 
 /** Resolve the target person by id or by conversation address. */
 /** 按 id 或按会话地址解析目标人员。 */
-function personOf(router: ImRouter, args: {
+function personOf(directory: ImDirectory, args: {
   personId?: string
   accountId?: string
   conversationId?: string
 }): ImPersonView {
   if (args.personId !== undefined) {
-    const person = router.personById(requireString(args.personId, 'personId'))
+    const person = directory.personById(requireString(args.personId, 'personId'))
     if (person === undefined) throw new ImError('IM_NOT_FOUND', `unknown person: ${args.personId}`)
     return person
   }
@@ -238,7 +233,7 @@ function personOf(router: ImRouter, args: {
   if (!hasAccount || !hasConversation) {
     throw new ImError('IM_INVALID_REQUEST', 'personId or accountId + conversationId is required')
   }
-  const person = router.personAt(
+  const person = directory.personAt(
     requireString(args.accountId, 'accountId'),
     requireString(args.conversationId, 'conversationId'),
   )

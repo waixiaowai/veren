@@ -1,27 +1,37 @@
 /**
- * The session-side tools: `im_unbind` (accounts only) and `im_list`.
+ * The account-removal tool: `im_unbind`.
  *
- * Conversation bindings are gone (2.1.8): sessions are private to the queue
- * consumer, so there is nothing for the model to link or reconfigure. What
- * remains is account removal and the read-only listing.
+ * The queue-era `im_list` is gone: `im_rooms` and `im_people` cover its read
+ * faces against the conversation domain and the directory.
  *
- * 会话侧工具：`im_unbind`（仅账号）与 `im_list`。
+ * 账号移除工具：`im_unbind`。
  *
- * 会话绑定已删除（2.1.8）：会话对队列消费者私有，模型没有可 link 或可改配置的对象。
- * 留下的是账号移除与只读列表。
+ * 队列时代的 `im_list` 已删除：它的读取面由 `im_rooms` 与 `im_people` 分别对会话域与目录
+ * 覆盖。
  *
  * @module @veren/im-tool/session-tools
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ImRouter } from '@veren/im'
+import { ImBindings, ImPeople, ImRegistry, unbindAccount } from '@veren/im'
+import type { ImCredentialStore, ImLogger } from '@veren/im'
 import { OUTPUT, ok, requireString, run } from './values.ts'
+
+/** The collaborators account removal needs (all core services). */
+/** 账号删除需要的协作者（全是核心服务）。 */
+export interface UnbindDeps {
+  readonly bindings: ImBindings
+  readonly registry: ImRegistry
+  readonly credentials: ImCredentialStore
+  readonly people: ImPeople
+  readonly logger: ImLogger
+}
 
 /**
  * Build the `im_unbind` tool: remove one account entirely.
- * @param router - the IM router.
+ * @param deps - the collaborators unbindAccount needs.
  */
-export function imUnbindTool(router: ImRouter) {
+export function imUnbindTool(deps: UnbindDeps) {
   return defineTool({
     name: 'im_unbind',
     description: 'Remove an IM account entirely: its runtime stops, its credential and rows are deleted. '
@@ -33,36 +43,7 @@ export function imUnbindTool(router: ImRouter) {
     async execute(args) {
       return run(async () => {
         const accountId = requireString(args.accountId, 'accountId')
-        return ok({ unbound: 'account', accountId, ...await router.unbindAccount(accountId) })
-      })
-    },
-  })
-}
-
-/**
- * Build the `im_list` tool: read accounts or per-conversation queue state.
- * @param router - the IM router.
- */
-export function imListTool(router: ImRouter) {
-  return defineTool({
-    name: 'im_list',
-    description: 'List IM accounts or the per-conversation message-queue state without changing '
-      + 'anything. Omit type to return both.',
-    parameters: {
-      type: {
-        type: 'string',
-        enum: ['accounts', 'conversations'],
-        description: 'Optional subset to list.',
-      },
-    },
-    output: OUTPUT,
-    async execute(args) {
-      return run(async () => {
-        const listed = await router.list(args.type)
-        return ok({
-          ...(listed.accounts === undefined ? {} : { accounts: listed.accounts }),
-          ...(listed.conversations === undefined ? {} : { conversations: listed.conversations }),
-        })
+        return ok({ unbound: 'account', accountId, ...await unbindAccount(deps, accountId) })
       })
     },
   })

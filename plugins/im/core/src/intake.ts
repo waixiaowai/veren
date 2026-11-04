@@ -24,6 +24,7 @@
  * @module @veren/im/intake
  */
 
+import { defineToken } from '@veren/core'
 import { errorMessage } from './runtime-seams.ts'
 import type { ImLogger } from './runtime-seams.ts'
 import type { ImMessage, ImSendResult } from './contract.ts'
@@ -45,6 +46,17 @@ export type {
   ImStrangerIntakeConfig,
   ImStrangerIntakeOptions,
 } from './intake-types.ts'
+
+/** The stranger-intake service token. */
+/** 陌生人采集服务的令牌。 */
+export const ImIntakeToken = defineToken<ImStrangerIntake>('imIntake')
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Stranger intake provided by @veren/im. */
+    /** 由 @veren/im 提供的陌生人采集服务。 */
+    imIntake: ImStrangerIntake
+  }
+}
 
 const RECENT_LIMIT = 100
 

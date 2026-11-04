@@ -173,7 +173,7 @@ export function createImSource(api: ImRemoteApi): {
 } {
   const state: ImSourceState = {
     snapshot: {
-      catalog: { accounts: [], conversations: [], people: [], intake: emptyIntake() },
+      catalog: { accounts: [], people: [], intake: emptyIntake() },
       status: 'loading', settled: false, error: '', bind: undefined,
     },
     epoch: 0,

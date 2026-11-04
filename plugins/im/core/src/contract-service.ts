@@ -1,10 +1,8 @@
 /**
  * The provider behavior contract: the six operations every channel implements,
- * the registration descriptor that pairs them with identity and capabilities,
- * and the handler type the registry feeds inbound messages through.
+ * and the registration descriptor that pairs them with identity and capabilities.
  *
- * provider 行为契约：每个渠道都要实现的六个操作，把它们与身份、能力配对的注册描述符，
- * 以及 registry 投递入站消息所经过的回调类型。
+ * provider 行为契约：每个渠道都要实现的六个操作，以及把它们与身份、能力配对的注册描述符。
  *
  * @module @veren/im/contract-service
  */
@@ -48,7 +46,3 @@ export interface ImProvider {
   features: ImFeatures
   service: ImService
 }
-
-/** Callback the registry uses to hand an inbound message to the router. */
-/** registry 把入站消息交给路由所用的回调。 */
-export type ImMessageHandler = (providerId: string, message: ImMessage) => void | Promise<void>

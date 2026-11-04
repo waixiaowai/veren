@@ -32,18 +32,11 @@ import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
  */
 import type { ImAccount, ImPersonView } from '../../../core/src/index.ts'
 import type { ImIntakeStatusView } from '../../../core/src/intake-types.ts'
+// 会话域的视图类型同样只有一份：直接引 conversation 源码的那份声明。
+// The conversation domain's view types also live in exactly one place — its source.
+import type { Message, Room, RoomMember } from '../../../conversation/src/index.ts'
 
-export type { ImAccount, ImPersonView, ImIntakeStatusView }
-
-/** One conversation's queue state as the conversations tab renders it. */
-export interface ImConversationView {
-  readonly accountId: string
-  readonly conversationId: string
-  readonly pending: number
-  readonly lastStatus?: 'queued' | 'consuming' | 'replied' | 'failed' | 'dead'
-  readonly lastReceivedAt?: number
-  readonly lastExcerpt?: string
-}
+export type { ImAccount, ImPersonView, ImIntakeStatusView, Message, Room, RoomMember }
 
 /** A Remote call result: the committed value, or the Host's structured refusal. */
 export type ImRemoteResult<Value> =
@@ -63,7 +56,6 @@ export interface BindWizardView {
 /** Everything the page renders from the Host in one read. */
 export interface ImCatalog {
   readonly accounts: readonly ImAccount[]
-  readonly conversations: readonly ImConversationView[]
   readonly people: readonly ImPersonView[]
   readonly intake: ImIntakeStatusView
 }
@@ -124,10 +116,6 @@ const INTAKE_REQUEST = z.looseObject({ limit: z.number().optional() })
 const ACCOUNT_SCHEMA = z.looseObject({
   id: z.string(), provider: z.string(), displayName: z.string(), status: z.string().optional(),
 })
-const CONVERSATION_SCHEMA = z.looseObject({
-  accountId: z.string(), conversationId: z.string(), pending: z.number(),
-  lastStatus: z.string().optional(), lastReceivedAt: z.number().optional(), lastExcerpt: z.string().optional(),
-})
 const PERSON_SCHEMA = z.looseObject({
   id: z.string(), displayName: z.string(), identityStatus: z.string().optional(),
   claimedName: z.string().optional(),
@@ -141,7 +129,6 @@ const INTAKE_SCHEMA = z.looseObject({
 })
 const CATALOG_SCHEMA = z.looseObject({
   accounts: z.array(ACCOUNT_SCHEMA),
-  conversations: z.array(CONVERSATION_SCHEMA),
   people: z.array(PERSON_SCHEMA),
   intake: INTAKE_SCHEMA,
 })
@@ -212,5 +199,95 @@ export const imRemote = createTypertRemoteInfo({
     ...method('intakeStatus', 'Read the stranger-intake switch, counts, and audit.', 'intakeStatus', [
       parameter('request', 'im:intakeStatus:request', () => INTAKE_REQUEST),
     ], () => INTAKE_RESULT),
+  } as Record<string, never>,
+}, z)
+
+// ---- `imConv` namespace: the conversation domain's web face ----
+// ---- `imConv` 命名空间：会话域的 Web 面 ----
+
+/** The rooms-plus-timeline snapshot the conversations tab renders. */
+/** 会话页渲染的房间加时间线快照。 */
+export interface RoomsSnapshot {
+  readonly rooms: readonly Room[]
+  /** The open room's id; absent until the user opens one. */
+  /** 打开中的房间 id；用户打开之前缺省。 */
+  readonly openRoomId: string | undefined
+  readonly messages: readonly Message[]
+  readonly members: readonly RoomMember[]
+  readonly status: 'loading' | 'ready' | 'error'
+  readonly error: string
+}
+
+/** The mounted `ctx.remote['imConv']` surface. */
+/** 挂载后的 `ctx.remote['imConv']` 面。 */
+export interface ImConvApi {
+  readonly rooms: () => Promise<ImRemoteResult<{ readonly rooms: readonly Room[] }>>
+  readonly roomMembers: (request: { readonly roomId: string }) => Promise<ImRemoteResult<{ readonly members: readonly RoomMember[] }>>
+  readonly messages: (request: {
+    readonly roomId: string
+    readonly sinceSequence?: number
+    readonly limit?: number
+  }) => Promise<ImRemoteResult<{ readonly messages: readonly Message[] }>>
+  readonly markRead: (request: {
+    readonly roomId: string
+    readonly participantId: string
+    readonly sequence: number
+  }) => Promise<ImRemoteResult<{ readonly cursor: { readonly lastReadSequence: number } }>>
+}
+
+const ROOMS_REQUEST = z.looseObject({})
+const ROOM_REQUEST = z.looseObject({ roomId: z.string() })
+const MESSAGES_REQUEST = z.looseObject({
+  roomId: z.string(), sinceSequence: z.number().optional(), limit: z.number().optional(),
+})
+const MARK_READ_REQUEST = z.looseObject({ roomId: z.string(), participantId: z.string(), sequence: z.number() })
+
+const ROOM_SCHEMA = z.looseObject({
+  id: z.string(), kind: z.string(), title: z.string().optional(),
+  members: z.array(z.string()), createdAt: z.number(), updatedAt: z.number(),
+})
+const MEMBER_SCHEMA = z.looseObject({
+  roomId: z.string(), participantId: z.string(), ordinal: z.number(), joinedAt: z.number(),
+})
+const MESSAGE_SCHEMA = z.looseObject({
+  id: z.string(), roomId: z.string(), authorId: z.string(), kind: z.string(),
+  body: z.string(), sequence: z.number(), clientId: z.string().optional(), createdAt: z.number(),
+})
+
+/** One direct invocation against the conversation gateway service. */
+/** 面向会话网关服务的一次直接调用。 */
+function convMethod(
+  exportName: string,
+  description: string,
+  typeSymbol: string,
+  parameters: readonly TypertRemoteParameterSpec[],
+  result: () => z.ZodType,
+): Record<string, unknown> {
+  return {
+    [`imConv/${exportName}`]: {
+      service: 'imConversationGateway',
+      description,
+      invocation: { kind: 'direct' },
+      parameters: [...parameters],
+      result: codec(`imConv:${typeSymbol}:result`, result),
+    },
+  }
+}
+
+export const convRemote = createTypertRemoteInfo({
+  package: '@veren/im-conversation',
+  methods: {
+    ...convMethod('rooms', 'Every conversation room.', 'rooms', [
+      parameter('request', 'imConv:rooms:request', () => ROOMS_REQUEST),
+    ], () => z.looseObject({ rooms: z.array(ROOM_SCHEMA) })),
+    ...convMethod('roomMembers', 'One room memberships in roster order.', 'roomMembers', [
+      parameter('request', 'imConv:roomMembers:request', () => ROOM_REQUEST),
+    ], () => z.looseObject({ members: z.array(MEMBER_SCHEMA) })),
+    ...convMethod('messages', 'One room messages after a sequence.', 'messages', [
+      parameter('request', 'imConv:messages:request', () => MESSAGES_REQUEST),
+    ], () => z.looseObject({ messages: z.array(MESSAGE_SCHEMA) })),
+    ...convMethod('markRead', 'Advance one read cursor.', 'markRead', [
+      parameter('request', 'imConv:markRead:request', () => MARK_READ_REQUEST),
+    ], () => z.looseObject({ cursor: z.looseObject({ lastReadSequence: z.number() }) })),
   } as Record<string, never>,
 }, z)

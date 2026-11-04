@@ -1,9 +1,9 @@
 {
   "name": "@veren/im-bundle",
   "displayName": "IM Bundle",
-  "version": "2.2.1",
+  "version": "3.0.0-rc.1",
   "icon": "./icon.svg",
-  "description": "Use when a DSH host needs instant-messaging capability: this configuration-only bundle mounts the provider-neutral IM core (accounts, people directory, stranger intake, active-binding routing), the model-facing im_* tools, the WeChat iLink channel, and the web panel (in-page QR bind, bindings, people, intake audit) as one installable profile layer.",
+  "description": "Use when a DSH host needs the multi-agent collaboration workspace: this configuration-only bundle mounts the whole redesigned IM family at one version — the provider-neutral core (accounts, people directory, stranger intake, participant roster, agent memory), the conversation domain (rooms, sequences, read cursors, channel ingest), the coordination domain (deterministic wake triage, freshness and verbatim gates, budgets), the turn domain (run records, per-agent preset-backed sessions, hold loops), the model-facing im_* tools and collaboration skill, the WeChat iLink channel, and the web panel — as one installable profile layer.",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -33,6 +33,9 @@
   "_comment_dependencies": "Member packages use workspace ranges; a release publishes the whole line at one version. testkit is deliberately absent: it is a vitest library, not a plugin, and must never enter the publish closure.",
   "dependencies": {
     "@veren/im": "workspace:^",
+    "@veren/im-conversation": "workspace:^",
+    "@veren/im-coordination": "workspace:^",
+    "@veren/im-turn": "workspace:^",
     "@veren/im-tool": "workspace:^",
     "@veren/im-wechat": "workspace:^",
     "@veren/im-ui": "workspace:^"

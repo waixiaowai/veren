@@ -18,9 +18,13 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+// 类型-only import：只为拉取 im/message-new 事件面的 declaration merge，运行时零依赖。
+// Type-only import: pulls in the im/message-new event declaration merge; nothing at runtime.
+import type {} from '@veren/im-conversation'
 import { DshWechatSecrets, openWechatStore } from './state.ts'
 import { WEIXIN_BASE_URL, WEIXIN_BOT_TYPE } from './api.ts'
 import { WEIXIN_FEATURES, WechatProvider } from './provider.ts'
+import { deliverRoomMessage } from './delivery.ts'
 import { captureFromEnv } from './capture.ts'
 
 export { WEIXIN_BASE_URL, WEIXIN_BOT_TYPE, WEIXIN_LONG_POLL_MS } from './api.ts'
@@ -37,6 +41,8 @@ export type {
 } from './state.ts'
 export { WEIXIN_FEATURES, WechatProvider, splitText } from './provider.ts'
 export { WechatBindAttempt } from './runtime.ts'
+export { channelTargetOf, deliverRoomMessage } from './delivery.ts'
+export type { DeliveryOptions, DeliveryTarget } from './delivery.ts'
 
 /** Plugin name. */
 export const name = 'imWechat'
@@ -61,14 +67,15 @@ export const Config: z<Config> = z.object({
   baseUrl: z.string().default(WEIXIN_BASE_URL),
 })
 
+/** Construction options the provider needs from config and the environment. */
+/** provider 需要从配置与环境拿的构造选项。 */
+type ProviderConfig = Pick<Config, 'botType' | 'baseUrl'>
+
 /**
- * Apply the WeChat provider plugin.
- * @param ctx - host context carrying `im`, `credentials`, and `storageDomain`.
- * @param config - validated plugin configuration.
+ * Wire the provider: registration and the long-poll runtime.
+ * 接线 provider：注册与长轮询运行时。
  */
-export const apply = async (ctx: Context, config: Config): Promise<void> => {
-  const store = await openWechatStore(ctx)
-  ctx.effect(() => () => store.close(), 'im-wechat:storage')
+function wireProvider(ctx: Context, config: ProviderConfig, store: ReturnType<typeof openWechatStore> extends Promise<infer T> ? T : never): void {
   const provider = new WechatProvider({
     store,
     botType: config.botType,
@@ -92,4 +99,29 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
     })
     return () => provider.stop()
   }, 'im-wechat:runtime')
+}
+
+/**
+ * Apply the WeChat provider plugin.
+ * @param ctx - host context carrying `im`, `credentials`, and `storageDomain`.
+ * @param config - validated plugin configuration.
+ */
+export const apply = async (ctx: Context, config: Config): Promise<void> => {
+  const store = await openWechatStore(ctx)
+  ctx.effect(() => () => store.close(), 'im-wechat:storage')
+  wireProvider(ctx, config, store)
+  // 出站投递：会话域持久提交的智能体消息经 im/message-new 流回微信。投递尽力而为，
+  // 失败只在 delivery 内部记警告；先注册、卸载时最先关闭，避免停机窗口里的竞态发送。
+  // Outbound delivery: agent messages the conversation domain durably committed
+  // flow back to WeChat via im/message-new. Delivery is best-effort — failures
+  // warn inside the delivery; registered last so it closes first on unload,
+  // avoiding racing sends during teardown.
+  ctx.effect(
+    () => ctx.on('im/message-new', payload => deliverRoomMessage({
+      providerId: 'wechat',
+      registry: ctx.im,
+      logger: ctx.logger,
+    }, payload)),
+    'im-wechat:delivery',
+  )
 }

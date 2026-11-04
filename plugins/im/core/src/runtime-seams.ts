@@ -1,68 +1,61 @@
 /**
  * Runtime seams shared across the IM core: logging, credential removal, and
- * the DSH session gateway face, plus the one shared log-line helper.
+ * the one shared log-line helper.
  *
  * Tests substitute deterministic fakes for every seam here; production wires
- * them in `index.ts`. Split out of `bindings.ts` so the binding table logic
- * stays under the file-size ceiling; the export surface is unchanged —
- * `bindings.ts` re-exports every name declared here.
+ * them in `index.ts`. The session hand-off seam lives in @veren/im-turn since
+ * the 3.0 redesign — the turn executor owns session provisioning.
  *
- * IM 核心共享的运行时接缝：日志、凭据删除与 DSH 会话网关接口，外加共用的一行日志助手。
+ * IM 核心共享的运行时接缝：日志、凭据删除，以及共用的一行日志助手。
  *
- * 测试为这里的每个接缝提供确定性假实现；生产接线在 `index.ts`。按职责从 `bindings.ts`
- * 拆出，让绑定表逻辑保持在单文件行数上限内；导出面不变——`bindings.ts` 原样再导出这里
- * 声明的全部名字。
+ * 测试为这里的每个接缝提供确定性假实现；生产接线在 `index.ts`。自 3.0 重设计起，会话交接
+ * 接缝移居 @veren/im-turn——回合执行器拥有会话筹备。
  *
  * @module @veren/im/runtime-seams
  */
 
-import type { ImBindingSettings, ImMessageContent } from './contract.ts'
+import { defineToken } from '@veren/core'
 
-/** Logging surface shared by the router and bindings. */
+/** Logging surface shared by bindings, intake, and the people directory. */
+/** 绑定、采集与人员目录共用的日志面。 */
 export interface ImLogger {
   info?(message: string): void
   warn(message: string): void
   error(message: string): void
 }
 
+/** The logger seam's service token; the plugin provides the host projection. */
+/** 日志接缝的服务令牌；插件提供宿主投影。 */
+export const ImLoggerToken = defineToken<ImLogger>('imLogger')
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** The projected host logger. */
+    /** 投影后的宿主日志器。 */
+    imLogger: ImLogger
+  }
+}
+
 /** Credential removal seam; the DSH implementation deletes the account grant. */
+/** 凭据删除接缝；DSH 实现删除账号授权记录。 */
 export interface ImCredentialStore {
   remove(accountId: string): Promise<void>
 }
 
-/** One inbound prompt's provenance, kept out of the prompt body. */
-export interface ImPromptSource {
-  providerId: string
-  accountId: string
-  conversationId: string
-  messageId: string
-}
-
-/** Session hand-off used by the router; tests provide a deterministic fake. */
-export interface ImSessionGateway {
-  ensureSession(request: {
-    sessionId?: string
-    settings: ImBindingSettings
-  }): Promise<{ sessionId: string; created: boolean }>
-  ask(request: {
-    sessionId: string
-    prompt: string
-    source: ImPromptSource
-  }): Promise<string | undefined>
-}
-
-/** One router-level send request; targets an account + conversation pair. */
-export interface ImRouterSendRequest {
-  accountId?: string
-  conversationId?: string
-  content: ImMessageContent
-  replyToMessageId?: string
+/** The credential seam's service token; the plugin provides the DSH-backed one. */
+/** 凭据接缝的服务令牌；插件提供基于 DSH 的实现。 */
+export const ImCredentialToken = defineToken<ImCredentialStore>('imCredentials')
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** The DSH-backed credential removal seam. */
+    /** 基于 DSH 的凭据删除接缝。 */
+    imCredentials: ImCredentialStore
+  }
 }
 
 /**
- * Turn an unknown value into one log line. Shared by the router, intake, the
- * gateway, and bindings — one helper instead of four copies.
- * 把未知值压成一行日志。路由、采集、网关与绑定共用这一份，不再各抄一份。
+ * Turn an unknown value into one log line. Shared by intake, accounts, and
+ * bindings — one helper instead of three copies.
+ * 把未知值压成一行日志。采集、账号与绑定共用这一份，不再各抄一份。
  */
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)

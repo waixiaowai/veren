@@ -1,9 +1,10 @@
 /**
  * The provider registry: the `im` service token, the credential-key helper, and
- * the registry that owns provider registration and the cloud-directory attach.
+ * the registry that owns provider registration, emits the observed-message
+ * event, and attaches the cloud directory.
  *
- * provider 注册表：`im` 服务令牌、凭据键助手，以及负责 provider 注册与云端目录挂接的
- * registry 本体。
+ * provider 注册表：`im` 服务令牌、凭据键助手，以及负责 provider 注册、发出观察消息事件、
+ * 挂接云端目录的 registry 本体。
  *
  * @module @veren/im/contract-registry
  */
@@ -14,10 +15,12 @@ import type { Context, Disposable } from '@deepseek-ai/cordis'
 import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import type { CredentialKey } from '@deepseek-ai/dsh-credentials'
 import { defineToken } from '@veren/core'
-import type { ImPeople } from './people.ts'
+import { errorMessage } from './runtime-seams.ts'
+import type { ImPeople, ImPersonView } from './people.ts'
 import { ImError } from './contract-errors.ts'
 import type { ImDirectoryRemote } from './contract-directory.ts'
-import type { ImMessageHandler, ImProvider } from './contract-service.ts'
+import type { ImMessage } from './contract-model.ts'
+import type { ImProvider } from './contract-service.ts'
 
 /** The `im` service token. */
 /** `im` 服务令牌。 */
@@ -50,11 +53,14 @@ export function imCredentialKey(accountId: string): CredentialKey {
 /**
  * Registry of provider descriptors.
  *
- * `register` also subscribes the provider's inbound listener to the router; the
- * returned disposer removes the provider and unsubscribes in one step.
+ * `register` subscribes the provider's inbound listener and emits
+ * `im/message-observed` for every message; the returned disposer removes the
+ * provider and unsubscribes in one step. The registry emits facts only —
+ * routing, waking, and arbitration live downstream.
  * provider 描述符注册表。
  *
- * `register` 同时把 provider 的入站监听订阅到路由；返回的解除器一步完成移除与退订。
+ * `register` 订阅 provider 的入站监听并为每条消息发出 `im/message-observed`；返回的解除器
+ * 一步完成移除与退订。registry 只发出事实——路由、唤醒与仲裁都在下游。
  */
 export class ImRegistry extends Service {
   static provide = ImToken
@@ -62,13 +68,12 @@ export class ImRegistry extends Service {
   private directory?: ImDirectoryRemote
   /**
    * @param ctx - owning Cordis context.
-   * @param onMessage - router callback receiving every inbound message.
    * @param onRegistered - fired after a provider joins; the startup
    *   reconciliation of account rows keys off this moment.
+   * @param people - the people layer, present when directory adoption is wired.
    */
   constructor(
     ctx: Context,
-    private readonly onMessage: ImMessageHandler,
     private readonly onRegistered?: (provider: ImProvider) => void,
     private readonly people?: ImPeople,
   ) {
@@ -113,6 +118,39 @@ export class ImRegistry extends Service {
     return this.directory
   }
   /**
+   * Record one inbound sender in the people directory, and push the observation
+   * upstream when a cloud directory is attached (fire-and-forget). Directory
+   * bookkeeping never drops a message: a storage failure is reported, then the
+   * pipeline proceeds with `undefined`.
+   * 把入站发送者记入人员目录；挂了云端目录时把观察上报上游（fire-and-forget）。目录记账
+   * 绝不丢消息：存储失败只上报，管线带着 `undefined` 继续。
+   */
+  async observeInbound(providerId: string, message: ImMessage): Promise<ImPersonView | undefined> {
+    let person: ImPersonView | undefined
+    try {
+      person = await this.people?.observeMessage(providerId, message)
+    } catch (error: unknown) {
+      this.ctx.logger?.error?.(
+        `[im:${providerId}] inbound sender could not be recorded in the people directory: ${
+          error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+    const remote = this.directory
+    if (remote !== undefined && person !== undefined) {
+      void remote.upsert({
+        provider: providerId,
+        externalId: message.sender.id,
+        displayName: person.displayName,
+        ...(person.claimedName === undefined ? {} : { claimedName: person.claimedName }),
+        ...(person.identityStatus === undefined ? {} : { identityStatus: person.identityStatus }),
+      }).catch((error: unknown) => {
+        this.ctx.logger?.warn?.(`[im:${providerId}] directory upsert failed: ${errorMessage(error)}`)
+      })
+    }
+    return person
+  }
+
+  /**
    * Register one provider and subscribe its listener.
    * @param provider - identity, capabilities, and service.
    * @returns the disposer that removes the provider and its listener.
@@ -121,7 +159,9 @@ export class ImRegistry extends Service {
     if (this.providers.has(provider.id)) {
       throw new ImError('IM_INVALID_REQUEST', `provider already registered: ${provider.id}`)
     }
-    const unlisten = provider.service.listen(message => this.onMessage(provider.id, message))
+    const unlisten = provider.service.listen(message => {
+      this.ctx.emit('im/message-observed', { providerId: provider.id, message })
+    })
     this.providers.set(provider.id, { provider, unlisten })
     // 注册即对账触发点：provider 就绪的瞬间补上启动自愈的最后一块拼图。
     // Registration doubles as the reconciliation trigger: a provider becoming

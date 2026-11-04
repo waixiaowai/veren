@@ -12,6 +12,7 @@
  * @module @veren/im/bindings
  */
 
+import { defineToken } from '@veren/core'
 import { ImError, imCredentialKey } from './contract.ts'
 import type {
   ImAccount,
@@ -30,10 +31,18 @@ export { errorMessage } from './runtime-seams.ts'
 export type {
   ImCredentialStore,
   ImLogger,
-  ImPromptSource,
-  ImRouterSendRequest,
-  ImSessionGateway,
 } from './runtime-seams.ts'
+
+/** The account-authorization service token. */
+/** 账号授权服务的令牌。 */
+export const ImBindingsToken = defineToken<ImBindings>('imBindings')
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Account authorization provided by @veren/im. */
+    /** 由 @veren/im 提供的账号授权服务。 */
+    imBindings: ImBindings
+  }
+}
 
 /** One bind poll result. */
 export interface ImBindPollResult {

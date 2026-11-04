@@ -48,6 +48,8 @@ export type ImKey =
   | 'intakeEmptyTitle' | 'intakeEmptyHint' | 'intakeAuditEmpty' | 'intakeStale'
   | 'intakeNoData' | 'intakeNoDataHint'
   | 'askedAt' | 'errorPrefix'
+  | 'tabRooms' | 'roomsEmpty' | 'roomsPick' | 'roomDirect' | 'roomGroup'
+  | 'timelineEmpty' | 'lineSystem'
 
 /** Chinese dictionary. */
 export const zh: Record<ImKey, string> = {
@@ -60,6 +62,13 @@ export const zh: Record<ImKey, string> = {
   cloudAuthExpired: "二维码已过期，请重新发起。",
   cloudAuthConfirmed: "授权成功，通道已接管。",
   cloudAuthManageDenied: "当前账号没有 imhub:manage 权限——请用 admin 账号，或给该角色勾选「IM Hub 管理面」。",
+  tabRooms: "会话",
+  roomsEmpty: "还没有会话。绑定一个渠道后，外部消息会在这里按房间沉淀。",
+  roomsPick: "从左侧选择一个房间查看时间线。",
+  roomDirect: "私聊",
+  roomGroup: "群聊",
+  timelineEmpty: "这个房间还没有消息。",
+  lineSystem: "系统",
   tabCloud: "云端",
   cloudSubtitle: "登录 CMS 后查看该账号的全部 IM 信息（消息日志与人员目录归云）。",
   cloudOrigin: "CMS 地址",
@@ -181,6 +190,13 @@ export const en: Record<ImKey, string> = {
   cloudAuthExpired: "The QR expired — start again.",
   cloudAuthConfirmed: "Authorized — the channel is now owned by the cloud.",
   cloudAuthManageDenied: "This account lacks imhub:manage — sign in as admin or grant the role the IM Hub manage permission.",
+  tabRooms: "Conversations",
+  roomsEmpty: "No rooms yet. Bind a channel and external messages will settle here per room.",
+  roomsPick: "Pick a room on the left to read its timeline.",
+  roomDirect: "Direct",
+  roomGroup: "Group",
+  timelineEmpty: "No messages in this room yet.",
+  lineSystem: "System",
   tabCloud: "Cloud",
   cloudSubtitle: "Sign in to CMS to see all IM data of this account (message log and people live on the cloud).",
   cloudOrigin: "CMS origin",

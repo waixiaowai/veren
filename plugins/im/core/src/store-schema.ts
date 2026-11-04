@@ -11,7 +11,7 @@ import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type {
-  ImAccountRow, ImBindingRow, ImConversationRow, ImConversationSessionRow, ImMessageRow,
+  ImAccountRow, ImBindingRow, ImConversationRow, ImConversationSessionRow, ImMemoryRow, ImMessageRow,
   ImPersonAddressRow, ImPersonIntakeRow, ImPersonRow,
 } from './store-rows.ts'
 
@@ -117,6 +117,19 @@ const intakeSchema = z.object({
   reply_excerpt: z.string().min(1).optional(),
 })
 
+const memorySchema = z.object({
+  id: z.string().min(1),
+  agent_participant_id: z.string().min(1),
+  kind: z.enum(['observation', 'preference', 'fact', 'decision', 'note']),
+  about: z.string().optional(),
+  body: z.string().min(1),
+  pinned: z.boolean(),
+  project_id: z.string().optional(),
+  source_room_id: z.string().optional(),
+  created_at: z.number(),
+  updated_at: z.number(),
+})
+
 /**
  * Authoritative IM storage domain.
  *
@@ -139,6 +152,7 @@ export const imDomain = defineDomain({
     people: domainTable<string, ImPersonRow>(personSchema),
     person_addresses: domainTable<string, ImPersonAddressRow>(personAddressSchema),
     person_intakes: domainTable<string, ImPersonIntakeRow>(intakeSchema),
+    memories: domainTable<string, ImMemoryRow>(memorySchema),
   },
 })
 

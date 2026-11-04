@@ -31,8 +31,9 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { NS, en, zh, type ImKey } from './locales.ts'
 import { ImPanel } from './panel.tsx'
-import { imRemote, type ImPanelInjected, type ImRemoteApi } from './remote.ts'
+import { convRemote, imRemote, type ImPanelInjected, type ImRemoteApi, type RoomsSnapshot } from './remote.ts'
 import { createImSource } from './source.ts'
+import { createRoomsSource } from './rooms-source.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -45,6 +46,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespaceMap {
     /** IM reading and writing, mounted by this plugin's `apply`. */
     im: ImRemoteApi
+    /** Conversation rooms and timelines, mounted by this plugin's `apply`. */
+    imConv: import('./remote.ts').ImConvApi
   }
 }
 
@@ -66,28 +69,19 @@ export const inject = ['slots', 'locale', 'remote']
  */
 const PanelPlugin = {
   name: 'im:panel',
-  inject: ['remote.im'],
-  /** @param ctx - panel-scope context over the mounted namespace. */
+  inject: ['remote.im', 'remote.imConv'],
+  /** @param ctx - panel-scope context over the mounted namespaces. */
   apply(ctx: Context): void {
     const api = ctx.remote.im
+    const convApi = ctx.remote.imConv
     ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'im-ui:dictionaries')
     installPanelStyles(ctx)
     const t = ctx.locale.bind(NS)
     const im = createImSource(api)
-    ctx.slots.inject('main', () => ctx.slots.register({
-      name: 'main',
-      key: PANEL_ID,
-      locale: NS,
-      inject: (): ImPanelInjected => ({
-        hooks: { im: im.source },
-        onStartBind: im.startBind,
-        onCloseBind: im.closeBind,
-        onSubmitCode: im.submitCode,
-        onUnbindAccount: im.unbindAccount,
-        onRenamePerson: im.renamePerson,
-        onRefresh: im.refresh,
-      }),
-    }, ImPanel))
+    // 查看者固定为工作区所有者（v1：面板是所有者的视角）。
+    // The viewer is the workspace owner (v1: the panel shows the owner's view).
+    const rooms = createRoomsSource(convApi, 'human:owner')
+    registerMainPanel(ctx, t, im, rooms)
     ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
       name: 'sidebar.panellist',
       id: PANEL_ID,
@@ -98,6 +92,38 @@ const PanelPlugin = {
   },
 } as const
 
+/** The panel-inject face: the two observables plus every callback. */
+/** 面板注入面：两个可观察对象加全部回调。 */
+type ImPanelInject = ImPanelInjected & { hooks: { rooms: import('@deepseek-ai/dsh-client-ui-slots').HostObservable<RoomsSnapshot> } }
+
+/**
+ * Register the main panel over the two sources.
+ * 在两个数据源之上注册主面板。
+ */
+function registerMainPanel(
+  ctx: Context,
+  t: (key: ImKey) => string,
+  im: ReturnType<typeof createImSource>,
+  rooms: ReturnType<typeof createRoomsSource>,
+): void {
+  ctx.slots.inject('main', () => ctx.slots.register({
+    name: 'main',
+    key: PANEL_ID,
+    locale: NS,
+    inject: (): ImPanelInject => ({
+      hooks: { im: im.source, rooms: rooms.source },
+      onStartBind: im.startBind,
+      onCloseBind: im.closeBind,
+      onSubmitCode: im.submitCode,
+      onUnbindAccount: im.unbindAccount,
+      onRenamePerson: im.renamePerson,
+      onRefresh: im.refresh,
+      onOpenRoom: rooms.openRoom,
+      onRoomsRefresh: rooms.refresh,
+    }),
+  }, ImPanel))
+}
+
 /**
  * Mount the Remote namespace, then start the inner panel plugin that waits on
  * it. Disposal unwinds in reverse: panel first, namespace last.
@@ -105,12 +131,14 @@ const PanelPlugin = {
  * @returns disposer releasing the panel fiber and the mounted namespace.
  */
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
-  const unmount = await ctx.remote.$mount(imRemote)
+  const unmountIm = await ctx.remote.$mount(imRemote)
+  const unmountConv = await ctx.remote.$mount(convRemote)
   const panel = ctx.plugin(PanelPlugin)
   await panel
   return async () => {
     await panel.dispose()
-    await unmount()
+    await unmountConv()
+    await unmountIm()
   }
 }
 

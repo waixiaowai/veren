@@ -147,14 +147,47 @@ export type ImMessageStatus = 'queued' | 'consuming' | 'replied' | 'failed' | 'd
 
 /**
  * One `im_conversation_sessions` row: the private conversation → session map.
- * Keyed by conversation id alone — the account drifts on a bot re-pairing while
- * the conversation id stays stable, so this map needs no migration.
- * 一行 `im_conversation_sessions`：私有的会话 → Session 映射。只按 conversation_id 键控——
- * bot 重配对时 account 漂移而会话 id 稳定，因此这张表无需迁移。
+ * Dormant since the 3.0 redesign: the per-agent-per-room session map moved to
+ * the `im_turn` domain (`agent_sessions`). The definition stays only so older
+ * storage files that carry the table still open.
+ * 一行 `im_conversation_sessions`：私有的会话 → Session 映射。自 3.0 重设计起休眠：按智能体
+ * 按房间的会话映射已迁往 `im_turn` 域（`agent_sessions`）。定义保留只为含此表的旧存储文件
+ * 仍能打开。
  */
 export interface ImConversationSessionRow {
   conversation_id: string
   session_id: string
+  updated_at: number
+}
+
+/**
+ * One `im_memories` row: a long-term fact an agent chose to keep, per the
+ * design's memory model (design §5). Recall is recency-first with pinned
+ * entries always on top; vectors are a later refinement — the design's
+ * degradation path (recency-only) is the shipped behavior.
+ * 一行 `im_memories`：智能体选择保留的长期事实，遵循设计的记忆模型（设计 §5）。召回以
+ * 近期优先，置顶条目恒在最前；向量是后续精化——设计的降级路径（仅按时间）就是交付行为。
+ */
+export interface ImMemoryRow {
+  /** Stable row id, `mem-` prefixed. */
+  /** 稳定行 id，`mem-` 前缀。 */
+  id: string
+  /** Owning agent participant id (`agent:...`). */
+  /** 所属智能体参与者 id（`agent:...`）。 */
+  agent_participant_id: string
+  kind: 'observation' | 'preference' | 'fact' | 'decision' | 'note'
+  /** The person or thing this memory is about, as a participant id. */
+  /** 这条记忆指向的人或事，用参与者 id 表示。 */
+  about?: string
+  body: string
+  pinned: boolean
+  /** Project (DSH workspace) scope; absent = visible everywhere. */
+  /** 项目（DSH 工作区）作用域；缺省 = 处处可见。 */
+  project_id?: string
+  /** Room the memory was taken from, for provenance. */
+  /** 记忆来源的房间，用于溯源。 */
+  source_room_id?: string
+  created_at: number
   updated_at: number
 }
 

@@ -18,8 +18,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { ImError } from './contract.ts'
 import { conversationKey, messageKey, personAddressKey } from './store-rows.ts'
 import type {
-  ImAccountRow, ImConversationRow, ImConversationSessionRow, ImMessageRow, ImPersonAddressRow,
-  ImPersonIntakeRow, ImPersonRow,
+  ImAccountRow, ImConversationRow, ImConversationSessionRow, ImMemoryRow, ImMessageRow,
+  ImPersonAddressRow, ImPersonIntakeRow, ImPersonRow,
 } from './store-rows.ts'
 import { IM_DOMAIN_NAME, imDomain } from './store-schema.ts'
 import type { ImStore } from './store-schema.ts'
@@ -169,9 +169,25 @@ export class ImStorage {
     await this.table('conversation_sessions').put(row.conversation_id, row)
   }
 
+  getMemory(id: string): ImMemoryRow | undefined {
+    return this.table('memories').get(id)
+  }
+
+  memories(): ImMemoryRow[] {
+    return [...this.table('memories').entries()].map(([, row]) => row)
+  }
+
+  async putMemory(row: ImMemoryRow): Promise<void> {
+    await this.table('memories').put(row.id, row)
+  }
+
+  async deleteMemory(id: string): Promise<void> {
+    await this.table('memories').delete(id)
+  }
+
   /** Resolve the open domain or fail loudly. */
   private table<K extends
-    'accounts' | 'conversations' | 'messages' | 'conversation_sessions'
+    'accounts' | 'conversations' | 'messages' | 'conversation_sessions' | 'memories'
     | 'people' | 'person_addresses' | 'person_intakes'>(name: K) {
     const domain = this.domain
     if (domain === undefined) {

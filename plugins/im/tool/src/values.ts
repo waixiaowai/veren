@@ -1,80 +1,48 @@
 /**
- * Tool-boundary values: JSON projection, argument guards, and view builders.
+ * Tool-boundary values: JSON projection, argument guards, and the failure
+ * envelope every tool shares.
  *
  * Every tool returns one JSON object. Failures are values, not thrown errors:
- * `{ ok: false, error: { code, message } }`. The code is a stable `IM_*` value
- * so a model can branch without parsing prose.
+ * `{ ok: false, error: { code, message } }`. The code is a stable error value
+ * (`IM_*` or the core-loop codes) so a model can branch without parsing prose.
  *
- * 工具边界值：JSON 投影、参数守卫与视图构造。
+ * 工具边界值：JSON 投影、参数守卫，以及所有工具共享的失败信封。
  *
- * 每个工具都返回一个 JSON 对象。失败是值而不是抛出的错误：`{ ok: false, error: { code, message } }`。
- * code 是稳定的 `IM_*` 值，模型无需解析自然语言即可分支。
+ * 每个工具都返回一个 JSON 对象。失败是值而不是抛出的错误：
+ * `{ ok: false, error: { code, message } }`。code 是稳定的错误值（`IM_*` 或核心循环码），
+ * 模型无需解析自然语言即可分支。
  *
  * @module @veren/im-tool/values
  */
 
-import { readFile, stat } from 'node:fs/promises'
-import { basename, extname } from 'node:path'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { ImError } from '@veren/im'
-import type {
-  ImAccount,
-  ImBindAttempt,
-  ImBindRequest,
-  ImBindingSettings,
-  ImMessageContent,
-} from '@veren/im'
 
 /** Project one plain record onto lossless JSON. */
+/** 把普通记录投影成无损 JSON。 */
 export function jsonOf(value: Record<string, unknown>): JsonValue {
   return JSON.parse(JSON.stringify(value)) as JsonValue
 }
 
 /** Wrap a successful payload. */
+/** 包一层成功载荷。 */
 export function ok(value: Record<string, unknown>): JsonValue {
   return jsonOf({ ok: true, ...value })
 }
 
 /** One canonical tool value as model text. */
+/** 以模型文本呈现的标准工具值。 */
 export function renderValue(_args: unknown, value: unknown): ContentBlock[] {
   return [{ type: 'text', text: JSON.stringify(value) }]
 }
 
 /** The shared output face: one JSON value as model text. */
+/** 共享的输出面：一个 JSON 值作为模型文本。 */
 export const OUTPUT = { schema: { type: 'json' }, render: renderValue } as const
 
-/**
- * Build the method-specific bind request, rejecting missing credentials.
- * 构造按方法区分的授权请求，缺凭据即拒绝。
- */
-export function bindRequestOf(
-  method: 'qrcode' | 'oauth' | 'token' | 'password',
-  args: {
-    token?: string
-    username?: string
-    password?: string
-    label?: string
-  },
-): ImBindRequest {
-  const label = args.label === undefined ? {} : { label: args.label }
-  switch (method) {
-    case 'qrcode':
-    case 'oauth':
-      return { method, ...label }
-    case 'token':
-      return { method, token: requireString(args.token, 'token'), ...label }
-    case 'password':
-      return {
-        method,
-        username: requireString(args.username, 'username'),
-        password: requireString(args.password, 'password'),
-        ...label,
-      }
-  }
-}
-
 /** Turn any failure into the stable failure result. */
+/** 把任何失败转成稳定的失败结果。 */
 export function fail(error: unknown): JsonValue {
   const code = error instanceof ImError ? error.code : 'IM_INTERNAL'
   const message = error instanceof ImError ? error.message : 'the IM operation failed'
@@ -90,6 +58,7 @@ export function fail(error: unknown): JsonValue {
 }
 
 /** Run one tool body, converting failures into the failure result. */
+/** 运行一个工具主体，把失败转成失败结果。 */
 export async function run(work: () => Promise<JsonValue>): Promise<JsonValue> {
   try {
     return await work()
@@ -99,6 +68,7 @@ export async function run(work: () => Promise<JsonValue>): Promise<JsonValue> {
 }
 
 /** Require a non-empty string argument. */
+/** 要求一个非空字符串参数。 */
 export function requireString(value: string | undefined, field: string): string {
   if (value === undefined || value.trim() === '') {
     throw new ImError('IM_INVALID_REQUEST', `${field} is required`)
@@ -106,89 +76,64 @@ export function requireString(value: string | undefined, field: string): string 
   return value
 }
 
-/** Validate and copy the optional binding settings object. */
-export function settingsOf(value: JsonValue | undefined): ImBindingSettings {
-  if (value === undefined) return {}
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new ImError('IM_INVALID_REQUEST', 'settings must be an object')
+/** The structured refusal for a call made outside any im-managed session. */
+/** 在任何 im 托管会话之外调用时的结构化拒绝。 */
+export function outsideRoom(): JsonValue {
+  return jsonOf({
+    ok: false,
+    error: {
+      code: 'IM_NOT_FOUND',
+      message: 'this session is not an IM room session; the im tools only operate inside '
+        + 'IM-managed rooms, so there is nothing to send to or remember against here',
+    },
+  })
+}
+
+/** One excerpted line for listings: trimmed, length-capped. */
+/** 列表用的一条摘录：去空白、限长。 */
+export function excerptOf(text: string, maxChars: number): string {
+  return text.slice(0, maxChars)
+}
+
+/** The authorization method arguments one bind start carries. */
+/** 一次授权发起携带的方式参数。 */
+type BindMethodArgs = {
+  token?: string
+  username?: string
+  password?: string
+  label?: string
+}
+
+/** Build one ImBindRequest from the tool arguments. */
+/** 由工具参数构造一个 ImBindRequest。 */
+export function bindRequestOf(
+  method: 'qrcode' | 'oauth' | 'token' | 'password',
+  args: BindMethodArgs,
+): import('@veren/im').ImBindRequest {
+  if (method === 'token') {
+    return { method, token: requireString(args.token, 'token'), ...(args.label === undefined ? {} : { label: args.label }) }
   }
-  const record = value as Record<string, JsonValue>
-  const settings: ImBindingSettings = {}
-  for (const key of ['presetId', 'provider', 'model', 'reasoning'] as const) {
-    const field = record[key]
-    if (field === undefined) continue
-    if (typeof field !== 'string' || field.length === 0) {
-      throw new ImError('IM_INVALID_REQUEST', `settings.${key} must be a non-empty string`)
+  if (method === 'password') {
+    return {
+      method,
+      username: requireString(args.username, 'username'),
+      password: requireString(args.password, 'password'),
+      ...(args.label === undefined ? {} : { label: args.label }),
     }
-    settings[key] = field
   }
-  return settings
+  return { method, ...(args.label === undefined ? {} : { label: args.label }) }
 }
 
-/** Project one account onto the tool view. */
-export function accountView(account: ImAccount): Record<string, unknown> {
-  return {
-    id: account.id,
-    displayName: account.displayName,
-    status: account.status,
-    ...(account.ownerId === undefined ? {} : { ownerId: account.ownerId }),
-  }
-}
-
-
-/**
- * Project one bind attempt onto the tool view.
- *
- * The remote challenge URL is deliberately stripped: only the local QR path and
- * the expiry are safe to hand to a tool caller.
- */
-export function bindView(attempt: ImBindAttempt, account?: ImAccount): JsonValue {
+/** Project one authorization attempt (and its account, when bound) for the model. */
+/** 把一次授权尝试（及绑定后的账号）投影给模型。 */
+export function bindView(attempt: import('@veren/im').ImBindAttempt, account?: import('@veren/im').ImAccount): JsonValue {
   const challenge = attempt.challenge
-  const view: Record<string, unknown> = {
+  return jsonOf({
     bindId: attempt.bindId,
     status: attempt.status,
-  }
-  if (challenge !== undefined) {
-    view.challenge = {
-      kind: challenge.kind,
-      ...(challenge.userCode === undefined ? {} : { userCode: challenge.userCode }),
-      ...(challenge.expiresAt === undefined ? {} : { expiresAt: challenge.expiresAt }),
-      ...(challenge.imagePath === undefined ? {} : { imagePath: challenge.imagePath }),
-    }
-    if (challenge.expiresAt !== undefined) view.expiresAt = challenge.expiresAt
-    if (challenge.imagePath !== undefined) view.qrPath = challenge.imagePath
-  }
-  if (account !== undefined) view.account = accountView(account)
-  return jsonOf({ ok: true, ...view })
-}
-
-/** Build one local file content block. */
-export async function fileContentOf(path: string): Promise<ImMessageContent> {
-  const info = await stat(path)
-  if (!info.isFile()) throw new ImError('IM_INVALID_REQUEST', `not a file: ${path}`)
-  const name = basename(path)
-  return {
-    type: 'file',
-    mime: mimeOf(path),
-    name,
-    size: info.size,
-    load: () => readFile(path),
-  }
-}
-
-/** Minimal MIME table for the file extension point. */
-function mimeOf(path: string): string {
-  switch (extname(path).toLowerCase()) {
-    case '.txt': return 'text/plain'
-    case '.md': return 'text/markdown'
-    case '.json': return 'application/json'
-    case '.pdf': return 'application/pdf'
-    case '.png': return 'image/png'
-    case '.jpg':
-    case '.jpeg': return 'image/jpeg'
-    case '.gif': return 'image/gif'
-    case '.webp': return 'image/webp'
-    case '.zip': return 'application/zip'
-    default: return 'application/octet-stream'
-  }
+    ...(challenge?.imagePath === undefined ? {} : { qrImagePath: challenge.imagePath }),
+    ...(challenge?.userCode === undefined ? {} : { userCode: challenge.userCode }),
+    ...(challenge?.expiresAt === undefined ? {} : { expiresAt: challenge.expiresAt }),
+    ...(account === undefined ? {} : { account }),
+  })
 }

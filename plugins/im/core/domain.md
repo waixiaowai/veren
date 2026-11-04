@@ -1,5 +1,14 @@
 # im/core domain (领域模型)
 
+> **SUPERSEDED (2026-11-04, 3.0.0-rc.1) / 已被取代（2026-11-04，3.0.0-rc.1）**:
+> The queue, the active-binding router, and the private session mapping described below
+> were removed by the family redesign. The authoritative record is now
+> `plugins/im/docs/redesign-mapping.{cn,}.md`; only the people-directory and
+> account-lifecycle sections below still describe live code.
+> 下文的队列、active-binding 路由与会话私有化已被家族重设计移除。权威记录改为
+> `plugins/im/docs/redesign-mapping.{cn,}.md`；下文仅人员目录与账号生命周期两节仍描述
+> 存活代码。
+
 > Decision record for the im core plugin (the WeChat-path message domain).
 > English is primary; Chinese key terms stay in parentheses. Every invariant
 > names the test that guards it; one without a guard is marked `unguarded`.
@@ -69,6 +78,8 @@
 
 ## Declared faces (check-docs 声明面)
 
-- service: `ImMessageQueue`
-- service: `conversation_sessions`
-- event: `session/event`
+> 3.0 起本节的队列/会话声明已随重设计移除；存活声明只有人员目录与账号授权面。
+> Since 3.0 the queue/session declarations here left with the redesign; the live
+> declarations are only the people-directory and account faces.
+- service: `ImPeople`
+- service: `ImBindings`
