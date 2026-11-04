@@ -21,11 +21,11 @@
 # 控制 API），再 crawler-skill（依赖 `skills` 服务；没有该服务的 profile
 # 只会让本行 pending，绝不会拖垮 crawler 行）。
 #
-# No application-framework rows here: the crawler is a plain plugin today (the
-# client panel lands as an app in a later iteration); when that happens its
-# framework dependency joins this bundle.
-# 这里没有应用框架行：采集插件今天是普通插件（客户端面板属后续迭代）；
-# 面板以应用形态落地后，其框架依赖并入本组合包。
+# No application-framework rows here beyond the app row the crawler plugin
+# itself contributes (the overview panel is registered by the plugin through
+# the apps service, not by this bundle).
+# 本文件不含额外的应用框架行：总览面板由 crawler 插件自身通过 apps 服务
+# 注册（应用形态），不经过本组合包。
 - insert:
     - id: crawler
       name: '@veren/crawler'
