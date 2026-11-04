@@ -17,7 +17,7 @@ Multi-platform content crawler for DSH — collects public contents and comments
 
 ## Implemented
 
-- Platform crawlers: **wb** (live-verified: dual-site cookie login, search/detail/creator, companion comments, long-post completion), **tieba** (live-verified: login-free json channel, 15+ real rows persisted), **bili** (pure-algorithm WBI signing, code+tests done, cookie warm-up being debugged)
+- Platform crawlers: **wb** (live-verified: dual-site cookie login, search/detail/creator, companion comments, long-post completion), **tieba** (live-verified: login-free json channel, search+companion comments+media download, 20+/26 real rows persisted), **bili** (pure-algorithm WBI signing, code+tests done, cookie warm-up being debugged)
 - Login and credentials: the three-segment flow (probe → login → persist) + the login-session state machine; cookie injection is re-verified
 - Storage adapter: shaping with mandatory anonymization (SHA-256 hash + nickname masking) → the host storage domain
 - Engine: concurrency semaphore, rate-limit backoff, the unified pagination loop (count cap, empty-page stop, single-item isolation, cooperative cancel)
