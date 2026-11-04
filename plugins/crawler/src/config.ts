@@ -1,0 +1,84 @@
+/**
+ * 插件配置：使用 @deepseek-ai/schemastery 定义（仓库铁律）。
+ * Plugin configuration defined with @deepseek-ai/schemastery (house rule).
+ *
+ * 配置只承载默认值与开关；每次采集任务的参数以启动请求为准（design/api.md）。
+ * Configuration carries defaults and switches only; per-task arguments come
+ * from the start request (design/api.md).
+ *
+ * @module @veren/crawler/config
+ */
+import z from '@deepseek-ai/schemastery'
+import { CRAWLER_TYPES, LOGIN_TYPES, PLATFORMS, SAVE_DATA_OPTIONS } from './constants.ts'
+
+/** 插件配置形状 / the plugin configuration shape */
+export interface Config {
+  /** 数据输出根目录 / data output root directory */
+  dataRoot: string
+  /** 是否启用 IP 代理默认值 / default IP proxy switch */
+  enableIpProxy: boolean
+  /** 默认内容数量上限 / default max note count */
+  crawlerMaxNotesCount: number
+  /** 默认单条内容评论上限 / default max comments per note */
+  maxCommentsCountSingleNotes: number
+  /** 默认并发信号量 / default concurrency semaphore */
+  maxConcurrencyNum: number
+  /** 默认平台 / default platform */
+  platform: (typeof PLATFORMS)[number]
+  /** 默认采集模式 / default crawling mode */
+  crawlerType: (typeof CRAWLER_TYPES)[number]
+  /** 默认登录方式 / default login type */
+  loginType: (typeof LOGIN_TYPES)[number]
+  /** 默认保存介质 / default save option */
+  saveDataOption: (typeof SAVE_DATA_OPTIONS)[number]
+  /** 是否启动 HTTP 控制服务（默认关，稳定节点验证后再开）/ whether to start the http control service (off by default) */
+  enableApi: boolean
+  /** 控制服务监听端口（0 = 随机可用端口）/ the control-service port (0 = a free port) */
+  apiPort: number
+}
+
+/**
+ * schemastery 配置 schema：字段含义见各注释。
+ * The schemastery config schema; field meanings live in the comments below.
+ */
+export const Config: z<Config> = z
+  .object({
+    dataRoot: z.string().default('./data/crawler').description('数据输出根目录 / data output root'),
+    enableIpProxy: z.boolean().default(false).description('是否启用 IP 代理 / enable IP proxy'),
+    crawlerMaxNotesCount: z.number().default(20).description('内容数量上限 / max note count'),
+    maxCommentsCountSingleNotes: z.number().default(10).description('单条内容评论上限 / max comments per note'),
+    maxConcurrencyNum: z.number().default(5).description('并发信号量 / concurrency semaphore'),
+    platform: z.union(PLATFORMS).default('xhs').description('默认平台 / default platform'),
+    crawlerType: z.union(CRAWLER_TYPES).default('search').description('默认采集模式 / default crawler type'),
+    loginType: z.union(LOGIN_TYPES).default('qrcode').description('默认登录方式 / default login type'),
+    saveDataOption: z.union(SAVE_DATA_OPTIONS).default('jsonl').description('默认保存介质 / default save option'),
+    enableApi: z.boolean().default(false).description('是否启动 HTTP 控制服务 / enable the http control service'),
+    apiPort: z.number().default(0).description('控制服务端口，0 为随机 / control-service port, 0 picks a free one'),
+  })
+  .description('多平台内容采集配置 / multi-platform content crawler configuration')
+
+/** 解析后的运行时配置（当前与 Config 同形）/ the resolved runtime config (same shape as Config for now) */
+export type RuntimeConfig = Config
+
+/** 代码级默认值：与 schema 默认值保持一致 / code-level defaults, kept in sync with the schema defaults */
+export const DEFAULT_CONFIG: Config = {
+  dataRoot: './data/crawler',
+  enableIpProxy: false,
+  crawlerMaxNotesCount: 20,
+  maxCommentsCountSingleNotes: 10,
+  maxConcurrencyNum: 5,
+  platform: 'xhs',
+  crawlerType: 'search',
+  loginType: 'qrcode',
+  saveDataOption: 'jsonl',
+  enableApi: false,
+  apiPort: 0,
+}
+
+/**
+ * 应用默认值，得到运行时配置。
+ * Applies the defaults, yielding the runtime configuration.
+ */
+export function resolveConfig(config: Partial<Config>): RuntimeConfig {
+  return { ...DEFAULT_CONFIG, ...config }
+}

@@ -1,0 +1,46 @@
+{
+  "name": "@veren/crawler",
+  "displayName": "多平台内容采集",
+  "version": "0.1.0",
+  "description": "Use when a DSH deployment must collect public contents and comments from mainstream Chinese content communities for study or research: it drives a logged-in browser through platform APIs under keyword/detail/creator modes, shapes heterogeneous payloads into unified entities with mandatory person-identifier anonymization, and stores them into the configured medium (json/jsonl/csv/excel or database); skip it when the deployment never bulk-collects social content.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.cn.md",
+    "icon.svg"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {},
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "playwright-core": "^1.64.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "typescript": "^5.6.0",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}

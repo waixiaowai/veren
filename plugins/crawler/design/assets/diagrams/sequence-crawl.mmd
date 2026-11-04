@@ -1,0 +1,39 @@
+sequenceDiagram
+  autonumber
+  actor U as 使用者
+  participant W as 控制服务
+  participant L as 启动器
+  participant C as 平台爬取器
+  participant A as 登录与凭证
+  participant B as 浏览器自动化层
+  participant T as 目标内容平台
+  participant S as 存储适配
+
+  U->>W: 下发任务（平台/模式/关键词）
+  W->>L: 以子进程启动采集进程
+  L->>C: 按平台创建爬取器并启动
+  C->>A: 请求可用凭证
+  alt 缓存命中且未过期
+    A-->>C: 返回缓存登录态
+  else 缓存未命中
+    A->>B: 打开登录页（扫码/手机号/Cookie）
+    B->>T: 呈现登录流程
+    T-->>A: 登录成功返回Cookie
+    A->>A: 写入登录态缓存
+    A-->>C: 返回登录态
+  end
+  loop 每一页（游标未耗尽且未达数量上限）
+    C->>B: 构造带签名参数的请求
+    B->>T: 发起搜索/详情/评论请求
+    T-->>B: 返回内容分页数据
+    B-->>C: 解析后的结构化数据
+    C->>S: 逐条入库/落盘（含去重）
+    S-->>C: 写入结果
+    alt 请求被限频或签名失效
+      T-->>B: 限频/失效响应
+      B-->>C: 触发退避与代理切换
+    end
+  end
+  C-->>L: 采集结束（正常/达上限/异常）
+  L-->>W: 进程退出，状态回写
+  W-->>U: 日志与数据文件可查看

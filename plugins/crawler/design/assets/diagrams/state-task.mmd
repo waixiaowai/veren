@@ -1,0 +1,15 @@
+stateDiagram-v2
+  direction TB
+  [*] --> idle: 进程就绪
+  idle --> starting: 使用者下发任务
+  starting --> running: 子进程启动成功
+  starting --> idle: 启动失败（参数非法/端口占用）
+  running --> stopping: 使用者请求停止
+  running --> idle: 采集完成（游标耗尽/达数量上限）
+  running --> error: 采集进程异常退出
+  stopping --> idle: 进程确认退出（超时强杀）
+  error --> idle: 排查后人工复位
+  note right of running
+    同一时刻至多一个采集进程：
+    running 状态下再次下发任务被拒绝
+  end note

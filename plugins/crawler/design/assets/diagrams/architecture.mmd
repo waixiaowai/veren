@@ -1,0 +1,41 @@
+flowchart TB
+  User["使用者（运营/研究人员）"] --> WebUI["WebUI 控制台"]
+  User --> CLI["命令行入口"]
+
+  subgraph Control["控制层"]
+    WebUI --> API["控制服务"]
+    API -->|"子进程 + 命令行参数"| Launcher["启动器"]
+    CLI --> Launcher
+  end
+
+  Launcher -->|"平台标识"| Factory["爬取器工厂"]
+  Factory --> Client["平台爬取器（七平台）"]
+
+  subgraph ClientInternals["平台爬取器内部"]
+    Client --> Auth["登录与凭证"]
+    Client --> Sign["签名器"]
+    Client --> Fetch["抓取执行（搜索/详情/评论/创作者）"]
+  end
+
+  Client --> Browser["浏览器自动化层（Playwright/CDP 接管 Chrome）"]
+  Browser -->|"携带签名参数的接口调用"| Target["目标内容平台"]
+
+  Fetch -->|"内容/评论数据"| Store["存储适配"]
+  Store -->|落库| DB["数据库（SQLite/MySQL/MongoDB/PostgreSQL）"]
+  Store -->|落盘| Files["数据文件（CSV/JSON/JSONL/Excel）"]
+  Fetch -->|"媒体地址"| Downloader["媒体下载器"]
+  Downloader -->|字节流| Media["媒体文件"]
+  Fetch -->|"评论文本"| Wordcloud["词云生成"]
+
+  Client -->|"登录Cookie缓存"| Cache["登录态缓存"]
+  Client -->|"出口IP"| Proxy["代理池"]
+  Proxy -->|"代理请求"| Target
+
+  classDef control fill:#90EE90,stroke:#333,stroke-width:2px,color:darkgreen
+  classDef core fill:#87CEEB,stroke:#333,stroke-width:2px,color:darkblue
+  classDef storage fill:#E6E6FA,stroke:#333,stroke-width:2px,color:darkblue
+  classDef aux fill:#F5F5DC,stroke:#333,stroke-width:2px,color:#555555
+  class WebUI,API,Launcher,Factory control
+  class Client,Auth,Sign,Fetch,Browser core
+  class Store,DB,Files,Media storage
+  class Cache,Proxy,Downloader,Wordcloud aux

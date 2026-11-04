@@ -1,0 +1,14 @@
+stateDiagram-v2
+  direction TB
+  [*] --> unknown: 无缓存
+  unknown --> logging_in: 发起登录（扫码/手机号）
+  unknown --> logged_in: 提供有效Cookie
+  logging_in --> waiting_scan: 呈现二维码/等待验证码
+  waiting_scan --> logged_in: 用户完成验证
+  waiting_scan --> logging_in: 二维码过期重取
+  waiting_scan --> failed: 多次超时
+  logged_in --> expired: 平台校验失败（Cookie过期）
+  logged_in --> logged_in: 每次采集前校验通过
+  expired --> logging_in: 自动重新登录
+  failed --> logging_in: 使用者重试
+  failed --> [*]: 放弃
