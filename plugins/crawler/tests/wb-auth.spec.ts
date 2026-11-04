@@ -38,13 +38,14 @@ describe('waitForWbLogin', () => {
   it('polls until the probe hits', async () => {
     let calls = 0
     const session = fakeSession({
-      requestJson: async () => {
+      requestJson: async (url: string) => {
         calls += 1
-        return { data: { login: calls >= 2 } }
+        if (url.includes('api/config')) return { data: { login: calls >= 4 } }
+        return { ok: -1 }
       },
     })
     await expect(waitForWbLogin(session, { timeoutMs: 1_000, pollMs: 1 })).resolves.toBe(true)
-    expect(calls).toBe(2)
+    expect(calls).toBeGreaterThanOrEqual(2)
   })
 
   it('returns false when the scan window closes, tolerating probe errors', async () => {

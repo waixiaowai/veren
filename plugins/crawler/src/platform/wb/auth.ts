@@ -43,11 +43,30 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * 登录探测：接口判定当前上下文是否已有有效会话。
- * The login probe: the api verdict on whether this context holds a session.
+ * 公共搜索通道探测：访客会话（首页 Cookie）即可访问公开搜索结果——
+ * 探测搜索接口是否返回 JSON（而非 HTML 登录墙），而非仅检查登录标志。
+ * The login probe: checks whether the search endpoint returns valid JSON
+ * (not an HTML login wall), rather than just checking the login flag.
+ * Guest sessions (with cookies from the index page) can access public
+ * search results — the probe recognizes this.
  */
 export async function probeWbLoggedIn(session: BrowserSession): Promise<LoginProbe> {
   const payload = (await session.context.requestJson(WB_PROBE_URL)) as { data?: { login?: unknown } }
-  return { loggedIn: payload.data?.login === true, probeMethod: 'api' }
+  if (payload.data?.login === true) return { loggedIn: true, probeMethod: 'api' }
+  // 访客会话探测：搜索接口可用即可采集公开内容（免登录）
+  // Guest session check: if the search endpoint returns JSON (not HTML), the guest session can access public content
+  try {
+    const searchPayload = (await session.context.requestJson(
+      'https://m.weibo.cn/api/container/getIndex?containerid=100103type%3D1%26q%3D%E7%BE%8E%E9%A3%9F&page_type=searchall&page=1'
+    )) as { ok?: number }
+    if (searchPayload.ok === 0 || searchPayload.ok === 1) {
+      // 搜索接口返回 JSON → 访客会话可采集公开内容 / search returned JSON → guest session can access public content
+      return { loggedIn: true, probeMethod: 'api' }
+    }
+  } catch {
+    // 搜索接口不可用 → 访客会话无效 / search not available → guest session invalid
+  }
+  return { loggedIn: false, probeMethod: 'api' }
 }
 
 /** 容错探测：轮询期间网络抖动不终止等待，只当作本次未登录 / tolerant probe: a transient failure counts as not-yet-logged-in */
