@@ -1,6 +1,6 @@
 ---
 name: crawler
-description: Use when the user asks to collect public contents or comments from Chinese content communities (xhs/dy/ks/bili/wb/tieba/zhihu) — keyword search, content detail, or creator mode — or asks about crawl task status, collected data, or a failed crawl; covers the crawler__ tools, the single-task mutex, the save media (dsh medium writes the host storage domain; jsonl/csv write files), the login requirement (cookie/qrcode), and rate-limit etiquette. Skip it for posting, commenting, or any interaction on those platforms — the crawler is strictly read-only.
+description: Use when the user asks to collect public contents or comments from Chinese content communities (xhs/dy/ks/bili/wb/tieba/zhihu) — keyword search, content detail, or creator mode — or asks about crawl task status, collected data, or a failed crawl; covers the crawler__ tools, the single-task mutex, the login requirement (cookie/qrcode), and rate-limit etiquette. Skip it for posting, commenting, or any interaction on those platforms — the crawler is strictly read-only.
 ---
 
 # 多平台内容采集使用指导 / Content-crawler usage guide
@@ -15,11 +15,11 @@ description: Use when the user asks to collect public contents or comments from 
 
 全部工具（六个）以 `crawler__` 为前缀：
 
-- `crawler__start` — 启动采集任务。参数：`platform`（必填，七平台枚举）、`crawlerType`（search/detail/creator，必填）、`keywords`（search 模式必填非空）、`specifiedIds`（detail 模式必填）、`creatorIds`（creator 模式必填）、`saveOption`（默认 `dsh`）。**单任务互斥**：已有任务运行中再启动会被拒绝，先 `crawler__status` 查看再决定是否 `crawler__stop`。
+- `crawler__start` — 启动采集任务。参数：`platform`（必填，七平台枚举）、`crawlerType`（search/detail/creator，必填）、`keywords`（search 模式必填非空）、`specifiedIds`（detail 模式必填）、`creatorIds`（creator 模式必填）、**单任务互斥**：已有任务运行中再启动会被拒绝，先 `crawler__status` 查看再决定是否 `crawler__stop`。
 - `crawler__stop` — 停止运行中任务（优雅终止，超时强杀；空闲时返回 not_running）。
 - `crawler__status` — 任务状态机快照：idle/starting/running/stopping/error + 平台、模式、起始时刻、错误信息。
 - `crawler__logs` — 日志环形缓冲尾部（默认 50 条），失败时用它看每页进度或失败原因。
-- `crawler__data` — 存储域数据汇总（contents/comments 总量与按平台计数）。
+- `crawler__data` — 存储域数据汇总（contents/comments 总量与按平台计数；可选 `platform` 参数过滤到单平台）。
 - `crawler__wordcloud` — 词频表（从存储域评论计算，中文二元/英文词元 + 停用词过滤）；供总结评论话题或喂外部词云渲染器。
 
 ## 数据存储 / Storage

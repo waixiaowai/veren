@@ -12,8 +12,8 @@ describe('crawler skill asset', () => {
     expect(body.length).toBeGreaterThan(500)
   })
 
-  it('covers the five tools, the mutex, the dsh medium and compliance', () => {
-    for (const term of ['crawler__start', 'crawler__status', '单任务互斥', 'dsh', '只读', '匿名化']) {
+  it('covers the five tools, the mutex, the storage medium and compliance', () => {
+    for (const term of ['crawler__start', 'crawler__status', '单任务互斥', '宿主存储域', '只读', '匿名化']) {
       expect(body).toContain(term)
     }
   })
