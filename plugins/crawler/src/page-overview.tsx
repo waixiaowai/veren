@@ -85,6 +85,11 @@ export const OverviewPage: PageFC = (_props, agent) => {
     const contents = domain === undefined ? [] : [...domain.table('contents').entries()]
     const comments = domain === undefined ? [] : [...domain.table('comments').entries()]
     const recentLogs = runtime.manager.logs.recent(10)
+    const byPlatform = new Map<string, number>()
+    for (const [key] of contents) {
+      const platform = key.split('::')[0] ?? '?'
+      byPlatform.set(platform, (byPlatform.get(platform) ?? 0) + 1)
+    }
     return (
       <>
         <h1>多平台内容采集</h1>
@@ -104,6 +109,9 @@ export const OverviewPage: PageFC = (_props, agent) => {
         <ul>
           <li>内容 {contents.length} 条</li>
           <li>评论 {comments.length} 条</li>
+          {[...byPlatform.entries()].map(([platform, count]) => (
+            <li key={platform}>{platform}: {count} 条内容</li>
+          ))}
         </ul>
         <p>正文是打开时刻的快照；启停采集用页面挂载的 crawler__ 工具，返回值与后续消息为准。</p>
       </>
