@@ -7,7 +7,7 @@ description: Use when the user asks to collect public contents or comments from 
 
 ## 何时用 / When to use
 
-用户要求采集中文内容社区（小红书 xhs、抖音 dy、快手 ks、B 站 bili、微博 wb、贴吧 tieba、知乎 zhihu）的**公开**内容或评论（关键词搜索 / 内容详情 / 创作者主页），或询问采集任务状态、已采数据、失败原因时使用本技能。
+用户要求采集中文内容社区（小红书 xhs、抖音 dy、快手 ks、B 站 bili、微博 wb、贴吧 tieba、知乎 zhihu；当前已接入 wb/tieba/bili/xhs/zhihu 五平台）的**公开**内容或评论（关键词搜索 / 内容详情 / 创作者主页），或询问采集任务状态、已采数据、失败原因时使用本技能。
 
 **绝不用于**在这些平台发布、评论、点赞或任何互动——采集器严格只读。
 
