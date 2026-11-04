@@ -27,6 +27,8 @@ export interface Config {
   crawlerType: (typeof CRAWLER_TYPES)[number]
   /** 默认登录方式 / default login type */
   loginType: (typeof LOGIN_TYPES)[number]
+  /** 媒体文件根目录（媒体开关开启时）/ the media file root (when the media switch is on) */
+  mediaRoot: string
   /** 浏览器登录档案根目录 / the browser profile root directory */
   browserDataRoot: string
   /** 标准启动的系统浏览器渠道 / the system browser channel for standard launches */
@@ -46,6 +48,7 @@ export const Config: z<Config> = z
     platform: z.union(PLATFORMS).default('xhs').description('默认平台 / default platform'),
     crawlerType: z.union(CRAWLER_TYPES).default('search').description('默认采集模式 / default crawler type'),
     loginType: z.union(LOGIN_TYPES).default('qrcode').description('默认登录方式 / default login type'),
+    mediaRoot: z.string().default('./data/crawler/media').description('媒体文件根目录 / media file root'),
     browserDataRoot: z.string().default('./browser-data').description('浏览器登录档案根目录 / browser profile root'),
     browserChannel: z.union(['chrome', 'msedge'] as const).default('chrome').description('系统浏览器渠道 / the system browser channel'),
   })
@@ -63,6 +66,7 @@ export const DEFAULT_CONFIG: Config = {
   platform: 'xhs',
   crawlerType: 'search',
   loginType: 'qrcode',
+  mediaRoot: './data/crawler/media',
   browserDataRoot: './browser-data',
   browserChannel: 'chrome',
 }

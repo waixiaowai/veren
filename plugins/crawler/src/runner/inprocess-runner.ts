@@ -37,6 +37,8 @@ export interface InProcessRunnerOptions {
   deps: (request: CrawlerRunRequest) => PipelineDeps
   /** 已打开的宿主存储域（取数时求值）/ the opened host storage domain (evaluated at spawn) */
   domain: () => CrawlerStore
+  /** 媒体文件根目录 / the media file root */
+  mediaRoot?: string
 }
 
 /**
@@ -52,6 +54,7 @@ export const createInProcessRunner =
     const exit = runPipeline(request, options.deps(request), {
       domain: options.domain(),
       cancelFlag: flag,
+      ...(options.mediaRoot === undefined ? {} : { mediaRoot: options.mediaRoot }),
     })
       .then((code) => {
         logs.append(`[INFO] in-process crawl finished with code ${code}`)

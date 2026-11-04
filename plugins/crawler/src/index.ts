@@ -76,6 +76,7 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
     manager: new CrawlerManager(createInProcessRunner({
       deps: (request) => realDeps(request, { browserDataRoot: config.browserDataRoot, channel: config.browserChannel }),
       domain: () => domain,
+      mediaRoot: config.mediaRoot,
     })),
     domain,
   }
@@ -118,3 +119,4 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   }, 'veren-crawler:runtime')
   ctx.logger.info('[veren-crawler] control api mounted on host web server')
 }
+ 0

@@ -21,10 +21,12 @@ import { createSessionFetchJson } from './browser/context-fetch.ts'
 import { createPlatformAuth, type PlatformAuth } from './platform/login.ts'
 import { report } from './runner/report.ts'
 import { StoreSink } from './sink.ts'
+import { MediaCompanionSink } from './media/companion.ts'
+import { MediaDownloader } from './media/downloader.ts'
 import { WbCrawler, type FetchJson } from './platform/wb/crawler.ts'
 import { TiebaCrawler } from './platform/tieba/crawler.ts'
 import { BiliCrawler } from './platform/bili/crawler.ts'
-import type { AbstractCrawler } from './crawler/contract.ts'
+import type { AbstractCrawler, DataSink } from './crawler/contract.ts'
 import type { BrowserSession } from './browser/contract.ts'
 import type { CrawlerRunRequest } from './control/runner.ts'
 import type { CrawlerStore } from './store/domain.ts'
@@ -54,6 +56,8 @@ export interface PipelineRunOptions {
   domain?: CrawlerStore
   /** 协作式取消标记（进程内运行器注入）/ the cooperative-cancel flag (injected by the in-process runner) */
   cancelFlag?: CancelFlag
+  /** 媒体文件根目录（媒体开关开启时必需）/ the media file root (required when the media switch is on) */
+  mediaRoot?: string
 }
 
 /** 未接入平台在启动浏览器之前拒绝 / unwired platforms are rejected before the browser launch */
@@ -140,20 +144,23 @@ async function crawlWithSink(
   deps: PipelineDeps,
   session: BrowserSession,
   domain: CrawlerStore,
+  mediaRoot: string | undefined,
 ): Promise<number> {
   const crawler = createPlatformCrawler(request, deps.fetchJson ?? createSessionFetchJson(session), deps.fetchText)
-  const sink = new StoreSink({
+  const inner = new StoreSink({
     platform: request.platform,
     sourceKeyword: request.keywords[0] ?? null,
     domain,
   })
+  const sink: DataSink = request.enableMedia === true && mediaRoot !== undefined && mediaRoot.length > 0
+    ? new MediaCompanionSink(inner, new MediaDownloader({ policy: { root: mediaRoot, platform: request.platform }, fetcher: hostFetchBytes }))
+    : inner
   await crawler.run(session, sink)
-  // 收尾如实报数：0 条也要说出来（静默空结果是最难查的故障）。
-  // Honest closing counts, zeros included (a silent empty result is the
-  // hardest failure to diagnose).
+  // 收尾报数从内部汇取（媒体伴随不改变计数语义）。
+  // Closing counts read from the inner sink (the companion does not change counting).
   report(
-    `落库完成：内容 ${sink.contentsWritten} 条，评论 ${sink.commentsWritten} 条 / ` +
-      `persisted ${sink.contentsWritten} contents, ${sink.commentsWritten} comments`,
+    `落库完成：内容 ${inner.contentsWritten} 条，评论 ${inner.commentsWritten} 条 / ` +
+      `persisted ${inner.contentsWritten} contents, ${inner.commentsWritten} comments`,
   )
   return 0
 }
@@ -177,10 +184,17 @@ export async function runPipeline(
   try {
     const auth = deps.auth ?? createPlatformAuth(request.platform, session, request)
     await loginBeforeCrawl(request, deps, auth)
-    const code = await crawlWithSink(request, deps, session, options.domain)
+    const code = await crawlWithSink(request, deps, session, options.domain, options.mediaRoot)
     report('采集结束 / crawl finished')
     return code
   } finally {
     await session.close().catch(() => undefined)
   }
+}
+
+/** 媒体字节获取：宿主 fetch（公共 CDN 免登录）/ the media byte fetcher: host fetch (public CDNs are login-free) */
+async function hostFetchBytes(url: string): Promise<{ bytes: Buffer; contentType: string }> {
+  const response = await fetch(url)
+  const bytes = Buffer.from(await response.arrayBuffer())
+  return { bytes, contentType: response.headers.get('content-type') ?? '' }
 }
