@@ -136,3 +136,62 @@ export async function collectTiebaComments(options: {
   }
   return collected
 }
+/**
+ * 从 getpb 页解析帖子详情：页面标题 + 首楼正文与作者。
+ * Parses the thread detail from a getpb page: the page title plus the
+ * first floor's body and author.
+ *
+ * @returns 原始内容条目；无首楼时为 null / the raw item, or null when the page has no first floor
+ */
+export function parseTiebaThreadDetail(tid: string, html: string): {
+  id: string
+  title: string | null
+  desc: string | null
+  url: string
+  publishTime: string | null
+  likedCount: number | null
+  commentCount: number | null
+  collectedCount: null
+  shareCount: null
+  imageList: string[]
+  videoUrl: null
+  tagList: null
+  creatorId: string
+  nickname: string
+} | null {
+  const title = html.match(/<title>([^<]+)<\/title>/)?.[1]?.replace(/_贴吧.*$/, '').trim() ?? null
+  const anchor = html.indexOf('<li tid=')
+  if (anchor < 0) return null
+  const end = html.indexOf('</li>', anchor)
+  const block = html.slice(anchor, end < 0 ? html.length : end)
+  const info = block.match(/data-info="([^"]+)"/)?.[1]
+  let user = ''
+  let nickname = ''
+  if (info !== undefined) {
+    try {
+      const parsed = JSON.parse(unescapeJson(info)) as { un?: string; name_show?: string }
+      user = parsed.un ?? ''
+      nickname = parsed.name_show || parsed.un || ''
+    } catch {
+      user = ''
+    }
+  }
+  const body = stripTags(block)
+  const desc = title !== null && body.startsWith(title) ? body.slice(title.length).trim() : body
+  return {
+    id: tid,
+    title,
+    desc: desc.length > 0 ? desc : null,
+    url: `https://tieba.baidu.com/p/${tid}`,
+    publishTime: null,
+    likedCount: null,
+    commentCount: null,
+    collectedCount: null,
+    shareCount: null,
+    imageList: [],
+    videoUrl: null,
+    tagList: null,
+    creatorId: user,
+    nickname,
+  }
+}

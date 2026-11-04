@@ -17,7 +17,8 @@ import { BaseCrawler, type BaseCrawlerDeps } from '../../crawler/base.ts'
 import { runCrawlLoop } from '../../crawler/engine.ts'
 import type { CrawledPage, DataSink, PageCursor, Platform, RawItem } from '../../crawler/contract.ts'
 import { parseTiebaSearchResponse, tiebaHasMore } from './parse.ts'
-import { collectTiebaComments, type FetchText } from './comments.ts'
+import { collectTiebaComments, parseTiebaThreadDetail, type FetchText } from './comments.ts'
+import { CrawlerError } from '../../errors.ts'
 
 /** 搜索接口地址模板 / the search endpoint template */
 const SEARCH_URL = 'https://tieba.baidu.com/mo/q/search/thread?word={word}&pn={page}'
@@ -114,14 +115,18 @@ export class TiebaCrawler extends BaseCrawler {
     return { items, hasMore: tiebaHasMore(payload), next: { page: page + 1, cursor: null, sessionId: null } }
   }
 
-  /** 详情模式：单帖正文（评论开关由上层控制）/ detail mode: one thread (comments gated upstream) */
+  /** 详情模式：getpb 首楼正文 + 页面标题（免登录渲染页） / detail mode: the first floor body plus the page title (login-free rendered page) */
   async detail(id: string, sink: DataSink): Promise<void> {
-    const payload = await this.options.fetchJson(`https://tieba.baidu.com/mo/q/m/getThreadInfo?tid=${id}`)
-    const items: RawItem[] = parseTiebaSearchResponse({ data: { post_list: [payload as never] } })
-    for (const raw of items) await sink.content(raw)
-  }
-
-  /** 创作者模式：贴吧以吧为主题，作者维度无独立时间线接口——按关键词兜底 / creator mode: tieba has no per-author timeline api; falls back to keyword search */
+    if (this.options.fetchText === undefined) {
+      throw new CrawlerError('CONTENT_NOT_FOUND', '贴吧详情需要 fetchText 获取渲染页', { id })
+    }
+    const html = await this.options.fetchText(`https://tieba.baidu.com/mo/q/getpb?kz=${id}&pn=1`)
+    const detailItem = parseTiebaThreadDetail(id, html)
+    if (detailItem === null) {
+      throw new CrawlerError('CONTENT_NOT_FOUND', `贴吧帖子不存在或已删除: ${id}`, { id })
+    }
+    await sink.content(detailItem)
+  }  /** 创作者模式：贴吧以吧为主题，作者维度无独立时间线接口——按关键词兜底 / creator mode: tieba has no per-author timeline api; falls back to keyword search */
   async creator(creatorId: string, sink: DataSink): Promise<void> {
     await this.search(creatorId, sink)
   }
