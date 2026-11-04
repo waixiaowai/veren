@@ -26,9 +26,6 @@ export type LoginType = 'qrcode' | 'phone' | 'cookie'
  * carried by the host storage ecosystem).
  */
 
-/** 数据库初始化目标 / database init targets */
-export type InitDbOption = 'sqlite' | 'mysql' | 'postgres'
-
 /** 代理服务商枚举 / proxy provider names */
 export type ProxyProviderName = 'kuaidaili' | 'wandouhttp' | 'static'
 
