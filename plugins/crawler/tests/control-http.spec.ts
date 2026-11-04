@@ -16,7 +16,7 @@ import type { Context } from '@deepseek-ai/cordis'
 const req: CrawlerRunRequest = {
   platform: 'xhs', loginType: 'qrcode', crawlerType: 'search', keywords: ['美食'],
   specifiedIds: [], creatorIds: [], enableComments: true, enableSubComments: false,
-  enableMedia: false, saveOption: 'jsonl', cookies: null, headless: false,
+  enableMedia: false, cookies: null, headless: false,
   maxNotesCount: 20, maxCommentsCount: 10, startPage: 1,
 }
 
@@ -121,7 +121,7 @@ describe('ControlApi on host webServer', () => {
       expect(platforms.platforms).toHaveLength(7)
       const options = (await (await fetch(`${ctx.base}/api/config/options`)).json()) as Record<string, unknown[]>
       expect(options.login_types).toHaveLength(3)
-      expect(options.save_options).toHaveLength(9)
+      expect(options.crawler_types).toHaveLength(3)
     } finally {
       ctx.dispose()
       await ctx.close()
@@ -163,20 +163,12 @@ describe('ControlApi on host webServer', () => {
     }
   })
 
-  it('serves logs, data files list, preview, download, stats and 404 for unknown routes', async () => {
+  it('serves logs, the domain data face and 404 for unknown routes', async () => {
     const ctx = await makeApi()
     try {
       expect(((await (await fetch(`${ctx.base}/api/crawler/logs?limit=5`)).json()) as { logs: unknown[] }).logs).toEqual([])
-      const files = (await (await fetch(`${ctx.base}/api/data/files`)).json()) as { files: { path: string }[] }
-      expect(files.files.map((file) => file.path)).toEqual(['xhs.jsonl'])
-      const preview = await (await fetch(`${ctx.base}/api/data/files/xhs.jsonl?preview=true&limit=10`)).json()
-      expect(preview).toMatchObject({ total: 1 })
-      const download = await fetch(`${ctx.base}/api/data/download/xhs.jsonl`)
-      expect(await download.text()).toContain('n1')
-      const stats = await (await fetch(`${ctx.base}/api/data/stats`)).json()
-      expect(stats).toMatchObject({ total_files: 1 })
-      const missing = await fetch(`${ctx.base}/api/data/download/nope.json`)
-      expect(missing.status).toBe(404)
+      const domain = (await (await fetch(`${ctx.base}/api/data/domain`)).json()) as { open: boolean; contents: number }
+      expect(domain).toMatchObject({ open: false, contents: 0 })
       const unknown = await fetch(`${ctx.base}/api/data/nope`)
       expect((await unknown.json()).code).toBe('NOT_FOUND')
     } finally {

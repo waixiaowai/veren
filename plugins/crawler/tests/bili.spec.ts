@@ -71,10 +71,9 @@ describe('BiliCrawler', () => {
     })
   }
 
-  const session: never = undefined as never
-
   it('signs each page against the nav keys and stops at hasMore=false', async () => {
     const fetchJson = vi.fn(async (url: string) => {
+      if (url.includes('/finger/spi')) return { b_3: 'buvid3', b_4: 'buvid4' }
       if (url.includes('/nav')) return navPayload('img', 'sub')
       if (url.includes('page=2')) return { code: 0, data: { result: [] } }
       expect(url).toContain('w_rid=')
@@ -85,7 +84,11 @@ describe('BiliCrawler', () => {
     const handed: string[] = []
     await crawler.search('美食', { content: async (item) => void handed.push(item.id), comment: async () => {} })
     expect(handed).toEqual(['BV1'])
-    expect(fetchJson).toHaveBeenCalledTimes(3)
-    void session
+    // 3 次：spi 预热 + nav 密钥 + 第 1 页搜索；预热先于签名发生 / 3 calls: spi warm-up + nav keys + page-1 search; warm-up precedes signing
+    const calls = fetchJson.mock.calls.map((call) => String(call[0]))
+    expect(calls).toHaveLength(4)
+    expect(calls[0]).toContain('/finger/spi')
+    expect(calls[1]).toContain('/nav')
+    expect(calls.find((url) => url.includes('page=1'))).toBeDefined()
   })
 })

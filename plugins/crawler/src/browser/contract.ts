@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 浏览器自动化契约：双模式浏览器（CDP 接管优先 / 标准启动回退）
  * （design/modules/crawler.md 关键决策 1 与 §3 契约）。
  * Browser automation contracts: the dual-mode browser (CDP attach first,
@@ -34,7 +34,7 @@ export interface RawResponseLike {
 
 /** 原始页面（playwright-core 子集）/ the raw page (a playwright-core subset) */
 export interface RawPageLike {
-  goto(url: string): Promise<unknown>
+  goto(url: string, options?: { waitUntil?: 'load' | 'domcontentloaded' | 'commit' }): Promise<unknown>
   content(): Promise<string>
 }
 

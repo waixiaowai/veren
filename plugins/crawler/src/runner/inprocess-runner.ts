@@ -1,9 +1,9 @@
 /**
- * 进程内运行器：`dsh` 介质在宿主进程内执行采集（访问 storageDomain 必须
- * 在宿主进程），日志走同一环形缓冲，状态语义与子进程一致。
- * The in-process runner: the `dsh` medium executes the crawl inside the
- * host process (storageDomain access requires it); logs flow into the same
- * ring buffer, status semantics match the subprocess runner.
+ * 进程内运行器：采集在宿主进程内执行（存储域访问要求），日志走同一环形
+ * 缓冲，状态语义与句柄抽象一致。
+ * The in-process runner: crawls execute inside the host process (the
+ * storage domain requires it); logs flow into the same ring buffer, status
+ * semantics match the handle abstraction.
  *
  * 终止语义：进程内无强杀，只有协作式取消——在页间与条目间检查取消标记。
  * Termination semantics: no force-kill in-process, cooperative cancellation
@@ -33,12 +33,10 @@ export class CancelFlag {
 
 /** 进程内运行器构造参数 / in-process runner construction options */
 export interface InProcessRunnerOptions {
-  /** 管线依赖 / the pipeline dependencies */
-  deps: PipelineDeps
-  /** 数据输出根目录 / data output root */
-  dataRoot: string
-  /** 已打开的宿主存储域 / the opened host storage domain */
-  domain: CrawlerStore
+  /** 管线依赖（按请求造）/ the pipeline dependencies (built per request) */
+  deps: (request: CrawlerRunRequest) => PipelineDeps
+  /** 已打开的宿主存储域（取数时求值）/ the opened host storage domain (evaluated at spawn) */
+  domain: () => CrawlerStore
 }
 
 /**
@@ -51,8 +49,8 @@ export const createInProcessRunner =
   (request: CrawlerRunRequest, logs: LogBuffer): RunnerHandle => {
     const flag = new CancelFlag()
     logs.append('[INFO] in-process crawl starting')
-    const exit = runPipeline(request, options.deps, options.dataRoot, {
-      domain: options.domain,
+    const exit = runPipeline(request, options.deps(request), {
+      domain: options.domain(),
       cancelFlag: flag,
     })
       .then((code) => {

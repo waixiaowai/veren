@@ -1,14 +1,14 @@
 /**
- * 运行句柄抽象：控制服务与采集进程的唯一耦合面（design/modules/api.md §1）。
+ * 运行句柄抽象：控制服务与采集执行（进程内运行器）的唯一耦合面。
  * The runner-handle abstraction: the only coupling surface between the
- * control service and the crawl process (design api.md §1).
+ * control service and the crawl execution (the in-process runner).
  *
  * @module @veren/crawler/control/runner
  */
-import type { CrawlerType, Platform, SaveDataOption, LoginType } from '../types.ts'
+import type { CrawlerType, Platform, LoginType } from '../types.ts'
 import type { LogBuffer } from './logs.ts'
 
-/** 启动请求（api.md 请求体字段一一对应）/ the start request (one-to-one with the api.md body) */
+/** 启动请求 / the start request */
 export interface CrawlerRunRequest {
   platform: Platform
   loginType: LoginType
@@ -19,7 +19,6 @@ export interface CrawlerRunRequest {
   enableComments: boolean
   enableSubComments: boolean
   enableMedia: boolean
-  saveOption: SaveDataOption
   cookies: string | null
   headless: boolean
   maxNotesCount: number

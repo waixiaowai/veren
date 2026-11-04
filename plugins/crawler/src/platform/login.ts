@@ -12,6 +12,7 @@
 import { invalidPlatform } from '../errors.ts'
 import { createWbLogin, probeWbLoggedIn } from './wb/auth.ts'
 import { createTiebaLogin, probeTiebaLoggedIn } from './tieba/auth.ts'
+import { createBiliLogin, probeBiliLoggedIn } from './bili/auth.ts'
 import type { AbstractLogin, LoginProbe } from '../auth/contract.ts'
 import type { BrowserSession } from '../browser/contract.ts'
 import type { CrawlerRunRequest } from '../control/runner.ts'
@@ -35,6 +36,9 @@ export function createPlatformAuth(platform: Platform, session: BrowserSession, 
   }
   if (platform === 'tieba') {
     return { probe: async () => await probeTiebaLoggedIn(session), login: createTiebaLogin(session, request) }
+  }
+  if (platform === 'bili') {
+    return { probe: async () => await probeBiliLoggedIn(session), login: createBiliLogin(session, request) }
   }
   throw invalidPlatform(platform)
 }

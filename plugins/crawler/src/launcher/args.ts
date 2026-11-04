@@ -3,24 +3,22 @@
  * Launch argument parsing and validation (the launcher contract in
  * design/modules/launcher.md plus the start-request body in design/api.md).
  *
- * 枚举非法在 CLI 路径告警后回退默认（不中断进程）；API 路径与未知平台
- * 一律抛错——意图分离：自动化脚本不因小笔误中断，服务接口则 fail loud。
- * Illegal enums fall back to defaults on the CLI path (process continues);
- * the API path and unknown platforms throw — automation scripts survive
- * typos while service interfaces fail loud.
+ * 枚举非法直接抛错（fail loud）——存储只认宿主 storageDomain 后，文件/
+ * 数据库时代的 saveDataOption、initDb、saveDataPath 已随介质一起移除。
+ * Illegal enums throw (fail loud) — with storage being the host
+ * storageDomain only, the file/db-era saveDataOption, initDb and
+ * saveDataPath went away together with the media.
  *
  * @module @veren/crawler/launcher/args
  */
 import { PLATFORMS } from '../constants.ts'
 import {
   assertCrawlerType,
-  assertInitDb,
   assertLoginType,
   assertPlatform,
-  assertSaveOption,
   invalidArgument,
 } from '../errors.ts'
-import type { CommandArgs, CrawlerType, LoginType, Platform, SaveDataOption } from '../types.ts'
+import type { CommandArgs, CrawlerType, LoginType, Platform } from '../types.ts'
 
 /** 解析输入：部分字段缺失时以默认值补齐 / the parse input: missing fields fall back to defaults */
 export interface RawCommandArgs {
@@ -34,14 +32,11 @@ export interface RawCommandArgs {
   getComment: boolean
   getSubComment: boolean
   getMedia: boolean
-  saveDataOption: string
   cookies: string | null
   headless: boolean
   crawlerMaxNotesCount?: number
   maxCommentsCountSingleNotes?: number
   maxConcurrencyNum?: number
-  initDb?: string | null
-  saveDataPath: string
   enableIpProxy?: boolean
   ipProxyPoolCount?: number
   ipProxyProviderName?: string
@@ -52,7 +47,6 @@ export interface RawCommandArgs {
 export interface ArgDefaults {
   loginType: LoginType
   crawlerType: CrawlerType
-  saveDataOption: SaveDataOption
   platform: Platform
 }
 
@@ -84,11 +78,9 @@ function requireCredential(args: CommandArgs): void {
 }
 
 /**
- * 解析并校验启动参数。枚举非法直接抛错（API 语义）；CLI 告警回退由
- * 调用方捕获 CrawlerError 后回退重调。
- * Parses and validates the launch arguments. Illegal enums throw (API
- * semantics); the CLI path catches the CrawlerError, warns and retries
- * with the defaulted field.
+ * 解析并校验启动参数：枚举守卫 + 模式必填项 + cookie 凭证 + 正整数。
+ * Parses and validates the launch arguments: enum guards, mode-specific
+ * required fields, the cookie credential, and positive-int checks.
  */
 export function resolveCommandArgs(raw: RawCommandArgs, defaults: ArgDefaults): CommandArgs {
   const args: CommandArgs = {
@@ -102,14 +94,11 @@ export function resolveCommandArgs(raw: RawCommandArgs, defaults: ArgDefaults): 
     getComment: raw.getComment,
     getSubComment: raw.getSubComment,
     getMedia: raw.getMedia,
-    saveDataOption: assertSaveOption(raw.saveDataOption || defaults.saveDataOption),
     cookies: raw.cookies ?? null,
     headless: raw.headless,
     crawlerMaxNotesCount: positiveInt(raw.crawlerMaxNotesCount, 'crawlerMaxNotesCount'),
     maxCommentsCountSingleNotes: positiveInt(raw.maxCommentsCountSingleNotes, 'maxCommentsCountSingleNotes'),
     maxConcurrencyNum: positiveInt(raw.maxConcurrencyNum, 'maxConcurrencyNum'),
-    initDb: assertInitDb(raw.initDb ?? null),
-    saveDataPath: raw.saveDataPath,
     enableIpProxy: raw.enableIpProxy ?? false,
     ipProxyPoolCount: positiveInt(raw.ipProxyPoolCount, 'ipProxyPoolCount'),
     ipProxyProviderName: raw.ipProxyProviderName === undefined ? 'static' : assertProxyProvider(raw.ipProxyProviderName),

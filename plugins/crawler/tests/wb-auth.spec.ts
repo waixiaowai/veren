@@ -18,7 +18,7 @@ import { fakeSession } from './helpers/session.ts'
 const request: CrawlerRunRequest = {
   platform: 'wb', loginType: 'qrcode', crawlerType: 'search', keywords: [],
   specifiedIds: [], creatorIds: [], enableComments: false, enableSubComments: false,
-  enableMedia: false, saveOption: 'jsonl', cookies: null, headless: false,
+  enableMedia: false, cookies: null, headless: false,
   maxNotesCount: 20, maxCommentsCount: 10, startPage: 1,
 }
 

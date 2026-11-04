@@ -9,8 +9,8 @@
  * @module @veren/crawler/errors
  */
 
-import { PLATFORMS, SAVE_DATA_OPTIONS } from './constants.ts'
-import type { CrawlerType, InitDbOption, LoginType, Platform, SaveDataOption } from './types.ts'
+import { PLATFORMS } from './constants.ts'
+import type { CrawlerType, InitDbOption, LoginType, Platform } from './types.ts'
 
 /** 全局错误码闭集 / the closed set of global error codes */
 export type CrawlerErrorCode =
@@ -73,11 +73,6 @@ export function invalidArgument(field: string, value: string): CrawlerError {
   return new CrawlerError('INVALID_ARGUMENT', `参数 ${field} 取值非法: ${value}`, { field, value })
 }
 
-/** 保存介质未注册 / unknown save option */
-export function invalidSaveOption(option: string): CrawlerError {
-  return new CrawlerError('INVALID_SAVE_OPTION', `不支持的数据保存方式: ${option}`, { option })
-}
-
 /**
  * 枚举守卫：校验平台值，非法即抛 INVALID_PLATFORM。
  * Enum guard: validates a platform value, throwing INVALID_PLATFORM when unknown.
@@ -99,13 +94,7 @@ export function assertCrawlerType(value: string): CrawlerType {
   return value
 }
 
-/** 保存介质守卫 / save option guard */
-export function assertSaveOption(value: string): SaveDataOption {
-  if (!(SAVE_DATA_OPTIONS as readonly string[]).includes(value)) throw invalidSaveOption(value)
-  return value as SaveDataOption
-}
-
-/** 数据库初始化目标守卫 / init-db guard */
+/** 数据库初始化目标守卫（数据库介质归 dsh 其他插件，本守卫暂留枚举文档用）/ init-db guard retained for documentation; db media belong to other dsh plugins */
 export function assertInitDb(value: string | null): InitDbOption | null {
   if (value === null) return null
   if (value !== 'sqlite' && value !== 'mysql' && value !== 'postgres') throw invalidArgument('initDb', value)

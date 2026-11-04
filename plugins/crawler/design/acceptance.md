@@ -55,3 +55,14 @@ lastUpdated: 2026-11-04
 | R-UI-1 面板可用性 | 控制台面板 | console | SYS-12、SYS-13、SYS-14 |
 
 追溯核对：每个需求至少对应一个验收项，每个验收项至少回指一个需求；无孤立行。核心链路需求（R-CRAWL-5、R-AUTH-2、R-STORE-1、R-STORE-2、R-PRIV-1）与验收项双向覆盖，标注「核心」。
+
+## 3. Verification Log（验证状态记录）
+
+> 本节为实现过程的带日期验证快照，与《实现决策记录》（implementation-decisions.md）对齐；正文验收项保持原始口径。
+
+**2026-11-04 快照**（存储简化后：只认宿主 storageDomain，文件/数据库介质归 dsh 其他插件）：
+
+- **单测覆盖（vitest，150 用例）**：SYS-03（dsh 域 upsert 幂等）、SYS-05（单任务互斥）、SYS-06（越界 403 语义，单测层）、SYS-08（限频退避重试）、SYS-10（停止超时强杀）、SYS-11（非法转移拒绝）、SYS-15（脱敏红线——任何整形结果无明文标识）。
+- **真机证据（稳定节点 3080）**：SYS-01 等价链（tieba 免登录通道真机落库 15+ 行，退出码 0）；SYS-02 部分等价（控制 API 启停真机可用；ws-logs/ws-status 升级 + accept + 首帧载荷真机实证——ws-status 逐秒推送真实状态 JSON；面板人工操作待验）；SYS-05（真机 start 返回 started/ rejected 语义）；SYS-15（crawler.json 与 jsonl 均无明文标识、昵称全部遮蔽）。
+- **真机补充（11-04）**：R-AUTH 拒绝路径实证——wb 创作者模式无 Cookie 被拒（`CREDENTIAL_MISSING`，exit 1，未发业务请求，会话关闭），登录前置铁律真机成立。**待验**：SYS-04（媒体开关真机）、SYS-07（跨会话登录态隔离真机）、SYS-09（中断清理真机）、SYS-12/13/14（面板人肉走查）、SYS-16（八介质一致性——随存储简化改为「dsh 域 + 其他 dsh 存储插件」口径，由宿主存储生态承接）。
+- **口径变更**：R-STORE-1「八介质落地」按用户指令收敛为「宿主 storageDomain 单介质」；八介质由 dsh 存储生态其他插件承接。

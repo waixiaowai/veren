@@ -80,3 +80,10 @@ export function biliHasMore(payload: unknown): boolean {
   const response = payload as BiliSearchResponse
   return response.code === 0 && (response.data?.result?.length ?? 0) > 0
 }
+
+/** 响应的业务码（code!==0 即风控/限频类失败，-412 常见）/ the response's business code (nonzero = risk-control/rate-limit failure, -412 common) */
+export function biliErrorCode(payload: unknown): number | null {
+  if (payload === null || typeof payload !== 'object') return null
+  const code = (payload as BiliSearchResponse).code
+  return typeof code === 'number' && code !== 0 ? code : null
+}

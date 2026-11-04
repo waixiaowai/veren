@@ -1,8 +1,8 @@
 /**
- * 词频与词云数据源：从 jsonl 评论文件生成词频表（design/modules/tools.md
+ * 词频数据源：从评论文本生成词频表（design/modules/tools.md
  * 词云条目）。
  * Word frequencies and the wordcloud data source: builds the frequency
- * table from a jsonl comments file (the wordcloud entry in tools.md).
+ * table from comment texts (the wordcloud entry in tools.md).
  *
  * 教学版边界：本模块产出**词频表**（词 → 次数）与停用词过滤；词云**图**
  * 的渲染交给外部工具消费词频表（如 echarts-wordcloud），插件内不引渲染
@@ -72,59 +72,4 @@ export function wordFrequencies(comments: readonly string[], options: WordFreque
     .map(([word, count]) => ({ word, count }))
     .sort((a, b) => b.count - a.count || a.word.localeCompare(b.word))
   return options.topK === undefined ? sorted : sorted.slice(0, options.topK)
-}
-
-/**
- * 从 jsonl 评论文件读词频：文件每行一条评论对象，取 `content` 字段。
- * Reads frequencies from a jsonl comments file: one comment object per
- * line, keyed by the `content` field.
- */
-export async function wordFrequenciesFromJsonl(file: string, options: WordFrequencyOptions = {}): Promise<WordFrequency[]> {
-  let text: string
-  try {
-    text = await readFile(file, 'utf8')
-  } catch {
-    // 评论文件缺失 = 没有评论可统计 / a missing comments file means nothing to count
-    return []
-  }
-  const comments: string[] = []
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
-    if (trimmed.length === 0) continue
-    try {
-      const record = JSON.parse(trimmed) as { content?: unknown }
-      if (typeof record.content === 'string') comments.push(record.content)
-    } catch {
-      // 坏行跳过，不中断词频统计 / skip a broken line, never break the count
-    }
-  }
-  return wordFrequencies(comments, options)
-}
-
-/**
- * 生成词频表文件（design/data.md §5 词云产物：数据根/平台/words/，前缀
- * 采集模式_comments_日期）。评论文件缺失时静默跳过——词云是旁路产物。
- * Writes the word-frequency table file (the wordcloud artifact per
- * design/data.md §5: dataRoot/platform/words/, prefixed
- * mode_comments_date). Skips silently when the comments file is missing —
- * the wordcloud is a bypass artifact.
- *
- * @returns 写出的文件路径；未生成时为 null / the written path, or null when skipped
- */
-export async function writeWordFrequencyTable(options: {
-  dataRoot: string
-  platform: string
-  crawlerType: string
-  day: string
-  topK?: number
-}): Promise<string | null> {
-  const { mkdir, writeFile } = await import('node:fs/promises')
-  const commentsFile = join(options.dataRoot, options.platform, 'jsonl', `${options.crawlerType}_comments_${options.day}.jsonl`)
-  const frequencies = await wordFrequenciesFromJsonl(commentsFile, { topK: options.topK })
-  if (frequencies.length === 0) return null
-  const wordsDir = join(options.dataRoot, options.platform, 'words')
-  await mkdir(wordsDir, { recursive: true })
-  const target = join(wordsDir, `${options.crawlerType}_comments_${options.day}.json`)
-  await writeFile(target, `${JSON.stringify(frequencies, null, 2)}\n`, 'utf8')
-  return target
 }

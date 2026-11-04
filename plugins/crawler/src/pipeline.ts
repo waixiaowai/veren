@@ -1,13 +1,16 @@
 /**
- * 采集管线：会话 → 登录 → 平台爬取器 → 数据汇 → 介质落盘的全链路装配。
+ * 采集管线：会话 → 登录 → 平台爬取器 → 数据汇 → 宿主存储域的全链路装配。
  * The crawl pipeline: session → login → platform crawler → data sink →
- * media persistence, assembled end to end.
+ * host storage domain, assembled end to end.
  *
  * 会话与登录是管线的职责（铁律 1「先凭证后请求」）：先建浏览器会话，
  * 探测/登录通过后才允许发出任何业务请求；会话在成功与失败路径上都会关闭。
+ * 存储只认宿主 storageDomain（文件/数据库介质归 dsh 其他插件）。
  * The pipeline owns the session and the login (invariant 1, "credentials
  * before requests"): the browser session comes first, business requests only
  * start after a passing probe/login, and the session closes on both paths.
+ * Storage is the host storageDomain only (file/database media belong to
+ * other dsh plugins).
  *
  * @module @veren/crawler/pipeline
  */
@@ -17,8 +20,7 @@ import { persistLoginState } from './auth/persist.ts'
 import { createSessionFetchJson } from './browser/context-fetch.ts'
 import { createPlatformAuth, type PlatformAuth } from './platform/login.ts'
 import { report } from './runner/report.ts'
-import { StoreSink, assertStoreSupports } from './sink.ts'
-import { writeWordFrequencyTable } from './wordcloud.ts'
+import { StoreSink } from './sink.ts'
 import { WbCrawler, type FetchJson } from './platform/wb/crawler.ts'
 import { TiebaCrawler } from './platform/tieba/crawler.ts'
 import { BiliCrawler } from './platform/bili/crawler.ts'
@@ -46,7 +48,7 @@ export interface PipelineDeps {
 
 /** 管线运行选项 / the pipeline run options */
 export interface PipelineRunOptions {
-  /** 已打开的宿主存储域（`dsh` 介质必需）/ the opened host storage domain (required by the `dsh` medium) */
+  /** 已打开的宿主存储域 / the opened host storage domain */
   domain?: CrawlerStore
   /** 协作式取消标记（进程内运行器注入）/ the cooperative-cancel flag (injected by the in-process runner) */
   cancelFlag?: CancelFlag
@@ -127,74 +129,50 @@ async function loginBeforeCrawl(request: CrawlerRunRequest, deps: PipelineDeps, 
   report('登录完成，登录态已写入浏览器档案 / login done, session persisted into the browser profile')
 }
 
-/** 采集一段：建数据汇 → 爬取 → 介质收尾 / the crawl segment: sink, crawl, medium finalize */
+/** 采集一段：建数据汇 → 爬取（存储域由管线持有，缺域 fail loud）/ the crawl segment: sink, crawl (the domain is pipeline-owned; missing fails loud) */
 async function crawlWithSink(
   request: CrawlerRunRequest,
   deps: PipelineDeps,
   session: BrowserSession,
-  dataRoot: string,
-  options: PipelineRunOptions,
+  domain: CrawlerStore,
 ): Promise<number> {
   const crawler = createPlatformCrawler(request, deps.fetchJson ?? createSessionFetchJson(session))
   const sink = new StoreSink({
-    dataRoot,
     platform: request.platform,
-    crawlerType: request.crawlerType,
     sourceKeyword: request.keywords[0] ?? null,
-    saveDataOption: request.saveOption,
-    domain: options.domain,
+    domain,
   })
-  try {
-    await crawler.run(session, sink)
-  } finally {
-    await sink.finalize()
-  }
+  await crawler.run(session, sink)
   // 收尾如实报数：0 条也要说出来（静默空结果是最难查的故障）。
   // Honest closing counts, zeros included (a silent empty result is the
   // hardest failure to diagnose).
   report(
-    `落盘完成：内容 ${sink.contentsWritten} 条，评论 ${sink.commentsWritten} 条 / ` +
+    `落库完成：内容 ${sink.contentsWritten} 条，评论 ${sink.commentsWritten} 条 / ` +
       `persisted ${sink.contentsWritten} contents, ${sink.commentsWritten} comments`,
   )
   return 0
 }
 
 /**
- * 全链路运行：会话 → 登录 → 采集 → 会话清理。
- * Runs the full chain: session → login → crawl → session cleanup.
+ * 全链路运行：会话 → 登录 → 采集 → 会话清理。存储域必须已打开。
+ * Runs the full chain: session → login → crawl → session cleanup. The
+ * storage domain must be open.
  */
 export async function runPipeline(
   request: CrawlerRunRequest,
   deps: PipelineDeps,
-  dataRoot: string,
   options: PipelineRunOptions = {},
 ): Promise<number> {
-  assertStoreSupports(request.saveOption)
+  if (options.domain === undefined) {
+    throw new CrawlerError('DB_CONNECT_FAILED', '宿主存储域未打开，无法落库', {})
+  }
   assertWiredPlatform(request.platform)
   report(`启动采集：平台=${request.platform} 模式=${request.crawlerType} 登录=${request.loginType} 无头=${request.headless}`)
   const session = await deps.launchSession()
   try {
     const auth = deps.auth ?? createPlatformAuth(request.platform, session, request)
     await loginBeforeCrawl(request, deps, auth)
-    const code = await crawlWithSink(request, deps, session, dataRoot, options)
-    // 词云旁路：jsonl 介质采集结束后按设计命名产出词频表；失败只记不抛
-    // （旁路失败不中断采集主流程）。
-    // The wordcloud bypass: after a jsonl crawl, produce the frequency
-    // table under the design naming; failures are logged, never thrown
-    // (a bypass failure must not break the crawl).
-    if (request.saveOption === 'jsonl') {
-      try {
-        const table = await writeWordFrequencyTable({
-          dataRoot,
-          platform: request.platform,
-          crawlerType: request.crawlerType,
-          day: new Date().toISOString().slice(0, 10),
-        })
-        if (table !== null) report(`词频表已生成：${table}`)
-      } catch (error: unknown) {
-        report(`词频表生成失败（不影响采集数据）：${String(error)}`)
-      }
-    }
+    const code = await crawlWithSink(request, deps, session, options.domain)
     report('采集结束 / crawl finished')
     return code
   } finally {

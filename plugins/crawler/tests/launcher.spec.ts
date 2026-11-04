@@ -19,13 +19,11 @@ const base: RawCommandArgs = {
   getComment: true,
   getSubComment: false,
   getMedia: false,
-  saveDataOption: 'jsonl',
   cookies: null,
   headless: false,
-  saveDataPath: './data',
 }
 
-const defaults = { loginType: 'qrcode', crawlerType: 'search', saveDataOption: 'jsonl', platform: 'xhs' } as const
+const defaults = { loginType: 'qrcode', crawlerType: 'search', platform: 'xhs' } as const
 
 describe('resolveCommandArgs', () => {
   it('fills defaults and positive-int guards', () => {
@@ -58,15 +56,8 @@ describe('resolveCommandArgs', () => {
     expect(() => resolveCommandArgs({ ...base, loginType: 'cookie', cookies: 'web_session=1' }, defaults)).not.toThrow()
   })
 
-  it('rejects unknown save option and non-positive integers', () => {
-    expect(() => resolveCommandArgs({ ...base, saveDataOption: 'parquet' }, defaults)).toThrowError(CrawlerError)
+  it('rejects non-positive integers', () => {
     expect(() => resolveCommandArgs({ ...base, startPage: 0 }, defaults)).toThrowError(/startPage/)
-  })
-
-  it('accepts all eight legal save options including excel', () => {
-    for (const option of ['csv', 'db', 'json', 'jsonl', 'sqlite', 'mongodb', 'excel', 'postgres']) {
-      expect(() => resolveCommandArgs({ ...base, saveDataOption: option }, defaults)).not.toThrow()
-    }
   })
 })
 

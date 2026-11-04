@@ -1,4 +1,4 @@
-﻿import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { DshStore } from '../src/store/dsh-store.ts'
 import { commentKey, contentKey } from '../src/store/domain.ts'
 import { createInProcessRunner, CancelFlag } from '../src/runner/inprocess-runner.ts'
@@ -8,9 +8,9 @@ import type { CrawlerRunRequest } from '../src/control/runner.ts'
 import type { DataSink, RawItem } from '../src/crawler/contract.ts'
 import type { CrawlerStore } from '../src/store/domain.ts'
 
-// 意见 2 落地验证：dsh 存储介质 upsert 幂等、进程内运行器协作取消、
+// 存储域直连验证：dsh 存储按业务主键 upsert 幂等、进程内运行器协作取消、
 // swapRunner 仅空闲时允许。
-// Directive-2 verification: dsh-medium upsert idempotence, in-process
+// Storage-domain verification: dsh upsert idempotence, in-process
 // cooperative cancellation, and swapRunner only when idle.
 /** 可控假域 / a controllable fake domain */
 function fakeDomain(): CrawlerStore & { rows: Map<string, unknown> } {
@@ -44,26 +44,20 @@ describe('DshStore', () => {
     await store.storeComment({ ...content, id: 'c1', contentId: 'n1', content: 'x' } as never)
     expect(domain.rows.get(commentKey('wb', 'n1', 'c1'))).toBeDefined()
   })
-
-  it('needs the domain handle: the factory rejects dsh without one', async () => {
-    const { createStoreFactory } = await import('../src/store/factory.ts')
-    expect(() => createStoreFactory({ dataRoot: '.', platform: 'wb', crawlerType: 'search', day: '2026-11-04' })('dsh')).toThrowError(/dsh/)
-  })
 })
 
 describe('in-process runner', () => {
   const request: CrawlerRunRequest = {
     platform: 'wb', loginType: 'cookie', crawlerType: 'search', keywords: ['美食'],
     specifiedIds: [], creatorIds: [], enableComments: false, enableSubComments: false,
-    enableMedia: false, saveOption: 'dsh', cookies: null, headless: true,
+    enableMedia: false, cookies: null, headless: true,
     maxNotesCount: 5, maxCommentsCount: 3, startPage: 1,
   }
 
   it('runs the pipeline in-process and reports the exit code into the log buffer', async () => {
     const logs = { append: vi.fn((line: string) => line) } as never
     const runner = createInProcessRunner({
-      deps: {
-        fetchJson: async () => ({ ok: 0, data: { cards: [] } }),
+      deps: () => ({
         // 登录面直中：本用例只验运行器语义，不验登录（登录有独立 spec）。
         // A logged-in face: this case only covers runner semantics; login has its own spec.
         auth: {
@@ -82,14 +76,13 @@ describe('in-process runner', () => {
             pages: async () => [],
             addCookies: async () => {},
             cookies: async () => [],
-            requestJson: async () => ({}),
+            requestJson: async () => ({ ok: 0, data: { cards: [] } }),
             close: async () => {},
           },
           close: async () => {},
         }),
-      },
-      dataRoot: '.',
-      domain: fakeDomain(),
+      }),
+      domain: () => fakeDomain(),
     })
     const handle = runner(request, logs)
     const code = await handle.exit

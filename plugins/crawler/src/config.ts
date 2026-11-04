@@ -9,12 +9,10 @@
  * @module @veren/crawler/config
  */
 import z from '@deepseek-ai/schemastery'
-import { CRAWLER_TYPES, LOGIN_TYPES, PLATFORMS, SAVE_DATA_OPTIONS } from './constants.ts'
+import { CRAWLER_TYPES, LOGIN_TYPES, PLATFORMS } from './constants.ts'
 
 /** 插件配置形状 / the plugin configuration shape */
 export interface Config {
-  /** 数据输出根目录 / data output root directory */
-  dataRoot: string
   /** 是否启用 IP 代理默认值 / default IP proxy switch */
   enableIpProxy: boolean
   /** 默认内容数量上限 / default max note count */
@@ -29,8 +27,6 @@ export interface Config {
   crawlerType: (typeof CRAWLER_TYPES)[number]
   /** 默认登录方式 / default login type */
   loginType: (typeof LOGIN_TYPES)[number]
-  /** 默认保存介质 / default save option */
-  saveDataOption: (typeof SAVE_DATA_OPTIONS)[number]
   /** 浏览器登录档案根目录 / the browser profile root directory */
   browserDataRoot: string
   /** 标准启动的系统浏览器渠道 / the system browser channel for standard launches */
@@ -43,7 +39,6 @@ export interface Config {
  */
 export const Config: z<Config> = z
   .object({
-    dataRoot: z.string().default('./data/crawler').description('数据输出根目录 / data output root'),
     enableIpProxy: z.boolean().default(false).description('是否启用 IP 代理 / enable IP proxy'),
     crawlerMaxNotesCount: z.number().default(20).description('内容数量上限 / max note count'),
     maxCommentsCountSingleNotes: z.number().default(10).description('单条内容评论上限 / max comments per note'),
@@ -51,7 +46,6 @@ export const Config: z<Config> = z
     platform: z.union(PLATFORMS).default('xhs').description('默认平台 / default platform'),
     crawlerType: z.union(CRAWLER_TYPES).default('search').description('默认采集模式 / default crawler type'),
     loginType: z.union(LOGIN_TYPES).default('qrcode').description('默认登录方式 / default login type'),
-    saveDataOption: z.union(SAVE_DATA_OPTIONS).default('jsonl').description('默认保存介质 / default save option'),
     browserDataRoot: z.string().default('./browser-data').description('浏览器登录档案根目录 / browser profile root'),
     browserChannel: z.union(['chrome', 'msedge'] as const).default('chrome').description('系统浏览器渠道 / the system browser channel'),
   })
@@ -62,7 +56,6 @@ export type RuntimeConfig = Config
 
 /** 代码级默认值：与 schema 默认值保持一致 / code-level defaults, kept in sync with the schema defaults */
 export const DEFAULT_CONFIG: Config = {
-  dataRoot: './data/crawler',
   enableIpProxy: false,
   crawlerMaxNotesCount: 20,
   maxCommentsCountSingleNotes: 10,
@@ -70,7 +63,6 @@ export const DEFAULT_CONFIG: Config = {
   platform: 'xhs',
   crawlerType: 'search',
   loginType: 'qrcode',
-  saveDataOption: 'jsonl',
   browserDataRoot: './browser-data',
   browserChannel: 'chrome',
 }

@@ -19,23 +19,12 @@ export type CrawlerType = 'search' | 'detail' | 'creator'
 export type LoginType = 'qrcode' | 'phone' | 'cookie'
 
 /**
- * 数据保存介质 / save data options
- *
- * `dsh` 为宿主集成扩展（意见 2：存储适配 dsh storageDomain），其余八项
- * 与 design/modules/launcher.md 枚举一致。
- * `dsh` is the host-integration extension (directive 2); the other eight
- * match the launcher enum in design/modules/launcher.md.
+ * 存储介质：仅宿主 storageDomain（用户指令：文件/数据库介质归 dsh 其他
+ * 插件；design 原八介质枚举由宿主存储生态承接）。
+ * Storage medium: the host storageDomain only (directive: file/database
+ * media belong to other dsh plugins; the design's eight-media enum is
+ * carried by the host storage ecosystem).
  */
-export type SaveDataOption =
-  | 'csv'
-  | 'db'
-  | 'json'
-  | 'jsonl'
-  | 'sqlite'
-  | 'mongodb'
-  | 'excel'
-  | 'postgres'
-  | 'dsh'
 
 /** 数据库初始化目标 / database init targets */
 export type InitDbOption = 'sqlite' | 'mysql' | 'postgres'
@@ -68,8 +57,6 @@ export interface CommandArgs {
   getSubComment: boolean
   /** 是否下载媒体文件 / whether to download media files */
   getMedia: boolean
-  /** 数据保存介质 / save data option */
-  saveDataOption: SaveDataOption
   /** cookie 登录凭证串 / cookie credential string for cookie login */
   cookies: string | null
   /** 无头浏览器 / headless browser */
@@ -80,10 +67,6 @@ export interface CommandArgs {
   maxCommentsCountSingleNotes: number
   /** 并发信号量 / concurrency semaphore */
   maxConcurrencyNum: number
-  /** 仅初始化数据库后退出 / init db then exit */
-  initDb: InitDbOption | null
-  /** 数据输出根目录 / data output root directory */
-  saveDataPath: string
   /** 是否启用 IP 代理 / whether to enable IP proxy */
   enableIpProxy: boolean
   /** 代理池数量 / proxy pool count */

@@ -23,7 +23,7 @@ describe('crawler tools', () => {
         entries: () => (name === 'contents' ? rows.entries() : new Map().entries()),
       }),
     } as unknown as CrawlerStore
-    bindToolPort({ manager: {} as CrawlerManager, domain: () => domain, dataRoot: '.' })
+    bindToolPort({ manager: {} as CrawlerManager, domain: () => domain })
     const data = createCrawlerTools().find((tool) => tool.name === 'data')
     expect(data).toBeDefined()
     const rendered = await data!.execute({}, {} as never)
@@ -32,7 +32,7 @@ describe('crawler tools', () => {
   })
 
   it('folds illegal enums into error canonical values on start', async () => {
-    bindToolPort({ manager: {} as CrawlerManager, domain: () => undefined, dataRoot: '.' })
+    bindToolPort({ manager: {} as CrawlerManager, domain: () => undefined })
     const start = createCrawlerTools().find((tool) => tool.name === 'start')
     const rendered = await start!.execute({ platform: 'twitter', crawlerType: 'search' }, {} as never)
     expect(JSON.stringify(rendered)).toContain('INVALID_PLATFORM')

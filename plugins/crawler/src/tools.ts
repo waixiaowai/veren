@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 模型工具面：启停采集、查状态、看日志、列数据（意见 4：dsh tools 注册）。
  * The model tool face: start/stop crawls, read status, tail logs, and list
  * data (directive 4: dsh tools registration).
@@ -14,7 +14,7 @@
  * @module @veren/crawler/tools
  */
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { assertCrawlerType, assertLoginType, assertPlatform, assertSaveOption } from './errors.ts'
+import { assertCrawlerType, assertLoginType, assertPlatform } from './errors.ts'
 import type { CrawlerManager } from './control/manager.ts'
 import type { CrawlerRunRequest } from './control/runner.ts'
 import type { CrawlerStore } from './store/domain.ts'
@@ -26,8 +26,6 @@ export interface CrawlerToolPort {
   manager: CrawlerManager
   /** 已打开存储域（未开时 undefined）/ the opened domain (undefined until open) */
   domain: () => CrawlerStore | undefined
-  /** 数据输出根目录 / the data output root */
-  dataRoot: string
 }
 
 /** 错误规范值的 schema 面 / the error value's schema face */
@@ -90,7 +88,6 @@ interface StartToolInput {
   keywords?: string[]
   specifiedIds?: string[]
   creatorIds?: string[]
-  saveOption?: string
   loginType?: string
   cookies?: string
   headless?: boolean
@@ -102,14 +99,13 @@ interface StartToolInput {
 function startTool() {
   return defineTool({
     name: 'start',
-    description: 'Start a content-crawl task on this machine (single-task mutex: a running task rejects new starts). Provide the platform (xhs/dy/ks/bili/wb/tieba/zhihu), mode (search/detail/creator), targets, and the save medium (dsh stores into the host storage domain; jsonl/csv/json write files). loginType defaults to qrcode: a visible Chrome window opens on the platform login page and the run waits up to 300 seconds for you to scan; cookie login instead takes a cookies string. Read-only against the platforms: it only reads public contents.',
+    description: 'Start a content-crawl task on this machine (single-task mutex: a running task rejects new starts). Provide the platform (xhs/dy/ks/bili/wb/tieba/zhihu), mode (search/detail/creator), targets, data always lands in the host storage domain (dsh storage). loginType defaults to qrcode: a visible Chrome window opens on the platform login page and the run waits up to 300 seconds for you to scan; cookie login instead takes a cookies string. Read-only against the platforms: it only reads public contents.',
     parameters: {
       platform: { type: 'string', required: true },
       crawlerType: { type: 'string', required: true },
       keywords: { type: 'array', items: { type: 'string' } },
       specifiedIds: { type: 'array', items: { type: 'string' } },
       creatorIds: { type: 'array', items: { type: 'string' } },
-      saveOption: { type: 'string' },
       loginType: { type: 'string' },
       cookies: { type: 'string' },
       headless: { type: 'boolean' },
@@ -146,7 +142,6 @@ async function startCrawl(input: StartToolInput): Promise<string> {
     enableComments: input.enableComments ?? false,
     enableSubComments: false,
     enableMedia: false,
-    saveOption: assertSaveOption(input.saveOption ?? 'dsh'),
     cookies: input.cookies ?? null,
     headless: headlessOf(loginType, input.headless),
     maxNotesCount: input.maxNotesCount ?? 20,

@@ -9,7 +9,7 @@ import type { CrawlerRunRequest, RunnerHandle, RunnerSpawner } from '../src/cont
 const req: CrawlerRunRequest = {
   platform: 'xhs', loginType: 'qrcode', crawlerType: 'search', keywords: ['美食'],
   specifiedIds: [], creatorIds: [], enableComments: true, enableSubComments: false,
-  enableMedia: false, saveOption: 'jsonl', cookies: null, headless: false,
+  enableMedia: false, cookies: null, headless: false,
   maxNotesCount: 20, maxCommentsCount: 10, startPage: 1,
 }
 

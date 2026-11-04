@@ -50,7 +50,7 @@ async function parseJson(url: string, response: RawResponseLike): Promise<unknow
 /** 页面包装：只暴露插件需要的导航与正文 / page wrapper: navigation and content only */
 function wrapPage(raw: RawPageLike): PageLike {
   return {
-    goto: async (url: string) => await raw.goto(url),
+    goto: async (url: string) => await raw.goto(url, { waitUntil: 'domcontentloaded' }),
     content: async () => await raw.content(),
   }
 }

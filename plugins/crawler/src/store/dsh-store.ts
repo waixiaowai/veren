@@ -9,7 +9,6 @@
  *
  * @module @veren/crawler/store/dsh-store
  */
-import type { AbstractStore } from './contract.ts'
 import { commentKey, contentKey, type CrawlerStore } from './domain.ts'
 import type { CommentRecord, ContentRecord } from '../types.ts'
 
@@ -26,7 +25,7 @@ export interface DshStoreOptions {
  * The dsh medium: contents and comments upserted by business key into the
  * host storage domain.
  */
-export class DshStore implements AbstractStore {
+export class DshStore {
   constructor(private readonly options: DshStoreOptions) {}
 
   /** upsert 一条内容 / upsert one content */

@@ -1,4 +1,4 @@
-﻿import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { parseTiebaSearchResponse, tiebaHasMore } from '../src/platform/tieba/parse.ts'
 import { TiebaCrawler } from '../src/platform/tieba/crawler.ts'
 import { createPlatformCrawler } from '../src/pipeline.ts'
@@ -108,7 +108,7 @@ describe('pipeline dispatch for tieba', () => {
     const request: CrawlerRunRequest = {
       platform: 'tieba', loginType: 'cookie', crawlerType: 'search', keywords: ['美食'],
       specifiedIds: [], creatorIds: [], enableComments: false, enableSubComments: false,
-      enableMedia: false, saveOption: 'dsh', cookies: null, headless: true,
+      enableMedia: false, cookies: null, headless: true,
       maxNotesCount: 5, maxCommentsCount: 3, startPage: 1,
     }
     const crawler = createPlatformCrawler(request, async () => payloadOf([]))
