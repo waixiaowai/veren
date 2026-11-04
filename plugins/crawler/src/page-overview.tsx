@@ -78,7 +78,7 @@ async function overviewFirstScreen(agent: Agent): Promise<() => Promise<void>> {
 export const OverviewPage: PageFC = (_props, agent) => {
   const runtime = overviewRuntime
   if (runtime !== undefined) {
-    registerOverviewTools(agent, ['start', 'stop', 'status', 'logs', 'data'].map(externalName))
+    registerOverviewTools(agent, ['start', 'stop', 'status', 'logs', 'data', 'wordcloud'].map(externalName))
     agent.ctx.effect(() => overviewFirstScreen(agent), 'crawler:overview-first-screen')
     const status = runtime.manager.status()
     const domain = runtime.domain()
