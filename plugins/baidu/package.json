@@ -15,6 +15,7 @@
   },
   "files": [
     "dist",
+    "cordis.patch.yml",
     "assets",
     "README.md",
     "README.cn.md"

@@ -24,24 +24,20 @@ Skill: `baidu-pan` — the bundled behavior discipline: trigger judgement, the r
 
 ## Web panel
 
-The plugin mounts the `baiduPan` Remote namespace (service `baiduPanGateway`, registered by the same apply) and a client entry (`./client`) that registers a sidebar panel. Three tabs:
+This package is the **server** member of a three-package stack. It mounts the `baiduPan` Remote namespace (service `baiduPanGateway`, registered by the same apply) that a **separate** client package, [`@veren/baidu-pan-ui`](./ui/README.md), drives. The split is deliberate: a panel's client half must live in a pure client package whose Loader row carries no config — the same shape as `@veren/im-ui` and `@veren/mail-ui`.
 
-- **Overview** — the sign-in state (account, expiry, membership), the quota card, and the paste-code sign-in wizard: anonymous users open the authorize link, paste the code back, and the exchange/validate/commit chain runs inside the panel — no agent needed.
-- **Files** — breadcrumb browsing inside the authorized root with client-side sort/filter, keyword search with paging, and per-row actions: open, share (period picker, link + password card), download, rename, copy/move, copy path, and delete behind an exact-set confirm dialog. Upload takes an absolute local path; a same-named conflict offers an explicit overwrite.
-- **Transfers** — upload/download jobs presented as accepted-then-polled cards (`running` first), plus a standalone download form. A job only ever promises "submitted"; completion is read from its state.
-
-Panel reads and writes ride the same guard as the tools: out-of-root paths are refused locally, deletion demands the exact-path voucher, and domain failures carry stable `BDPAN_*` codes into the panel's error blocks. The design's four states (loading / empty / failure / no-permission) are covered per view.
+Install the whole stack through [`@veren/baidu-pan-bundle`](./bundle/README.md), which inserts both loader rows in the order the runner needs. See the UI package's README for the three panel tabs, the in-panel sign-in wizard, and the guard behaviour the panel inherits.
 
 ## Install and sign in
 
 1. Create an app on the [Baidu Netdisk open platform](https://pan.baidu.com/union/doc) console to obtain `appKey`/`secretKey`.
-2. Mount the plugin on a profile:
+2. Install the stack through its bundle — it inserts this package's row (carrying `appKey`/`secretKey` and the authorized `root`) **and** the panel's row:
 
    ```bash
-   dsh web --patch plugins/baidu/cordis.patch.yml
+   dsh plugin --profile web add @veren/baidu-pan-bundle
    ```
 
-   The patch row carries `appKey`/`secretKey` and the authorized `root` (default `/apps/bdpan`). `appKey`/`secretKey` are app-level credentials and sit in the profile config in plaintext; the OAuth user tokens are a different tier and live only in the credential store.
+   `appKey`/`secretKey` are app-level credentials and sit in the profile config in plaintext; the OAuth user tokens are a different tier and live only in the credential store. To mount this package on its own without the panel, compose the loader row by hand — see [`cordis.patch.yml`](./cordis.patch.yml) for the exact shape.
 3. Sign in either through the host's authorization entry (the flow opens the Baidu authorize page — oob shape, no callback server — you paste the code back, tokens are exchanged, validated against the profile endpoint, and only then committed; a second method accepts an existing `access_token refresh_token` pair) **or** directly in the web panel's Overview tab with the same paste-code chain.
 4. Until signed in, every tool answers `BDPAN_AUTH_REQUIRED`, and the panel shows the sign-in guide.
 
@@ -63,9 +59,9 @@ Panel reads and writes ride the same guard as the tools: out-of-root paths are r
 
 ```bash
 pnpm install
-pnpm --dir plugins/baidu run typecheck   # tsc ×2 (Node half + client half)
+pnpm --dir plugins/baidu run typecheck   # tsc
 pnpm --dir plugins/baidu test            # vitest unit suite (76 tests)
-pnpm --dir plugins/baidu run build       # dist/ + lib/client.js
+pnpm --dir plugins/baidu run build       # dist/
 ```
 
-The design contract lives in [design/index.md](./design/index.md); `src/` mirrors its module boundaries (`guard`, `client`, tool face, `skill`, web `gateway`), `tests/guard.spec.ts` executes the design's GD acceptance rows, `tests/remote-arity.spec.ts` pins the client↔gateway wire contract, and `tests/panel-dialect.spec.ts` audits the panel stylesheet against the design's token discipline.
+The design contract lives in [design/index.md](./design/index.md); `src/` mirrors its module boundaries (`guard`, `client`, tool face, `skill`, web `gateway`), `tests/guard.spec.ts` executes the design's GD acceptance rows, the client-side specs (`remote-arity`, `client-locales`, `panel-dialect`) live in the UI package.

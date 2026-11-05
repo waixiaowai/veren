@@ -24,24 +24,20 @@
 
 ## 网页面板
 
-插件挂载 `baiduPan` 远端命名空间（服务 `baiduPanGateway`，同一个 apply 注册）与客户端入口（`./client`），在侧栏注册一个面板。三个页签：
+本包是三包栈的**服务端**成员：它挂载 `baiduPan` 远端命名空间（服务 `baiduPanGateway`，同一个 apply 注册），由**独立的**客户端包 [`@veren/baidu-pan-ui`](./ui/README.cn.md) 驱动。这样拆分是刻意的：面板的客户端半边必须住在纯客户端包里，其 Loader 行不带 config——与 `@veren/im-ui`、`@veren/mail-ui` 同形。
 
-- **概览**——登录状态（账号、有效期、会员类型）、容量卡，以及粘贴授权码登录向导：匿名用户打开授权链接、把授权码粘贴回来，换取/在线校验/落库全链在面板内完成——不需要 agent。
-- **文件**——授权根内的面包屑浏览、本地排序与筛选、带分页的关键字检索；行内操作：打开、分享（选有效期，回链接+提取码卡）、下载、重命名、复制/移动、复制路径，删除走恰好集合确认弹层。上传收本地绝对路径，同名冲突给出显式覆盖按钮。
-- **传输**——上传/下载任务以"受理后轮询"的任务卡呈现（running 在前），另有独立下载表单。任务只承诺"已提交"；完成与否看任务状态。
-
-面板的读写与工具走同一套守门：越界路径本地拒绝、删除要求恰好路径凭证、领域失败携带稳定 `BDPAN_*` 码进错误块。设计的四态（加载/空/失败/无权限）逐视图覆盖。
+整套通过 [`@veren/baidu-pan-bundle`](./bundle/README.cn.md) 安装，它按运行时需要的次序插入两行 loader。面板的三个页签、面板内登录向导、以及面板继承的守门行为见 UI 包的 README。
 
 ## 安装与登录
 
 1. 在[百度网盘开放平台](https://pan.baidu.com/union/doc)控制台创建应用，取得 `appKey`/`secretKey`。
-2. 把插件挂到 profile：
+2. 通过组合包安装整套——它同时插入本包的行（携带 `appKey`/`secretKey` 与授权根）**和**面板的行：
 
    ```bash
-   dsh web --patch plugins/baidu/cordis.patch.yml
+   dsh plugin --profile web add @veren/baidu-pan-bundle
    ```
 
-   patch 行携带 `appKey`/`secretKey` 与授权根 `root`（缺省 `/apps/bdpan`）。`appKey`/`secretKey` 是应用级凭据，写在 profile 配置里是明文；OAuth 用户令牌是另一级，只进凭据库。
+   `appKey`/`secretKey` 是应用级凭据，写在 profile 配置里是明文；OAuth 用户令牌是另一级，只进凭据库。只想装服务端、不要面板时，手工组一行 loader 即可——行形状见 [`cordis.patch.yml`](./cordis.patch.yml)。
 3. 登录有两条路：走宿主的授权入口（授权流打开百度授权页——oob 形态，无回调服务——粘贴授权码回来，换取令牌、经账号资料在线校验后才落库；第二个方法接受已有的 `access_token refresh_token` 令牌对），**或**直接在网页面板的概览页签里走同一条粘贴授权码链路。
 4. 未登录时所有工具一律以 `BDPAN_AUTH_REQUIRED` 拒绝，面板显示登录引导。
 
@@ -63,9 +59,9 @@
 
 ```bash
 pnpm install
-pnpm --dir plugins/baidu run typecheck   # tsc ×2（Node 半边 + 客户端半边）
+pnpm --dir plugins/baidu run typecheck   # tsc
 pnpm --dir plugins/baidu test            # vitest 单测（76 条）
-pnpm --dir plugins/baidu run build       # dist/ + lib/client.js
+pnpm --dir plugins/baidu run build       # dist/
 ```
 
-设计契约见 [design/index.md](./design/index.md)；`src/` 按其模块边界组织（`guard`、`client`、工具面、`skill`、网页 `gateway`），`tests/guard.spec.ts` 逐条执行设计的 GD 验收行，`tests/remote-arity.spec.ts` 钉死客户端↔网关的线上契约，`tests/panel-dialect.spec.ts` 按设计令牌纪律审计面板样式表。
+设计契约见 [design/index.md](./design/index.md)；`src/` 按其模块边界组织（`guard`、`client`、工具面、`skill`、网页 `gateway`），`tests/guard.spec.ts` 逐条执行设计的 GD 验收行，客户端侧的 spec（`remote-arity`、`client-locales`、`panel-dialect`）在 UI 包里。
