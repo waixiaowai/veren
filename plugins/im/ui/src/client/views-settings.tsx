@@ -25,6 +25,7 @@ export function SettingsView(props: ImBodyProps): React.JSX.Element {
     <div className="im-settings">
       <h2 className="im-heading">{t('settingsHeading')}</h2>
       <p className="im-muted">{t('settingsHint')}</p>
+      <h3 className="im-heading">{t('intake')}</h3>
       <IntakeView {...props} />
       <CloudView t={t} />
     </div>

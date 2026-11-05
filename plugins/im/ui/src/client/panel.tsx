@@ -66,12 +66,14 @@ function ImBody(props: ImBodyProps & RoomsBodyProps) {
           <h1 className="im-title">{t('panel')}</h1>
           <p className="im-subtitle">{t('panelSubtitle')}</p>
         </div>
-        <button type="button" className="im-button" onClick={actions.onRefresh}>{t('refresh')}</button>
+        <div className="im-head-actions">
+          <button type="button" className="im-button" onClick={actions.onRefresh}>{t('refresh')}</button>
+        </div>
       </header>
       {state.status === 'error' && <p className="im-error">{t('errorPrefix')}：{state.error}</p>}
       {state.status === 'loading' && <p className="im-muted">{t('loading')}</p>}
       {state.status !== 'loading' && (
-        <>
+        <div className="im-body">
           <nav className="im-tabs" role="tablist">
             <TabButton active={tab === 'rooms'} label={t('tabRooms')} onClick={() => setTab('rooms')} />
             <TabButton active={tab === 'accounts'} label={t('tabAccounts')} onClick={() => setTab('accounts')} />
@@ -82,7 +84,7 @@ function ImBody(props: ImBodyProps & RoomsBodyProps) {
           {tab === 'accounts' && <AccountsView state={state} t={t} actions={actions} />}
           {tab === 'people' && <PeopleView state={state} t={t} actions={actions} />}
           {tab === 'settings' && <SettingsView state={state} t={t} actions={actions} />}
-        </>
+        </div>
       )}
     </div>
   )

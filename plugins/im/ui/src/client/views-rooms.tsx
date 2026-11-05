@@ -1,19 +1,16 @@
 /**
- * The conversations tab: room list on the left, the open room on the right.
+ * The conversations tab: the two-pane workspace with its info rail, or the
+ * empty state before the first room exists.
  *
- * A pure presentation component over the rooms observable; the two panes live
- * in `rooms-side.tsx` and `rooms-main.tsx`.
- *
- * 会话页：左侧房间列表，右侧打开的房间。
- *
- * 纯展示组件，由 rooms 可观察对象驱动；两个面板分别在 `rooms-side.tsx` 与
- * `rooms-main.tsx`。
+ * 会话页：带信息侧栏的两栏工作区；还没有任何房间时换成空态。
  *
  * @module @veren/im-ui/client/views-rooms
  */
 
+import { EmptyState } from './empty-state.tsx'
 import type { ImKey } from './locales.ts'
 import type { ImPersonView, RoomsSnapshot } from './remote.ts'
+import { RoomInfo } from './room-info.tsx'
 import { RoomsMain } from './rooms-main.tsx'
 import { RoomsSide } from './rooms-side.tsx'
 
@@ -28,8 +25,19 @@ export interface RoomsViewProps {
   readonly onCreateRoom: (title: string | undefined) => void
 }
 
-/** Render the two-pane rooms view. */
+/** Render the workspace, or the empty state before the first room exists. */
 export function RoomsView(props: RoomsViewProps) {
+  if (props.state.status === 'ready' && props.state.rooms.length === 0) {
+    return (
+      <EmptyState
+        title={props.t('emptyTitle')}
+        hint={props.t('emptyHint')}
+        actionLabel={props.t('newRoom')}
+        onAction={() => props.onCreateRoom(undefined)}
+      />
+    )
+  }
+  const open = props.state.rooms.find(room => room.id === props.state.openRoomId)
   return (
     <div className="im-rooms">
       <RoomsSide
@@ -38,12 +46,10 @@ export function RoomsView(props: RoomsViewProps) {
         onOpenRoom={props.onOpenRoom}
         onCreateRoom={props.onCreateRoom}
       />
-      <RoomsMain
-        state={props.state}
-        t={props.t}
-        people={props.people}
-        onSend={props.onSend}
-      />
+      <div className="im-chat-area">
+        <RoomsMain state={props.state} t={props.t} people={props.people} onSend={props.onSend} />
+        {open !== undefined && <RoomInfo room={open} t={props.t} people={props.people} />}
+      </div>
     </div>
   )
 }

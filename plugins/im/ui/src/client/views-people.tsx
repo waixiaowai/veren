@@ -14,6 +14,7 @@
  */
 
 import { useState } from 'react'
+import { Avatar } from './avatar.tsx'
 import type { ImKey } from './locales.ts'
 import type { ImBodyProps } from './panel.tsx'
 import type { ImPersonView } from './remote.ts'
@@ -29,7 +30,7 @@ export function PeopleView(props: ImBodyProps): React.JSX.Element {
       <h2 className="im-heading">{t('people')}</h2>
       <p className="im-muted">{t('peopleHint')}</p>
       {people.length === 0 && <p className="im-muted">{t('noPeople')}</p>}
-      <ul className="im-list">
+      <ul className="im-card-grid" role="list">
         {people.map(person => (
           <PersonCard key={person.id} person={person} t={t} onRename={actions.onRenamePerson} />
         ))}
@@ -48,9 +49,7 @@ function PersonCard(props: {
   const name = humanNameOf(person, t)
   return (
     <li className="im-card" title={person.id}>
-      <span className={person.identityStatus === 'unverified' ? 'im-avatar' : 'im-avatar im-avatar-known'}>
-        {initialOf(name)}
-      </span>
+      <Avatar name={name} kind="human" />
       <div className="im-card-body">
         <div className="im-name-row">
           <span className="im-strong">{name}</span>
@@ -99,6 +98,7 @@ function RenameControl(props: {
   return (
     <div className="im-row">
       <input className="im-input" value={name} placeholder={t('renamePlaceholder')}
+        aria-label={t('renamePlaceholder')}
         onChange={event => setName(event.target.value)} />
       <button type="button" className="im-button im-button-primary" disabled={name.trim() === ''}
         onClick={() => { onRename(person.id, name.trim()); setEditing(false) }}>
@@ -122,14 +122,9 @@ function humanNameOf(person: ImPersonView, t: (key: ImKey) => string): string {
   return `${t('unnamedPerson')} · ${shortHandle(person.displayName)}`
 }
 
-/** Whether the name is one of ours or a raw handle. */
+/** The short handle of a provider id. */
 function shortHandle(value: string): string {
   const at = value.indexOf('@')
   const head = at === -1 ? value : value.slice(0, at)
   return head.length <= 10 ? head : `${head.slice(0, 6)}…${head.slice(-2)}`
-}
-
-/** The avatar's single character. */
-function initialOf(name: string): string {
-  return Array.from(name.trim())[0]?.toUpperCase() ?? '?'
 }

@@ -1,20 +1,13 @@
 /**
- * The accounts tab: authorized accounts as contact cards, plus the QR bind
- * wizard.
+ * The accounts tab: authorized accounts as cards, plus the QR bind wizard.
  *
- * Restored with the conversations surface: without it the panel can neither
- * show which channel is bound nor start a bind, which is exactly why an
- * unbound host looked dead.
- *
- * 账号页签：已授权账号以名片呈现，外加二维码绑定向导。
- *
- * 与会话面一起恢复：没有它，面板既看不到绑定的是哪个渠道，也无法发起绑定——正是未绑定
- * 宿主看起来「完全不能用」的原因。
+ * 账号页签：已授权账号以卡片呈现，外加二维码绑定向导。
  *
  * @module @veren/im-ui/client/views-accounts
  */
 
 import { useState } from 'react'
+import { Avatar } from './avatar.tsx'
 import type { ImKey } from './locales.ts'
 import type { ImBodyProps } from './panel.tsx'
 
@@ -32,16 +25,19 @@ export function AccountsView(props: ImBodyProps): React.JSX.Element {
         </button>
       </div>
       {state.catalog.accounts.length === 0 && <p className="im-muted">{t('noAccounts')}</p>}
-      <ul className="im-list">
+      <ul className="im-card-grid" role="list">
         {state.catalog.accounts.map(account => (
           <li key={account.id} className="im-card">
-            <span className="im-avatar">{initialOf(account.displayName)}</span>
+            <Avatar name={account.displayName} kind="human" />
             <div className="im-card-body">
               <div className="im-name-row">
                 <span className="im-strong">{account.displayName}</span>
                 <span className={account.status === 'online' ? 'im-badge im-badge-on' : 'im-badge'}>
                   {account.status === 'online' ? t('statusOnline') : t('statusOffline')}
                 </span>
+              </div>
+              <div className="im-id-mono">{account.id}</div>
+              <div className="im-card-actions">
                 <button
                   type="button"
                   className="im-button im-button-danger"
@@ -50,7 +46,6 @@ export function AccountsView(props: ImBodyProps): React.JSX.Element {
                   {t('unbindAccount')}
                 </button>
               </div>
-              <div className="im-id-mono">{account.id}</div>
             </div>
           </li>
         ))}
@@ -117,9 +112,4 @@ function statusOf(status: string, t: (key: ImKey) => string): string {
     case 'expired': return t('bindExpired')
     default: return t('bindFailed')
   }
-}
-
-/** The avatar's single character. */
-function initialOf(name: string): string {
-  return Array.from(name.trim())[0]?.toUpperCase() ?? '?'
 }

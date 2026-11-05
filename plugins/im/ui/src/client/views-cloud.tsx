@@ -54,29 +54,27 @@ function SignInForm(props: {
 }): React.JSX.Element {
   const { t, origin, email, password, submitting, error } = props
   return (
-    <form className="im-card" onSubmit={event => { event.preventDefault(); if (!submitting) props.onSubmit() }}>
-      <div className="im-card-body">
-        <div className="im-row">
-          <label className="im-item" htmlFor="im-cms-origin">{t('cloudOrigin')}</label>
-          <input id="im-cms-origin" className="im-input" name="url" value={origin}
-            onChange={event => props.onOrigin(event.target.value)} autoComplete="url" />
-        </div>
-        <div className="im-row">
-          <label className="im-item" htmlFor="im-cms-email">{t('cloudEmail')}</label>
-          <input id="im-cms-email" className="im-input" name="email" type="email" value={email}
-            onChange={event => props.onEmail(event.target.value)} autoComplete="email" placeholder="email" />
-        </div>
-        <div className="im-row">
-          <label className="im-item" htmlFor="im-cms-password">{t('cloudPassword')}</label>
-          <input id="im-cms-password" className="im-input" name="password" type="password" value={password}
-            onChange={event => props.onPassword(event.target.value)} autoComplete="current-password" />
-        </div>
-        {error !== undefined && <p className="im-error" role="alert">{error}</p>}
-        <button type="submit" className="im-button im-button-primary"
-          disabled={submitting || email === '' || password === ''}>
-          {submitting ? t('cloudLoggingIn') : t('cloudLogin')}
-        </button>
+    <form className="im-form im-form-card" onSubmit={event => { event.preventDefault(); if (!submitting) props.onSubmit() }}>
+      <div className="im-field">
+        <label className="im-label" htmlFor="im-cms-origin">{t('cloudOrigin')}</label>
+        <input id="im-cms-origin" className="im-input" name="url" value={origin}
+          onChange={event => props.onOrigin(event.target.value)} autoComplete="url" />
       </div>
+      <div className="im-field">
+        <label className="im-label" htmlFor="im-cms-email">{t('cloudEmail')}</label>
+        <input id="im-cms-email" className="im-input" name="email" type="email" value={email}
+          onChange={event => props.onEmail(event.target.value)} autoComplete="email" placeholder="email" />
+      </div>
+      <div className="im-field">
+        <label className="im-label" htmlFor="im-cms-password">{t('cloudPassword')}</label>
+        <input id="im-cms-password" className="im-input" name="password" type="password" value={password}
+          onChange={event => props.onPassword(event.target.value)} autoComplete="current-password" />
+      </div>
+      {error !== undefined && <p className="im-error" role="alert">{error}</p>}
+      <button type="submit" className="im-button im-button-primary im-form-submit"
+        disabled={submitting || email === '' || password === ''}>
+        {submitting ? t('cloudLoggingIn') : t('cloudLogin')}
+      </button>
     </form>
   )
 }
