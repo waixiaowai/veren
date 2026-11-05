@@ -144,7 +144,15 @@ export class StreamAggregator {
       this.toolOrders.set(wireIndex, order)
       chunks.push({ type: 'block-start', index: order.blockIndex, blockType: 'tool-call' })
     }
-    if (call.function?.name !== undefined) order.name = call.function.name
+    // 上游只在首个增量发真名，其后每个增量固定重发 `"name": ""`（2026-11-05
+    // 实测 CN 网关）：空串是占位而非改名，只采纳非空值。照抄旧写法会把真名
+    // 覆盖成空串，工具块带着空名收尾，宿主按 "unknown tool" 拒掉整次调用。
+    // The upstream sends the real name in the first delta and repeats
+    // `"name": ""` on every later delta (CN gateway, measured 2026-11-05): the
+    // empty string is a placeholder, not a rename, so only non-empty values are
+    // adopted. Overwriting unconditionally clobbers the real name, the tool
+    // block closes unnamed, and the host rejects the call as "unknown tool".
+    if (call.function?.name !== undefined && call.function.name !== '') order.name = call.function.name
     const argumentsDelta = call.function?.arguments ?? ''
     if (argumentsDelta.length > 0) {
       order.arguments.push(argumentsDelta)

@@ -16,6 +16,34 @@ import { emptyStateDocument, withAccountEntry, type WorkbuddyAccountEntry } from
 
 const SSE = 'data: {"choices":[{"index":0,"delta":{"reasoning_content":"想"},"finish_reason":null}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":"你好"},"finish_reason":null}]}\n\ndata: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}\n\ndata: [DONE]\n\n'
 
+/** 一个 wire 工具增量的形状（本插件只读这些字段）。The shape of one wire tool delta (only what this plugin reads). */
+interface ToolDelta {
+  readonly tool_calls: {
+    readonly id?: string
+    readonly type?: string
+    readonly function: { readonly name: string; readonly arguments: string }
+    readonly index: number
+  }[]
+}
+
+/**
+ * 真实 CN 形状的工具流（2026-11-05 实测）：首增量发 id 与真名，其后每个增量
+ * 都重发 `"name": ""`，只有 arguments 在生长。
+ * The real CN-shaped tool stream (measured 2026-11-05): the first delta carries
+ * the id and the real name, and every later delta repeats `"name": ""` while
+ * only the arguments grow.
+ */
+function toolCallSse(): string {
+  const steps: { readonly delta: ToolDelta; readonly finish?: string }[] = [
+    { delta: { tool_calls: [{ id: 'call_00_probe', type: 'function', function: { name: 'pwsh', arguments: '' }, index: 0 }] } },
+    { delta: { tool_calls: [{ function: { name: '', arguments: '{"command"' }, index: 0 }] } },
+    { delta: { tool_calls: [{ function: { name: '', arguments: ':"dir"}' }, index: 0 }] }, finish: 'tool_calls' },
+  ]
+  const frames = steps.map(({ delta, finish }) =>
+    `data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: finish ?? null }] })}`)
+  return `${frames.join('\n\n')}\n\ndata: [DONE]\n\n`
+}
+
 function entry(uid: string, overrides: Partial<WorkbuddyAccountEntry> = {}): WorkbuddyAccountEntry {
   return {
     accessToken: `at-${uid}`, refreshToken: `rt-${uid}`, expiresAtMs: Date.now() + 3_600_000,
@@ -127,6 +155,35 @@ describe('流面 / stream face', () => {
       expect(request?.headers['x-agent-type']).toBe('main')
       expect(request?.headers['origin']).toBe('https://www.codebuddy.cn')
       expect(config).toBeDefined()
+    } finally {
+      await mock.close()
+    }
+  })
+
+  it('工具块保住首增量的真名：后续增量的 name:"" 只是占位，不得覆盖', async () => {
+    const mock = await startChatMock()
+    try {
+      const { ctx, credentials } = createFakeHost()
+      await seed(credentials, entry('u-1'))
+      const { adapter } = makeAdapter(mock.origin, credentials, ctx)
+      mock.setStatus(200, toolCallSse())
+      const chunks = await collect(adapter.stream({
+        provider: 'workbuddy', model: 'cn:glm-5.3',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      } as never))
+      const blocks = chunks
+        .filter((chunk): chunk is Extract<StreamChunk, { type: 'block-end' }> => chunk.type === 'block-end')
+        .map(chunk => chunk.block)
+      // 空名收尾会让宿主把整次调用判成 unknown tool（真机症状）。
+      // An unnamed block makes the host reject the whole call as unknown tool
+      // (the live symptom this pins).
+      expect(blocks.find(block => block.type === 'tool-call')).toMatchObject({
+        type: 'tool-call', id: 'call_00_probe', name: 'pwsh', arguments: '{"command":"dir"}',
+      })
+      const deltas = chunks.filter((chunk): chunk is Extract<StreamChunk, { type: 'tool-call-delta' }> => chunk.type === 'tool-call-delta')
+      expect(deltas).toHaveLength(2)
+      for (const delta of deltas) expect(delta.name).toBe('pwsh')
+      expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'tool-calls' } })
     } finally {
       await mock.close()
     }
