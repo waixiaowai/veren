@@ -75,8 +75,15 @@ export class ReadService {
 
   /** Unread count for one participant in one room (messages after the cursor). */
   /** 一个参与者在一个房间的未读数（游标之后的消息）。 */
+  /**
+   * Unread count for one participant in one room: messages after the cursor that
+   * someone else wrote. Your own send is read by definition, so it never counts.
+   * 一个参与者在一个房间的未读数：游标之后、由别人写的消息。自己发的按定义已读，不计入。
+   */
   unread(roomId: string, participantId: string): number {
     const cursor = this.readOf(roomId, participantId)
-    return this.options.store.messagesOf(roomId).filter(row => row.sequence > cursor).length
+    return this.options.store.messagesOf(roomId)
+      .filter(row => row.sequence > cursor && row.author_id !== participantId)
+      .length
   }
 }

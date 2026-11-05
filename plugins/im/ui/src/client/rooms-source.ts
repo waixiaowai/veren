@@ -123,7 +123,7 @@ function openRoomOf(api: ImConvApi, state: RoomsState, viewerId: string, roomId:
  * 向打开中的房间写一条所有者消息；成功后重读时间线。返回是否写入成功，供输入区在失败时
  * 保留草稿（设计 §26.3）。
  */
-async function sendMessage(api: ImConvApi, state: RoomsState, body: string): Promise<boolean> {
+async function sendMessage(api: ImConvApi, state: RoomsState, viewerId: string, body: string): Promise<boolean> {
   const roomId = state.snapshot.openRoomId
   if (roomId === undefined || state.snapshot.sending) return false
   publish(state, { sending: true, error: '' })
@@ -137,6 +137,10 @@ async function sendMessage(api: ImConvApi, state: RoomsState, body: string): Pro
   }
   publish(state, { sending: false })
   await readRoom(api, state, roomId)
+  // 自己的写入按定义已读：立刻把游标推到自己这条，未读徽标不会因为自己发言而亮。
+  // Your own write is read by definition: advance the cursor to it so the badge
+  // never lights up for your own message.
+  await advanceCursor(api, state, viewerId)
   return true
 }
 
@@ -185,7 +189,7 @@ export function createRoomsSource(api: ImConvApi, viewerId: string): {
       const open = state.snapshot.openRoomId
       if (open !== undefined) void readRoom(api, state, open).then(() => advanceCursor(api, state, viewerId))
     },
-    send: body => sendMessage(api, state, body),
+    send: body => sendMessage(api, state, viewerId, body),
     createRoom: title => { void createRoom(api, state, viewerId, title) },
   }
 }

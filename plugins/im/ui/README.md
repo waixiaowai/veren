@@ -21,7 +21,7 @@ headless、ACP、SDK profile 跳过——`im_*` 工具已覆盖全部操作。
 
 | Tab / 页签 | Content / 内容 |
 |---|---|
-| 会话 Conversations | every room's timeline; 「新建会话」seats the owner and the default agent, the composer writes as `human:owner`, and the five-second poll refreshes the list *and* the open timeline so an agent's reply lands without a manual refresh / 全部房间的时间线；「新建会话」给所有者与默认智能体安排座位，输入区以 `human:owner` 写入，五秒轮询同时刷新列表与打开中的时间线，智能体的回复无需手动刷新即可出现 |
+| 会话 Conversations | every room's timeline; 「新建会话」seats the owner and the default agent, the composer writes as `human:owner`, and the five-second poll refreshes the list *and* the open timeline so an agent's reply lands without a manual refresh. Unread counts ride the same poll and clear when a room is opened; `@` opens a keyboard-reachable member picker; each message offers a hover copy action; newer messages follow the reader only while they are at the bottom, otherwise a "jump to latest" pill appears / 全部房间的时间线；「新建会话」给所有者与默认智能体安排座位，输入区以 `human:owner` 写入，五秒轮询同时刷新列表与打开中的时间线，智能体的回复无需手动刷新即可出现。未读数随同一次轮询到达、打开房间即清空；输入 `@` 打开键盘可达的成员选择器；每条消息有悬停复制；新消息只在读者位于底部时跟随，否则给出「回到最新」胶囊 |
 | 账号 Accounts | authorized accounts with online/offline badges, the QR bind wizard (start, poll, verify code), and unbind / 已授权账号与在线徽标、二维码绑定向导（发起、轮询、验证码）与解绑 |
 | 人员 People | the address book: names, identity badges, contact chips, and inline rename / 通讯录：名字、身份徽标、联系方式芯片与就地改名 |
 | 设置 Settings | the two 2.x surfaces kept out of the everyday path: stranger-intake audit and the CMS cloud directory / 从日常路径里退出的两个 2.x 面：陌生人采集审计与 CMS 云端目录 |
