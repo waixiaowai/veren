@@ -33,6 +33,8 @@ export interface Config {
   browserDataRoot: string
   /** 标准启动的系统浏览器渠道 / the system browser channel for standard launches */
   browserChannel: 'chrome' | 'msedge'
+  /** 采集结束后向站内通知收件箱投回执（需同 profile 安装 @veren/mail） / deliver a receipt to the station inbox after each run (needs @veren/mail in the same profile) */
+  notifyOnFinish: boolean
 }
 
 /**
@@ -51,6 +53,7 @@ export const Config: z<Config> = z
     mediaRoot: z.string().default('./data/crawler/media').description('媒体文件根目录 / media file root'),
     browserDataRoot: z.string().default('./browser-data').description('浏览器登录档案根目录 / browser profile root'),
     browserChannel: z.union(['chrome', 'msedge'] as const).default('chrome').description('系统浏览器渠道 / the system browser channel'),
+    notifyOnFinish: z.boolean().default(true).description('采集结束后投站内通知回执 / deliver a station notice after each run'),
   })
   .description('多平台内容采集配置 / multi-platform content crawler configuration')
 
@@ -67,9 +70,10 @@ export const DEFAULT_CONFIG: Config = {
   crawlerType: 'search',
   loginType: 'qrcode',
   mediaRoot: './data/crawler/media',
-  browserDataRoot: './browser-data',
-  browserChannel: 'chrome',
-}
+    browserDataRoot: './browser-data',
+    browserChannel: 'chrome',
+    notifyOnFinish: true,
+  }
 
 /**
  * 应用默认值，得到运行时配置。

@@ -62,6 +62,8 @@ export {
 } from './query/find-operator.ts'
 export { Brackets } from './query/brackets.ts'
 export type { WhereExpression } from './query/brackets.ts'
+export { QueryExpressionMap } from './query/expression-map.ts'
+export type { Alias, JoinAttribute, OrderByClause, QueryType, WhereClause } from './query/expression-map.ts'
 export { SelectQueryBuilder } from './query/select-builder.ts'
 export { InsertQueryBuilder } from './query/insert-builder.ts'
 export { DeleteQueryBuilder, UpdateQueryBuilder } from './query/update-builder.ts'

@@ -37,6 +37,7 @@
     "@deepseek-ai/dsh-storage-domain": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0",
     "@veren/app-registry": "workspace:^",
+    "@veren/mail": "workspace:^",
     "@veren/page-registry": "workspace:^",
     "@veren/prompt-page": "workspace:^"
   },
@@ -55,6 +56,7 @@
     "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.4",
     "@veren/app-registry": "workspace:^",
+    "@veren/mail": "workspace:^",
     "@veren/page-registry": "workspace:^",
     "@veren/prompt-core": "workspace:^",
     "@veren/prompt-page": "workspace:^",

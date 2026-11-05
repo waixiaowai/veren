@@ -54,7 +54,7 @@ export class MysqlDialect implements SqlDialect {
     return `\`${identifier.replaceAll('`', '``')}\``
   }
 
-  createParameter(): string {
+  createParameter(_position?: number): string {
     return '?'
   }
 
@@ -73,7 +73,7 @@ export class MysqlDialect implements SqlDialect {
       : [`SET TRANSACTION ISOLATION LEVEL ${isolation}`, 'START TRANSACTION']
   }
 
-  supportsType(): boolean {
+  supportsType(_type?: ColumnType): boolean {
     return true
   }
 }

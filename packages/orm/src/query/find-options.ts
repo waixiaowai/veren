@@ -66,7 +66,7 @@ export function applyFindOptions<Entity extends object>(
 
 /** 只应用条件（update/delete 复用同一套翻译）。 / Apply criteria only; update/delete reuse the same translation. */
 export function applyWhereClause(qb: QueryBuilder, where: object): void {
-  applyWhere(qb, qb.metadata, where)
+  applyWhere(qb, qb.metadata, where, '')
 }
 
 /** where：数组是 OR 组，单对象是 AND。 / where: arrays are OR groups, a single object is AND. */
@@ -74,17 +74,18 @@ function applyWhere(
   qb: QueryBuilder,
   metadata: EntityMetadata,
   where: object | readonly object[] | undefined,
+  ownerAlias = qb.alias,
 ): void {
   if (where === undefined) return
   if (Array.isArray(where)) {
     qb.andWhere(new Brackets((root) => {
       for (const group of where) {
-        root.orWhere(new Brackets((leaf) => addConditions(qb, leaf, metadata, group, qb.alias)))
+        root.orWhere(new Brackets((leaf) => addConditions(qb, leaf, metadata, group, ownerAlias)))
       }
     }))
     return
   }
-  addConditions(qb, qb, metadata, where, qb.alias)
+  addConditions(qb, qb, metadata, where, ownerAlias)
 }
 
 /** 逐属性翻译条件。 / Translate conditions property by property. */
@@ -112,7 +113,9 @@ function conditionFor(
   const relation = metadata.findRelation(property)
   if (isFindOperator(value)) return operatorCondition(builder, metadata, alias, property, value)
   if (relation !== undefined && value === true) return existenceCondition(builder, relation, alias, {})
-  if (relation !== undefined && isPlainObject(value)) return nestedCondition(builder, relation, alias, property, value)
+  if (relation !== undefined && (isPlainObject(value) || Array.isArray(value))) {
+    return nestedCondition(builder, relation, alias, property, value)
+  }
   return equalityCondition(builder, metadata, alias, property, value)
 }
 
@@ -125,7 +128,7 @@ function equalityCondition(
   value: unknown,
 ): string {
   const reference = columnRef(builder.escape.bind(builder), alias, resolveDatabaseName(metadata, property))
-  return `${reference} = :${builder.addParameter(value, 'w')}`
+  return `${reference} = :${builder.addParameter(builder.prepareParameter(`${alias}.${property}`, value, metadata), 'w')}`
 }
 
 /** 操作符 → SQL；嵌套操作符递归包裹。 / Operator → SQL, nesting recursively. */
@@ -140,39 +143,56 @@ function operatorCondition(
     return `NOT (${operatorCondition(builder, metadata, alias, property, operator.value)})`
   }
   const reference = columnRef(builder.escape.bind(builder), alias, resolveDatabaseName(metadata, property))
-  return simpleOperator(builder, reference, operator)
+  return simpleOperator(builder, reference, operator, `${alias}.${property}`, metadata)
 }
 
 /** 单层操作符渲染。 / Render a single operator level. */
-function simpleOperator(builder: QueryBuilder, reference: string, operator: FindOperator): string {
+function simpleOperator(
+  builder: QueryBuilder,
+  reference: string,
+  operator: FindOperator,
+  path: string,
+  metadata: EntityMetadata,
+): string {
+  const parameter = (value: unknown): string => builder.addParameter(builder.prepareParameter(path, value, metadata), 'w')
   switch (operator.type) {
-    case 'equal': return `${reference} = :${builder.addParameter(operator.value, 'w')}`
-    case 'not': return `${reference} <> :${builder.addParameter(operator.value, 'w')}`
-    case 'in': return inCondition(builder, reference, operator.value)
+    case 'equal': return `${reference} = :${parameter(operator.value)}`
+    case 'not': return `${reference} <> :${parameter(operator.value)}`
+    case 'in': return inCondition(builder, reference, operator.value, parameter)
     case 'isNull': return `${reference} IS NULL`
-    case 'like': return `${reference} LIKE :${builder.addParameter(operator.value, 'w')}`
-    case 'ilike': return `LOWER(${reference}) LIKE LOWER(:${builder.addParameter(operator.value, 'w')})`
-    case 'between': return betweenCondition(builder, reference, operator.value)
-    case 'lessThan': return `${reference} < :${builder.addParameter(operator.value, 'w')}`
-    case 'lessThanOrEqual': return `${reference} <= :${builder.addParameter(operator.value, 'w')}`
-    case 'moreThan': return `${reference} > :${builder.addParameter(operator.value, 'w')}`
-    case 'moreThanOrEqual': return `${reference} >= :${builder.addParameter(operator.value, 'w')}`
+    case 'like': return `${reference} LIKE :${parameter(operator.value)}`
+    case 'ilike': return `LOWER(${reference}) LIKE LOWER(:${parameter(operator.value)})`
+    case 'between': return betweenCondition(builder, reference, operator.value, parameter)
+    case 'lessThan': return `${reference} < :${parameter(operator.value)}`
+    case 'lessThanOrEqual': return `${reference} <= :${parameter(operator.value)}`
+    case 'moreThan': return `${reference} > :${parameter(operator.value)}`
+    case 'moreThanOrEqual': return `${reference} >= :${parameter(operator.value)}`
     case 'raw': return rawCondition(builder, operator)
     default: throw new UnsupportedFeatureError(`Find operator "${operator.type}"`)
   }
 }
 
 /** IN 条件；空集合恒假，绝不生成 `IN ()`。 / IN condition; an empty set is always false, never `IN ()`. */
-function inCondition(builder: QueryBuilder, reference: string, value: unknown): string {
+function inCondition(
+  builder: QueryBuilder,
+  reference: string,
+  value: unknown,
+  parameter: (value: unknown) => string,
+): string {
   if (!Array.isArray(value) || value.length === 0) return '1 = 0'
-  const placeholders = value.map((item) => `:${builder.addParameter(item, 'w')}`)
+  const placeholders = value.map((item) => `:${parameter(item)}`)
   return `${reference} IN (${placeholders.join(', ')})`
 }
 
 /** BETWEEN 条件。 / BETWEEN condition. */
-function betweenCondition(builder: QueryBuilder, reference: string, value: unknown): string {
+function betweenCondition(
+  builder: QueryBuilder,
+  reference: string,
+  value: unknown,
+  parameter: (value: unknown) => string,
+): string {
   const pair = Array.isArray(value) ? value : [value, value]
-  return `${reference} BETWEEN :${builder.addParameter(pair[0], 'w')} AND :${builder.addParameter(pair[1], 'w')}`
+  return `${reference} BETWEEN :${parameter(pair[0])} AND :${parameter(pair[1])}`
 }
 
 /** Raw 条件：值只经参数通道。 / Raw condition: values travel only through parameters. */

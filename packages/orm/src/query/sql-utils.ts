@@ -27,9 +27,9 @@ export function resultKey(alias: string, databaseName: string): string {
   return `${alias}_${databaseName}`
 }
 
-/** 渲染 `"alias"."column"`。 / Render `"alias"."column"`. */
+/** 渲染 `"alias"."column"`；空别名渲染为不带限定的 `"column"`。 / Render `"alias"."column"`; an empty alias renders unqualified. */
 export function columnRef(escape: (name: string) => string, alias: string, databaseName: string): string {
-  return `${escape(alias)}.${escape(databaseName)}`
+  return alias === '' ? escape(databaseName) : `${escape(alias)}.${escape(databaseName)}`
 }
 
 /** 实体全部列的带别名投影（关系外键列一并取出，供关系装载使用）。 / Aliased projection of every column, relation FKs included for loading. */

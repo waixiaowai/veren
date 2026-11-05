@@ -23,6 +23,7 @@ import { MailGatewayService } from './gateway.ts'
 import type { ChannelProvider } from './deliver.ts'
 import { inAppProvider, smtpProvider, type SmtpConfig } from './providers.ts'
 import { MailService, MailServiceToken } from './service.ts'
+import { ensureStationSeed } from './seed.ts'
 import { MailStore } from './store.ts'
 import type { ChannelKind } from './types.ts'
 
@@ -41,11 +42,14 @@ export interface Config {
   readonly enabled: boolean
   /** The mail server the email channel sends through. / 邮件渠道所用的邮件服务器。 */
   readonly smtp: SmtpConfig | undefined
+  /** Write the built-in `station-notice` workflow and `host` recipient when absent. / 缺省时写入内置 `station-notice` 工作流与 `host` 收件人。 */
+  readonly seed: boolean
 }
 
 /** The configuration schema. / 配置 schema。 */
 export const Config: z<Config> = z.object({
   enabled: z.boolean().default(true),
+  seed: z.boolean().default(true),
   smtp: z.object({
     host: z.string().required(),
     port: z.number().default(587),
@@ -67,6 +71,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const store = new MailStore()
   await store.open(ctx)
   ctx.effect(() => async () => { await store.close() }, 'mail:storage-close')
+  if (config.seed) await ensureStationSeed(store)
   const providers = buildProviders(config)
   const service = new MailService(store, providers)
   ctx.effect(() => ctx.provide(MailServiceToken, service), 'mail:service')
@@ -97,6 +102,7 @@ function buildProviders(config: Config): Map<ChannelKind, ChannelProvider> {
 
 export { MailGatewayService, MAIL_GATEWAY_NAME, MAIL_REMOTE_NAMESPACE } from './gateway.ts'
 export { MailService, MailServiceToken } from './service.ts'
+export { STATION_TRIGGER, STATION_SUBSCRIBER } from './seed.ts'
 export type { MessageView, RunView, StepView } from './service.ts'
 export { MailStore } from './store.ts'
 export { MailError, mailError, type MailErrorCode } from './errors.ts'

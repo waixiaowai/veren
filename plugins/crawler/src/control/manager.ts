@@ -20,10 +20,32 @@ import { initialStatus } from './status.ts'
 /** 停止限时等待（毫秒，design 未定值，取 15 秒）/ the stop grace window (ms; value unspecified in design, 15s chosen) */
 export const STOP_TIMEOUT_MS = 15_000
 
-/** 管理器选项：停止限时可注入（测试）/ manager options: the stop window is injectable (tests) */
+/**
+ * 一场采集的结局：退出码与起止时刻，供完成通知等观察者消费。
+ * One crawl run's outcome: exit code and timing, consumed by observers
+ * such as the completion notice.
+ */
+export interface CrawlerRunOutcome {
+  /** 采集平台 / the platform */
+  readonly platform: string
+  /** 采集模式 / the crawling mode */
+  readonly crawlerType: string
+  /** 启动时刻（ISO）/ the start time (ISO) */
+  readonly startedAt: string
+  /** 结束时刻（ISO）/ the finish time (ISO) */
+  readonly finishedAt: string
+  /** 退出码 / the exit code */
+  readonly exitCode: number
+  /** 是否正常结束（退出码 0；用户主动停止不产生结局回调）/ whether it ended normally (exit 0; user stops never reach the observer) */
+  readonly ok: boolean
+}
+
+/** 管理器选项：停止限时与结局观察者可注入（测试/通知）/ manager options: the stop window and the outcome observer are injectable (tests / notices) */
 export interface CrawlerManagerOptions {
   /** 停止限时等待毫秒 / the stop grace window in ms */
   stopTimeoutMs?: number
+  /** 结局观察者（完成通知）；实现不得抛出 / the outcome observer (completion notice); the implementation must not throw */
+  onFinished?: (outcome: CrawlerRunOutcome) => Promise<void>
 }
 
 /**
@@ -35,11 +57,13 @@ export class CrawlerManager {
   private handle: RunnerHandle | null = null
   readonly logs = new LogBuffer()
   private readonly stopTimeoutMs: number
+  private readonly onFinished: ((outcome: CrawlerRunOutcome) => Promise<void>) | undefined
   private spawnRunner: RunnerSpawner
 
   constructor(spawnRunner: RunnerSpawner, options: CrawlerManagerOptions = {}) {
-    this.spawnRunner = spawnRunner
+    this.spawnRunner = spawner
     this.stopTimeoutMs = options.stopTimeoutMs ?? STOP_TIMEOUT_MS
+    this.onFinished = options.onFinished
   }
 
   /** 运行器热替换：`dsh` 介质需要进程内运行器（存储域就绪后装配）/ hot-swap the runner: the `dsh` medium needs the in-process runner assembled once the storage domain is open */
@@ -80,7 +104,7 @@ export class CrawlerManager {
     }
     try {
       this.handle = this.spawnRunner(req, this.logs)
-      void this.watchExit(this.handle)
+      void this.watchExit(this.handle, req)
     } catch (error) {
       this.statusValue = { ...this.statusValue, status: 'idle', errorMessage: String(error) }
       return { status: 'rejected', message: `启动失败: ${String(error)}` }
@@ -89,8 +113,8 @@ export class CrawlerManager {
     return { status: 'started', message: '已启动' }
   }
 
-  /** 监视退出：非零退出置 error 态并保留错误信息 / watch exit: a nonzero exit marks error and keeps the message */
-  private async watchExit(handle: RunnerHandle): Promise<void> {
+  /** 监视退出：非零退出置 error 态并保留错误信息；结局通知观察者（用户主动停止除外） / watch exit: a nonzero exit marks error and keeps the message; the outcome observer fires except on user stops */
+  private async watchExit(handle: RunnerHandle, request: CrawlerRunRequest): Promise<void> {
     const code = await handle.exit
     if (this.handle !== handle) return
     this.handle = null
@@ -103,6 +127,14 @@ export class CrawlerManager {
       status: code === 0 ? transition('running', 'idle') : transition('running', 'error'),
       errorMessage: code === 0 ? null : `采集进程异常退出，退出码 ${code}`,
     }
+    void this.onFinished?.({
+      platform: request.platform,
+      crawlerType: request.crawlerType,
+      startedAt: this.statusValue.startedAt ?? new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      exitCode: code,
+      ok: code === 0,
+    }).catch(() => undefined)
   }
 
   /**

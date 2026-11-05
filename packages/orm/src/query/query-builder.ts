@@ -56,6 +56,14 @@ export abstract class QueryBuilder<Entity extends object = object> {
     return this.expressionMap.addParameter(value, prefix)
   }
 
+  /** 按列类型归一一个条件值（布尔、日期、JSON 等）；嵌套子查询可显式给元数据。 / Normalize a criteria value through the column type; nested subqueries may pass metadata explicitly. */
+  prepareParameter(nameOrPath: string, value: unknown, metadata?: EntityMetadata): unknown {
+    const { aliasName, property } = splitPath(nameOrPath, this.alias)
+    const target = metadata ?? (aliasName === '' ? this.metadata : this.aliasMetadata(aliasName))
+    const column = target.findColumn(property) ?? target.findRelation(property)?.joinColumns[0]
+    return column === undefined ? value : this.dataSource.driver.preparePersistentValue(column, value)
+  }
+
   /** 合并一组已命名参数（供嵌套子查询使用）。 / Merge named parameters (used by nested subqueries). */
   mergeParameters(parameters: ReadonlyMap<string, unknown>): this {
     for (const [name, value] of parameters) this.expressionMap.setParameter(name, value)

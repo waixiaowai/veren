@@ -131,11 +131,12 @@ export class SelectQueryBuilder<Entity extends object = object> extends QueryBui
     const target = relation.targetMetadata
     if (target === undefined) throw new UnsupportedFeatureError(`Relation "${relation.propertyName}" without a resolved target`)
     if (relation.joinColumns.length > 0) {
-      return `${this.column(`${ownerAlias}.${relation.joinColumns[0]!.propertyName}`)} = ${columnRef(this.escape.bind(this), targetAlias, target.primaryColumn.databaseName)}`
+      const joinColumn = relation.joinColumns[0]!
+      return `${this.escape(ownerAlias)}.${this.escape(joinColumn.databaseName)} = ${this.escape(targetAlias)}.${this.escape(target.primaryColumn.databaseName)}`
     }
-    const inverseColumn = relation.inverseRelation?.joinColumns[0]
-    if (inverseColumn !== undefined) {
-      return `${this.column(`${targetAlias}.${inverseColumn.propertyName}`)} = ${columnRef(this.escape.bind(this), ownerAlias, relation.entityMetadata.primaryColumn.databaseName)}`
+    const inverseJoin = relation.inverseRelation?.joinColumns[0]
+    if (inverseJoin !== undefined) {
+      return `${this.escape(targetAlias)}.${this.escape(inverseJoin.databaseName)} = ${this.escape(ownerAlias)}.${this.escape(relation.entityMetadata.primaryColumn.databaseName)}`
     }
     throw new UnsupportedFeatureError(`Joining relation "${relation.propertyName}" without a foreign key; load it through find relations instead`)
   }

@@ -25,6 +25,7 @@ import { CrawlerManager } from './control/manager.ts'
 import { ControlApi } from './control/http-server.ts'
 import { createInProcessRunner } from './runner/inprocess-runner.ts'
 import { realDeps } from './runner/real-deps.ts'
+import { crawlFinishedNotifier } from './notice.ts'
 import { CRAWLER_DOMAIN_NAME, crawlerDomain, type CrawlerStore } from './store/domain.ts'
 import { bindToolPort, createCrawlerTools } from './tools.ts'
 import { bindOverviewRuntime, provideToolStubs, OverviewPage, OverviewMeta } from './page-overview.tsx'
@@ -77,7 +78,7 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
       deps: (request) => realDeps(request, { browserDataRoot: config.browserDataRoot, channel: config.browserChannel }),
       domain: () => domain,
       mediaRoot: config.mediaRoot,
-    })),
+    }), { onFinished: crawlFinishedNotifier(ctx, resolveConfig(config)) }),
     domain,
   }
   // 工具面：`crawler__<本地名>` 全名注册，disposer 逆序即卸（意见 4）。

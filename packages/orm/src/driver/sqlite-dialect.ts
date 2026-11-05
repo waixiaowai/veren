@@ -59,7 +59,7 @@ export class SqliteDialect implements SqlDialect {
     return `"${identifier.replaceAll('"', '""')}"`
   }
 
-  createParameter(): string {
+  createParameter(_position?: number): string {
     return '?'
   }
 
@@ -74,7 +74,7 @@ export class SqliteDialect implements SqlDialect {
     return ['BEGIN']
   }
 
-  supportsType(): boolean {
+  supportsType(_type?: ColumnType): boolean {
     return true
   }
 }

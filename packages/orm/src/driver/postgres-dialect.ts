@@ -67,7 +67,7 @@ export class PostgresDialect implements SqlDialect {
     return isolation === undefined ? ['BEGIN'] : [`BEGIN ISOLATION LEVEL ${isolation}`]
   }
 
-  supportsType(): boolean {
+  supportsType(_type?: ColumnType): boolean {
     return true
   }
 }

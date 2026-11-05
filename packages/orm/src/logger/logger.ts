@@ -23,12 +23,12 @@ export interface Logger {
 
 /** 安静日志器：显式 `logger: false` 时使用。 / The silent logger used by `logger: false`. */
 export class NoopLogger implements Logger {
-  logQuery(): void {}
-  logQueryError(): void {}
-  logQuerySlow(): void {}
-  logSchemaBuild(): void {}
-  logMigration(): void {}
-  log(): void {}
+  logQuery(_query?: string, _parameters?: readonly unknown[]): void {}
+  logQueryError(_error?: string, _query?: string, _parameters?: readonly unknown[]): void {}
+  logQuerySlow(_time?: number, _query?: string, _parameters?: readonly unknown[]): void {}
+  logSchemaBuild(_message?: string): void {}
+  logMigration(_message?: string): void {}
+  log(_level?: 'log' | 'info' | 'warn', _message?: string): void {}
 }
 
 /** 控制台日志器；级别由 `logging` 配置决定。 / Console logger; levels come from the `logging` option. */

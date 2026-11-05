@@ -66,6 +66,34 @@ describe('driver extension point', () => {
     expect(getRegisteredDriverTypes()).toEqual(expect.arrayContaining(['sqlite', 'd1', 'postgres', 'mysql']))
   })
 
+  it('opens lazy PostgreSQL and MySQL pools from configuration', async () => {
+    const postgres = new DataSource({
+      type: 'postgres',
+      host: '127.0.0.1',
+      port: 1,
+      username: 'user',
+      password: 'secret',
+      database: 'demo',
+      entities: [Widget],
+    })
+    await postgres.initialize()
+    expect(postgres.isInitialized).toBe(true)
+    await postgres.destroy()
+
+    const mysql = new DataSource({
+      type: 'mysql',
+      host: '127.0.0.1',
+      port: 1,
+      username: 'user',
+      password: 'secret',
+      database: 'demo',
+      entities: [Widget],
+    })
+    await mysql.initialize()
+    expect(mysql.isInitialized).toBe(true)
+    await mysql.destroy()
+  })
+
   it('runs PostgreSQL and MySQL drivers with an injected client', async () => {
     const postgres = new DataSource({ type: 'postgres', client: new RecordingClient(), entities: [Widget] })
     await postgres.initialize()

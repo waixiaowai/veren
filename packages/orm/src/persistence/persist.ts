@@ -40,7 +40,9 @@ export async function persistEntities(
   const canTransact = manager.dataSource.driver.dialect.capabilities.transactions && options.transaction !== false
   try {
     if (ownRunner) await runner.connect()
-    if (canTransact && !runner.isTransactionActive) await runner.startTransaction()
+    // 只为自己创建的连接开事务；外部绑定的 runner 由持有者决定事务边界。
+    // Start a transaction only for a runner this call owns; an externally bound runner keeps its owner's boundary.
+    if (canTransact && ownRunner && !runner.isTransactionActive) await runner.startTransaction()
     const visited = new Set<object>()
     for (const entity of entities) await persistOne(transactional, metadata, entity, mode, options, visited)
     if (canTransact && ownRunner && runner.isTransactionActive) await runner.commitTransaction()
