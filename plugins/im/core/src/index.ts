@@ -203,6 +203,14 @@ export interface Config {
    */
   roster: ImRosterEntry[]
   /**
+   * Extra names the default agent answers to. The panel renders a localized
+   * name (Chinese "助手") that differs from the host display name, so mention
+   * routing has to accept it too.
+   * 默认智能体额外应答的名字。面板渲染的是本地化名字（中文「助手」），与宿主展示名不同，
+   * 因此提及路由也必须接受它。
+   */
+  defaultAgentAliases: string[]
+  /**
    * Automatic stranger-intake question. `enabled: false` is the total switch:
    * no question is sent and no intake row is written.
    * 自动陌生人询问。`enabled: false` 是总开关：一条都不发，也不写 intake 记录。
@@ -213,6 +221,7 @@ export interface Config {
 /** 配置 schema。 */
 export const Config: z<Config> = z.object({
   ownerName: z.string().default('Owner'),
+  defaultAgentAliases: z.array(z.string().min(1)).default(['助手']),
   roster: z.array(z.object({
     presetId: z.string().min(1),
     name: z.string().min(1).required(false),
@@ -244,6 +253,7 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
     () => ctx.provide(ImParticipantsToken, new ImParticipants({
       roster: config.roster,
       ownerName: config.ownerName,
+      defaultAgentAliases: config.defaultAgentAliases,
       people,
     })),
     'im:participants',

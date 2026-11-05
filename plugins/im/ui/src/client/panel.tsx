@@ -87,7 +87,7 @@ function ImBody(props: ImBodyProps & RoomsBodyProps) {
             <AgentsBody
               {...props}
               onOpenConversation={roomId => { props.onOpenRoom(roomId); setTab('rooms') }}
-              onCreateConversation={agentId => { props.onCreateRoom({ agentId }); setTab('rooms') }}
+              onCreateConversation={input => { props.onCreateRoom(input); setTab('rooms') }}
             />
           )}
           {tab === 'accounts' && <AccountsView state={state} t={t} actions={actions} />}
@@ -118,7 +118,7 @@ function RoomsBody(props: ImBodyProps & RoomsBodyProps) {
 /** Bind the same observable for the roster, and hand room actions back up. */
 function AgentsBody(props: ImBodyProps & RoomsBodyProps & {
   readonly onOpenConversation: (roomId: string) => void
-  readonly onCreateConversation: (agentId: string) => void
+  readonly onCreateConversation: (input: { readonly kind: 'direct'; readonly memberIds: readonly string[] }) => void
 }) {
   const state = props.rooms.useRooms((snapshot: RoomsSnapshot) => snapshot)
   return (
@@ -129,7 +129,7 @@ function AgentsBody(props: ImBodyProps & RoomsBodyProps & {
       rooms={state.rooms}
       unread={state.unread.reduce((total, count) => total + count.unread, 0)}
       onOpenRoom={props.onOpenConversation}
-      onCreateRoom={input => props.onCreateConversation(input.agentId ?? 'agent:default')}
+      onCreateRoom={props.onCreateConversation}
     />
   )
 }

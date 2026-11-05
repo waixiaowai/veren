@@ -91,9 +91,13 @@ export interface ImPanelInjected {
   /** Post one owner message into the open room. */
   /** 向打开中的房间写一条所有者消息。 */
   readonly onSendMessage: (body: string) => Promise<boolean>
-  /** Create a conversation, optionally with a specific agent seated. */
-  /** 新建会话，可指定入座的智能体。 */
-  readonly onCreateRoom: (input: { readonly title?: string; readonly agentId?: string }) => void
+  /** Create a conversation of either kind with the chosen members seated. */
+  /** 新建会话，可选私聊/群聊并指定入座成员。 */
+  readonly onCreateRoom: (input: {
+    readonly title?: string
+    readonly kind?: 'direct' | 'group'
+    readonly memberIds?: readonly string[]
+  }) => void
 }
 
 /** The mounted `ctx.remote.im` surface. */

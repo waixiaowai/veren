@@ -150,12 +150,16 @@ async function createRoom(
   api: ImConvApi,
   state: RoomsState,
   viewerId: string,
-  input: { readonly title?: string; readonly agentId?: string },
+  input: {
+    readonly title?: string
+    readonly kind?: 'direct' | 'group'
+    readonly memberIds?: readonly string[]
+  },
 ): Promise<void> {
   const result = await api.createRoom({
-    kind: 'direct',
+    kind: input.kind ?? 'direct',
     ...(input.title === undefined ? {} : { title: input.title }),
-    memberIds: [viewerId, input.agentId ?? 'agent:default'],
+    memberIds: input.memberIds ?? [viewerId, 'agent:default'],
   })
   if (!result.ok) {
     publish(state, { status: 'error', error: result.error.message })
@@ -172,7 +176,7 @@ export function createRoomsSource(api: ImConvApi, viewerId: string): {
   readonly openRoom: (roomId: string | undefined) => void
   readonly refresh: () => void
   readonly send: (body: string) => Promise<boolean>
-  readonly createRoom: (input: { readonly title?: string; readonly agentId?: string }) => void
+  readonly createRoom: (input: { readonly title?: string; readonly kind?: 'direct' | 'group'; readonly memberIds?: readonly string[] }) => void
 } {
   const state: RoomsState = {
     snapshot: {

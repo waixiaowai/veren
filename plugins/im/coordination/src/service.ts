@@ -193,15 +193,15 @@ export class CoordinationService {
     return collapse(draft) === collapse(lastPeer.body)
   }
 
-  /** Whether a body mentions one agent by display name. */
-  /** 正文是否按展示名点了一个智能体的名。 */
+  /** Whether a body mentions one agent by its display name or an accepted alias. */
+  /** 正文是否按展示名或别名点了某个智能体的名。 */
   private isMentioned(body: string, agentId: string): boolean {
     const view = this.options.participants.resolve(agentId)
     if (view === undefined) return false
     const plain = collapse(body)
-    return plain.includes(`@${collapse(view.displayName)}`)
-      || plain.includes(`@${agentId}`)
-      || plain.includes(collapse(view.displayName))
+    const names = [view.displayName, ...(view.aliases ?? [])]
+    return plain.includes(`@${agentId}`)
+      || names.some(name => plain.includes(`@${collapse(name)}`) || plain.includes(collapse(name)))
   }
 }
 

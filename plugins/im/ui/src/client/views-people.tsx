@@ -18,13 +18,14 @@ import { Avatar } from './avatar.tsx'
 import { fill } from './format.ts'
 import type { ImKey } from './locales.ts'
 import type { ImBodyProps } from './panel.tsx'
+import { isUnnamedPerson, personLabel, shortHandle } from './person-label.ts'
 import type { ImPersonView } from './remote.ts'
 
 /** The people tab body: named contacts first, unnamed regulars after. */
 export function PeopleView(props: ImBodyProps): React.JSX.Element {
   const { state, t, actions } = props
   const people = [...state.catalog.people].sort((left, right) =>
-    Number(isUnnamed(left)) - Number(isUnnamed(right))
+    Number(isUnnamedPerson(left)) - Number(isUnnamedPerson(right))
     || left.displayName.localeCompare(right.displayName, 'zh'))
   return (
     <section className="im-section">
@@ -49,7 +50,7 @@ function PersonCard(props: {
   readonly onRename: (personId: string, displayName: string) => void
 }): React.JSX.Element {
   const { person, t, onRename } = props
-  const name = humanNameOf(person, t)
+  const name = personLabel(person, t)
   return (
     <li className="im-card" title={person.id}>
       <Avatar name={name} kind="human" size="lg" />
@@ -112,22 +113,3 @@ function RenameControl(props: {
   )
 }
 
-/** Whether the profile still shows the raw provider id as its name. */
-/** 档案是否仍以裸 provider id 作名字。 */
-function isUnnamed(person: ImPersonView): boolean {
-  return person.identityStatus === 'unverified' && person.realName === undefined
-}
-
-/** The name a human should see. */
-/** 人应该看到的名字。 */
-function humanNameOf(person: ImPersonView, t: (key: ImKey) => string): string {
-  if (!isUnnamed(person)) return person.realName ?? person.displayName
-  return `${t('unnamedPerson')} · ${shortHandle(person.displayName)}`
-}
-
-/** The short handle of a provider id. */
-function shortHandle(value: string): string {
-  const at = value.indexOf('@')
-  const head = at === -1 ? value : value.slice(0, at)
-  return head.length <= 10 ? head : `${head.slice(0, 6)}…${head.slice(-2)}`
-}

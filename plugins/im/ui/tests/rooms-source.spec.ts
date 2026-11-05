@@ -59,6 +59,27 @@ describe('createRoomsSource', () => {
     }
   })
 
+  it('creates a group with the chosen members and opens it', async () => {
+    const api = fakeApi()
+    const sent: { kind: string; memberIds: readonly string[] }[] = []
+    const source = createRoomsSource({
+      ...api,
+      createRoom: async request => {
+        sent.push({ kind: request.kind, memberIds: request.memberIds ?? [] })
+        const room = roomOf('conv-2', request.title)
+        return { ok: true as const, value: { room } }
+      },
+    }, 'human:owner')
+    const stop = source.source.subscribe(() => undefined)
+    try {
+      source.createRoom({ kind: 'group', title: '小群', memberIds: ['human:owner', 'agent:default', 'human:person-1'] })
+      await vi.waitFor(() => { expect(source.source.getSnapshot().openRoomId).toBe('conv-2') })
+      expect(sent).toEqual([{ kind: 'group', memberIds: ['human:owner', 'agent:default', 'human:person-1'] }])
+    } finally {
+      stop()
+    }
+  })
+
   it('posts into the open room and keeps the composer idle afterwards', async () => {
     const api = fakeApi()
     const source = createRoomsSource(api, 'human:owner')

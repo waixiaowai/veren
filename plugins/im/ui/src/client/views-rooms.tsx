@@ -43,6 +43,7 @@ export function RoomsView(props: RoomsViewProps) {
       <RoomsSide
         state={props.state}
         t={props.t}
+        people={props.people}
         onOpenRoom={props.onOpenRoom}
         onCreateRoom={props.onCreateRoom}
       />

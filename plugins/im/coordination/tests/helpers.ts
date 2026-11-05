@@ -63,6 +63,7 @@ export function build(options: { budget?: number } = {}) {
   const participants = new ImParticipants({
     roster: [{ presetId: 'alice', name: '爱丽丝' }, { presetId: 'bob', name: '鲍勃' }],
     ownerName: 'Owner',
+    defaultAgentAliases: ['助手'],
     people,
   })
   const rooms = new RoomService({ store, now: () => clock })

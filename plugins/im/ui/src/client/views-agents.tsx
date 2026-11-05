@@ -29,7 +29,7 @@ export interface AgentsViewProps extends ImBodyProps {
   readonly rooms: readonly Room[]
   readonly unread: number
   readonly onOpenRoom: (roomId: string) => void
-  readonly onCreateRoom: (input: { readonly agentId?: string }) => void
+  readonly onCreateRoom: (input: { readonly kind: 'direct'; readonly memberIds: readonly string[] }) => void
 }
 
 /** One agent seat: how many rooms seat it and when it last moved. */
@@ -133,7 +133,7 @@ function AgentCard(props: {
           <button
             type="button"
             className="im-button im-button-primary"
-            onClick={() => { if (room === undefined) props.onCreateRoom({ agentId: seat.id }); else props.onOpenRoom(room.id) }}
+            onClick={() => { if (room === undefined) props.onCreateRoom({ kind: 'direct', memberIds: ['human:owner', seat.id] }); else props.onOpenRoom(room.id) }}
           >
             {t('chatAction')}
           </button>

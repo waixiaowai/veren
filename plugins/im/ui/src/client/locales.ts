@@ -60,7 +60,7 @@ export type ImKey =
   | 'tabAgents' | 'headingTeam' | 'headingAccounts' | 'headingPeople'
   | 'filterUnread' | 'agentRoleDefault' | 'agentRole' | 'agentRooms' | 'agentLastActive'
   | 'chatAction' | 'noAgents' | 'noAgentsHint' | 'summaryAgents' | 'summaryRooms' | 'summaryUnread'
-  | 'agentsHint' | 'accountsHint'
+  | 'agentsHint' | 'accountsHint' | 'membersPick' | 'groupHint'
   | 'emptyTitle' | 'emptyHint' | 'dayToday' | 'dayYesterday' | 'composerHint'
 
 /** Chinese dictionary. */
@@ -106,7 +106,6 @@ export const zh: Record<ImKey, string> = {
   dayYesterday: "昨天",
   composerHint: "回车发送 · Shift+回车换行",
   roomInfo: "会话信息",
-  roomKindLabel: "类型",
   roomCreatedLabel: "创建于",
   copy: "复制",
   copied: "已复制",
@@ -120,6 +119,9 @@ export const zh: Record<ImKey, string> = {
   agentRoleDefault: "默认助手",
   agentsHint: "智能体自己会干活，需要你拍板时会把话题抛给你。",
   accountsHint: "绑定一个渠道后，外部消息会按房间沉淀进来。",
+  roomKindLabel: "会话类型",
+  membersPick: "成员",
+  groupHint: "群里只有 @ 到智能体才会唤醒它；私聊里它会直接回。",
   agentRole: "智能体",
   agentRooms: "会话 {n} 个",
   agentLastActive: "最近 {time}",
@@ -282,7 +284,6 @@ export const en: Record<ImKey, string> = {
   dayYesterday: "Yesterday",
   composerHint: "Enter sends · Shift+Enter breaks the line",
   roomInfo: "Conversation info",
-  roomKindLabel: "Kind",
   roomCreatedLabel: "Created",
   copy: "Copy",
   copied: "Copied",
@@ -296,6 +297,9 @@ export const en: Record<ImKey, string> = {
   agentRoleDefault: "Default assistant",
   agentsHint: "Agents work on their own; they hand the topic back when a decision is yours.",
   accountsHint: "Bind a channel and outside messages settle into rooms.",
+  roomKindLabel: "Conversation kind",
+  membersPick: "Members",
+  groupHint: "In a group an agent wakes only when mentioned; in a direct room it answers every message.",
   agentRole: "Agent",
   agentRooms: "{n} rooms",
   agentLastActive: "Active {time}",

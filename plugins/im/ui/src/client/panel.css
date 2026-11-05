@@ -1006,3 +1006,64 @@ h3.im-heading { font-size: 14px; line-height: 20px; }
 .im-avatar-lg { width: 44px; height: 44px; font-size: 16px; }
 
 .im-hero-row { flex-direction: row; align-items: flex-start; justify-content: space-between; gap: 16px; }
+
+/* ---- new-conversation picker: kind switch and member list ---- */
+
+.im-kind-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--im-sunken);
+}
+
+.im-kind {
+  padding: 2px 12px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--im-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 17px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.im-kind-active { background: var(--im-surface); color: var(--im-text); box-shadow: var(--dsw-shadow-lv1); }
+
+.im-member-pick { display: flex; flex-direction: column; gap: 4px; }
+
+.im-pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.im-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--im-text);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.im-pick:hover:not(:disabled) { background: var(--im-sunken); }
+.im-pick:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.im-pick-active { background: var(--im-accent-soft); color: var(--im-sky-ink); }
+.im-pick-mark { margin-left: auto; color: var(--im-accent); font-size: 12px; }

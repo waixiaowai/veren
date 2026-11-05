@@ -71,6 +71,14 @@ export interface ImParticipantView {
   /** Present exactly on preset-backed agents. */
   /** 仅 preset 智能体携带。 */
   readonly presetId?: string
+  /**
+   * Extra names a message may address this participant by (localized names the
+   * panel shows, for example). Mention routing accepts them exactly like the
+   * display name.
+   * 消息可以用这些额外名字点名该参与者（例如面板显示的本地化名字）；提及路由把它们
+   * 与展示名同等对待。
+   */
+  readonly aliases?: readonly string[]
 }
 
 /** Options for the roster. */
@@ -85,6 +93,9 @@ export interface ImParticipantsOptions {
   /** The people directory, backing external-human resolution. */
   /** 人员目录，支撑外部人类解析。 */
   readonly people: ImPeople
+  /** Extra names the default agent answers to (localized mention names). */
+  /** 默认智能体额外应答的名字（本地化提及名）。 */
+  readonly defaultAgentAliases?: readonly string[]
 }
 
 /** The participant roster service. */
@@ -96,7 +107,12 @@ export class ImParticipants {
    */
   constructor(private readonly options: ImParticipantsOptions) {
     this.agents = [
-      { id: DEFAULT_AGENT_PARTICIPANT_ID, kind: 'agent', displayName: 'Assistant' },
+      {
+        id: DEFAULT_AGENT_PARTICIPANT_ID,
+        kind: 'agent',
+        displayName: 'Assistant',
+        aliases: options.defaultAgentAliases ?? [],
+      },
       ...options.roster.map(entry => ({
         id: agentParticipantId(entry.presetId),
         kind: 'agent' as const,

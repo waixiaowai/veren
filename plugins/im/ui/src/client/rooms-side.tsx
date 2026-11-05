@@ -18,7 +18,8 @@ import { useState } from 'react'
 import { Avatar } from './avatar.tsx'
 import { roomStampOf } from './format.ts'
 import type { ImKey } from './locales.ts'
-import type { RoomsSnapshot } from './remote.ts'
+import { NewRoomPicker } from './new-room.tsx'
+import type { ImPersonView, RoomsSnapshot } from './remote.ts'
 
 /** The list filters the design's seven collapse to in v1. */
 type Filter = 'all' | 'unread' | 'direct' | 'group'
@@ -27,8 +28,13 @@ type Filter = 'all' | 'unread' | 'direct' | 'group'
 export interface RoomsSideProps {
   readonly state: RoomsSnapshot
   readonly t: (key: ImKey) => string
+  readonly people: readonly ImPersonView[]
   readonly onOpenRoom: (roomId: string | undefined) => void
-  readonly onCreateRoom: (input: { readonly title?: string; readonly agentId?: string }) => void
+  readonly onCreateRoom: (input: {
+    readonly title?: string
+    readonly kind?: 'direct' | 'group'
+    readonly memberIds?: readonly string[]
+  }) => void
 }
 
 /** The room list plus search, filter, and the new-room entry. */
@@ -66,13 +72,21 @@ export function RoomsSide(props: RoomsSideProps): React.JSX.Element {
           </svg>
         </button>
       </div>
-      {creating && <NewRoomForm t={t} onCreate={title => { props.onCreateRoom({ title }); setCreating(false) }} />}
       <div className="im-filters" role="group">
         <FilterButton active={filter === 'all'} label={t('filterAll')} onClick={() => setFilter('all')} />
         <FilterButton active={filter === 'unread'} label={t('filterUnread')} onClick={() => setFilter('unread')} />
         <FilterButton active={filter === 'direct'} label={t('filterDirect')} onClick={() => setFilter('direct')} />
         <FilterButton active={filter === 'group'} label={t('filterGroup')} onClick={() => setFilter('group')} />
       </div>
+      {creating && (
+        <NewRoomPicker
+          t={t}
+          people={props.people}
+          agentIds={agentIdsOf(state.rooms)}
+          onCreate={input => { props.onCreateRoom(input); setCreating(false) }}
+          onCancel={() => setCreating(false)}
+        />
+      )}
       <ul className="im-room-list" role="list">
         {state.status === 'loading' && state.rooms.length === 0 && (
           <>
@@ -146,27 +160,9 @@ function FilterButton(props: { readonly active: boolean; readonly label: string;
   )
 }
 
-/** The new-room card: one optional title, then create. */
-function NewRoomForm(props: {
-  readonly t: (key: ImKey) => string
-  readonly onCreate: (title: string | undefined) => void
-}): React.JSX.Element {
-  const [title, setTitle] = useState('')
-  const submit = (): void => {
-    const trimmed = title.trim()
-    props.onCreate(trimmed === '' ? undefined : trimmed)
-  }
-  return (
-    <form className="im-newroom" onSubmit={event => { event.preventDefault(); submit() }}>
-      <input
-        className="im-input"
-        value={title}
-        placeholder={props.t('roomTitlePlaceholder')}
-        aria-label={props.t('roomTitlePlaceholder')}
-        onChange={event => setTitle(event.target.value)}
-      />
-      <p className="im-muted">{props.t('newRoomHint')}</p>
-      <button type="submit" className="im-button im-button-primary">{props.t('createRoom')}</button>
-    </form>
-  )
+/** Every agent id already seated in some room. */
+function agentIdsOf(rooms: RoomsSnapshot['rooms']): readonly string[] {
+  const ids = new Set<string>()
+  for (const room of rooms) for (const id of room.members) if (id.startsWith('agent:')) ids.add(id)
+  return [...ids]
 }
