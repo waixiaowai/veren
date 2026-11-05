@@ -71,7 +71,7 @@ export function InboxView(props: InboxViewProps): React.JSX.Element {
         : (
             <ul className="mail-list">
               {shown.map((message) => (
-                <MessageRow key={message.messageId} message={message} t={t} onMark={actions.onMark} now={Date.now()} />
+                <MessageRow key={message.messageId} message={message} t={t} onMark={actions.onMark} onOpenSession={actions.onOpenSession} now={Date.now()} />
               ))}
             </ul>
           )}

@@ -193,7 +193,14 @@ const handleRequestPasswordReset = async (ctx: EndpointContext): Promise<unknown
     await ctx.context.password.hash('equal-time-pad')
     return { status: true, message: 'If this email exists in our system, check your email for the reset link' }
   }
-  const token = signEmailToken(ctx.context.secretConfig, { email: found.user.email }, options.resetPasswordTokenExpiresIn)
+  // 重置令牌是服务端校验凭据行：核销原子化，重复使用只有一方成功（存储域决策 2）。
+  // The reset token is a server-side verification row: atomic consumption (storage decision 2).
+  const token = randomUUID()
+  await ctx.context.internalAdapter.createVerification({
+    identifier: token,
+    value: JSON.stringify({ email: found.user.email }),
+    expiresAt: new Date(Date.now() + options.resetPasswordTokenExpiresIn * 1000),
+  })
   const base = ctx.context.baseURL
   const url = `${base}/reset-password/${encodeURIComponent(token)}?callbackURL=${encodeURIComponent(body.redirectTo ?? '/')}`
   await options.sendResetPassword({ user: { email: found.user.email }, url, token })
