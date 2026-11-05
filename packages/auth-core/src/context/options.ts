@@ -161,6 +161,52 @@ export interface NormalizedOptions extends Required<Omit<
   disabledPaths: string[]
 }
 
+/** 会话与限流段归一。 / Normalize the session and rate-limit sections. */
+function normalizeSessionAndRate(options: AuthOptions, isProduction: boolean): Pick<NormalizedOptions, 'session' | 'rateLimit'> {
+  return {
+    session: {
+      expiresIn: options.session?.expiresIn ?? DEFAULTS.sessionExpiresIn,
+      updateAge: options.session?.updateAge ?? DEFAULTS.sessionUpdateAge,
+      freshAge: options.session?.freshAge ?? DEFAULTS.sessionFreshAge,
+      revokeSessionsOnPasswordReset: options.session?.revokeSessionsOnPasswordReset ?? false,
+    },
+    rateLimit: {
+      enabled: options.rateLimit?.enabled ?? isProduction,
+      window: options.rateLimit?.window ?? DEFAULTS.rateWindow,
+      max: options.rateLimit?.max ?? DEFAULTS.rateMax,
+      storage: options.rateLimit?.storage ?? 'memory',
+    },
+  }
+}
+
+/** 高级开关段归一。 / Normalize the advanced section. */
+function normalizeAdvanced(advanced: AdvancedOptions | undefined): NormalizedOptions['advanced'] {
+  return {
+    cookiePrefix: advanced?.cookiePrefix ?? 'auth',
+    cookieSameSite: advanced?.cookieSameSite ?? 'lax',
+    useSecureCookies: advanced?.useSecureCookies,
+    disableOriginCheck: advanced?.disableOriginCheck,
+    disableCSRFCheck: advanced?.disableCSRFCheck ?? false,
+  }
+}
+
+/** 邮箱口令与邮箱校验段归一。 / Normalize the email+password and verification sections. */
+function normalizeEmailSections(options: AuthOptions): Pick<NormalizedOptions, 'emailAndPassword' | 'emailVerification'> {
+  return {
+    emailAndPassword: {
+      enabled: options.emailAndPassword?.enabled ?? false,
+      minPasswordLength: options.emailAndPassword?.minPasswordLength ?? DEFAULTS.minPasswordLength,
+      maxPasswordLength: options.emailAndPassword?.maxPasswordLength ?? DEFAULTS.maxPasswordLength,
+      autoSignIn: options.emailAndPassword?.autoSignIn ?? true,
+      transparentSignUp: options.emailAndPassword?.transparentSignUp ?? false,
+      resetPasswordTokenExpiresIn: options.emailAndPassword?.resetPasswordTokenExpiresIn ?? DEFAULTS.resetTokenExpiresIn,
+      sendResetPassword: options.emailAndPassword?.sendResetPassword,
+      onPasswordReset: options.emailAndPassword?.onPasswordReset,
+    },
+    emailVerification: options.emailVerification ?? {},
+  }
+}
+
 /** 缺省常量（单位秒）。 / Default constants (seconds). */
 export const DEFAULTS = {
   basePath: '/api/auth',
@@ -180,6 +226,7 @@ export const DEFAULTS = {
  * / Normalize options once at assembly; the runtime only reads the result.
  */
 export function normalizeOptions(options: AuthOptions): NormalizedOptions {
+  const isProduction = options.isProduction ?? false
   return {
     appName: options.appName ?? 'Auth',
     baseURL: options.baseURL,
@@ -188,37 +235,11 @@ export function normalizeOptions(options: AuthOptions): NormalizedOptions {
     secrets: options.secrets,
     legacySecret: options.legacySecret,
     trustedOrigins: [...(options.trustedOrigins ?? [])],
-    isProduction: options.isProduction ?? false,
-    session: {
-      expiresIn: options.session?.expiresIn ?? DEFAULTS.sessionExpiresIn,
-      updateAge: options.session?.updateAge ?? DEFAULTS.sessionUpdateAge,
-      freshAge: options.session?.freshAge ?? DEFAULTS.sessionFreshAge,
-      revokeSessionsOnPasswordReset: options.session?.revokeSessionsOnPasswordReset ?? false,
-    },
-    rateLimit: {
-      enabled: options.rateLimit?.enabled ?? (options.isProduction ?? false),
-      window: options.rateLimit?.window ?? DEFAULTS.rateWindow,
-      max: options.rateLimit?.max ?? DEFAULTS.rateMax,
-      storage: options.rateLimit?.storage ?? 'memory',
-    },
-    emailAndPassword: {
-      enabled: options.emailAndPassword?.enabled ?? false,
-      minPasswordLength: options.emailAndPassword?.minPasswordLength ?? DEFAULTS.minPasswordLength,
-      maxPasswordLength: options.emailAndPassword?.maxPasswordLength ?? DEFAULTS.maxPasswordLength,
-      autoSignIn: options.emailAndPassword?.autoSignIn ?? true,
-      transparentSignUp: options.emailAndPassword?.transparentSignUp ?? false,
-      resetPasswordTokenExpiresIn: options.emailAndPassword?.resetPasswordTokenExpiresIn ?? DEFAULTS.resetTokenExpiresIn,
-      sendResetPassword: options.emailAndPassword?.sendResetPassword,
-    },
-    emailVerification: options.emailVerification ?? {},
+    isProduction,
+    ...normalizeSessionAndRate(options, isProduction),
+    ...normalizeEmailSections(options),
     user: options.user ?? {},
-    advanced: {
-      cookiePrefix: options.advanced?.cookiePrefix ?? 'auth',
-      cookieSameSite: options.advanced?.cookieSameSite ?? 'lax',
-      useSecureCookies: options.advanced?.useSecureCookies,
-      disableOriginCheck: options.advanced?.disableOriginCheck,
-      disableCSRFCheck: options.advanced?.disableCSRFCheck ?? false,
-    },
+    advanced: normalizeAdvanced(options.advanced),
     databaseHooks: options.databaseHooks,
     hooks: options.hooks,
     disabledPaths: [...(options.disabledPaths ?? [])],

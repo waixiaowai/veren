@@ -269,7 +269,10 @@ export function createBaiduSource(api: BaiduPanRemoteApi): {
     return result
   }
   return {
-    source: { getSnapshot: () => state.snapshot, subscribe: listener => subscribe(api, state, listener) },
+    source: {
+      getSnapshot: () => state.snapshot,
+      subscribe: (listener: () => void) => subscribe(api, state, listener),
+    },
     refreshOverview: () => {
       state.epoch += 1
       void readOverview(api, state, state.epoch)

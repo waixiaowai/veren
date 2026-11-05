@@ -54,7 +54,7 @@ export class BaiduPanGatewayService extends TypertRemoteService {
   static inject = [BAIDU_PAN_WORLD_TOKEN]
 
   private readonly world: BaiduPanWorld
-  private readonly jobs = new TransferJobRegistry()
+  private readonly jobRegistry = new TransferJobRegistry()
 
   /**
    * @param ctx - the owning context / 属主上下文
@@ -207,10 +207,10 @@ export class BaiduPanGatewayService extends TypertRemoteService {
     readonly remotePath: string
     readonly overwrite?: boolean
   }): Promise<GatewayOutcome<JobStartedView>> {
-    return foldOutcome(() => {
+    return foldOutcome(async () => {
       const localPath = requireAbsoluteLocalPath(request.localPath)
       const remotePath = requirePath(this.world, request.remotePath)
-      const jobId = this.jobs.start('upload', displayPath(remotePath), () => uploadFile(this.world.client, {
+      const jobId = this.jobRegistry.start('upload', displayPath(remotePath), () => uploadFile(this.world.client, {
         localPath,
         remotePath,
         conflictPolicy: request.overwrite === true ? 'overwrite' : 'fail',
@@ -226,7 +226,7 @@ export class BaiduPanGatewayService extends TypertRemoteService {
       const localPath = requireAbsoluteLocalPath(request.localPath)
       const remotePath = requirePath(this.world, request.remotePath)
       const meta = await downloadMeta(this.world, remotePath)
-      const jobId = this.jobs.start('download', displayPath(remotePath), () => downloadFile(this.world.client, { meta, localPath }), foldGatewayError)
+      const jobId = this.jobRegistry.start('download', displayPath(remotePath), () => downloadFile(this.world.client, { meta, localPath }), foldGatewayError)
       return { jobId }
     })
   }
@@ -235,7 +235,7 @@ export class BaiduPanGatewayService extends TypertRemoteService {
   @Remote('job')
   async job(request: { readonly jobId: string }): Promise<GatewayOutcome<TransferJobSnapshot>> {
     return foldOutcome(async () => {
-      const snapshot = this.jobs.snapshotOf(request.jobId)
+      const snapshot = this.jobRegistry.snapshotOf(request.jobId)
       if (snapshot === undefined) throw baiduPanError('BDPAN_NOT_FOUND', { detail: `job ${request.jobId}` })
       return snapshot
     })
@@ -244,7 +244,7 @@ export class BaiduPanGatewayService extends TypertRemoteService {
   /** 全部任务快照（running 在前）。Every job's snapshot (running first). */
   @Remote('jobs')
   async jobs(): Promise<GatewayOutcome<{ readonly jobs: readonly TransferJobSnapshot[] }>> {
-    return foldOutcome(async () => ({ jobs: this.jobs.list() }))
+    return foldOutcome(async () => ({ jobs: this.jobRegistry.list() }))
   }
 }
 

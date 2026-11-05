@@ -61,9 +61,9 @@ function loginScriptProbe(): string {
 }
 
 /**
- * The submit handler: post to Better Auth, re-enable on failure, redirect to
+ * The submit handler: post to the auth framework, re-enable on failure, redirect to
  * the SPA entry on success.
- * 提交处理器：提交到 Better Auth，失败时恢复按钮，成功后跳转 SPA 入口。
+ * 提交处理器：提交到认证框架，失败时恢复按钮，成功后跳转 SPA 入口。
  * @returns JavaScript text ending in a newline. 以换行结尾的 JavaScript 文本。
  */
 function loginScriptSubmit(): string {

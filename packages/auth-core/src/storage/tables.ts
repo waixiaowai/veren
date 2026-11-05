@@ -45,44 +45,54 @@ const idColumn = (): DBFieldAttribute => str({ required: false })
 /** 会话引用主体的外键列。 / The session→user foreign-key column. */
 const userRef = (): DBFieldAttribute => ({ type: 'string', references: { model: 'user', field: 'id', onDelete: 'cascade' } })
 
-/** 核心表装配器。 / The core-table assembler. */
+/** user 表。 / The user table. */
+function userTable(): DBTableModel {
+  return {
+    modelName: 'user',
+    order: 1,
+    fields: {
+      id: idColumn(),
+      name: str(),
+      email: str({ unique: true, sortable: true }),
+      emailVerified: bool({ defaultValue: false, input: false }),
+      image: str({ required: false, defaultValue: null }),
+      createdAt: createdAt(),
+      updatedAt: updatedAt(),
+    },
+  }
+}
+
+/** account 表。 / The account table. */
+function accountTable(): DBTableModel {
+  return {
+    modelName: 'account',
+    order: 3,
+    fields: {
+      id: idColumn(),
+      userId: userRef(),
+      providerId: str(),
+      accountId: str(),
+      accessToken: str({ required: false, returned: false }),
+      refreshToken: str({ required: false, returned: false }),
+      idToken: str({ required: false, returned: false }),
+      accessTokenExpiresAt: date({ required: false, returned: false }),
+      refreshTokenExpiresAt: date({ required: false, returned: false }),
+      scope: str({ required: false }),
+      password: str({ required: false, returned: false }),
+      createdAt: createdAt(),
+      updatedAt: updatedAt(),
+    },
+    indexes: [{ fields: ['providerId', 'accountId'], name: 'account_provider_account', unique: true }],
+  }
+}
+
+/** 核心表装配器：二级存储承载时 session/verification 不生成，限流表按存储策略。 / The core-table assembler: session/verification vanish under secondary storage; rateLimit per strategy. */
 function coreTables(options: TableOptions): DBSchema {
   const stateful = options.secondaryStorage === undefined
   return {
-    user: {
-      modelName: 'user',
-      order: 1,
-      fields: {
-        id: idColumn(),
-        name: str(),
-        email: str({ unique: true, sortable: true }),
-        emailVerified: bool({ defaultValue: false, input: false }),
-        image: str({ required: false, defaultValue: null }),
-        createdAt: createdAt(),
-        updatedAt: updatedAt(),
-      },
-    },
+    user: userTable(),
     ...(stateful || options.storeSessionInDatabase ? { session: sessionTable() } : {}),
-    account: {
-      modelName: 'account',
-      order: 3,
-      fields: {
-        id: idColumn(),
-        userId: userRef(),
-        providerId: str(),
-        accountId: str(),
-        accessToken: str({ required: false, returned: false }),
-        refreshToken: str({ required: false, returned: false }),
-        idToken: str({ required: false, returned: false }),
-        accessTokenExpiresAt: date({ required: false, returned: false }),
-        refreshTokenExpiresAt: date({ required: false, returned: false }),
-        scope: str({ required: false }),
-        password: str({ required: false, returned: false }),
-        createdAt: createdAt(),
-        updatedAt: updatedAt(),
-      },
-      indexes: [{ fields: ['providerId', 'accountId'], name: 'account_provider_account', unique: true }],
-    },
+    account: accountTable(),
     ...(stateful || options.storeVerificationInDatabase ? { verification: verificationTable() } : {}),
     ...(options.rateLimitStorage === 'database' ? { rateLimit: rateLimitTable() } : {}),
   }

@@ -92,7 +92,7 @@ function renameExecute(world: BaiduPanWorld) {
 function deleteExecute(world: BaiduPanWorld) {
   return foldErrors(async (args: { paths?: readonly string[]; confirm_paths?: readonly string[] }) => {
     const normalized = await removeGuarded(world, args.paths ?? [], args.confirm_paths ?? [])
-    return { kind: 'ok' as const, op: 'delete' as const, paths: normalized }
+    return { kind: 'ok' as const, op: 'delete' as const, paths: [...normalized] }
   })
 }
 

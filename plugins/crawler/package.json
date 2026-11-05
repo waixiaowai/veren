@@ -42,6 +42,7 @@
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/core": "workspace:*",
     "@veren/prompt-core": "workspace:^",
     "playwright-core": "^1.64.1",
     "zod": "^4.4.3"

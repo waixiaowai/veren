@@ -1,13 +1,13 @@
 /**
  * The gate itself: route handlers and the data-gate waterfall. Unauthenticated
- * browsers only ever reach `/login`, `/auth/**` (Better Auth) and public
- * static assets; a valid Better Auth session re-triggers the official launch
+ * browsers only ever reach `/login`, `/auth/**` (the auth framework) and public
+ * static assets; a valid auth session re-triggers the official launch
  * token exchange and then serves the SPA index; every authenticated `/api`
- * request is re-checked against the Better Auth session before the bridge.
+ * request is re-checked against the auth session before the bridge.
  * 门禁本体：路由处理器与数据闸门 waterfall。未登录浏览器只能到达 `/login`、
- * `/auth/**`（Better Auth）与公开静态资源；持有效 Better Auth 会话后由插件
+ * `/auth/**`（认证框架）与公开静态资源；持有效认证会话后由插件
  * 代为触发官方 launch token 兑换再提供 SPA 入口；每条已认证的 `/api` 请求在
- * 进入桥接前都要再过一次 Better Auth 会话校验。
+ * 进入桥接前都要再过一次认证会话校验。
  * @module src/gate
  */
 
@@ -110,7 +110,7 @@ async function bodyOf(req: IncomingMessage): Promise<Uint8Array | undefined> {
   return Buffer.concat(chunks)
 }
 
-/** Translate one node request into the fetch Request Better Auth expects. 将 node 请求翻译为 Better Auth 期望的 fetch Request。 */
+/** Translate one node request into the fetch Request the framework expects. 将 node 请求翻译为认证框架期望的 fetch Request。 */
 async function toWebRequest(req: IncomingMessage, origin: string): Promise<Request> {
   return new Request(origin + (req.url ?? '/'), {
     method: req.method,
@@ -147,13 +147,13 @@ function unauthorized(res: ServerResponse): void {
   res.end('login required\n')
 }
 
-/** Resolve the Better Auth session of one request, if any. 解析请求的 Better Auth 会话（若有）。 */
+/** Resolve the auth-framework session of one request, if any. 解析请求的认证框架会话（若有）。 */
 export async function sessionOf(services: GateServices, req: IncomingMessage): Promise<unknown> {
-  const session = await services.auth.api.getSession({ headers: headersOf(req) })
+  const session = await services.auth.api.getSession({ headers: headersOf(req) }) as { session?: unknown } | null
   return session?.session ?? null
 }
 
-/** Serve the Better Auth handler for one `/auth/**` request. 将 `/auth/**` 请求交给 Better Auth 处理。 */
+/** Serve the framework handler for one `/auth/**` request. 将 `/auth/**` 请求交给认证框架处理。 */
 export async function handleAuth(services: GateServices, req: IncomingMessage, res: ServerResponse, origin: string): Promise<void> {
   await writeResponse(res, await services.auth.handler(await toWebRequest(req, origin)))
 }
@@ -202,14 +202,14 @@ export function sameAuthorityTokenUrl(services: GateServices, req: IncomingMessa
 
 /**
  * Gate one SPA entry request (`/` or `/index.html`):
- * 1. no Better Auth session → 303 to the login page (the launch token in the
+ * 1. no auth session → 303 to the login page (the launch token in the
  *    URL is dropped, so no `dsh-auth-*` cookie can ever be minted here);
  * 2. session but no token in the URL → re-trigger the official exchange by
  *    redirecting to the tokenized URL Connection produces;
  * 3. session + token → `authorizeIndex` mints the `dsh-auth-*` cookie and
  *    redirects to the clean path, or an existing cookie lets us serve index.
  * 门禁处理 SPA 入口请求（`/` 或 `/index.html`）：
- * 1. 无 Better Auth 会话 → 303 到登录页（丢弃 URL 中的 launch token，因此这里
+ * 1. 无认证会话 → 303 到登录页（丢弃 URL 中的 launch token，因此这里
  *    永远不会铸出 `dsh-auth-*` Cookie）；
  * 2. 有会话但 URL 无 token → 重定向到 Connection 生成的带 token URL，
  *    代为重新触发官方兑换；
@@ -244,10 +244,10 @@ export async function handleIndex(services: GateServices, req: IncomingMessage, 
 
 /**
  * The data-gate waterfall listener: every admitted `/api` request re-proves
- * the Better Auth session before its body transfers; denial short-circuits
+ * the auth session before its body transfers; denial short-circuits
  * the waterfall on purpose (the 401 response is fully owned here).
  * 数据闸门 waterfall 监听器：每条已准入的 `/api` 请求在传输 body 前再次证明
- * Better Auth 会话；拒绝时有意短路 waterfall（401 响应完全由本监听器负责）。
+ * 认证会话；拒绝时有意短路 waterfall（401 响应完全由本监听器负责）。
  * @param services - The gate services.
  * @returns the waterfall listener.
  */
@@ -268,7 +268,7 @@ export function dataGateListener(services: GateServices): (
  * registrations are effects so unloading disposes them in reverse order.
  * @param ctx - The plugin context.
  * @param services - The gate services.
- * @param origin - Listener origin for Better Auth requests.
+ * @param origin - Listener origin for auth framework requests.
  */
 export function installGate(ctx: Context, services: GateServices, origin: string): void {
   ctx.effect(() => ctx.webServer.register({

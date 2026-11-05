@@ -9,7 +9,7 @@
  * fragments: see `login-page-style`, `login-page-body` and `login-page-script`.
  * 公开登录页：单个自包含 HTML 文档，视觉沿用 dsh Web 外壳风格（平面、启动背景
  * `#fff` / `#151517`、Montserrat 优先字体栈、DeepSeek 蓝色强调色）。表单提交到
- * Better Auth 的 `/auth/sign-in/email`，不区分账号不存在与密码错误，并为已
+ * 认证框架的 `/auth/sign-in/email`，不区分账号不存在与密码错误，并为已
  * 登录浏览器提供登出入口。内联样式/脚本使页面不依赖任何 SPA 资源，可在未
  * 认证时加载。文档由分节片段装配而成：见 `login-page-style`、
  * `login-page-body` 与 `login-page-script`。

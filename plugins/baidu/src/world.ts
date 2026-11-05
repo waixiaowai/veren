@@ -11,6 +11,7 @@ import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import { BaiduPanClient } from './client.js'
 import type { ResolvedConfig } from './config.js'
 import { commitTokens, readStoredTokens } from './credentials.js'
+import type { FetchLike } from './wire.js'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 
 /** 编排世界对象。The orchestration world object. */
@@ -38,15 +39,18 @@ export interface WorkspaceRegistryLike {
 }
 
 /**
- * 组装世界：客户端的令牌读写接在凭据面上，令牌只在出网请求里瞬时存在。
+ * 组装世界：客户端的令牌读写接在凭据面上，令牌只在出网请求里瞬时存在；
+ * fetch 可注入（测试换脚本化假实现）。
  * Assembles the world: the client's token reads/writes wire onto the
- * credential face; tokens exist transiently inside outbound requests only.
+ * credential face; tokens exist transiently inside outbound requests only;
+ * fetch is injectable (tests swap in a scripted fake).
  */
-export function buildWorld(config: ResolvedConfig, credentials: CredentialProvider, workspaceRegistry: WorkspaceRegistryLike): BaiduPanWorld {
+export function buildWorld(config: ResolvedConfig, credentials: CredentialProvider, workspaceRegistry: WorkspaceRegistryLike, fetch?: FetchLike): BaiduPanWorld {
   const client = new BaiduPanClient({
     config,
     readTokens: () => readStoredTokens(credentials),
     commitTokens: tokens => commitTokens(credentials, tokens),
+    ...(fetch === undefined ? {} : { fetch }),
   })
   return { config, client, credentials, workspaceOf: workspaceResolver(workspaceRegistry) }
 }

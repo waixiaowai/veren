@@ -90,59 +90,100 @@ function defaultGenerateId(): string | false {
   return randomUUID()
 }
 
+/** 装配中间产物：helper 之间的传递面。 / The assembly intermediates passed between helpers. */
+interface AssemblyDeps {
+  options: NormalizedOptions
+  adapter: DBAdapter
+  logger: AuthContext['logger']
+  plugins: AuthPlugin[]
+  hooks: InternalAdapterHooks
+  tables: DBSchema
+}
+
+/** 核心依赖段：权威与能力面。 / The core segment: authorities and capabilities. */
+function contextCore(deps: AssemblyDeps, secret: ResolvedSecret): Pick<AuthContext,
+  'options' | 'tables' | 'adapter' | 'internalAdapter' | 'sessionAuthority' | 'password'
+  | 'secret' | 'secretConfig' | 'appName' | 'version' | 'generateId'> {
+  const internalAdapter = createInternalAdapter(deps.adapter, { hooks: deps.hooks, tables: deps.tables })
+  return {
+    options: deps.options,
+    tables: deps.tables,
+    adapter: deps.adapter,
+    internalAdapter,
+    sessionAuthority: createSessionAuthority(deps.adapter, internalAdapter, {
+      expiresIn: deps.options.session.expiresIn,
+      updateAge: deps.options.session.updateAge,
+      freshAge: deps.options.session.freshAge,
+    }, deps.hooks),
+    password: createPasswordCapability({
+      minPasswordLength: deps.options.emailAndPassword.minPasswordLength,
+      maxPasswordLength: deps.options.emailAndPassword.maxPasswordLength,
+    }),
+    secret: secret.secret,
+    secretConfig: secret.config,
+    appName: deps.options.appName,
+    version: '1.0.0',
+    generateId: () => randomUUID(),
+  }
+}
+
+/** 信任与扩展段：Cookie、受信来源、守卫开关与插件面。 / The trust segment: cookies, trusted origins, guard switches and the plugin face. */
+function contextGuards(deps: AssemblyDeps): Pick<AuthContext,
+  'authCookies' | 'trustedOrigins' | 'skipOriginCheck' | 'skipCSRFCheck'
+  | 'baseURL' | 'plugins' | 'logger'> {
+  const trustedOrigins = mergeTrustedOrigins(deps.options.baseURL, deps.options.trustedOrigins)
+  return {
+    authCookies: createAuthCookies({
+      baseURL: deps.options.baseURL,
+      prefix: deps.options.advanced.cookiePrefix,
+      sameSite: deps.options.advanced.cookieSameSite,
+      useSecureCookies: deps.options.advanced.useSecureCookies,
+    }),
+    trustedOrigins,
+    skipOriginCheck: deps.options.advanced.disableOriginCheck ?? false,
+    skipCSRFCheck: deps.options.advanced.disableCSRFCheck ?? false,
+    baseURL: joinBaseURL(deps.options.baseURL, deps.options.basePath),
+    plugins: deps.plugins,
+    logger: deps.logger,
+  }
+}
+
 /** 装配共享上下文。 / Assemble the shared context. */
+/** 静态日志器：缺省走 console。 / The static logger; console by default. */
+function defaultLogger(input: CreateAuthContextInput): AuthContext['logger'] {
+  return input.logger ?? {
+    warn: (message: string) => console.warn(`[auth-core] ${message}`),
+    error: (message: string) => console.error(`[auth-core] ${message}`),
+    debug: (message: string) => console.debug(`[auth-core] ${message}`),
+  }
+}
+
 export async function createAuthContext(input: CreateAuthContextInput): Promise<AuthContext> {
   const options = normalizeOptions(input.options)
-  const resolved = resolveSecret({
+  const secret = resolveSecret({
     secret: options.secret,
     secrets: options.secrets,
     legacySecret: options.legacySecret,
     isProduction: options.isProduction,
   })
-  const logger = input.logger ?? {
-    warn: (message: string) => console.warn(`[auth-core] ${message}`),
-    error: (message: string) => console.error(`[auth-core] ${message}`),
-    debug: (message: string) => console.debug(`[auth-core] ${message}`),
-  }
   const plugins = [...(input.options.plugins ?? [])]
-  const hooks = collectHooks(options.databaseHooks, plugins, logger)
-  const tables = getAuthTables(tableOptionsOf(options), pluginSchemasOf(plugins))
-  const adapter = input.adapter
-  const internalAdapter = createInternalAdapter(adapter, { hooks, tables })
-  const ctx: AuthContext = {
+  const logger = defaultLogger(input)
+  const deps: AssemblyDeps = {
     options,
-    tables,
-    adapter,
-    internalAdapter,
-    sessionAuthority: createSessionAuthority(adapter, internalAdapter, {
-      expiresIn: options.session.expiresIn,
-      updateAge: options.session.updateAge,
-      freshAge: options.session.freshAge,
-    }, hooks),
-    password: createPasswordCapability({
-      minPasswordLength: options.emailAndPassword.minPasswordLength,
-      maxPasswordLength: options.emailAndPassword.maxPasswordLength,
-    }),
-    authCookies: createAuthCookies({
-      baseURL: options.baseURL,
-      prefix: options.advanced.cookiePrefix,
-      sameSite: options.advanced.cookieSameSite,
-      useSecureCookies: options.advanced.useSecureCookies,
-    }),
-    secret: resolved.secret,
-    secretConfig: resolved.config,
-    trustedOrigins: mergeTrustedOrigins(options.baseURL, options.trustedOrigins),
-    isTrustedOrigin: (url, settings) => isTrustedOrigin(url, ctx.trustedOrigins, settings),
-    skipOriginCheck: options.advanced.disableOriginCheck ?? false,
-    skipCSRFCheck: options.advanced.disableCSRFCheck ?? false,
-    baseURL: joinBaseURL(options.baseURL, options.basePath),
-    appName: options.appName,
-    version: '1.0.0',
-    generateId: defaultGenerateId,
-    getPlugin: (pluginId) => plugins.find((plugin) => plugin.id === pluginId) ?? null,
-    hasPlugin: (pluginId) => plugins.some((plugin) => plugin.id === pluginId),
-    plugins,
+    adapter: input.adapter,
     logger,
+    plugins,
+    hooks: collectHooks(options.databaseHooks, plugins, logger),
+    tables: getAuthTables(tableOptionsOf(options), pluginSchemasOf(plugins)),
+  }
+  const core = contextCore(deps, secret)
+  const guards = contextGuards(deps)
+  const ctx: AuthContext = {
+    ...core,
+    ...guards,
+    isTrustedOrigin: (url, settings) => isTrustedOrigin(url, guards.trustedOrigins, settings),
+    getPlugin: (pluginId) => deps.plugins.find((plugin) => plugin.id === pluginId) ?? null,
+    hasPlugin: (pluginId) => deps.plugins.some((plugin) => plugin.id === pluginId),
   }
   await runPluginInit(ctx)
   return ctx

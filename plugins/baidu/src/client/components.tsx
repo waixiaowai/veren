@@ -11,13 +11,13 @@
  */
 
 import { useState } from 'react'
-import type { ReactNode } from 'react'
+import type { JSX, ReactNode } from 'react'
 
 /** 语义色调（设计 §10 公共类型）。The semantic tone (design §10's common type). */
 export type Tone = 'neutral' | 'success' | 'warning' | 'danger' | 'brand'
 
 /** §10.1 StatusLabel：文字 + 语义色表达状态。StatusLabel: a state as text plus semantic color. */
-export function StatusLabel(props: { readonly tone: Tone; readonly text: string }): React.JSX.Element {
+export function StatusLabel(props: { readonly tone: Tone; readonly text: string }): JSX.Element {
   return <span className={`bdp-status bdp-tone-${props.tone}`}>[{props.text}]</span>
 }
 
@@ -29,7 +29,7 @@ export function KeyValueRow(props: {
   readonly copyValue?: string
   readonly copyLabel?: string
   readonly copiedLabel?: string
-}): React.JSX.Element {
+}): JSX.Element {
   const value = props.value.length === 0 ? '—' : props.value
   return (
     <div className="bdp-kv">
@@ -50,7 +50,7 @@ export function ProgressBar(props: {
   readonly label: string
   readonly detail?: string
   readonly indeterminate?: boolean
-}): React.JSX.Element {
+}): JSX.Element {
   if (props.indeterminate === true) {
     return (
       <div className="bdp-progress" role="status" aria-label={props.label}>
@@ -67,7 +67,7 @@ export function ProgressBar(props: {
 }
 
 /** §10.5 Spinner：已受理、尚无进度；附已等待秒数。Spinner: accepted, no progress yet; carries the waited seconds. */
-export function Spinner(props: { readonly label: string; readonly elapsedSeconds?: number }): React.JSX.Element {
+export function Spinner(props: { readonly label: string; readonly elapsedSeconds?: number }): JSX.Element {
   return (
     <div className="bdp-spinner-row" role="status">
       <span className="bdp-spinner" aria-hidden="true" />
@@ -82,7 +82,7 @@ export function LinkLine(props: {
   readonly url?: string
   readonly hint: string
   readonly fallbackText: string
-}): React.JSX.Element {
+}): JSX.Element {
   if (props.url === undefined || props.url.length === 0) {
     return <span className="bdp-muted">{props.fallbackText}</span>
   }
@@ -92,7 +92,7 @@ export function LinkLine(props: {
 }
 
 /** §10.7 PathText：路径展示，完整值进 title 提示，保证根可见。PathText: shows the path; the full value lives in the title tooltip. */
-export function PathText(props: { readonly display: string; readonly full: string }): React.JSX.Element {
+export function PathText(props: { readonly display: string; readonly full: string }): JSX.Element {
   return <span className="bdp-path" title={props.full}>{props.display}</span>
 }
 
@@ -104,7 +104,7 @@ export function ErrorBlock(props: {
   readonly retryable?: boolean
   readonly retryLabel?: string
   readonly onRetry?: () => void
-}): React.JSX.Element {
+}): JSX.Element {
   return (
     <div className="bdp-error" role="alert">
       <div className="bdp-error-title bdp-tone-danger-text">{props.title}</div>
@@ -120,7 +120,7 @@ export function ErrorBlock(props: {
 }
 
 /** §10.11 HintBar：弱化提示行。HintBar: one muted hint line. */
-export function HintBar(props: { readonly text: string }): React.JSX.Element {
+export function HintBar(props: { readonly text: string }): JSX.Element {
   return <p className="bdp-hint">{props.text}</p>
 }
 
@@ -130,7 +130,7 @@ export function EmptyState(props: {
   readonly description?: string
   readonly actionLabel?: string
   readonly onAction?: () => void
-}): React.JSX.Element {
+}): JSX.Element {
   return (
     <div className="bdp-empty">
       <p className="bdp-empty-title">{props.title}</p>
@@ -147,7 +147,7 @@ export function CopyAction(props: {
   readonly value: string
   readonly label: string
   readonly copiedLabel: string
-}): React.JSX.Element {
+}): JSX.Element {
   const [copied, setCopied] = useState(false)
   const copy = async (): Promise<void> => {
     try {
@@ -168,7 +168,7 @@ export function CopyAction(props: {
 }
 
 /** §10.14 SectionHeading：区块标题与计数。SectionHeading: a section title with an optional count. */
-export function SectionHeading(props: { readonly title: string; readonly count?: number; readonly actions?: ReactNode }): React.JSX.Element {
+export function SectionHeading(props: { readonly title: string; readonly count?: number; readonly actions?: ReactNode }): JSX.Element {
   return (
     <div className="bdp-section-head">
       <h2 className="bdp-section-title">
@@ -196,7 +196,7 @@ export function Table(props: {
   readonly emptyText?: string
   readonly onRowActivate?: (index: number) => void
   readonly renderRowActions?: (index: number) => ReactNode
-}): React.JSX.Element {
+}): JSX.Element {
   const hasActions = props.renderRowActions !== undefined
   return (
     <table className="bdp-table">

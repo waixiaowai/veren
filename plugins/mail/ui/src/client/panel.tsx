@@ -48,7 +48,6 @@ type Tab = 'inbox' | 'activity'
  * @returns the panel / 面板
  */
 export function MailPanel(props: MailPanelProps) {
-  (window as unknown as { __mailDiag?: string[] }).__mailDiag?.push('MailPanel render')
   console.log('[mail-diag] MailPanel rendering')
   const snapshot = props.useMail((current: MailSnapshot) => current)
   return <MailBody snapshot={snapshot} t={props.t} actions={props} />

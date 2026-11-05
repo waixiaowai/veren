@@ -2100,6 +2100,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.4
         version: 3.18.4
+      '@veren/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@veren/prompt-core':
         specifier: workspace:^
         version: link:../../packages/prompt-core

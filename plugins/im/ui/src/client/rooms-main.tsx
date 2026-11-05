@@ -16,6 +16,7 @@
 
 import { Composer } from './composer.tsx'
 import { ActivityRow } from './activity-row.tsx'
+import { visibleActivities } from './activity-filter.ts'
 import { Avatar } from './avatar.tsx'
 import type { ImKey } from './locales.ts'
 import type { ImParticipant } from './remote.ts'
@@ -82,7 +83,7 @@ function Timeline(props: RoomsMainProps): React.JSX.Element {
   const { state, t } = props
   // 工作行也算新内容：它出现时读者若贴底，应当跟着滚到底。
   // A working row is new content too: a reader at the bottom follows it.
-  const working = props.activities.filter(run => run.roomId === state.openRoomId)
+  const working = visibleActivities(props.activities, state.messages, state.openRoomId)
   const stick = useStickToBottom(state.messages.length + working.length)
   return (
     <div className="im-timeline-wrap">

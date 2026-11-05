@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Web Login Gate",
-    "description": "Requires a named-user login before any Web page or API access: Better Auth username/email + password over a DSH storage domain."
+    "description": "Requires a named-user login before any Web page or API access: framework email + password authentication over the @veren/orm sqlite database."
   }
 }

@@ -1,0 +1,169 @@
+/**
+ * 百度网盘面板样式。唯一的裸色值区是顶部的语义令牌块（设计 §9.2 的亮/暗
+ * 两套），其余规则一律消费令牌；间距走 4px 栅格；动效只用 --dur-fast/base；
+ * 有 --dsw-* 的地方优先复用外壳。
+ * The Baidu Netdisk panel styles. The only raw-color zone is the semantic
+ * token block at the top (design §9.2's light/dark pairs); every other rule
+ * consumes tokens; spacing rides the 4px grid; motion uses --dur-fast/base
+ * only; --dsw-* shell values win wherever present.
+ *
+ * @module @veren/baidu-pan/client/panel-css
+ */
+
+/* ---- 令牌块：全文件唯一允许裸色值的地方。The token block: the file's only raw-color zone. ---- */
+.bdp-page {
+  --bdp-bg: #FFFFFF;
+  --bdp-surface: #F6F8FA;
+  --bdp-text: #1F2328;
+  --bdp-muted: #57606A;
+  --bdp-border: #D0D7DE;
+  --bdp-brand: #1A56DB;
+  --bdp-success: #137333;
+  --bdp-warning: #A15C00;
+  --bdp-danger: #B42318;
+  --bdp-disabled: #6E7781;
+  --bdp-on-brand: #FFFFFF;
+  --bdp-backdrop: rgba(0, 0, 0, 0.4);
+  --bdp-radius: 8px;
+  --bdp-dur-fast: 120ms;
+  --bdp-dur-base: 200ms;
+  color: var(--bdp-text);
+  font-family: var(--dsw-font-family, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+@media (prefers-color-scheme: dark) {
+  .bdp-page {
+    --bdp-bg: #0D1117;
+    --bdp-surface: #161B22;
+    --bdp-text: #E6EDF3;
+    --bdp-muted: #9DA7B3;
+    --bdp-border: #30363D;
+    --bdp-brand: #6CA0FF;
+    --bdp-success: #6FCF97;
+    --bdp-warning: #F2C94C;
+    --bdp-danger: #FF8A80;
+  }
+}
+
+/* ---- 语义色调标签（状态永远有文字，色只是强化）。Semantic tone labels (text first, color as reinforcement). ---- */
+.bdp-tone-success { color: var(--bdp-success); }
+.bdp-tone-warning { color: var(--bdp-warning); }
+.bdp-tone-danger { color: var(--bdp-danger); }
+.bdp-tone-danger-text { color: var(--bdp-danger); }
+.bdp-tone-brand { color: var(--bdp-brand); }
+.bdp-tone-neutral { color: var(--bdp-muted); }
+
+.bdp-page { background: var(--bdp-bg); padding: 16px 24px 32px; }
+.bdp-muted { color: var(--bdp-muted); font-size: 13px; }
+.bdp-none { display: contents; }
+
+/* ---- 页头与页签。Page head and tabs. ---- */
+.bdp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 16px; }
+.bdp-title { font-size: 20px; font-weight: 650; margin: 0; line-height: 1.3; }
+.bdp-subtitle { margin: 4px 0 0; color: var(--bdp-muted); font-size: 13px; }
+.bdp-head-actions { display: flex; gap: 8px; }
+.bdp-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--bdp-border); margin-bottom: 16px; }
+.bdp-tab { border: none; background: transparent; padding: 8px 12px; cursor: pointer; color: var(--bdp-muted); font-size: 14px; }
+.bdp-tab:hover { color: var(--bdp-text); }
+.bdp-tab-active { color: var(--bdp-brand); border-bottom: 2px solid var(--bdp-brand); font-weight: 600; }
+
+/* ---- 按钮 / 输入 / 表单行。Buttons / inputs / form rows. ---- */
+.bdp-button {
+  border: 1px solid var(--bdp-border); background: var(--bdp-surface); color: var(--bdp-text);
+  border-radius: var(--bdp-radius); padding: 4px 12px; cursor: pointer; font-size: 13px;
+  transition: background var(--bdp-dur-fast);
+}
+.bdp-button:hover { background: var(--bdp-bg); }
+.bdp-button:disabled { color: var(--bdp-disabled); cursor: default; }
+.bdp-button:focus-visible { outline: 2px solid var(--bdp-brand); outline-offset: 2px; }
+.bdp-button-primary { background: var(--bdp-brand); border-color: var(--bdp-brand); color: var(--bdp-on-brand); }
+.bdp-button-primary:hover { background: var(--bdp-brand); opacity: 0.9; }
+.bdp-button-danger { border-color: var(--bdp-danger); color: var(--bdp-danger); }
+.bdp-input {
+  border: 1px solid var(--bdp-border); background: var(--bdp-bg); color: var(--bdp-text);
+  border-radius: var(--bdp-radius); padding: 4px 8px; font-size: 13px; min-width: 200px;
+}
+.bdp-input-inline { min-width: 0; width: auto; }
+.bdp-input:focus-visible { outline: 2px solid var(--bdp-brand); outline-offset: 1px; }
+.bdp-form-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.bdp-form-label { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 0; font-size: 13px; }
+.bdp-check { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+
+/* ---- 卡片与键值行。Cards and key-value rows. ---- */
+.bdp-overview, .bdp-files, .bdp-transfers { display: flex; flex-direction: column; gap: 16px; }
+.bdp-card { border: 1px solid var(--bdp-border); background: var(--bdp-surface); border-radius: var(--bdp-radius); padding: 12px 16px; }
+.bdp-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.bdp-card-title { font-weight: 600; }
+.bdp-card-body { display: flex; flex-direction: column; gap: 8px; }
+.bdp-card-path, .bdp-card-link { padding: 4px 0; }
+.bdp-kv { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+.bdp-kv-label { color: var(--bdp-muted); min-width: 7em; }
+.bdp-kv-value { font-family: var(--dsw-font-family-mono, 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace); }
+
+/* ---- 状态 / 进度 / 等待。Status / progress / waiting. ---- */
+.bdp-status { font-size: 13px; font-weight: 600; transition: color var(--bdp-dur-fast); }
+.bdp-progress { height: 6px; background: var(--bdp-surface); border: 1px solid var(--bdp-border); border-radius: 3px; overflow: hidden; }
+.bdp-progress-fill { height: 100%; background: var(--bdp-brand); transition: width var(--bdp-dur-base) linear; }
+.bdp-progress-unknown { height: 100%; width: 40%; background: var(--bdp-brand); animation: bdp-slide 1.2s linear infinite; }
+@keyframes bdp-slide { from { margin-left: -40%; } to { margin-left: 100%; } }
+.bdp-spinner-row { display: flex; align-items: center; gap: 8px; color: var(--bdp-muted); }
+.bdp-spinner { width: 12px; height: 12px; border: 2px solid var(--bdp-border); border-top-color: var(--bdp-brand); border-radius: 50%; animation: bdp-spin 0.8s linear infinite; }
+@keyframes bdp-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .bdp-progress-fill, .bdp-status, .bdp-button { transition: none; }
+  .bdp-spinner { animation: none; }
+  .bdp-progress-unknown { animation: none; margin-left: 30%; }
+}
+
+/* ---- 链接 / 路径 / 错误 / 空态 / 提示。Links / paths / errors / empty / hints. ---- */
+.bdp-link { color: var(--bdp-brand); text-decoration: underline; text-underline-offset: 2px; }
+.bdp-link:hover { text-decoration-thickness: 2px; }
+.bdp-path { font-family: var(--dsw-font-family-mono, 'Cascadia Mono', Consolas, monospace); font-size: 13px; overflow-wrap: anywhere; }
+.bdp-error { border: 1px solid var(--bdp-danger); background: var(--bdp-bg); border-radius: var(--bdp-radius); padding: 8px 12px; margin: 8px 0; }
+.bdp-error-title { font-weight: 600; }
+.bdp-error-reason { font-size: 13px; margin-top: 4px; }
+.bdp-error-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.bdp-code { font-family: var(--dsw-font-family-mono, Consolas, monospace); font-size: 12px; color: var(--bdp-muted); }
+.bdp-error-line { color: var(--bdp-danger); font-size: 13px; margin: 0 0 8px; }
+.bdp-empty { text-align: center; padding: 24px 0; }
+.bdp-empty-title { font-weight: 600; margin: 0 0 4px; }
+.bdp-hint { color: var(--bdp-muted); font-size: 13px; margin: 4px 0; }
+
+/* ---- 区块标题 / 表格 / 工具栏 / 面包屑。Section headings / table / toolbar / crumbs. ---- */
+.bdp-section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+.bdp-section-title { font-size: 16px; font-weight: 600; margin: 0; }
+.bdp-section-actions { display: flex; gap: 8px; align-items: center; }
+.bdp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.bdp-table th { text-align: left; border-bottom: 1px solid var(--bdp-border); padding: 6px 8px; color: var(--bdp-muted); font-weight: 600; }
+.bdp-table td { border-bottom: 1px solid var(--bdp-border); padding: 6px 8px; overflow-wrap: anywhere; }
+.bdp-cell-right { text-align: right; font-variant-numeric: tabular-nums; }
+.bdp-cell-actions { text-align: right; white-space: nowrap; }
+.bdp-col-actions { width: 1%; }
+.bdp-row-active:hover { background: var(--bdp-surface); }
+.bdp-toolbar { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.bdp-toolbar-prefs { align-items: center; }
+.bdp-toolbar-gap { flex: 1; }
+.bdp-crumbs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 8px; }
+.bdp-crumb { border: none; background: transparent; color: var(--bdp-brand); cursor: pointer; padding: 2px 4px; font-size: 13px; }
+.bdp-crumb:hover { text-decoration: underline; }
+.bdp-crumb::after { content: '/'; color: var(--bdp-muted); margin-left: 4px; }
+.bdp-crumb:last-child::after { content: ''; }
+
+/* ---- 行内动作 / 复制 / 分页。Row actions / copy / pager. ---- */
+.bdp-row-actions { display: inline-flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.bdp-row-actions .bdp-button { padding: 2px 8px; font-size: 12px; }
+.bdp-copy { border: 1px solid var(--bdp-border); background: transparent; color: var(--bdp-muted); border-radius: var(--bdp-radius); padding: 2px 8px; cursor: pointer; font-size: 12px; }
+.bdp-copy:hover { color: var(--bdp-text); }
+.bdp-pager { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.bdp-opresult { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.bdp-transfers-head { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+
+/* ---- 弹层。Dialogs. ---- */
+.bdp-dialog-backdrop { position: fixed; inset: 0; background: var(--bdp-backdrop); display: flex; align-items: center; justify-content: center; z-index: 60; }
+.bdp-dialog { background: var(--bdp-bg); color: var(--bdp-text); border: 1px solid var(--bdp-border); border-radius: var(--bdp-radius); padding: 16px; max-width: 560px; width: min(560px, 90vw); max-height: 80vh; overflow: auto; }
+.bdp-dialog-question { font-weight: 600; margin: 0 0 8px; }
+.bdp-dialog-objects { margin: 0 0 8px; padding-left: 20px; font-family: var(--dsw-font-family-mono, Consolas, monospace); font-size: 12px; overflow-wrap: anywhere; }
+.bdp-dialog-consequence { color: var(--bdp-danger); font-size: 13px; margin: 0 0 12px; }
+.bdp-dialog-actions { display: flex; justify-content: space-between; gap: 8px; }

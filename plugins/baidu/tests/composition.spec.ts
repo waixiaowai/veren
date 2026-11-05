@@ -6,6 +6,8 @@ import { SkillRegistry } from '@deepseek-ai/dsh-skill'
 import { ToolRuntime } from '@deepseek-ai/dsh-tools'
 import { resolveConfig } from '../src/config.js'
 import { commitTokens, readStoredTokens, BAIDU_PAN_RECORD } from '../src/credentials.js'
+import { BaiduPanGatewayService } from '../src/gateway.js'
+import { provideWorld } from '../src/service.js'
 import { registerBaiduPanSkill, SKILL_NAME } from '../src/skill.js'
 import { registerManageTools } from '../src/tools-manage.js'
 import { registerReadonlyTools } from '../src/tools-readonly.js'
@@ -96,5 +98,19 @@ describe('credential face', () => {
     await commitTokens(credentials, { ...tokens!, accessToken: 'next' })
     expect((await readStoredTokens(credentials))?.accessToken).toBe('next')
     expect(BAIDU_PAN_RECORD).toBeDefined()
+  })
+})
+
+describe('web gateway composition', () => {
+  it('provides the world and stands the gateway up on it', async () => {
+    const ctx = realContext()
+    const world = worldOf(ctx)
+    provideWorld(ctx, world)
+    expect(ctx.baiduPanWorld).toBe(world)
+    const gateway = new BaiduPanGatewayService(ctx)
+    expect(gateway.typertRemote.namespace).toBe('baiduPan')
+    expect(gateway.typertRemote.serviceKey).toBe('baiduPanGateway')
+    const anonymous = await gateway.authState()
+    expect(anonymous.ok && anonymous.value.ok && anonymous.value.value.authorized).toBe(false)
   })
 })

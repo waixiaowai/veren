@@ -1,34 +1,19 @@
-# Example profile overlay for the Better Auth login gate.
-# Better Auth 登录门禁的 profile overlay 示例。
+# Example profile overlay for the auth-framework login gate.
+# 认证框架登录门禁的 profile overlay 示例。
 #
 # Apply on top of the web profile:  dsh web --patch plugins/auth/cordis.patch.yml
 # 在 web profile 之上叠加：        dsh web --patch plugins/auth/cordis.patch.yml
-#
-# The patch replaces a targeted row's whole `config`, so the storage-domain row
-# restates its base keys (`backend`) and adds the route for this plugin's
-# domain. Switching `web_login_gate` between `json` and `sqlite` (and
-# restarting) must keep users and sessions usable — that proves the plugin
-# never bypasses the domain to touch a backend directly.
-# patch 会整体替换目标行的 `config`，因此 storage-domain 行需重述基础键
-# （`backend`）并加上本插件 domain 的路由。把 `web_login_gate` 在 json/sqlite
-# 之间切换并重启后，用户与会话仍应可用——这证明插件从未绕过 domain 直连后端。
-
-# Route the login-gate domain explicitly (optional; the default backend serves
-# it when the route is absent).
-# 显式路由登录门禁 domain（可选；缺省时由默认后端承载）。
-- id: storage-domain
-  config:
-    backend: json
-    routes:
-      web_login_gate: json
 
 # The gate itself. `distIndex` is resolved by the plugin from the running
 # runtime's `@deepseek-ai/dsh-web-frontend` package, so packaged desktops,
 # source checkouts, and test nodes all work without a deployment path. Set it
-# explicitly only when the deployment replaces that frontend.
+# explicitly only when the deployment replaces that frontend. The sqlite
+# database file defaults to `<DSH_HOME>/storages/web_login_gate/auth.db` and
+# can be moved with `database.file`.
 # 门禁本体。`distIndex` 由插件从运行中 runtime 的 `@deepseek-ai/dsh-web-frontend`
 # 包解析，因此打包桌面端、源码检出与测试节点都无需部署路径即可工作。仅在部署
-# 替换该前端时显式设置。
+# 替换该前端时显式设置。sqlite 数据库文件默认位于
+# `<DSH_HOME>/storages/web_login_gate/auth.db`，可用 `database.file` 迁移。
 - insert:
     - id: web-login-gate
       name: '@veren/web-login-gate'
@@ -37,18 +22,11 @@
         rateLimit:
           window: 60
           max: 10
-        # First-run administrator seed. Consumed once: only the password hash is
+        # First-run administrator seed. Consumed once: only the scrypt hash is
         # stored, so this block can be removed after the first boot.
-        # 首次运行管理员种子。只消费一次：落库的只有密码哈希，首次启动后即可
-        # 删除本段。
+        # 首次运行管理员种子。只消费一次：落库的只有 scrypt 哈希，首次启动后
+        # 即可删除本段。
         admin:
           email: admin@example.com
           password: change-me-please
           name: Administrator
-        # Storage routing intent: every name must be a registered backend or the
-        # plugin load fails loud.
-        # 存储路由意向：每个名字都必须是已注册后端，否则插件加载显式失败。
-        storage:
-          backend: json
-          routes:
-            web_login_gate: json

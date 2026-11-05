@@ -11,10 +11,6 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./driver/sqlite": {
-      "types": "./dist/storage/orm-driver-sqlite.d.ts",
-      "default": "./dist/storage/orm-driver-sqlite.js"
-    },
     "./package.json": "./package.json"
   },
   "files": [
