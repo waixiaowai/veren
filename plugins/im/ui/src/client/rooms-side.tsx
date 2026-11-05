@@ -71,6 +71,13 @@ export function RoomsSide(props: RoomsSideProps): React.JSX.Element {
         <FilterButton active={filter === 'group'} label={t('filterGroup')} onClick={() => setFilter('group')} />
       </div>
       <ul className="im-room-list" role="list">
+        {state.status === 'loading' && state.rooms.length === 0 && (
+          <>
+            <li><span className="im-skeleton im-skeleton-row" aria-hidden="true" /></li>
+            <li><span className="im-skeleton im-skeleton-row" aria-hidden="true" /></li>
+            <li><span className="im-skeleton im-skeleton-row" aria-hidden="true" /></li>
+          </>
+        )}
         {rooms.map(room => (
           <li key={room.id}>
             <RoomRow
@@ -79,6 +86,7 @@ export function RoomsSide(props: RoomsSideProps): React.JSX.Element {
               agentSeated={room.members.some(id => id.startsWith('agent:'))}
               stamp={roomStampOf(room.updatedAt)}
               members={room.members.length}
+              unread={state.unread.find(count => count.roomId === room.id)?.unread ?? 0}
               open={room.id === state.openRoomId}
               t={t}
               onClick={() => props.onOpenRoom(room.id === state.openRoomId ? undefined : room.id)}
@@ -98,6 +106,7 @@ function RoomRow(props: {
   readonly agentSeated: boolean
   readonly stamp: string
   readonly members: number
+  readonly unread: number
   readonly open: boolean
   readonly t: (key: ImKey) => string
   readonly onClick: () => void
@@ -111,7 +120,9 @@ function RoomRow(props: {
           {props.kind === 'direct' ? props.t('roomDirect') : props.t('roomGroup')} · {props.members}
         </span>
       </span>
-      <span className="im-room-stamp">{props.stamp}</span>
+      {props.unread > 0
+        ? <span className="im-room-unread">{props.unread > 99 ? '99+' : props.unread}</span>
+        : <span className="im-room-stamp">{props.stamp}</span>}
     </button>
   )
 }

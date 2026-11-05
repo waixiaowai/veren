@@ -282,31 +282,103 @@ app.get('/users', async (req, res) => {
 
 `finish` 时按状态码提交/回滚，`close` 或抛错时回滚，连接只归还一次。
 
+## 数据库可移植性
+
+同一份实体与仓储代码可以跑 SQLite、PostgreSQL、MySQL；切换时只改
+`DataSource` 配置（`type` 与 `url`/`filename`），查询、关系、持久化代码不变。
+契约由 `tests/portability.spec.ts`（SQL/DDL 矩阵）和
+`tests/portability.e2e.ts`（三种真库跑同一场景）守护。
+
+| 领域 | 契约 |
+| --- | --- |
+| 标识符 / 占位符 | 方言负责：`"x"`/`?`、`"x"`/`$n`、`` `x` ``/`?` |
+| 布尔 | 接受 `true/false` 或 `0/1`；PG 写 `boolean`，其余写 `0/1`；读回统一为 `boolean` |
+| `date` | 接受 `Date` 或 ISO 日期字符串；日历日，统一存 `YYYY-MM-DD`，读回 UTC 午夜的 `Date` |
+| `datetime`/`timestamp` | 接受 `Date` 或 ISO 字符串；UTC 时刻；SQLite ISO 文本、PG `timestamptz`、MySQL `datetime(3)`，读回 `Date` |
+| `decimal` | 读回去掉尾零的规范字符串（`12.50` → `12.5`） |
+| `bigint` | 读回字符串；超出 JS 安全整数范围时，SQLite 需改用文本列 |
+| `json` / `simple-json` | 对象往返；SQLite 存文本，PG/MySQL 用原生 JSON |
+| `simple-array` | `string[]`；元素内含逗号无法表示 |
+| `blob` | 三种方言都读回 `Uint8Array` |
+| 生成主键 | PG/SQLite 用 `RETURNING`；MySQL 多行插入自动拆成逐行，拿到不同 `insertId` |
+| 数据库默认值 | 由库应用，但 `save` 后不会在任一方言回写到实体；需要时重新查询 |
+| `=` / `IN` | 三种方言都大小写敏感（MySQL 字符串列用 `utf8mb4_bin`） |
+| `Like` / `ILike` | 三种方言都大小写不敏感 |
+| `ORDER BY` | 三种方言都 NULL 排最后（MySQL 用 `IS NULL` 模拟） |
+| 分页 | 只有 offset、limit+offset 都按方言归一 |
+
+原生 SQL 片段、数据库专属函数、`GROUP BY` 里选择未分组列、事务内执行 MySQL
+DDL 仍不可移植：前两项由调用方负责，第三项在 PG/MySQL 会失败，第四项 MySQL
+会隐式提交。此契约生效前已建的 MySQL 表仍用旧 collation，需要迁移重建。
+
 ## 扩展数据库方言
 
-两层可以独立扩展：
+一个驱动由两块独立能力组成：
 
-1. **方言**：转义、占位符、类型映射、事务语句。
-2. **环境桥**：知道如何与具体驱动通信的 `SqlClient`。
+1. **方言**：纯 SQL/值策略——`values`（布尔/日期/JSON/decimal/blob）、
+   `query`（排序/分页）、`schema`（列/主键/默认值/迁移账本）、转义、占位符、
+   事务语句。
+2. **Catalog**：由 `Driver` 持有的只读结构内省。
 
-注册一次，之后按 `type` 名引用：
+核心不判断数据库名，只调用这些策略与 `DriverCapabilities`
+（`returning`、`multiRowGeneratedIds`、`ddlTransactions`、`transactions`、
+`savepoints`、`uuidGeneration`）。
 
 ```ts
-import { BaseDriver, registerDriver, singleClientPool } from '@veren/orm'
+import {
+  BaseDriver,
+  BaseSchemaSyntax,
+  ConfigurableValueCodec,
+  StandardQuerySyntax,
+  STANDARD_RULES,
+  registerDriver,
+  singleClientPool,
+  type Catalog,
+  type ColumnMetadata,
+  type SqlDialect,
+} from '@veren/orm'
+
+class MyDialect implements SqlDialect {
+  readonly name = 'my-db'
+  readonly values = new ConfigurableValueCodec(STANDARD_RULES)
+  readonly query = new StandardQuerySyntax()
+  readonly schema = new BaseSchemaSyntax(this)
+  readonly capabilities = {
+    returning: true,
+    multiRowGeneratedIds: true,
+    ddlTransactions: true,
+    uuidGeneration: true,
+    transactions: true,
+    savepoints: true,
+  }
+  readonly commitStatement = 'COMMIT'
+  readonly rollbackStatement = 'ROLLBACK'
+  readonly nowExpression = 'CURRENT_TIMESTAMP'
+  escape(identifier: string): string { return `"${identifier}"` }
+  createParameter(position: number): string { return `$${position}` }
+  mapColumnType(column: ColumnMetadata): string { return 'TEXT' }
+  beginStatements(): string[] { return ['BEGIN'] }
+  supportsType(): boolean { return true }
+}
+
+class MyCatalog implements Catalog {
+  async listTables(runner) { /* SELECT ... */ return [] }
+  async listColumns(runner, table) { /* SELECT ... */ return [] }
+}
 
 registerDriver({
   type: 'my-db',
-  create: (options) => new BaseDriver(new MyDialect(), options, async () => {
-    const client = await openMyConnection(options)
-    return singleClientPool(client)
-  }),
+  create: (options) => new BaseDriver(
+    new MyDialect(),
+    options,
+    async () => singleClientPool(await openMyConnection(options)),
+    new MyCatalog(),
+  ),
 })
-
-const dataSource = new DataSource({ type: 'my-db', /* ... */ })
 ```
 
-核心没有任何 `if (type === 'postgres')` 分支；驱动之上的判断全部走
-`DriverCapabilities`（返回列、事务、保存点、UUID 生成）。
+只有驱动自己的策略知道特殊语法；上层实体、仓储、查询都不变。
+`tests/architecture.spec.ts` 会阻止数据库名分支重新回到核心。
 
 ## 错误与日志
 
@@ -333,7 +405,7 @@ const dataSource = new DataSource({ type: 'my-db', /* ... */ })
 pnpm build       # tsc → dist
 pnpm test        # vitest 单测 + 进程内集成（SQLite、Hono、Express、Cordis Loader）
 pnpm test:e2e    # 真实数据库；无凭据的用例自动跳过
-pnpm coverage    # vitest + V8 覆盖率（HTML 在 coverage/）
+pnpm coverage    # vitest + V8 覆盖率（HTML 在 coverage/，Markdown 报告在 coverage-report.md）
 pnpm typecheck   # tsc --noEmit
 ```
 

@@ -47,7 +47,13 @@ export function RoomsView(props: RoomsViewProps) {
         onCreateRoom={props.onCreateRoom}
       />
       <div className="im-chat-area">
-        <RoomsMain state={props.state} t={props.t} people={props.people} onSend={props.onSend} />
+        <RoomsMain
+          state={props.state}
+          t={props.t}
+          people={props.people}
+          onSend={props.onSend}
+          onRefresh={props.onRefresh}
+        />
         {open !== undefined && <RoomInfo room={open} t={props.t} people={props.people} />}
       </div>
     </div>

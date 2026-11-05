@@ -37,7 +37,7 @@ class RecordingClient implements SqlClient {
 }
 
 /** 构造一列用于值归一测试。 / Build a column for value-normalization tests. */
-function makeColumn(type: 'boolean' | 'date' | 'json' | 'simple-array' | 'simple-json' | 'varchar'): ColumnMetadata {
+function makeColumn(type: 'boolean' | 'date' | 'datetime' | 'json' | 'simple-array' | 'simple-json' | 'varchar' | 'decimal' | 'bigint'): ColumnMetadata {
   const metadata = new EntityMetadata({ targetName: 'T', tableName: 't' })
   return new ColumnMetadata(metadata, {
     propertyName: 'value',
@@ -71,6 +71,7 @@ describe('driver base', () => {
   it('normalizes values for write and read', () => {
     const sqlite = makeDriver({ type: 'sqlite' }, new RecordingClient())
     const postgres = new BaseDriver(new PostgresDialect(), { type: 'postgres' }, async () => singleClientPool(new RecordingClient()))
+    const mysql = new BaseDriver(new MysqlDialect(), { type: 'mysql' }, async () => singleClientPool(new RecordingClient()))
 
     expect(sqlite.preparePersistentValue(makeColumn('boolean'), true)).toBe(1)
     expect(postgres.preparePersistentValue(makeColumn('boolean'), true)).toBe(true)
@@ -81,8 +82,14 @@ describe('driver base', () => {
     expect(sqlite.preparePersistentValue(makeColumn('varchar'), undefined)).toBeUndefined()
 
     const date = new Date('2024-01-02T03:04:05.000Z')
-    expect(sqlite.preparePersistentValue(makeColumn('date'), date)).toBe('2024-01-02T03:04:05.000Z')
-    expect(postgres.preparePersistentValue(makeColumn('date'), date)).toBe(date)
+    expect(sqlite.preparePersistentValue(makeColumn('date'), date)).toBe('2024-01-02')
+    expect(postgres.preparePersistentValue(makeColumn('date'), date)).toBe('2024-01-02')
+    expect(mysql.preparePersistentValue(makeColumn('date'), date)).toBe('2024-01-02')
+    expect(mysql.preparePersistentValue(makeColumn('datetime'), date)).toBe('2024-01-02 03:04:05.000')
+    expect(mysql.preparePersistentValue(makeColumn('datetime'), '2024-01-02T03:04:05.678Z')).toBe('2024-01-02 03:04:05.678')
+    expect(sqlite.preparePersistentValue(makeColumn('date'), '2024-01-02T03:04:05.678Z')).toBe('2024-01-02')
+    expect(sqlite.preparePersistentValue(makeColumn('boolean'), 1)).toBe(1)
+    expect(postgres.preparePersistentValue(makeColumn('boolean'), 1)).toBe(true)
 
     expect(sqlite.prepareHydratedValue(makeColumn('boolean'), 1)).toBe(true)
     expect(sqlite.prepareHydratedValue(makeColumn('boolean'), true)).toBe(true)
@@ -91,6 +98,12 @@ describe('driver base', () => {
     expect(sqlite.prepareHydratedValue(makeColumn('json'), 'not-json')).toBe('not-json')
     expect(sqlite.prepareHydratedValue(makeColumn('simple-array'), 'a,b')).toEqual(['a', 'b'])
     expect(sqlite.prepareHydratedValue(makeColumn('date'), '2024-01-02T03:04:05.000Z')).toBeInstanceOf(Date)
+    expect((sqlite.prepareHydratedValue(makeColumn('date'), '2024-01-02') as Date).toISOString()).toBe('2024-01-02T00:00:00.000Z')
+    expect((mysql.prepareHydratedValue(makeColumn('datetime'), '2024-01-02 03:04:05.678') as Date).toISOString()).toBe('2024-01-02T03:04:05.678Z')
+    expect((postgres.prepareHydratedValue(makeColumn('date'), '2024-01-02') as Date).toISOString()).toBe('2024-01-02T00:00:00.000Z')
+    expect(sqlite.prepareHydratedValue(makeColumn('decimal'), 12.5)).toBe('12.5')
+    expect(postgres.prepareHydratedValue(makeColumn('decimal'), '12.50')).toBe('12.5')
+    expect(mysql.prepareHydratedValue(makeColumn('bigint'), '1234567890123')).toBe('1234567890123')
     expect(sqlite.prepareHydratedValue(makeColumn('varchar'), null)).toBeNull()
   })
 

@@ -298,33 +298,107 @@ app.get('/users', async (req, res) => {
 The middleware commits on `finish` (status < 400), rolls back on `close` or a
 thrown error, and releases exactly once.
 
+## Database portability
+
+The same entity and repository code targets SQLite, PostgreSQL and MySQL. Only
+the `DataSource` options change (`type` + `url`/`filename`); queries, relations
+and persistence stay untouched. The portability contract is enforced by
+`tests/portability.spec.ts` (SQL/DDL matrix) and `tests/portability.e2e.ts`
+(the same scenario against all three real databases).
+
+| Area | Contract |
+| --- | --- |
+| identifiers / placeholders | dialect-owned: `"x"`/`?`, `"x"`/`$n`, `` `x` ``/`?` |
+| boolean | accepts `true/false` or `0/1`; written as `boolean` (PG) or `0/1`; read back as `boolean` |
+| `date` | accepts `Date` or an ISO date string; calendar day stored as `YYYY-MM-DD`; read as UTC midnight `Date` |
+| `datetime`/`timestamp` | accepts `Date` or an ISO string; UTC instant; SQLite ISO text, PG `timestamptz`, MySQL `datetime(3)`; read as `Date` |
+| `decimal` | read as canonical string without trailing zeros (`12.50` → `12.5`) |
+| `bigint` | read as string; values beyond JavaScript's safe integer range need a text column on SQLite |
+| `json` / `simple-json` | objects round-trip; SQLite stores text, PG/MySQL native JSON |
+| `simple-array` | `string[]`; values containing commas are not representable |
+| `blob` | read as `Uint8Array` on every dialect |
+| generated ids | PG/SQLite use `RETURNING`; MySQL inserts multi-row batches one row at a time to get distinct `insertId`s |
+| DB defaults | applied by the database, but not echoed back by `save` on any dialect; re-query when needed |
+| `=` / `IN` | case-sensitive on every dialect (MySQL string columns use `utf8mb4_bin`) |
+| `Like` / `ILike` | case-insensitive on every dialect |
+| `ORDER BY` | NULLs last on every dialect (MySQL emulated with `IS NULL`) |
+| paging | offset-only and limit+offset normalized per dialect |
+
+Raw SQL fragments, database-only functions, `GROUP BY` queries that select
+non-grouped columns, and MySQL DDL inside transactions remain database-specific:
+the first two are your responsibility, the third fails on PG/MySQL, and MySQL
+commits DDL implicitly. Existing MySQL tables created before this contract keep
+their old collation until a migration rebuilds them.
+
 ## Adding a database dialect
 
-Two layers are extensible independently:
+A driver is two independent pieces:
 
-1. **Dialect** — escaping, placeholders, type mapping, transaction statements.
-2. **Environment bridge** — a `SqlClient` that knows how to talk to a concrete
-   driver.
+1. **Dialect** — pure SQL/value strategies: `values` (bool/date/JSON/decimal/blob),
+   `query` (ordering/paging), `schema` (columns/keys/defaults/ledger), escaping,
+   placeholders and transaction statements.
+2. **Catalog** — read-only introspection owned by the `Driver`.
 
-Register a dialect once, then refer to it by `type`:
+The core never checks a database name; it only calls these strategies and
+`DriverCapabilities` (`returning`, `multiRowGeneratedIds`, `ddlTransactions`,
+`transactions`, `savepoints`, `uuidGeneration`).
 
 ```ts
-import { BaseDriver, registerDriver, singleClientPool } from '@veren/orm'
+import {
+  BaseDriver,
+  BaseSchemaSyntax,
+  ConfigurableValueCodec,
+  StandardQuerySyntax,
+  STANDARD_RULES,
+  registerDriver,
+  singleClientPool,
+  type Catalog,
+  type ColumnMetadata,
+  type SqlDialect,
+} from '@veren/orm'
+
+class MyDialect implements SqlDialect {
+  readonly name = 'my-db'
+  readonly values = new ConfigurableValueCodec(STANDARD_RULES)
+  readonly query = new StandardQuerySyntax()
+  readonly schema = new BaseSchemaSyntax(this)
+  readonly capabilities = {
+    returning: true,
+    multiRowGeneratedIds: true,
+    ddlTransactions: true,
+    uuidGeneration: true,
+    transactions: true,
+    savepoints: true,
+  }
+  readonly commitStatement = 'COMMIT'
+  readonly rollbackStatement = 'ROLLBACK'
+  readonly nowExpression = 'CURRENT_TIMESTAMP'
+  escape(identifier: string): string { return `"${identifier}"` }
+  createParameter(position: number): string { return `$${position}` }
+  mapColumnType(column: ColumnMetadata): string { return 'TEXT' }
+  beginStatements(): string[] { return ['BEGIN'] }
+  supportsType(): boolean { return true }
+}
+
+class MyCatalog implements Catalog {
+  async listTables(runner) { /* SELECT ... */ return [] }
+  async listColumns(runner, table) { /* SELECT ... */ return [] }
+}
 
 registerDriver({
   type: 'my-db',
-  create: (options) => new BaseDriver(new MyDialect(), options, async () => {
-    const client = await openMyConnection(options)
-    return singleClientPool(client)
-  }),
+  create: (options) => new BaseDriver(
+    new MyDialect(),
+    options,
+    async () => singleClientPool(await openMyConnection(options)),
+    new MyCatalog(),
+  ),
 })
-
-const dataSource = new DataSource({ type: 'my-db', /* ... */ })
 ```
 
-The core contains no `if (type === 'postgres')` branches; everything above the
-driver goes through `DriverCapabilities` (returning, transactions, savepoints,
-UUID generation).
+Only the driver's strategies know its special cases; upper-layer entities,
+repositories and queries do not change. The architecture guard
+(`tests/architecture.spec.ts`) fails if a database-name branch returns to core.
 
 ## Errors and logging
 
@@ -355,7 +429,7 @@ or inject a custom `Logger`.
 pnpm build       # tsc → dist
 pnpm test        # vitest unit + in-process integration (SQLite, Hono, Express, Cordis Loader)
 pnpm test:e2e    # live databases; skips cases without credentials
-pnpm coverage    # vitest + V8 coverage (HTML in coverage/)
+pnpm coverage    # vitest + V8 coverage (HTML in coverage/, Markdown report at coverage-report.md)
 pnpm typecheck   # tsc --noEmit
 ```
 

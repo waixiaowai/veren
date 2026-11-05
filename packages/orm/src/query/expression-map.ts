@@ -24,10 +24,13 @@ export interface WhereClause {
   sql: string
 }
 
+/** 排序方向。 / Sort direction. */
+export type SortDirection = 'ASC' | 'DESC'
+
 /** 排序项。 / One order-by item. */
 export interface OrderByClause {
   expression: string
-  direction: 'ASC' | 'DESC'
+  direction: SortDirection
 }
 
 /** 主实体或连接别名。 / The main or joined alias. */

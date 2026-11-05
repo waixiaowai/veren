@@ -45,16 +45,27 @@ function publish(state: MailSourceState, next: Partial<MailSnapshot>): void {
 }
 
 /**
- * One catalog read; a stale read (a superseded epoch) is dropped.
+ * One catalog read; a stale read (a superseded epoch) is dropped. A transport
+ * failure (a dropped socket under a reconnect, say) publishes the error
+ * state instead of vanishing — the next poll tick or connection reset
+ * recovers the panel on its own.
  *
- * 一次目录读取；过期读（epoch 已被超越）直接丢弃。
+ * 一次目录读取；过期读（epoch 已被超越）直接丢弃。传输失败（比如重连期间断开的 socket）
+ * 会发布错误态而不是凭空消失——下一轮询 tick 或连接重置会让面板自行恢复。
  *
  * @param api - the Remote namespace / Remote 命名空间
  * @param state - the shared source state / 共享的 source 状态
  * @param mine - the epoch this read belongs to / 本次读取所属的 epoch
  */
 async function readCatalog(api: MailRemoteApi, state: MailSourceState, mine: number): Promise<void> {
-  const result = await api.catalog({})
+  let result: Awaited<ReturnType<MailRemoteApi['catalog']>>
+  try {
+    result = await api.catalog({})
+  } catch (error: unknown) {
+    if (mine !== state.epoch) return
+    publish(state, { status: 'error', error: error instanceof Error ? error.message : String(error) })
+    return
+  }
   if (mine !== state.epoch) return
   if (!result.ok) {
     publish(state, { status: 'error', error: result.error.message })

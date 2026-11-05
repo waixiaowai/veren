@@ -771,3 +771,117 @@
 }
 
 h3.im-heading { font-size: 14px; line-height: 20px; }
+
+/* ---- unread badge, hover action, jump pill, skeletons, mentions ---- */
+
+.im-room-unread {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--im-accent);
+  color: var(--dsw-alias-label-primary-foreground);
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 600;
+}
+
+.im-timeline-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.im-line-action {
+  margin-left: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--im-accent);
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 14px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 150ms ease, color 150ms ease;
+}
+
+.im-line:hover .im-line-action,
+.im-line:focus-within .im-line-action { opacity: 1; }
+
+.im-jump {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  padding: 4px 12px;
+  border: 1px solid var(--im-border);
+  border-radius: 999px;
+  background: var(--im-surface);
+  color: var(--im-text);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 17px;
+  box-shadow: var(--dsw-shadow-lv2, var(--dsw-shadow-lv1));
+  cursor: pointer;
+}
+
+.im-jump:hover { border-color: var(--im-accent); color: var(--im-accent); }
+
+.im-error-row { display: flex; align-items: center; gap: 8px; }
+
+.im-skeleton {
+  display: block;
+  height: 56px;
+  border-radius: 10px;
+  background: var(--im-sunken);
+  animation: im-shimmer 1.6s ease-in-out infinite;
+}
+
+.im-skeleton-row { height: 56px; }
+.im-skeleton-wide { height: 40px; width: 60%; }
+.im-skeleton-short { height: 40px; width: 32%; }
+.im-skeleton-mid { height: 40px; width: 46%; }
+
+@keyframes im-shimmer {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.im-composer { position: relative; }
+
+.im-mentions {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin: 0 0 4px;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--im-border);
+  border-radius: 12px;
+  background: var(--im-surface);
+  box-shadow: var(--dsw-shadow-lv2, var(--dsw-shadow-lv1));
+  z-index: 2;
+}
+
+.im-mention {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--im-text);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.im-mention:hover, .im-mention-active { background: var(--im-surface-2); }

@@ -222,11 +222,21 @@ export interface RoomsSnapshot {
   readonly openRoomId: string | undefined
   readonly messages: readonly Message[]
   readonly members: readonly RoomMember[]
+  /** Per-room unread counts for the viewer. */
+  /** 查看者在各房间的未读数。 */
+  readonly unread: readonly UnreadCount[]
   readonly status: 'loading' | 'ready' | 'error'
   readonly error: string
   /** Whether one owner write is in flight (composer disabled meanwhile). */
   /** 是否有一笔所有者写入在途（其间输入区禁用）。 */
   readonly sending: boolean
+}
+
+/** One room's unread count for the panel's viewer. */
+/** 面板查看者在某个房间的未读数。 */
+export interface UnreadCount {
+  readonly roomId: string
+  readonly unread: number
 }
 
 /** The mounted `ctx.remote['imConv']` surface. */
@@ -253,6 +263,11 @@ export interface ImConvApi {
     readonly title?: string
     readonly memberIds: readonly string[]
   }) => Promise<ImRemoteResult<{ readonly room: Room }>>
+  /** Every room's unread count for one participant. */
+  /** 一个参与者在每个房间的未读数。 */
+  readonly unreadCounts: (request: {
+    readonly participantId: string
+  }) => Promise<ImRemoteResult<{ readonly counts: readonly UnreadCount[] }>>
   readonly markRead: (request: {
     readonly roomId: string
     readonly participantId: string
@@ -271,6 +286,7 @@ const CREATE_ROOM_REQUEST = z.looseObject({
   memberIds: z.array(z.string().min(1)).min(1),
 })
 const MARK_READ_REQUEST = z.looseObject({ roomId: z.string(), participantId: z.string(), sequence: z.number() })
+const UNREAD_REQUEST = z.looseObject({ participantId: z.string().min(1) })
 
 const ROOM_SCHEMA = z.looseObject({
   id: z.string(), kind: z.string(), title: z.string().optional(),
@@ -283,6 +299,7 @@ const MESSAGE_SCHEMA = z.looseObject({
   id: z.string(), roomId: z.string(), authorId: z.string(), kind: z.string(),
   body: z.string(), sequence: z.number(), clientId: z.string().optional(), createdAt: z.number(),
 })
+const UNREAD_SCHEMA = z.looseObject({ roomId: z.string(), unread: z.number() })
 
 /** One direct invocation against the conversation gateway service. */
 /** 面向会话网关服务的一次直接调用。 */
@@ -327,5 +344,8 @@ export const convRemote = createTypertRemoteInfo({
     ...convMethod('markRead', 'Advance one read cursor.', 'markRead', [
       parameter('request', 'imConv:markRead:request', () => MARK_READ_REQUEST),
     ], () => z.looseObject({ cursor: z.looseObject({ lastReadSequence: z.number() }) })),
+    ...convMethod('unreadCounts', 'Unread counts for one participant across every room.', 'unreadCounts', [
+      parameter('request', 'imConv:unreadCounts:request', () => UNREAD_REQUEST),
+    ], () => z.looseObject({ counts: z.array(UNREAD_SCHEMA) })),
   } as Record<string, never>,
 }, z)

@@ -15,11 +15,18 @@
 import { InvalidMetadataError } from '../errors/index.ts'
 import type { ColumnMetadata } from '../metadata/entity-metadata.ts'
 import type { ColumnType, IsolationLevel } from '../types.ts'
+import type { ValueCodec } from './value-codec.ts'
+import type { QuerySyntax } from './query-syntax.ts'
+import type { SchemaSyntax } from './schema-syntax.ts'
 
 /** 驱动能力面：上游只探测能力，不写方言名分支。 / Capability face: callers probe capabilities, not dialect names. */
 export interface DriverCapabilities {
   /** 是否支持 INSERT/UPDATE ... RETURNING / whether RETURNING works */
   readonly returning: boolean
+  /** 多行插入是否能拿到每行生成 id / whether multi-row inserts expose one id per row */
+  readonly multiRowGeneratedIds: boolean
+  /** DDL 是否能随事务回滚 / whether DDL rolls back with a transaction */
+  readonly ddlTransactions: boolean
   /** 是否由库生成 UUID / whether the library generates UUIDs */
   readonly uuidGeneration: boolean
   /** 是否支持事务 / whether transactions work */
@@ -32,6 +39,12 @@ export interface DriverCapabilities {
 export interface SqlDialect {
   readonly name: string
   readonly capabilities: DriverCapabilities
+  /** 值编解码（布尔、日期、JSON、decimal、blob）。 / Value codec (boolean, date, JSON, decimal, blob). */
+  readonly values: ValueCodec
+  /** 排序/分页语法。 / Ordering/paging syntax. */
+  readonly query: QuerySyntax
+  /** 列/主键/默认值/迁移账本 DDL。 / Column/key/default/ledger DDL. */
+  readonly schema: SchemaSyntax
   /** 转义标识符 / escape an identifier */
   escape(identifier: string): string
   /** 生成第 n 个（1 起）位置参数占位符 / placeholder for the n-th (1-based) parameter */

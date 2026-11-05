@@ -21,6 +21,7 @@ const CONV_ARITY: Readonly<Record<string, number>> = {
   post: 1,
   createRoom: 1,
   markRead: 1,
+  unreadCounts: 1,
 }
 
 const IM_ARITY: Readonly<Record<string, number>> = {

@@ -12,6 +12,7 @@
 import { DriverPackageNotInstalledError } from '../errors/index.ts'
 import type { DataSourceOptions, Row, SqlClient } from '../types.ts'
 import { BaseDriver, poolFromOptions, type ClientPool, type PoolOpener } from './driver.ts'
+import { PostgresCatalog } from './catalog.ts'
 import { PostgresDialect } from './postgres-dialect.ts'
 import { registerDriver } from './registry.ts'
 
@@ -31,19 +32,22 @@ interface PgPoolLike {
 
 interface PgModule {
   Pool: new (config: object) => PgPoolLike
+  types: {
+    getTypeParser(oid: number, format?: 'text' | 'binary'): (value: string) => unknown
+  }
 }
 
 /** PostgreSQL 驱动：方言固定，连接可注入。 / PostgreSQL driver: fixed dialect, injectable connection. */
 export class PostgresDriver extends BaseDriver {
   constructor(options: DataSourceOptions) {
-    super(new PostgresDialect(), options, (candidate) => poolFromOptions(candidate, openPostgresPool))
+    super(new PostgresDialect(), options, (candidate) => poolFromOptions(candidate, openPostgresPool), new PostgresCatalog())
   }
 }
 
 /** 打开 pg 连接池。 / Open the pg pool. */
 const openPostgresPool: PoolOpener = async (options): Promise<ClientPool> => {
   const module = await loadPg()
-  const pool = new module.Pool(buildPoolConfig(options))
+  const pool = new module.Pool(Object.assign(buildPoolConfig(options), { types: dateStringTypes(module.types) }))
   return {
     acquire: async () => createPgClient(await pool.connect()),
     release: async (client) => {
@@ -62,6 +66,15 @@ async function loadPg(): Promise<PgModule> {
     return (await import(specifier)) as PgModule
   } catch {
     throw new DriverPackageNotInstalledError('pg')
+  }
+}
+
+/** DATE（OID 1082）保持字符串，由 ORM 按 UTC 解析；其余类型沿用 pg 默认。 / Keep DATE (OID 1082) as text for UTC parsing; other types keep pg defaults. */
+function dateStringTypes(types: PgModule['types']): object {
+  return {
+    getTypeParser(oid: number, format?: 'text' | 'binary') {
+      return oid === 1082 ? (value: string) => value : types.getTypeParser(oid, format)
+    },
   }
 }
 

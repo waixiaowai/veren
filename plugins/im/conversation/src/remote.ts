@@ -105,6 +105,20 @@ export class ConversationRemoteService extends TypertRemoteService {
     return { room }
   }
 
+  /**
+   * Unread counts for one participant across every room, as the sidebar renders
+   * them. One call per poll instead of one call per room.
+   * 一个参与者在全部房间的未读数，供侧栏渲染。每次轮询一次调用，而不是每个房间一次。
+   */
+  @Remote('unreadCounts')
+  async unreadCounts(request: { readonly participantId: string }) {
+    const counts = this.conversation.rooms().map(room => ({
+      roomId: room.id,
+      unread: this.conversation.unread(room.id, request.participantId),
+    }))
+    return { counts }
+  }
+
   /** Advance one read cursor (the panel marks what the human saw). */
   @Remote('markRead')
   async markRead(request: { readonly roomId: string; readonly participantId: string; readonly sequence: number }) {

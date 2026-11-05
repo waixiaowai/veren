@@ -91,9 +91,10 @@ export class MigrationExecutor {
     return migration
   }
 
-  /** 在支持事务的方言上包一层事务；不支持时直接执行。 / Wrap in a transaction when supported; otherwise run directly. */
+  /** 在支持事务且 DDL 可回滚的方言上包一层事务；否则直接执行。 / Wrap in a transaction only when transactions and transactional DDL both work. */
   private async inTransaction(runner: QueryRunner, work: () => Promise<void>): Promise<void> {
-    if (!this.dataSource.driver.dialect.capabilities.transactions) {
+    const capabilities = this.dataSource.driver.dialect.capabilities
+    if (!capabilities.transactions || !capabilities.ddlTransactions) {
       await work()
       return
     }
@@ -107,12 +108,10 @@ export class MigrationExecutor {
     }
   }
 
-  /** 账本建表（幂等）。 / Create the ledger (idempotent). */
+  /** 账本建表（幂等）；自增主键由方言渲染。 / Create the ledger (idempotent); the dialect renders the auto-increment key. */
   private async ensureTable(runner: QueryRunner): Promise<void> {
     const escape = this.dataSource.driver.dialect.escape.bind(this.dataSource.driver.dialect)
-    const id = this.driverName() === 'sqlite'
-      ? 'INTEGER PRIMARY KEY AUTOINCREMENT'
-      : this.driverName() === 'mysql' ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'SERIAL PRIMARY KEY'
+    const id = this.dataSource.driver.dialect.schema.autoIncrementPrimaryKey()
     await runner.query(`CREATE TABLE IF NOT EXISTS ${escape(this.tableName)} (${escape('id')} ${id}, ${escape('timestamp')} BIGINT NOT NULL, ${escape('name')} VARCHAR(255) NOT NULL)`)
   }
 
@@ -150,11 +149,6 @@ export class MigrationExecutor {
     const runner = this.dataSource.createQueryRunner()
     await runner.connect()
     return runner
-  }
-
-  /** 方言名快捷读取。 / Shortcut to the dialect name. */
-  private driverName(): string {
-    return this.dataSource.driver.dialect.name
   }
 
   /** 标识符转义快捷方法。 / Shortcut for identifier escaping. */

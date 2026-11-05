@@ -15,6 +15,7 @@ import {
   type SqlDialect,
 } from '../src/index.ts'
 import { createNodeSqliteClient } from '../src/driver/node-sqlite-client.ts'
+import { SqliteCatalog } from '../src/driver/catalog.ts'
 import '../src/driver/sqlite.ts'
 import '../src/driver/d1.ts'
 import '../src/driver/postgres.ts'
@@ -34,6 +35,9 @@ class CustomDialect implements SqlDialect {
   private readonly base = new SqliteDialect()
   readonly name = 'custom'
   readonly capabilities = this.base.capabilities
+  readonly values = this.base.values
+  readonly query = this.base.query
+  readonly schema = this.base.schema
   readonly commitStatement = this.base.commitStatement
   readonly rollbackStatement = this.base.rollbackStatement
   readonly nowExpression = this.base.nowExpression
@@ -119,7 +123,7 @@ describe('driver extension point', () => {
   it('runs a custom dialect registered through registerDriver()', async () => {
     registerDriver({
       type: 'custom',
-      create: (options: DataSourceOptions) => new BaseDriver(new CustomDialect(), options, async () => singleClientPool(createNodeSqliteClient(new DatabaseSync(':memory:')))),
+      create: (options: DataSourceOptions) => new BaseDriver(new CustomDialect(), options, async () => singleClientPool(createNodeSqliteClient(new DatabaseSync(':memory:'))), new SqliteCatalog()),
     })
     const source = new DataSource({ type: 'custom', entities: [Widget], synchronize: true })
     await source.initialize()

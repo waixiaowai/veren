@@ -160,7 +160,7 @@ function simpleOperator(
     case 'not': return `${reference} <> :${parameter(operator.value)}`
     case 'in': return inCondition(builder, reference, operator.value, parameter)
     case 'isNull': return `${reference} IS NULL`
-    case 'like': return `${reference} LIKE :${parameter(operator.value)}`
+    case 'like': return `LOWER(${reference}) LIKE LOWER(:${parameter(operator.value)})`
     case 'ilike': return `LOWER(${reference}) LIKE LOWER(:${parameter(operator.value)})`
     case 'between': return betweenCondition(builder, reference, operator.value, parameter)
     case 'lessThan': return `${reference} < :${parameter(operator.value)}`

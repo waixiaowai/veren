@@ -38,15 +38,41 @@ export class InsertQueryBuilder<Entity extends object = object> extends QueryBui
     return `${head} VALUES ${rows.join(', ')}${returning}`
   }
 
-  /** 执行并归一化插入结果。 / Execute and normalize the insert result. */
+  /** 执行并归一化插入结果；无 RETURNING 且多行自增时逐行执行以拿到各自 id。 / Execute and normalize; without RETURNING, multi-row auto-increment inserts run one row at a time so each gets its own id. */
   async execute(): Promise<InsertResult> {
     if (this.expressionMap.values.length === 0) {
       return { raw: undefined, generatedMaps: [], identifiers: [] }
     }
+    if (this.needsRowByRow()) return this.executeRowByRow()
     const [sql, parameters] = this.getQueryAndParameters()
     const result = await this.executeSql(sql, parameters)
     const generatedMaps = this.generatedMaps(result)
     return { raw: result.raw, generatedMaps, identifiers: generatedMaps }
+  }
+
+  /** 无 RETURNING + 多行 + 自增主键：MySQL 的 insertId 只代表第一行。 / No RETURNING, multiple rows, generated key: MySQL's insertId only covers the first row. */
+  private needsRowByRow(): boolean {
+    return this.expressionMap.values.length > 1
+      && !this.dataSource.driver.dialect.capabilities.multiRowGeneratedIds
+      && this.metadata.primaryColumn.generationStrategy === 'increment'
+  }
+
+  /** 逐行执行并收集每行生成值。 / Execute row by row and collect each row's generated values. */
+  private async executeRowByRow(): Promise<InsertResult> {
+    const values = this.expressionMap.values
+    const generatedMaps: EntityValues[] = []
+    let raw: unknown
+    try {
+      for (const value of values) {
+        this.expressionMap.values = [value]
+        const result = await this.execute()
+        generatedMaps.push(...result.generatedMaps)
+        raw = result.raw
+      }
+    } finally {
+      this.expressionMap.values = values
+    }
+    return { raw, generatedMaps, identifiers: generatedMaps }
   }
 
   /** 参与插入的列：普通列与关系外键列。 / Columns to insert: regular columns plus relation FK columns. */
@@ -78,9 +104,20 @@ export class InsertQueryBuilder<Entity extends object = object> extends QueryBui
     return columns.length === 0 ? ' RETURNING *' : ` RETURNING ${columns.map((column) => this.escape(column)).join(', ')}`
   }
 
-  /** 生成值映射：RETURNING 行或自增 insertId。 / Generated maps: RETURNING rows or the auto-increment insertId. */
+  /** 生成值映射：RETURNING 行只保留生成列，MySQL 回退到 insertId。 / Generated maps: RETURNING keeps only generated columns; MySQL falls back to insertId. */
   private generatedMaps(result: QueryResult): EntityValues[] {
-    if (result.rows.length > 0) return result.rows.map((row) => ({ ...row }))
+    if (result.rows.length > 0) {
+      if (this.expressionMap.returning.length > 0) return result.rows.map((row) => ({ ...row }))
+      const generated = this.metadata.columns.filter((column) => column.isGenerated)
+      return result.rows.map((row) => {
+        const map: EntityValues = {}
+        for (const column of generated) {
+          const value = row[column.databaseName] ?? row[column.propertyName]
+          if (value !== undefined) map[column.propertyName] = value
+        }
+        return map
+      })
+    }
     const primary = this.metadata.primaryColumn
     if (result.insertId === undefined) return []
     if (primary.generationStrategy !== 'increment') return []

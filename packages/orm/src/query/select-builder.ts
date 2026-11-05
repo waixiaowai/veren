@@ -185,15 +185,8 @@ export class SelectQueryBuilder<Entity extends object = object> extends QueryBui
     return parts
   }
 
-  /** 渲染分页；不同方言对「只有 offset」的支持不同。 / Render paging; dialects differ on offset-only. */
+  /** 渲染分页；具体支持范围由方言策略决定。 / Render paging; the dialect policy owns supported forms. */
   private renderLimitOffset(): string {
-    const { limit, offset } = this.expressionMap
-    if (limit !== undefined && offset !== undefined) return `LIMIT ${limit} OFFSET ${offset}`
-    if (limit !== undefined) return `LIMIT ${limit}`
-    if (offset === undefined) return ''
-    const dialect = this.dataSource.driver.dialect.name
-    if (dialect === 'mysql') return `LIMIT 18446744073709551615 OFFSET ${offset}`
-    if (dialect === 'sqlite') return `LIMIT -1 OFFSET ${offset}`
-    return `LIMIT ALL OFFSET ${offset}`
+    return this.dataSource.driver.dialect.query.limitOffset(this.expressionMap.limit, this.expressionMap.offset)
   }
 }

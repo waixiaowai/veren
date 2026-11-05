@@ -56,6 +56,7 @@ export type ImKey =
   | 'participantOwner' | 'participantAssistant' | 'membersLabel'
   | 'searchPlaceholder' | 'filterAll' | 'filterDirect' | 'filterGroup' | 'noMatches'
   | 'roomInfo' | 'roomKindLabel' | 'roomCreatedLabel'
+  | 'copy' | 'copied' | 'jumpLatest' | 'mentionTitle'
   | 'emptyTitle' | 'emptyHint' | 'dayToday' | 'dayYesterday' | 'composerHint'
 
 /** Chinese dictionary. */
@@ -103,6 +104,10 @@ export const zh: Record<ImKey, string> = {
   roomInfo: "会话信息",
   roomKindLabel: "类型",
   roomCreatedLabel: "创建于",
+  copy: "复制",
+  copied: "已复制",
+  jumpLatest: "回到最新",
+  mentionTitle: "提及成员",
   tabCloud: "云端",
   cloudSubtitle: "登录 CMS 后查看该账号的全部 IM 信息（消息日志与人员目录归云）。",
   cloudOrigin: "CMS 地址",
@@ -258,6 +263,10 @@ export const en: Record<ImKey, string> = {
   roomInfo: "Conversation info",
   roomKindLabel: "Kind",
   roomCreatedLabel: "Created",
+  copy: "Copy",
+  copied: "Copied",
+  jumpLatest: "Jump to latest",
+  mentionTitle: "Mention a member",
   tabCloud: "Cloud",
   cloudSubtitle: "Sign in to CMS to see all IM data of this account (message log and people live on the cloud).",
   cloudOrigin: "CMS origin",

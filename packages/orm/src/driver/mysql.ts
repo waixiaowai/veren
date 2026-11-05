@@ -12,6 +12,7 @@
 import { DriverPackageNotInstalledError } from '../errors/index.ts'
 import type { DataSourceOptions, Row, SqlClient } from '../types.ts'
 import { BaseDriver, poolFromOptions, type ClientPool, type PoolOpener } from './driver.ts'
+import { MysqlCatalog } from './catalog.ts'
 import { MysqlDialect } from './mysql-dialect.ts'
 import { registerDriver } from './registry.ts'
 
@@ -42,7 +43,7 @@ interface MysqlModule {
 /** MySQL 驱动：方言固定，连接可注入。 / MySQL driver: fixed dialect, injectable connection. */
 export class MysqlDriver extends BaseDriver {
   constructor(options: DataSourceOptions) {
-    super(new MysqlDialect(), options, (candidate) => poolFromOptions(candidate, openMysqlPool))
+    super(new MysqlDialect(), options, (candidate) => poolFromOptions(candidate, openMysqlPool), new MysqlCatalog())
   }
 }
 
@@ -71,9 +72,9 @@ async function loadMysql2(): Promise<MysqlModule> {
   }
 }
 
-/** 只放入调用方真正给出的连接字段。 / Include only the connection fields the caller actually supplied. */
+/** 只放入调用方真正给出的连接字段；日期统一以字符串返回，由 ORM 归一。 / Include only supplied connection fields; dates return as strings and the ORM normalizes them. */
 function buildPoolConfig(options: DataSourceOptions): object {
-  const config: { [key: string]: string | number } = {}
+  const config: { [key: string]: string | number | boolean } = { dateStrings: true }
   if (options.url !== undefined) config.uri = options.url
   if (options.host !== undefined) config.host = options.host
   if (options.port !== undefined) config.port = options.port

@@ -174,10 +174,10 @@ export abstract class QueryBuilder<Entity extends object = object> {
       .join(' ')
   }
 
-  /** 渲染排序。 / Render order-by. */
+  /** 渲染排序；具体 NULL 位置由方言策略决定。 / Render order-by; the dialect policy owns NULL placement. */
   protected renderOrderBys(): string {
     return this.expressionMap.orderBys
-      .map((clause) => `${this.renderOrderExpression(clause)} ${clause.direction}`)
+      .map((clause) => this.dataSource.driver.dialect.query.orderBy(this.renderOrderExpression(clause), clause.direction))
       .join(', ')
   }
 

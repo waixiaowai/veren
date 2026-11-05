@@ -11,8 +11,9 @@
 
 import { CannotExecuteNotConnectedError } from '../errors/index.ts'
 import type { ColumnMetadata } from '../metadata/entity-metadata.ts'
-import type { ColumnType, DataSourceOptions, SqlClient } from '../types.ts'
+import type { DataSourceOptions, SqlClient } from '../types.ts'
 import { escapeQueryWithParameters, type SqlDialect } from './dialect.ts'
+import { UnsupportedCatalog, type Catalog } from './catalog.ts'
 import { QueryRunner } from './query-runner.ts'
 
 /** 连接池：按需取连接、用完归还、销毁时整体关闭。 / A pool: acquire on demand, release back, close as a whole. */
@@ -29,6 +30,8 @@ export type PoolOpener = (options: DataSourceOptions) => Promise<ClientPool>
 export interface Driver {
   readonly type: string
   readonly dialect: SqlDialect
+  /** 结构内省；没有实现的驱动使用 UnsupportedCatalog。 / Schema introspection; drivers without it use UnsupportedCatalog. */
+  readonly catalog: Catalog
   readonly options: DataSourceOptions
   initialize(): Promise<void>
   destroy(): Promise<void>
@@ -53,6 +56,7 @@ export class BaseDriver implements Driver {
     readonly dialect: SqlDialect,
     readonly options: DataSourceOptions,
     private readonly openPool: PoolOpener,
+    readonly catalog: Catalog = new UnsupportedCatalog(),
   ) {}
 
   /** 方言名 / dialect name */
@@ -98,14 +102,14 @@ export class BaseDriver implements Driver {
     return escapeQueryWithParameters(this.dialect, sql, parameters)
   }
 
-  /** 写入前的方言归一，再叠加列转换器。 / Dialect normalization on write, then the column transformer. */
+  /** 写入前的值编码，再叠加列转换器。 / Encode on write, then apply the column transformer. */
   preparePersistentValue(column: ColumnMetadata, value: unknown): unknown {
-    return normalizeForWrite(this.dialect.name, column.type, column.preparePersistentValue(value))
+    return this.dialect.values.encode(column, column.preparePersistentValue(value))
   }
 
-  /** 读出后的方言归一，再叠加列转换器。 / Dialect normalization after read, then the column transformer. */
+  /** 读出后的值解码，再叠加列转换器。 / Decode on read, then apply the column transformer. */
   prepareHydratedValue(column: ColumnMetadata, value: unknown): unknown {
-    return column.prepareHydratedValue(normalizeAfterRead(this.dialect.name, column.type, value))
+    return column.prepareHydratedValue(this.dialect.values.decode(column, value))
   }
 }
 
@@ -133,44 +137,4 @@ export async function poolFromOptions(
   if (injected === undefined) return fallback(options)
   const client = typeof injected === 'function' ? await injected(options) : injected
   return singleClientPool(client)
-}
-
-/** 日期类列：读取时把字符串还原为 Date。 / Date-like columns: strings become Date on read. */
-const DATE_TYPES = new Set<ColumnType>(['date', 'datetime', 'timestamp'])
-
-/** 写入归一：布尔与日期按方言转换，JSON/数组转文本。 / Write normalization: boolean and date per dialect, JSON/array to text. */
-function normalizeForWrite(dialect: string, type: ColumnType, value: unknown): unknown {
-  if (value === null || value === undefined) return value
-  if (value instanceof Date) {
-    if (dialect === 'postgres') return value
-    return dialect === 'mysql' ? formatMysqlDate(value) : value.toISOString()
-  }
-  if (typeof value === 'boolean') return dialect === 'postgres' ? value : (value ? 1 : 0)
-  if (type === 'json' || type === 'jsonb' || type === 'simple-json') {
-    return typeof value === 'string' ? value : JSON.stringify(value)
-  }
-  if (type === 'simple-array') return Array.isArray(value) ? value.join(',') : value
-  return value
-}
-
-/** MySQL DATETIME 文本：`YYYY-MM-DD HH:mm:ss.SSS`。 / MySQL DATETIME text. */
-function formatMysqlDate(value: Date): string {
-  return value.toISOString().slice(0, 23).replace('T', ' ')
-}
-
-/** 读取归一：SQLite 的 0/1 转布尔、文本日期转 Date、JSON 文本解析。 / Read normalization: 0/1 to boolean, text dates to Date, JSON text parsed. */
-function normalizeAfterRead(dialect: string, type: ColumnType, value: unknown): unknown {
-  if (value === null || value === undefined) return value
-  if (type === 'boolean') return typeof value === 'boolean' ? value : value === 1 || value === '1' || value === true
-  if (type === 'json' || type === 'jsonb' || type === 'simple-json') {
-    if (typeof value !== 'string') return value
-    try {
-      return JSON.parse(value)
-    } catch {
-      return value
-    }
-  }
-  if (type === 'simple-array') return typeof value === 'string' ? value.split(',') : value
-  if (DATE_TYPES.has(type) && dialect !== 'postgres' && typeof value === 'string') return new Date(value)
-  return value
 }

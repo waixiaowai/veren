@@ -12,6 +12,7 @@
 import { DriverOptionNotSetError } from '../errors/index.ts'
 import type { DataSourceOptions, Row, SqlClient } from '../types.ts'
 import { BaseDriver, poolFromOptions, type ClientPool, type PoolOpener } from './driver.ts'
+import { SqliteCatalog } from './catalog.ts'
 import { registerDriver } from './registry.ts'
 import { SqliteDialect } from './sqlite-dialect.ts'
 
@@ -33,7 +34,7 @@ export interface D1DatabaseLike {
 /** D1 驱动：连接必须由调用方注入。 / D1 driver: the connection must be injected. */
 export class D1Driver extends BaseDriver {
   constructor(options: DataSourceOptions) {
-    super(new SqliteDialect({ transactions: false, savepoints: false }), options, (candidate) => poolFromOptions(candidate, missingClient))
+    super(new SqliteDialect({ transactions: false, savepoints: false }), options, (candidate) => poolFromOptions(candidate, missingClient), new SqliteCatalog())
   }
 }
 

@@ -77,6 +77,11 @@ const PanelPlugin = {
     installPanelStyles(ctx)
     const t = ctx.locale.bind(NS)
     const mail = createMailSource(api)
+    // 连接代际重置（重连成功）即重读目录：面板的轮询只兜底 5 秒，重置信号让恢复即时发生。
+    // A connection-generation reset (a successful reconnect) re-reads the
+    // catalog: polling alone would leave up to a 5s stale window, the reset
+    // signal makes the recovery immediate.
+    ctx.on('connection/reset', () => { mail.refresh() })
     ctx.slots.inject('main', () => ctx.slots.register({
       name: 'main',
       key: PANEL_ID,

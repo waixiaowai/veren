@@ -1,7 +1,7 @@
 {
   "name": "@veren/mail",
   "displayName": "Veren Mail Core",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "description": "Use when a DSH deployment must turn business events into delivered messages and keep an auditable execution trail: it owns the durable notification domain (workflows, subscribers, topics, preferences, integrations, execution records, jobs, messages, conversations) in the host storage domain, runs the trigger -> dispatch -> deliver chain with atomic job claiming and at-most-three retries, writes each delivery fact before it calls a channel provider, and serves the whole surface to the web panel over a `mail` Remote namespace. Skip it when the deployment sends nothing and only needs an inbox view.",
   "type": "module",
   "main": "./dist/index.js",

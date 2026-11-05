@@ -42,6 +42,28 @@ async function readRooms(api: ImConvApi, state: RoomsState): Promise<void> {
   publish(state, { rooms: result.value.rooms, status: 'ready', error: '' })
 }
 
+/** One unread read for the viewer; a failure keeps the previous counts. */
+/** 一次查看者未读数读取；失败保留上一次的计数。 */
+async function readUnread(api: ImConvApi, state: RoomsState, viewerId: string): Promise<void> {
+  const result = await api.unreadCounts({ participantId: viewerId })
+  if (!result.ok) return
+  publish(state, { unread: result.value.counts })
+}
+
+/**
+ * Advance the viewer's read cursor to the newest message of the open room and
+ * re-read the counts, so opening a room clears its badge.
+ * 把查看者的已读游标推进到打开房间的最新一条，并重读计数，因此打开房间即清掉徽标。
+ */
+async function advanceCursor(api: ImConvApi, state: RoomsState, viewerId: string): Promise<void> {
+  const roomId = state.snapshot.openRoomId
+  if (roomId === undefined) return
+  const newest = state.snapshot.messages[state.snapshot.messages.length - 1]
+  if (newest === undefined) return
+  await api.markRead({ roomId, participantId: viewerId, sequence: newest.sequence })
+  await readUnread(api, state, viewerId)
+}
+
 /** Fetch the open room's members and full timeline (v1: full read per open). */
 /** 拉取打开房间的成员与完整时间线（v1：每次打开全量读）。 */
 async function readRoom(api: ImConvApi, state: RoomsState, roomId: string): Promise<void> {
@@ -66,37 +88,32 @@ function unsubscribe(state: RoomsState, listener: () => void): void {
 
 /** First listener starts the room polling; the unsubscribe path cleans up. */
 /** 第一个监听者启动房间轮询；取消订阅路径负责清理。 */
-function subscribe(api: ImConvApi, state: RoomsState, listener: () => void): () => void {
+function subscribe(api: ImConvApi, state: RoomsState, viewerId: string, listener: () => void): () => void {
   state.listeners.add(listener)
   if (state.listeners.size === 1) {
     void readRooms(api, state)
-    // 列表与打开中的时间线一起轮询：智能体的回复是别人写进来的新事实，只刷列表不刷时间线
-    // 会让页面看起来「没人回」。
-    // Poll the room list and the open timeline together: an agent's reply is a
-    // fact someone else wrote, and refreshing only the list makes the page look
-    // like nobody answered.
+    void readUnread(api, state, viewerId)
+    // 列表、未读与打开中的时间线一起轮询：智能体的回复是别人写进来的新事实，只刷列表不刷
+    // 时间线会让页面看起来「没人回」。
+    // Poll the list, the counts and the open timeline together: an agent's reply
+    // is a fact someone else wrote, and refreshing only the list makes the page
+    // look like nobody answered.
     state.timer = globalThis.setInterval(() => {
       void readRooms(api, state)
+      void readUnread(api, state, viewerId)
       const open = state.snapshot.openRoomId
-      if (open !== undefined) void readRoom(api, state, open)
+      if (open !== undefined) void readRoom(api, state, open).then(() => advanceCursor(api, state, viewerId))
     }, ROOMS_POLL_MS)
   }
   return () => { unsubscribe(state, listener) }
 }
 
-/** Open one room: clear the pane, fetch the timeline, advance the cursor. */
-/** 打开一个房间：清空面板、拉取时间线、推进游标。 */
+/** Open one room: clear the pane, read the timeline, then clear its badge. */
+/** 打开一个房间：清空面板、读取时间线，然后清掉它的未读徽标。 */
 function openRoomOf(api: ImConvApi, state: RoomsState, viewerId: string, roomId: string | undefined): void {
   publish(state, { openRoomId: roomId, messages: [], members: [] })
   if (roomId === undefined) return
-  void readRoom(api, state, roomId)
-  // 打开即推进该查看者的已读游标（查看者固定为工作区所有者）。
-  // Opening advances the viewer's read cursor (the viewer is the workspace
-  // owner in v1).
-  const newest = state.snapshot.messages[state.snapshot.messages.length - 1]
-  if (newest !== undefined) {
-    void api.markRead({ roomId, participantId: viewerId, sequence: newest.sequence })
-  }
+  void readRoom(api, state, roomId).then(() => advanceCursor(api, state, viewerId))
 }
 
 /**
@@ -150,7 +167,7 @@ export function createRoomsSource(api: ImConvApi, viewerId: string): {
 } {
   const state: RoomsState = {
     snapshot: {
-      rooms: [], openRoomId: undefined, messages: [], members: [],
+      rooms: [], openRoomId: undefined, messages: [], members: [], unread: [],
       status: 'loading', error: '', sending: false,
     },
     timer: undefined,
@@ -159,13 +176,14 @@ export function createRoomsSource(api: ImConvApi, viewerId: string): {
   return {
     source: {
       getSnapshot: () => state.snapshot,
-      subscribe: listener => subscribe(api, state, listener),
+      subscribe: listener => subscribe(api, state, viewerId, listener),
     },
     openRoom: roomId => { openRoomOf(api, state, viewerId, roomId) },
     refresh: () => {
       void readRooms(api, state)
+      void readUnread(api, state, viewerId)
       const open = state.snapshot.openRoomId
-      if (open !== undefined) void readRoom(api, state, open)
+      if (open !== undefined) void readRoom(api, state, open).then(() => advanceCursor(api, state, viewerId))
     },
     send: body => sendMessage(api, state, body),
     createRoom: title => { void createRoom(api, state, viewerId, title) },

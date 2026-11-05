@@ -11,6 +11,7 @@
 
 import type { DataSourceOptions } from '../types.ts'
 import { BaseDriver, poolFromOptions, type ClientPool, type PoolOpener } from './driver.ts'
+import { SqliteCatalog } from './catalog.ts'
 import { openNodeSqlitePool } from './node-sqlite-client.ts'
 import { registerDriver } from './registry.ts'
 import { SqliteDialect } from './sqlite-dialect.ts'
@@ -21,7 +22,7 @@ export const type = 'sqlite'
 /** SQLite 驱动：方言固定，连接可注入。 / SQLite driver: fixed dialect, injectable connection. */
 export class SqliteDriver extends BaseDriver {
   constructor(options: DataSourceOptions) {
-    super(new SqliteDialect(), options, nodePool)
+    super(new SqliteDialect(), options, nodePool, new SqliteCatalog())
   }
 }
 

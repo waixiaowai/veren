@@ -39,6 +39,7 @@ function fakeApi(): ImConvApi & { roomsTable: Room[] } {
       return { ok: true as const, value: { room } }
     },
     markRead: async () => ({ ok: true as const, value: { cursor: { lastReadSequence: 0 } } }),
+    unreadCounts: async () => ({ ok: true as const, value: { counts: [] } }),
   }
   return api as ImConvApi & { roomsTable: Room[] }
 }

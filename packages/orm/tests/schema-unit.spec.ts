@@ -12,6 +12,7 @@ import {
   type SqlClient,
 } from '../src/index.ts'
 import { createNodeSqliteClient } from '../src/driver/node-sqlite-client.ts'
+import { dropOrder } from '../src/schema/drop-order.ts'
 import '../src/driver/sqlite.ts'
 
 @Entity('schema_authors')
@@ -152,6 +153,15 @@ describe('schema builder', () => {
     expect(log.upQueries[0]?.query).toContain('ALTER TABLE "schema_people" ADD COLUMN "age" integer')
     await second.synchronize()
     expect((await second.schemaLog()).upQueries).toEqual([])
+  })
+
+  it('orders drops children before parents', async () => {
+    const client = memoryClient()
+    const source = new DataSource({ type: 'sqlite', client, entities: [SchemaAuthor, SchemaBook] })
+    await source.initialize()
+    sources.push(source)
+    const order = dropOrder(source.entityMetadatas).map((metadata) => metadata.tableName)
+    expect(order.indexOf('schema_books')).toBeLessThan(order.indexOf('schema_authors'))
   })
 
   it('creates a junction table for a many-to-many relation', async () => {

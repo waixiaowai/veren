@@ -10,6 +10,11 @@
 import type { ColumnMetadata } from '../metadata/entity-metadata.ts'
 import type { ColumnType, IsolationLevel } from '../types.ts'
 import { withLength, withPrecision, type DriverCapabilities, type SqlDialect } from './dialect.ts'
+import { ConfigurableValueCodec, POSTGRES_RULES, type ValueCodec } from './value-codec.ts'
+import { StandardQuerySyntax } from './query-syntax.ts'
+import type { QuerySyntax } from './query-syntax.ts'
+import { BaseSchemaSyntax } from './schema-syntax.ts'
+import type { SchemaSyntax } from './schema-syntax.ts'
 
 /** 基础类型映射。 / Base type map. */
 const BASE_TYPES: { readonly [K in ColumnType]: string } = {
@@ -24,8 +29,8 @@ const BASE_TYPES: { readonly [K in ColumnType]: string } = {
   double: 'double precision',
   decimal: 'numeric',
   date: 'date',
-  datetime: 'timestamp',
-  timestamp: 'timestamp',
+  datetime: 'timestamptz',
+  timestamp: 'timestamptz',
   time: 'time',
   json: 'json',
   jsonb: 'jsonb',
@@ -38,8 +43,13 @@ const BASE_TYPES: { readonly [K in ColumnType]: string } = {
 /** PostgreSQL 方言实现。 / The PostgreSQL dialect implementation. */
 export class PostgresDialect implements SqlDialect {
   readonly name = 'postgres'
+  readonly values: ValueCodec = new ConfigurableValueCodec(POSTGRES_RULES)
+  readonly query: QuerySyntax = new StandardQuerySyntax()
+  readonly schema: SchemaSyntax
   readonly capabilities: DriverCapabilities = {
     returning: true,
+    multiRowGeneratedIds: true,
+    ddlTransactions: true,
     uuidGeneration: true,
     transactions: true,
     savepoints: true,
@@ -47,6 +57,10 @@ export class PostgresDialect implements SqlDialect {
   readonly commitStatement = 'COMMIT'
   readonly rollbackStatement = 'ROLLBACK'
   readonly nowExpression = 'CURRENT_TIMESTAMP'
+
+  constructor() {
+    this.schema = new BaseSchemaSyntax(this)
+  }
 
   escape(identifier: string): string {
     return `"${identifier.replaceAll('"', '""')}"`

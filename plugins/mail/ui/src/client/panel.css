@@ -1,52 +1,85 @@
 /**
- * The mail panel's stylesheet.
+ * The mail panel's stylesheet, laid out on the Novu design language.
  *
- * Every rule consumes the shared `--dsw-*` semantic tokens and no literal
- * colors, so the panel follows every theme the shell ships.
+ * Every rule consumes the shared `--dsw-*` semantic tokens plus the local
+ * `--mail-*` scale below, and no literal colors anywhere, so the panel
+ * follows every theme the shell ships. The scale follows Novu's rules: a
+ * 4px base with nine allowed steps only, 36px controls, weights of 400/500
+ * only, 120ms hover and 200ms switch motions with a reduced-motion escape.
  *
- * 通知面板的样式表。
+ * 通知面板的样式表，按 Novu 设计语言落位。
  *
- * 每条规则只消费共享的 `--dsw-*` 语义令牌，不含任何字面颜色，因此面板跟随外壳提供的每一套主题。
+ * 每条规则只消费共享的 `--dsw-*` 语义令牌加下面的局部 `--mail-*` 刻度，任何地方都没有
+ * 字面颜色，因此面板跟随外壳提供的每一套主题。刻度遵守 Novu 规则：4px 基准、只允许九档、
+ * 36px 控件、字重只用 400/500、120ms 悬停与 200ms 切换动效带 reduced-motion 退路。
  */
 
 .mail-page {
+  --mail-gap-xs: 4px;
+  --mail-gap-sm: 8px;
+  --mail-gap: 12px;
+  --mail-gap-lg: 16px;
+  --mail-gap-xl: 24px;
+  --mail-radius: 8px;
+  --mail-motion-fast: 120ms;
+  --mail-motion-base: 200ms;
+  --mail-ease: cubic-bezier(0.2, 0, 0, 1);
+
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
+  gap: var(--mail-gap);
+  padding: var(--mail-gap-lg);
   color: var(--dsw-alias-label-primary, inherit);
 }
+
+/* ---- Header: title block left, primary action top-right. ---- */
 
 .mail-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--mail-gap);
 }
 
 .mail-title {
   margin: 0;
   font-size: 1.15em;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .mail-subtitle {
-  margin: 2px 0 0;
+  margin: var(--mail-gap-xs) 0 0;
   font-size: 0.85em;
   color: var(--dsw-alias-label-secondary, inherit);
 }
 
-.mail-button {
-  padding: 4px 10px;
+.mail-refresh {
+  height: 32px;
+  padding: 0 var(--mail-gap);
   border: 1px solid var(--dsw-alias-border-default, currentColor);
   border-radius: 6px;
   background: transparent;
   color: inherit;
   cursor: pointer;
+  transition: background-color var(--mail-motion-fast) var(--mail-ease);
 }
+
+.mail-refresh:hover {
+  background: var(--dsw-alias-background-hover, transparent);
+}
+
+.mail-refresh:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-focus, currentColor);
+  outline-offset: 2px;
+}
+
+/* ---- States: error banner, loading line. ---- */
 
 .mail-error {
   margin: 0;
+  padding: var(--mail-gap-sm) var(--mail-gap);
+  border: 1px solid var(--dsw-alias-border-danger, transparent);
+  border-radius: var(--mail-radius);
   color: var(--dsw-alias-label-danger, inherit);
 }
 
@@ -55,105 +88,343 @@
   color: var(--dsw-alias-label-secondary, inherit);
 }
 
+/* ---- Tabs: underline indicator plus weight shift. ---- */
+
 .mail-tabs {
   display: flex;
-  gap: 4px;
+  gap: var(--mail-gap-sm);
   border-bottom: 1px solid var(--dsw-alias-border-default, transparent);
 }
 
 .mail-tab {
-  padding: 6px 12px;
+  padding: var(--mail-gap-sm) var(--mail-gap) calc(var(--mail-gap-sm) - 1px);
   border: none;
   border-bottom: 2px solid transparent;
   background: transparent;
+  font-weight: 400;
   color: var(--dsw-alias-label-secondary, inherit);
   cursor: pointer;
+  transition: color var(--mail-motion-base) var(--mail-ease), border-color var(--mail-motion-base) var(--mail-ease);
+}
+
+.mail-tab:hover {
+  color: var(--dsw-alias-label-primary, inherit);
 }
 
 .mail-tab-active {
   border-bottom-color: var(--dsw-alias-label-primary, currentColor);
+  font-weight: 500;
   color: var(--dsw-alias-label-primary, inherit);
 }
+
+.mail-tab:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-focus, currentColor);
+  outline-offset: -2px;
+}
+
+/* ---- Inbox filter: quiet chip row with per-slice counts. ---- */
+
+.mail-filter {
+  display: flex;
+  gap: var(--mail-gap-xs);
+}
+
+.mail-filter-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mail-gap-xs);
+  height: 28px;
+  padding: 0 var(--mail-gap);
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  font-size: 0.85em;
+  color: var(--dsw-alias-label-secondary, inherit);
+  cursor: pointer;
+  transition: background-color var(--mail-motion-fast) var(--mail-ease), color var(--mail-motion-fast) var(--mail-ease);
+}
+
+.mail-filter-tab:hover {
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.mail-filter-tab-active {
+  border-color: var(--dsw-alias-border-default, transparent);
+  background: var(--dsw-alias-background-hover, transparent);
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.mail-filter-tab:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-focus, currentColor);
+  outline-offset: 2px;
+}
+
+.mail-filter-count {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--dsw-alias-background-hover, transparent);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+/* ---- Lists and rows. ---- */
 
 .mail-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--mail-gap-sm);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .mail-item {
+  position: relative;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
+  gap: var(--mail-gap-sm);
+  padding: var(--mail-gap) var(--mail-gap);
   border: 1px solid var(--dsw-alias-border-default, transparent);
-  border-radius: 8px;
+  border-radius: var(--mail-radius);
+  transition: background-color var(--mail-motion-fast) var(--mail-ease);
 }
 
-.mail-item-head {
+.mail-item-unread {
+  border-color: var(--dsw-alias-border-strong, var(--dsw-alias-border-default, transparent));
+  background: var(--dsw-alias-background-hover, transparent);
+}
+
+.mail-item-archived {
+  opacity: 0.72;
+}
+
+/* The unread marker: a 4px bar on the row's left edge. */
+.mail-item-marker {
+  width: 4px;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.mail-item-unread .mail-item-marker {
+  background: var(--dsw-alias-label-primary, currentColor);
+}
+
+.mail-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mail-gap-xs);
+  flex: 1;
+  min-width: 0;
+}
+
+.mail-item-top {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
-}
-
-.mail-item-recipient {
-  font-weight: 600;
-}
-
-.mail-item-state {
-  font-size: 0.8em;
-  color: var(--dsw-alias-label-secondary, inherit);
+  gap: var(--mail-gap-sm);
 }
 
 .mail-item-subject {
   margin: 0;
+  overflow: hidden;
   font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mail-item-content {
+  display: -webkit-box;
   margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--dsw-alias-label-secondary, inherit);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-.mail-item-actions {
+.mail-item-badges {
+  display: inline-flex;
+  gap: var(--mail-gap-xs);
+  flex-shrink: 0;
+}
+
+/* Badges carry the word themselves; the palette is only the third signal. */
+.mail-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px var(--mail-gap-sm);
+  border: 1px solid var(--dsw-alias-border-default, transparent);
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.mail-badge-info {
+  background: var(--dsw-alias-background-hover, transparent);
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.mail-badge-success {
+  color: var(--dsw-alias-label-success, var(--dsw-alias-label-primary, inherit));
+}
+
+.mail-badge-warning {
+  color: var(--dsw-alias-label-warning, var(--dsw-alias-label-secondary, inherit));
+}
+
+.mail-badge-danger {
+  color: var(--dsw-alias-label-danger, inherit);
+}
+
+.mail-badge-neutral {
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+
+.mail-item-meta {
   display: flex;
-  gap: 10px;
+  align-items: center;
+  gap: var(--mail-gap);
+  font-size: 0.75rem;
+  color: var(--dsw-alias-label-secondary, inherit);
 }
 
-.mail-link {
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--dsw-alias-label-link, inherit);
-  text-decoration: underline;
+/* Timestamps may be quiet; readable content may not. */
+.mail-item-time {
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+
+.mail-item-actions {
+  position: absolute;
+  top: var(--mail-gap-sm);
+  right: var(--mail-gap);
+  display: flex;
+  gap: var(--mail-gap-xs);
+  opacity: 0;
+  transition: opacity var(--mail-motion-fast) var(--mail-ease);
+}
+
+.mail-item:hover .mail-item-actions,
+.mail-item:focus-within .mail-item-actions {
+  opacity: 1;
+}
+
+.mail-action {
+  height: 24px;
+  padding: 0 var(--mail-gap-sm);
+  border: 1px solid var(--dsw-alias-border-default, currentColor);
+  border-radius: 6px;
+  background: var(--dsw-alias-background-base, transparent);
+  font-size: 0.75rem;
+  color: inherit;
   cursor: pointer;
+  transition: background-color var(--mail-motion-fast) var(--mail-ease);
 }
 
-.mail-steps {
+.mail-action:hover {
+  background: var(--dsw-alias-background-hover, transparent);
+}
+
+.mail-action:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-focus, currentColor);
+  outline-offset: 2px;
+}
+
+/* ---- Empty states: one main line, one quiet sub line. ---- */
+
+.mail-empty {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: var(--mail-gap-xs);
+  padding: var(--mail-gap-xl) var(--mail-gap);
+}
+
+.mail-empty-title {
   margin: 0;
-  padding-left: 18px;
+  font-weight: 500;
+}
+
+.mail-empty-sub {
+  margin: 0;
+  font-size: 0.85em;
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+
+/* ---- Activity: run header, meta line, step timeline. ---- */
+
+.mail-run-head {
+  display: flex;
+  align-items: center;
+  gap: var(--mail-gap-sm);
+}
+
+.mail-run-title {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mail-run-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--mail-gap);
+  font-size: 0.75rem;
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+
+.mail-run-tx {
+  font-family: var(--dsw-font-mono, ui-monospace, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mail-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mail-gap-xs);
+  margin: 0;
+  padding: 0 0 0 var(--mail-gap);
+  border-left: 1px solid var(--dsw-alias-border-default, transparent);
+  list-style: none;
 }
 
 .mail-step {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--mail-gap-sm);
   font-size: 0.85em;
+}
+
+.mail-step-dot {
+  display: inline-flex;
+  width: 12px;
+  justify-content: center;
 }
 
 .mail-step-name {
   font-weight: 500;
 }
 
-.mail-step-state,
 .mail-step-reason {
   color: var(--dsw-alias-label-secondary, inherit);
+}
+
+/* ---- Reduced motion: the hover and switch motions collapse. ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  .mail-tab,
+  .mail-filter-tab,
+  .mail-item,
+  .mail-item-actions,
+  .mail-refresh,
+  .mail-action {
+    transition-duration: 0ms;
+  }
 }

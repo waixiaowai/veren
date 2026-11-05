@@ -52,7 +52,8 @@
     "prepack": "pnpm run build",
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
-    "coverage": "vitest run --coverage",
+    "coverage": "vitest run --coverage && node scripts/coverage-report.mjs",
+    "coverage:report": "node scripts/coverage-report.mjs",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {

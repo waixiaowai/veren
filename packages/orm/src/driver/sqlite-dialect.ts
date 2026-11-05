@@ -12,6 +12,11 @@
 import type { ColumnMetadata } from '../metadata/entity-metadata.ts'
 import type { ColumnType, IsolationLevel } from '../types.ts'
 import { withLength, withPrecision, type DriverCapabilities, type SqlDialect } from './dialect.ts'
+import { ConfigurableValueCodec, SQLITE_RULES, type ValueCodec } from './value-codec.ts'
+import { SqliteQuerySyntax } from './query-syntax.ts'
+import type { QuerySyntax } from './query-syntax.ts'
+import { SqliteSchemaSyntax } from './schema-syntax.ts'
+import type { SchemaSyntax } from './schema-syntax.ts'
 
 /** 基础类型映射；长度与精度由渲染函数补充。 / Base type map; length and precision are added by helpers. */
 const BASE_TYPES: { readonly [K in ColumnType]: string } = {
@@ -41,14 +46,20 @@ const BASE_TYPES: { readonly [K in ColumnType]: string } = {
 export class SqliteDialect implements SqlDialect {
   readonly name = 'sqlite'
   readonly capabilities: DriverCapabilities
+  readonly values: ValueCodec = new ConfigurableValueCodec(SQLITE_RULES)
+  readonly query: QuerySyntax = new SqliteQuerySyntax()
+  readonly schema: SchemaSyntax
   readonly commitStatement = 'COMMIT'
   readonly rollbackStatement = 'ROLLBACK'
   readonly nowExpression = 'CURRENT_TIMESTAMP'
 
   /** `overrides` 让 D1 这类不支持显式事务的宿主关掉事务能力。 / `overrides` lets hosts such as D1 disable explicit transactions. */
   constructor(overrides: { transactions?: boolean; returning?: boolean; savepoints?: boolean } = {}) {
+    this.schema = new SqliteSchemaSyntax(this)
     this.capabilities = {
       returning: overrides.returning ?? true,
+      multiRowGeneratedIds: true,
+      ddlTransactions: true,
       uuidGeneration: true,
       transactions: overrides.transactions ?? true,
       savepoints: overrides.savepoints ?? true,

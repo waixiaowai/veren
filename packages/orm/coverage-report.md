@@ -3,46 +3,69 @@
 - 生成时间 / Generated: 2026-11-05
 - 生成命令 / Command: `pnpm --dir packages/orm run coverage`
 - 覆盖率提供方 / Provider: V8 (`@vitest/coverage-v8 5.0.4`, Vitest 5.0.4)
-- 测试结果 / Tests: 25 个测试文件、115 个用例全部通过 / 25 files, 115 tests, all passing
+- 测试结果 / Tests: 28 个测试文件、127 个用例全部通过 / 28 files, 127 tests, all passing
 - 统计范围 / Scope: `src/**/*.ts`（排除 `.d.ts`）
-- 真实数据库 e2e / Live e2e: `pnpm test:e2e`（无凭据自动跳过 / self-skips without credentials）
+- 真实数据库 e2e / Live e2e: `pnpm test:e2e`，4 文件 / 24 用例全部通过（PostgreSQL 16.4 + MySQL 8.4 + SQLite）/ 4 files, 24 tests, all pass
 
 ## 总体 / Overall
 
 | 指标 / Metric | 已覆盖 / Covered | 总数 / Total | 覆盖率 / % |
 | --- | ---: | ---: | ---: |
-| 行 / Lines | 1741 | 1843 | **94.47%** |
-| 分支 / Branches | 977 | 1249 | **78.22%** |
-| 函数 / Functions | 628 | 664 | **94.58%** |
-| 语句 / Statements | 1987 | 2206 | **90.07%** |
+| 行 / Lines | 1861 | 1971 | **94.42%** |
+| 分支 / Branches | 1039 | 1323 | **78.53%** |
+| 函数 / Functions | 682 | 730 | **93.42%** |
+| 语句 / Statements | 2129 | 2360 | **90.21%** |
+
+## 方言差异如何被处理 / How dialect differences are handled
+
+| 差异 | 处理方式 |
+| --- | --- |
+| 标识符/占位符 | 方言层：双引号/反引号、`?`/`$n` |
+| 布尔 | 写入按方言转 `0/1` 或 `boolean`，读出统一 `boolean` |
+| 日期/时区 | `date` 统一日历日；`datetime` 统一 UTC；MySQL `datetime(3)` 保留毫秒，PG `timestamptz`，SQLite ISO 文本 |
+| 十进制/bigint | 读出统一字符串；十进制去尾零 |
+| JSON/数组/二进制 | JSON 解析、simple-array 拆分、blob 统一 `Uint8Array` |
+| 生成主键 | PG/SQLite `RETURNING`；MySQL 多行插入逐行执行，避免同一个 `insertId` |
+| 数据库默认值 | 由库应用，但 `save` 后不在任一方言回写，避免 PG/SQLite 有、MySQL 没有 |
+| 大小写 | `=` 统一大小写敏感（MySQL 字符串列 `utf8mb4_bin`）；`Like`/`ILike` 统一大小写不敏感 |
+| NULL 排序 | 统一 NULLS LAST；MySQL 用 `(expr IS NULL)` 模拟 |
+| 分页/删表顺序 | 方言归一 offset-only；删表先子后父 |
 
 ## 集成测试 / Integration coverage
 
-默认套件里已经包含进程内集成测试，不只是 mock：
+默认套件已包含真实 Hono、Express、文件型 SQLite、Cordis Loader；e2e 另跑三种真库。
 
-- 真实 Hono 应用：`app.request()` 走完整中间件，验证成功提交、500 回滚。
-- 真实 Express 应用：起本地 HTTP server，`fetch` 走完整请求/响应生命周期。
-- 文件型 SQLite：跨两个独立连接读回数据、关系装载、事务回滚、补列、迁移执行/回退。
-- Cordis Loader：`loader.create` 加载 ORM 插件、下游 entry 注入 `verenOrm`、卸载销毁数据源。
-- 真实 PostgreSQL/MySQL：`tests/*.e2e.ts`，有 `ORM_POSTGRES_URL` / `ORM_MYSQL_URL` 时运行。
+`tests/portability.e2e.ts` 用同一份实体和仓储代码，只切换 `DataSource` 配置，逐项断言 SQLite/PostgreSQL/MySQL 结果一致：
+
+- 值往返：boolean、date、datetime、decimal、bigint、JSON、simple-array、blob、数据库默认值
+- 多行插入各自不同的自增 id
+- `=` 大小写敏感、`Like` 大小写不敏感
+- NULL 排序、分页、update/delete 条件
+- schema 默认值、时间类型、MySQL 字符串 collation
+
+## 架构边界 / Architecture seam
+
+- 核心不含 dialect.name === '...' 分支；由 tests/architecture.spec.ts 守住。
+- ValueCodec（值表示）、QuerySyntax（排序/分页）、SchemaSyntax（列/主键/默认值/账本）是纯策略；Catalog 是 Driver 持有的 introspection I/O。
+- DriverCapabilities 只表达 returning、multiRowGeneratedIds、ddlTransactions 等影响控制流的事实。
 
 ## 按模块 / By module
 
 | 模块 / Module | 行 / Lines | 分支 / Branches | 函数 / Functions | 语句 / Statements |
 | --- | ---: | ---: | ---: | ---: |
-| 全部 / All files | 94.47% | 78.22% | 94.58% | 90.07% |
+| 全部 / All files | 94.42% | 78.53% | 93.42% | 90.21% |
 | src/(root) | 100% | 100% | 100% | 100% |
 | src/adapters | 98.48% | 97.83% | 90.91% | 97.47% |
-| src/driver | 90.43% | 79.88% | 84.21% | 89.21% |
+| src/driver | 89.91% | 78.15% | 83.65% | 87.82% |
 | src/errors | 100% | 80% | 100% | 100% |
 | src/logger | 100% | 88.57% | 100% | 93.75% |
-| src/metadata | 96.04% | 79.91% | 98.46% | 91.73% |
-| src/migration | 93.15% | 54.55% | 92.31% | 87.21% |
+| src/metadata | 95.71% | 79.91% | 96.92% | 91.2% |
+| src/migration | 93.15% | 65% | 92% | 87.21% |
 | src/naming | 100% | 88.24% | 100% | 100% |
-| src/persistence | 93.88% | 77.66% | 100% | 85.66% |
-| src/query | 92.45% | 77.44% | 92% | 88.41% |
+| src/persistence | 93.91% | 76.88% | 100% | 85.32% |
+| src/query | 93.82% | 78.49% | 92.21% | 89.86% |
 | src/runtime | 95.56% | 70.9% | 98.28% | 89.81% |
-| src/schema | 95.65% | 75.41% | 96.55% | 88.98% |
+| src/schema | 96.63% | 83.33% | 100% | 95.15% |
 | src/subscriber | 100% | 75% | 100% | 100% |
 | src/util | 100% | 100% | 100% | 100% |
 
@@ -54,19 +77,14 @@
 | --- | ---: | ---: |
 | src/driver/mysql.ts | 67.86% (19/28) | 40% |
 | src/runtime/manager-helpers.ts | 70% (14/20) | 64.71% |
-| src/schema/introspect.ts | 72.73% (8/11) | 50% |
-| src/driver/postgres.ts | 73.08% (19/26) | 40% |
-| src/query/insert-builder.ts | 79.41% (27/34) | 58.33% |
+| src/driver/catalog.ts | 70.59% (12/17) | 100% |
+| src/driver/postgres.ts | 71.43% (20/28) | 35.29% |
 | src/query/update-builder.ts | 79.41% (27/34) | 68.18% |
 
 ## 解读 / Interpretation
 
-- 核心链路的行覆盖均已进入高位：持久化 93.88%、运行时 95.24%、查询 92.45%、模式同步 95.65%、迁移 93.15%、适配器 98.48%、元数据 96.04%。
-- 剩余缺口集中在需要**真实外部条件**或**异常分支**的位置：
-  1. `driver/postgres.ts`、`driver/mysql.ts`：默认连接池的创建与销毁已覆盖；`pool.connect()` 成功后的客户端包装层需要真实数据库服务器。
-  2. `schema/introspect.ts`：SQLite 内省已覆盖；PostgreSQL/MySQL 的 information_schema 分支同样需要真实服务器。
-  3. `query/insert-builder.ts`、`query/update-builder.ts`：空值集、RETURNING 关闭、空更新集等防御分支只在极端输入下触发。
-  4. `runtime/manager-helpers.ts`：参数归一与错误消息分支有多条组合路径，主链只覆盖常见组合。
+- 核心链路的行覆盖均已进入高位；真实数据库 e2e 额外验证了跨方言值归一、默认值、排序、大小写、分页和删表顺序。
+- 剩余缺口主要是异常分支与真实网络错误路径，不影响上面的可移植性契约。
 - 纯导出/纯类型文件（`index.ts`、`types.ts`、`schema/table.ts`、`subscriber/subscriber.ts`）V8 统计为 0 行，不计入缺口。
 
 ## 产物 / Artifacts
@@ -77,6 +95,6 @@
 
 ## 下一步建议 / Suggested next steps
 
-1. 在 CI 或本地提供 PostgreSQL/MySQL 服务，跑 `pnpm test:e2e`，把驱动模块推向 95%。
-2. 为 insert/update builder 补空值集、RETURNING 关闭、空更新集等防御分支。
-3. CI 建议设置行覆盖阈值 90%、语句覆盖阈值 90%，先锁住当前水平。
+1. 将 PostgreSQL/MySQL 的临时实例启动固化为脚本或 CI service。
+2. 为报告中的低覆盖异常分支补定向单测。
+3. CI 设置行覆盖阈值 90%、语句覆盖阈值 90%。

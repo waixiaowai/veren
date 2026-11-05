@@ -125,10 +125,12 @@ async function insertOne(
 }
 
 /** 回填数据库生成列。 / Write generated columns back. */
+/** 回填数据库生成列；数据库默认值不在 save 后回写，三种方言行为一致。 / Write generated columns back; DB defaults are not echoed after save, so all dialects behave the same. */
 function applyGenerated(manager: EntityManager, metadata: EntityMetadata, entity: EntityValues, generated: EntityValues): void {
   for (const [key, value] of Object.entries(generated)) {
     const column = metadata.findColumn(key) ?? metadata.findColumnByDatabaseName(key)
-    if (column !== undefined) column.setEntityValue(entity, manager.dataSource.driver.prepareHydratedValue(column, value))
+    if (column === undefined || !column.isGenerated) continue
+    column.setEntityValue(entity, manager.dataSource.driver.prepareHydratedValue(column, value))
   }
 }
 
