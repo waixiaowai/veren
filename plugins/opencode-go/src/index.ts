@@ -18,6 +18,7 @@ import { OpencodeGoAdapter } from './adapter.js'
 import { GoCatalog, OPENCODE_GO_PROVIDER } from './catalog.js'
 import { resolveConfig, type Config as ConfigShape } from './config.js'
 import { registerOpencodeGoFlow } from './auth-flow.js'
+import { keepRoute } from './route.js'
 import { ListingClient } from './listing.js'
 import { OpencodeGoGatewayService } from './gateway-remote.js'
 
@@ -47,33 +48,29 @@ export const inject = ['llm', 'credentials', 'authorization']
 /** 本插件不提供服务面。This plugin provides no service face. */
 export const provide = []
 
-/** 同进程幂等闸：loader 在 bundle patch 与显式行并存时会激活两次，第二次静默让位。
-    A same-process idempotence gate: the loader activates the plugin twice when
-    the bundle patch and an explicit row coexist; the second activation yields. */
-let mounted = false
-
-/** 插件入口：注册路由、登录流与 Web 网关；都随插件卸载逆序清理。Plugin entry: registers the route, the sign-in flow, and the web gateway; all unwind in reverse order on unload. */
+/**
+ * 插件入口：注册登录流与路由，并在取得路由时挂载 Web 网关；都随插件卸载
+ * 逆序清理。
+ * Plugin entry: registers the sign-in flow and the route, and mounts the web
+ * gateway with the route; all unwind in reverse order on unload.
+ * @param ctx - 提供 llm/credentials/authorization 的插件上下文。The plugin context carrying `llm`, `credentials`, and `authorization`.
+ * @param config - 端点与超时覆盖。Endpoint and timeout overrides.
+ */
 export const apply = (ctx: Context, config: Config): void => {
-  if (mounted) {
-    ctx.logger.warn('opencode-go: duplicate activation in this process; the first instance keeps serving')
-    return
-  }
-  mounted = true
   const resolved = resolveConfig(config)
-  const listing = new ListingClient(resolved)
-  const catalog = new GoCatalog(resolved, listing)
+  const catalog = new GoCatalog(resolved, new ListingClient(resolved))
   registerOpencodeGoFlow(ctx, resolved, catalog)
   const adapter = new OpencodeGoAdapter({ ctx, config: resolved, catalog })
-  let disposeRoutes: (() => void) | undefined
-  try {
-    disposeRoutes = ctx.llm.registerAdapter([OPENCODE_GO_PROVIDER], adapter)
-  } catch (error) {
-    // 双激活竞态下路由可能已被本模块的另一实例持有：让位即可。
-    // Under a double-activation race the route may already be held by this
-    // module's other instance: yield instead of failing the boot.
-    if ((error as { code?: string }).code !== 'DUPLICATE_ADAPTER') throw error
-    ctx.logger.warn('opencode-go: route already registered by a sibling activation; yielding')
+  // 登录网关（远端命名空间）每个进程只能挂一次：仅在取得路由时挂载，让位
+  // 实例等接管时再挂。
+  // The sign-in gateway (a remote namespace) mounts once per process: mount it
+  // only when this instance owns the route; a yielded instance mounts it if it
+  // later takes over.
+  let gatewayMounted = false
+  const mountGateway = (): void => {
+    if (gatewayMounted) return
+    gatewayMounted = true
+    ctx.plugin(OpencodeGoGatewayService)
   }
-  if (disposeRoutes !== undefined) ctx.effect(() => disposeRoutes, 'opencode-go.registerAdapter')
-  ctx.plugin(OpencodeGoGatewayService)
+  keepRoute(ctx, adapter, mountGateway)
 }

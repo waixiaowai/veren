@@ -14,6 +14,8 @@ Serve the OpenCode Go subscription plan as a first-class dsh model route. The pl
    - **Local CLI import** — if the machine's opencode CLI is signed in with a Go key, the plugin imports it read-only from `~/.local/share/opencode/auth.json`.
 3. **Pick a model** — after sign-in the `opencode-go` route advertises the Go catalog (`deepseek-v4.1-flash`, `glm-5.3-flash`, `kimi-k3`, …). No restart is needed; the stored key applies to the next request.
 
+The plugin can be loaded twice in one process (a bundle patch row and a profile include row are two module instances): the later activation yields — it registers no second route and takes no second claim on the `opencode-go/account` authorization flow. If the owner unloads (live patch reload, entry rebuild), the surviving instance takes the route over and mounts the sign-in gateway, so a host never keeps a sign-in without a provider. Startup logs show `opencode-go: claimed the provider route` (or the yield notice).
+
 The key is stored only in the harness credential store as the `opencode-go/account` record. It never enters configuration files or logs. HTTP 401 from the gateway surfaces as `KEY_INVALID` and never deletes the stored sign-in; removal is an explicit user action.
 
 ## Configuration

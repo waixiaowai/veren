@@ -50,6 +50,29 @@ function fakeSession(notices: unknown[], answers: unknown[]) {
 }
 
 describe('registerOpencodeGoFlow', () => {
+  it('键上的流已被另一份激活占用时让位且不抛错（同进程双激活）', () => {
+    const logs: string[] = []
+    const ctx = {
+      logger: { info: (message: string, subject: string) => { logs.push(`${message} ${subject}`) } },
+      authorization: {
+        registerFlow: () => { throw Object.assign(new Error('taken'), { code: 'DUPLICATE_FLOW' }) },
+      },
+    }
+    expect(() => registerOpencodeGoFlow(ctx as never, config, new GoCatalog(config, new ListingClient(config)))).not.toThrow()
+    expect(logs.join('\n')).toContain('already registered')
+  })
+
+  it('非 DUPLICATE_FLOW 的注册失败仍然响亮上抛', () => {
+    const ctx = {
+      logger: { info: () => { /* 上抛路径不写日志 / the throwing path writes none */ } },
+      authorization: {
+        registerFlow: () => { throw new Error('seam exploded') },
+      },
+    }
+    expect(() => registerOpencodeGoFlow(ctx as never, config, new GoCatalog(config, new ListingClient(config))))
+      .toThrowError('seam exploded')
+  })
+
   it('在线校验通过才提交 api-key 记录，且把 /auth 入口写进通知', async () => {
     const gateway = await startMockGateway()
     try {

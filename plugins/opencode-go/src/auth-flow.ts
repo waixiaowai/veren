@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { AuthorizationSession } from '@deepseek-ai/dsh-authorization'
+import type { AuthorizationFlow, AuthorizationSession } from '@deepseek-ai/dsh-authorization'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { ResolvedConfig } from './config.js'
 import { OPENCODE_GO_RECORD, commitStoredKey } from './credential.js'
@@ -24,9 +24,26 @@ import type { GoCatalog } from './catalog.js'
 
 import { LOCAL_CLI_AUTH_JSON } from './watch-auth-file.js'
 
-/** 授权流注册；流随插件卸载自动注销（registerFlow 自带 dispose）。Registers the flow; it unregisters with plugin unload (registerFlow disposes itself). */
+/** 授权流注册；流随授权服务卸载自动注销（registerFlow 自带 dispose）。Registers the flow; it unregisters with the authorization service (registerFlow disposes itself). */
 export function registerOpencodeGoFlow(ctx: Context, config: ResolvedConfig, catalog: GoCatalog): void {
-  ctx.authorization.registerFlow({
+  try {
+    ctx.authorization.registerFlow(flowDefinition(ctx, config, catalog))
+  } catch (error) {
+    // 同进程双激活（bundle patch 行 + profile include 行）时，先到者持有键上
+    // 唯一的流；后到者让位而不是让整个激活失败。真正的键冲突也走这条路径，
+    // 日志里保留键名以便定位。
+    // A second activation in one process (bundle patch row plus profile include
+    // row) finds the key's single flow taken; it yields instead of failing the
+    // whole activation. A genuine key conflict takes this path too, and the log
+    // keeps the key name so it can be traced.
+    if ((error as { code?: string }).code !== 'DUPLICATE_FLOW') throw error
+    ctx.logger.info('opencode-go: an authorization flow for "%s" is already registered; this activation yields', String(OPENCODE_GO_RECORD))
+  }
+}
+
+/** 流定义：两种方法共用一次在线校验与提交。The flow definition: both methods share one online validation and commit. */
+function flowDefinition(ctx: Context, config: ResolvedConfig, catalog: GoCatalog): AuthorizationFlow {
+  return {
     key: OPENCODE_GO_RECORD,
     label: 'OpenCode Go',
     methods: [
@@ -39,7 +56,7 @@ export function registerOpencodeGoFlow(ctx: Context, config: ResolvedConfig, cat
         : await pasteFromAuthPage(session)
       await validateAndCommit(ctx, config, catalog, key)
     },
-  })
+  }
 }
 
 /** 方法一：通知入口 → 粘贴。Method one: notify the entry point → paste. */

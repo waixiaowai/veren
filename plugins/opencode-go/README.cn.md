@@ -14,6 +14,8 @@
    - **本机 CLI 导入** —— 本机 opencode CLI 已用 Go key 登录时，从 `~/.local/share/opencode/auth.json` 只读导入。
 3. **选模型**：登录后 `opencode-go` 路由即展示 Go 目录（`deepseek-v4.1-flash`、`glm-5.3-flash`、`kimi-k3` …）。无需重启，已存 key 对下一次请求即生效。
 
+同一进程里插件可能被加载两次（组合 patch 行与 profile include 行是两份模块实例）：后到者让位，不重复注册路由，也不重复占用 `opencode-go/account` 上的授权流；一旦占有者卸载（patch 热重载、条目重建），存活实例会接管路由并补挂登录网关——所以不会出现"登录还在、provider 没了"的宿主。启动日志里能看到 `opencode-go: claimed the provider route`（或让位提示）。
+
 key 只存于 harness 凭据库的 `opencode-go/account` 记录，绝不进配置文件、绝不进日志。网关 401 呈现为 `KEY_INVALID`，且**不清除已存登录**；删除登录是用户的显式动作。
 
 ## 配置
