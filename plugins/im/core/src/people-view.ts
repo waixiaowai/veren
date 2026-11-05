@@ -110,6 +110,8 @@ export function matchesQuery(view: ImPersonView, query: string): boolean {
     ...view.contacts.map(contact => contact.value),
     ...(view.claimedName === undefined ? [] : [view.claimedName]),
     ...view.claimedContacts.map(contact => contact.value),
+    ...(view.bio === undefined ? [] : [view.bio]),
+    ...(view.notes === undefined ? [] : [view.notes]),
     ...view.addresses.flatMap(address => [address.externalId, address.conversationId]),
   ]
   return values.some(value => normalizeText(value).includes(query))

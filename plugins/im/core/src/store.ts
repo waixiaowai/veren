@@ -69,6 +69,8 @@ export interface ImPersonStore {
   putPersonAddress(row: ImPersonAddressRow): Promise<void>
   /** Drop every address of one removed account; person profiles and intakes stay. */
   deletePersonAddressesOf(accountId: string): Promise<void>
+  /** Drop every address that points at one person, when the contact is removed. */
+  deletePersonAddressesOfPerson(personId: string): Promise<void>
   /** One person's automatic-intake record, when they were asked. */
   getIntake(personId: string): ImPersonIntakeRow | undefined
   /** Every automatic-intake record, for the audit view. */

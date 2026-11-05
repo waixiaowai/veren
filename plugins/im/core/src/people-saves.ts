@@ -48,18 +48,11 @@ export async function savePersonRow(
   request: ImPersonSaveRequest,
   now: number,
 ): Promise<ImPersonRow> {
-  if (request.personId === undefined && request.address === undefined) {
-    throw new ImError('IM_INVALID_REQUEST', 'personId or address is required')
-  }
   const { person, address, existingAddress } = lookupSaveTarget(store, request)
-  const target = person === undefined
-    ? address === undefined
-      ? undefined
-      : newPersonRow(newId, request, address, now)
-    : person
-  if (target === undefined) {
-    throw new ImError('IM_INVALID_REQUEST', 'address is required to create a person')
-  }
+  const target = person
+    ?? (address === undefined
+      ? manualPersonRow(newId, request, now)
+      : newPersonRow(newId, request, address, now))
   const updated = applyProfile(target, request, now)
   await store.putPerson(updated)
   if (address !== undefined && existingAddress === undefined) {
@@ -108,6 +101,34 @@ function newPersonRow(
 ): ImPersonRow {
   return createPersonRow(newId, address, providerName(request.displayName)
     ?? providerName(request.address?.displayName), now)
+}
+
+/**
+ * The fresh profile row of one manually entered address-book contact. Such a
+ * contact carries no provider address yet, so it cannot receive messages until
+ * one is attached; its name is the only required field.
+ * 手工录入的通讯录联系人的初始档案行。此联系人还没有 provider 地址，因此在附上地址前不能收消息；
+ * 名字是唯一必填字段。
+ */
+function manualPersonRow(
+  newId: (prefix: string) => string,
+  request: ImPersonSaveRequest,
+  now: number,
+): ImPersonRow {
+  const displayName = request.displayName?.trim()
+  if (displayName === undefined || displayName === '') {
+    throw new ImError(
+      'IM_INVALID_REQUEST',
+      'personId, address, or displayName is required to create a person',
+    )
+  }
+  return {
+    id: newId('person'),
+    display_name: displayName,
+    aliases: [],
+    contacts: [],
+    updated_at: now,
+  }
 }
 
 /** Insert the address row of one person's first saved address. */

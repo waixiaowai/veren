@@ -22,6 +22,7 @@
 
 import { useState } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ActivitySnapshot } from './activity-source.ts'
 import type { ImKey } from './locales.ts'
 import type { ImPanelInjected, ImSnapshot, RoomsSnapshot } from './remote.ts'
 import { AccountsView } from './views-accounts.tsx'
@@ -83,18 +84,61 @@ function ImBody(props: ImBodyProps & RoomsBodyProps) {
             <TabButton active={tab === 'settings'} label={t('tabSettings')} onClick={() => setTab('settings')} />
           </nav>
           {tab === 'rooms' && <RoomsBody {...props} />}
-          {tab === 'agents' && (
-            <AgentsBody
-              {...props}
-              onOpenConversation={roomId => { props.onOpenRoom(roomId); setTab('rooms') }}
-              onCreateConversation={input => { props.onCreateRoom(input); setTab('rooms') }}
+          {tab !== 'rooms' && (
+            <DocumentTabs
+              tab={tab}
+              state={state}
+              t={t}
+              actions={actions}
+              rooms={props.rooms}
+              onOpenConversation={roomId => { props.rooms.onOpenRoom(roomId); setTab('rooms') }}
+              onCreateConversation={input => { props.rooms.onCreateRoom(input); setTab('rooms') }}
             />
           )}
-          {tab === 'accounts' && <AccountsView state={state} t={t} actions={actions} />}
-          {tab === 'people' && <PeopleView state={state} t={t} actions={actions} />}
-          {tab === 'settings' && <SettingsView state={state} t={t} actions={actions} />}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * The document tabs: one scroll column under the pinned tab bar.
+ *
+ * Only the conversation tab owns a full-height layout of its own, so the other
+ * four share a single region that scrolls. `key` makes each tab its own
+ * document: switching starts the next tab at the top instead of inheriting the
+ * previous tab's scroll offset.
+ *
+ * 文档页签：固定页签条之下的一个滚动列。
+ *
+ * 只有会话页签需要自己的全高布局，其余四个共用一个滚动区。`key` 让每个页签是自己的文档：
+ * 切换后从顶部开始，而不是继承上一个页签的滚动位置。
+ */
+function DocumentTabs(props: ImBodyProps & RoomsBodyProps & {
+  readonly tab: Exclude<Tab, 'rooms'>
+  readonly onOpenConversation: (roomId: string) => void
+  readonly onCreateConversation: (input: {
+    readonly title?: string
+    readonly kind: 'direct'
+    readonly memberIds: readonly string[]
+  }) => void
+}): React.JSX.Element {
+  const { tab, state, t, actions } = props
+  return (
+    <div className="im-view" key={tab}>
+      {tab === 'agents' && (
+        <AgentsBody
+          state={state}
+          t={t}
+          actions={actions}
+          rooms={props.rooms}
+          onOpenConversation={props.onOpenConversation}
+          onCreateConversation={props.onCreateConversation}
+        />
+      )}
+      {tab === 'accounts' && <AccountsView state={state} t={t} actions={actions} />}
+      {tab === 'people' && <PeopleView state={state} t={t} actions={actions} />}
+      {tab === 'settings' && <SettingsView state={state} t={t} actions={actions} />}
     </div>
   )
 }
@@ -102,11 +146,17 @@ function ImBody(props: ImBodyProps & RoomsBodyProps) {
 /** Bind the conversations observable once and render the conversations tab. */
 function RoomsBody(props: ImBodyProps & RoomsBodyProps) {
   const state = props.rooms.useRooms((snapshot: RoomsSnapshot) => snapshot)
+  // 实时回合只在这里绑定：工作行跟着打开的房间走，其他页签不需要它。
+  // Live turns bind only here: the working row follows the open room, and no
+  // other tab needs it.
+  const activity = props.rooms.useActivity((snapshot: ActivitySnapshot) => snapshot)
   return (
     <RoomsView
       state={state}
       t={props.t}
       people={props.state.catalog.people}
+      participants={props.state.participants}
+      activities={activity.runs}
       onOpenRoom={props.rooms.onOpenRoom}
       onRefresh={props.rooms.onRoomsRefresh}
       onSend={props.rooms.onSendMessage}
@@ -127,6 +177,7 @@ function AgentsBody(props: ImBodyProps & RoomsBodyProps & {
       t={props.t}
       actions={props}
       rooms={state.rooms}
+      participants={props.state.participants}
       unread={state.unread.reduce((total, count) => total + count.unread, 0)}
       onOpenRoom={props.onOpenConversation}
       onCreateRoom={props.onCreateConversation}

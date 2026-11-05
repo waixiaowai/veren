@@ -60,6 +60,9 @@ export interface ImRosterEntry {
   /** Display name overriding the preset id in prompts and the panel. */
   /** 在 prompt 与面板里替代 preset id 的展示名。 */
   readonly name?: string
+  /** One sentence on what this agent is for, straight from the preset. */
+  /** 一句话说明这个智能体用来做什么，来自 preset。 */
+  readonly description?: string
 }
 
 /** One participant as every consumer sees it. */
@@ -79,6 +82,9 @@ export interface ImParticipantView {
    * 与展示名同等对待。
    */
   readonly aliases?: readonly string[]
+  /** One sentence on what this agent is for (preset-backed agents only). */
+  /** 一句话说明这个智能体的用途（仅 preset 智能体携带）。 */
+  readonly description?: string
 }
 
 /** Options for the roster. */
@@ -96,28 +102,44 @@ export interface ImParticipantsOptions {
   /** Extra names the default agent answers to (localized mention names). */
   /** 默认智能体额外应答的名字（本地化提及名）。 */
   readonly defaultAgentAliases?: readonly string[]
+  /**
+   * Agents discovered after construction — the deployment's DSH presets, which
+   * the loader may mount later than this roster. Read on every lookup so the
+   * roster never freezes a half-loaded registry.
+   * 构造之后才发现的智能体——部署里的 DSH preset，loader 可能比本名册更晚挂载它们。
+   * 每次查询都重新读取，名册不会冻结在一份半加载的注册表上。
+   */
+  readonly discoveredAgents?: () => readonly ImRosterEntry[]
 }
 
 /** The participant roster service. */
 /** 参与者名册服务。 */
 export class ImParticipants {
-  private readonly agents: ImParticipantView[]
   /**
    * @param options - roster entries, owner name, and the people directory.
    */
-  constructor(private readonly options: ImParticipantsOptions) {
-    this.agents = [
+  constructor(private readonly options: ImParticipantsOptions) {}
+
+  /** Every agent view: the default one, configured entries, then discovered presets. */
+  /** 全部智能体视图：默认智能体、配置条目，最后是发现到的 preset。 */
+  listAgents(): ImParticipantView[] {
+    const entries = new Map<string, ImRosterEntry>()
+    for (const entry of [...this.options.roster, ...(this.options.discoveredAgents?.() ?? [])]) {
+      if (!entries.has(entry.presetId)) entries.set(entry.presetId, entry)
+    }
+    return [
       {
         id: DEFAULT_AGENT_PARTICIPANT_ID,
         kind: 'agent',
         displayName: 'Assistant',
-        aliases: options.defaultAgentAliases ?? [],
+        aliases: this.options.defaultAgentAliases ?? [],
       },
-      ...options.roster.map(entry => ({
+      ...[...entries.values()].map(entry => ({
         id: agentParticipantId(entry.presetId),
         kind: 'agent' as const,
         displayName: entry.name ?? entry.presetId,
-        ...(entry.name === undefined ? {} : { presetId: entry.presetId }),
+        presetId: entry.presetId,
+        ...(entry.description === undefined ? {} : { description: entry.description }),
       })),
     ]
   }
@@ -128,22 +150,16 @@ export class ImParticipants {
     return { id: OWNER_PARTICIPANT_ID, kind: 'human', displayName: this.options.ownerName }
   }
 
-  /** Every configured agent, default agent first, in roster order. */
-  /** 全部配置的智能体，默认智能体在最前，按名册顺序。 */
-  listAgents(): ImParticipantView[] {
-    return [...this.agents]
-  }
-
   /** Every participant: the owner, then the agents. */
   /** 全部参与者：所有者在先，智能体在后。 */
   list(): ImParticipantView[] {
-    return [this.owner(), ...this.agents]
+    return [this.owner(), ...this.listAgents()]
   }
 
   /** Resolve one participant id to its view; `undefined` when unknown. */
   /** 把一个参与者 id 解析成视图；未知时返回 `undefined`。 */
   resolve(id: string): ImParticipantView | undefined {
-    const agent = this.agents.find(candidate => candidate.id === id)
+    const agent = this.listAgents().find(candidate => candidate.id === id)
     if (agent !== undefined) return agent
     if (id === OWNER_PARTICIPANT_ID) return this.owner()
     if (id.startsWith('human:')) return this.humanOf(id.slice('human:'.length))

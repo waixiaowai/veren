@@ -11,10 +11,9 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { baiduPanError } from './errors.js'
 import { fileManage, makeDir } from './files-client.js'
-import { checkAction, checkPath, type Confirmation } from './guard.js'
-import { displayPath, foldErrors, outputOneOf, reasonToCode, requirePath, textBlock } from './toolkit.js'
+import { removeGuarded } from './manage-core.js'
+import { displayPath, foldErrors, outputOneOf, requirePath, textBlock } from './toolkit.js'
 import type { BaiduPanWorld } from './world.js'
 
 /** ok 规范值的 schema 面（文件管理）。The ok value's schema faces (file management). */
@@ -57,15 +56,6 @@ function renderMkdir(value: unknown): string {
   return `目录已创建 / directory created：${displayPath(data.path ?? '')}`
 }
 
-/** 守门删除的裁决：本地先归一与集合比对，未通过绝不发请求。The guarded-delete verdict: normalize and compare locally first — nothing goes out before it passes. */
-function checkActionWorld(world: BaiduPanWorld, targets: readonly string[], confirmation: Confirmation): ReturnType<typeof checkAction> {
-  for (const path of targets) {
-    const verdict = checkPath(path, world.config.root)
-    if (!verdict.allowed) return { decision: 'deny', reason: verdict.reason }
-  }
-  return checkAction(world.config.root, targets, confirmation)
-}
-
 /** mkdir 的执行闭包。The mkdir execute closure. */
 function mkdirExecute(world: BaiduPanWorld) {
   return foldErrors(async (args: { path: string }) => {
@@ -98,16 +88,10 @@ function renameExecute(world: BaiduPanWorld) {
   })
 }
 
-/** delete 的执行闭包：凭证集合比对通过才出网。The delete execute closure: nothing goes out before the voucher comparison passes. */
+/** delete 的执行闭包：守门删除走共享核心，与网页网关同一份编排。The delete execute closure: guarded delete rides the shared core — one orchestration with the web gateway. */
 function deleteExecute(world: BaiduPanWorld) {
   return foldErrors(async (args: { paths?: readonly string[]; confirm_paths?: readonly string[] }) => {
-    const targets = args.paths ?? []
-    const voucher: Confirmation = { paths: args.confirm_paths ?? [] }
-    const verdict = checkActionWorld(world, targets, voucher)
-    if (verdict.decision === 'confirm') throw baiduPanError('BDPAN_CONFIRM_REQUIRED', { retryable: true })
-    if (verdict.decision === 'deny') throw baiduPanError(reasonToCode(verdict.reason))
-    const normalized = targets.map(path => requirePath(world, path))
-    await fileManage(world.client, 'delete', normalized.map(path => ({ path })))
+    const normalized = await removeGuarded(world, args.paths ?? [], args.confirm_paths ?? [])
     return { kind: 'ok' as const, op: 'delete' as const, paths: normalized }
   })
 }

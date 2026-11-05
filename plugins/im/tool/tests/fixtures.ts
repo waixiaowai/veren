@@ -21,7 +21,7 @@ import type { ConvTable, ConvTables } from '@veren/im-conversation'
 import type { MessageRow, ReadRow, RoomMemberRow, RoomRow, CounterRow, ClientIdRow } from '@veren/im-conversation'
 import { BudgetRing, CoordinationService, Watermarks } from '@veren/im-coordination'
 import type { WatermarkTable } from '@veren/im-coordination'
-import { RunStore, TurnService } from '@veren/im-turn'
+import { ActivityBoard, RunStore, TurnService } from '@veren/im-turn'
 import type { AgentSessionRow, RunRow, RunEventRow, TurnTables } from '@veren/im-turn'
 import { ImStrangerIntake } from '@veren/im'
 import { TestStore } from './test-store.ts'
@@ -150,7 +150,7 @@ export function build() {
   const sessionRows = (): AgentSessionRow[] => [
     { key: `${ALICE}\u0000${aliceRoomId}`, session_id: ALICE_SESSION, updated_at: clock },
   ]
-  const turn = new TurnService(runs, sessionRows)
+  const turn = new TurnService(runs, sessionRows, new ActivityBoard(() => clock))
   const memory = new ImMemory({ store: memoryOver(), now: () => clock })
   return {
     ctx, registry, bindings, directory, intake, people, participants, credentials,

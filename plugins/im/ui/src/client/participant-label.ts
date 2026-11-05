@@ -14,7 +14,7 @@
  */
 
 import type { ImKey } from './locales.ts'
-import type { ImPersonView } from './remote.ts'
+import type { ImParticipant, ImPersonView } from './remote.ts'
 
 /** The workspace owner: the panel's fixed viewer in v1. */
 export const OWNER_PARTICIPANT = 'human:owner'
@@ -27,11 +27,19 @@ export const DEFAULT_AGENT = 'agent:default'
  * @param id - roster participant id.
  * @param people - the people directory, for `human:<personId>` members.
  * @param t - locale seat.
+ * @param roster - the host roster, whose display names win over derived ones.
  * @returns the display name, falling back to the bare id for unknown forms.
  */
-export function participantLabel(id: string, people: readonly ImPersonView[], t: (key: ImKey) => string): string {
+export function participantLabel(
+  id: string,
+  people: readonly ImPersonView[],
+  t: (key: ImKey) => string,
+  roster: readonly ImParticipant[] = [],
+): string {
   if (id === OWNER_PARTICIPANT) return t('participantOwner')
   if (id === DEFAULT_AGENT) return t('participantAssistant')
+  const known = roster.find(candidate => candidate.id === id)
+  if (known !== undefined) return known.displayName
   if (id.startsWith('agent:')) return id.slice('agent:'.length)
   if (id.startsWith('human:')) {
     const personId = id.slice('human:'.length)

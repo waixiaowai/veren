@@ -125,10 +125,11 @@ function MessageRow(props: {
   readonly message: MessageView
   readonly t: (key: MailKey) => string
   readonly onMark: MailPanelInjected['onMark']
+  readonly onOpenSession: MailPanelInjected['onOpenSession']
   /** Rendering time, injected so the relative label stays pure. / 渲染时刻，注入以保持相对时间标签纯净。 */
   readonly now: number
 }): React.JSX.Element {
-  const { message, t, onMark, now } = props
+  const { message, t, onMark, onOpenSession, now } = props
   const time = relativeTimeLabel(message.createdAt, now)
   const unread = !message.read && !message.archived
   const delivery = deliveryBadgeOf(message)
@@ -147,7 +148,7 @@ function MessageRow(props: {
           <span className="mail-item-channel">{t(channelKeyOf(message.channel))}</span>
           <span className="mail-item-time">{fillCount(t(time.key), time.n)}</span>
           <span className="mail-item-spacer" />
-          <RowActions message={message} t={t} onMark={onMark} />
+          <RowActions message={message} t={t} onMark={onMark} onOpenSession={onOpenSession} />
         </div>
       </div>
     </li>
@@ -156,9 +157,11 @@ function MessageRow(props: {
 
 /**
  * The visible-state actions, living in the meta line's reserved right slot:
- * they occupy layout space, so nothing is ever covered.
+ * they occupy layout space, so nothing is ever covered. A message that names
+ * its source session earns the "open session" jump ahead of the rest.
  *
  * 可见状态操作，住在 meta 行右侧的保留槽位：它们占据布局空间，因此永远不会遮住任何内容。
+ * 指明来源会话的消息，把「打开会话」跳转排在其余操作之前。
  *
  * @param props - the actions' props / 操作属性
  * @returns the actions / 操作
@@ -167,10 +170,20 @@ function RowActions(props: {
   readonly message: MessageView
   readonly t: (key: MailKey) => string
   readonly onMark: MailPanelInjected['onMark']
+  readonly onOpenSession: MailPanelInjected['onOpenSession']
 }): React.JSX.Element {
-  const { message, t, onMark } = props
+  const { message, t, onMark, onOpenSession } = props
   return (
     <span className="mail-item-actions">
+      {message.sourceSessionId !== undefined && (
+        <button
+          type="button"
+          className="mail-action"
+          onClick={() => onOpenSession(message.sourceSessionId as string)}
+        >
+          {t('openSession')}
+        </button>
+      )}
       <button
         type="button"
         className="mail-action"

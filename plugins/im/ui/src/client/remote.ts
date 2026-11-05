@@ -30,13 +30,28 @@ import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
  * forwards them instead of restating the same shapes. `import type` is erased
  * by esbuild at bundle time, so no server code reaches the client bundle.
  */
-import type { ImAccount, ImPersonView } from '../../../core/src/index.ts'
+import type { ImAccount, ImPersonContact, ImPersonView } from '../../../core/src/index.ts'
 import type { ImIntakeStatusView } from '../../../core/src/intake-types.ts'
+import type { ActivitySnapshot } from './activity-source.ts'
 // 会话域的视图类型同样只有一份：直接引 conversation 源码的那份声明。
 // The conversation domain's view types also live in exactly one place — its source.
 import type { Message, Room, RoomMember } from '../../../conversation/src/index.ts'
 
-export type { ImAccount, ImPersonView, ImIntakeStatusView, Message, Room, RoomMember }
+export type { ImAccount, ImPersonContact, ImPersonView, ImIntakeStatusView, Message, Room, RoomMember }
+
+/**
+ * The editable profile of one person: what the people tab's editor sends.
+ * Addresses are provider-owned and are not edited by hand here.
+ * 一位人员的可编辑档案：人员页签编辑器提交的内容。地址由 provider 持有，不在此手工编辑。
+ */
+export interface PersonDraft {
+  readonly displayName: string
+  readonly realName?: string
+  readonly aliases?: readonly string[]
+  readonly contacts?: readonly ImPersonContact[]
+  readonly bio?: string
+  readonly notes?: string
+}
 
 /** A Remote call result: the committed value, or the Host's structured refusal. */
 export type ImRemoteResult<Value> =
@@ -60,9 +75,25 @@ export interface ImCatalog {
   readonly intake: ImIntakeStatusView
 }
 
+/** One roster view as the host publishes it: owner, default agent, presets. */
+/** 宿主发布的参与者视图：所有者、默认智能体、preset。 */
+export interface ImParticipant {
+  readonly id: string
+  readonly kind: 'human' | 'agent' | string
+  readonly displayName: string
+  /** The DSH preset behind this agent; absent for the owner and the default agent. */
+  readonly presetId?: string
+  /** One sentence on what the agent is for, when the preset declares one. */
+  readonly description?: string
+  /** Extra names this participant answers to in messages. */
+  readonly aliases?: readonly string[]
+}
+
 /** The page's snapshot: the catalog plus the bind wizard's live state. */
 export interface ImSnapshot {
   readonly catalog: ImCatalog
+  /** The participant roster: owner, default agent, and every declared preset. */
+  readonly participants: readonly ImParticipant[]
   /** `loading` is republished only before the first successful read. */
   readonly status: 'loading' | 'ready' | 'error'
   /** Whether an authoritative read has ever succeeded. */
@@ -79,12 +110,19 @@ export interface ImPanelInjected {
     readonly im: HostObservable<ImSnapshot>
     /** The conversations observable, bound as `useRooms`. */
     readonly rooms: HostObservable<RoomsSnapshot>
+    /** The live-turn observable, bound as `useActivity` (the working row). */
+    /** 实时回合可观察对象，绑定为 `useActivity`（工作行）。 */
+    readonly activity: HostObservable<ActivitySnapshot>
   }
   readonly onStartBind: () => void
   readonly onCloseBind: () => void
   readonly onSubmitCode: (code: string) => void
   readonly onUnbindAccount: (accountId: string) => void
-  readonly onRenamePerson: (personId: string, displayName: string) => void
+  /** Create a manual contact; resolves to the host's error text, or nothing on success. */
+  /** 新建一个手工联系人；成功时无返回，失败时返回宿主错误文案。 */
+  readonly onCreatePerson: (input: PersonDraft) => Promise<string | undefined>
+  readonly onUpdatePerson: (personId: string, input: PersonDraft) => Promise<string | undefined>
+  readonly onDeletePerson: (personId: string) => Promise<string | undefined>
   readonly onRefresh: () => void
   readonly onOpenRoom: (roomId: string | undefined) => void
   readonly onRoomsRefresh: () => void
@@ -103,6 +141,7 @@ export interface ImPanelInjected {
 /** The mounted `ctx.remote.im` surface. */
 export interface ImRemoteApi {
   readonly catalog: (request: { readonly intakeLimit?: number }) => Promise<ImRemoteResult<ImCatalog>>
+  readonly participants: () => Promise<ImRemoteResult<{ readonly participants: readonly ImParticipant[] }>>
   readonly beginBind: (request: { readonly provider?: string; readonly label?: string }) => Promise<ImRemoteResult<BindWizardView>>
   readonly pollBind: (request: { readonly bindId: string }) => Promise<ImRemoteResult<BindWizardView>>
   readonly submitBindCode: (request: { readonly bindId: string; readonly code: string }) => Promise<ImRemoteResult<BindWizardView>>
@@ -112,6 +151,13 @@ export interface ImRemoteApi {
     readonly personId: string
     readonly displayName: string
   }) => Promise<ImRemoteResult<{ readonly person: ImPersonView }>>
+  readonly createPerson: (request: PersonDraft) => Promise<ImRemoteResult<{ readonly person: ImPersonView }>>
+  readonly updatePerson: (request: PersonDraft & {
+    readonly personId: string
+  }) => Promise<ImRemoteResult<{ readonly person: ImPersonView }>>
+  readonly deletePerson: (request: {
+    readonly personId: string
+  }) => Promise<ImRemoteResult<{ readonly deleted: string }>>
   readonly intakeStatus: (request: { readonly limit?: number }) => Promise<ImRemoteResult<{ readonly intake: ImIntakeStatusView }>>
 }
 
@@ -125,6 +171,22 @@ const CODE_REQUEST = z.looseObject({ bindId: z.string(), code: z.string() })
 const UNBIND_ACCOUNT_REQUEST = z.looseObject({ accountId: z.string() })
 const PEOPLE_REQUEST = z.looseObject({ query: z.string().optional() })
 const RENAME_REQUEST = z.looseObject({ personId: z.string(), displayName: z.string() })
+const CONTACT_SCHEMA = z.looseObject({
+  kind: z.enum(['wechat', 'email', 'phone', 'other']),
+  value: z.string().min(1),
+  label: z.string().optional(),
+})
+const PERSON_DRAFT_FIELDS = {
+  displayName: z.string().min(1).optional(),
+  realName: z.string().optional(),
+  aliases: z.array(z.string()).optional(),
+  contacts: z.array(CONTACT_SCHEMA).optional(),
+  bio: z.string().optional(),
+  notes: z.string().optional(),
+} as const
+const CREATE_PERSON_REQUEST = z.looseObject(PERSON_DRAFT_FIELDS)
+const UPDATE_PERSON_REQUEST = z.looseObject({ personId: z.string().min(1), ...PERSON_DRAFT_FIELDS })
+const DELETE_PERSON_REQUEST = z.looseObject({ personId: z.string().min(1) })
 const INTAKE_REQUEST = z.looseObject({ limit: z.number().optional() })
 
 const ACCOUNT_SCHEMA = z.looseObject({
@@ -146,6 +208,12 @@ const CATALOG_SCHEMA = z.looseObject({
   people: z.array(PERSON_SCHEMA),
   intake: INTAKE_SCHEMA,
 })
+const PARTICIPANT_SCHEMA = z.looseObject({
+  id: z.string(), kind: z.string(), displayName: z.string(),
+  presetId: z.string().optional(), description: z.string().optional(),
+  aliases: z.array(z.string()).optional(),
+})
+const PARTICIPANTS_RESULT = z.looseObject({ participants: z.array(PARTICIPANT_SCHEMA) })
 const BIND_SCHEMA = z.looseObject({
   bindId: z.string(), status: z.string(), qrDataUrl: z.string().optional(),
   expiresAt: z.number().optional(),
@@ -153,16 +221,17 @@ const BIND_SCHEMA = z.looseObject({
   error: z.looseObject({ code: z.string(), message: z.string() }).optional(),
 })
 const PEOPLE_RESULT = z.looseObject({ people: z.array(PERSON_SCHEMA) })
-const RENAME_RESULT = z.looseObject({ person: PERSON_SCHEMA })
+const PERSON_RESULT = z.looseObject({ person: PERSON_SCHEMA })
+const DELETE_PERSON_RESULT = z.looseObject({ deleted: z.string() })
 const INTAKE_RESULT = z.looseObject({ intake: INTAKE_SCHEMA })
 
-/** One strict codec over a Zod factory. */
-function codec(typeSymbol: string, create: () => z.ZodType): TypertRemoteCodecSpec {
+/** One strict codec over a Zod factory. Shared with the `imTurn` definition. */
+export function codec(typeSymbol: string, create: () => z.ZodType): TypertRemoteCodecSpec {
   return { mode: 'strict', typeSymbol, create }
 }
 
 /** One required parameter, keyed by its Host parameter name. */
-function parameter(name: string, typeSymbol: string, create: () => z.ZodType): TypertRemoteParameterSpec {
+export function parameter(name: string, typeSymbol: string, create: () => z.ZodType): TypertRemoteParameterSpec {
   const spec = codec(typeSymbol, create)
   return { name, wire: name, source: 'json', codec: spec, strictCodec: spec }
 }
@@ -192,6 +261,8 @@ export const imRemote = createTypertRemoteInfo({
     ...method('catalog', 'One snapshot: accounts, conversations, people, intake.', 'catalog', [
       parameter('request', 'im:catalog:request', () => CATALOG_REQUEST),
     ], () => CATALOG_SCHEMA),
+    ...method('participants', 'The roster: owner, default agent, and every declared preset.', 'participants', [],
+      () => PARTICIPANTS_RESULT),
     ...method('beginBind', 'Start a QR authorization; the QR rides back as a data URL.', 'beginBind', [
       parameter('request', 'im:beginBind:request', () => BEGIN_REQUEST),
     ], () => BIND_SCHEMA),
@@ -209,7 +280,16 @@ export const imRemote = createTypertRemoteInfo({
     ], () => PEOPLE_RESULT),
     ...method('renamePerson', 'Set one person display name (manual completion).', 'renamePerson', [
       parameter('request', 'im:renamePerson:request', () => RENAME_REQUEST),
-    ], () => RENAME_RESULT),
+    ], () => PERSON_RESULT),
+    ...method('createPerson', 'Create one manual address-book contact from a profile.', 'createPerson', [
+      parameter('request', 'im:createPerson:request', () => CREATE_PERSON_REQUEST),
+    ], () => PERSON_RESULT),
+    ...method('updatePerson', 'Update one person profile; omitted fields stay untouched.', 'updatePerson', [
+      parameter('request', 'im:updatePerson:request', () => UPDATE_PERSON_REQUEST),
+    ], () => PERSON_RESULT),
+    ...method('deletePerson', 'Remove one person with their addresses and intake record.', 'deletePerson', [
+      parameter('request', 'im:deletePerson:request', () => DELETE_PERSON_REQUEST),
+    ], () => DELETE_PERSON_RESULT),
     ...method('intakeStatus', 'Read the stranger-intake switch, counts, and audit.', 'intakeStatus', [
       parameter('request', 'im:intakeStatus:request', () => INTAKE_REQUEST),
     ], () => INTAKE_RESULT),

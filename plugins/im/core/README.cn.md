@@ -43,7 +43,8 @@
   （`agent:<presetId>`）、所有者是 `human:owner`、外部人来自人员目录。
 - `ImMemory`（`imMemory` 令牌）：持久智能体记忆，召回置顶优先、其余按近期，按项目
   （DSH 工作区）作用域。
-- `ImPeople` / `ImDirectory`：严格名字解析、未核实自述的人员目录，以及面向模型的目录面。
+- `ImPeople` / `ImDirectory`：严格名字解析、未核实自述的人员目录，可手工新建暂无地址的联系人，
+  删除联系人时连带地址与采集记录；以及面向模型的目录面。
 - `ImStrangerIntake`（`imIntake` 令牌）：每人一次的陌生人询问，带限频与审计。
 - `ImBindings`（`imBindings` 令牌）：账号授权尝试与持久账号表。
 - 渠道房间号：`chan:<provider>:<account>:<conversation>`（确定性、跨重启稳定），内部房间

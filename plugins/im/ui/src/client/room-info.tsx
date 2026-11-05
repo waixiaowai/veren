@@ -15,7 +15,7 @@
 import { Avatar } from './avatar.tsx'
 import { roomStampOf } from './format.ts'
 import type { ImKey } from './locales.ts'
-import type { ImPersonView, Room } from './remote.ts'
+import type { ImParticipant, ImPersonView, Room } from './remote.ts'
 import { participantLabel } from './participant-label.ts'
 
 /** Props of {@link RoomInfo}. */
@@ -23,11 +23,12 @@ export interface RoomInfoProps {
   readonly room: Room
   readonly t: (key: ImKey) => string
   readonly people: readonly ImPersonView[]
+  readonly participants: readonly ImParticipant[]
 }
 
 /** One room's information panel. */
 export function RoomInfo(props: RoomInfoProps): React.JSX.Element {
-  const { room, t, people } = props
+  const { room, t, people, participants } = props
   return (
     <aside className="im-room-rail">
       <h3 className="im-heading">{t('roomInfo')}</h3>
@@ -45,8 +46,8 @@ export function RoomInfo(props: RoomInfoProps): React.JSX.Element {
       <ul className="im-member-list" role="list">
         {room.members.map(id => (
           <li key={id} className="im-member">
-            <Avatar name={participantLabel(id, people, t)} kind={id.startsWith('agent:') ? 'agent' : 'human'} size="sm" glyph />
-            <span>{participantLabel(id, people, t)}</span>
+            <Avatar name={participantLabel(id, people, t, participants)} kind={id.startsWith('agent:') ? 'agent' : 'human'} size="sm" glyph />
+            <span>{participantLabel(id, people, t, participants)}</span>
           </li>
         ))}
       </ul>

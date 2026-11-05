@@ -1,7 +1,7 @@
 {
   "name": "@veren/mail-bundle",
   "displayName": "Mail Bundle",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "icon": "./icon.svg",
   "description": "Use when a DSH host needs notification capability installed and composed in one step: this configuration-only bundle mounts the notification domain core (durable workflows, recipients, groups, preferences, execution chains in the host storage domain, trigger -> dispatch -> deliver with atomic claiming and at-most-three retries, the station inbox over the in_app channel, and the `mail` Remote namespace), the model-facing mail_* tools with the bundled mail-notifications skill, and the web panel (inbox with seen/read/archived actions and the per-step activity view) as one installable profile layer.",
   "type": "module",

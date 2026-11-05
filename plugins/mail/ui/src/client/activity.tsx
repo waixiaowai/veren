@@ -74,7 +74,7 @@ function RunCard(props: {
   const badge = runBadgeOf(run)
   const duration = durationLabel(run.startedAt, run.finishedAt)
   return (
-    <li className="mail-item mail-run">
+    <li className="mail-item">
       <div className="mail-run-head">
         <span className="mail-run-title">{run.workflowName}</span>
         <span className={`mail-badge mail-badge-${badge.tone}`}>

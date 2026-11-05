@@ -34,6 +34,8 @@ import { ImPanel } from './panel.tsx'
 import { convRemote, imRemote, type ImPanelInjected, type ImRemoteApi } from './remote.ts'
 import { createImSource } from './source.ts'
 import { createRoomsSource } from './rooms-source.ts'
+import { createActivitySource } from './activity-source.ts'
+import { turnRemote } from './turn-remote.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -48,6 +50,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     im: ImRemoteApi
     /** Conversation rooms and timelines, mounted by this plugin's `apply`. */
     imConv: import('./remote.ts').ImConvApi
+    /** Live turn activity, mounted by this plugin's `apply`. */
+    imTurn: import('./turn-remote.ts').ImTurnApi
   }
 }
 
@@ -69,7 +73,7 @@ export const inject = ['slots', 'locale', 'remote']
  */
 const PanelPlugin = {
   name: 'im:panel',
-  inject: ['remote.im', 'remote.imConv'],
+  inject: ['remote.im', 'remote.imConv', 'remote.imTurn'],
   /** @param ctx - panel-scope context over the mounted namespaces. */
   apply(ctx: Context): void {
     const api = ctx.remote.im
@@ -81,7 +85,8 @@ const PanelPlugin = {
     // 查看者固定为工作区所有者（v1：面板是所有者的视角）。
     // The viewer is the workspace owner (v1: the panel shows the owner's view).
     const rooms = createRoomsSource(convApi, 'human:owner')
-    registerMainPanel(ctx, t, im, rooms)
+    const activity = createActivitySource(ctx.remote.imTurn)
+    registerMainPanel(ctx, t, im, rooms, activity)
     ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
       name: 'sidebar.panellist',
       id: PANEL_ID,
@@ -105,22 +110,32 @@ function registerMainPanel(
   t: (key: ImKey) => string,
   im: ReturnType<typeof createImSource>,
   rooms: ReturnType<typeof createRoomsSource>,
+  activity: ReturnType<typeof createActivitySource>,
 ): void {
   ctx.slots.inject('main', () => ctx.slots.register({
     name: 'main',
     key: PANEL_ID,
     locale: NS,
     inject: (): ImPanelInject => ({
-      hooks: { im: im.source, rooms: rooms.source },
+      hooks: { im: im.source, rooms: rooms.source, activity: activity.source },
       onStartBind: im.startBind,
       onCloseBind: im.closeBind,
       onSubmitCode: im.submitCode,
       onUnbindAccount: im.unbindAccount,
-      onRenamePerson: im.renamePerson,
+      onCreatePerson: im.createPerson,
+      onUpdatePerson: im.updatePerson,
+      onDeletePerson: im.deletePerson,
       onRefresh: im.refresh,
       onOpenRoom: rooms.openRoom,
       onRoomsRefresh: rooms.refresh,
-      onSendMessage: rooms.send,
+      // 发送成功后立刻刷新活动：工作行必须紧跟用户自己的消息出现。
+      // Refresh activity right after a send: the working row must follow the
+      // user's own message immediately.
+      onSendMessage: async body => {
+        const sent = await rooms.send(body)
+        if (sent) activity.refresh()
+        return sent
+      },
       onCreateRoom: rooms.createRoom,
     }),
   }, ImPanel))
@@ -135,10 +150,12 @@ function registerMainPanel(
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
   const unmountIm = await ctx.remote.$mount(imRemote)
   const unmountConv = await ctx.remote.$mount(convRemote)
+  const unmountTurn = await ctx.remote.$mount(turnRemote)
   const panel = ctx.plugin(PanelPlugin)
   await panel
   return async () => {
     await panel.dispose()
+    await unmountTurn()
     await unmountConv()
     await unmountIm()
   }

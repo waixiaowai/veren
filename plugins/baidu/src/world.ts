@@ -17,6 +17,8 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 export interface BaiduPanWorld {
   readonly config: ResolvedConfig
   readonly client: BaiduPanClient
+  /** 凭据面（网关的登录/注销/状态读经它走，与工具面同一个令牌来源）。The credential face (the gateway's sign-in/sign-out/state reads ride it — same token source as the tool face). */
+  readonly credentials: CredentialProvider
   /** 调用会话的工作区目录；未知会话返回 undefined。The calling session's workspace directory; undefined for an unknown session. */
   readonly workspaceOf: (sessionId: SessionId | undefined) => string | undefined
 }
@@ -46,5 +48,5 @@ export function buildWorld(config: ResolvedConfig, credentials: CredentialProvid
     readTokens: () => readStoredTokens(credentials),
     commitTokens: tokens => commitTokens(credentials, tokens),
   })
-  return { config, client, workspaceOf: workspaceResolver(workspaceRegistry) }
+  return { config, client, credentials, workspaceOf: workspaceResolver(workspaceRegistry) }
 }

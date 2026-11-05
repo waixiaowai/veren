@@ -1,17 +1,17 @@
 /**
- * The agents tab: the roster derived from room seats, with the counters the
- * page can honestly show (agent count, room count, unread count) and one action
- * per card that opens or starts a direct conversation.
+ * The agents tab: the deployment's participants as cards.
  *
- * The reference product also shows presence (working / thinking / online /
- * resting); this host exposes no presence fact yet, so the page does not invent
- * one — the counters are all derived from durable room data.
+ * An agent *is* a DSH preset (`agent:<presetId>`), so the roster comes from the
+ * host's participant list — every declared preset appears, whether or not it has
+ * joined a room yet. Room counts and last activity are joined from the rooms
+ * this page already polls; the reference product's presence counters are absent
+ * because the host publishes no presence fact.
  *
- * 智能体页签：从房间座位推导出的名册，只显示页面能诚实给出的计数（智能体数、会话数、
- * 未读数）与每张卡片的「聊天」动作（打开或新建一个私聊）。
+ * 智能体页签：把部署的参与者渲染成卡片。
  *
- * 参考产品还有在场态（工作/思考/在线/休息）；本宿主尚未暴露在场事实，因此页面不虚构，
- * 计数全部来自持久房间数据。
+ * 智能体就是 DSH preset（`agent:<presetId>`），所以名册来自宿主的参与者列表——声明的
+ * preset 无论是否进过房间都会出现。会话数与最近活动从本页已轮询的房间数据里连接；参考产品
+ * 的在场计数没有实现，因为宿主尚未发布在场事实。
  *
  * @module @veren/im-ui/client/views-agents
  */
@@ -21,75 +21,83 @@ import { Avatar } from './avatar.tsx'
 import { fill, roomStampOf } from './format.ts'
 import type { ImKey } from './locales.ts'
 import type { ImBodyProps } from './panel.tsx'
-import type { ImPersonView, Room } from './remote.ts'
 import { participantLabel } from './participant-label.ts'
+import type { ImParticipant, ImPersonView, Room } from './remote.ts'
 
 /** Props of the agents tab: the body face plus the room actions. */
 export interface AgentsViewProps extends ImBodyProps {
   readonly rooms: readonly Room[]
+  readonly participants: readonly ImParticipant[]
   readonly unread: number
   readonly onOpenRoom: (roomId: string) => void
-  readonly onCreateRoom: (input: { readonly kind: 'direct'; readonly memberIds: readonly string[] }) => void
+  readonly onCreateRoom: (input: {
+    readonly title?: string
+    readonly kind: 'direct'
+    readonly memberIds: readonly string[]
+  }) => void
 }
 
-/** One agent seat: how many rooms seat it and when it last moved. */
-interface AgentSeat {
+/** One agent card's facts: identity plus the rooms it sits in. */
+interface AgentCardModel {
   readonly id: string
-  readonly rooms: readonly string[]
+  readonly name: string
+  readonly presetId?: string
+  readonly description?: string
+  readonly roomCount: number
   readonly lastActive: number
+  readonly directRoom?: Room
 }
 
-/** Collect every agent seat across the rooms. */
-function seatsOf(rooms: readonly Room[]): readonly AgentSeat[] {
-  const seats = new Map<string, { rooms: string[]; lastActive: number }>()
-  for (const room of rooms) {
-    for (const id of room.members) {
-      if (!id.startsWith('agent:')) continue
-      const seat = seats.get(id) ?? { rooms: [], lastActive: 0 }
-      seat.rooms.push(room.id)
-      seat.lastActive = Math.max(seat.lastActive, room.updatedAt)
-      seats.set(id, seat)
-    }
-  }
-  return [...seats.entries()]
-    .map(([id, seat]) => ({ id, rooms: seat.rooms, lastActive: seat.lastActive }))
-    .sort((left, right) => right.lastActive - left.lastActive)
+/** Join the roster with the rooms to build one card per agent. */
+function cardsOf(
+  participants: readonly ImParticipant[],
+  rooms: readonly Room[],
+  people: readonly ImPersonView[],
+  t: (key: ImKey) => string,
+): readonly AgentCardModel[] {
+  return participants
+    .filter(participant => participant.kind === 'agent')
+    .map(participant => {
+      const seated = rooms.filter(room => room.members.includes(participant.id))
+      const direct = seated.find(room => room.kind === 'direct')
+      return {
+        id: participant.id,
+        name: participantLabel(participant.id, people, t, participants),
+        ...(participant.presetId === undefined ? {} : { presetId: participant.presetId }),
+        ...(participant.description === undefined ? {} : { description: participant.description }),
+        roomCount: seated.length,
+        lastActive: seated.reduce((latest, room) => Math.max(latest, room.updatedAt), 0),
+        ...(direct === undefined ? {} : { directRoom: direct }),
+      }
+    })
 }
 
 /** The agents tab body. */
 export function AgentsView(props: AgentsViewProps): React.JSX.Element {
   const { t, rooms } = props
-  const seats = useMemo(() => seatsOf(rooms), [rooms])
-  const unreadTotal = props.unread
+  const cards = useMemo(
+    () => cardsOf(props.participants, rooms, props.state.catalog.people, t),
+    [props.participants, rooms, props.state.catalog.people, t],
+  )
   return (
     <section className="im-section">
       <div className="im-hero">
-        <h2 className="im-display">
-          {fill(t('headingTeam'), { n: seats.length })}
-        </h2>
+        <h2 className="im-display">{fill(t('headingTeam'), { n: cards.length })}</h2>
         <p className="im-hero-sub">{t('agentsHint')}</p>
       </div>
       <div className="im-summary-row">
-        <Summary text={fill(t('summaryAgents'), { n: seats.length })} />
+        <Summary text={fill(t('summaryAgents'), { n: cards.length })} />
         <Summary text={fill(t('summaryRooms'), { n: rooms.length })} />
-        <Summary text={fill(t('summaryUnread'), { n: unreadTotal })} />
+        <Summary text={fill(t('summaryUnread'), { n: props.unread })} />
       </div>
-      {seats.length === 0 && (
-        <div className="im-empty-inline">
-          <h3 className="im-heading">{t('noAgents')}</h3>
-          <p className="im-muted">{t('noAgentsHint')}</p>
-        </div>
-      )}
       <ul className="im-card-grid" role="list">
-        {seats.map(seat => (
+        {cards.map(card => (
           <AgentCard
-            key={seat.id}
-            seat={seat}
-            rooms={rooms}
-            people={props.state.catalog.people}
+            key={card.id}
+            card={card}
             t={t}
-            onOpenRoom={props.onOpenRoom}
-            onCreateRoom={props.onCreateRoom}
+            onOpen={roomId => props.onOpenRoom(roomId)}
+            onStart={() => props.onCreateRoom({ title: card.name, kind: 'direct', memberIds: ['human:owner', card.id] })}
           />
         ))}
       </ul>
@@ -104,36 +112,33 @@ function Summary(props: { readonly text: string }): React.JSX.Element {
 
 /** One agent card: identity, seat facts, and the chat action. */
 function AgentCard(props: {
-  readonly seat: AgentSeat
-  readonly rooms: readonly Room[]
-  readonly people: readonly ImPersonView[]
+  readonly card: AgentCardModel
   readonly t: (key: ImKey) => string
-  readonly onOpenRoom: (roomId: string) => void
-  readonly onCreateRoom: (agentId: string) => void
+  readonly onOpen: (roomId: string) => void
+  readonly onStart: () => void
 }): React.JSX.Element {
-  const { seat, t } = props
-  const name = participantLabel(seat.id, props.people, t)
-  const room = props.rooms.find(candidate => candidate.id === seat.rooms[0])
-  const role = seat.id === 'agent:default' ? t('agentRoleDefault') : t('agentRole')
+  const { card, t } = props
+  const role = card.presetId === undefined ? t('agentRoleDefault') : `${t('agentPreset')} · ${card.presetId}`
   return (
     <li className="im-card im-agent-card">
-      <Avatar name={name} kind="agent" size="lg" />
+      <Avatar name={card.name} kind="agent" size="lg" />
       <div className="im-card-body">
         <div className="im-name-row">
-          <span className="im-name">{name}</span>
+          <span className="im-name">{card.name}</span>
           <span className="im-badge">{role}</span>
         </div>
+        {card.description !== undefined && <p className="im-quote">{card.description}</p>}
         <div className="im-chip-row">
-          <span className="im-chip">{fill(t('agentRooms'), { n: seat.rooms.length })}</span>
-          {seat.lastActive > 0 && (
-            <span className="im-chip">{fill(t('agentLastActive'), { time: roomStampOf(seat.lastActive) })}</span>
+          <span className="im-chip">{fill(t('agentRooms'), { n: card.roomCount })}</span>
+          {card.lastActive > 0 && (
+            <span className="im-chip">{fill(t('agentLastActive'), { time: roomStampOf(card.lastActive) })}</span>
           )}
         </div>
         <div className="im-card-actions">
           <button
             type="button"
             className="im-button im-button-primary"
-            onClick={() => { if (room === undefined) props.onCreateRoom({ kind: 'direct', memberIds: ['human:owner', seat.id] }); else props.onOpenRoom(room.id) }}
+            onClick={() => { if (card.directRoom === undefined) props.onStart(); else props.onOpen(card.directRoom.id) }}
           >
             {t('chatAction')}
           </button>

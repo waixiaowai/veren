@@ -17,8 +17,8 @@
  * @module @veren/mail-tool/delivery-tools
  */
 
-import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type { MailService } from '@veren/mail'
+import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
+import type { MailService, TriggerRequest } from '@veren/mail'
 import { failureOf, mailTool } from './face.ts'
 
 /** The recipient entry the tool's schema accepts. / 工具 schema 接受的收件人条目。 */
@@ -78,6 +78,31 @@ function toRecipients(recipients: readonly RecipientArg[]): (
 }
 
 /**
+ * Assemble one trigger request from the validated arguments and the caller's
+ * context. The source session is captured automatically: an Agent's id IS
+ * the session it drives; absent on direct SDK calls without an agent.
+ *
+ * 从已校验参数与调用方上下文组装一次触发请求。来源会话自动捕获：Agent 的 id 就是它驱动的
+ * 会话 id；直接 SDK 调用无 agent 时缺席。
+ *
+ * @param args - the validated arguments / 已校验的参数
+ * @param exec - the runner context / 运行上下文
+ * @returns the trigger request / 触发请求
+ */
+function requestOf(args: Record<string, unknown>, exec: ToolRunContext): TriggerRequest {
+  const transactionId = args['transactionId']
+  const actor = args['actor']
+  return {
+    name: args['workflow'] as string,
+    payload: (args['payload'] ?? {}) as Record<string, unknown>,
+    to: recipientsOf(args),
+    ...(transactionId === undefined ? {} : { transactionId: transactionId as string }),
+    ...(actor === undefined ? {} : { actor: actor as string }),
+    ...(exec.agent?.id === undefined ? {} : { sourceSessionId: exec.agent.id }),
+  }
+}
+
+/**
  * The tool that fires a workflow.
  *
  * 触发一次工作流的工具。
@@ -95,17 +120,9 @@ export function sendTool(mail: MailService): ToolDefinition {
     + 'Pass a transactionId when the caller may retry, so a repeated attempt is refused instead of '
     + 'delivering twice. Prefer one workflow per kind of notice over one workflow with many payloads.',
     SEND_PARAMETERS,
-    async (args) => {
-      const transactionId = args['transactionId']
-      const actor = args['actor']
+    async (args, exec) => {
       try {
-        const result = await mail.trigger({
-          name: args['workflow'] as string,
-          payload: (args['payload'] ?? {}) as Record<string, unknown>,
-          to: recipientsOf(args),
-          ...(transactionId === undefined ? {} : { transactionId: transactionId as string }),
-          ...(actor === undefined ? {} : { actor: actor as string }),
-        })
+        const result = await mail.trigger(requestOf(args, exec))
         return { ok: true, data: result }
       } catch (error: unknown) {
         return { ok: false, error: failureOf(error) }

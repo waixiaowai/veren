@@ -73,6 +73,10 @@
   width: 100%;
   height: 100%;
   min-height: 0;
+  /* The page owns exactly the panel's box: whatever a tab cannot fit scrolls
+     inside its own region instead of painting past the window edge.
+     页面恰好占据面板的盒子：页签装不下的内容在自己的区域内滚动，绝不画到窗口边缘之外。 */
+  overflow: hidden;
   padding: 24px 24px 0;
   color: var(--im-text);
   font-family: var(--dsw-font-family);
@@ -182,6 +186,7 @@
   border-radius: 999px;
   background: var(--im-sunken);
   width: fit-content;
+  flex: none;
 }
 
 .im-tab {
@@ -218,6 +223,27 @@
 
 .im-section { display: flex; flex-direction: column; gap: 12px; max-width: 1120px; }
 .im-settings { display: flex; flex-direction: column; gap: 16px; max-width: 1120px; }
+
+/* The document tabs share one scroll region below the tab bar. The bar is a
+ * flex sibling, so it stays put while a long settings page scrolls under it and
+ * its last control stays reachable. The conversation tab keeps the full pane
+ * height and scrolls in its own list and timeline instead.
+ * 文档页签共用页签条之下的一个滚动区。页签条是同级 flex 节点，长设置页在它下面滚动时它
+ * 不动，最后的控件因此始终可点。会话页签继续占满整个窗格，由自己的列表与时间线滚动。 */
+.im-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* The thin bar reserves its 5px even while a page fits, so switching tabs
+     never shifts the column sideways. */
+  /* 细滚动条即使页面装得下也保留 5px，切换页签时内容列不会左右跳动。 */
+  scrollbar-gutter: stable;
+  padding-bottom: 4px;
+}
 
 /* ---- buttons, inputs, links ---- */
 
@@ -483,6 +509,51 @@
   border-color: transparent;
 }
 
+/* ---- working row: a live turn's phase, elapsed time, reasoning tail ---- */
+
+.im-bubble-activity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-style: dashed;
+  color: var(--im-secondary);
+}
+
+.im-activity-dots { display: inline-flex; align-items: center; gap: 4px; }
+
+.im-activity-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--im-accent);
+  animation: im-working-bounce 1.2s ease-in-out infinite;
+}
+
+.im-activity-dots i:nth-child(2) { animation-delay: 150ms; }
+.im-activity-dots i:nth-child(3) { animation-delay: 300ms; }
+
+.im-activity-status { min-width: 0; }
+
+.im-activity-thought {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--im-muted);
+  font-size: 12px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+}
+
+@keyframes im-working-bounce {
+  0%, 100% { opacity: 0.35; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-2px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .im-activity-dots i { animation: none; }
+}
+
 .im-line-system { justify-content: center; }
 
 .im-system {
@@ -680,6 +751,27 @@
 .im-form { display: flex; flex-direction: column; gap: 12px; max-width: 480px; }
 .im-field { display: flex; flex-direction: column; gap: 4px; }
 .im-label { color: var(--im-secondary); font-size: 12px; line-height: 17px; }
+
+/* ---- people editor (create / edit / delete a manual contact) ---- */
+
+.im-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--im-border-soft);
+  border-radius: 16px;
+  background: var(--im-surface);
+  box-shadow: var(--dsw-shadow-lv1);
+}
+
+.im-editor-head { display: flex; flex-direction: column; gap: 4px; }
+.im-editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.im-editor-actions { display: flex; gap: 8px; }
+.im-textarea { height: auto; min-height: 72px; padding: 8px 12px; resize: vertical; }
+.im-contact-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 128px 64px; gap: 8px; align-items: center; }
+.im-contact-add { align-self: flex-start; }
+.im-person-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- lists and status surfaces kept from the 2.x tabs, in the new language ---- */
 

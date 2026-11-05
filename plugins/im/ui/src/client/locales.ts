@@ -39,7 +39,15 @@ export type ImKey =
   | 'conversations' | 'noConversations' | 'conversationsHint' | 'pendingSuffix'
   | 'statusQueued' | 'statusConsuming' | 'statusReplied' | 'statusFailed' | 'statusDead'
   | 'people' | 'noPeople' | 'peopleHint' | 'unverifiedClaim'
-  | 'unnamedPerson' | 'rename' | 'renamePlaceholder' | 'save' | 'cancel'
+  | 'unnamedPerson' | 'save' | 'cancel'
+  | 'newPerson' | 'editPerson' | 'edit' | 'delete' | 'remove' | 'saving'
+  | 'searchPeople' | 'peopleSearchEmpty' | 'profileOnly' | 'confirmDeletePerson'
+  | 'displayNameLabel' | 'displayNamePlaceholder' | 'realNameLabel' | 'realNamePlaceholder'
+  | 'aliasesLabel' | 'aliasesPlaceholder' | 'contactsLabel' | 'contactKindLabel'
+  | 'contactKindWechat' | 'contactKindEmail' | 'contactKindPhone' | 'contactKindOther'
+  | 'addContact' | 'contactValuePlaceholder' | 'contactLabelPlaceholder'
+  | 'bioLabel' | 'bioPlaceholder' | 'notesLabel' | 'notesPlaceholder'
+  | 'personEditorHint'
   | 'intake' | 'intakeOn' | 'intakeOff' | 'intakeRecent'
   | 'intakePipe' | 'statusAsked' | 'statusAnswered' | 'statusDeclined' | 'statusExpired'
   | 'intakeWaiting' | 'intakeWaitingHint' | 'intakeDeadline' | 'intakeSettledAt'
@@ -53,6 +61,7 @@ export type ImKey =
   | 'tabSettings' | 'settingsHeading' | 'settingsHint'
   | 'newRoom' | 'newRoomHint' | 'roomTitlePlaceholder' | 'createRoom' | 'roomUntitled'
   | 'composerPlaceholder' | 'send' | 'sending'
+  | 'workingThinking' | 'workingTool' | 'workingComposing' | 'workingFor' | 'workingSeconds'
   | 'participantOwner' | 'participantAssistant' | 'membersLabel'
   | 'searchPlaceholder' | 'filterAll' | 'filterDirect' | 'filterGroup' | 'noMatches'
   | 'roomInfo' | 'roomKindLabel' | 'roomCreatedLabel'
@@ -91,6 +100,11 @@ export const zh: Record<ImKey, string> = {
   roomUntitled: "未命名会话",
   composerPlaceholder: "输入消息…",
   send: "发送",
+  workingThinking: "正在思考…",
+  workingTool: "正在使用 {tool}…",
+  workingComposing: "正在撰写回复…",
+  workingFor: "已用 {time}",
+  workingSeconds: "{s} 秒",
   sending: "发送中…",
   participantOwner: "我",
   participantAssistant: "助手",
@@ -117,6 +131,7 @@ export const zh: Record<ImKey, string> = {
   headingPeople: "你的通讯录，共 {n} 位",
   filterUnread: "未读",
   agentRoleDefault: "默认助手",
+  agentPreset: "Preset",
   agentsHint: "智能体自己会干活，需要你拍板时会把话题抛给你。",
   accountsHint: "绑定一个渠道后，外部消息会按房间沉淀进来。",
   roomKindLabel: "会话类型",
@@ -202,13 +217,41 @@ export const zh: Record<ImKey, string> = {
   statusDead: '已放弃',
   people: '人员目录',
   noPeople: '还没有人员记录。',
-  peopleHint: '发来消息的陌生人会自动收录；名字与联系方式可由采集对话或手动补全。',
+  peopleHint: '发来消息的陌生人会自动收录；也可以手工新增，名字、联系方式与备注随时可改。',
   unverifiedClaim: '自称',
   unnamedPerson: '微信用户',
-  rename: '备注',
-  renamePlaceholder: '填一个你认得出的名字',
   save: '保存',
   cancel: '取消',
+  newPerson: '新增人员',
+  editPerson: '编辑人员',
+  edit: '编辑',
+  delete: '删除',
+  remove: '移除',
+  saving: '保存中…',
+  searchPeople: '搜索名字、联系方式或备注',
+  peopleSearchEmpty: '没有匹配的人员。换个关键词试试。',
+  profileOnly: '仅档案',
+  confirmDeletePerson: '确认删除「{name}」？名字、联系方式与可达地址会一并移除；对方再发消息会重新收录。',
+  displayNameLabel: '名字',
+  displayNamePlaceholder: '你平时怎么称呼这个人',
+  realNameLabel: '真名',
+  realNamePlaceholder: '身份证上的名字（可选）',
+  aliasesLabel: '别名与备注',
+  aliasesPlaceholder: '用逗号分隔，例如：杨总，小明',
+  contactsLabel: '联系方式',
+  contactKindLabel: '联系方式类型',
+  contactKindWechat: '微信',
+  contactKindEmail: '邮箱',
+  contactKindPhone: '电话',
+  contactKindOther: '其他',
+  addContact: '添加联系方式',
+  contactValuePlaceholder: '微信号 / 邮箱 / 电话',
+  contactLabelPlaceholder: '标签（可选）',
+  bioLabel: '简介',
+  bioPlaceholder: '这个人是做什么的、怎么认识的',
+  notesLabel: '备注',
+  notesPlaceholder: '只给自己看的说明',
+  personEditorHint: '名字必填；联系方式用于查找，不能直接发消息。',
   intake: '陌生人采集',
   intakeOn: '已开启：陌生人第一次发消息会收到一条询问',
   intakeOff: '已关闭：不发询问，也不写采集记录',
@@ -269,6 +312,11 @@ export const en: Record<ImKey, string> = {
   roomUntitled: "Untitled conversation",
   composerPlaceholder: "Write a message…",
   send: "Send",
+  workingThinking: "Thinking…",
+  workingTool: "Running {tool}…",
+  workingComposing: "Writing the reply…",
+  workingFor: "Working for {time}",
+  workingSeconds: "{s}s",
   sending: "Sending…",
   participantOwner: "Me",
   participantAssistant: "Assistant",
@@ -295,6 +343,7 @@ export const en: Record<ImKey, string> = {
   headingPeople: "Your people — {n}",
   filterUnread: "Unread",
   agentRoleDefault: "Default assistant",
+  agentPreset: "Preset",
   agentsHint: "Agents work on their own; they hand the topic back when a decision is yours.",
   accountsHint: "Bind a channel and outside messages settle into rooms.",
   roomKindLabel: "Conversation kind",
@@ -380,13 +429,41 @@ export const en: Record<ImKey, string> = {
   statusDead: 'given up',
   people: 'People directory',
   noPeople: 'No person recorded yet.',
-  peopleHint: 'Strangers who message in are recorded automatically; names and contacts fill in through the intake chat or by hand.',
+  peopleHint: 'Strangers who message in are recorded automatically; add a contact by hand and change names, contacts, and notes any time.',
   unverifiedClaim: 'claims',
   unnamedPerson: 'WeChat user',
-  rename: 'Rename',
-  renamePlaceholder: 'A name you will recognize',
   save: 'Save',
   cancel: 'Cancel',
+  newPerson: 'New contact',
+  editPerson: 'Edit contact',
+  edit: 'Edit',
+  delete: 'Delete',
+  remove: 'Remove',
+  saving: 'Saving…',
+  searchPeople: 'Search names, contacts, or notes',
+  peopleSearchEmpty: 'No contact matches. Try another keyword.',
+  profileOnly: 'profile only',
+  confirmDeletePerson: 'Delete "{name}"? Name, contacts, and reachable addresses go too; if they message again they are recorded anew.',
+  displayNameLabel: 'Name',
+  displayNamePlaceholder: 'What you call this person',
+  realNameLabel: 'Real name',
+  realNamePlaceholder: 'Name on their ID (optional)',
+  aliasesLabel: 'Aliases and remarks',
+  aliasesPlaceholder: 'Comma-separated, e.g. Boss Yang, Xiao Ming',
+  contactsLabel: 'Contacts',
+  contactKindLabel: 'Contact kind',
+  contactKindWechat: 'WeChat',
+  contactKindEmail: 'Email',
+  contactKindPhone: 'Phone',
+  contactKindOther: 'Other',
+  addContact: 'Add contact method',
+  contactValuePlaceholder: 'WeChat id / email / phone',
+  contactLabelPlaceholder: 'Label (optional)',
+  bioLabel: 'About',
+  bioPlaceholder: 'What they do and how you know them',
+  notesLabel: 'Notes',
+  notesPlaceholder: 'Private notes for yourself',
+  personEditorHint: 'Name is required; contacts are for lookup, not delivery.',
   intake: 'Stranger intake',
   intakeOn: 'On: a first-time stranger receives one question',
   intakeOff: 'Off: no question, no intake record',

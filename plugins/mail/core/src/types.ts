@@ -283,6 +283,8 @@ export interface RunRecord {
   readonly startedAt: number
   /** When the chain finished, once it did. / 执行链结束时刻（结束时）。 */
   readonly finishedAt?: number
+  /** The host chat session the trigger came from, when the caller names one. / 触发所来自的宿主聊天会话，调用方给出时才有。 */
+  readonly sourceSessionId?: string
 }
 
 /** One step instance's stored shape. / 一步实例的存储形状。 */
@@ -361,6 +363,8 @@ export interface MessageRecord {
   readonly snoozedUntil?: number
   /** When the message was created. / 消息创建时刻。 */
   readonly createdAt: number
+  /** The host chat session the trigger came from, when the caller named one. / 触发所来自的宿主聊天会话，调用方给出时才有。 */
+  readonly sourceSessionId?: string
 }
 
 /** One conversation's stored shape. / 一条会话的存储形状。 */

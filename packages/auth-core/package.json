@@ -1,0 +1,41 @@
+{
+  "name": "@veren/auth-core",
+  "displayName": "Veren Auth Core",
+  "version": "0.1.0",
+  "description": "Use when a host application needs an embeddable authentication framework per plugins/auth/design: it assembles config, secrets, table models and extensions into one shared runtime context, routes every capability through a guarded endpoint pipeline (origin check, rate limit, session middlewares, before/after hooks), and owns the identity, credential and session authorities over a @veren/orm-backed adapter with atomic consume/increment primitives; skip it when a hosted auth service already answers sign-in and session calls for the app.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./driver/sqlite": {
+      "types": "./dist/storage/orm-driver-sqlite.d.ts",
+      "default": "./dist/storage/orm-driver-sqlite.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.cn.md"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@veren/orm": "workspace:^",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.4"
+  }
+}

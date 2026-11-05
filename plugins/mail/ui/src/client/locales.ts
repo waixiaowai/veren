@@ -42,6 +42,7 @@ export type MailKey =
   | 'markUnread'
   | 'archive'
   | 'unarchive'
+  | 'openSession'
   | 'step'
   | 'skipReason'
   | 'delivered'
@@ -111,6 +112,7 @@ export const zh: Record<MailKey, string> = {
   markUnread: '标记为未读',
   archive: '归档',
   unarchive: '取消归档',
+  openSession: '打开会话',
   step: '步骤',
   skipReason: '跳过原因',
   delivered: '已送达',
@@ -181,6 +183,7 @@ export const en: Record<MailKey, string> = {
   markUnread: 'Mark as unread',
   archive: 'Archive',
   unarchive: 'Unarchive',
+  openSession: 'Open session',
   step: 'Step',
   skipReason: 'Skipped because',
   delivered: 'Delivered',

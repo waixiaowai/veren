@@ -15,7 +15,7 @@
  */
 
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ImRemoteApi, ImSnapshot } from './remote.ts'
+import type { ImRemoteApi, ImRemoteResult, ImSnapshot, PersonDraft } from './remote.ts'
 
 /** How long the open page waits between catalog re-reads, in milliseconds. */
 /** 打开的页面两次目录重读之间的等待时长（毫秒）。 */
@@ -63,13 +63,19 @@ function publish(state: ImSourceState, next: Partial<ImSnapshot>): void {
 /** One catalog read; stale reads (superseded epochs) are dropped. */
 /** 一次目录读取；过期读（epoch 已被超越）直接丢弃。 */
 async function readCatalog(api: ImRemoteApi, state: ImSourceState, mine: number): Promise<void> {
-  const result = await api.catalog({})
+  const [result, roster] = await Promise.all([api.catalog({}), api.participants()])
   if (mine !== state.epoch) return
   if (!result.ok) {
     publish(state, { status: 'error', error: result.error.message })
     return
   }
-  publish(state, { catalog: result.value, status: 'ready', settled: true, error: '' })
+  publish(state, {
+    catalog: result.value,
+    participants: roster.ok ? roster.value.participants : state.snapshot.participants,
+    status: 'ready',
+    settled: true,
+    error: '',
+  })
 }
 
 /** Kick one catalog read; a not-yet-settled source shows loading again. */
@@ -109,6 +115,28 @@ async function pollBind(api: ImRemoteApi, state: ImSourceState, bindId: string):
   if (result.value.status === 'bound' || result.value.status === 'expired' || result.value.status === 'failed') {
     stopBindTimer(state)
     void readCatalog(api, state, state.epoch)
+  }
+}
+
+/**
+ * Run one people mutation: on success re-read the catalog, on refusal hand the
+ * host's message back to the caller so the editor can show it.
+ * 执行一次人员变更：成功则重读目录，被拒绝时把宿主的文案交回调用方，编辑器可以显示它。
+ */
+async function mutatePerson(
+  api: ImRemoteApi,
+  state: ImSourceState,
+  action: () => Promise<ImRemoteResult<unknown>>,
+): Promise<string | undefined> {
+  try {
+    const result = await action()
+    if (!result.ok) return result.error.message
+    load(api, state)
+    return undefined
+  } catch (error: unknown) {
+    // 传输层抛错也要落在编辑器里，而不是变成未处理的 rejection。
+    // A transport throw must land in the editor too, not as an unhandled rejection.
+    return error instanceof Error ? error.message : String(error)
   }
 }
 
@@ -168,12 +196,17 @@ export function createImSource(api: ImRemoteApi): {
   readonly closeBind: () => void
   readonly submitCode: (code: string) => void
   readonly unbindAccount: (accountId: string) => void
-  readonly renamePerson: (personId: string, displayName: string) => void
+  /** Create a manual contact; resolves to the refusal text, or nothing on success. */
+  /** 新建手工联系人；成功时无返回，被拒绝时返回错误文案。 */
+  readonly createPerson: (input: PersonDraft) => Promise<string | undefined>
+  readonly updatePerson: (personId: string, input: PersonDraft) => Promise<string | undefined>
+  readonly deletePerson: (personId: string) => Promise<string | undefined>
   readonly refresh: () => void
 } {
   const state: ImSourceState = {
     snapshot: {
       catalog: { accounts: [], people: [], intake: emptyIntake() },
+      participants: [],
       status: 'loading', settled: false, error: '', bind: undefined,
     },
     epoch: 0,
@@ -195,9 +228,9 @@ export function createImSource(api: ImRemoteApi): {
     unbindAccount: accountId => {
       void api.unbindAccount({ accountId }).then(() => { stopBindTimer(state); load(api, state) })
     },
-    renamePerson: (personId, displayName) => {
-      void api.renamePerson({ personId, displayName }).then(() => load(api, state))
-    },
+    createPerson: input => mutatePerson(api, state, () => api.createPerson(input)),
+    updatePerson: (personId, input) => mutatePerson(api, state, () => api.updatePerson({ ...input, personId })),
+    deletePerson: personId => mutatePerson(api, state, () => api.deletePerson({ personId })),
     refresh: () => { load(api, state) },
   }
 }

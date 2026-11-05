@@ -12,15 +12,20 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import './events.ts'
+import { ActivityBoard } from './activity.ts'
 import { RunStore, turnDomain } from './runs.ts'
 import { Sessions } from './sessions.ts'
 import { Runner } from './runner.ts'
+import { TurnRemoteService } from './remote.ts'
 import { TurnService, TurnToken } from './service.ts'
 
 export * from './types.ts'
+export { ActivityBoard } from './activity.ts'
+export type { ActivityPhase, ActivityView } from './activity.ts'
 export { RunStore, fingerprintOf, turnDomain } from './runs.ts'
 export type { AgentSessionRow, RunRow, RunEventRow, TurnStore, TurnTables } from './runs.ts'
 export { Sessions, presetOfAgent } from './sessions.ts'
+export { TurnRemoteService } from './remote.ts'
 export { MAX_GATE_ROUNDS, Runner } from './runner.ts'
 export type { RunnerOptions } from './runner.ts'
 export { MAX_PROMPT_MESSAGES, buildHoldPrompt, buildPrompt } from './prompt.ts'
@@ -74,12 +79,18 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   const sessionMap = domain.table('agent_sessions')
 
   const runs = buildRunStore(domain)
+  const activity = new ActivityBoard()
   const sessions = wireSessions(ctx, sessionMap)
-  wireRunner(ctx, config, runs, sessions)
+  wireActivity(ctx, activity)
+  wireRunner(ctx, config, runs, sessions, activity)
   ctx.effect(
-    () => ctx.provide(TurnToken, new TurnService(runs, () => [...sessionMap.entries()].map(([, row]) => row))),
+    () => ctx.provide(TurnToken, new TurnService(runs, () => [...sessionMap.entries()].map(([, row]) => row), activity)),
     'im-turn:service',
   )
+  // Web 面板的实时活动面：`imTurn` 远端命名空间（工作行的唯一来源）。
+  // The web panel's live-activity face: the `imTurn` remote namespace (the
+  // working row's only source).
+  ctx.plugin(TurnRemoteService)
 }
 
 /** Open the turn domain (typed alias for the helper's parameter). */
@@ -135,9 +146,31 @@ function wireSessions(ctx: Context, sessionMap: {
   return sessions
 }
 
+/**
+ * Feed the activity board from the sessions the runner drives: appended
+ * session events give the phase, live assistant stream frames give the
+ * reasoning tail and the reply-in-progress signal.
+ * 从执行器驱动的会话喂养活动板：追加的会话事件给出阶段，实时助手流帧给出推理末尾与
+ * 「正在写回复」的信号。
+ * @param ctx - host context owning the listeners.
+ * @param board - the board to feed.
+ */
+function wireActivity(ctx: Context, board: ActivityBoard): void {
+  ctx.effect(() => {
+    const offEvent = ctx.on('session/event', (session, event) => board.observeEvent(session.id, event))
+    const offStream = ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+      board.observeStream(agent.session.id, frame)
+    }, { global: true })
+    return () => {
+      offEvent()
+      offStream()
+    }
+  }, 'im-turn:activity')
+}
+
 /** Wire the runner and its wake subscription. */
 /** 接线执行器与其唤醒订阅。 */
-function wireRunner(ctx: Context, config: Config, runs: RunStore, sessions: Sessions): void {
+function wireRunner(ctx: Context, config: Config, runs: RunStore, sessions: Sessions, activity: ActivityBoard): void {
   const runner = new Runner({
     ctx,
     conversation: ctx.imConversation,
@@ -145,6 +178,7 @@ function wireRunner(ctx: Context, config: Config, runs: RunStore, sessions: Sess
     participants: ctx.imParticipants,
     runs,
     sessions,
+    activity,
     replyTimeoutMs: config.replyTimeoutMs,
   })
   ctx.effect(

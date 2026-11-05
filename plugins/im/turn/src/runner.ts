@@ -27,6 +27,7 @@ import type { RunStore } from './runs.ts'
 import { fingerprintOf } from './runs.ts'
 import type { RunView, SkipCause } from './types.ts'
 import type { Sessions } from './sessions.ts'
+import type { ActivityBoard } from './activity.ts'
 import { errorMessage } from './errors.ts'
 
 /** How many gate rounds one reply may pass through before giving up (design: 第三次). */
@@ -64,6 +65,9 @@ export interface RunnerOptions {
   readonly participants: ImParticipants
   readonly runs: RunStore
   readonly sessions: TurnEngine
+  /** The board the panel polls for the working row; entries live only while a run does. */
+  /** 面板轮询工作行所用的板；条目只在运行期间存在。 */
+  readonly activity: ActivityBoard
   /** Maximum wait for one session turn (hard boundary, per design §3.2). */
   /** 单次会话回合的最大等待（硬边界，设计 §3.2）。 */
   readonly replyTimeoutMs: number
@@ -118,6 +122,14 @@ export class Runner {
   /** 写链主体：一次完整的运行生命周期。 */
   private async runTurn(request: ImWakeRequest): Promise<void> {
     const run = await this.options.runs.start(request.agentParticipantId, request.roomId, request.reason)
+    // 登记为实时：面板从这一瞬间起有工作行可显示，落定后由 finally 摘除。
+    // Register as live: the panel has a working row from this instant; the
+    // finally clause removes it once the run settles.
+    this.options.activity.begin({
+      runId: run.id,
+      roomId: request.roomId,
+      agentParticipantId: request.agentParticipantId,
+    })
     this.announce(run)
     try {
       const prepared = await this.prepare(run, request)
@@ -126,6 +138,8 @@ export class Runner {
       await this.settle(run, request, prepared.inboxTail, outcome)
     } catch (error: unknown) {
       await this.fail(run, error)
+    } finally {
+      this.options.activity.finish(run.id)
     }
   }
 
@@ -159,6 +173,10 @@ export class Runner {
       return undefined
     }
     const sessionId = await sessions.ensure(request.agentParticipantId, request.roomId)
+    // 会话一旦存在就挂到活动条目上，后续的会话事件与流帧才找得到这个运行。
+    // Attach the session as soon as it exists so later session events and
+    // stream frames resolve back to this run.
+    this.options.activity.attachSession(run.id, sessionId)
     const prompt = buildPrompt({ room, agentId: request.agentParticipantId, participants, unread })
     return { sessionId, prompt, inboxTail }
   }

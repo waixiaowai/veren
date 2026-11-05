@@ -11,7 +11,7 @@
 
 import { useMemo, useState } from 'react'
 import type { ImKey } from './locales.ts'
-import type { ImPersonView, Room } from './remote.ts'
+import type { ImParticipant, ImPersonView, Room } from './remote.ts'
 import { participantLabel } from './participant-label.ts'
 
 /** The trailing mention token being typed, if any. */
@@ -22,6 +22,7 @@ export interface ComposerProps {
   readonly room: Room
   readonly t: (key: ImKey) => string
   readonly people: readonly ImPersonView[]
+  readonly participants: readonly ImParticipant[]
   readonly sending: boolean
   readonly onSend: (body: string) => Promise<boolean>
 }
@@ -41,8 +42,8 @@ export function Composer(props: ComposerProps): React.JSX.Element {
   const candidates = useMemo(
     () => room.members
       .filter(id => id !== 'human:owner')
-      .map(id => ({ id, label: participantLabel(id, props.people, t) })),
-    [room.members, props.people, t],
+      .map(id => ({ id, label: participantLabel(id, props.people, t, props.participants) })),
+    [room.members, props.people, props.participants, t],
   )
   const query = TRAILING_MENTION.exec(draft)?.[2]
   const matches = query === undefined || dismissed

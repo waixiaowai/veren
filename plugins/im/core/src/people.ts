@@ -257,6 +257,15 @@ export class ImPeople {
     return this.mutations.removeAddressesOf(accountId)
   }
 
+  /**
+   * Remove one person from the directory with their addresses and intake row.
+   * The contact disappears from the address book; conversation history stays.
+   * 从目录移除一个人，连同其地址与采集记录。此人从通讯录消失；会话历史保留。
+   */
+  remove(personId: string): Promise<void> {
+    return this.mutations.remove(personId)
+  }
+
   /** Every person with all of their addresses. */
   private views(): ImPersonView[] {
     const addresses = this.store.personAddresses()

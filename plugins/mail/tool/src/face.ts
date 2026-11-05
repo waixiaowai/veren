@@ -21,7 +21,7 @@
  * @module @veren/mail-tool/face
  */
 
-import { defineTool, type ParameterSchemaSpec, type ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
+import { defineTool, type ParameterSchemaSpec, type ToolRunContext, type ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { MailError } from '@veren/mail'
 
@@ -113,9 +113,12 @@ export function jsonOf<T>(value: T): JsonValue {
 }
 
 /**
- * Build one tool definition with the shared output declaration.
+ * Build one tool definition with the shared output declaration. The runner
+ * context is handed through: a tool that needs to know who is calling (the
+ * source session, say) reads it from `exec.agent`.
  *
- * 构建一个带共享输出声明的工具定义。
+ * 构建一个带共享输出声明的工具定义。运行上下文原样透传：需要知道调用方是谁（比如来源会话）
+ * 的工具从 `exec.agent` 读取。
  *
  * @param name - the tool's name / 工具名
  * @param description - what the model sees / 模型看到的说明
@@ -127,7 +130,7 @@ export function mailTool<const S extends ParameterSchemaSpec>(
   name: string,
   description: string,
   parameters: S,
-  execute: (args: Record<string, unknown>) => Promise<MailToolResult>,
+  execute: (args: Record<string, unknown>, exec: ToolRunContext) => Promise<MailToolResult>,
 ) {
   return defineTool({
     name,
@@ -137,8 +140,8 @@ export function mailTool<const S extends ParameterSchemaSpec>(
       schema: MAIL_OUTPUT_SCHEMA,
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
-    execute: async (args) => {
-      const result = await execute(args as Record<string, unknown>)
+    execute: async (args, exec) => {
+      const result = await execute(args as Record<string, unknown>, exec)
       return {
         ok: result.ok,
         ...(result.error === undefined ? {} : { error: jsonOf(result.error) }),

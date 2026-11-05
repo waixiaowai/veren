@@ -217,6 +217,7 @@ export const runSchema: z.ZodType<RunRecord> = z.object({
   ]),
   startedAt: z.number(),
   finishedAt: z.number().optional(),
+  sourceSessionId: z.string().optional(),
 })
 
 /** One step instance's stored shape. / 一条已存储的步骤实例形状。 */
@@ -269,6 +270,7 @@ export const messageSchema: z.ZodType<MessageRecord> = z.object({
   archived: z.boolean(),
   snoozedUntil: z.number().optional(),
   createdAt: z.number(),
+  sourceSessionId: z.string().optional(),
 })
 
 /** One conversation's stored shape. / 一条已存储的会话形状。 */

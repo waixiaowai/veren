@@ -40,29 +40,19 @@ export interface MemberOption {
 export interface NewRoomPickerProps {
   readonly t: (key: ImKey) => string
   readonly people: readonly ImPersonView[]
-  /** Agent participant ids already seated somewhere, plus the default one. */
-  readonly agentIds: readonly string[]
+  /** The agent options to offer: the host roster, already labeled. */
+  readonly agents: readonly MemberOption[]
   readonly onCreate: (input: NewRoomInput) => void
   readonly onCancel: () => void
-}
-
-/** Collect the agents already seated anywhere, plus the synthesized default one. */
-function agentOptions(agentIds: readonly string[], t: (key: ImKey) => string): readonly MemberOption[] {
-  const ids = new Set(['agent:default', ...agentIds])
-  return [...ids].map(id => ({
-    id,
-    label: id === 'agent:default' ? t('participantAssistant') : id.slice('agent:'.length),
-    kind: 'agent' as const,
-  }))
 }
 
 /** The new-room form. */
 export function NewRoomPicker(props: NewRoomPickerProps): React.JSX.Element {
   const { t, people } = props
-  const agents = agentOptions(props.agentIds, t)
+  const agents = props.agents
   const [kind, setKind] = useState<'direct' | 'group'>('direct')
   const [title, setTitle] = useState('')
-  const [picked, setPicked] = useState<readonly string[]>(['agent:default'])
+  const [picked, setPicked] = useState<readonly string[]>(() => [agents[0]?.id ?? 'agent:default'])
   const toggle = (id: string): void => {
     if (kind === 'direct') { setPicked([id]); return }
     setPicked(picked.includes(id) ? picked.filter(item => item !== id) : [...picked, id])
@@ -73,15 +63,20 @@ export function NewRoomPicker(props: NewRoomPickerProps): React.JSX.Element {
   const submit = (): void => {
     if (!ready) return
     const trimmed = title.trim()
-    props.onCreate({ kind, ...(trimmed === '' ? {} : { title: trimmed }), memberIds: ['human:owner', ...picked] })
+    // 未命名私聊用对方的名字，列表里才不是一排「未命名会话」。
+    // An untitled direct room takes the other side's name, so the list never
+    // fills with rows that all read "Untitled".
+    const fallback = kind === 'direct' ? agents.find(agent => agent.id === picked[0])?.label : undefined
+    const named = trimmed === '' ? fallback : trimmed
+    props.onCreate({ kind, ...(named === undefined ? {} : { title: named }), memberIds: ['human:owner', ...picked] })
   }
   return (
     <form className="im-newroom" onSubmit={event => { event.preventDefault(); submit() }}>
       <div className="im-kind-switch" role="group" aria-label={t('roomKindLabel')}>
         <KindButton active={kind === 'direct'} label={t('roomDirect')}
-          onClick={() => { setKind('direct'); setPicked(['agent:default']) }} />
+          onClick={() => { setKind('direct'); setPicked([agents[0]?.id ?? 'agent:default']) }} />
         <KindButton active={kind === 'group'} label={t('roomGroup')}
-          onClick={() => { setKind('group'); setPicked(['agent:default']) }} />
+          onClick={() => { setKind('group'); setPicked([agents[0]?.id ?? 'agent:default']) }} />
       </div>
       <input
         className="im-input"

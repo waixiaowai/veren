@@ -23,13 +23,19 @@ preset 会话、在写入时刻判定的协调闸门、带再提示的被拒循�
   运行落为 `skipped(held-out)`。
 - 失败分类：模型限流与额度耗尽落为 `skipped` 并带每房间每原因一条的去重系统提示（六小时
   窗口）；其余落为 `failed` 并带原因。
-- `TurnService`（`imTurn` 令牌）：运行清单、事件时间线，以及 `sessionPlaceOf(sessionId)`
-  ——模型工具把调用者归属到某个智能体参与者与房间所用的反查。
+- `TurnService`（`imTurn` 令牌）：运行清单、事件时间线、`sessionPlaceOf(sessionId)`
+  ——模型工具把调用者归属到某个智能体参与者与房间所用的反查——以及运行中回合的实时活动。
+- 实时活动（`ActivityBoard` + `imTurn` 远端命名空间）：运行期间，本板报告它的阶段（思考 /
+  调用工具 / 撰写回复）、正在运行的工具名，以及流式推理的末尾。它由 `session/event` 与
+  `agent/assistant-stream` 喂养，绝不持久化，并在运行落定或停止更新时丢弃条目（崩溃的运行
+  绝不能留下一条永久工作行）。聊天面板轮询 `imTurn.activity`；回复本身仍是末尾写入的一条
+  消息。
 
 ## 事件
 
 - 消费来自 `@veren/im-coordination` 的 `im/wake-request`。
 - 每次运行转变时发 `im/run-updated`。
+- 为实时活动读取 `session/event` 与（全局的）`agent/assistant-stream`；两者都不改运行记录。
 
 ## 配置
 

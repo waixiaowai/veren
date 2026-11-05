@@ -1,7 +1,7 @@
 {
   "name": "@veren/im-wechat",
   "displayName": "Veren IM WeChat",
-  "version": "3.0.0-rc.3",
+  "version": "3.0.0-rc.4",
   "description": "Use when a DSH host must talk to a personal WeChat account through the Tencent iLink bot protocol: it registers the WeChat provider into the core registry (QR authorization, 35-second getupdates long polling with a persisted cursor, message-id deduplication, per-account context_token reuse, text sending split at 1,800 UTF-16 code units), inbound senders enter the conversation domain through the core's observed-message event, and agent-authored room messages are delivered back to the channel by subscribing im/message-new; iLink V1 exposes no contact-list API, so WeChat nicknames and real names cannot be pulled and images/files remain unsupported V1 extension points.",
   "type": "module",
   "main": "./dist/index.js",

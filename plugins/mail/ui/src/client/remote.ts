@@ -53,6 +53,17 @@ export interface MailSnapshot {
   readonly error: string
 }
 
+/** The mounted `ctx.remote.mail` surface. */
+export interface MailRemoteApi {
+  /** The messages and the execution chains, in one read. */
+  readonly catalog: (request: { readonly limit?: number }) => Promise<MailRemoteResult<{ readonly messages: MessageView[]; readonly runs: RunView[] }>>
+  /** One message's visible state, wrapped so an absent message stays representable. */
+  readonly markMessage: (request: {
+    readonly messageId: string
+    readonly action: 'read' | 'unread' | 'archive' | 'unarchive'
+  }) => Promise<MailRemoteResult<{ readonly message?: MessageView }>>
+}
+
 /** Everything the page's inject face supplies: one observable and callbacks. */
 export interface MailPanelInjected {
   /** The mail observable, bound as `useMail`. */
@@ -63,17 +74,8 @@ export interface MailPanelInjected {
   readonly onRefresh: () => void
   /** Mark one message read, unread, archived, or unarchived. */
   readonly onMark: (messageId: string, action: 'read' | 'unread' | 'archive' | 'unarchive') => void
-}
-
-/** The mounted `ctx.remote.mail` surface. */
-export interface MailRemoteApi {
-  /** The messages and the execution chains, in one read. */
-  readonly catalog: (request: { readonly limit?: number }) => Promise<MailRemoteResult<{ readonly messages: MessageView[]; readonly runs: RunView[] }>>
-  /** One message's visible state, wrapped so an absent message stays representable. */
-  readonly markMessage: (request: {
-    readonly messageId: string
-    readonly action: 'read' | 'unread' | 'archive' | 'unarchive'
-  }) => Promise<MailRemoteResult<{ readonly message?: MessageView }>>
+  /** Navigate the shell to the session a message came from. / 把外壳导航到消息的来源会话。 */
+  readonly onOpenSession: (sessionId: string) => void
 }
 
 /** The request shape one method takes. / 一个方法所用的请求形状。 */
@@ -92,6 +94,7 @@ const CATALOG_RESULT = z.looseObject({
     read: z.boolean(),
     archived: z.boolean(),
     createdAt: z.number(),
+    sourceSessionId: z.string().optional(),
   })),
   runs: z.array(z.looseObject({
     runId: z.string(),

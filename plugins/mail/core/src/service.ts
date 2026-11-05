@@ -84,6 +84,8 @@ export interface MessageView {
   readonly archived: boolean
   /** When it was created. / 创建时刻。 */
   readonly createdAt: number
+  /** The host chat session the trigger came from, when the caller named one. / 触发所来自的宿主聊天会话，调用方给出时才有。 */
+  readonly sourceSessionId?: string
 }
 
 /** What the panel reads about one step. / 面板读取的关于一个步骤的视图。 */
@@ -167,7 +169,14 @@ export class MailService {
     }
     const now = Date.now()
     const runId = randomUUID()
-    await this.store.putRun(buildRun(transactionId as TransactionId, workflow, subscribers.length, runId, now))
+    await this.store.putRun(buildRun(
+      transactionId as TransactionId,
+      workflow,
+      subscribers.length,
+      runId,
+      now,
+      request.sourceSessionId,
+    ))
     await this.expand(workflow, runId, transactionId as TransactionId, subscribers.map((s) => s.subscriberId), payload, now)
     await this.drain()
     return { transactionId, acceptance: 'PROCESSED', recipientCount: subscribers.length }
@@ -483,6 +492,7 @@ export class MailService {
       read: message.read,
       archived: message.archived,
       createdAt: message.createdAt,
+      ...(message.sourceSessionId === undefined ? {} : { sourceSessionId: message.sourceSessionId }),
     }
   }
 }

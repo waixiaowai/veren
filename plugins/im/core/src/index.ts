@@ -21,6 +21,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+// Type-only: the optional `agentPresets` service this core reads when present.
+// 仅类型：本核心在存在时读取的可选 `agentPresets` 服务。
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import { ImRegistry, ImToken, imCredentialKey } from './contract.ts'
 import { ImStorage } from './store.ts'
 import { ImPeople, ImPeopleToken } from './people.ts'
@@ -30,6 +33,7 @@ import type { ImCredentialStore, ImLogger } from './runtime-seams.ts'
 import { ImCredentialToken, ImLoggerToken, errorMessage } from './runtime-seams.ts'
 import { ImParticipants, ImParticipantsToken } from './participants.ts'
 import type { ImRosterEntry } from './participants.ts'
+import { discoverPresets } from './preset-roster.ts'
 import { ImMemory, ImMemoryToken } from './memory.ts'
 import { ImDirectory, ImDirectoryToken } from './directory.ts'
 import { ImStrangerIntake, ImIntakeToken } from './intake.ts'
@@ -249,11 +253,15 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   ctx.effect(() => ctx.provide(ImCredentialToken, new DshCredentialStore(ctx)), 'im:credentials')
 
   const people = await buildPeople(ctx, storage, logger)
+  // 智能体就是 DSH preset：注册表出现后自动并进名册，无需重启。
+  // Agents are DSH presets: once the registry exists they join the roster live.
+  const presets = discoverPresets(ctx)
   ctx.effect(
     () => ctx.provide(ImParticipantsToken, new ImParticipants({
       roster: config.roster,
       ownerName: config.ownerName,
       defaultAgentAliases: config.defaultAgentAliases,
+      discoveredAgents: presets.rows,
       people,
     })),
     'im:participants',

@@ -93,6 +93,12 @@ export class TestStore implements ImCoreStore, ImPersonStore {
     }
   }
 
+  async deletePersonAddressesOfPerson(personId: string): Promise<void> {
+    for (const [key, row] of [...this.addressRows]) {
+      if (row.person_id === personId) this.addressRows.delete(key)
+    }
+  }
+
   getIntake(personId: string): ImPersonIntakeRow | undefined {
     return this.intakeRows.get(personId)
   }

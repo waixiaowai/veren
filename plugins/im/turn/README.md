@@ -32,14 +32,24 @@ event timeline in the `im_turn` domain). Do not decide who wakes — that is
 - Failure classification: model rate limits and quota exhaustion land as
   `skipped` with one deduplicated system notice per room per cause (six-hour
   window); everything else lands as `failed` with the reason.
-- `TurnService` (`imTurn` token): run listing, event timelines, and
+- `TurnService` (`imTurn` token): run listing, event timelines,
   `sessionPlaceOf(sessionId)` — the reverse lookup model tools use to
-  attribute themselves to an agent participant and a room.
+  attribute themselves to an agent participant and a room — and the live
+  activity of running turns.
+- Live activity (`ActivityBoard` + the `imTurn` remote namespace): while a run
+  is live, the board reports its phase (thinking / running a tool / writing the
+  reply), the running tool's name, and the tail of the streamed reasoning. It
+  is fed by `session/event` and `agent/assistant-stream`, is never durable, and
+  drops an entry when the run settles or stops updating (a crashed run must not
+  leave a permanent working row). The chat panel polls `imTurn.activity`; the
+  reply itself is still one message posted at the end.
 
 ## Events
 
 - Consumes `im/wake-request` from `@veren/im-coordination`.
 - Emits `im/run-updated` on every run transition.
+- Reads `session/event` and (globally) `agent/assistant-stream` for live
+  activity; neither changes the run record.
 
 ## Configuration
 

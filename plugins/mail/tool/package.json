@@ -1,7 +1,7 @@
 {
   "name": "@veren/mail-tool",
   "displayName": "Veren Mail Tools",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "description": "Use when a DSH agent must reach people through notifications: it registers the model-facing mail tools (send a workflow, list workflows, manage recipients and groups, read the station inbox, and reply in a conversation) over @veren/mail, plus the bundled mail skill that tells the agent when a notification is the right instrument and which trigger, recipient, and preference rules it must respect. Skip it when the deployment only needs the web panel and no agent should ever send a message.",
   "type": "module",
   "main": "./dist/index.js",

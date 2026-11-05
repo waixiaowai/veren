@@ -38,6 +38,11 @@ class PersonMemory implements ImPersonStore {
       if (row.account_id === accountId) this.addressRows.delete(key)
     }
   }
+  async deletePersonAddressesOfPerson(personId: string): Promise<void> {
+    for (const [key, row] of [...this.addressRows]) {
+      if (row.person_id === personId) this.addressRows.delete(key)
+    }
+  }
   getIntake(personId: string): ImPersonIntakeRow | undefined { return this.intakeRows.get(personId) }
   intakes(): ImPersonIntakeRow[] { return [...this.intakeRows.values()] }
   async putIntake(row: ImPersonIntakeRow): Promise<void> { this.intakeRows.set(row.person_id, row) }

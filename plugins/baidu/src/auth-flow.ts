@@ -35,8 +35,8 @@ function parsePastedTokens(text: string): OAuthTokens {
   }
 }
 
-/** 在线校验：拿令牌拉一次账号资料，失败即令牌无效，不落库。The online check: one profile call; its failure means the tokens are invalid — nothing commits. */
-async function validateTokens(config: ResolvedConfig, tokens: OAuthTokens, fetch?: FetchLike): Promise<void> {
+/** 在线校验：拿令牌拉一次账号资料，失败即令牌无效，不落库（授权流与网页网关共用）。The online check: one profile call; its failure means the tokens are invalid — nothing commits (shared by the auth flow and the web gateway). */
+export async function validateTokens(config: ResolvedConfig, tokens: OAuthTokens, fetch?: FetchLike): Promise<void> {
   const probe = new BaiduPanClient({
     config,
     readTokens: async () => tokens,

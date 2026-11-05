@@ -21,11 +21,24 @@ headless、ACP、SDK profile 跳过——`im_*` 工具已覆盖全部操作。
 
 | Tab / 页签 | Content / 内容 |
 |---|---|
-| 会话 Conversations | every room's timeline; 「新建会话」seats the owner and the default agent, the composer writes as `human:owner`, and the five-second poll refreshes the list *and* the open timeline so an agent's reply lands without a manual refresh. Unread counts ride the same poll and clear when a room is opened; `@` opens a keyboard-reachable member picker; each message offers a hover copy action; newer messages follow the reader only while they are at the bottom, otherwise a "jump to latest" pill appears / 全部房间的时间线；「新建会话」给所有者与默认智能体安排座位，输入区以 `human:owner` 写入，五秒轮询同时刷新列表与打开中的时间线，智能体的回复无需手动刷新即可出现。未读数随同一次轮询到达、打开房间即清空；输入 `@` 打开键盘可达的成员选择器；每条消息有悬停复制；新消息只在读者位于底部时跟随，否则给出「回到最新」胶囊 |
-| 智能体 Agents | the roster derived from room seats: a display heading with the count, summary chips (agents / conversations / unread), and one card per agent with its room count, last activity and a chat action that opens or starts a direct conversation / 从房间座位推导的名册：带计数的大标题、摘要芯片（智能体/会话/未读），每个智能体一张卡片，显示会话数、最近活动与「聊天」动作（打开或新建私聊） |
+| 会话 Conversations | every room's timeline; 「新建会话」seats the owner and the default agent, the composer writes as `human:owner`, and the five-second poll refreshes the list *and* the open timeline so an agent's reply lands without a manual refresh. While a turn runs, a non-interactive working row under the last message shows the agent's phase (thinking / running a tool / writing the reply), the elapsed time, and the tail of the streamed reasoning; it disappears the moment the reply lands. Unread counts ride the same poll and clear when a room is opened; `@` opens a keyboard-reachable member picker; each message offers a hover copy action; newer messages follow the reader only while they are at the bottom, otherwise a "jump to latest" pill appears / 全部房间的时间线；「新建会话」给所有者与默认智能体安排座位，输入区以 `human:owner` 写入，五秒轮询同时刷新列表与打开中的时间线，智能体的回复无需手动刷新即可出现。回合运行期间，最后一条消息之下有一条不可交互的工作行，显示智能体的阶段（思考 / 调用工具 / 撰写回复）、已用时间与流式推理的末尾；回复落地即消失。未读数随同一次轮询到达、打开房间即清空；输入 `@` 打开键盘可达的成员选择器；每条消息有悬停复制；新消息只在读者位于底部时跟随，否则给出「回到最新」胶囊 |
+| 智能体 Agents | the roster read from the deployment's DSH presets (an agent is a preset): a display heading with the count, summary chips (agents / conversations / unread), and one card per agent with its preset id, room count, last activity and a chat action that opens or starts a direct conversation / 从部署的 DSH preset 读出的名册（智能体就是 preset）：带计数的大标题、摘要芯片（智能体/会话/未读），每个智能体一张卡片，显示 preset id、会话数、最近活动与「聊天」动作（打开或新建私聊） |
 | 账号 Accounts | authorized accounts with online/offline badges, the QR bind wizard (start, poll, verify code), and unbind / 已授权账号与在线徽标、二维码绑定向导（发起、轮询、验证码）与解绑 |
-| 人员 People | the address book: names, identity badges, contact chips, and inline rename / 通讯录：名字、身份徽标、联系方式芯片与就地改名 |
+| 人员 People | the address book: search across names, aliases, contacts, and notes; create a manual contact, edit every profile field (name, real name, aliases, contacts, bio, notes), and delete one with confirmation. A manual contact has no reachable address until a channel observes it and is marked "profile only" / 通讯录：按名字、别名、联系方式与备注搜索；手工新增联系人，编辑全部档案字段（名字、真名、别名、联系方式、简介、备注），删除前二次确认。手工联系人被渠道观察到之前没有可达地址，会被标注「仅档案」 |
 | 设置 Settings | the two 2.x surfaces kept out of the everyday path: stranger-intake audit and the CMS cloud directory / 从日常路径里退出的两个 2.x 面：陌生人采集审计与 CMS 云端目录 |
+
+## Layout / 布局
+
+The page fills the panel box and never paints past it. The title, the refresh
+action, and the tab bar stay pinned; the four document tabs scroll together in
+one region below the bar, so a long settings page scrolls instead of running off
+the window edge and its last control stays clickable. The conversations tab is
+the exception: it owns a full-height two-pane layout and scrolls in its own room
+list, timeline, and info rail.
+
+页面恰好占满面板盒子，绝不画到盒子之外。标题、刷新动作与页签条固定不动；四个文档页签在
+页签条之下的同一个区域里滚动，长设置页因此是滚动而不是溢出窗口边缘被裁掉，最后一个控件
+始终可点。会话页签是例外：它自己的两栏全高布局，由房间列表、时间线与信息侧栏各自滚动。
 
 ## Write paths / 写入路径
 
@@ -42,16 +55,19 @@ the composer all feed the same fan-out.
 ## Architecture / 架构
 
 Browser-only plugin (the Node half is an empty Loader row). The browser half
-mounts two Remote namespaces by hand — `im` (the core: accounts, people, intake,
-QR bind) and `imConv` (the conversation domain: rooms, members, messages, post,
-createRoom, markRead, unreadCounts) — and renders observables polled every five
-seconds; the bind wizard polls every two seconds while open. Styles define the
-Cumora palette once (sky / coral / gold / whisper / ink / paper / cloud, with a
-dark override) and every rule reads a token; copy is typed zh/en with
-compile-error parity.
+mounts three Remote namespaces by hand — `im` (the core: accounts, people,
+intake, QR bind), `imConv` (the conversation domain: rooms, members, messages,
+post, createRoom, markRead, unreadCounts), and `imTurn` (the turn domain's live
+activity: `activity`) — and renders observables polled every five seconds; the
+bind wizard polls every two seconds while open, and the activity loop runs at
+1.2s while a turn is live and 3s while nothing runs. Styles define the Cumora
+palette once (sky / coral / gold / whisper / ink / paper / cloud, with a dark
+override) and every rule reads a token; copy is typed zh/en with compile-error
+parity.
 
-纯浏览器插件（Node 半边是空 Loader 行）。浏览器半边手工挂载两个远端命名空间——`im`
-（核心：账号、人员、采集、扫码绑定）与 `imConv`（会话域：房间、成员、消息、写入、
-建房、已读、未读计数）——渲染每五秒轮询的可观察对象；绑定向导打开期间每两秒轮询。样式在
-令牌块里定义一次 Cumora 调色板（sky / coral / gold / whisper / ink / paper / cloud，
-含暗色覆盖），所有规则只读令牌；文案 zh/en 双语带编译期 parity。
+纯浏览器插件（Node 半边是空 Loader 行）。浏览器半边手工挂载三个远端命名空间——`im`
+（核心：账号、人员、采集、扫码绑定）、`imConv`（会话域：房间、成员、消息、写入、建房、
+已读、未读计数）与 `imTurn`（回合域的实时活动：`activity`）——渲染每五秒轮询的可观察对象；
+绑定向导打开期间每两秒轮询，活动循环在有回合运行时 1.2 秒、没有时 3 秒。样式在令牌块里
+定义一次 Cumora 调色板（sky / coral / gold / whisper / ink / paper / cloud，含暗色覆盖），
+所有规则只读令牌；文案 zh/en 双语带编译期 parity。

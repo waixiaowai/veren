@@ -15,18 +15,25 @@
  */
 
 import { Composer } from './composer.tsx'
+import { ActivityRow } from './activity-row.tsx'
 import { Avatar } from './avatar.tsx'
 import type { ImKey } from './locales.ts'
+import type { ImParticipant } from './remote.ts'
 import { MessageRow } from './message-row.tsx'
 import { participantLabel } from './participant-label.ts'
 import type { ImPersonView, RoomsSnapshot } from './remote.ts'
 import { useStickToBottom } from './stick-to-bottom.ts'
+import type { RoomActivity } from './turn-remote.ts'
 
 /** Props of {@link RoomsMain}. */
 export interface RoomsMainProps {
   readonly state: RoomsSnapshot
   readonly t: (key: ImKey) => string
   readonly people: readonly ImPersonView[]
+  readonly participants: readonly ImParticipant[]
+  /** Live turns across every room; the open room's rows render as the working row. */
+  /** 所有房间的实时回合；打开房间的那些渲染成工作行。 */
+  readonly activities: readonly RoomActivity[]
   readonly onSend: (body: string) => Promise<boolean>
   readonly onRefresh: () => void
 }
@@ -47,7 +54,7 @@ export function RoomsMain(props: RoomsMainProps): React.JSX.Element {
             {open.members.slice(0, 4).map(id => (
               <Avatar
                 key={id}
-                name={participantLabel(id, props.people, t)}
+                name={participantLabel(id, props.people, t, props.participants)}
                 kind={id.startsWith('agent:') ? 'agent' : 'human'}
                 size="sm"
               />
@@ -55,11 +62,11 @@ export function RoomsMain(props: RoomsMainProps): React.JSX.Element {
           </span>
         </div>
         <p className="im-room-members">
-          {t('membersLabel')}：{open.members.map(id => participantLabel(id, props.people, t)).join('、')}
+          {t('membersLabel')}：{open.members.map(id => participantLabel(id, props.people, t, props.participants)).join('、')}
         </p>
       </header>
       <Timeline {...props} />
-      <Composer room={open} t={t} people={props.people} sending={state.sending} onSend={props.onSend} />
+      <Composer room={open} t={t} people={props.people} participants={props.participants} sending={state.sending} onSend={props.onSend} />
       {state.status === 'error' && (
         <div className="im-error-row">
           <p className="im-error">{t('errorPrefix')}：{state.error}</p>
@@ -73,7 +80,10 @@ export function RoomsMain(props: RoomsMainProps): React.JSX.Element {
 /** The message list with the pinning rule and the jump-to-latest pill. */
 function Timeline(props: RoomsMainProps): React.JSX.Element {
   const { state, t } = props
-  const stick = useStickToBottom(state.messages.length)
+  // 工作行也算新内容：它出现时读者若贴底，应当跟着滚到底。
+  // A working row is new content too: a reader at the bottom follows it.
+  const working = props.activities.filter(run => run.roomId === state.openRoomId)
+  const stick = useStickToBottom(state.messages.length + working.length)
   return (
     <div className="im-timeline-wrap">
       <ol className="im-timeline" role="list" ref={stick.ref}>
@@ -84,8 +94,10 @@ function Timeline(props: RoomsMainProps): React.JSX.Element {
             startOfDay={index === 0 || !sameDay(message.createdAt, state.messages[index - 1]!.createdAt)}
             t={t}
             people={props.people}
+            participants={props.participants}
           />
         ))}
+        <WorkingRows working={working} t={t} people={props.people} participants={props.participants} />
         {state.messages.length === 0 && state.status === 'loading' && <SkeletonLines />}
         {state.messages.length === 0 && state.status !== 'loading' && <p className="im-muted">{t('timelineEmpty')}</p>}
       </ol>
@@ -93,6 +105,29 @@ function Timeline(props: RoomsMainProps): React.JSX.Element {
         <button type="button" className="im-jump" onClick={stick.jump}>{t('jumpLatest')}</button>
       )}
     </div>
+  )
+}
+
+/** One working row per live turn in the open room. */
+/** 打开房间里每个实时回合一条工作行。 */
+function WorkingRows(props: {
+  readonly working: readonly RoomActivity[]
+  readonly t: (key: ImKey) => string
+  readonly people: readonly ImPersonView[]
+  readonly participants: readonly ImParticipant[]
+}): React.JSX.Element {
+  return (
+    <>
+      {props.working.map(activity => (
+        <ActivityRow
+          key={activity.runId}
+          activity={activity}
+          t={props.t}
+          people={props.people}
+          participants={props.participants}
+        />
+      ))}
+    </>
   )
 }
 

@@ -253,6 +253,10 @@ function writeMessage(
   content: string,
   subject: string | undefined,
 ): MessageRecord {
+  // The trigger's source session rides on the run; a message cites it so the
+  // panel can link back to where the notice came from.
+  // 触发的来源会话随执行链存放；消息引用它，面板才能跳回通知的来处。
+  const run = context.store.getRun(context.job.runId)
   return {
     messageId: messageId as MessageRecord['messageId'],
     jobId: context.job.jobId,
@@ -267,6 +271,7 @@ function writeMessage(
     read: false,
     archived: false,
     createdAt: context.now,
+    ...(run?.sourceSessionId === undefined ? {} : { sourceSessionId: run.sourceSessionId }),
   }
 }
 

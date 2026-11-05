@@ -42,6 +42,7 @@ class PersonMemory implements ImPersonStore {
   personAddresses() { return [] }
   async putPersonAddress(): Promise<void> {}
   async deletePersonAddressesOf(): Promise<void> {}
+  async deletePersonAddressesOfPerson(): Promise<void> {}
   getIntake(): undefined { return undefined }
   intakes() { return [] }
   async putIntake(): Promise<void> {}

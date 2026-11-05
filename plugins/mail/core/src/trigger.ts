@@ -53,6 +53,8 @@ export interface TriggerRequest {
   readonly actor?: string
   /** The context keys the delivery runs under. / 投递所处的上下文键。 */
   readonly contextKeys?: readonly string[]
+  /** The host chat session the trigger came from, for "open the source" navigation. / 触发所来自的宿主聊天会话，用于「打开来源」导航。 */
+  readonly sourceSessionId?: string
 }
 
 /** What a trigger returned. / 触发的返回结果。 */
@@ -261,6 +263,7 @@ export function buildRun(
   recipientCount: number,
   runId: string,
   now: number,
+  sourceSessionId?: string,
 ): RunRecord {
   return {
     runId: runId as RunRecord['runId'],
@@ -269,5 +272,6 @@ export function buildRun(
     recipientCount,
     status: 'pending',
     startedAt: now,
+    ...(sourceSessionId === undefined ? {} : { sourceSessionId }),
   }
 }

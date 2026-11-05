@@ -243,6 +243,23 @@ export class PeopleMutations {
     return this.write(() => this.store.deletePersonAddressesOf(accountId))
   }
 
+  /**
+   * Remove one contact from the address book: addresses and intake audit row
+   * first, then the profile. Conversation history is untouched — the next
+   * inbound message simply registers the sender again.
+   * 从通讯录移除一个联系人：先删地址与采集记录，再删档案。会话历史不动——对方下次发来消息
+   * 会重新被收录。
+   */
+  remove(personId: string): Promise<void> {
+    return this.write(async () => {
+      const person = this.store.getPerson(personId)
+      if (person === undefined) throw new ImError('IM_NOT_FOUND', `unknown person: ${personId}`)
+      await this.store.deletePersonAddressesOfPerson(personId)
+      await this.store.deleteIntake(personId)
+      await this.store.deletePerson(personId)
+    })
+  }
+
   /** Serialize every mutation so concurrent observers cannot clone a person. */
   private write<T>(work: () => Promise<T>): Promise<T> {
     const pending = this.writeChain.then(work)

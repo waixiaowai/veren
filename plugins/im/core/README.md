@@ -53,7 +53,9 @@ The contract is the source of truth:
 - `ImMemory` (`imMemory` token): durable agent memories, recency-first recall
   with pinned entries on top, project (DSH workspace) scoping.
 - `ImPeople` / `ImDirectory`: the strict name-resolution directory with
-  unverified self-reports, plus the model-facing directory face.
+  unverified self-reports, manual contacts that may carry no address yet, and
+  contact removal (addresses plus intake row cascade); plus the model-facing
+  directory face.
 - `ImStrangerIntake` (`imIntake` token): the once-per-stranger question with
   its rate limits and audit trail.
 - `ImBindings` (`imBindings` token): account authorization attempts and the

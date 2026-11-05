@@ -1,7 +1,7 @@
 {
   "name": "@veren/im-conversation",
   "displayName": "Veren IM Conversation",
-  "version": "3.0.0-rc.3",
+  "version": "3.0.0-rc.4",
   "description": "Use when the IM family needs the durable team-fact store: rooms and members with idempotent joins, messages with room-exclusive server-assigned sequences, monotonic read cursors, and the channel-to-room ingest that turns provider observations into facts; emits im/message-new after every commit so coordination, turn, and channel delivery can each react without touching each other. Pair with @veren/im (core) upstream and @veren/im-coordination/@veren/im-turn downstream.",
   "type": "module",
   "main": "./dist/index.js",

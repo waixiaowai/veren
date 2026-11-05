@@ -19,7 +19,8 @@ import { Avatar } from './avatar.tsx'
 import { roomStampOf } from './format.ts'
 import type { ImKey } from './locales.ts'
 import { NewRoomPicker } from './new-room.tsx'
-import type { ImPersonView, RoomsSnapshot } from './remote.ts'
+import { participantLabel } from './participant-label.ts'
+import type { ImParticipant, ImPersonView, RoomsSnapshot } from './remote.ts'
 
 /** The list filters the design's seven collapse to in v1. */
 type Filter = 'all' | 'unread' | 'direct' | 'group'
@@ -29,6 +30,7 @@ export interface RoomsSideProps {
   readonly state: RoomsSnapshot
   readonly t: (key: ImKey) => string
   readonly people: readonly ImPersonView[]
+  readonly participants: readonly ImParticipant[]
   readonly onOpenRoom: (roomId: string | undefined) => void
   readonly onCreateRoom: (input: {
     readonly title?: string
@@ -82,7 +84,13 @@ export function RoomsSide(props: RoomsSideProps): React.JSX.Element {
         <NewRoomPicker
           t={t}
           people={props.people}
-          agentIds={agentIdsOf(state.rooms)}
+          agents={props.participants
+            .filter(participant => participant.kind === 'agent')
+            .map(participant => ({
+              id: participant.id,
+              label: participantLabel(participant.id, props.people, t, props.participants),
+              kind: 'agent' as const,
+            }))}
           onCreate={input => { props.onCreateRoom(input); setCreating(false) }}
           onCancel={() => setCreating(false)}
         />
@@ -160,9 +168,3 @@ function FilterButton(props: { readonly active: boolean; readonly label: string;
   )
 }
 
-/** Every agent id already seated in some room. */
-function agentIdsOf(rooms: RoomsSnapshot['rooms']): readonly string[] {
-  const ids = new Set<string>()
-  for (const room of rooms) for (const id of room.members) if (id.startsWith('agent:')) ids.add(id)
-  return [...ids]
-}

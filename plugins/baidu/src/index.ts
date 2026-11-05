@@ -2,16 +2,17 @@
  * @veren/baidu-pan —— DSH 百度网盘插件。挂载即注册：十三个模型工具
  * （baidu_pan__whoami/quota/list/search/meta/mkdir/copy/move/rename/
  * delete/share/upload/download，全部经守门 confined 在授权根内）、
- * `baidu-pan` 技能（风险分级与显示纪律）与粘贴式 OAuth 登录流（令牌
- * 只进凭据库）。appKey/secretKey 缺失时配置解析响亮失败——misconfiguration
- * fails loud。
+ * `baidu-pan` 技能（风险分级与显示纪律）、粘贴式 OAuth 登录流（令牌
+ * 只进凭据库）与网页网关（`baiduPan` 命名空间，给人操作的客户端面板）。
+ * appKey/secretKey 缺失时配置解析响亮失败——misconfiguration fails loud。
  * @veren/baidu-pan — the dsh Baidu Netdisk plugin. Mounting registers the
  * thirteen model tools (baidu_pan__whoami/quota/list/search/meta/mkdir/
  * copy/move/rename/delete/share/upload/download, all guard-confined to the
  * authorized root), the `baidu-pan` skill (risk tiers and display
- * discipline), and the paste sign-in OAuth flow (tokens live only in the
- * credential store). Missing appKey/secretKey fails config resolution
- * loudly — misconfiguration fails loud.
+ * discipline), the paste sign-in OAuth flow (tokens live only in the
+ * credential store), and the web gateway (the `baiduPan` namespace behind
+ * the human-operated client panel). Missing appKey/secretKey fails config
+ * resolution loudly — misconfiguration fails loud.
  *
  * @module @veren/baidu-pan
  */
@@ -25,6 +26,8 @@ import z from '@deepseek-ai/schemastery'
 import { registerBaiduPanFlow } from './auth-flow.js'
 import { resolveConfig, type Config as ConfigShape } from './config.js'
 import { commitTokens } from './credentials.js'
+import { BaiduPanGatewayService } from './gateway.js'
+import { BAIDU_PAN_WORLD_TOKEN, provideWorld } from './service.js'
 import { registerBaiduPanSkill } from './skill.js'
 import { registerManageTools } from './tools-manage.js'
 import { registerReadonlyTools } from './tools-readonly.js'
@@ -58,15 +61,17 @@ export const Config: z<Config> = z.object({
  */
 export const inject = ['tools', 'skills', 'credentials', 'authorization', 'workspaceRegistry']
 
-/** 本插件不提供服务面。This plugin provides no service face. */
-export const provide = []
+/** 本插件提供的唯一服务面：编排世界（工具面与网页网关共用）。The plugin's one service face: the orchestration world (shared by the tool face and the web gateway). */
+export const provide = [BAIDU_PAN_WORLD_TOKEN]
 
-/** 插件入口：登录流 + 四组工具表 + 技能表，全部随插件卸载逆序清理。 */
-/** Plugin entry: the sign-in flow, the four tool groups, and the skill registry — all reverse-order cleaned on unload. */
+/** 插件入口：登录流 + 编排世界（含网页网关）+ 四组工具表 + 技能表，全部随插件卸载逆序清理。 */
+/** Plugin entry: the sign-in flow, the orchestration world (with its web gateway), the four tool groups, and the skill registry — all reverse-order cleaned on unload. */
 export const apply = (ctx: Context, config: Config): void => {
   const resolved = resolveConfig(config)
   registerBaiduPanFlow(ctx, resolved, tokens => commitTokens(ctx.credentials, tokens))
   const world = buildWorld(resolved, ctx.credentials, ctx.workspaceRegistry)
+  provideWorld(ctx, world)
+  ctx.plugin(BaiduPanGatewayService)
   ctx.effect(() => {
     const disposers = [
       registerReadonlyTools(ctx, world),

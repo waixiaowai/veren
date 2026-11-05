@@ -1,56 +1,104 @@
 /**
- * The people tab: an address book, not an id list.
+ * The people tab: an address book a human can actually manage.
  *
- * Humans browse names; provider ids are plumbing. A profile still carrying the
- * raw provider id as its name renders as "WeChat user" plus a short handle, and
- * a rename control lets a human finish what the intake chat started.
+ * Search narrows the list; "new person" opens the editor on an empty profile;
+ * every card can be edited or removed. Contacts that still carry the raw
+ * provider id as their name render as "WeChat user" plus a short handle, and a
+ * profile with no reachable address is marked as such instead of pretending it
+ * can receive messages.
  *
- * 人员页签：通讯录，而不是 id 列表。
+ * 人员页签：一本真正可管理的通讯录。
  *
- * 人浏览的是名字；provider id 是管道。仍以裸 provider id 为名字的档案渲染成「微信用户」
- * 加短码，备注控件让人补完采集对话没问出来的名字。
+ * 搜索框收窄名单；「新增人员」在空档案上打开编辑器；每张卡片都能编辑或删除。仍以裸 provider
+ * id 为名字的档案渲染成「微信用户」加短码；没有可达地址的档案会被明确标注，而不是假装能收消息。
  *
  * @module @veren/im-ui/client/views-people
  */
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Avatar } from './avatar.tsx'
 import { fill } from './format.ts'
 import type { ImKey } from './locales.ts'
 import type { ImBodyProps } from './panel.tsx'
-import { isUnnamedPerson, personLabel, shortHandle } from './person-label.ts'
-import type { ImPersonView } from './remote.ts'
+import { PersonEditor } from './person-editor.tsx'
+import { filterPeople } from './people-filter.ts'
+import { contactKindKey, isUnnamedPerson, personLabel, shortHandle } from './person-label.ts'
+import type { ImPersonView, PersonDraft } from './remote.ts'
 
-/** The people tab body: named contacts first, unnamed regulars after. */
+/** Named contacts first, unnamed regulars after, then by name. */
+/** 有名字的联系人在前，未命名常客在后，再按名字排序。 */
+function byPerson(left: ImPersonView, right: ImPersonView): number {
+  return Number(isUnnamedPerson(left)) - Number(isUnnamedPerson(right))
+    || left.displayName.localeCompare(right.displayName, 'zh')
+}
+
+/** The people tab body. */
 export function PeopleView(props: ImBodyProps): React.JSX.Element {
   const { state, t, actions } = props
-  const people = [...state.catalog.people].sort((left, right) =>
-    Number(isUnnamedPerson(left)) - Number(isUnnamedPerson(right))
-    || left.displayName.localeCompare(right.displayName, 'zh'))
+  const [query, setQuery] = useState('')
+  const [editing, setEditing] = useState<string | 'new' | undefined>(undefined)
+  const [error, setError] = useState('')
+  const people = useMemo(() => [...state.catalog.people].sort(byPerson), [state.catalog.people])
+  const shown = useMemo(() => filterPeople(people, query), [people, query])
+  const edited = editing === undefined || editing === 'new'
+    ? undefined
+    : people.find(person => person.id === editing)
+  const close = (): void => { setEditing(undefined); setError('') }
+  const submit = (draft: PersonDraft): Promise<string | undefined> => {
+    if (editing === 'new') return actions.onCreatePerson(draft)
+    if (edited === undefined) return Promise.resolve(t('noPeople'))
+    return actions.onUpdatePerson(edited.id, draft)
+  }
+  const remove = (person: ImPersonView): void => {
+    if (!window.confirm(fill(t('confirmDeletePerson'), { name: personLabel(person, t) }))) return
+    void actions.onDeletePerson(person.id).then(failure => {
+      if (failure !== undefined) setError(failure)
+    })
+  }
   return (
     <section className="im-section">
-      <div className="im-hero">
-        <h2 className="im-display">{fill(t('headingPeople'), { n: people.length })}</h2>
-        <p className="im-hero-sub">{t('peopleHint')}</p>
+      <div className="im-hero im-hero-row">
+        <div>
+          <h2 className="im-display">{fill(t('headingPeople'), { n: people.length })}</h2>
+          <p className="im-hero-sub">{t('peopleHint')}</p>
+        </div>
+        <button type="button" className="im-button im-button-primary"
+          onClick={() => { setError(''); setEditing('new') }}>
+          {t('newPerson')}
+        </button>
       </div>
+      <div className="im-search">
+        <input className="im-input" value={query} placeholder={t('searchPeople')}
+          aria-label={t('searchPeople')}
+          onChange={event => setQuery(event.target.value)} />
+      </div>
+      {error !== '' && <p className="im-error">{error}</p>}
+      {editing !== undefined && (
+        <PersonEditor key={editing} person={edited} t={t}
+          onSubmit={submit} onCancel={close} onFinished={close} />
+      )}
       {people.length === 0 && <p className="im-muted">{t('noPeople')}</p>}
+      {people.length > 0 && shown.length === 0 && <p className="im-muted">{t('peopleSearchEmpty')}</p>}
       <ul className="im-card-grid" role="list">
-        {people.map(person => (
-          <PersonCard key={person.id} person={person} t={t} onRename={actions.onRenamePerson} />
+        {shown.map(person => (
+          <PersonCard key={person.id} person={person} t={t}
+            onEdit={id => { setError(''); setEditing(id) }} onDelete={remove} />
         ))}
       </ul>
     </section>
   )
 }
 
-/** One address-book contact card. */
+/** One address-book contact card: identity, contacts, and the two actions. */
 function PersonCard(props: {
   readonly person: ImPersonView
   readonly t: (key: ImKey) => string
-  readonly onRename: (personId: string, displayName: string) => void
+  readonly onEdit: (personId: string) => void
+  readonly onDelete: (person: ImPersonView) => void
 }): React.JSX.Element {
-  const { person, t, onRename } = props
+  const { person, t, onEdit, onDelete } = props
   const name = personLabel(person, t)
+  const note = person.notes ?? person.bio
   return (
     <li className="im-card" title={person.id}>
       <Avatar name={name} kind="human" size="lg" />
@@ -58,9 +106,16 @@ function PersonCard(props: {
         <div className="im-name-row">
           <span className="im-strong">{name}</span>
           {person.identityStatus === 'self-reported' && <span className="im-badge">{t('unverifiedClaim')}</span>}
+          {person.addresses.length === 0 && <span className="im-badge">{t('profileOnly')}</span>}
         </div>
-        <ContactChips person={person} />
-        <RenameControl person={person} t={t} onRename={onRename} />
+        <ContactChips person={person} t={t} />
+        {note !== undefined && note !== '' && <p className="im-muted im-person-note">{note}</p>}
+        <div className="im-card-actions">
+          <button type="button" className="im-button" onClick={() => onEdit(person.id)}>{t('edit')}</button>
+          <button type="button" className="im-button im-button-danger" onClick={() => onDelete(person)}>
+            {t('delete')}
+          </button>
+        </div>
       </div>
     </li>
   )
@@ -68,48 +123,20 @@ function PersonCard(props: {
 
 /** Contacts that carry information (a bare echo of the display name is noise). */
 /** 有信息量的联系方式（与显示名相同的裸值不算）。 */
-function ContactChips(props: { readonly person: ImPersonView }): React.JSX.Element | null {
-  const contacts = props.person.contacts.filter(contact => contact.value !== props.person.displayName)
+function ContactChips(props: {
+  readonly person: ImPersonView
+  readonly t: (key: ImKey) => string
+}): React.JSX.Element | null {
+  const { person, t } = props
+  const contacts = person.contacts.filter(contact => contact.value !== person.displayName)
   if (contacts.length === 0) return null
   return (
     <div className="im-chip-row">
       {contacts.map(contact => (
         <span key={`${contact.kind}:${contact.value}`} className="im-chip" title={contact.value}>
-          {contact.kind === 'wechat' ? '微信' : contact.kind} · {shortHandle(contact.value)}
+          {t(contactKindKey(contact.kind))} · {shortHandle(contact.value)}
         </span>
       ))}
     </div>
   )
 }
-
-/** Inline rename: a human completes the name the intake chat could not. */
-/** 就地改名：把人补上采集对话没能问出来的名字。 */
-function RenameControl(props: {
-  readonly person: ImPersonView
-  readonly t: (key: ImKey) => string
-  readonly onRename: (personId: string, displayName: string) => void
-}): React.JSX.Element {
-  const [editing, setEditing] = useState(false)
-  const [name, setName] = useState('')
-  const { person, t, onRename } = props
-  if (!editing) {
-    return (
-      <button type="button" className="im-link" onClick={() => { setName(person.displayName); setEditing(true) }}>
-        {t('rename')}
-      </button>
-    )
-  }
-  return (
-    <div className="im-row">
-      <input className="im-input" value={name} placeholder={t('renamePlaceholder')}
-        aria-label={t('renamePlaceholder')}
-        onChange={event => setName(event.target.value)} />
-      <button type="button" className="im-button im-button-primary" disabled={name.trim() === ''}
-        onClick={() => { onRename(person.id, name.trim()); setEditing(false) }}>
-        {t('save')}
-      </button>
-      <button type="button" className="im-button" onClick={() => setEditing(false)}>{t('cancel')}</button>
-    </div>
-  )
-}
-

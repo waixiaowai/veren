@@ -22,11 +22,14 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { NS, en, zh, type MailKey } from './locales.ts'
@@ -51,6 +54,14 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 /** Sidebar and main-panel identity of the page. */
 const PANEL_ID = 'mail' as MainPanelId
 
+// [诊断临时] 挂载链路追踪，验收后移除 / [temporary diagnostics] mount-chain tracing, removed after acceptance
+const diag: string[] = []
+declare global {
+  interface Window { __mailDiag?: string[] }
+}
+if (typeof window !== 'undefined') window.__mailDiag = diag
+diag.push('module loaded')
+
 /**
  * Client services of the entry plugin. `remote.mail` must NOT be declared
  * here: this plugin is the namespace's only mounter, so depending on it would
@@ -65,13 +76,14 @@ export const inject = ['slots', 'locale', 'remote']
  * The inner panel plugin: it injects the freshly mounted namespace, then
  * registers the page and its sidebar entry from its own fiber.
  */
-const PanelPlugin = {
+const PanelPlugin = (deps: { sessions: ISessions; navigate: (target: SessionId) => void }) => ({
   name: 'mail:panel',
   inject: ['remote.mail'],
   /**
    * @param ctx - panel-scope context over the mounted namespace / 挂载命名空间上的面板作用域上下文
    */
   apply(ctx: Context): void {
+    diag.push('panel apply running')
     const api = ctx.remote.mail
     ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'mail-ui:dictionaries')
     installPanelStyles(ctx)
@@ -82,16 +94,27 @@ const PanelPlugin = {
     // catalog: polling alone would leave up to a 5s stale window, the reset
     // signal makes the recovery immediate.
     ctx.on('connection/reset', () => { mail.refresh() })
-    ctx.slots.inject('main', () => ctx.slots.register({
-      name: 'main',
-      key: PANEL_ID,
-      locale: NS,
-      inject: (): MailPanelInjected => ({
-        hooks: { mail: mail.source },
-        onRefresh: mail.refresh,
-        onMark: mail.mark,
-      }),
-    }, MailPanel))
+    ctx.slots.inject('main', () => {
+      diag.push('main register invoked')
+      try {
+        const registration = ctx.slots.register({
+          name: 'main',
+          key: PANEL_ID,
+          locale: NS,
+          inject: (): MailPanelInjected => ({
+            hooks: { mail: mail.source },
+            onRefresh: mail.refresh,
+            onMark: mail.mark,
+          }),
+        }, MailPanel)
+        diag.push('main register ok: ' + typeof registration)
+        return registration
+      } catch (error) {
+        diag.push('main register THREW: ' + String(error))
+        throw error
+      }
+    })
+    diag.push('entries(main) keys: ' + JSON.stringify(ctx.slots.entries('main').map((entry: { options: { key?: string } }) => entry.options.key)))
     ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
       name: 'sidebar.panellist',
       id: PANEL_ID,
@@ -100,7 +123,7 @@ const PanelPlugin = {
       label: () => t('panel'),
     }, MailPanelIcon))
   },
-} as const
+})
 
 /**
  * Mount the Remote namespace, then start the inner panel plugin that waits on
@@ -111,7 +134,7 @@ const PanelPlugin = {
  */
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
   const unmount = await ctx.remote.$mount(mailRemote)
-  const panel = ctx.plugin(PanelPlugin)
+  const panel = ctx.plugin(PanelPlugin({ sessions: undefined as unknown as ISessions, navigate: (): void => {} }))
   await panel
   return async () => {
     await panel.dispose()
@@ -127,6 +150,34 @@ function MailPanelIcon() {
       <path d="M2.5 4.5 8 8.5l5.5-4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
   )
+}
+
+/**
+ * Navigate the shell to one session, by its id. The session directory may
+ * not have loaded yet (or the session may be gone), so one refresh is tried
+ * before giving up quietly — a dead link in a notification never earns an
+ * error dialog.
+ *
+ * 把外壳导航到某个会话。会话目录可能尚未加载（或会话已删），因此先刷新一次再放弃——
+ * 通知里的死链接不配得到一个报错弹窗。
+ *
+ * @param sessions - the sessions data service / 会话数据服务
+ * @param navigate - the shell's session-open action / 外壳的打开会话动作
+ * @param sessionId - the session to open / 要打开的会话
+ */
+async function openSourceSession(
+  sessions: ISessions,
+  navigate: (target: SessionId) => void,
+  sessionId: string,
+): Promise<void> {
+  const id = sessionId as SessionId
+  let known = sessions.list.getSnapshot().byId[id]
+  if (known === undefined) {
+    await sessions.refresh()
+    known = sessions.list.getSnapshot().byId[id]
+  }
+  if (known === undefined) return
+  navigate(id)
 }
 
 /** Marker attribute so a re-activation replaces its own sheet rather than stacking. */

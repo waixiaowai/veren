@@ -26,12 +26,18 @@ const CONV_ARITY: Readonly<Record<string, number>> = {
 
 const IM_ARITY: Readonly<Record<string, number>> = {
   catalog: 1,
+  // Zero arguments on the host: the roster takes no request.
+  // 宿主侧零参数：名册不需要请求体。
+  participants: 0,
   beginBind: 1,
   pollBind: 1,
   submitBindCode: 1,
   unbindAccount: 1,
   people: 1,
   renamePerson: 1,
+  createPerson: 1,
+  updatePerson: 1,
+  deletePerson: 1,
   intakeStatus: 1,
 }
 

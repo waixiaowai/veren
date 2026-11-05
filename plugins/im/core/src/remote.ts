@@ -22,15 +22,16 @@ import { readFile } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { getOrThrow } from '@veren/core'
-import type { ImBindChallenge, ImProvider } from './contract.ts'
+import type { ImBindChallenge, ImPersonContact, ImProvider } from './contract.ts'
 import { ImError } from './contract-errors.ts'
 import { ImRegistry, ImToken } from './contract-registry.ts'
 import { ImBindings, ImBindingsToken } from './bindings.ts'
 import { unbindAccount } from './accounts.ts'
 import { ImIntakeToken } from './intake.ts'
 import type { ImStrangerIntake } from './intake.ts'
-import { ImPeopleToken } from './people.ts'
-import type { ImPeople } from './people.ts'
+import { ImPeopleToken, MAX_PERSON_LIMIT } from './people.ts'
+import { ImParticipantsToken } from './participants.ts'
+import type { ImPeople, ImPersonSaveRequest } from './people.ts'
 import type { ImCredentialStore, ImLogger } from './runtime-seams.ts'
 import { ImCredentialToken, ImLoggerToken } from './runtime-seams.ts'
 
@@ -61,14 +62,31 @@ export class ImRemoteService extends TypertRemoteService {
     this.logger = getOrThrow(ctx, ImLoggerToken)
   }
 
-  /** One snapshot for the panel: accounts, people, intake. */
+  /**
+   * One snapshot for the panel: accounts, people, intake. The address book
+   * renders from this read, so it returns the directory's full ceiling rather
+   * than the listing default.
+   * 面板的唯一快照：账号、人员、采集。通讯录就靠这一次读取渲染，因此返回目录上限而不是列表默认值。
+   */
   @Remote('catalog')
   async catalog(request: { readonly intakeLimit?: number }) {
     return {
       accounts: await this.bindings.listAccounts(),
-      people: this.people.list(),
+      people: this.people.list({ limit: MAX_PERSON_LIMIT }),
       intake: this.intake.status(request?.intakeLimit ?? 10),
     }
+  }
+
+  /**
+   * The participant roster: the owner, the default agent, and every preset the
+   * deployment declares. The panel renders agent cards from this list, so an
+   * agent appears even before it has joined a room.
+   * 参与者名册：所有者、默认智能体，以及部署声明的每个 preset。面板据此渲染智能体卡片，
+   * 因此一个还没进过任何房间的智能体也会出现。
+   */
+  @Remote('participants')
+  async participants() {
+    return { participants: getOrThrow(this.ctx, ImParticipantsToken).list() }
   }
 
   /**
@@ -141,10 +159,64 @@ export class ImRemoteService extends TypertRemoteService {
     }
   }
 
+  /**
+   * Create one address-book contact from a profile alone. The contact has no
+   * provider address yet, so it cannot receive messages until one is attached;
+   * that is exactly what a manually entered contact is.
+   * 仅凭档案创建一个通讯录联系人。此人暂无 provider 地址，附上地址前不能收消息——手工录入的
+   * 联系人本来就是这样。
+   */
+  @Remote('createPerson')
+  async createPerson(request: ImPersonProfileRequest) {
+    return { person: await this.people.save(profileOf(request)) }
+  }
+
+  /** Update one person's profile fields; undefined fields stay untouched. */
+  @Remote('updatePerson')
+  async updatePerson(request: ImPersonProfileRequest & { readonly personId: string }) {
+    return {
+      person: await this.people.save({ personId: request.personId, ...profileOf(request) }),
+    }
+  }
+
+  /** Remove one person with their addresses and intake record. */
+  @Remote('deletePerson')
+  async deletePerson(request: { readonly personId: string }) {
+    await this.people.remove(request.personId)
+    return { deleted: request.personId }
+  }
+
   /** Read the stranger-intake switch, counts, and recent audit records. */
   @Remote('intakeStatus')
   async intakeStatus(request: { readonly limit?: number }) {
     return { intake: this.intake.status(request?.limit ?? 20) }
+  }
+}
+
+/** The editable profile fields of one person, as the panel sends them. */
+/** 面板提交的一位人员的可编辑档案字段。 */
+export interface ImPersonProfileRequest {
+  readonly displayName?: string
+  readonly realName?: string
+  readonly aliases?: string[]
+  readonly contacts?: ImPersonContact[]
+  readonly bio?: string
+  readonly notes?: string
+}
+
+/**
+ * Project the panel's profile fields onto a save request; absent fields stay
+ * absent so an update never clears what the caller did not mention.
+ * 把面板的档案字段投影成保存请求；缺省字段保持缺省，更新永不误清调用方没提到的值。
+ */
+function profileOf(request: ImPersonProfileRequest): ImPersonSaveRequest {
+  return {
+    ...(request.displayName === undefined ? {} : { displayName: request.displayName }),
+    ...(request.realName === undefined ? {} : { realName: request.realName }),
+    ...(request.aliases === undefined ? {} : { aliases: request.aliases }),
+    ...(request.contacts === undefined ? {} : { contacts: request.contacts }),
+    ...(request.bio === undefined ? {} : { bio: request.bio }),
+    ...(request.notes === undefined ? {} : { notes: request.notes }),
   }
 }
 

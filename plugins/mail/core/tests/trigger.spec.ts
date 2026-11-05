@@ -245,6 +245,37 @@ describe('mail trigger chain', () => {
       expect.objectContaining({ code: 'MAIL_TRIGGER_TRANSACTION_CONFLICT' }),
     )
   })
+
+  it('carries the source session onto the message when the caller names one', async () => {
+    const domain = fakeDomain()
+    const store = fakeStore(domain)
+    store.putWorkflow(workflowFixture())
+    store.putSubscriber(subscriberFixture())
+    const mail = service(domain)
+    const result = await mail.trigger({
+      name: 'order-paid',
+      payload: { orderId: 'o-1' },
+      to: [{ kind: 'subscriber', subscriberId: 'user-1' }],
+      sourceSessionId: 'sess-1',
+    })
+    expect(result.acceptance).toBe('PROCESSED')
+    expect(store.getRun(store.runs()[0]!.runId)?.sourceSessionId).toBe('sess-1')
+    expect(store.messages()[0]?.sourceSessionId).toBe('sess-1')
+  })
+
+  it('leaves the source session absent when the caller gives none', async () => {
+    const domain = fakeDomain()
+    const store = fakeStore(domain)
+    store.putWorkflow(workflowFixture())
+    store.putSubscriber(subscriberFixture())
+    const mail = service(domain)
+    await mail.trigger({
+      name: 'order-paid',
+      payload: { orderId: 'o-1' },
+      to: [{ kind: 'subscriber', subscriberId: 'user-1' }],
+    })
+    expect(store.messages()[0]?.sourceSessionId).toBeUndefined()
+  })
 })
 
 describe('mail job claiming', () => {

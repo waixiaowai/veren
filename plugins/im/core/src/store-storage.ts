@@ -129,6 +129,13 @@ export class ImStorage {
     }
   }
 
+  async deletePersonAddressesOfPerson(personId: string): Promise<void> {
+    const table = this.table('person_addresses')
+    for (const [key, row] of [...table.entries()]) {
+      if (row.person_id === personId) await table.delete(key)
+    }
+  }
+
   getIntake(personId: string): ImPersonIntakeRow | undefined {
     return this.table('person_intakes').get(personId)
   }
