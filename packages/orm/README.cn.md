@@ -253,6 +253,11 @@ await ctx.verenOrm.transaction(async (manager) => { /* ... */ })
 插件注册 `ctx.verenOrm`，并把数据源生命周期挂到当前 fiber：卸载即销毁数据源、
 释放全部连接。
 
+文件式 Cordis Loader 条目请传声明式 `options`，不要传活的 `dataSource` 实例：
+Loader 配置会做插值/序列化，而 `DataSource` 含有循环的运行时对象，无法往返。
+实体类是值而不是 YAML，需要在宿主里先 import/注册，或者用 `ctx.plugin` 以代码
+方式组合并直接传 `dataSource`。
+
 ### Hono
 
 ```ts
@@ -319,15 +324,24 @@ const dataSource = new DataSource({ type: 'my-db', /* ... */ })
 - 多对多关系暂不支持手动 `innerJoin` / `leftJoin`，请用 `relations` 装载。
 - `schemaLog` 只比较表是否存在、补缺失列；不会删除列或索引。
 - 暂无 CLI 包与查询结果缓存。
-- PostgreSQL 与 MySQL 的 SQL 生成有单测；真实数据库用例为可选，不在默认测试套件里。
+- PostgreSQL 与 MySQL 的 SQL 生成有单测；真实数据库用例为可选（`pnpm test:e2e`
+  配 `ORM_POSTGRES_URL` / `ORM_MYSQL_URL`），无凭据时自动跳过。
 
 ## 脚本
 
 ```bash
 pnpm build       # tsc → dist
-pnpm test        # vitest
+pnpm test        # vitest 单测 + 进程内集成（SQLite、Hono、Express、Cordis Loader）
+pnpm test:e2e    # 真实数据库；无凭据的用例自动跳过
 pnpm coverage    # vitest + V8 覆盖率（HTML 在 coverage/）
 pnpm typecheck   # tsc --noEmit
+```
+
+PostgreSQL/MySQL 真库用例读取 `ORM_POSTGRES_URL` 与 `ORM_MYSQL_URL`：
+
+```bash
+ORM_POSTGRES_URL=postgres://user:pass@127.0.0.1:5432/db pnpm test:e2e
+ORM_MYSQL_URL=mysql://user:pass@127.0.0.1:3306/db pnpm test:e2e
 ```
 
 ## 许可证

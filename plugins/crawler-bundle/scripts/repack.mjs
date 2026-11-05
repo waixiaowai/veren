@@ -37,21 +37,32 @@ if (destination === undefined) throw new Error('usage: node scripts/repack.mjs <
 const manifest = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8'))
 const version = manifest.version
 const tarball = join(destination, `${manifest.name.replace('@', '').replace('/', '-')}-${version}.tgz`)
+// GNU tar on Windows reads a drive letter as a remote host: tar operations
+// use the (relative) destination as passed, while the file: entries carry
+// the absolute path, because pnpm resolves a relative file: spec against
+// the dependent's location (the profile), not the caller's.
+// Windows 的 GNU tar 把盘符当成远程主机名：tar 操作用调用方传入的（相对）
+// 目标目录，而 file: 条目写绝对路径——pnpm 解析相对 file: 规格时以依赖方
+// （profile）为基准，而不是调用方。
+const absoluteDestination = resolve(destination)
 
 /** The member dependency names this bundle rewrites, in declaration order. */
 const members = Object.keys(manifest.dependencies ?? {})
 
 /**
  * Resolve one member's tarball in the destination: an exact name-version hit
- * wins, the unique-prefix match is the fallback.
+ * wins, the unique-prefix match is the fallback. The returned path stays in
+ * the caller's (relative) form — tar-safe; entries build their own absolute
+ * form from it.
  * 在目标目录解析成员 tarball：精确「名-版本」命中优先，唯一前缀匹配兜底。
+ * 返回路径保持调用方的（相对）形态——tar 安全；file: 条目由它自行拼绝对路径。
  */
 function memberTarballOf(member) {
   const prefix = `${member.replace('@', '').replace('/', '-')}-`
   const tarballs = readdirSync(destination).filter((name) => name.startsWith(prefix) && name.endsWith('.tgz'))
   const exact = tarballs.find((name) => name === `${prefix}${version}.tgz`)
-  if (exact !== undefined) return join(destination, exact)
-  if (tarballs.length === 1) return join(destination, tarballs[0])
+  if (exact !== undefined) return exact
+  if (tarballs.length === 1) return tarballs[0]
   throw new Error(`cannot resolve member tarball for ${member} in ${destination}`)
 }
 
@@ -69,7 +80,8 @@ try {
   let rewritten = 0
   for (const member of members) {
     try {
-      packaged.dependencies[member] = `file:${memberTarballOf(member).replaceAll('\\', '/')}`
+      const name = memberTarballOf(member)
+      packaged.dependencies[member] = `file:${join(absoluteDestination, name).replaceAll('\\', '/')}`
       rewritten += 1
     } catch {
       // 该成员没有本地 tarball；保留 registry 规格 / no local tarball; keep the registry spec

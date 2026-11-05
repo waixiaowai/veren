@@ -25,7 +25,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { ImError } from '@veren/im'
-import type { ListInput, Message, PostGate, PostInput, PostResult } from './types.ts'
+import type { ListInput, Message, PostGate, PostInput, PostResult, Room } from './types.ts'
 import { messageOf, roomOf } from './rows.ts'
 import type { MessageRow } from './rows.ts'
 import type { ConvStorage } from './store.ts'
@@ -46,6 +46,16 @@ export interface PostServiceOptions {
   readonly rooms: RoomService
   readonly now?: () => number
   readonly newId?: () => string
+  /**
+   * Called after a fresh commit, never for a replay. The plugin wires this to
+   * `ctx.emit('im/message-new')`, so every write path — channel ingest, the
+   * model's `im_send`, and the web composer — feeds the same wake fan-out.
+   * Throwing here never rolls the fact back: the row is already durable.
+   * 新提交后调用，回放不调用。插件把它接到 `ctx.emit('im/message-new')`，因此每条写入
+   * 路径——渠道吸收、模型的 `im_send`、Web 输入区——都汇入同一个唤醒扇出。这里抛错不会
+   * 回滚事实：行已经持久。
+   */
+  readonly committed?: (payload: { readonly room: Room; readonly message: Message }) => void
 }
 
 /** The write half of the conversation service. */
@@ -96,7 +106,26 @@ export class PostService {
     }
     await this.options.store.putMessage(row)
     await this.rememberClientId(input, row.id)
-    return { message: messageOf(row), replayed: false }
+    const message = messageOf(row)
+    this.announce(input.roomId, message)
+    return { message, replayed: false }
+  }
+
+  /**
+   * Hand one fresh commit to the family bus. Delivery is best effort: the row
+   * is already durable, so a throwing listener must not fail the write.
+   * 把一次新提交交给家族总线。投递尽力而为：行已持久，监听者抛错不得让写入失败。
+   */
+  private announce(roomId: string, message: Message): void {
+    const room = this.options.rooms.room(roomId)
+    if (room === undefined || this.options.committed === undefined) return
+    try {
+      this.options.committed({ room, message })
+    } catch {
+      // 通知失败不回滚事实：写链已提交，重连的客户端会按拉取对账。
+      // A failed notification never rolls the fact back: the chain committed and
+      // reconnecting clients reconcile by pulling.
+    }
   }
 
   /**

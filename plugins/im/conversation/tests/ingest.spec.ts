@@ -70,11 +70,16 @@ function build(options: { channelAgentPreset?: string } = {}) {
   store.attach(new MemoryTables())
   const people = new ImPeople({ store: new PersonMemory(), logger: silent })
   const rooms = new RoomService({ store, now: () => clock })
-  const post = new PostService({ store, rooms, now: () => clock, newId: () => `msg-${++counter}` })
   const seen: ImMessageNew[] = []
   ctx.on('im/message-new', payload => seen.push(payload))
+  const post = new PostService({
+    store,
+    rooms,
+    now: () => clock,
+    newId: () => `msg-${++counter}`,
+    committed: ({ room, message }) => { ctx.emit('im/message-new', { room, message }) },
+  })
   const ingest = new Ingest({
-    ctx,
     people,
     rooms,
     post,

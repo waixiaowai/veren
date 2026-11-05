@@ -265,6 +265,13 @@ await ctx.verenOrm.transaction(async (manager) => { /* ... */ })
 The plugin registers `ctx.verenOrm` and binds the data source lifecycle to the
 fiber: unloading destroys the data source and releases every connection.
 
+For file-backed Cordis Loader entries, pass declarative `options` rather than a
+live `dataSource` instance. Loader config is interpolated/serialized; a
+`DataSource` contains cyclic runtime objects and cannot round-trip. Entity
+classes are values, not YAML, so import/register them in the host before the
+entry loads, or compose programmatically with `ctx.plugin` and pass a ready
+`dataSource`.
+
 ### Hono
 
 ```ts
@@ -339,15 +346,24 @@ or inject a custom `Logger`.
   columns or indexes.
 - No CLI package and no query-result cache yet.
 - PostgreSQL and MySQL SQL generation is unit-tested; live-database tests are
-  opt-in and not part of the default suite.
+  opt-in (`pnpm test:e2e` with `ORM_POSTGRES_URL` / `ORM_MYSQL_URL`) and skip
+  themselves when no credentials are configured.
 
 ## Scripts
 
 ```bash
 pnpm build       # tsc → dist
-pnpm test        # vitest
+pnpm test        # vitest unit + in-process integration (SQLite, Hono, Express, Cordis Loader)
+pnpm test:e2e    # live databases; skips cases without credentials
 pnpm coverage    # vitest + V8 coverage (HTML in coverage/)
 pnpm typecheck   # tsc --noEmit
+```
+
+Live PostgreSQL/MySQL cases read `ORM_POSTGRES_URL` and `ORM_MYSQL_URL`:
+
+```bash
+ORM_POSTGRES_URL=postgres://user:pass@127.0.0.1:5432/db pnpm test:e2e
+ORM_MYSQL_URL=mysql://user:pass@127.0.0.1:3306/db pnpm test:e2e
 ```
 
 ## License

@@ -82,7 +82,6 @@ type IngestConfig = Pick<Config, 'channelAgentPreset'>
  */
 function wireIngest(ctx: Context, config: IngestConfig, rooms: RoomService, post: PostService): void {
   const ingest = new Ingest({
-    ctx,
     people: ctx.imPeople,
     rooms,
     post,
@@ -105,7 +104,16 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   ctx.effect(() => () => storage.close(), 'im-conversation:storage')
 
   const rooms = new RoomService({ store: storage })
-  const post = new PostService({ store: storage, rooms })
+  // 每条写入路径（渠道吸收、im_send、Web 输入区）都在提交后发出同一个事件：唤醒扇出与
+  // 面板刷新只认这一个事实来源。
+  // Every write path — channel ingest, im_send, the web composer — announces the
+  // same fact after commit: the wake fan-out and the panel refresh have exactly
+  // one source.
+  const post = new PostService({
+    store: storage,
+    rooms,
+    committed: ({ room, message }) => { ctx.emit('im/message-new', { room, message }) },
+  })
   const reads = new ReadService({ store: storage })
   const facade = new ConversationFacade(rooms, post, reads)
   ctx.effect(() => ctx.provide(ConversationToken, facade), 'im-conversation:service')

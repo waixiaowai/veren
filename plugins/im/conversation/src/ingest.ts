@@ -18,7 +18,6 @@
  * @module @veren/im-conversation/ingest
  */
 
-import type { Context } from '@deepseek-ai/cordis'
 import {
   DEFAULT_AGENT_PARTICIPANT_ID,
   ImError,
@@ -29,15 +28,12 @@ import {
 } from '@veren/im'
 import type { ImPeople, ImMessage } from '@veren/im'
 import type { ImMessageObserved } from '@veren/im'
-import type { Message } from './types.ts'
 import type { PostService } from './post.ts'
 import type { RoomService } from './rooms.ts'
-import type { ImMessageNew } from './events.ts'
 
 /** Options for the ingest; everything arrives by injection. */
 /** 吸收的选项；一切都走注入。 */
 export interface IngestOptions {
-  readonly ctx: Context
   readonly people: ImPeople
   readonly rooms: RoomService
   readonly post: PostService
@@ -67,11 +63,11 @@ export class Ingest {
   }
 
   /**
-   * Ingest one observation: seat the room, post the message durably, and
-   * emit `im/message-new` only for a fresh commit (replays stay silent — the
-   * first commit already announced the fact).
-   * 吸收一条观察：安排房间座位、持久写入消息，并且只为新提交发出 `im/message-new`
-   * （回放保持沉默——首次提交已经宣告过事实）。
+   * Ingest one observation: seat the room, then post the message durably. The
+   * post service announces `im/message-new` for a fresh commit only, so a
+   * provider redelivery stays silent without a second emission here.
+   * 吸收一条观察：安排房间座位，然后持久写入消息。只有新提交由写入服务发出
+   * `im/message-new`，因此 provider 重投自然保持沉默，这里无需再发一次。
    */
   async observe(payload: ImMessageObserved): Promise<void> {
     const { providerId, message } = payload
@@ -81,27 +77,18 @@ export class Ingest {
     }
     const roomId = channelRoomId(providerId, message.accountId, message.conversationId)
     const senderId = humanParticipantId(person.id)
-    const room = await this.options.rooms.ensureChannelRoom({
+    await this.options.rooms.ensureChannelRoom({
       roomId,
       title: person.displayName,
       memberIds: [senderId, this.agentId],
     })
-    const result = await this.options.post.post({
+    await this.options.post.post({
       roomId,
       actorId: senderId,
       kind: 'text',
       body: bodyOf(message),
       clientId: message.id,
     })
-    if (result.replayed) return
-    this.emitNew(room, result.message)
-  }
-
-  /** Emit the committed fact to the family bus. */
-  /** 把已提交的事实发上家族总线。 */
-  private emitNew(room: import('./types.ts').Room, message: Message): void {
-    const payload: ImMessageNew = { room, message }
-    this.options.ctx.emit('im/message-new', payload)
   }
 }
 
