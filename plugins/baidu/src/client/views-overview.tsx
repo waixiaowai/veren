@@ -94,30 +94,42 @@ function AuthGuideCard(props: {
         <HintBar text={t('signInNotice')} />
         {props.wizard.start === undefined
           ? <button type="button" className="bdp-button bdp-button-primary" disabled={props.wizard.submitting} onClick={props.onBegin}>{t('signInAction')}</button>
-          : (
-            <>
-              <p className="bdp-form-label">{t('signInStepOpen')}</p>
-              <div className="bdp-card-link">
-                <a className="bdp-link" href={props.wizard.start.url} target="_blank" rel="noreferrer noopener">{t('signInOpenAuthorize')}</a>
-              </div>
-              <p className="bdp-form-label">{t('signInStepPaste')}</p>
-              <div className="bdp-form-row">
-                <input className="bdp-input" type="password" autoComplete="off" placeholder={t('signInCodePlaceholder')}
-                  value={props.wizard.code} onChange={event => { props.onCodeChange(event.target.value) }} />
-                <button type="button" className="bdp-button bdp-button-primary" disabled={props.wizard.submitting || props.wizard.code.trim().length === 0}
-                  onClick={props.onSubmit}>
-                  {props.wizard.submitting ? t('signInSubmitting') : t('signInSubmit')}
-                </button>
-                <button type="button" className="bdp-button" onClick={props.onCancel}>{t('cancel')}</button>
-              </div>
-            </>
-          )}
+          : <AuthorizeSteps wizard={props.wizard} t={t} onSubmit={props.onSubmit} onCodeChange={props.onCodeChange} onCancel={props.onCancel} />}
         {props.wizard.failure === undefined
           ? null
           : <ErrorBlock title={t('errorTitle')} reason={props.wizard.failure.message} code={props.wizard.failure.code}
             retryable={props.wizard.failure.retryable} retryLabel={t('retry')} onRetry={props.onBegin} />}
       </div>
     </section>
+  )
+}
+
+/** 授权两步：打开授权页 → 粘贴授权码（授权码输入不回显）。The two authorize steps: open the page → paste the code (the code input never echoes). */
+function AuthorizeSteps(props: {
+  readonly wizard: SignInWizard
+  readonly t: (key: BaiduKey) => string
+  readonly onSubmit: () => void
+  readonly onCodeChange: (code: string) => void
+  readonly onCancel: () => void
+}): JSX.Element {
+  const t = props.t
+  return (
+    <>
+      <p className="bdp-form-label">{t('signInStepOpen')}</p>
+      <div className="bdp-card-link">
+        <a className="bdp-link" href={props.wizard.start?.url} target="_blank" rel="noreferrer noopener">{t('signInOpenAuthorize')}</a>
+      </div>
+      <p className="bdp-form-label">{t('signInStepPaste')}</p>
+      <div className="bdp-form-row">
+        <input className="bdp-input" type="password" autoComplete="off" placeholder={t('signInCodePlaceholder')}
+          value={props.wizard.code} onChange={event => { props.onCodeChange(event.target.value) }} />
+        <button type="button" className="bdp-button bdp-button-primary" disabled={props.wizard.submitting || props.wizard.code.trim().length === 0}
+          onClick={props.onSubmit}>
+          {props.wizard.submitting ? t('signInSubmitting') : t('signInSubmit')}
+        </button>
+        <button type="button" className="bdp-button" onClick={props.onCancel}>{t('cancel')}</button>
+      </div>
+    </>
   )
 }
 

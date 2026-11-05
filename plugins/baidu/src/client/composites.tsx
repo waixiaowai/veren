@@ -141,18 +141,11 @@ export function ConfirmDialog(props: {
     globalThis.addEventListener('keydown', onKey)
     return () => { globalThis.removeEventListener('keydown', onKey) }
   }, [props])
-  const visible = props.objects.slice(0, 8)
-  const hidden = props.objects.length - visible.length
   return (
     <div className="bdp-dialog-backdrop" role="presentation">
       <div className="bdp-dialog" role="alertdialog" aria-modal="true" aria-label={props.question}>
         <p className="bdp-dialog-question">{props.question}</p>
-        <ul className="bdp-dialog-objects">
-          {visible.map(object => (
-            <li key={object.text}><span className="bdp-muted">{`[${object.kind}]`}</span> {object.text}</li>
-          ))}
-        </ul>
-        {hidden > 0 ? <p className="bdp-muted">{`+${String(hidden)}`}</p> : null}
+        <ObjectList objects={props.objects} />
         <p className="bdp-dialog-consequence">{props.consequence}</p>
         <div className="bdp-dialog-actions">
           <button type="button" ref={cancelRef} className="bdp-button" disabled={props.busy === true} onClick={props.onCancel}>
@@ -164,5 +157,21 @@ export function ConfirmDialog(props: {
         </div>
       </div>
     </div>
+  )
+}
+
+/** 对象清单：最多 8 行，其余折叠计数（设计 §11.6）。The object list: at most 8 rows, the rest folded into a count (design §11.6). */
+function ObjectList(props: { readonly objects: readonly { readonly text: string; readonly kind: string }[] }): JSX.Element {
+  const visible = props.objects.slice(0, 8)
+  const hidden = props.objects.length - visible.length
+  return (
+    <>
+      <ul className="bdp-dialog-objects">
+        {visible.map(object => (
+          <li key={object.text}><span className="bdp-muted">{`[${object.kind}]`}</span> {object.text}</li>
+        ))}
+      </ul>
+      {hidden > 0 ? <p className="bdp-muted">{`+${String(hidden)}`}</p> : null}
+    </>
   )
 }

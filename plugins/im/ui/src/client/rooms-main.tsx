@@ -81,10 +81,13 @@ export function RoomsMain(props: RoomsMainProps): React.JSX.Element {
 /** The message list with the pinning rule and the jump-to-latest pill. */
 function Timeline(props: RoomsMainProps): React.JSX.Element {
   const { state, t } = props
-  // 工作行也算新内容：它出现时读者若贴底，应当跟着滚到底。
-  // A working row is new content too: a reader at the bottom follows it.
+  // 工作行也算新内容：它出现时读者若贴底，应当跟着滚到底。用「消息数:工作行数」作签名，
+  // 工作行被回复替换时签名仍会变化，回复因此一定会滚进视野。
+  // A working row is new content too: a reader at the bottom follows it. The
+  // signature carries both counts, so replacing the row with its reply still
+  // changes it and the reply scrolls into view.
   const working = visibleActivities(props.activities, state.messages, state.openRoomId)
-  const stick = useStickToBottom(state.messages.length + working.length)
+  const stick = useStickToBottom(`${state.messages.length}:${working.length}`)
   return (
     <div className="im-timeline-wrap">
       <ol className="im-timeline" role="list" ref={stick.ref}>

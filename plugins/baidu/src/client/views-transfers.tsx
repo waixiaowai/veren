@@ -49,33 +49,9 @@ function receiptLine(job: TransferJobSnapshot): string | undefined {
 /** 传输页签。The transfers tab. */
 export function TransfersView(props: BaiduBodyProps): JSX.Element {
   const { state, t, actions } = props
-  const [remote, setRemote] = useState('')
-  const [local, setLocal] = useState('')
-  const [starting, setStarting] = useState(false)
-  const startDownload = async (): Promise<void> => {
-    setStarting(true)
-    await actions.onStartDownload(remote.trim(), local.trim())
-    setStarting(false)
-    setRemote('')
-    setLocal('')
-    actions.onRefreshJobs()
-  }
   return (
     <div className="bdp-transfers">
-      <section className="bdp-card">
-        <div className="bdp-card-head"><span className="bdp-card-title">{t('downloadFormTitle')}</span></div>
-        <div className="bdp-card-body">
-          <div className="bdp-form-row">
-            <input className="bdp-input" placeholder={t('entryDownload')} value={remote}
-              onChange={event => { setRemote(event.target.value) }} />
-            <input className="bdp-input" placeholder={t('downloadLocalPlaceholder')} value={local}
-              onChange={event => { setLocal(event.target.value) }} />
-            <button type="button" className="bdp-button bdp-button-primary" disabled={starting || remote.trim().length === 0 || local.trim().length === 0}
-              onClick={() => { void startDownload() }}>{t('downloadSubmit')}</button>
-          </div>
-          <HintBar text={t('transfersHint')} />
-        </div>
-      </section>
+      <DownloadForm t={t} actions={actions} />
       <div className="bdp-transfers-head">
         <span className="bdp-card-title">{t('transfersTitle')}</span>
         <button type="button" className="bdp-button" onClick={actions.onRefreshJobs}>{t('transfersRefresh')}</button>
@@ -90,5 +66,40 @@ export function TransfersView(props: BaiduBodyProps): JSX.Element {
             elapsedSeconds={elapsedOf(job)} waitingHint={t('jobWaitingRemote')} />
         ))}
     </div>
+  )
+}
+
+/** 下载表单：远端路径 → 本地绝对路径；受理后刷新任务列表。The download form: a remote path → an absolute local path; acceptance refreshes the job list. */
+function DownloadForm(props: {
+  readonly t: (key: BaiduKey) => string
+  readonly actions: BaiduBodyProps['actions']
+}): JSX.Element {
+  const t = props.t
+  const [remote, setRemote] = useState('')
+  const [local, setLocal] = useState('')
+  const [starting, setStarting] = useState(false)
+  const startDownload = async (): Promise<void> => {
+    setStarting(true)
+    await props.actions.onStartDownload(remote.trim(), local.trim())
+    setStarting(false)
+    setRemote('')
+    setLocal('')
+    props.actions.onRefreshJobs()
+  }
+  return (
+    <section className="bdp-card">
+      <div className="bdp-card-head"><span className="bdp-card-title">{t('downloadFormTitle')}</span></div>
+      <div className="bdp-card-body">
+        <div className="bdp-form-row">
+          <input className="bdp-input" placeholder={t('entryDownload')} value={remote}
+            onChange={event => { setRemote(event.target.value) }} />
+          <input className="bdp-input" placeholder={t('downloadLocalPlaceholder')} value={local}
+            onChange={event => { setLocal(event.target.value) }} />
+          <button type="button" className="bdp-button bdp-button-primary" disabled={starting || remote.trim().length === 0 || local.trim().length === 0}
+            onClick={() => { void startDownload() }}>{t('downloadSubmit')}</button>
+        </div>
+        <HintBar text={t('transfersHint')} />
+      </div>
+    </section>
   )
 }

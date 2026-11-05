@@ -30,7 +30,7 @@ export interface StickToBottom {
  * @param signature - a value that changes whenever new content arrives.
  * @returns the element ref, the pinned flag, and the jump callback.
  */
-export function useStickToBottom(signature: number): StickToBottom {
+export function useStickToBottom(signature: string | number): StickToBottom {
   const ref = useRef<HTMLOListElement | null>(null)
   const pinnedRef = useRef(true)
   const [pinned, setPinned] = useState(true)

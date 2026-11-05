@@ -20,7 +20,7 @@
  * @module @veren/im-ui/client/panel
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ActivitySnapshot } from './activity-source.ts'
 import type { ImKey } from './locales.ts'
@@ -150,6 +150,14 @@ function RoomsBody(props: ImBodyProps & RoomsBodyProps) {
   // Live turns bind only here: the working row follows the open room, and no
   // other tab needs it.
   const activity = props.rooms.useActivity((snapshot: ActivitySnapshot) => snapshot)
+  // 最后一个回合落定时立刻重读时间线：工作行消失与回复上屏之间不该隔着下一轮五秒轮询。
+  // Re-read the timeline the moment the last turn settles: the working row's
+  // exit and its reply must not be separated by the next five-second poll.
+  const previousRuns = useRef(0)
+  useEffect(() => {
+    if (previousRuns.current > 0 && activity.runs.length === 0) props.rooms.onRoomsRefresh()
+    previousRuns.current = activity.runs.length
+  }, [activity.runs.length, props.rooms])
   return (
     <RoomsView
       state={state}

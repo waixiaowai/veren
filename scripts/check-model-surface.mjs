@@ -60,8 +60,10 @@ export const BUDGETS = {
  * apps and the like); a reason comment is required.
  */
 const PAGE_MAP_EXEMPT = new Map([
-  // （空）当前五应用都 ≥2 页，每页都出现在兄弟页 map 里
-  // (empty) all five apps currently have ≥2 pages, so every page maps somewhere
+  // crawler 是单页应用：总览即控制台，无兄弟页可画 map（2026-11-05 单页化）。
+  // crawler is a single-page app: the overview IS the console, so there is no
+  // sibling to map (consolidated 2026-11-05).
+  ['crawler/overview', '单页应用：总览即控制台，无兄弟页可画 map（2026-11-05 单页化）'],
 ])
 
 /**

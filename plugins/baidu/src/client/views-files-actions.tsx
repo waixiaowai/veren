@@ -17,7 +17,7 @@ import { ResultCard } from './composites.tsx'
 import { displayPath, formatBytes } from './format.ts'
 import type { BaiduKey } from './locales.ts'
 import type { ViewFailure } from './panel.tsx'
-import type { FileEntry, ShareReceipt } from './remote.ts'
+import type { FileEntry, JobStartedView, ShareReceipt } from './remote.ts'
 import type { ActionResult } from './source.ts'
 import type { FilesDialog, FormField } from './views-files-dialog.tsx'
 

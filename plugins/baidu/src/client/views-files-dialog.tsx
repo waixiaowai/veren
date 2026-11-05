@@ -62,17 +62,19 @@ function DeleteConfirm(props: {
   )
 }
 
+/** 字段初值表。The fields' initial value map. */
+function initialValues(fields: readonly FormField[]): Record<string, string> {
+  const values: Record<string, string> = {}
+  for (const field of fields) values[field.key] = field.value ?? ''
+  return values
+}
+
 /** 通用表单弹层：字段渲染 + 提交中原地切换文案。The generic form dialog: field rendering plus pending-copy swap in place. */
 function FormDialog(props: {
   readonly dialog: Extract<FilesDialog, { readonly kind: 'form' }>
   readonly onClose: () => void
 }): JSX.Element {
-  const initial = (): Record<string, string> => {
-    const values: Record<string, string> = {}
-    for (const field of props.dialog.fields) values[field.key] = field.value ?? ''
-    return values
-  }
-  const [values, setValues] = useState<Record<string, string>>(initial)
+  const [values, setValues] = useState<Record<string, string>>(() => initialValues(props.dialog.fields))
   const [busy, setBusy] = useState(false)
   const cancelRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -92,21 +94,52 @@ function FormDialog(props: {
     <div className="bdp-dialog-backdrop" role="presentation">
       <div className="bdp-dialog" role="dialog" aria-modal="true" aria-label={props.dialog.title}>
         <p className="bdp-dialog-question">{props.dialog.title}</p>
-        {props.dialog.fields.map(field => (
-          <label key={field.key} className="bdp-form-label">
-            <span>{field.label}</span>
-            <FieldInput field={field} value={values[field.key] ?? ''} busy={busy}
-              onChange={next => { setValues(current => ({ ...current, [field.key]: next })) }} />
-          </label>
-        ))}
-        <div className="bdp-dialog-actions">
-          <button type="button" ref={cancelRef} className="bdp-button" disabled={busy} onClick={props.onClose}>{props.dialog.cancelLabel}</button>
-          <button type="button" className="bdp-button bdp-button-primary" disabled={busy} onClick={() => { void submit() }}>
-            {busy ? props.dialog.busyLabel : props.dialog.confirmLabel}
-          </button>
-        </div>
+        <FormFields fields={props.dialog.fields} values={values} busy={busy} onChange={setValues} />
+        <FormActionsRow cancelRef={cancelRef} busy={busy} cancelLabel={props.dialog.cancelLabel}
+          confirmLabel={props.dialog.confirmLabel} busyLabel={props.dialog.busyLabel}
+          onClose={props.onClose} onSubmit={() => { void submit() }} />
       </div>
     </div>
+  )
+}
+
+/** 表单动作行：取消在左、执行在右，提交中原地切换文案（设计 §11.9）。The form's action row: Cancel left, execute right, pending copy swaps in place (design §11.9). */
+function FormActionsRow(props: {
+  readonly cancelRef: React.RefObject<HTMLButtonElement | null>
+  readonly busy: boolean
+  readonly cancelLabel: string
+  readonly confirmLabel: string
+  readonly busyLabel: string
+  readonly onClose: () => void
+  readonly onSubmit: () => void
+}): JSX.Element {
+  return (
+    <div className="bdp-dialog-actions">
+      <button type="button" ref={props.cancelRef} className="bdp-button" disabled={props.busy} onClick={props.onClose}>{props.cancelLabel}</button>
+      <button type="button" className="bdp-button bdp-button-primary" disabled={props.busy} onClick={props.onSubmit}>
+        {props.busy ? props.busyLabel : props.confirmLabel}
+      </button>
+    </div>
+  )
+}
+
+/** 弹层字段组（标签 + 输入）。The dialog's field group (labels + inputs). */
+function FormFields(props: {
+  readonly fields: readonly FormField[]
+  readonly values: Record<string, string>
+  readonly busy: boolean
+  readonly onChange: (values: Record<string, string>) => void
+}): JSX.Element {
+  return (
+    <>
+      {props.fields.map(field => (
+        <label key={field.key} className="bdp-form-label">
+          <span>{field.label}</span>
+          <FieldInput field={field} value={props.values[field.key] ?? ''} busy={props.busy}
+            onChange={next => { props.onChange({ ...props.values, [field.key]: next }) }} />
+        </label>
+      ))}
+    </>
   )
 }
 

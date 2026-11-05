@@ -174,3 +174,10 @@ declare module '@deepseek-ai/dsh-llm' {
     'forum-autopost': { kind: 'forum-autopost' }
   }
 }
+
+declare module '@deepseek-ai/dsh-llm/types' {
+  interface LlmRequestPurposeMap {
+    /** 一次性论坛草稿请求（不上会话的辅助请求）。 / A one-shot forum drafting request (auxiliary, off-session). */
+    'session-title': true
+  }
+}

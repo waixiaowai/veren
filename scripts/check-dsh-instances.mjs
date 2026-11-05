@@ -124,10 +124,31 @@ function readManifest(dir) {
  *
  * @returns {string[]} absolute dirs / 绝对目录
  */
+/**
+ * pnpm-workspace.yaml 里以 `!` 显式排除的目录（如 plugins/dsh-superagent 这个
+ * 独立安装的 fork）：它们的 node_modules 是各自生态的解析结果，不参与宿主
+ * 单实例判定——排除它们正是 pnpm-workspace.yaml 写下那几行注释的用意。
+ * Directories excluded via `!` entries in pnpm-workspace.yaml (e.g. the
+ * standalone dsh-superagent fork): their node_modules resolve inside their own
+ * ecosystem and must not join the host single-instance verdict — honoring the
+ * exclusions is exactly what those workspace-file comments ask for.
+ */
+function workspaceExcludedDirs() {
+  const file = join(root, 'pnpm-workspace.yaml')
+  if (!existsSync(file)) return new Set()
+  const excluded = new Set()
+  for (const line of readFileSync(file, 'utf8').split(String.fromCharCode(10))) {
+    const match = /^\s*-\s+"?!([^"]+)"\s*$/.exec(line) ?? /^\s*-\s+!([^#\n]+?)\s*(?:#.*)?$/.exec(line)
+    if (match !== null) excluded.add(resolve(root, match[1].trim()))
+  }
+  return excluded
+}
+
 function consumerDirs() {
+  const excluded = workspaceExcludedDirs()
   const dirs = [root]
   for (const base of ['plugins', 'packages', 'apps']) {
-    dirs.push(...packageDirs(join(root, base)))
+    dirs.push(...packageDirs(join(root, base)).filter((dir) => !excluded.has(resolve(dir))))
   }
   return dirs
 }

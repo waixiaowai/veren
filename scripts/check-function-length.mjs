@@ -24,6 +24,7 @@
  */
 
 import { readdir, readFile } from 'node:fs/promises'
+import { existsSync, readFileSync } from 'node:fs'
 import { extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
@@ -33,6 +34,25 @@ const SCAN_GROUPS = ['plugins', 'packages', 'apps']
 
 /** 产物目录名，任何层级出现都整枝跳过 / artifact dir names, pruned wherever they appear */
 const ARTIFACT_DIRS = new Set(['node_modules', 'dist', 'build', 'lib', 'out'])
+
+/**
+ * pnpm-workspace.yaml 以 `!` 显式排除的目录（独立安装的 fork 等）不参与扫描：
+ * 它们的源码归属各自的安装渠道，改动节奏与本仓门禁无关。
+ * Directories excluded via `!` entries in pnpm-workspace.yaml (standalone
+ * forks and the like) are out of scope: their sources belong to their own
+ * install channels and move on their own cadence.
+ */
+function workspaceExcluded() {
+  const file = join(ROOT, 'pnpm-workspace.yaml')
+  const excluded = new Set()
+  if (!existsSync(file)) return excluded
+  const newline = String.fromCharCode(10)
+  for (const line of readFileSync(file, 'utf8').split(newline)) {
+    const match = /^\s*-\s+"?!([^"]+)"\s*$/.exec(line) ?? /^\s*-\s+!([^#\n]+?)\s*(?:#.*)?$/.exec(line)
+    if (match !== null) excluded.add(resolve(ROOT, match[1].trim()))
+  }
+  return excluded
+}
 
 /** 函数体行数上限 / maximum function-body line count */
 export const MAX_FUNCTION_LINES = 30
@@ -141,7 +161,7 @@ export async function scanFile(file) {
  * @param {string} dir - directory to walk / 待遍历目录
  * @returns {Promise<string[]>} source file paths / 源文件路径
  */
-async function sourceFiles(dir) {
+async function sourceFiles(dir, excluded = new Set()) {
   let entries
   try {
     entries = await readdir(dir, { withFileTypes: true })
@@ -153,10 +173,11 @@ async function sourceFiles(dir) {
     const path = join(dir, entry.name)
     if (entry.isDirectory()) {
       if (ARTIFACT_DIRS.has(entry.name)) continue
+      if (excluded.has(path)) continue
       if (entry.name === 'src') {
         files.push(...await collectTsFiles(path))
       } else {
-        files.push(...await sourceFiles(path))
+        files.push(...await sourceFiles(path, excluded))
       }
     }
   }
@@ -193,8 +214,9 @@ async function collectTsFiles(dir) {
 /** 打印超长函数并按命中数决定退出码 / print hits and set the exit code */
 async function main() {
   const failures = []
+  const excluded = workspaceExcluded()
   for (const group of SCAN_GROUPS) {
-    for (const file of await sourceFiles(join(ROOT, group))) {
+    for (const file of await sourceFiles(join(ROOT, group), excluded)) {
       for (const hit of await scanFile(file)) {
         failures.push({ file: relative(ROOT, file), ...hit })
       }

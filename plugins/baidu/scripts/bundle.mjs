@@ -31,7 +31,7 @@ const packageName = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
 /** Harness checkout this package builds against; override with DSH_CHECKOUT.
  *  本包构建所对的 Harness 检出目录；可用 DSH_CHECKOUT 覆盖。 */
-const CHECKOUT = process.env.DSH_CHECKOUT ?? resolve(root, '../../../deepseek/deepseek-harness')
+const CHECKOUT = process.env.DSH_CHECKOUT ?? resolve(root, '../../deepseek/deepseek-harness')
 
 /** Indent the bundled body one level so the envelope stays readable. */
 const indent = text => text.split('\n').map(line => line === '' ? line : `    ${line}`).join('\n')

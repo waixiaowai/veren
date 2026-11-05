@@ -87,7 +87,7 @@ const PanelPlugin = (deps: { sessions: ISessions; navigate: (target: SessionId) 
     // A connection-generation reset (a successful reconnect) re-reads the
     // catalog: polling alone would leave up to a 5s stale window, the reset
     // signal makes the recovery immediate.
-    ctx.on('connection/reset', () => { mail.refresh() })
+    ctx.on('connection/reset', () => { void mail.refresh() })
     ctx.slots.inject('main', () => ctx.slots.register({
       name: 'main',
       key: PANEL_ID,

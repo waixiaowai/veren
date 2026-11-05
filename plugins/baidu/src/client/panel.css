@@ -136,8 +136,8 @@
 .bdp-section-title { font-size: 16px; font-weight: 600; margin: 0; }
 .bdp-section-actions { display: flex; gap: 8px; align-items: center; }
 .bdp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.bdp-table th { text-align: left; border-bottom: 1px solid var(--bdp-border); padding: 6px 8px; color: var(--bdp-muted); font-weight: 600; }
-.bdp-table td { border-bottom: 1px solid var(--bdp-border); padding: 6px 8px; overflow-wrap: anywhere; }
+.bdp-table th { text-align: left; border-bottom: 1px solid var(--bdp-border); padding: 4px 8px; color: var(--bdp-muted); font-weight: 600; }
+.bdp-table td { border-bottom: 1px solid var(--bdp-border); padding: 4px 8px; overflow-wrap: anywhere; }
 .bdp-cell-right { text-align: right; font-variant-numeric: tabular-nums; }
 .bdp-cell-actions { text-align: right; white-space: nowrap; }
 .bdp-col-actions { width: 1%; }

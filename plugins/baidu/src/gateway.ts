@@ -82,8 +82,8 @@ export class BaiduPanGatewayService extends TypertRemoteService {
     return foldOutcome(async () => {
       const code = request.code.trim()
       if (code.length === 0) throw baiduPanError('BDPAN_INVALID_ARG', { detail: 'code is required' })
-      const tokens = await exchangeCodeForTokens(this.world.config, code)
-      await validateTokens(this.world.config, tokens)
+      const tokens = await exchangeCodeForTokens(this.world.config, code, this.world.fetch)
+      await validateTokens(this.world.config, tokens, this.world.fetch)
       await commitTokens(this.world.credentials, tokens)
       return authStateView(this.world)
     })

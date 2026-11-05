@@ -1,12 +1,17 @@
 /**
  * 网关验收：真实 cordis ctx + 真实网关服务 + 假凭据面 + 脚本化 fetch——
  * 登录全链、守门路径、删除凭证恰好集合、领域错误折进业务信封、任务流水线
- * （受理即回执、失败折规范码）。
+ * （受理即回执、失败折规范码）。直调方法只经过一层业务信封（GatewayOutcome
+ * 本身）；载体的 RemoteResult 包裹只在真实远端通路上出现，由 remote-arity
+ * 与真机验收覆盖。
  * Gateway acceptance: a real cordis ctx plus the real gateway service and a
  * fake credential face and a scripted fetch — the full paste-code sign-in,
  * guard paths, the delete voucher's exact set, domain errors folded into the
  * business envelope, and the job pipeline (acceptance answers at once,
- * failures fold into canonical codes).
+ * failures fold into canonical codes). A direct method call sees exactly one
+ * envelope (GatewayOutcome itself); the carrier's RemoteResult wrapper only
+ * exists on the real Remote path, covered by remote-arity and the real-node
+ * acceptance.
  *
  * @module tests/gateway
  */
@@ -53,9 +58,9 @@ describe('auth state and sign-in', () => {
     const { gateway } = gatewayOf(fakeCredentials())
     const state = await gateway.authState()
     expect(state.ok).toBe(true)
-    if (state.ok && state.value.ok) {
-      expect(state.value.value.authorized).toBe(false)
-      expect(state.value.value.root).toBe('/apps/bdpan')
+    if (state.ok) {
+      expect(state.value.authorized).toBe(false)
+      expect(state.value.root).toBe('/apps/bdpan')
     }
   })
 
@@ -64,9 +69,9 @@ describe('auth state and sign-in', () => {
     const { gateway } = gatewayOf(credentials, scriptedFetch(signInRoutes()))
     const outcome = await gateway.submitSignInCode({ code: 'abc123' })
     expect(outcome.ok).toBe(true)
-    if (outcome.ok && outcome.value.ok) {
-      expect(outcome.value.value.authorized).toBe(true)
-      expect(outcome.value.value.expiring).toBe(false)
+    if (outcome.ok) {
+      expect(outcome.value.authorized).toBe(true)
+      expect(outcome.value.expiring).toBe(false)
     }
     const tokens = await readStoredTokens(credentials)
     expect(tokens?.accessToken).toBe('fresh-access')
@@ -75,9 +80,8 @@ describe('auth state and sign-in', () => {
   it('refuses an empty code locally before any network', async () => {
     const { gateway } = gatewayOf(fakeCredentials(), scriptedFetch(signInRoutes()))
     const outcome = await gateway.submitSignInCode({ code: '   ' })
-    expect(outcome.ok).toBe(true)
-    if (outcome.ok && !outcome.value.ok) expect(outcome.value.code).toBe('BDPAN_INVALID_ARG')
-    else expect.unreachable('an empty code must refuse')
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) expect(outcome.code).toBe('BDPAN_INVALID_ARG')
   })
 
   it('signs out by deleting the record', async () => {
@@ -87,7 +91,7 @@ describe('auth state and sign-in', () => {
     expect(outcome.ok).toBe(true)
     expect(await readStoredTokens(credentials)).toBeUndefined()
     const state = await gateway.authState()
-    if (state.ok && state.value.ok) expect(state.value.value.authorized).toBe(false)
+    if (state.ok) expect(state.value.authorized).toBe(false)
   })
 })
 
@@ -95,9 +99,8 @@ describe('reads fold upstream failures', () => {
   it('folds a missing token into BDPAN_AUTH_REQUIRED for whoami', async () => {
     const { gateway } = gatewayOf(fakeCredentials())
     const outcome = await gateway.whoami()
-    expect(outcome.ok).toBe(true)
-    if (outcome.ok && !outcome.value.ok) expect(outcome.value.code).toBe('BDPAN_AUTH_REQUIRED')
-    else expect.unreachable('an anonymous whoami must fold into a refusal')
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) expect(outcome.code).toBe('BDPAN_AUTH_REQUIRED')
   })
 
   it('returns profile and quota through the same envelope', async () => {
@@ -107,9 +110,11 @@ describe('reads fold upstream failures', () => {
     ]
     const { gateway } = gatewayOf(tokenedCredentials(), scriptedFetch(routes))
     const profile = await gateway.whoami()
-    expect(profile.ok && profile.value.ok && profile.value.value.displayName).toBe('tester')
+    expect(profile.ok).toBe(true)
+    if (profile.ok) expect(profile.value.displayName).toBe('tester')
     const quota = await gateway.quota()
-    expect(quota.ok && quota.value.ok && quota.value.value.freeBytes).toBe(60)
+    expect(quota.ok).toBe(true)
+    if (quota.ok) expect(quota.value.freeBytes).toBe(60)
   })
 })
 
@@ -118,18 +123,16 @@ describe('guard paths refuse locally', () => {
     const fetch = scriptedFetch([])
     const { gateway } = gatewayOf(tokenedCredentials(), fetch)
     const outcome = await gateway.list({ dir: '../../etc' })
-    expect(outcome.ok).toBe(true)
-    if (outcome.ok && !outcome.value.ok) expect(outcome.value.code).toBe('BDPAN_PATH_OUT_OF_SCOPE')
-    else expect.unreachable('an out-of-root listing must refuse')
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) expect(outcome.code).toBe('BDPAN_PATH_OUT_OF_SCOPE')
     expect(fetch.calls).toHaveLength(0)
   })
 
   it('rejects a rename target with a separator as BDPAN_INVALID_NAME', async () => {
     const { gateway } = gatewayOf(tokenedCredentials(), scriptedFetch([]))
     const outcome = await gateway.rename({ path: '/apps/bdpan/a.txt', newName: 'a/b.txt' })
-    expect(outcome.ok).toBe(true)
-    if (outcome.ok && !outcome.value.ok) expect(outcome.value.code).toBe('BDPAN_INVALID_NAME')
-    else expect.unreachable('a separator-carrying name must refuse')
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) expect(outcome.code).toBe('BDPAN_INVALID_NAME')
   })
 
   it('requires the delete voucher to cover exactly the target set', async () => {
@@ -138,11 +141,10 @@ describe('guard paths refuse locally', () => {
     ]
     const { gateway } = gatewayOf(tokenedCredentials(), scriptedFetch(routes))
     const mismatch = await gateway.remove({ paths: ['/apps/bdpan/a.txt'], confirmPaths: ['/apps/bdpan/b.txt'] })
-    expect(mismatch.ok).toBe(true)
-    if (mismatch.ok && !mismatch.value.ok) expect(mismatch.value.code).toBe('BDPAN_CONFIRM_REQUIRED')
-    else expect.unreachable('a mismatched voucher must bounce')
+    expect(mismatch.ok).toBe(false)
+    if (!mismatch.ok) expect(mismatch.code).toBe('BDPAN_CONFIRM_REQUIRED')
     const exact = await gateway.remove({ paths: ['/apps/bdpan/a.txt'], confirmPaths: ['/apps/bdpan/a.txt'] })
-    expect(exact.ok && exact.value.ok).toBe(true)
+    expect(exact.ok).toBe(true)
   })
 })
 
@@ -153,9 +155,8 @@ describe('share validation', () => {
     ]
     const { gateway } = gatewayOf(tokenedCredentials(), scriptedFetch(routes))
     const outcome = await gateway.share({ paths: ['/apps/bdpan/ghost.txt'], period: 7 })
-    expect(outcome.ok).toBe(true)
-    if (outcome.ok && !outcome.value.ok) expect(outcome.value.code).toBe('BDPAN_NOT_FOUND')
-    else expect.unreachable('a ghost path must fold into a refusal')
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) expect(outcome.code).toBe('BDPAN_NOT_FOUND')
   })
 })
 
@@ -164,29 +165,29 @@ describe('transfer jobs', () => {
     const { gateway } = gatewayOf(tokenedCredentials())
     const ghost = join(tmpdir(), `bdp-ghost-${String(Date.now())}.bin`)
     const outcome = await gateway.startUpload({ localPath: ghost, remotePath: '/apps/bdpan/ghost.bin' })
-    expect(outcome.ok && outcome.value.ok).toBe(true)
-    const jobId = outcome.ok && outcome.value.ok ? outcome.value.value.jobId : ''
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
+    const jobId = outcome.value.jobId
     expect(jobId.length).toBeGreaterThan(0)
     await vi.waitFor(async () => {
       const snapshot = await gateway.job({ jobId })
-      expect(snapshot.ok && snapshot.value.ok && snapshot.value.value.phase === 'failed').toBe(true)
+      expect(snapshot.ok && snapshot.value.phase === 'failed').toBe(true)
     })
     const snapshot = await gateway.job({ jobId })
-    if (snapshot.ok && snapshot.value.ok && snapshot.value.value.failure !== undefined) {
-      expect(snapshot.value.value.failure.code).toBe('BDPAN_UNKNOWN')
+    if (snapshot.ok && snapshot.value.failure !== undefined) {
+      expect(snapshot.value.failure.code).toBe('BDPAN_UNKNOWN')
     }
     const all = await gateway.jobs()
-    expect(all.ok && all.value.ok && all.value.value.jobs.length).toBe(1)
+    expect(all.ok && all.value.jobs.length).toBe(1)
   })
 
   it('refuses a relative local path before any job starts', async () => {
     const { gateway } = gatewayOf(tokenedCredentials())
     const outcome = await gateway.startUpload({ localPath: 'relative.txt', remotePath: '/apps/bdpan/r.txt' })
-    expect(outcome.ok).toBe(true)
-    if (outcome.ok && !outcome.value.ok) expect(outcome.value.code).toBe('BDPAN_INVALID_ARG')
-    else expect.unreachable('relative local paths must refuse')
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) expect(outcome.code).toBe('BDPAN_INVALID_ARG')
     const all = await gateway.jobs()
-    expect(all.ok && all.value.ok && all.value.value.jobs.length).toBe(0)
+    expect(all.ok && all.value.jobs.length).toBe(0)
   })
 
   it('round-trips a real small upload through a scripted wire', async () => {
@@ -199,11 +200,11 @@ describe('transfer jobs', () => {
     ]
     const { gateway } = gatewayOf(tokenedCredentials(), scriptedFetch(routes))
     const outcome = await gateway.startUpload({ localPath, remotePath: '/apps/bdpan/hello.txt' })
-    expect(outcome.ok && outcome.value.ok).toBe(true)
-    const jobId = outcome.ok && outcome.value.ok ? outcome.value.value.jobId : ''
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
     await vi.waitFor(async () => {
-      const snapshot = await gateway.job({ jobId })
-      expect(snapshot.ok && snapshot.value.ok && snapshot.value.value.phase === 'done').toBe(true)
+      const snapshot = await gateway.job({ jobId: outcome.value.jobId })
+      expect(snapshot.ok && snapshot.value.phase === 'done').toBe(true)
     })
   })
 })

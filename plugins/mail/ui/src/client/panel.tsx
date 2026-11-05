@@ -19,6 +19,7 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 import { ActivityView } from './activity.tsx'
 import { InboxView } from './inbox.tsx'
 import type { MailKey } from './locales.ts'
+import { RefreshButton } from './refresh-button.tsx'
 import type { MailPanelInjected, MailSnapshot } from './remote.ts'
 
 /** Props of {@link MailPanel}, derived from the framework shares. */
@@ -48,7 +49,6 @@ type Tab = 'inbox' | 'activity'
  * @returns the panel / 面板
  */
 export function MailPanel(props: MailPanelProps) {
-  console.log('[mail-diag] MailPanel rendering')
   const snapshot = props.useMail((current: MailSnapshot) => current)
   return <MailBody snapshot={snapshot} t={props.t} actions={props} />
 }
@@ -72,7 +72,7 @@ function MailBody(props: MailBodyProps) {
           <h1 className="mail-title">{t('panel')}</h1>
           <p className="mail-subtitle">{t('panelSubtitle')}</p>
         </div>
-        <button type="button" className="mail-refresh" onClick={actions.onRefresh}>{t('refresh')}</button>
+        <RefreshButton t={t} onRefresh={actions.onRefresh} />
       </header>
       {snapshot.status === 'error' && (
         <p className="mail-error" role="alert">{t('errorPrefix')}：{snapshot.error}</p>

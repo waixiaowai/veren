@@ -39,6 +39,14 @@ export type MailRemoteResult<Value> =
   | { readonly ok: true; readonly value: Value }
   | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
 
+/**
+ * How one catalog read ended. `stale` means a newer read superseded it before
+ * it landed, so the caller must not report either outcome.
+ *
+ * 一次目录读取的结局。`stale` 表示读取落地前已被更新的读取取代，调用方不应上报任何结果。
+ */
+export type MailReadOutcome = 'ok' | 'error' | 'stale'
+
 /** What one snapshot holds. / 一份快照所持有的内容。 */
 export interface MailSnapshot {
   /** The station inbox, newest first. / 站内收件箱，最新在前。 */
@@ -70,8 +78,8 @@ export interface MailPanelInjected {
   readonly hooks: {
     readonly mail: HostObservable<MailSnapshot>
   }
-  /** Re-read the snapshot. */
-  readonly onRefresh: () => void
+  /** Re-read the snapshot, reporting how the read ended. / 重读快照，并回报读取结局。 */
+  readonly onRefresh: () => Promise<MailReadOutcome>
   /** Mark one message read, unread, archived, or unarchived. */
   readonly onMark: (messageId: string, action: 'read' | 'unread' | 'archive' | 'unarchive') => void
   /** Navigate the shell to the session a message came from. / 把外壳导航到消息的来源会话。 */

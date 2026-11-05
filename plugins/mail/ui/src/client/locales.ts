@@ -22,6 +22,9 @@ export type MailKey =
   | 'panel'
   | 'panelSubtitle'
   | 'refresh'
+  | 'refreshLoading'
+  | 'refreshSuccess'
+  | 'refreshError'
   | 'loading'
   | 'errorPrefix'
   | 'tabInbox'
@@ -92,6 +95,9 @@ export const zh: Record<MailKey, string> = {
   panel: '通知',
   panelSubtitle: '查看已送达的通知与每次触发的执行情况',
   refresh: '刷新',
+  refreshLoading: '刷新中',
+  refreshSuccess: '已刷新',
+  refreshError: '刷新失败',
   loading: '加载中…',
   errorPrefix: '出错了',
   tabInbox: '收件箱',
@@ -163,6 +169,9 @@ export const en: Record<MailKey, string> = {
   panel: 'Notifications',
   panelSubtitle: 'What was delivered, and what each trigger actually did',
   refresh: 'Refresh',
+  refreshLoading: 'Refreshing',
+  refreshSuccess: 'Refreshed',
+  refreshError: 'Failed',
   loading: 'Loading…',
   errorPrefix: 'Error',
   tabInbox: 'Inbox',

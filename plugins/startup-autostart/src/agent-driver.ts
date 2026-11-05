@@ -13,7 +13,7 @@
 import { randomUUID } from 'node:crypto'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentOptions, ModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions, ModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
@@ -48,10 +48,18 @@ export function agentPlanOf(ctx: Context, item: StartupItemRecord): AgentPlan {
       { reasoningEffort: item.model.reasoningEffort as ModelSelection['reasoningEffort'] },
     )
   if (selected === undefined) return {}
-  const reference: ModelSelectionRef = { current: selected, assembled: undefined }
+  // 新 API：选择本体经 agentOptions 随 Agent 建立；切换提示装进 Agent 作用域
+  // （installModelSelection 只收上下文，ModelSelectionRef 已退役）。
+  // New API: the selection rides in via agentOptions; the switch notice
+  // installs into the Agent's scope (installModelSelection takes only the
+  // context; ModelSelectionRef is retired upstream).
   return {
-    agentOptions: { provider: selected.provider, model: selected.model },
-    setup: (agentCtx: Context) => { installModelSelection(agentCtx, reference) },
+    agentOptions: {
+      provider: selected.provider,
+      model: selected.model,
+      reasoningEffort: selected.reasoningEffort,
+    },
+    setup: (agentCtx: Context) => { installModelSelection(agentCtx) },
   }
 }
 

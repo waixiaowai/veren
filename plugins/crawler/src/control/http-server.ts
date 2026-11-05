@@ -114,30 +114,36 @@ export class ControlApi {
         },
       }),
     )
-    // ws-logs：连接即补发历史日志再进入实时推送（design/api.md §6）。
-    // ws-logs: replays buffered logs on connect, then pushes live (§6).
-    // 宿主不支持 upgrade 注册时跳过 WS 通道（轮询端点提供同等能力）。
-    // Skip the ws channels when the host lacks upgrade registration (the
-    // polling endpoints provide the same capability).
-    if (typeof ctx.webServer.registerUpgrade === 'function') {
-      disposers.push(ctx.webServer.registerUpgrade({
-        path: '/api/ws/logs',
-        handler: (req, socket, head) => {
-          this.serveLogsSocket(req, socket as import('node:stream').Duplex, head)
-        },
-      }))
-      // ws-status：每秒推送状态对象（design/api.md §6）。
-      // ws-status: pushes the status object once a second (§6).
-      disposers.push(ctx.webServer.registerUpgrade({
-        path: '/api/ws/status',
-        handler: (req, socket, head) => {
-          this.serveStatusSocket(req, socket as import('node:stream').Duplex, head)
-        },
-      }))
-    }
+    disposers.push(...this.registerPushChannels(ctx))
     return () => {
       for (const dispose of disposers.reverse()) dispose()
     }
+  }
+
+  /**
+   * WS 推送通道注册：宿主不支持 upgrade 注册时返回空（轮询端点提供同等能力）。
+   * The WS push channels: empty when the host lacks upgrade registration (the
+   * polling endpoints provide the same capability).
+   */
+  private registerPushChannels(ctx: Context): Array<() => void> {
+    if (typeof ctx.webServer.registerUpgrade !== 'function') return []
+    // ws-logs：连接即补发历史日志再进入实时推送（design/api.md §6）。
+    // ws-logs: replays buffered logs on connect, then pushes live (§6).
+    const logs = ctx.webServer.registerUpgrade({
+      path: '/api/ws/logs',
+      handler: (req, socket, head) => {
+        this.serveLogsSocket(req, socket as import('node:stream').Duplex, head)
+      },
+    })
+    // ws-status：每秒推送状态对象（design/api.md §6）。
+    // ws-status: pushes the status object once a second (§6).
+    const status = ctx.webServer.registerUpgrade({
+      path: '/api/ws/status',
+      handler: (req, socket, head) => {
+        this.serveStatusSocket(req, socket as import('node:stream').Duplex, head)
+      },
+    })
+    return [logs, status]
   }
 
   /** ws-logs 通道：握手 → 补发历史 → 订阅实时 / the ws-logs channel: handshake → replay → live subscription */

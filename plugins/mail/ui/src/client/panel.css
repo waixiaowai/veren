@@ -61,7 +61,14 @@
   color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary, inherit));
 }
 
+/* ---- Header action: the refresh control narrates its own progress. ---- */
+/* 页头动作：刷新控件自述进度。 */
+
 .mail-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-height: 32px;
   padding: 0 var(--mail-gap);
   border: 1px solid var(--dsw-alias-border-l2, currentColor);
@@ -69,16 +76,149 @@
   background: transparent;
   color: inherit;
   cursor: pointer;
-  transition: background-color var(--mail-motion-fast) var(--mail-ease);
+  transition:
+    background-color var(--mail-motion-fast) var(--mail-ease),
+    border-color var(--mail-motion-base) var(--mail-ease),
+    color var(--mail-motion-base) var(--mail-ease),
+    transform 90ms var(--mail-ease);
 }
 
 .mail-refresh:hover {
   background: var(--dsw-alias-bg-layer-2, transparent);
 }
 
+/* Press: a 4% squeeze, so the click lands physically. */
+/* 按下：4% 的挤压，让点击有物理感。 */
+.mail-refresh:active {
+  transform: scale(0.96);
+}
+
 .mail-refresh:focus-visible {
   outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, currentColor);
   outline-offset: 2px;
+}
+
+.mail-refresh[aria-disabled='true'] {
+  cursor: progress;
+}
+
+/* The glyph: rotate on hover while idle, spin while reading. */
+/* 图标：空闲时悬停缓慢转动，读取时持续旋转。 */
+.mail-refresh-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--dsw-alias-label-secondary, inherit);
+  transition:
+    transform var(--mail-motion-base) var(--mail-ease),
+    color var(--mail-motion-base) var(--mail-ease);
+}
+
+.mail-refresh:hover .mail-refresh-glyph {
+  transform: rotate(90deg);
+}
+
+.mail-refresh[data-phase='loading'] {
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+
+.mail-refresh[data-phase='loading'] .mail-refresh-glyph {
+  color: var(--dsw-alias-brand-primary, var(--dsw-alias-label-primary, currentColor));
+  animation: mail-spin 900ms linear infinite;
+}
+
+/* Success: one expanding ring, then the check keeps its color for a moment. */
+/* 成功：一圈扩散的环，随后对勾短暂保持成功色。 */
+.mail-refresh[data-phase='success'] {
+  border-color: var(--dsw-alias-state-success-primary, currentColor);
+  color: var(--dsw-alias-state-success-primary, inherit);
+  animation: mail-ring-success 620ms var(--mail-ease) 1;
+}
+
+.mail-refresh[data-phase='success'] .mail-refresh-glyph {
+  color: var(--dsw-alias-state-success-primary, inherit);
+  animation: mail-glyph-pop 240ms var(--mail-ease) 1;
+}
+
+/* Failure: a short shake plus the alert glyph; the message banner carries the detail. */
+/* 失败：短暂横向抖动加警告图标；细节由页面的错误横幅承担。 */
+.mail-refresh[data-phase='error'] {
+  border-color: var(--dsw-alias-state-error-primary, currentColor);
+  color: var(--dsw-alias-state-error-primary, inherit);
+  animation: mail-shake 420ms var(--mail-ease) 1;
+}
+
+.mail-refresh[data-phase='error'] .mail-refresh-glyph {
+  color: var(--dsw-alias-state-error-primary, inherit);
+  animation: mail-glyph-pop 240ms var(--mail-ease) 1;
+}
+
+/* All four labels share one grid cell: the widest one sets the width, so the
+ * cross-fade never moves the button. */
+/* 四个文案共用一个网格单元：最宽的那个决定宽度，因此交叉淡入不会推动按钮。 */
+.mail-refresh-labels {
+  display: grid;
+  align-items: center;
+}
+
+.mail-refresh-label {
+  grid-area: 1 / 1;
+  justify-self: center;
+  opacity: 0;
+  transform: translateY(4px);
+  white-space: nowrap;
+  transition:
+    opacity var(--mail-motion-fast) var(--mail-ease),
+    transform var(--mail-motion-fast) var(--mail-ease);
+}
+
+.mail-refresh-label.is-shown {
+  opacity: 1;
+  transform: none;
+}
+
+/* A visually hidden live region: assistive tech hears the phase change. */
+/* 视觉隐藏的 live region：读屏软件能听到阶段变化。 */
+.mail-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes mail-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes mail-glyph-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes mail-ring-success {
+  from { box-shadow: 0 0 0 0 var(--dsw-alias-state-success-secondary, transparent); }
+  to { box-shadow: 0 0 0 4px transparent; }
+}
+
+@keyframes mail-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-2px); }
+  40% { transform: translateX(2px); }
+  60% { transform: translateX(-1px); }
+  80% { transform: translateX(1px); }
 }
 
 /* ---- States: error banner, loading line. ---- */
@@ -418,14 +558,29 @@
   color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary, inherit));
 }
 
-/* ---- Reduced motion: the hover and switch motions collapse. ---- */
+/* ---- Reduced motion: the hover, switch, and press motions collapse. ---- */
+/* 降低动效：悬停、切换与按下的动效全部收敛。 */
 
 @media (prefers-reduced-motion: reduce) {
   .mail-tab,
   .mail-filter-tab,
   .mail-item-actions,
   .mail-refresh,
+  .mail-refresh-glyph,
+  .mail-refresh-label,
   .mail-action {
     transition-duration: 0ms;
+  }
+
+  /* The spinner and the shakes are pure decoration; the label still narrates
+   * the phase, so nothing is lost by removing them. */
+  /* 旋转与抖动纯属装饰；阶段仍由文案自述，去掉它们不会有信息损失。 */
+  .mail-refresh,
+  .mail-refresh-glyph {
+    animation: none;
+  }
+
+  .mail-refresh:hover .mail-refresh-glyph {
+    transform: none;
   }
 }

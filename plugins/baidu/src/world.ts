@@ -20,6 +20,8 @@ export interface BaiduPanWorld {
   readonly client: BaiduPanClient
   /** 凭据面（网关的登录/注销/状态读经它走，与工具面同一个令牌来源）。The credential face (the gateway's sign-in/sign-out/state reads ride it — same token source as the tool face). */
   readonly credentials: CredentialProvider
+  /** 注入的 fetch（登录换取/在线校验与客户端同源；缺省全局）。The injected fetch (sign-in exchange/validation share the client's wire; global by default). */
+  readonly fetch: FetchLike | undefined
   /** 调用会话的工作区目录；未知会话返回 undefined。The calling session's workspace directory; undefined for an unknown session. */
   readonly workspaceOf: (sessionId: SessionId | undefined) => string | undefined
 }
@@ -52,5 +54,5 @@ export function buildWorld(config: ResolvedConfig, credentials: CredentialProvid
     commitTokens: tokens => commitTokens(credentials, tokens),
     ...(fetch === undefined ? {} : { fetch }),
   })
-  return { config, client, credentials, workspaceOf: workspaceResolver(workspaceRegistry) }
+  return { config, client, credentials, fetch, workspaceOf: workspaceResolver(workspaceRegistry) }
 }

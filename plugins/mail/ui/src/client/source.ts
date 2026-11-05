@@ -15,7 +15,7 @@
  */
 
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
-import type { MailRemoteApi, MailSnapshot } from './remote.ts'
+import type { MailReadOutcome, MailRemoteApi, MailSnapshot } from './remote.ts'
 
 /** How long the open page waits between catalog re-reads, in milliseconds. */
 const POLL_MS = 5_000
@@ -56,20 +56,21 @@ function publish(state: MailSourceState, next: Partial<MailSnapshot>): void {
  * @param api - the Remote namespace / Remote 命名空间
  * @param state - the shared source state / 共享的 source 状态
  * @param mine - the epoch this read belongs to / 本次读取所属的 epoch
+ * @returns how the read ended, so a manual refresh can narrate it / 读取结局，供手动刷新自述
  */
-async function readCatalog(api: MailRemoteApi, state: MailSourceState, mine: number): Promise<void> {
+async function readCatalog(api: MailRemoteApi, state: MailSourceState, mine: number): Promise<MailReadOutcome> {
   let result: Awaited<ReturnType<MailRemoteApi['catalog']>>
   try {
     result = await api.catalog({})
   } catch (error: unknown) {
-    if (mine !== state.epoch) return
+    if (mine !== state.epoch) return 'stale'
     publish(state, { status: 'error', error: error instanceof Error ? error.message : String(error) })
-    return
+    return 'error'
   }
-  if (mine !== state.epoch) return
+  if (mine !== state.epoch) return 'stale'
   if (!result.ok) {
     publish(state, { status: 'error', error: result.error.message })
-    return
+    return 'error'
   }
   publish(state, {
     messages: result.value.messages,
@@ -78,6 +79,7 @@ async function readCatalog(api: MailRemoteApi, state: MailSourceState, mine: num
     settled: true,
     error: '',
   })
+  return 'ok'
 }
 
 /**
@@ -87,12 +89,13 @@ async function readCatalog(api: MailRemoteApi, state: MailSourceState, mine: num
  *
  * @param api - the Remote namespace / Remote 命名空间
  * @param state - the shared source state / 共享的 source 状态
+ * @returns the outcome of this read / 本次读取的结局
  */
-function load(api: MailRemoteApi, state: MailSourceState): void {
+function load(api: MailRemoteApi, state: MailSourceState): Promise<MailReadOutcome> {
   state.epoch += 1
   const mine = state.epoch
   if (!state.snapshot.settled) publish(state, { status: 'loading' })
-  void readCatalog(api, state, mine)
+  return readCatalog(api, state, mine)
 }
 
 /**
@@ -108,8 +111,8 @@ function load(api: MailRemoteApi, state: MailSourceState): void {
 function subscribe(api: MailRemoteApi, state: MailSourceState, listener: () => void): () => void {
   state.listeners.add(listener)
   if (state.listeners.size === 1) {
-    load(api, state)
-    state.timer = globalThis.setInterval(() => load(api, state), POLL_MS)
+    void load(api, state)
+    state.timer = globalThis.setInterval(() => { void load(api, state) }, POLL_MS)
   }
   return () => { unsubscribe(state, listener) }
 }
@@ -140,7 +143,7 @@ function unsubscribe(state: MailSourceState, listener: () => void): void {
  */
 export function createMailSource(api: MailRemoteApi): {
   readonly source: HostObservable<MailSnapshot>
-  readonly refresh: () => void
+  readonly refresh: () => Promise<MailReadOutcome>
   readonly mark: (messageId: string, action: 'read' | 'unread' | 'archive' | 'unarchive') => void
 } {
   const state: MailSourceState = {
@@ -154,9 +157,9 @@ export function createMailSource(api: MailRemoteApi): {
       getSnapshot: () => state.snapshot,
       subscribe: (listener) => subscribe(api, state, listener),
     },
-    refresh: () => { load(api, state) },
+    refresh: () => load(api, state),
     mark: (messageId, action) => {
-      void api.markMessage({ messageId, action }).then(() => { load(api, state) })
+      void api.markMessage({ messageId, action }).then(() => { void load(api, state) })
     },
   }
 }

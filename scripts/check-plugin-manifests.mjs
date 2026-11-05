@@ -138,10 +138,29 @@ function pluginPackageDirs(base, depth = 0) {
   for (const entry of readdirSync(base, { withFileTypes: true })) {
     if (!entry.isDirectory() || entry.name === 'node_modules') continue
     const dir = join(base, entry.name)
+    // pnpm-workspace.yaml 以 `!` 显式排除的目录（独立安装的 fork 等）不归本
+    // 门禁管——它们的清单语义属于各自的安装渠道。
+    // Directories excluded via `!` entries in pnpm-workspace.yaml (standalone
+    // forks and the like) are out of this gate's scope — their manifests
+    // belong to their own install channels.
+    if (workspaceExcluded().has(dir)) continue
     if (existsSync(join(dir, 'package.json'))) dirs.push(entry.name)
     else dirs.push(...pluginPackageDirs(dir, depth + 1).map(child => `${entry.name}/${child}`))
   }
   return dirs
+}
+
+/** pnpm-workspace.yaml 的 `!` 排除项（绝对路径集）/ the workspace file's `!` exclusions (absolute paths). */
+function workspaceExcluded() {
+  const file = join(root, 'pnpm-workspace.yaml')
+  const excluded = new Set()
+  if (!existsSync(file)) return excluded
+  const newline = String.fromCharCode(10)
+  for (const line of readFileSync(file, 'utf8').split(newline)) {
+    const match = /^\s*-\s+"?!([^"]+)"\s*$/.exec(line) ?? /^\s*-\s+!([^#\n]+?)\s*(?:#.*)?$/.exec(line)
+    if (match !== null) excluded.add(resolve(root, match[1].trim()))
+  }
+  return excluded
 }
 
 for (const dirName of pluginPackageDirs(pluginsDir)) {

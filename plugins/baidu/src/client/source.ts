@@ -232,12 +232,8 @@ async function runAction<Value>(
   return result
 }
 
-/**
- * 构建面板的唯一可观察对象与动作面。
- * Builds the panel's single observable and action face.
- */
-export function createBaiduSource(api: BaiduPanRemoteApi): {
-  readonly source: HostObservable<BaiduSnapshot>
+/** 动作面：可观察对象之外的全部回调。The action face: every callback beyond the observable itself. */
+export interface BaiduActions {
   readonly refreshOverview: () => void
   readonly refreshJobs: () => void
   readonly openDir: (dir: string) => void
@@ -254,7 +250,13 @@ export function createBaiduSource(api: BaiduPanRemoteApi): {
   readonly shareItems: (paths: readonly string[], period?: number) => Promise<ActionResult<ShareReceipt>>
   readonly startUpload: (localPath: string, remotePath: string, overwrite: boolean) => Promise<ActionResult<JobStartedView>>
   readonly startDownload: (remotePath: string, localPath: string) => Promise<ActionResult<JobStartedView>>
-} {
+}
+
+/**
+ * 构建面板的唯一可观察对象与动作面。
+ * Builds the panel's single observable and action face.
+ */
+export function createBaiduSource(api: BaiduPanRemoteApi): { readonly source: HostObservable<BaiduSnapshot> } & BaiduActions {
   const state: BaiduSourceState = {
     snapshot: {
       status: 'loading', settled: false, error: '', auth: undefined, profile: undefined, quota: undefined,
@@ -263,16 +265,30 @@ export function createBaiduSource(api: BaiduPanRemoteApi): {
     epoch: 0, dirSeq: 0, searchSeq: 0,
     overviewTimer: undefined, jobTimer: undefined, listeners: new Set(),
   }
-  const mutate = async <V>(action: () => Promise<BaiduApiResult<V>>, reload: boolean): Promise<ActionResult<V>> => {
-    const result = unwrap(await action())
-    if (result.ok && reload) openDir(api, state, state.snapshot.dir)
-    return result
-  }
   return {
     source: {
       getSnapshot: () => state.snapshot,
       subscribe: (listener: () => void) => subscribe(api, state, listener),
     },
+    ...actionsOf(api, state),
+  }
+}
+
+/** 动作面装配：读动作直连，写动作分组接线。Assembles the action face: reads wire directly, writes wire in their group. */
+function actionsOf(api: BaiduPanRemoteApi, state: BaiduSourceState): BaiduActions {
+  return { ...readActions(api, state), ...writeActions(api, state) }
+}
+
+/** 读动作组（动作面的 Pick 子集，无 cast）。The read-action group (a Pick subset of the face, no casts). */
+type ReadActions = Pick<BaiduActions,
+  'refreshOverview' | 'refreshJobs' | 'openDir' | 'reloadDir' | 'runSearch' | 'clearSearch' | 'beginSignIn' | 'shareItems'>
+
+/** 写动作组（动作面的其余成员）。The write-action group (the face's remaining members). */
+type WriteActions = Omit<BaiduActions, keyof ReadActions>
+
+/** 读动作：概览/任务刷新、目录打开、检索。The read actions: overview/job refreshes, directory opens, search. */
+function readActions(api: BaiduPanRemoteApi, state: BaiduSourceState): ReadActions {
+  return {
     refreshOverview: () => {
       state.epoch += 1
       void readOverview(api, state, state.epoch)
@@ -286,13 +302,24 @@ export function createBaiduSource(api: BaiduPanRemoteApi): {
       publish(state, { search: undefined })
     },
     beginSignIn: () => runAction(api, state, () => api.beginSignIn(), false),
+    shareItems: (paths, period) => runAction(api, state, () => api.share({ paths, ...(period === undefined ? {} : { period }) }), false),
+  }
+}
+
+/** 写动作：登录/注销与改写（成功回读目录）与传输受理（受理后刷新任务）。The write actions: sign-in/out, mutations (reload on success), and transfer acceptance (jobs refresh after). */
+function writeActions(api: BaiduPanRemoteApi, state: BaiduSourceState): WriteActions {
+  const mutate = async <V>(action: () => Promise<BaiduApiResult<V>>, reload: boolean): Promise<ActionResult<V>> => {
+    const result = unwrap(await action())
+    if (result.ok && reload) openDir(api, state, state.snapshot.dir)
+    return result
+  }
+  return {
     submitSignInCode: code => runAction(api, state, () => api.submitSignInCode({ code }), true),
     signOut: () => runAction(api, state, () => api.signOut(), true),
     createDir: path => mutate(() => api.makeDir({ path }), true),
     renameEntry: (path, newName) => mutate(() => api.rename({ path, newName }), true),
     transferEntry: (op, sourcePath, destDir, newName) => mutate(() => api.transfer({ op, sourcePath, destDir, ...(newName === undefined ? {} : { newName }) }), true),
     removeItems: (paths, confirmPaths) => mutate(() => api.remove({ paths, confirmPaths }), true),
-    shareItems: (paths, period) => runAction(api, state, () => api.share({ paths, ...(period === undefined ? {} : { period }) }), false),
     startUpload: async (localPath, remotePath, overwrite) => {
       const result = await runAction(api, state, () => api.startUpload({ localPath, remotePath, overwrite }), false)
       if (result.ok) void readJobs(api, state)

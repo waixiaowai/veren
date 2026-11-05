@@ -30,6 +30,7 @@ describe('table projection', () => {
       size: 1,
       put: async () => undefined,
       delete: async () => true,
+      deleteMany: async () => 0,
       update: async () => ({ id: 'a' }),
     }
     const projected = view(table)
