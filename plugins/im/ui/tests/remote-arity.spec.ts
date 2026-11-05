@@ -18,6 +18,8 @@ const CONV_ARITY: Readonly<Record<string, number>> = {
   rooms: 0,
   roomMembers: 1,
   messages: 1,
+  post: 1,
+  createRoom: 1,
   markRead: 1,
 }
 

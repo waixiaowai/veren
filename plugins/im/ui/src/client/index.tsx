@@ -31,7 +31,7 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { NS, en, zh, type ImKey } from './locales.ts'
 import { ImPanel } from './panel.tsx'
-import { convRemote, imRemote, type ImPanelInjected, type ImRemoteApi, type RoomsSnapshot } from './remote.ts'
+import { convRemote, imRemote, type ImPanelInjected, type ImRemoteApi } from './remote.ts'
 import { createImSource } from './source.ts'
 import { createRoomsSource } from './rooms-source.ts'
 
@@ -94,7 +94,7 @@ const PanelPlugin = {
 
 /** The panel-inject face: the two observables plus every callback. */
 /** 面板注入面：两个可观察对象加全部回调。 */
-type ImPanelInject = ImPanelInjected & { hooks: { rooms: import('@deepseek-ai/dsh-client-ui-slots').HostObservable<RoomsSnapshot> } }
+type ImPanelInject = ImPanelInjected
 
 /**
  * Register the main panel over the two sources.
@@ -120,6 +120,8 @@ function registerMainPanel(
       onRefresh: im.refresh,
       onOpenRoom: rooms.openRoom,
       onRoomsRefresh: rooms.refresh,
+      onSendMessage: rooms.send,
+      onCreateRoom: rooms.createRoom,
     }),
   }, ImPanel))
 }

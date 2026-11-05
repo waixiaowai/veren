@@ -80,6 +80,7 @@ const config: Config = {
   browserDataRoot: './browser-data-test',
   browserChannel: 'chrome' as const,
   mediaRoot: './media-test',
+  notifyOnFinish: false,
 }
 
 describe('crawler composition on real cordis ctx', () => {

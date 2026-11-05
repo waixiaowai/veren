@@ -90,17 +90,59 @@ function openRoomOf(api: ImConvApi, state: RoomsState, viewerId: string, roomId:
   }
 }
 
+/**
+ * One owner write into the open room; the timeline re-reads on success.
+ * Resolves whether the write committed, so the composer can keep a failed
+ * draft in the input (design §26.3).
+ * 向打开中的房间写一条所有者消息；成功后重读时间线。返回是否写入成功，供输入区在失败时
+ * 保留草稿（设计 §26.3）。
+ */
+async function sendMessage(api: ImConvApi, state: RoomsState, body: string): Promise<boolean> {
+  const roomId = state.snapshot.openRoomId
+  if (roomId === undefined || state.snapshot.sending) return false
+  publish(state, { sending: true, error: '' })
+  // 幂等键每次提交一枚：失败重试是同一条消息，重复点击不会写两条。
+  // One idempotency key per submit: a retry is the same message, and a double
+  // click never writes twice.
+  const result = await api.post({ roomId, body, clientId: globalThis.crypto.randomUUID() })
+  if (!result.ok) {
+    publish(state, { sending: false, status: 'error', error: result.error.message })
+    return false
+  }
+  publish(state, { sending: false })
+  await readRoom(api, state, roomId)
+  return true
+}
+
+/** Create one internal room, refresh the list, and open it. */
+/** 创建一个内部房间，刷新列表并打开它。 */
+async function createRoom(api: ImConvApi, state: RoomsState, viewerId: string, title: string | undefined): Promise<void> {
+  const result = await api.createRoom({
+    kind: 'direct',
+    ...(title === undefined ? {} : { title }),
+    memberIds: [viewerId, 'agent:default'],
+  })
+  if (!result.ok) {
+    publish(state, { status: 'error', error: result.error.message })
+    return
+  }
+  await readRooms(api, state)
+  openRoomOf(api, state, viewerId, result.value.room.id)
+}
+
 /** Build the conversations tab's observable and its callbacks. */
 /** 构建会话页的可观察对象与回调。 */
 export function createRoomsSource(api: ImConvApi, viewerId: string): {
   readonly source: HostObservable<RoomsSnapshot>
   readonly openRoom: (roomId: string | undefined) => void
   readonly refresh: () => void
+  readonly send: (body: string) => Promise<boolean>
+  readonly createRoom: (title: string | undefined) => void
 } {
   const state: RoomsState = {
     snapshot: {
       rooms: [], openRoomId: undefined, messages: [], members: [],
-      status: 'loading', error: '',
+      status: 'loading', error: '', sending: false,
     },
     timer: undefined,
     listeners: new Set(),
@@ -116,5 +158,7 @@ export function createRoomsSource(api: ImConvApi, viewerId: string): {
       const open = state.snapshot.openRoomId
       if (open !== undefined) void readRoom(api, state, open)
     },
+    send: body => sendMessage(api, state, body),
+    createRoom: title => { void createRoom(api, state, viewerId, title) },
   }
 }

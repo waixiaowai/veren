@@ -7,7 +7,16 @@
     "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "jsxImportSource": "@veren/prompt-core",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "lib": [
+      "es2024"
+    ],
+    "verbatimModuleSyntax": false,
+    "esModuleInterop": true
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "vitest.config.ts"
+  ]
 }

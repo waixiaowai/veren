@@ -72,11 +72,13 @@ export interface ImSnapshot {
   readonly bind: BindWizardView | undefined
 }
 
-/** Everything the page's inject face supplies: one observable and callbacks. */
+/** Everything the page's inject face supplies: two observables and callbacks. */
 export interface ImPanelInjected {
-  /** The IM observable, bound as `useIm`. */
+  /** The catalog observable, bound as `useIm`. */
   readonly hooks: {
     readonly im: HostObservable<ImSnapshot>
+    /** The conversations observable, bound as `useRooms`. */
+    readonly rooms: HostObservable<RoomsSnapshot>
   }
   readonly onStartBind: () => void
   readonly onCloseBind: () => void
@@ -84,6 +86,12 @@ export interface ImPanelInjected {
   readonly onUnbindAccount: (accountId: string) => void
   readonly onRenamePerson: (personId: string, displayName: string) => void
   readonly onRefresh: () => void
+  readonly onOpenRoom: (roomId: string | undefined) => void
+  readonly onRoomsRefresh: () => void
+  /** Post one owner message into the open room. */
+  /** 向打开中的房间写一条所有者消息。 */
+  readonly onSendMessage: (body: string) => Promise<boolean>
+  readonly onCreateRoom: (title: string | undefined) => void
 }
 
 /** The mounted `ctx.remote.im` surface. */
@@ -216,6 +224,9 @@ export interface RoomsSnapshot {
   readonly members: readonly RoomMember[]
   readonly status: 'loading' | 'ready' | 'error'
   readonly error: string
+  /** Whether one owner write is in flight (composer disabled meanwhile). */
+  /** 是否有一笔所有者写入在途（其间输入区禁用）。 */
+  readonly sending: boolean
 }
 
 /** The mounted `ctx.remote['imConv']` surface. */
@@ -228,6 +239,20 @@ export interface ImConvApi {
     readonly sinceSequence?: number
     readonly limit?: number
   }) => Promise<ImRemoteResult<{ readonly messages: readonly Message[] }>>
+  /** Post one owner message; the host rejects non-member authors. */
+  /** 以所有者身份写一条消息；宿主会拒绝非成员作者。 */
+  readonly post: (request: {
+    readonly roomId: string
+    readonly body: string
+    readonly clientId?: string
+  }) => Promise<ImRemoteResult<{ readonly message: Message; readonly replayed: boolean }>>
+  /** Create one internal room and seat its members. */
+  /** 创建一个内部房间并安排成员座位。 */
+  readonly createRoom: (request: {
+    readonly kind: 'direct' | 'group'
+    readonly title?: string
+    readonly memberIds: readonly string[]
+  }) => Promise<ImRemoteResult<{ readonly room: Room }>>
   readonly markRead: (request: {
     readonly roomId: string
     readonly participantId: string
@@ -238,6 +263,12 @@ export interface ImConvApi {
 const ROOM_REQUEST = z.looseObject({ roomId: z.string() })
 const MESSAGES_REQUEST = z.looseObject({
   roomId: z.string(), sinceSequence: z.number().optional(), limit: z.number().optional(),
+})
+const POST_REQUEST = z.looseObject({ roomId: z.string(), body: z.string().min(1), clientId: z.string().optional() })
+const CREATE_ROOM_REQUEST = z.looseObject({
+  kind: z.enum(['direct', 'group']),
+  title: z.string().optional(),
+  memberIds: z.array(z.string().min(1)).min(1),
 })
 const MARK_READ_REQUEST = z.looseObject({ roomId: z.string(), participantId: z.string(), sequence: z.number() })
 
@@ -287,6 +318,12 @@ export const convRemote = createTypertRemoteInfo({
     ...convMethod('messages', 'One room messages after a sequence.', 'messages', [
       parameter('request', 'imConv:messages:request', () => MESSAGES_REQUEST),
     ], () => z.looseObject({ messages: z.array(MESSAGE_SCHEMA) })),
+    ...convMethod('post', 'Post one owner message into a room.', 'post', [
+      parameter('request', 'imConv:post:request', () => POST_REQUEST),
+    ], () => z.looseObject({ message: MESSAGE_SCHEMA, replayed: z.boolean() })),
+    ...convMethod('createRoom', 'Create one internal room and seat its members.', 'createRoom', [
+      parameter('request', 'imConv:createRoom:request', () => CREATE_ROOM_REQUEST),
+    ], () => z.looseObject({ room: ROOM_SCHEMA })),
     ...convMethod('markRead', 'Advance one read cursor.', 'markRead', [
       parameter('request', 'imConv:markRead:request', () => MARK_READ_REQUEST),
     ], () => z.looseObject({ cursor: z.looseObject({ lastReadSequence: z.number() }) })),

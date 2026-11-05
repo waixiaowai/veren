@@ -18,6 +18,14 @@ import { ConversationToken } from './service.ts'
 import type { ConversationService } from './service.ts'
 
 /**
+ * The owner participant every web-panel write speaks as. The panel is the
+ * workspace owner's view in v1; a room seats this id before it accepts posts.
+ * Web 面板每次写入所用的所有者参与者。v1 里面板就是工作区所有者视角；房间接纳写入前
+ * 必须已给这个 id 安排座位。
+ */
+const OWNER_PARTICIPANT = 'human:owner'
+
+/**
  * The web surface over the conversation facade. Injects the conversation
  * token: the same plugin's apply provided it a tick earlier, and cordis
  * resolves the token whenever it is ready (G13).
@@ -56,6 +64,45 @@ export class ConversationRemoteService extends TypertRemoteService {
         ...(request.limit === undefined ? {} : { limit: request.limit }),
       }),
     }
+  }
+
+  /**
+   * Post one human message into a room. The author is the workspace owner:
+   * the web panel is the owner's view (v1), and the service rejects a
+   * non-member author, so the room must already seat `human:owner`.
+   * 以工作区所有者身份写一条消息。Web 面板是所有者视角（v1），而服务会拒绝非成员作者，
+   * 因此房间必须已经给 `human:owner` 安排了座位。
+   */
+  @Remote('post')
+  async post(request: { readonly roomId: string; readonly body: string; readonly clientId?: string }) {
+    return this.conversation.post({
+      roomId: request.roomId,
+      actorId: OWNER_PARTICIPANT,
+      kind: 'text',
+      body: request.body,
+      ...(request.clientId === undefined ? {} : { clientId: request.clientId }),
+    })
+  }
+
+  /**
+   * Create one internal room (group or direct) and seat its members. This is
+   * the panel's "new conversation" entry: without it a room can only appear
+   * from channel ingest, which leaves a host without a bound channel unusable.
+   * 创建一个内部房间（群聊或私聊）并安排成员座位。这是面板的「新建会话」入口：没有它，
+   * 房间只能由渠道入站产生，未绑定渠道的宿主将无法使用。
+   */
+  @Remote('createRoom')
+  async createRoom(request: {
+    readonly kind: 'direct' | 'group'
+    readonly title?: string
+    readonly memberIds: readonly string[]
+  }) {
+    const room = await this.conversation.createRoom({
+      kind: request.kind,
+      ...(request.title === undefined ? {} : { title: request.title }),
+      memberIds: [...request.memberIds],
+    })
+    return { room }
   }
 
   /** Advance one read cursor (the panel marks what the human saw). */

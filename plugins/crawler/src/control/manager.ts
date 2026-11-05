@@ -60,7 +60,7 @@ export class CrawlerManager {
   private readonly onFinished: ((outcome: CrawlerRunOutcome) => Promise<void>) | undefined
   private spawnRunner: RunnerSpawner
 
-  constructor(spawnRunner: RunnerSpawner, options: CrawlerManagerOptions = {}) {
+  constructor(spawner: RunnerSpawner, options: CrawlerManagerOptions = {}) {
     this.spawnRunner = spawner
     this.stopTimeoutMs = options.stopTimeoutMs ?? STOP_TIMEOUT_MS
     this.onFinished = options.onFinished
