@@ -235,7 +235,6 @@ export interface ImConvApi {
   }) => Promise<ImRemoteResult<{ readonly cursor: { readonly lastReadSequence: number } }>>
 }
 
-const ROOMS_REQUEST = z.looseObject({})
 const ROOM_REQUEST = z.looseObject({ roomId: z.string() })
 const MESSAGES_REQUEST = z.looseObject({
   roomId: z.string(), sinceSequence: z.number().optional(), limit: z.number().optional(),
@@ -277,9 +276,11 @@ function convMethod(
 export const convRemote = createTypertRemoteInfo({
   package: '@veren/im-conversation',
   methods: {
-    ...convMethod('rooms', 'Every conversation room.', 'rooms', [
-      parameter('request', 'imConv:rooms:request', () => ROOMS_REQUEST),
-    ], () => z.looseObject({ rooms: z.array(ROOM_SCHEMA) })),
+    // 宿主 rooms() 不收参数：这里的参数表必须为空，否则客户端 api 会按 1 个入参校验，
+    // 零参调用在运行时报 "expected 1 argument(s), got 0"。
+    // The host's rooms() takes no argument: this table must stay empty, otherwise
+    // the client api enforces one argument and a zero-arg call fails at runtime.
+    ...convMethod('rooms', 'Every conversation room.', 'rooms', [], () => z.looseObject({ rooms: z.array(ROOM_SCHEMA) })),
     ...convMethod('roomMembers', 'One room memberships in roster order.', 'roomMembers', [
       parameter('request', 'imConv:roomMembers:request', () => ROOM_REQUEST),
     ], () => z.looseObject({ members: z.array(MEMBER_SCHEMA) })),

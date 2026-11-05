@@ -4,13 +4,13 @@
  * The most expensive mistake this stack can make is silently installing as a
  * plain dependency: without `dsh.bundle.patch` the Loader never mounts the rows,
  * and IM simply does not exist in the host while the install reports success.
- * These specs pin that declaration, the three member rows, their order, and the
+ * These specs pin that declaration, the seven member rows, their order, and the
  * testkit's absence from the install closure.
  *
  * 组合包元数据与 patch 形状测试。
  *
  * 本技术栈代价最高的错误是「悄悄装成普通依赖」：缺少 `dsh.bundle.patch` 时 Loader 永远不会
- * 挂载那些行，安装报告成功而宿主里根本没有 IM。这些测试钉住该声明、三行成员行、它们的顺序，
+ * 挂载那些行，安装报告成功而宿主里根本没有 IM。这些测试钉住该声明、七行成员行、它们的顺序，
  * 以及 testkit 不在安装闭包里。
  */
 
@@ -61,10 +61,20 @@ describe('im bundle metadata', () => {
 })
 
 describe('im bundle patch rows', () => {
-  it('inserts exactly the three member rows in dependency order', () => {
+  it('inserts exactly the seven member rows in dependency order', () => {
     const rows = insertedRows()
-    expect(rows.map(row => row.id)).toEqual(['im', 'im-wechat', 'im-tool', 'im-ui'])
-    expect(rows.map(row => row.name)).toEqual(['@veren/im', '@veren/im-wechat', '@veren/im-tool', '@veren/im-ui'])
+    expect(rows.map(row => row.id)).toEqual([
+      'im', 'im-conversation', 'im-coordination', 'im-turn', 'im-wechat', 'im-tool', 'im-ui',
+    ])
+    expect(rows.map(row => row.name)).toEqual([
+      '@veren/im',
+      '@veren/im-conversation',
+      '@veren/im-coordination',
+      '@veren/im-turn',
+      '@veren/im-wechat',
+      '@veren/im-tool',
+      '@veren/im-ui',
+    ])
   })
 
   it('inserts no disabled rows: the bundle switches as one', () => {
@@ -73,13 +83,16 @@ describe('im bundle patch rows', () => {
 })
 
 describe('install closure', () => {
-  it('ships exactly the three member plugins as dependencies', () => {
+  it('ships exactly the seven member plugins as dependencies', () => {
     const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
       dependencies?: Record<string, string>
     }
     expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual([
       '@veren/im',
+      '@veren/im-conversation',
+      '@veren/im-coordination',
       '@veren/im-tool',
+      '@veren/im-turn',
       '@veren/im-ui',
       '@veren/im-wechat',
     ])

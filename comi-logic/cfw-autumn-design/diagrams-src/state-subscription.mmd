@@ -1,0 +1,15 @@
+stateDiagram-v2
+    [*] --> scheduled: 预约生效
+    scheduled --> active: 到达生效时刻
+    scheduled --> expired: 生效前取消
+    [*] --> trialing: 带试用接入
+    trialing --> active: 试用到期转付费
+    trialing --> expired: 试用期取消
+    [*] --> active: 立即生效
+    active --> past_due: 续费失败
+    past_due --> active: 补缴成功
+    past_due --> expired: 催收耗尽
+    active --> paused: 暂停
+    paused --> active: 恢复
+    active --> expired: 周期末取消或到期
+    expired --> [*]

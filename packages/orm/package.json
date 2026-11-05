@@ -1,0 +1,85 @@
+{
+  "name": "@veren/orm",
+  "displayName": "Veren ORM",
+  "version": "0.1.0",
+  "description": "Use when a service must persist typed object graphs to PostgreSQL, MySQL, SQLite or Cloudflare D1 without tying business code to Node: it ships a decorator/EntitySchema metadata layer, a parameterized query builder, a cascade persistence pipeline, schema sync and versioned migrations behind a dialect registry, and keep the core free of Node built-ins so it runs on Node, Cloudflare Workers and other fetch runtimes; skip it when a single platform-locked query builder already covers the workload.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./driver/sqlite": {
+      "types": "./dist/driver/sqlite.d.ts",
+      "default": "./dist/driver/sqlite.js"
+    },
+    "./driver/postgres": {
+      "types": "./dist/driver/postgres.d.ts",
+      "default": "./dist/driver/postgres.js"
+    },
+    "./driver/mysql": {
+      "types": "./dist/driver/mysql.d.ts",
+      "default": "./dist/driver/mysql.js"
+    },
+    "./driver/d1": {
+      "types": "./dist/driver/d1.d.ts",
+      "default": "./dist/driver/d1.js"
+    },
+    "./cordis": {
+      "types": "./dist/adapters/cordis.d.ts",
+      "default": "./dist/adapters/cordis.js"
+    },
+    "./hono": {
+      "types": "./dist/adapters/hono.d.ts",
+      "default": "./dist/adapters/hono.js"
+    },
+    "./express": {
+      "types": "./dist/adapters/express.d.ts",
+      "default": "./dist/adapters/express.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.cn.md"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "test": "vitest run",
+    "coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "mysql2": "^3.11.0",
+    "pg": "^8.13.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    },
+    "mysql2": {
+      "optional": true
+    },
+    "pg": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@types/node": "^26.6.5",
+    "@vitest/coverage-v8": "5.0.4",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.4"
+  }
+}

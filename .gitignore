@@ -94,3 +94,8 @@ apps/**/src/*.d.ts.map
 .headless-t1.txt
 .verify-out.txt
 .dsh-web-3080.log
+
+# design-doc build artifacts (Astro site + dist), per project-design-doc delivery contract
+.design-doc/
+# 测试覆盖率报告是本地产物 / test coverage reports are local artifacts
+coverage/

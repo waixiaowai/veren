@@ -1,0 +1,34 @@
+sequenceDiagram
+    autonumber
+    participant App as 集成方后端
+    participant API as 接入层
+    participant Bal as 额度账本
+    participant Q as 任务队列
+    participant DB as 事实库
+
+    App->>API: 准入校验 功能项与需求量
+    API->>Bal: 解析客户、实体与权益
+    Bal->>DB: 读取余额与用量窗口
+    alt 余额不足
+        Bal-->>API: 拒绝并返回差额
+        API-->>App: 200 允许为否
+    else 余额充足且请求预占
+        Bal->>DB: 写入锁定凭证
+        Bal-->>API: 允许并返回凭证
+        API-->>App: 200 允许
+    else 余额充足
+        Bal-->>API: 允许
+        API-->>App: 200 允许
+    end
+
+    App->>API: 上报用量
+    API->>Q: 入队并携带幂等键
+    API-->>App: 202 已受理
+    Q->>Bal: 批量扣减
+    Bal->>DB: 事务更新余额与用量窗口
+    alt 扣减失败
+        Bal-->>Q: 可重试错误
+        Q->>Bal: 按幂等键重放
+    else 扣减成功且跌破阈值
+        Bal->>API: 触发阈值回调
+    end

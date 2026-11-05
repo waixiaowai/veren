@@ -1,0 +1,10 @@
+stateDiagram-v2
+    [*] --> pending: 创建结算会话
+    pending --> action_required: 需要用户操作
+    action_required --> pending: 操作完成回到待确认
+    pending --> completed: 确认成功
+    action_required --> completed: 确认成功
+    pending --> expired: 超时
+    action_required --> expired: 超时
+    completed --> [*]
+    expired --> [*]

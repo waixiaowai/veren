@@ -1,0 +1,41 @@
+sequenceDiagram
+    autonumber
+    participant App as 集成方后端
+    participant API as 接入层
+    participant Bill as 结算引擎
+    participant Rail as 支付通道
+    participant DB as 事实库
+    participant Hook as 出站回调
+
+    App->>API: 发起接入请求
+    API->>API: 解析密钥与环境
+    API->>Bill: 获取客户级结算锁
+    alt 锁已被占用
+        Bill-->>API: 冲突
+        API-->>App: 423 操作进行中
+    else 获得锁
+        Bill->>DB: 读取客户与套餐快照
+        Bill->>Bill: 计算账单计划
+        alt 计划需要用户确认
+            Bill->>Rail: 创建支付会话
+            Rail-->>Bill: 会话地址
+            Bill->>DB: 保存会话与待执行计划
+            Bill-->>API: requires_action
+            API-->>App: 返回结算页地址
+        else 计划可同步完成
+            Bill->>Rail: 扣款或变更订阅
+            alt 通道拒绝
+                Rail-->>Bill: 失败原因
+                Bill->>DB: 计划置为失败
+                Bill->>Rail: 补偿已执行动作
+                Bill-->>API: 支付未完成
+                API-->>App: 502 通道失败
+            else 通道成功
+                Rail-->>Bill: 通道结果
+                Bill->>DB: 事务写入客户产品与余额
+                Bill->>Hook: 投递产品变更事件
+                Bill-->>API: 成功与账单摘要
+                API-->>App: 200
+            end
+        end
+    end

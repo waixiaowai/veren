@@ -1,0 +1,16 @@
+stateDiagram-v2
+    [*] --> created: 创建支付意图
+    created --> requires_action: 需要跳转或扫码
+    created --> processing: 直接受理
+    requires_action --> processing: 用户完成支付动作
+    requires_action --> expired: 超时
+    requires_action --> failed: 用户放弃或被拒
+    processing --> paid: 通道确认成功
+    processing --> failed: 通道确认失败
+    paid --> refunding: 发起退款
+    refunding --> refunded: 退款完成
+    refunding --> paid: 退款失败
+    paid --> [*]
+    failed --> [*]
+    expired --> [*]
+    refunded --> [*]

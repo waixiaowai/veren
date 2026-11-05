@@ -1,0 +1,51 @@
+﻿graph TB
+  subgraph surfaces["瀹㈡埛绔叆鍙?/ Client surfaces"]
+    dash["鎺у埗鍙?Dashboard"]
+    chk["缁撶畻椤?Checkout"]
+    dev["SDK 涓?CLI"]
+    mcp["MCP 鏈嶅姟"]
+  end
+
+  edge["杈圭紭 API 缃戝叧 / Edge API"]
+  guard["閴存潈涓庣鎴蜂笂涓嬫枃 / Auth and tenant context"]
+
+  subgraph domains["棰嗗煙妯″潡 / Domain modules"]
+    catalog["鐩綍 Catalog"]
+    balances["浣欓 Balances"]
+    billing["缁撶畻 Billing"]
+    events["浜嬩欢 Events"]
+    customers["瀹㈡埛 Customers"]
+    invoices["鍙戠エ Invoices"]
+  end
+
+  subgraph runtime["寮傛杩愯鏃?/ Async runtime"]
+    queue["娑堟伅闃熷垪 / Queues"]
+    cron["瀹氭椂璋冨害 / Scheduled"]
+    lock["骞傜瓑涓庨攣 / Durable Objects"]
+  end
+
+  db[("鍏崇郴鏁版嵁搴?/ Postgres")]
+  rails["鏀粯閫氶亾 / Payment rails"]
+  hook["鍑虹珯 Webhook"]
+
+  dash --> edge
+  chk --> edge
+  dev --> edge
+  mcp --> edge
+  edge --> guard
+  guard --> domains
+  domains --> db
+  domains --> runtime
+  billing <--> rails
+  billing --> hook
+  balances --> hook
+
+  classDef surface fill:#E8F4FD,stroke:#1B6CA8,stroke-width:1.5px,color:#0B3C5D
+  classDef core fill:#E7F7EC,stroke:#1E7B34,stroke-width:2px,color:#0F3D1C
+  classDef data fill:#F3EEFB,stroke:#5B3F98,stroke-width:1.5px,color:#2E1E58
+  classDef async fill:#FFF6E5,stroke:#9A6400,stroke-width:1.5px,color:#4A3000
+  classDef external fill:#FDEBEA,stroke:#A32A22,stroke-width:1.5px,color:#5C1410
+  class dash,chk,dev,mcp surface
+  class catalog,balances,billing core
+  class db,queue,cron,lock data
+  class rails,hook external

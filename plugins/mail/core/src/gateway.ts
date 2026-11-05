@@ -46,10 +46,21 @@ export class MailGatewayService extends TypertRemoteService {
     this.mail = getOrThrow(ctx, MailServiceToken)
   }
 
-  /** One snapshot for the panel: the messages and the execution chains. */
+  /**
+   * One snapshot for the panel: the messages and the execution chains. Remote
+   * methods must take plain identifier parameters — no default, no
+   * destructuring — because the Host reads parameter names from the compiled
+   * signature; an omitted call still lands as `undefined`, hence the `?.`.
+   *
+   * 面板的一份快照：消息与执行链。远端方法的参数必须是普通标识符——不能带默认值或解构——因为
+   * 宿主从编译后的签名读参数名；调用方省略参数时它以 `undefined` 落地，故用 `?.` 防御。
+   */
   @Remote('catalog')
-  async catalog(_request: { readonly limit?: number } = {}): Promise<{ readonly messages: MessageView[]; readonly runs: RunView[] }> {
-    return { messages: this.mail.listMessages(), runs: this.mail.listRuns() }
+  async catalog(request: { readonly limit?: number }): Promise<{ readonly messages: MessageView[]; readonly runs: RunView[] }> {
+    const messages = request?.limit === undefined
+      ? this.mail.listMessages()
+      : this.mail.listMessages().slice(0, request.limit)
+    return { messages, runs: this.mail.listRuns() }
   }
 
   /** The messages one recipient holds. */
