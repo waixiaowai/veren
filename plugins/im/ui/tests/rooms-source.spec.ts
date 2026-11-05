@@ -38,6 +38,14 @@ function fakeApi(): ImConvApi & { roomsTable: Room[] } {
       roomsTable.push(room)
       return { ok: true as const, value: { room } }
     },
+    addMembers: async (request: { roomId: string; memberIds: readonly string[] }) => {
+      const at = roomsTable.findIndex(item => item.id === request.roomId)
+      const room = roomsTable[at] ?? roomOf(request.roomId, undefined)
+      const seated = { ...room, members: [...room.members, ...request.memberIds] }
+      if (at === -1) roomsTable.push(seated)
+      else roomsTable[at] = seated
+      return { ok: true as const, value: { room: seated } }
+    },
     markRead: async () => ({ ok: true as const, value: { cursor: { lastReadSequence: 0 } } }),
     unreadCounts: async () => ({ ok: true as const, value: { counts: [] } }),
   }
@@ -90,6 +98,43 @@ describe('createRoomsSource', () => {
       const sent = await source.send('你好')
       expect(sent).toBe(true)
       expect(source.source.getSnapshot().sending).toBe(false)
+    } finally {
+      stop()
+    }
+  })
+
+  it('seats invited members and rereads the open room at once', async () => {
+    const api = fakeApi()
+    const source = createRoomsSource(api, 'human:owner')
+    const stop = source.source.subscribe(() => undefined)
+    try {
+      source.createRoom({ kind: 'group' })
+      await vi.waitFor(() => { expect(source.source.getSnapshot().openRoomId).toBe('conv-1') })
+      const joined = await source.invite('conv-1', ['agent:reviewer', 'human:person-1'])
+      expect(joined).toBe(true)
+      // 不等下一轮五秒轮询：入座成功后房间列表立刻重读。
+      // No waiting for the next five-second poll: the list re-reads on success.
+      expect(source.source.getSnapshot().rooms[0]?.members).toEqual([
+        'human:owner', 'agent:default', 'agent:reviewer', 'human:person-1',
+      ])
+    } finally {
+      stop()
+    }
+  })
+
+  it('keeps the picker open on a refused invite and shows the host error', async () => {
+    const api = fakeApi()
+    const source = createRoomsSource({
+      ...api,
+      addMembers: async () => ({ ok: false as const, error: { code: 'STATE_CONFLICT', message: '私聊不能再加人' } }),
+    }, 'human:owner')
+    const stop = source.source.subscribe(() => undefined)
+    try {
+      source.createRoom({ kind: 'group' })
+      await vi.waitFor(() => { expect(source.source.getSnapshot().openRoomId).toBe('conv-1') })
+      const joined = await source.invite('conv-1', ['agent:reviewer'])
+      expect(joined).toBe(false)
+      expect(source.source.getSnapshot().error).toBe('私聊不能再加人')
     } finally {
       stop()
     }

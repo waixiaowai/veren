@@ -136,6 +136,9 @@ export interface ImPanelInjected {
     readonly kind?: 'direct' | 'group'
     readonly memberIds?: readonly string[]
   }) => void
+  /** Seat more people or agents in a group room; resolves whether they joined. */
+  /** 往群聊里追加人或智能体；返回是否入座成功。 */
+  readonly onInviteMembers: (roomId: string, memberIds: readonly string[]) => Promise<boolean>
 }
 
 /** The mounted `ctx.remote.im` surface. */
@@ -349,6 +352,12 @@ export interface ImConvApi {
     readonly title?: string
     readonly memberIds: readonly string[]
   }) => Promise<ImRemoteResult<{ readonly room: Room }>>
+  /** Seat more people or agents in a group room; a direct room refuses. */
+  /** 往群聊里追加人或智能体；私聊会拒绝。 */
+  readonly addMembers: (request: {
+    readonly roomId: string
+    readonly memberIds: readonly string[]
+  }) => Promise<ImRemoteResult<{ readonly room: Room }>>
   /** Every room's unread count for one participant. */
   /** 一个参与者在每个房间的未读数。 */
   readonly unreadCounts: (request: {
@@ -369,6 +378,10 @@ const POST_REQUEST = z.looseObject({ roomId: z.string(), body: z.string().min(1)
 const CREATE_ROOM_REQUEST = z.looseObject({
   kind: z.enum(['direct', 'group']),
   title: z.string().optional(),
+  memberIds: z.array(z.string().min(1)).min(1),
+})
+const ADD_MEMBERS_REQUEST = z.looseObject({
+  roomId: z.string().min(1),
   memberIds: z.array(z.string().min(1)).min(1),
 })
 const MARK_READ_REQUEST = z.looseObject({ roomId: z.string(), participantId: z.string(), sequence: z.number() })
@@ -426,6 +439,9 @@ export const convRemote = createTypertRemoteInfo({
     ], () => z.looseObject({ message: MESSAGE_SCHEMA, replayed: z.boolean() })),
     ...convMethod('createRoom', 'Create one internal room and seat its members.', 'createRoom', [
       parameter('request', 'imConv:createRoom:request', () => CREATE_ROOM_REQUEST),
+    ], () => z.looseObject({ room: ROOM_SCHEMA })),
+    ...convMethod('addMembers', 'Seat more members in one group room.', 'addMembers', [
+      parameter('request', 'imConv:addMembers:request', () => ADD_MEMBERS_REQUEST),
     ], () => z.looseObject({ room: ROOM_SCHEMA })),
     ...convMethod('markRead', 'Advance one read cursor.', 'markRead', [
       parameter('request', 'imConv:markRead:request', () => MARK_READ_REQUEST),

@@ -1,0 +1,27 @@
+{
+  "name": "@veren/baidu-pan-bundle",
+  "description": "Use when a dsh profile should gain the whole Baidu Netdisk stack in one install: this configuration-only bundle inserts the server plugin row (@veren/baidu-pan, carrying the open-platform app triple) and the web panel row (@veren/baidu-pan-ui) in the order the runner needs, so nothing has to hand-edit cordis.patch.yml. Skip it when the profile composes those two loader rows itself.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "README.md",
+    "README.cn.md"
+  ],
+  "dependencies": {
+    "@veren/baidu-pan": "workspace:*",
+    "@veren/baidu-pan-ui": "workspace:*"
+  },
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -45,83 +45,115 @@ export function RoomsSide(props: RoomsSideProps): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const { t, state } = props
-  const unreadOf = (roomId: string): number =>
-    state.unread.find(count => count.roomId === roomId)?.unread ?? 0
-  const rooms = state.rooms.filter(room =>
-    matchesFilter(room.kind, unreadOf(room.id), filter)
-    && (query.trim() === '' || (room.title ?? '').toLowerCase().includes(query.trim().toLowerCase())))
+  const rooms = visibleRooms(state, query, filter)
   return (
     <aside className="im-rooms-side">
-      <div className="im-side-head">
-        <div className="im-search">
-          <input
-            className="im-input"
-            value={query}
-            placeholder={t('searchPlaceholder')}
-            aria-label={t('searchPlaceholder')}
-            onChange={event => setQuery(event.target.value)}
-          />
-        </div>
-        <button
-          type="button"
-          className="im-icon-button"
-          aria-label={t('newRoom')}
-          title={t('newRoom')}
-          onClick={() => setCreating(value => !value)}
-        >
-          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
-            <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </button>
-      </div>
+      <RoomsSideHead t={t} query={query} setQuery={setQuery} onToggleCreate={() => setCreating(value => !value)} />
       <div className="im-filters" role="group">
         <FilterButton active={filter === 'all'} label={t('filterAll')} onClick={() => setFilter('all')} />
         <FilterButton active={filter === 'unread'} label={t('filterUnread')} onClick={() => setFilter('unread')} />
         <FilterButton active={filter === 'direct'} label={t('filterDirect')} onClick={() => setFilter('direct')} />
         <FilterButton active={filter === 'group'} label={t('filterGroup')} onClick={() => setFilter('group')} />
       </div>
-      {creating && (
-        <NewRoomPicker
-          t={t}
-          people={props.people}
-          agents={props.participants
-            .filter(participant => participant.kind === 'agent')
-            .map(participant => ({
-              id: participant.id,
-              label: participantLabel(participant.id, props.people, t, props.participants),
-              kind: 'agent' as const,
-            }))}
-          onCreate={input => { props.onCreateRoom(input); setCreating(false) }}
-          onCancel={() => setCreating(false)}
-        />
-      )}
-      <ul className="im-room-list" role="list">
-        {state.status === 'loading' && state.rooms.length === 0 && (
-          <>
-            <li><span className="im-skeleton im-skeleton-row" aria-hidden="true" /></li>
-            <li><span className="im-skeleton im-skeleton-row" aria-hidden="true" /></li>
-            <li><span className="im-skeleton im-skeleton-row" aria-hidden="true" /></li>
-          </>
-        )}
-        {rooms.map(room => (
-          <li key={room.id}>
-            <RoomRow
-              title={room.title ?? t('roomUntitled')}
-              kind={room.kind}
-              agentSeated={room.members.some(id => id.startsWith('agent:'))}
-              stamp={roomStampOf(room.updatedAt)}
-              members={room.members.length}
-              unread={state.unread.find(count => count.roomId === room.id)?.unread ?? 0}
-              open={room.id === state.openRoomId}
-              t={t}
-              onClick={() => props.onOpenRoom(room.id === state.openRoomId ? undefined : room.id)}
-            />
-          </li>
-        ))}
-      </ul>
+      {creating && <NewRoomPanel props={props} onDone={() => setCreating(false)} />}
+      <RoomList props={props} rooms={rooms} />
       {rooms.length === 0 && state.rooms.length > 0 && <p className="im-muted">{t('noMatches')}</p>}
     </aside>
   )
+}
+
+/** The new-room picker: the seated agents plus the create/cancel pair. / The new-room picker: the seated agents plus the create/cancel pair. */
+function NewRoomPanel(props: { readonly props: RoomsSideProps, readonly onDone: () => void }): React.JSX.Element {
+  const { t, people, participants } = props.props
+  return (
+    <NewRoomPicker
+      t={t}
+      people={people}
+      agents={participants
+        .filter(participant => participant.kind === 'agent')
+        .map(participant => ({
+          id: participant.id,
+          label: participantLabel(participant.id, people, t, participants),
+          kind: 'agent' as const,
+        }))}
+      onCreate={input => { props.props.onCreateRoom(input); props.onDone() }}
+      onCancel={props.onDone}
+    />
+  )
+}
+
+/** The head row: the search box and the new-room toggle. */
+function RoomsSideHead(props: {
+  readonly t: (key: ImKey) => string
+  readonly query: string
+  readonly setQuery: (query: string) => void
+  readonly onToggleCreate: () => void
+}): React.JSX.Element {
+  const { t } = props
+  return (
+    <div className="im-side-head">
+      <div className="im-search">
+        <input
+          className="im-input"
+          value={props.query}
+          placeholder={t('searchPlaceholder')}
+          aria-label={t('searchPlaceholder')}
+          onChange={event => props.setQuery(event.target.value)}
+        />
+      </div>
+      <button
+        type="button"
+        className="im-icon-button"
+        aria-label={t('newRoom')}
+        title={t('newRoom')}
+        onClick={props.onToggleCreate}
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
+          <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </button>
+    </div>
+  )
+}
+
+/** The room rows plus the loading skeletons. / The room rows plus the loading skeletons. */
+function RoomList(props: { readonly props: RoomsSideProps, readonly rooms: readonly Room[] }): React.JSX.Element {
+  const { state, t } = props.props
+  return (
+    <ul className="im-room-list" role="list">
+      {state.status === 'loading' && state.rooms.length === 0 && (
+        <>
+          <li><span className="im-skeleton im-skeleton-row" aria-hidden="true" /></li>
+          <li><span className="im-skeleton im-skeleton-row" aria-hidden="true" /></li>
+          <li><span className="im-skeleton im-skeleton-row" aria-hidden="true" /></li>
+        </>
+      )}
+      {props.rooms.map(room => (
+        <li key={room.id}>
+          <RoomRow
+            title={room.title ?? t('roomUntitled')}
+            kind={room.kind}
+            agentSeated={room.members.some(id => id.startsWith('agent:'))}
+            stamp={roomStampOf(room.updatedAt)}
+            members={room.members.length}
+            unread={state.unread.find(count => count.roomId === room.id)?.unread ?? 0}
+            open={room.id === state.openRoomId}
+            t={t}
+            onClick={() => props.props.onOpenRoom(room.id === state.openRoomId ? undefined : room.id)}
+          />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/** The rooms passing the filter and the search query. / The rooms passing the filter and the search query. */
+function visibleRooms(state: RoomsSideProps['state'], query: string, filter: Filter): readonly Room[] {
+  const unreadOf = (roomId: string): number =>
+    state.unread.find(count => count.roomId === roomId)?.unread ?? 0
+  return state.rooms.filter(room =>
+    matchesFilter(room.kind, unreadOf(room.id), filter)
+    && (query.trim() === '' || (room.title ?? '').toLowerCase().includes(query.trim().toLowerCase())))
 }
 
 /** Whether one room passes the active filter. */

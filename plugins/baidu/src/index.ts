@@ -85,3 +85,14 @@ export const apply = (ctx: Context, config: Config): void => {
   }, 'baidu-pan.tools')
   ctx.effect(() => registerBaiduPanSkill(ctx), 'baidu-pan.skill')
 }
+
+// 面板（@veren/baidu-pan-ui）只经 import type 引用这些视图类型，运行时零依赖。
+// The panel (@veren/baidu-pan-ui) imports these view types as types only — zero runtime dependency.
+export type {
+  AuthStateView, GatewayOutcome, JobStartedView, ListingView, SignInStartView, SignOutView,
+} from './gateway-views.js'
+export type { JobFailure, JobPhase, TransferJobSnapshot, TransferKind } from './jobs.js'
+export type {
+  AccountProfile, DownloadReceipt, FileEntry, FileMeta, OAuthTokens, QuotaSnapshot, ShareReceipt, UploadReceipt,
+} from './types.js'
+export { BAIDU_GATEWAY_NAME, BAIDU_REMOTE_NAMESPACE } from './gateway.js'

@@ -137,6 +137,7 @@ function registerMainPanel(
         return sent
       },
       onCreateRoom: rooms.createRoom,
+      onInviteMembers: rooms.invite,
     }),
   }, ImPanel))
 }

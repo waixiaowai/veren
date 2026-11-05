@@ -169,6 +169,29 @@ async function createRoom(
   openRoomOf(api, state, viewerId, result.value.room.id)
 }
 
+/**
+ * Seat more people or agents in one group room. The room list re-reads on
+ * success, and the open room re-reads its members, so a new seat shows up in
+ * the rail and the header at once instead of after the next poll.
+ * 往一个群聊里追加人或智能体。成功后重读房间列表；打开中的房间还会重读成员，新座位立刻
+ * 出现在侧栏与页头，而不是等下一轮轮询。
+ */
+async function inviteMembers(
+  api: ImConvApi,
+  state: RoomsState,
+  roomId: string,
+  memberIds: readonly string[],
+): Promise<boolean> {
+  const result = await api.addMembers({ roomId, memberIds })
+  if (!result.ok) {
+    publish(state, { status: 'error', error: result.error.message })
+    return false
+  }
+  await readRooms(api, state)
+  if (state.snapshot.openRoomId === roomId) await readRoom(api, state, roomId)
+  return true
+}
+
 /** Build the conversations tab's observable and its callbacks. */
 /** 构建会话页的可观察对象与回调。 */
 export function createRoomsSource(api: ImConvApi, viewerId: string): {
@@ -177,6 +200,7 @@ export function createRoomsSource(api: ImConvApi, viewerId: string): {
   readonly refresh: () => void
   readonly send: (body: string) => Promise<boolean>
   readonly createRoom: (input: { readonly title?: string; readonly kind?: 'direct' | 'group'; readonly memberIds?: readonly string[] }) => void
+  readonly invite: (roomId: string, memberIds: readonly string[]) => Promise<boolean>
 } {
   const state: RoomsState = {
     snapshot: {
@@ -200,5 +224,6 @@ export function createRoomsSource(api: ImConvApi, viewerId: string): {
     },
     send: body => sendMessage(api, state, viewerId, body),
     createRoom: input => { void createRoom(api, state, viewerId, input) },
+    invite: (roomId, memberIds) => inviteMembers(api, state, roomId, memberIds),
   }
 }

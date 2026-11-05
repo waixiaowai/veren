@@ -1,0 +1,33 @@
+# 百度网盘组合包的 profile 补丁层。
+# The Baidu Netdisk stack's profile patch layer.
+#
+# 两行按次序插入：先服务端插件（工具面 + `baiduPan` 远端网关），再网页面板
+# （侧栏入口）。面板的客户端半边要注入 `remote.baiduPan`，所以必须排在网关
+# 之后——与 im-bundle / mail-bundle 的次序纪律一致。
+#
+# Two rows in order: the server plugin first (tool face + the `baiduPan` Remote
+# gateway), then the web panel (sidebar entry). The panel's client half injects
+# `remote.baiduPan`, so it must come after the gateway — the same ordering
+# discipline as im-bundle and mail-bundle.
+#
+# 配置写在下面这一行的 config 块里（YAML，即改即所见——重启宿主生效）。
+# appKey/secretKey 在百度网盘开放平台控制台创建应用后取得；它们是应用级凭据，
+# 写在这里会以明文落盘。OAuth 用户令牌走另一级：登录流存进本机凭据库，绝不
+# 落配置文件。
+# Configuration lives in the config block below (YAML — what you write is what
+# you get, effective after a host restart). Create an app on the Baidu Netdisk
+# open-platform console to obtain appKey/secretKey; they are app-level
+# credentials and sit here in plaintext. The OAuth user tokens are a different
+# tier: the sign-in flow stores them in this machine's credential store, never
+# in config files.
+- insert:
+    - id: baidu-pan
+      name: '@veren/baidu-pan'
+      config:
+        appKey: 你的开放平台AppKey / your open-platform AppKey
+        secretKey: 你的开放平台SecretKey / your open-platform SecretKey
+        # root: /apps/bdpan                        # 授权根，缺省即此值 / authorized root, this is the default
+        # requestTimeoutMs: 30000                  # 单请求超时 / per-request timeout
+        # maxAttempts: 3                           # 瞬态失败重试次数 / transient-failure attempts
+    - id: baidu-pan-ui
+      name: '@veren/baidu-pan-ui'

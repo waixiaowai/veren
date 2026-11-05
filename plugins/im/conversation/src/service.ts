@@ -33,6 +33,13 @@ export interface ConversationService {
     readonly title?: string
     readonly memberIds: readonly string[]
   }): Promise<Room>
+  /** Seat more members in one group room (idempotent per member). */
+  /** 为一个群聊房间追加成员（按成员幂等）。 */
+  addMembers(input: {
+    readonly roomId: string
+    readonly actorId: string
+    readonly memberIds: readonly string[]
+  }): Promise<Room>
   /** Read one room. */
   /** 读取一个房间。 */
   room(roomId: string): Room | undefined
@@ -92,6 +99,10 @@ export class ConversationFacade implements ConversationService {
 
   createRoom(input: Parameters<RoomService['createRoom']>[0]): Promise<Room> {
     return this.roomHalf.createRoom(input)
+  }
+
+  addMembers(input: Parameters<RoomService['addMembers']>[0]): Promise<Room> {
+    return this.roomHalf.addMembers(input)
   }
 
   room(roomId: string): Room | undefined {

@@ -1,6 +1,6 @@
 {
   "name": "@veren/baidu-pan",
-  "description": "Use when a dsh composition must let both its agents and its human operators work a Baidu Netdisk account natively: model-facing tools (baidu_pan__*) for listing, keyword search, metadata, mkdir/copy/move/rename, guarded delete, share-link creation, local-to-remote upload with fast-upload and 4 MiB slicing, and remote-to-local streaming download, plus a web client panel (the baiduPan Remote namespace) that gives people the same operations — in-panel paste-code sign-in, file browsing with guarded delete and share links, and polled upload/download jobs — all confined to the app's authorized root by the guard module; skip it when the deployment never touches Baidu Netdisk.",
+  "description": "Use when a dsh composition must let its agents work a Baidu Netdisk account natively: thirteen model-facing tools (baidu_pan__*) for listing, keyword search, metadata, mkdir/copy/move/rename, guarded delete, share-link creation, local-to-remote upload with fast-upload and 4 MiB slicing, and remote-to-local streaming download, all confined to the app's authorized root by the guard module and signed in through a paste-code OAuth flow that keeps tokens only in the credential store; it also exposes the `baiduPan` Remote namespace that the @veren/baidu-pan-ui panel drives. Skip it when the deployment never touches Baidu Netdisk.",
   "version": "2.4.0",
   "license": "MIT",
   "type": "module",
@@ -11,22 +11,17 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./client": "./lib/client.js",
-    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
-    "lib/client.js",
-    "locale/*.json",
     "assets",
-    "cordis.patch.yml",
     "README.md",
     "README.cn.md"
   ],
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.client.json",
-    "build": "tsc -p tsconfig.json && node scripts/bundle.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
     "prepack": "pnpm run build",
     "test": "vitest run --no-fsModuleCache",
     "test:e2e": "vitest run --config vitest.e2e.config.ts"
@@ -46,15 +41,7 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
     "@deepseek-ai/dsh-agent": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-api-remotes": "0.2.1-rc.2",
     "@deepseek-ai/dsh-authorization": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-connection": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-locale": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-layout": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-primitives": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-renderer": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-sidebar": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-slots": "0.2.1-rc.2",
     "@deepseek-ai/dsh-credentials": "0.2.1-rc.2",
     "@deepseek-ai/dsh-session": "0.2.1-rc.2",
     "@deepseek-ai/dsh-skill": "0.2.1-rc.2",
@@ -63,29 +50,7 @@
     "@deepseek-ai/dsh-workspace": "0.2.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.4",
     "@types/node": "^26.6.5",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "@veren/platform-modules": "workspace:*",
-    "esbuild": "^0.28.2",
     "typescript": "^5.9.3",
-    "vitest": "^5.0.4",
-    "zod": "4.4.3"
-  },
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "platform": "web",
-      "inject": [
-        "@deepseek-ai/dsh-api-remotes",
-        "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-ui-layout",
-        "@deepseek-ai/dsh-client-ui-primitives",
-        "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-ui-sidebar",
-        "@deepseek-ai/dsh-client-ui-slots"
-      ]
-    }
+    "vitest": "^5.0.4"
   }
 }

@@ -65,6 +65,7 @@ export type ImKey =
   | 'participantOwner' | 'participantAssistant' | 'membersLabel'
   | 'searchPlaceholder' | 'filterAll' | 'filterDirect' | 'filterGroup' | 'noMatches'
   | 'roomInfo' | 'roomKindLabel' | 'roomCreatedLabel'
+  | 'inviteMembers' | 'invitePick' | 'inviteConfirm'
   | 'copy' | 'copied' | 'jumpLatest' | 'mentionTitle'
   | 'tabAgents' | 'headingTeam' | 'headingAccounts' | 'headingPeople'
   | 'filterUnread' | 'agentRoleDefault' | 'agentRole' | 'agentRooms' | 'agentLastActive'
@@ -121,6 +122,9 @@ export const zh: Record<ImKey, string> = {
   composerHint: "回车发送 · Shift+回车换行",
   roomInfo: "会话信息",
   roomCreatedLabel: "创建于",
+  inviteMembers: "邀请成员",
+  invitePick: "选择要邀请的成员",
+  inviteConfirm: "邀请",
   copy: "复制",
   copied: "已复制",
   jumpLatest: "回到最新",
@@ -333,6 +337,9 @@ export const en: Record<ImKey, string> = {
   composerHint: "Enter sends · Shift+Enter breaks the line",
   roomInfo: "Conversation info",
   roomCreatedLabel: "Created",
+  inviteMembers: "Invite members",
+  invitePick: "Pick members to invite",
+  inviteConfirm: "Invite",
   copy: "Copy",
   copied: "Copied",
   jumpLatest: "Jump to latest",

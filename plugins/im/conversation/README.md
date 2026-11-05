@@ -18,10 +18,13 @@ and `@veren/im-turn`.
 - The `im_conversation` storage domain: rooms, room members, messages, per-room
   counters, read cursors, and the clientId idempotency index.
 - `ConversationService` (`imConversation` token): post (idempotent by client
-  id, gated), list, lastPeerMessage, markRead, unread, room/membership reads.
+  id, gated), list, lastPeerMessage, markRead, unread, room/membership reads,
+  and addMembers (group seating; a direct room refuses because its two seats
+  are the room).
 - The channel ingest: deterministic `chan:<provider>:<account>:<conversation>`
   room ids, sender seating, and provider redelivery as idempotent replay.
-- The `imConv` remote namespace: rooms, roomMembers, messages, markRead.
+- The `imConv` remote namespace: rooms, roomMembers, messages, post,
+  createRoom, addMembers, markRead.
 
 ## Events
 

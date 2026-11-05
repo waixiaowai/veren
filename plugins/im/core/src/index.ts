@@ -268,6 +268,17 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   )
   ctx.effect(() => ctx.provide(ImMemoryToken, new ImMemory({ store: storage })), 'im:memory')
 
+  buildIntakeAndRemote(ctx, config, logger, people, storage)
+}
+
+/** The stranger-intake wiring plus the Web panel's backend namespace. */
+function buildIntakeAndRemote(
+  ctx: Context,
+  config: Config,
+  logger: ImLogger,
+  people: Awaited<ReturnType<typeof buildPeople>>,
+  storage: Awaited<ReturnType<typeof openStorage>>,
+): void {
   const registry = buildRegistry(ctx, storage, logger)
   const bindings = buildBindings(ctx, storage, logger, registry, people)
   buildIntake(ctx, config, logger, people, bindings, registry)

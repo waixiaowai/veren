@@ -60,27 +60,8 @@ export interface CrawlerRuntime {
  * @param config - 已校验的插件配置 / the validated plugin configuration
  */
 export const apply = async (ctx: Context, config: Config): Promise<void> => {
-  // 打开存储域；上一次激活留下的句柄先关掉（zhihu-ops 同款语义）。
-  // Open the storage domain; a handle left by a previous activation closes
-  // first (same semantics as zhihu-ops).
-  const stale = ctx.storageDomain.get(CRAWLER_DOMAIN_NAME)
-  if (stale !== undefined) {
-    try {
-      await stale.close()
-    } catch (error: unknown) {
-      ctx.logger.warn('[veren-crawler] previous storage domain could not close: %s', String(error))
-    }
-  }
-  const domain = await ctx.storageDomain.open(crawlerDomain)
-  const runtime: CrawlerRuntime = {
-    config: resolveConfig(config),
-    manager: new CrawlerManager(createInProcessRunner({
-      deps: (request) => realDeps(request, { browserDataRoot: config.browserDataRoot, channel: config.browserChannel }),
-      domain: () => domain,
-      mediaRoot: config.mediaRoot,
-    }), { onFinished: crawlFinishedNotifier(ctx, resolveConfig(config)) }),
-    domain,
-  }
+  const domain = await openCrawlerDomain(ctx)
+  const runtime = buildRuntime(ctx, config, domain)
   // 工具面：`crawler__<本地名>` 全名注册，disposer 逆序即卸（意见 4）。
   // The tool face: registered under `crawler__<localName>` full names;
   // reverse-order dispose unregisters (directive 4).
@@ -91,11 +72,59 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
   provideToolStubs(createCrawlerTools().map((tool) => ({ ...tool, name: `crawler__${tool.name}` })))
   bindOverviewRuntime({ manager: runtime.manager, domain: () => runtime.domain })
   ctx.effect(() => createCrawlerTools().map((tool) => ctx.tools.register({ ...tool, name: `crawler__${tool.name}` })), 'veren-crawler:tools')
-  // 卸载逆序清理：应用与页面 → API 路由 → 运行中任务 → 存储域（G13 规则 3：
-  // 定义 → 工具 → 页面一条 effect 收线，任一步失败逆序回滚）。
-  // Reverse-order dispose: app+pages → api routes → running task → storage
-  // domain (G13 rule 3: definition → tools → pages in one effect, rolling
-  // back finished steps in reverse on any failure).
+  registerAppAndPages(ctx)
+  const api = new ControlApi({ manager: runtime.manager, domain: () => runtime.domain })
+  ctx.effect(() => api.register(ctx), 'veren-crawler:api')
+  ctx.effect(() => async () => {
+    if (runtime.manager.status().status === 'running' || runtime.manager.status().status === 'starting') {
+      await runtime.manager.stop()
+    }
+    await domain.close()
+    runtime.domain = undefined
+    ctx.logger.info('[veren-crawler] runtime disposed')
+  }, 'veren-crawler:runtime')
+  ctx.logger.info('[veren-crawler] control api mounted on host web server')
+}
+
+/**
+ * 打开存储域；上一次激活留下的句柄先关掉（zhihu-ops 同款语义）。
+ * Open the storage domain; a handle left by a previous activation closes
+ * first (same semantics as zhihu-ops).
+ */
+async function openCrawlerDomain(ctx: Context): Promise<CrawlerStore> {
+  const stale = ctx.storageDomain.get(CRAWLER_DOMAIN_NAME)
+  if (stale !== undefined) {
+    try {
+      await stale.close()
+    } catch (error: unknown) {
+      ctx.logger.warn('[veren-crawler] previous storage domain could not close: %s', String(error))
+    }
+  }
+  return ctx.storageDomain.open(crawlerDomain)
+}
+
+/** 装配运行时：配置解析 + 进程内执行器 + 任务管理器。 / Assemble the runtime: config, the in-process runner and the task manager. */
+function buildRuntime(ctx: Context, config: Config, domain: CrawlerStore): CrawlerRuntime {
+  const resolved = resolveConfig(config)
+  return {
+    config: resolved,
+    manager: new CrawlerManager(createInProcessRunner({
+      deps: (request) => realDeps(request, { browserDataRoot: config.browserDataRoot, channel: config.browserChannel }),
+      domain: () => domain,
+      mediaRoot: config.mediaRoot,
+    }), { onFinished: crawlFinishedNotifier(ctx, resolved) }),
+    domain,
+  }
+}
+
+/**
+ * 注册应用与页面（卸载逆序清理：应用与页面 → API 路由 → 运行中任务 → 存储域；
+ * G13 规则 3：定义 → 工具 → 页面一条 effect 收线，任一步失败逆序回滚）。
+ * Register the app and its pages (reverse-order dispose on unload; G13 rule 3:
+ * definition → tools → pages in one effect, rolling back finished steps in
+ * reverse on any failure).
+ */
+function registerAppAndPages(ctx: Context): void {
   ctx.effect(() => {
     const done: Array<() => void> = []
     try {
@@ -108,16 +137,5 @@ export const apply = async (ctx: Context, config: Config): Promise<void> => {
     }
     return () => undefined
   }, 'veren-crawler:app')
-  const api = new ControlApi({ manager: runtime.manager, domain: () => runtime.domain })
-  ctx.effect(() => api.register(ctx), 'veren-crawler:api')
-  ctx.effect(() => async () => {
-    if (runtime.manager.status().status === 'running' || runtime.manager.status().status === 'starting') {
-      await runtime.manager.stop()
-    }
-    await domain.close()
-    runtime.domain = undefined
-    ctx.logger.info('[veren-crawler] runtime disposed')
-  }, 'veren-crawler:runtime')
-  ctx.logger.info('[veren-crawler] control api mounted on host web server')
 }
  0

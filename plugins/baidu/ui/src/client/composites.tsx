@@ -11,12 +11,27 @@
  */
 
 import { useEffect, useRef } from 'react'
-import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { JSX, ReactNode } from 'react'
 import {
   HintBar, KeyValueRow, LinkLine, PathText, ProgressBar, SectionHeading, StatusLabel, Table, EmptyState,
   type TableColumn, type Tone,
 } from './components.tsx'
+
+/**
+ * 任务状态点：设计 §10.1 要求状态由文字承载、语义色只作强化——所以这里是一个
+ * 纯 CSS 圆点，不引第三方图标组件。外壳的 `require` 只解析已 seed 的平台模块，
+ * `dsh-client-ui-primitives` 不在其列（im-ui / mail-ui 同样不引它），引入会在
+ * 模块物化阶段就失败，整个面板条目不会被创建。
+ * A task's state dot: design §10.1 puts the state in text and uses semantic color
+ * only as reinforcement, so this is a pure-CSS dot rather than a third-party
+ * icon component. The shell's `require` resolves only seeded platform modules,
+ * and `dsh-client-ui-primitives` is not among them (im-ui / mail-ui never import
+ * it either); pulling it in fails at module materialization, so the whole panel
+ * entry is never created.
+ */
+function StateDot(props: { readonly state: 'done' | 'warning' | 'ongoing' | 'error' | 'idle' }): JSX.Element {
+  return <span className={`bdp-dot bdp-dot-${props.state}`} aria-hidden="true" />
+}
 
 /** §11.1 ResultCard：单结果操作的统一呈现（动作、落点、路径、链接、提示）。ResultCard: the one-shot result card (action, landing, path, link, note). */
 export function ResultCard(props: {

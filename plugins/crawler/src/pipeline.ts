@@ -74,105 +74,22 @@ function assertWiredPlatform(platform: Platform): void {
   if (!(WIRED_PLATFORMS as readonly string[]).includes(platform)) throw invalidPlatform(platform)
 }
 
-/** 平台爬取器实例化（未接入平台抛 INVALID_PLATFORM）/ instantiates a platform crawler (unwired platforms throw INVALID_PLATFORM) */
-export function createPlatformCrawler(request: CrawlerRunRequest, fetchJson: FetchJson, fetchText?: (url: string) => Promise<string>, sessionEvaluate?: (script: string) => Promise<unknown>): AbstractCrawler {
-  assertWiredPlatform(request.platform)
-  if (request.platform === 'bili') {
-    return new BiliCrawler({
-      fetchJson,
-      targets: {
-        keywords: request.keywords,
-        specifiedId: request.specifiedIds,
-        creatorId: request.creatorIds,
-      },
-      startPage: request.startPage,
-      maxNotesCount: request.maxNotesCount,
-      pageIntervalMs: 2000,
-    })
-  }
-  if (request.platform === 'ks') {
-    return new KsCrawler({
-      fetchJson,
-      targets: {
-        keywords: request.keywords,
-        specifiedId: request.specifiedIds,
-        creatorId: request.creatorIds,
-      },
-      startPage: request.startPage,
-      maxNotesCount: request.maxNotesCount,
-      pageIntervalMs: 2000,
-    })
-  }
-  if (request.platform === 'dy') {
-    return new DyCrawler({
-      fetchJson,
-      signProducer: async () => {
-        throw new Error('dy 签名脚本待从真实页面捕获')
-      },
-      targets: {
-        keywords: request.keywords,
-        specifiedId: request.specifiedIds,
-        creatorId: request.creatorIds,
-      },
-      startPage: request.startPage,
-      maxNotesCount: request.maxNotesCount,
-      pageIntervalMs: 2000,
-    })
-  }
-  if (request.platform === 'zhihu') {
-    return new ZhihuCrawler({
-      fetchJson,
-      targets: {
-        keywords: request.keywords,
-        specifiedId: request.specifiedIds,
-        creatorId: request.creatorIds,
-      },
-      startPage: request.startPage,
-      maxNotesCount: request.maxNotesCount,
-      pageIntervalMs: 2000,
-    })
-  }
-  if (request.platform === 'xhs') {
-    return new XhsCrawler({
-      fetchJson: (url) => fetchJson(url),
-      signProducer: sessionEvaluate
-        ? async (keyword) => {
-            // evaluate 通道在页面内运行签名脚本，产出签名头四件套。
-            // The evaluate channel runs the signing script in-page, producing the four-piece headers.
-            const script = `XhsSignHeaders.produce(${JSON.stringify(keyword)})`;
-            return await sessionEvaluate(script) as XhsSignHeaders;
-          }
-        : async () => {
-          throw new Error('xhs 签名需要会话 evaluate 通道')
-        },
-      targets: {
-        keywords: request.keywords,
-        specifiedId: request.specifiedIds,
-        creatorId: request.creatorIds,
-      },
-      startPage: request.startPage,
-      maxNotesCount: request.maxNotesCount,
-      pageIntervalMs: 2000,
-    })
-  }
-  if (request.platform === 'tieba') {
-    return new TiebaCrawler({
-      fetchJson,
-      fetchText,
-      enableComments: request.enableComments,
-      maxCommentsCount: request.maxCommentsCount,
-      targets: {
-        keywords: request.keywords,
-        specifiedId: request.specifiedIds,
-        creatorId: request.creatorIds,
-      },
-      startPage: request.startPage,
-      maxNotesCount: request.maxNotesCount,
-      pageIntervalMs: 2000,
-    })
-  }
-  return new WbCrawler({
-    fetchJson,
+/** 平台构造上下文：请求切片 + 三个宿主通道。 / The platform construction context: the request slice plus the three host channels. */
+interface PlatformContext {
+  request: CrawlerRunRequest
+  fetchJson: FetchJson
+  fetchText?: (url: string) => Promise<string>
+  sessionEvaluate?: (script: string) => Promise<unknown>
+}
+
+/** 各平台共用的目标切片与翻页参数。 / The target slice and paging parameters every platform shares. */
+function commonTargets(request: CrawlerRunRequest): {
+  targets: { keywords: string[], specifiedId: string[], creatorId: string[] }
+  startPage: number
+  maxNotesCount: number
+  pageIntervalMs: number
+} {
+  return {
     targets: {
       keywords: request.keywords,
       specifiedId: request.specifiedIds,
@@ -181,9 +98,57 @@ export function createPlatformCrawler(request: CrawlerRunRequest, fetchJson: Fet
     startPage: request.startPage,
     maxNotesCount: request.maxNotesCount,
     pageIntervalMs: 2000,
+  }
+}
+
+/** xhs 签名通道：页面内 evaluate 产出签名头四件套（缺通道即抛错）。 / The xhs signing channel: in-page evaluate produces the four headers (missing channel throws). */
+function xhsSignProducer(sessionEvaluate?: (script: string) => Promise<unknown>): (keyword: string) => Promise<XhsSignHeaders> {
+  return async (keyword) => {
+    if (sessionEvaluate === undefined) throw new Error('xhs 签名需要会话 evaluate 通道')
+    // The evaluate channel runs the signing script in-page, producing the four-piece headers.
+    const script = `XhsSignHeaders.produce(${JSON.stringify(keyword)})`
+    return await sessionEvaluate(script) as XhsSignHeaders
+  }
+}
+
+/** 各平台构造器表：平台 → 实例工厂。 / The per-platform constructor table: platform → instance factory. */
+const PLATFORM_FACTORIES: Record<string, (context: PlatformContext) => AbstractCrawler> = {
+  bili: ({ request, fetchJson }) => new BiliCrawler({ fetchJson, ...commonTargets(request) }),
+  ks: ({ request, fetchJson }) => new KsCrawler({ fetchJson, ...commonTargets(request) }),
+  dy: ({ request, fetchJson }) => new DyCrawler({
+    fetchJson,
+    signProducer: async () => {
+      throw new Error('dy 签名脚本待从真实页面捕获')
+    },
+    ...commonTargets(request),
+  }),
+  zhihu: ({ request, fetchJson }) => new ZhihuCrawler({ fetchJson, ...commonTargets(request) }),
+  xhs: ({ request, fetchJson, sessionEvaluate }) => new XhsCrawler({
+    fetchJson: (url) => fetchJson(url),
+    signProducer: xhsSignProducer(sessionEvaluate),
+    ...commonTargets(request),
+  }),
+  tieba: ({ request, fetchJson, fetchText }) => new TiebaCrawler({
+    fetchJson,
+    fetchText,
     enableComments: request.enableComments,
     maxCommentsCount: request.maxCommentsCount,
-  })
+    ...commonTargets(request),
+  }),
+  wb: ({ request, fetchJson }) => new WbCrawler({
+    fetchJson,
+    enableComments: request.enableComments,
+    maxCommentsCount: request.maxCommentsCount,
+    ...commonTargets(request),
+  }),
+}
+
+/** 平台爬取器实例化（未接入平台抛 INVALID_PLATFORM）/ instantiates a platform crawler (unwired platforms throw INVALID_PLATFORM) */
+export function createPlatformCrawler(request: CrawlerRunRequest, fetchJson: FetchJson, fetchText?: (url: string) => Promise<string>, sessionEvaluate?: (script: string) => Promise<unknown>): AbstractCrawler {
+  assertWiredPlatform(request.platform)
+  const factory = PLATFORM_FACTORIES[request.platform]
+  if (factory === undefined) throw invalidPlatform(request.platform)
+  return factory({ request, fetchJson, fetchText, sessionEvaluate })
 }
 
 /** 登录前置：探测 → 登录 → 持久化；未登录即抛错，绝不带未登录状态采集 / login prerequisite: probe, login, persist; throws when not logged in */

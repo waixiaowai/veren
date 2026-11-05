@@ -44,29 +44,11 @@ export function PeopleView(props: ImBodyProps): React.JSX.Element {
     ? undefined
     : people.find(person => person.id === editing)
   const close = (): void => { setEditing(undefined); setError('') }
-  const submit = (draft: PersonDraft): Promise<string | undefined> => {
-    if (editing === 'new') return actions.onCreatePerson(draft)
-    if (edited === undefined) return Promise.resolve(t('noPeople'))
-    return actions.onUpdatePerson(edited.id, draft)
-  }
-  const remove = (person: ImPersonView): void => {
-    if (!window.confirm(fill(t('confirmDeletePerson'), { name: personLabel(person, t) }))) return
-    void actions.onDeletePerson(person.id).then(failure => {
-      if (failure !== undefined) setError(failure)
-    })
-  }
+  const submit = usePersonSubmit(editing, edited, actions, t)
+  const remove = usePersonRemove(actions, t, setError)
   return (
     <section className="im-section">
-      <div className="im-hero im-hero-row">
-        <div>
-          <h2 className="im-display">{fill(t('headingPeople'), { n: people.length })}</h2>
-          <p className="im-hero-sub">{t('peopleHint')}</p>
-        </div>
-        <button type="button" className="im-button im-button-primary"
-          onClick={() => { setError(''); setEditing('new') }}>
-          {t('newPerson')}
-        </button>
-      </div>
+      <PeopleHero count={people.length} t={t} onNew={() => { setError(''); setEditing('new') }} />
       <div className="im-search">
         <input className="im-input" value={query} placeholder={t('searchPeople')}
           aria-label={t('searchPeople')}
@@ -77,15 +59,80 @@ export function PeopleView(props: ImBodyProps): React.JSX.Element {
         <PersonEditor key={editing} person={edited} t={t}
           onSubmit={submit} onCancel={close} onFinished={close} />
       )}
-      {people.length === 0 && <p className="im-muted">{t('noPeople')}</p>}
-      {people.length > 0 && shown.length === 0 && <p className="im-muted">{t('peopleSearchEmpty')}</p>}
+      <PeopleList total={people.length} shown={shown} t={t}
+        onEdit={id => { setError(''); setEditing(id) }} onDelete={remove} />
+    </section>
+  )
+}
+
+/** The contact grid plus its two empty states. / The contact grid plus its two empty states. */
+function PeopleList(props: {
+  readonly total: number
+  readonly shown: readonly ImPersonView[]
+  readonly t: (key: ImKey) => string
+  readonly onEdit: (id: string) => void
+  readonly onDelete: (person: ImPersonView) => void
+}): React.JSX.Element {
+  const { total, shown, t } = props
+  return (
+    <>
+      {total === 0 && <p className="im-muted">{t('noPeople')}</p>}
+      {total > 0 && shown.length === 0 && <p className="im-muted">{t('peopleSearchEmpty')}</p>}
       <ul className="im-card-grid" role="list">
         {shown.map(person => (
           <PersonCard key={person.id} person={person} t={t}
-            onEdit={id => { setError(''); setEditing(id) }} onDelete={remove} />
+            onEdit={props.onEdit} onDelete={props.onDelete} />
         ))}
       </ul>
-    </section>
+    </>
+  )
+}
+
+/** The submit path: create for a new contact, update for an edited one. / The submit path: create for a new contact, update for an edited one. */
+function usePersonSubmit(
+  editing: string | 'new' | undefined,
+  edited: ImPersonView | undefined,
+  actions: ImBodyProps['actions'],
+  t: (key: ImKey) => string,
+): (draft: PersonDraft) => Promise<string | undefined> {
+  return (draft) => {
+    if (editing === 'new') return actions.onCreatePerson(draft)
+    if (edited === undefined) return Promise.resolve(t('noPeople'))
+    return actions.onUpdatePerson(edited.id, draft)
+  }
+}
+
+/** The delete path: confirm first, then surface a failure inline. / The delete path: confirm first, then surface a failure inline. */
+function usePersonRemove(
+  actions: ImBodyProps['actions'],
+  t: (key: ImKey) => string,
+  setError: (error: string) => void,
+): (person: ImPersonView) => void {
+  return (person) => {
+    if (!window.confirm(fill(t('confirmDeletePerson'), { name: personLabel(person, t) }))) return
+    void actions.onDeletePerson(person.id).then(failure => {
+      if (failure !== undefined) setError(failure)
+    })
+  }
+}
+
+/** The tab hero: the heading with the contact count and the new-contact action. */
+function PeopleHero(props: {
+  readonly count: number
+  readonly t: (key: ImKey) => string
+  readonly onNew: () => void
+}): React.JSX.Element {
+  const { count, t } = props
+  return (
+    <div className="im-hero im-hero-row">
+      <div>
+        <h2 className="im-display">{fill(t('headingPeople'), { n: count })}</h2>
+        <p className="im-hero-sub">{t('peopleHint')}</p>
+      </div>
+      <button type="button" className="im-button im-button-primary" onClick={props.onNew}>
+        {t('newPerson')}
+      </button>
+    </div>
   )
 }
 

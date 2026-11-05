@@ -917,6 +917,11 @@
 .im-member-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .im-member { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 20px; }
 
+/* ---- room rail: inviting people and agents into a group ---- */
+
+.im-invite { display: flex; flex-direction: column; gap: 8px; }
+.im-invite-picker { display: flex; flex-direction: column; gap: 8px; }
+
 @media (max-width: 1280px) {
   .im-room-rail { display: none; }
 }

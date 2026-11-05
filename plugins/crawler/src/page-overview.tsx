@@ -81,50 +81,74 @@ async function overviewFirstScreen(agent: Agent): Promise<() => Promise<void>> {
  */
 export const OverviewPage: PageFC = (_props, agent) => {
   const runtime = overviewRuntime
-  if (runtime !== undefined) {
-    registerOverviewTools(agent)
-    agent.ctx.effect(() => overviewFirstScreen(agent), 'crawler:overview-first-screen')
-    const status = runtime.manager.status()
-    const domain = runtime.domain()
-    const contents = domain === undefined ? [] : [...domain.table('contents').entries()]
-    const comments = domain === undefined ? [] : [...domain.table('comments').entries()]
-    const recentLogs = runtime.manager.logs.recent(10)
-    const byPlatform = new Map<string, number>()
-    for (const [key] of contents) {
-      const platform = key.split('::')[0] ?? '?'
-      byPlatform.set(platform, (byPlatform.get(platform) ?? 0) + 1)
-    }
+  if (runtime === undefined) {
     return (
       <>
         <h1>多平台内容采集</h1>
-        <h2>任务状态</h2>
-        <p>
-          {status.status} · 平台 {status.platform ?? '—'} · 模式 {status.crawlerType ?? '—'} · 起始 {status.startedAt ?? '—'}
-          {status.errorMessage === null ? '' : ` · 错误：${status.errorMessage}`}
-        </p>
-        <h2>最近日志（10 条）</h2>
-        <ul>
-          {recentLogs.map((entry) => (
-            <li key={entry.id}>{entry.level} · {entry.message}</li>
-          ))}
-          {recentLogs.length === 0 ? <li>暂无日志。</li> : null}
-        </ul>
-        <h2>已采数据（宿主存储域）</h2>
-        <ul>
-          <li>内容 {contents.length} 条</li>
-          <li>评论 {comments.length} 条</li>
-          {[...byPlatform.entries()].map(([platform, count]) => (
-            <li key={platform}>{platform}: {count} 条内容</li>
-          ))}
-        </ul>
-        <p>正文是打开时刻的快照；启停采集用页面挂载的 crawler__ 工具，返回值与后续消息为准。</p>
+        <p>运行时未绑定（装配异常），请检查插件日志。</p>
       </>
     )
   }
+  registerOverviewTools(agent)
+  agent.ctx.effect(() => overviewFirstScreen(agent), 'crawler:overview-first-screen')
+  return <OverviewBody runtime={runtime} />
+}
+
+/** 快照数据：状态、日志与按平台计数。 / The snapshot data: status, logs and the per-platform counts. */
+interface OverviewSnapshot {
+  status: ReturnType<CrawlerManager['status']>
+  recentLogs: ReturnType<CrawlerManager['logs']['recent']>
+  contents: number
+  comments: number
+  byPlatform: Array<[string, number]>
+}
+
+/** 取一次性快照：正文是打开时刻的读数，不替宿主取数。 / Take the one-shot snapshot: the body reads at open time, it never fetches. */
+function snapshotOf(runtime: OverviewRuntime): OverviewSnapshot {
+  const domain = runtime.domain()
+  const contents = domain === undefined ? [] : [...domain.table('contents').entries()]
+  const comments = domain === undefined ? [] : [...domain.table('comments').entries()]
+  const byPlatform = new Map<string, number>()
+  for (const [key] of contents) {
+    const platform = key.split('::')[0] ?? '?'
+    byPlatform.set(platform, (byPlatform.get(platform) ?? 0) + 1)
+  }
+  return {
+    status: runtime.manager.status(),
+    recentLogs: runtime.manager.logs.recent(10),
+    contents: contents.length,
+    comments: comments.length,
+    byPlatform: [...byPlatform.entries()],
+  }
+}
+
+/** 总览正文：状态、日志与数据量三段。 / The overview body: status, logs and the data volume. */
+function OverviewBody({ runtime }: { runtime: OverviewRuntime }): JSX.Element {
+  const { status, recentLogs, contents, comments, byPlatform } = snapshotOf(runtime)
   return (
     <>
       <h1>多平台内容采集</h1>
-      <p>运行时未绑定（装配异常），请检查插件日志。</p>
+      <h2>任务状态</h2>
+      <p>
+        {status.status} · 平台 {status.platform ?? '—'} · 模式 {status.crawlerType ?? '—'} · 起始 {status.startedAt ?? '—'}
+        {status.errorMessage === null ? '' : ` · 错误：${status.errorMessage}`}
+      </p>
+      <h2>最近日志（10 条）</h2>
+      <ul>
+        {recentLogs.map((entry) => (
+          <li key={entry.id}>{entry.level} · {entry.message}</li>
+        ))}
+        {recentLogs.length === 0 ? <li>暂无日志。</li> : null}
+      </ul>
+      <h2>已采数据（宿主存储域）</h2>
+      <ul>
+        <li>内容 {contents} 条</li>
+        <li>评论 {comments} 条</li>
+        {byPlatform.map(([platform, count]) => (
+          <li key={platform}>{platform}: {count} 条内容</li>
+        ))}
+      </ul>
+      <p>正文是打开时刻的快照；启停采集用页面挂载的 crawler__ 工具，返回值与后续消息为准。</p>
     </>
   )
 }

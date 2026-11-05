@@ -32,20 +32,33 @@ export interface RoomsViewProps {
     readonly kind?: 'direct' | 'group'
     readonly memberIds?: readonly string[]
   }) => void
+  /** Seat more members in the open group room. */
+  /** 往打开中的群聊里追加成员。 */
+  readonly onInvite: (roomId: string, memberIds: readonly string[]) => Promise<boolean>
 }
 
 /** Render the workspace, or the empty state before the first room exists. */
 export function RoomsView(props: RoomsViewProps) {
   if (props.state.status === 'ready' && props.state.rooms.length === 0) {
-    return (
-      <EmptyState
-        title={props.t('emptyTitle')}
-        hint={props.t('emptyHint')}
-        actionLabel={props.t('newRoom')}
-        onAction={() => props.onCreateRoom({})}
-      />
-    )
+    return <RoomsEmpty props={props} />
   }
+  return <RoomsWorkspace props={props} />
+}
+
+/** The empty state: no room exists yet, so offer to create the first one. */
+function RoomsEmpty({ props }: { props: RoomsViewProps }): React.JSX.Element {
+  return (
+    <EmptyState
+      title={props.t('emptyTitle')}
+      hint={props.t('emptyHint')}
+      actionLabel={props.t('newRoom')}
+      onAction={() => props.onCreateRoom({})}
+    />
+  )
+}
+
+/** The two-pane workspace: the room list, the chat area and the info rail. */
+function RoomsWorkspace({ props }: { props: RoomsViewProps }): React.JSX.Element {
   const open = props.state.rooms.find(room => room.id === props.state.openRoomId)
   return (
     <div className="im-rooms">
@@ -67,10 +80,22 @@ export function RoomsView(props: RoomsViewProps) {
           onSend={props.onSend}
           onRefresh={props.onRefresh}
         />
-        {open !== undefined && (
-          <RoomInfo room={open} t={props.t} people={props.people} participants={props.participants} />
-        )}
+        <RoomRail props={props} room={open} />
       </div>
     </div>
+  )
+}
+
+/** The info rail: rendered only while a room is open. */
+function RoomRail({ props, room }: { props: RoomsViewProps, room: RoomsViewProps['state']['rooms'][number] | undefined }): React.JSX.Element | null {
+  if (room === undefined) return null
+  return (
+    <RoomInfo
+      room={room}
+      t={props.t}
+      people={props.people}
+      participants={props.participants}
+      onInvite={props.onInvite}
+    />
   )
 }

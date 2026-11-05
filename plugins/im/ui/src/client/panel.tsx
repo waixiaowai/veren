@@ -63,26 +63,12 @@ function ImBody(props: ImBodyProps & RoomsBodyProps) {
   const [tab, setTab] = useState<Tab>('rooms')
   return (
     <div className="im-page">
-      <header className="im-head">
-        <div>
-          <h1 className="im-title">{t('panel')}</h1>
-          <p className="im-subtitle">{t('panelSubtitle')}</p>
-        </div>
-        <div className="im-head-actions">
-          <button type="button" className="im-button" onClick={actions.onRefresh}>{t('refresh')}</button>
-        </div>
-      </header>
+      <ImHead t={t} onRefresh={actions.onRefresh} />
       {state.status === 'error' && <p className="im-error">{t('errorPrefix')}：{state.error}</p>}
       {state.status === 'loading' && <p className="im-muted">{t('loading')}</p>}
       {state.status !== 'loading' && (
         <div className="im-body">
-          <nav className="im-tabs" role="tablist">
-            <TabButton active={tab === 'rooms'} label={t('tabRooms')} onClick={() => setTab('rooms')} />
-            <TabButton active={tab === 'agents'} label={t('tabAgents')} onClick={() => setTab('agents')} />
-            <TabButton active={tab === 'accounts'} label={t('tabAccounts')} onClick={() => setTab('accounts')} />
-            <TabButton active={tab === 'people'} label={t('tabPeople')} onClick={() => setTab('people')} />
-            <TabButton active={tab === 'settings'} label={t('tabSettings')} onClick={() => setTab('settings')} />
-          </nav>
+          <ImTabs tab={tab} setTab={setTab} t={t} />
           {tab === 'rooms' && <RoomsBody {...props} />}
           {tab !== 'rooms' && (
             <DocumentTabs
@@ -98,6 +84,40 @@ function ImBody(props: ImBodyProps & RoomsBodyProps) {
         </div>
       )}
     </div>
+  )
+}
+
+/** The page head: the title block and the refresh action. */
+function ImHead(props: { readonly t: (key: ImKey) => string, readonly onRefresh: () => void }): React.JSX.Element {
+  const { t } = props
+  return (
+    <header className="im-head">
+      <div>
+        <h1 className="im-title">{t('panel')}</h1>
+        <p className="im-subtitle">{t('panelSubtitle')}</p>
+      </div>
+      <div className="im-head-actions">
+        <button type="button" className="im-button" onClick={props.onRefresh}>{t('refresh')}</button>
+      </div>
+    </header>
+  )
+}
+
+/** The tab bar: the five top-level views. */
+function ImTabs(props: {
+  readonly tab: Tab
+  readonly setTab: (tab: Tab) => void
+  readonly t: (key: ImKey) => string
+}): React.JSX.Element {
+  const { tab, setTab, t } = props
+  return (
+    <nav className="im-tabs" role="tablist">
+      <TabButton active={tab === 'rooms'} label={t('tabRooms')} onClick={() => setTab('rooms')} />
+      <TabButton active={tab === 'agents'} label={t('tabAgents')} onClick={() => setTab('agents')} />
+      <TabButton active={tab === 'accounts'} label={t('tabAccounts')} onClick={() => setTab('accounts')} />
+      <TabButton active={tab === 'people'} label={t('tabPeople')} onClick={() => setTab('people')} />
+      <TabButton active={tab === 'settings'} label={t('tabSettings')} onClick={() => setTab('settings')} />
+    </nav>
   )
 }
 
@@ -169,6 +189,7 @@ function RoomsBody(props: ImBodyProps & RoomsBodyProps) {
       onRefresh={props.rooms.onRoomsRefresh}
       onSend={props.rooms.onSendMessage}
       onCreateRoom={props.rooms.onCreateRoom}
+      onInvite={props.rooms.onInviteMembers}
     />
   )
 }

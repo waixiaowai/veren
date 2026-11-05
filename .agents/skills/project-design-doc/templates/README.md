@@ -25,7 +25,7 @@
 
 - `astro.config.mjs` 的 `site` 是 `https://example.com`，部署前替换为真实域名。
 - `starlight({ title: '设计方案' })` 的标题按项目替换。
-- `templates/page.md` 与 `templates/review.md` 只是骨架，复制后填入真实内容。
+- `templates/page.md`、`templates/review.md` 与 `templates/usability.md` 只是骨架，复制后填入真实内容。
 
 ## 不要手工编辑生成物
 

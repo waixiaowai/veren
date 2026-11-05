@@ -48,24 +48,7 @@ export function RoomsMain(props: RoomsMainProps): React.JSX.Element {
   }
   return (
     <section className="im-rooms-main">
-      <header className="im-room-head">
-        <div className="im-room-head-line">
-          <h2 className="im-heading">{open.title ?? t('roomUntitled')}</h2>
-          <span className="im-stack">
-            {open.members.slice(0, 4).map(id => (
-              <Avatar
-                key={id}
-                name={participantLabel(id, props.people, t, props.participants)}
-                kind={id.startsWith('agent:') ? 'agent' : 'human'}
-                size="sm"
-              />
-            ))}
-          </span>
-        </div>
-        <p className="im-room-members">
-          {t('membersLabel')}：{open.members.map(id => participantLabel(id, props.people, t, props.participants)).join('、')}
-        </p>
-      </header>
+      <RoomHead room={open} props={props} />
       <Timeline {...props} />
       <Composer room={open} t={t} people={props.people} participants={props.participants} sending={state.sending} onSend={props.onSend} />
       {state.status === 'error' && (
@@ -75,6 +58,31 @@ export function RoomsMain(props: RoomsMainProps): React.JSX.Element {
         </div>
       )}
     </section>
+  )
+}
+
+/** The room header: title, the first four member avatars and the member line. */
+function RoomHead({ room, props }: { room: { title?: string, members: readonly string[] }, props: RoomsMainProps }): React.JSX.Element {
+  const { t } = props
+  return (
+    <header className="im-room-head">
+      <div className="im-room-head-line">
+        <h2 className="im-heading">{room.title ?? t('roomUntitled')}</h2>
+        <span className="im-stack">
+          {room.members.slice(0, 4).map(id => (
+            <Avatar
+              key={id}
+              name={participantLabel(id, props.people, t, props.participants)}
+              kind={id.startsWith('agent:') ? 'agent' : 'human'}
+              size="sm"
+            />
+          ))}
+        </span>
+      </div>
+      <p className="im-room-members">
+        {t('membersLabel')}：{room.members.map(id => participantLabel(id, props.people, t, props.participants)).join('、')}
+      </p>
+    </header>
   )
 }
 

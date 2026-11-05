@@ -92,81 +92,145 @@ function Field(props: { readonly label: string; readonly children: ReactNode }):
 /** The editor form. */
 export function PersonEditor(props: PersonEditorProps): React.JSX.Element {
   const { person, t } = props
-  const [displayName, setDisplayName] = useState(person?.displayName ?? '')
-  const [realName, setRealName] = useState(person?.realName ?? '')
-  const [aliases, setAliases] = useState((person?.aliases ?? []).join('，'))
-  const [contacts, setContacts] = useState<ContactDraft[]>(() => draftContactsOf(person))
-  const [bio, setBio] = useState(person?.bio ?? '')
-  const [notes, setNotes] = useState(person?.notes ?? '')
+  const [draft, setDraft] = useState<PersonDraftState>(() => ({
+    displayName: person?.displayName ?? '',
+    realName: person?.realName ?? '',
+    aliases: (person?.aliases ?? []).join('，'),
+    contacts: draftContactsOf(person),
+    bio: person?.bio ?? '',
+    notes: person?.notes ?? '',
+  }))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-
-  const save = async (): Promise<void> => {
-    const name = displayName.trim()
-    if (name === '' || busy) return
-    setBusy(true)
-    setError('')
-    const failure = await props.onSubmit({
-      displayName: name,
-      realName: realName.trim(),
-      aliases: parseAliases(aliases),
-      contacts: contacts
-        .filter(contact => contact.value.trim() !== '')
-        .map(contact => ({
-          kind: contact.kind,
-          value: contact.value.trim(),
-          ...(contact.label.trim() === '' ? {} : { label: contact.label.trim() }),
-        })),
-      bio: bio.trim(),
-      notes: notes.trim(),
-    })
-    setBusy(false)
-    if (failure === undefined) props.onFinished()
-    else setError(failure)
-  }
+  const save = usePersonSave(props, draft, busy, setBusy, setError)
 
   return (
     <form className="im-editor" onSubmit={event => { event.preventDefault(); void save() }}>
-      <div className="im-editor-head">
-        <h3 className="im-heading">{person === undefined ? t('newPerson') : t('editPerson')}</h3>
-        <p className="im-muted">{t('personEditorHint')}</p>
-      </div>
-      <div className="im-editor-grid">
-        <Field label={t('displayNameLabel')}>
-          <input className="im-input" value={displayName} autoFocus required
-            placeholder={t('displayNamePlaceholder')}
-            onChange={event => setDisplayName(event.target.value)} />
-        </Field>
-        <Field label={t('realNameLabel')}>
-          <input className="im-input" value={realName} placeholder={t('realNamePlaceholder')}
-            onChange={event => setRealName(event.target.value)} />
-        </Field>
-      </div>
-      <Field label={t('aliasesLabel')}>
-        <input className="im-input" value={aliases} placeholder={t('aliasesPlaceholder')}
-          onChange={event => setAliases(event.target.value)} />
-      </Field>
-      <ContactFields t={t} contacts={contacts} onChange={setContacts} />
-      <div className="im-editor-grid">
-        <Field label={t('bioLabel')}>
-          <textarea className="im-input im-textarea" value={bio} placeholder={t('bioPlaceholder')}
-            onChange={event => setBio(event.target.value)} />
-        </Field>
-        <Field label={t('notesLabel')}>
-          <textarea className="im-input im-textarea" value={notes} placeholder={t('notesPlaceholder')}
-            onChange={event => setNotes(event.target.value)} />
-        </Field>
-      </div>
+      <PersonHead person={person} t={t} />
+      <PersonFields draft={draft} setDraft={setDraft} t={t} />
       {error !== '' && <p className="im-error">{error}</p>}
       <div className="im-editor-actions">
         <button type="submit" className="im-button im-button-primary"
-          disabled={displayName.trim() === '' || busy}>
+          disabled={draft.displayName.trim() === '' || busy}>
           {busy ? t('saving') : t('save')}
         </button>
         <button type="button" className="im-button" onClick={props.onCancel}>{t('cancel')}</button>
       </div>
     </form>
   )
+}
+
+/** The save action: submit the draft, then finish or surface the failure. */
+function usePersonSave(
+  props: PersonEditorProps,
+  draft: PersonDraftState,
+  busy: boolean,
+  setBusy: (busy: boolean) => void,
+  setError: (error: string) => void,
+): () => Promise<void> {
+  return async () => {
+    if (draft.displayName.trim() === '' || busy) return
+    setBusy(true)
+    setError('')
+    const failure = await props.onSubmit(personDraftOf(draft))
+    setBusy(false)
+    if (failure === undefined) props.onFinished()
+    else setError(failure)
+  }
+}
+
+/** The form head: the title (new or edit) plus the hint line. */
+function PersonHead(props: {
+  readonly person: PersonEditorProps['person']
+  readonly t: (key: ImKey) => string
+}): React.JSX.Element {
+  const { t } = props
+  return (
+    <div className="im-editor-head">
+      <h3 className="im-heading">{props.person === undefined ? t('newPerson') : t('editPerson')}</h3>
+      <p className="im-muted">{t('personEditorHint')}</p>
+    </div>
+  )
+}
+
+/** The editable draft state of the editor form. */
+interface PersonDraftState {
+  displayName: string
+  realName: string
+  aliases: string
+  contacts: ContactDraft[]
+  bio: string
+  notes: string
+}
+
+/** The form fields: names, aliases, contacts, bio and notes. */
+function PersonFields(props: {
+  readonly draft: PersonDraftState
+  readonly setDraft: (draft: PersonDraftState) => void
+  readonly t: (key: ImKey) => string
+}): React.JSX.Element {
+  const { draft, setDraft, t } = props
+  const patch = (part: Partial<PersonDraftState>): void => setDraft({ ...draft, ...part })
+  return (
+    <>
+      <div className="im-editor-grid">
+        <Field label={t('displayNameLabel')}>
+          <input className="im-input" value={draft.displayName} autoFocus required
+            placeholder={t('displayNamePlaceholder')}
+            onChange={event => patch({ displayName: event.target.value })} />
+        </Field>
+        <Field label={t('realNameLabel')}>
+          <input className="im-input" value={draft.realName} placeholder={t('realNamePlaceholder')}
+            onChange={event => patch({ realName: event.target.value })} />
+        </Field>
+      </div>
+      <Field label={t('aliasesLabel')}>
+        <input className="im-input" value={draft.aliases} placeholder={t('aliasesPlaceholder')}
+          onChange={event => patch({ aliases: event.target.value })} />
+      </Field>
+      <ContactFields t={t} contacts={draft.contacts} onChange={contacts => patch({ contacts })} />
+      <LongTextFields draft={draft} patch={patch} t={t} />
+    </>
+  )
+}
+
+/** The two free-text fields: bio and notes. */
+function LongTextFields(props: {
+  readonly draft: PersonDraftState
+  readonly patch: (part: Partial<PersonDraftState>) => void
+  readonly t: (key: ImKey) => string
+}): React.JSX.Element {
+  const { draft, patch, t } = props
+  return (
+    <div className="im-editor-grid">
+      <Field label={t('bioLabel')}>
+        <textarea className="im-input im-textarea" value={draft.bio} placeholder={t('bioPlaceholder')}
+          onChange={event => patch({ bio: event.target.value })} />
+      </Field>
+      <Field label={t('notesLabel')}>
+        <textarea className="im-input im-textarea" value={draft.notes} placeholder={t('notesPlaceholder')}
+          onChange={event => patch({ notes: event.target.value })} />
+      </Field>
+    </div>
+  )
+}
+
+/** The draft state → the submit payload (trimmed, empty contacts dropped). */
+function personDraftOf(draft: PersonDraftState): PersonDraft {
+  return {
+    displayName: draft.displayName.trim(),
+    realName: draft.realName.trim(),
+    aliases: parseAliases(draft.aliases),
+    contacts: draft.contacts
+      .filter(contact => contact.value.trim() !== '')
+      .map(contact => ({
+        kind: contact.kind,
+        value: contact.value.trim(),
+        ...(contact.label.trim() === '' ? {} : { label: contact.label.trim() }),
+      })),
+    bio: draft.bio.trim(),
+    notes: draft.notes.trim(),
+  }
 }
 
 /** The editable contact list: one row per method, plus the add action. */
@@ -184,28 +248,42 @@ function ContactFields(props: {
     <div className="im-field">
       <span className="im-label">{t('contactsLabel')}</span>
       {contacts.map((contact, index) => (
-        <div key={contact.key} className="im-contact-row">
-          <select className="im-input" value={contact.kind} aria-label={t('contactKindLabel')}
-            onChange={event => replace(index, { kind: event.target.value as ImPersonContact['kind'] })}>
-            {CONTACT_KINDS.map(kind => (
-              <option key={kind} value={kind}>{t(contactKindKey(kind))}</option>
-            ))}
-          </select>
-          <input className="im-input" value={contact.value} placeholder={t('contactValuePlaceholder')}
-            aria-label={t('contactValuePlaceholder')}
-            onChange={event => replace(index, { value: event.target.value })} />
-          <input className="im-input" value={contact.label} placeholder={t('contactLabelPlaceholder')}
-            aria-label={t('contactLabelPlaceholder')}
-            onChange={event => replace(index, { label: event.target.value })} />
-          <button type="button" className="im-button im-button-danger"
-            onClick={() => onChange(contacts.filter((_, position) => position !== index))}>
-            {t('remove')}
-          </button>
-        </div>
+        <ContactRow key={contact.key} contact={contact} t={t}
+          onPatch={patch => replace(index, patch)}
+          onRemove={() => onChange(contacts.filter((_, position) => position !== index))} />
       ))}
       <button type="button" className="im-button im-contact-add"
         onClick={() => onChange([...contacts, { key: nextContactKey++, kind: 'wechat', value: '', label: '' }])}>
         {t('addContact')}
+      </button>
+    </div>
+  )
+}
+
+/** One contact row: kind, value, label and the remove action. */
+function ContactRow(props: {
+  readonly contact: ContactDraft
+  readonly t: (key: ImKey) => string
+  readonly onPatch: (patch: Partial<Omit<ContactDraft, 'key'>>) => void
+  readonly onRemove: () => void
+}): React.JSX.Element {
+  const { contact, t } = props
+  return (
+    <div className="im-contact-row">
+      <select className="im-input" value={contact.kind} aria-label={t('contactKindLabel')}
+        onChange={event => props.onPatch({ kind: event.target.value as ImPersonContact['kind'] })}>
+        {CONTACT_KINDS.map(kind => (
+          <option key={kind} value={kind}>{t(contactKindKey(kind))}</option>
+        ))}
+      </select>
+      <input className="im-input" value={contact.value} placeholder={t('contactValuePlaceholder')}
+        aria-label={t('contactValuePlaceholder')}
+        onChange={event => props.onPatch({ value: event.target.value })} />
+      <input className="im-input" value={contact.label} placeholder={t('contactLabelPlaceholder')}
+        aria-label={t('contactLabelPlaceholder')}
+        onChange={event => props.onPatch({ label: event.target.value })} />
+      <button type="button" className="im-button im-button-danger" onClick={props.onRemove}>
+        {t('remove')}
       </button>
     </div>
   )

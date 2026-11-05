@@ -95,15 +95,18 @@ export class TiebaCrawler extends BaseCrawler {
     // 评论伴随采集：开关控制，单帖失败不中断内容（验收 4）。
     // Companion comments: switch-gated; a failure costs only this thread's
     // comments, never the contents (acceptance 4).
-    if (this.options.enableComments === true) {
-      for (const id of collectedIds) {
-        await collectTiebaComments({
-          contentId: id,
-          fetchText: this.options.fetchText ?? (async () => ''),
-          sink,
-          maxCount: this.options.maxCommentsCount ?? 10,
-        }).catch(() => undefined)
-      }
+    if (this.options.enableComments === true) await this.collectCommentsOf(collectedIds, sink)
+  }
+
+  /** 逐帖伴随采集评论：单帖失败不中断内容（验收 4）。 / Companion comments per thread: one failure never breaks the contents (acceptance 4). */
+  private async collectCommentsOf(ids: readonly string[], sink: DataSink): Promise<void> {
+    for (const id of ids) {
+      await collectTiebaComments({
+        contentId: id,
+        fetchText: this.options.fetchText ?? (async () => ''),
+        sink,
+        maxCount: this.options.maxCommentsCount ?? 10,
+      }).catch(() => undefined)
     }
   }
 

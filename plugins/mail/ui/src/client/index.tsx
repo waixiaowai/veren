@@ -78,36 +78,49 @@ const PanelPlugin = (deps: { sessions: ISessions; navigate: (target: SessionId) 
    * @param ctx - panel-scope context over the mounted namespace / 挂载命名空间上的面板作用域上下文
    */
   apply(ctx: Context): void {
-    const api = ctx.remote.mail
+    const mail = createMailSource(ctx.remote.mail)
     ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'mail-ui:dictionaries')
     installPanelStyles(ctx)
-    const t = ctx.locale.bind(NS)
-    const mail = createMailSource(api)
     // 连接代际重置（重连成功）即重读目录：面板的轮询只兜底 5 秒，重置信号让恢复即时发生。
     // A connection-generation reset (a successful reconnect) re-reads the
     // catalog: polling alone would leave up to a 5s stale window, the reset
     // signal makes the recovery immediate.
     ctx.on('connection/reset', () => { void mail.refresh() })
-    ctx.slots.inject('main', () => ctx.slots.register({
-      name: 'main',
-      key: PANEL_ID,
-      locale: NS,
-      inject: (): MailPanelInjected => ({
-        hooks: { mail: mail.source },
-        onRefresh: mail.refresh,
-        onMark: mail.mark,
-        onOpenSession: (sessionId) => { void openSourceSession(deps.sessions, deps.navigate, sessionId) },
-      }),
-    }, MailPanel))
-    ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-      name: 'sidebar.panellist',
-      id: PANEL_ID,
-      order: 24,
-      locale: NS,
-      label: () => t('panel'),
-    }, MailPanelIcon))
+    registerMainSlot(ctx, deps, mail)
+    registerSidebarSlot(ctx)
   },
 } as const)
+
+/** The main-area slot: the mail panel plus its injected actions. */
+function registerMainSlot(
+  ctx: Context,
+  deps: { sessions: ISessions, navigate: (target: SessionId) => void },
+  mail: ReturnType<typeof createMailSource>,
+): void {
+  ctx.slots.inject('main', () => ctx.slots.register({
+    name: 'main',
+    key: PANEL_ID,
+    locale: NS,
+    inject: (): MailPanelInjected => ({
+      hooks: { mail: mail.source },
+      onRefresh: mail.refresh,
+      onMark: mail.mark,
+      onOpenSession: (sessionId) => { void openSourceSession(deps.sessions, deps.navigate, sessionId) },
+    }),
+  }, MailPanel))
+}
+
+/** The sidebar slot: the panel's list entry and its label. */
+function registerSidebarSlot(ctx: Context): void {
+  const t = ctx.locale.bind(NS)
+  ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+    name: 'sidebar.panellist',
+    id: PANEL_ID,
+    order: 24,
+    locale: NS,
+    label: () => t('panel'),
+  }, MailPanelIcon))
+}
 
 /**
  * Mount the Remote namespace, then start the inner panel plugin that waits on

@@ -17,8 +17,9 @@
  */
 
 import { useState } from 'react'
-import { Avatar } from './avatar.tsx'
 import type { ImKey } from './locales.ts'
+import { MemberPickList } from './member-pick-list.tsx'
+import type { MemberOption } from './member-pick-list.tsx'
 import { personLabel } from './person-label.ts'
 import type { ImPersonView } from './remote.ts'
 
@@ -29,12 +30,8 @@ export interface NewRoomInput {
   readonly memberIds: readonly string[]
 }
 
-/** One selectable member. */
-export interface MemberOption {
-  readonly id: string
-  readonly label: string
-  readonly kind: 'human' | 'agent'
-}
+/** One selectable member is the shared row type. */
+export type { MemberOption } from './member-pick-list.tsx'
 
 /** Props of {@link NewRoomPicker}. */
 export interface NewRoomPickerProps {
@@ -60,51 +57,102 @@ export function NewRoomPicker(props: NewRoomPickerProps): React.JSX.Element {
   const ready = kind === 'direct'
     ? picked.filter(id => id.startsWith('agent:')).length === 1
     : picked.length > 0
-  const submit = (): void => {
-    if (!ready) return
-    const trimmed = title.trim()
-    // 未命名私聊用对方的名字，列表里才不是一排「未命名会话」。
-    // An untitled direct room takes the other side's name, so the list never
-    // fills with rows that all read "Untitled".
-    const fallback = kind === 'direct' ? agents.find(agent => agent.id === picked[0])?.label : undefined
-    const named = trimmed === '' ? fallback : trimmed
-    props.onCreate({ kind, ...(named === undefined ? {} : { title: named }), memberIds: ['human:owner', ...picked] })
-  }
+  const submit = useNewRoomSubmit(props, kind, title, picked, ready)
   return (
     <form className="im-newroom" onSubmit={event => { event.preventDefault(); submit() }}>
-      <div className="im-kind-switch" role="group" aria-label={t('roomKindLabel')}>
-        <KindButton active={kind === 'direct'} label={t('roomDirect')}
-          onClick={() => { setKind('direct'); setPicked([agents[0]?.id ?? 'agent:default']) }} />
-        <KindButton active={kind === 'group'} label={t('roomGroup')}
-          onClick={() => { setKind('group'); setPicked([agents[0]?.id ?? 'agent:default']) }} />
-      </div>
-      <input
-        className="im-input"
-        value={title}
-        placeholder={t('roomTitlePlaceholder')}
-        aria-label={t('roomTitlePlaceholder')}
-        onChange={event => setTitle(event.target.value)}
-      />
+      <KindSwitch kind={kind} setKind={setKind} setPicked={setPicked} t={t} agents={agents} />
+      <NewRoomTitle title={title} setTitle={setTitle} t={t} />
       <p className="im-hint">{kind === 'direct' ? t('newRoomHint') : t('groupHint')}</p>
-      <MemberList title={t('membersPick')} options={agents} picked={picked} onToggle={toggle} />
-      {people.length > 0 && (
-        <MemberList
-          title={t('people')}
-          options={people.map(person => ({
-            id: `human:${person.id}`,
-            label: personLabel(person, t),
-            kind: 'human' as const,
-          }))}
-          picked={picked}
-          onToggle={id => { if (kind === 'group') toggle(id) }}
-          disabled={kind === 'direct'}
-        />
-      )}
+      <MemberPickList title={t('membersPick')} options={agents} picked={picked} onToggle={toggle} />
+      <PeopleMemberList people={people} t={t} kind={kind} picked={picked} toggle={toggle} />
       <div className="im-row">
         <button type="submit" className="im-button im-button-primary" disabled={!ready}>{t('createRoom')}</button>
         <button type="button" className="im-button" onClick={props.onCancel}>{t('cancel')}</button>
       </div>
     </form>
+  )
+}
+
+/** The create action: an untitled direct room takes the other side's name. */
+function useNewRoomSubmit(
+  props: NewRoomPickerProps,
+  kind: 'direct' | 'group',
+  title: string,
+  picked: readonly string[],
+  ready: boolean,
+): () => void {
+  return () => {
+    if (!ready) return
+    const trimmed = title.trim()
+    // 未命名私聊用对方的名字，列表里才不是一排「未命名会话」。
+    // An untitled direct room takes the other side's name, so the list never
+    // fills with rows that all read "Untitled".
+    const fallback = kind === 'direct' ? props.agents.find(agent => agent.id === picked[0])?.label : undefined
+    const named = trimmed === '' ? fallback : trimmed
+    props.onCreate({ kind, ...(named === undefined ? {} : { title: named }), memberIds: ['human:owner', ...picked] })
+  }
+}
+
+/** The optional room title input. */
+function NewRoomTitle(props: {
+  readonly title: string
+  readonly setTitle: (title: string) => void
+  readonly t: (key: ImKey) => string
+}): React.JSX.Element {
+  const { t } = props
+  return (
+    <input
+      className="im-input"
+      value={props.title}
+      placeholder={t('roomTitlePlaceholder')}
+      aria-label={t('roomTitlePlaceholder')}
+      onChange={event => props.setTitle(event.target.value)}
+    />
+  )
+}
+
+/** The direct/group switch; either choice resets the pick to the first agent. */
+function KindSwitch(props: {
+  readonly kind: 'direct' | 'group'
+  readonly setKind: (kind: 'direct' | 'group') => void
+  readonly setPicked: (picked: readonly string[]) => void
+  readonly t: (key: ImKey) => string
+  readonly agents: readonly { id: string }[]
+}): React.JSX.Element {
+  const { kind, setKind, setPicked, t } = props
+  const first = props.agents[0]?.id ?? 'agent:default'
+  return (
+    <div className="im-kind-switch" role="group" aria-label={t('roomKindLabel')}>
+      <KindButton active={kind === 'direct'} label={t('roomDirect')}
+        onClick={() => { setKind('direct'); setPicked([first]) }} />
+      <KindButton active={kind === 'group'} label={t('roomGroup')}
+        onClick={() => { setKind('group'); setPicked([first]) }} />
+    </div>
+  )
+}
+
+/** The human contacts row; a direct room seats nobody else, so it stays disabled. */
+function PeopleMemberList(props: {
+  readonly people: readonly { id: string }[]
+  readonly t: (key: ImKey) => string
+  readonly kind: 'direct' | 'group'
+  readonly picked: readonly string[]
+  readonly toggle: (id: string) => void
+}): React.JSX.Element | null {
+  const { people, t, kind, picked, toggle } = props
+  if (people.length === 0) return null
+  return (
+    <MemberPickList
+      title={t('people')}
+      options={people.map(person => ({
+        id: `human:${person.id}`,
+        label: personLabel(person as never, t),
+        kind: 'human' as const,
+      }))}
+      picked={picked}
+      onToggle={id => { if (kind === 'group') toggle(id) }}
+      disabled={kind === 'direct'}
+    />
   )
 }
 
@@ -119,40 +167,5 @@ function KindButton(props: { readonly active: boolean; readonly label: string; r
     >
       {props.label}
     </button>
-  )
-}
-
-/** One selectable member group. */
-function MemberList(props: {
-  readonly title: string
-  readonly options: readonly MemberOption[]
-  readonly picked: readonly string[]
-  readonly onToggle: (id: string) => void
-  readonly disabled?: boolean
-}): React.JSX.Element {
-  return (
-    <div className="im-member-pick">
-      <span className="im-label">{props.title}</span>
-      <ul className="im-pick-list" role="list">
-        {props.options.map(option => {
-          const active = props.picked.includes(option.id)
-          return (
-            <li key={option.id}>
-              <button
-                type="button"
-                className={active ? 'im-pick im-pick-active' : 'im-pick'}
-                aria-pressed={active}
-                disabled={props.disabled === true && !active}
-                onClick={() => props.onToggle(option.id)}
-              >
-                <Avatar name={option.label} kind={option.kind} size="sm" glyph />
-                <span>{option.label}</span>
-                {active && <span className="im-pick-mark" aria-hidden="true">✓</span>}
-              </button>
-            </li>
-          )
-        })}
-      </ul>
-    </div>
   )
 }

@@ -18,17 +18,18 @@
  * of restating shapes; `import type` is erased by esbuild at bundle time, so
  * no server code reaches the client bundle.
  *
- * @module @veren/baidu-pan/client/remote
+ * @module @veren/baidu-pan-ui/client/remote
  */
 
 import { z } from 'zod'
 import { createTypertRemoteInfo } from '@deepseek-ai/dsh-typert-protocol/remote-info'
 import type { RemoteResult, TypertRemoteCodecSpec, TypertRemoteParameterSpec } from '@deepseek-ai/dsh-typert-protocol'
-import type { AccountProfile, FileEntry, QuotaSnapshot, ShareReceipt } from '../types.ts'
-import type { TransferJobSnapshot } from '../jobs.ts'
+// 视图类型只有一份：直接引服务端包的那份声明；`import type` 打包时整条擦除。
+// The view types live in exactly one place — the server package; `import type` is erased at bundle time.
 import type {
-  AuthStateView, GatewayOutcome, JobStartedView, ListingView, SignInStartView, SignOutView,
-} from '../gateway-views.ts'
+  AccountProfile, AuthStateView, FileEntry, GatewayOutcome, JobStartedView, ListingView,
+  QuotaSnapshot, ShareReceipt, SignInStartView, SignOutView, TransferJobSnapshot,
+} from '@veren/baidu-pan'
 
 export type { AccountProfile, FileEntry, QuotaSnapshot, ShareReceipt, TransferJobSnapshot }
 export type { AuthStateView, GatewayOutcome, JobStartedView, ListingView, SignInStartView, SignOutView }

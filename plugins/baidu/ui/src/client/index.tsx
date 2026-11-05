@@ -124,14 +124,34 @@ function registerMainPanel(
  * @returns disposer releasing the panel fiber and the mounted namespace.
  */
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
-  const unmount = await ctx.remote.$mount(baiduPanRemote)
-  const panel = ctx.plugin(PanelPlugin)
-  await panel
-  return async () => {
-    await panel.dispose()
-    await unmount()
+  trace('apply entered')
+  try {
+    const unmount = await ctx.remote.$mount(baiduPanRemote)
+    trace('namespace mounted')
+    const panel = ctx.plugin(PanelPlugin)
+    await panel
+    trace('panel applied')
+    return async () => {
+      await panel.dispose()
+      await unmount()
+    }
+  } catch (error) {
+    trace(`FAILED: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`)
+    throw error
   }
 }
+
+/** 诊断（临时）：把阶段写到页面右上角。Diagnostic (temporary): write each stage to the page corner. */
+function trace(text: string): void {
+  if (typeof document === 'undefined') return
+  const marker = document.createElement('pre')
+  marker.setAttribute('data-baidu-pan-diag', '')
+  marker.style.cssText = 'position:fixed;z-index:99999;top:0;right:0;margin:0;max-width:60vw;background:#fee;color:#900;padding:4px 8px;font:11px monospace;white-space:pre-wrap'
+  marker.textContent = `bdp ${new Date().toISOString().slice(11, 19)} ${text}`
+  document.body.append(marker)
+}
+
+trace('module materialized')
 
 /** The sidebar icon: a cloud with an up arrow (16px, currentColor, no emoji). */
 function BaiduPanelIcon() {

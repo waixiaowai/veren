@@ -22,7 +22,7 @@
 | database transactions / outbox | dsh storage domains + cordis events | "persist first, distribute later": write the domain table, then `ctx.emit`; push is an accelerator, clients reconcile by pulling |
 | bash / set_turn_status engine tools | the DSH session's own tool loop + `im_*` tools (`ctx.tools.register`) | Cumora's engine-tool model is not ported; the model's turn text IS the room message |
 | skill directory | DSH skill (`ctx.skills.registerProvider`, `im-collaboration`) | teaches the model: reply contract, HELD semantics, quiet discipline, memory etiquette |
-| the four product ends | DSH client (`@veren/im-ui` web panel) | conversations / accounts / people / settings tabs — conversations is the entry point and the only human write path (`post`, `createRoom`); desktop, mobile, and the admin console are not ported |
+| the four product ends | DSH client (`@veren/im-ui` web panel) | conversations / accounts / people / settings tabs — conversations is the entry point and the only human write path (`post`, `createRoom`, `addMembers`); desktop, mobile, and the admin console are not ported |
 | realtime long connections | cordis events + the panel's 5s polling + incremental fetch | event chain: `im/message-observed` → `im/message-new` → `im/wake-request` → `im/run-updated` |
 | Billing/Admin/Shipping/Email/Schedule/Document/Board | **not ported** (peripheral domains, later iterations) | design §9/§10/§12/§15/§16/§17 and parts of §11 remain extension points |
 

@@ -98,6 +98,36 @@ export class RoomService {
     })
   }
 
+  /**
+   * Seat more members in one group room. Membership rows stay the truth and a
+   * repeat seat is a no-op; a direct room holds exactly its two seats, so it
+   * refuses new ones.
+   * 为一个群聊房间追加成员。成员关系行仍是真值，重复入座是无操作；私聊房间恰好只有两个
+   * 座位，因此拒绝新增。
+   */
+  async addMembers(input: {
+    readonly roomId: string
+    readonly actorId: string
+    readonly memberIds: readonly string[]
+  }): Promise<Room> {
+    this.requireMembership(input.roomId, input.actorId)
+    if (input.memberIds.length === 0) throw new ImError('INVALID_ARGUMENT', 'no member to add')
+    // 房间类型在写链内判定：与入座同一时刻看到的是同一个房间真相。
+    // The room kind is judged inside the write chain, at the same instant the
+    // seats are written, so both see one truth.
+    return this.options.store.onRoomChain(input.roomId, async () => {
+      const room = this.room(input.roomId)
+      if (room === undefined) {
+        throw new ImError('CONVERSATION_NOT_FOUND', 'the conversation does not exist')
+      }
+      if (room.kind !== 'group') {
+        throw new ImError('STATE_CONFLICT', 'a direct conversation cannot take another member')
+      }
+      await this.seatAll(input.roomId, input.memberIds)
+      return roomOf(await this.refreshProjection(input.roomId))
+    })
+  }
+
   /** Read one room; a non-existent room stays a non-existent room. */
   /** 读取一个房间；不存在的房间就保持不存在。 */
   room(roomId: string): Room | undefined {

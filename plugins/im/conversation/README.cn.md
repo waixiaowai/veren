@@ -15,10 +15,12 @@
 - `im_conversation` 存储域：rooms、room members、messages、按房间计数器、已读游标与
   clientId 幂等索引。
 - `ConversationService`（`imConversation` 令牌）：post（按 client id 幂等、可带闸门）、
-  list、lastPeerMessage、markRead、unread、房间与成员读取。
+  list、lastPeerMessage、markRead、unread、房间与成员读取，以及 addMembers（群聊追加
+  成员；私聊拒绝，因为它的两个座位就是房间本身）。
 - 渠道吸收：确定性的 `chan:<provider>:<account>:<conversation>` 房间号、发送者入座、
   provider 重投即幂等回放。
-- `imConv` 远端命名空间：rooms、roomMembers、messages、markRead。
+- `imConv` 远端命名空间：rooms、roomMembers、messages、post、createRoom、addMembers、
+  markRead。
 
 ## 事件
 

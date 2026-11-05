@@ -167,3 +167,11 @@
 .bdp-dialog-objects { margin: 0 0 8px; padding-left: 20px; font-family: var(--dsw-font-family-mono, Consolas, monospace); font-size: 12px; overflow-wrap: anywhere; }
 .bdp-dialog-consequence { color: var(--bdp-danger); font-size: 13px; margin: 0 0 12px; }
 .bdp-dialog-actions { display: flex; justify-content: space-between; gap: 8px; }
+
+/* ---- 任务状态点（纯 CSS，不引图标组件）。Task state dots (pure CSS, no icon package). ---- */
+.bdp-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bdp-muted); flex: none; }
+.bdp-dot-done { background: var(--bdp-success); }
+.bdp-dot-warning { background: var(--bdp-warning); }
+.bdp-dot-ongoing { background: var(--bdp-brand); }
+.bdp-dot-error { background: var(--bdp-danger); }
+.bdp-dot-idle { background: var(--bdp-muted); }

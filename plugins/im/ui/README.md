@@ -21,7 +21,7 @@ headless、ACP、SDK profile 跳过——`im_*` 工具已覆盖全部操作。
 
 | Tab / 页签 | Content / 内容 |
 |---|---|
-| 会话 Conversations | every room's timeline; 「新建会话」seats the owner and the default agent, the composer writes as `human:owner`, and the five-second poll refreshes the list *and* the open timeline so an agent's reply lands without a manual refresh. While a turn runs, a non-interactive working row under the last message shows the agent's phase (thinking / running a tool / writing the reply), the elapsed time, and the tail of the streamed reasoning; it disappears the moment the reply lands. Unread counts ride the same poll and clear when a room is opened; `@` opens a keyboard-reachable member picker; each message offers a hover copy action; newer messages follow the reader only while they are at the bottom, otherwise a "jump to latest" pill appears / 全部房间的时间线；「新建会话」给所有者与默认智能体安排座位，输入区以 `human:owner` 写入，五秒轮询同时刷新列表与打开中的时间线，智能体的回复无需手动刷新即可出现。回合运行期间，最后一条消息之下有一条不可交互的工作行，显示智能体的阶段（思考 / 调用工具 / 撰写回复）、已用时间与流式推理的末尾；回复落地即消失。未读数随同一次轮询到达、打开房间即清空；输入 `@` 打开键盘可达的成员选择器；每条消息有悬停复制；新消息只在读者位于底部时跟随，否则给出「回到最新」胶囊 |
+| 会话 Conversations | every room's timeline; 「新建会话」seats the owner and the default agent, the composer writes as `human:owner`, and the five-second poll refreshes the list *and* the open timeline so an agent's reply lands without a manual refresh. A group's info rail invites more people and agents at any time (`addMembers`); a direct room offers no invite entry because its two seats are the room. While a turn runs, a non-interactive working row under the last message shows the agent's phase (thinking / running a tool / writing the reply), the elapsed time, and the tail of the streamed reasoning; it disappears the moment the reply lands. Unread counts ride the same poll and clear when a room is opened; `@` opens a keyboard-reachable member picker; each message offers a hover copy action; newer messages follow the reader only while they are at the bottom, otherwise a "jump to latest" pill appears / 全部房间的时间线；「新建会话」给所有者与默认智能体安排座位，输入区以 `human:owner` 写入，五秒轮询同时刷新列表与打开中的时间线，智能体的回复无需手动刷新即可出现。群聊的信息侧栏可以随时邀请人和智能体（`addMembers`）；私聊没有邀请入口，因为两个座位就是房间本身。回合运行期间，最后一条消息之下有一条不可交互的工作行，显示智能体的阶段（思考 / 调用工具 / 撰写回复）、已用时间与流式推理的末尾；回复落地即消失。未读数随同一次轮询到达、打开房间即清空；输入 `@` 打开键盘可达的成员选择器；每条消息有悬停复制；新消息只在读者位于底部时跟随，否则给出「回到最新」胶囊 |
 | 智能体 Agents | the roster read from the deployment's DSH presets (an agent is a preset): a display heading with the count, summary chips (agents / conversations / unread), and one card per agent with its preset id, room count, last activity and a chat action that opens or starts a direct conversation / 从部署的 DSH preset 读出的名册（智能体就是 preset）：带计数的大标题、摘要芯片（智能体/会话/未读），每个智能体一张卡片，显示 preset id、会话数、最近活动与「聊天」动作（打开或新建私聊） |
 | 账号 Accounts | authorized accounts with online/offline badges, the QR bind wizard (start, poll, verify code), and unbind / 已授权账号与在线徽标、二维码绑定向导（发起、轮询、验证码）与解绑 |
 | 人员 People | the address book: search across names, aliases, contacts, and notes; create a manual contact, edit every profile field (name, real name, aliases, contacts, bio, notes), and delete one with confirmation. A manual contact has no reachable address until a channel observes it and is marked "profile only" / 通讯录：按名字、别名、联系方式与备注搜索；手工新增联系人，编辑全部档案字段（名字、真名、别名、联系方式、简介、备注），删除前二次确认。手工联系人被渠道观察到之前没有可达地址，会被标注「仅档案」 |
@@ -43,13 +43,13 @@ list, timeline, and info rail.
 ## Write paths / 写入路径
 
 The panel is the only surface that writes as the human. `imConv` exposes
-`post` and `createRoom` next to the read methods; both go through the
-conversation service, which announces `im/message-new` after a fresh commit.
-That event is what wakes the agent — channel ingest, the model's `im_send`, and
-the composer all feed the same fan-out.
+`post`, `createRoom` and `addMembers` next to the read methods; all three go
+through the conversation service, which announces `im/message-new` after a
+fresh commit. That event is what wakes the agent — channel ingest, the model's
+`im_send`, and the composer all feed the same fan-out.
 
-面板是唯一以「人」的身份写入的表面。`imConv` 在读取方法旁暴露 `post` 与
-`createRoom`；两者都走会话服务，由它在提交后发出 `im/message-new`。这个事件正是唤醒
+面板是唯一以「人」的身份写入的表面。`imConv` 在读取方法旁暴露 `post`、`createRoom` 与
+`addMembers`；三者都走会话服务，由它在提交后发出 `im/message-new`。这个事件正是唤醒
 智能体的输入——渠道吸收、模型的 `im_send` 与输入区都汇入同一个扇出。
 
 ## Architecture / 架构
@@ -57,8 +57,9 @@ the composer all feed the same fan-out.
 Browser-only plugin (the Node half is an empty Loader row). The browser half
 mounts three Remote namespaces by hand — `im` (the core: accounts, people,
 intake, QR bind), `imConv` (the conversation domain: rooms, members, messages,
-post, createRoom, markRead, unreadCounts), and `imTurn` (the turn domain's live
-activity: `activity`) — and renders observables polled every five seconds; the
+post, createRoom, addMembers, markRead, unreadCounts), and `imTurn` (the turn
+domain's live activity: `activity`) — and renders observables polled every five
+seconds; the
 bind wizard polls every two seconds while open, and the activity loop runs at
 1.2s while a turn is live and 3s while nothing runs. Styles define the Cumora
 palette once (sky / coral / gold / whisper / ink / paper / cloud, with a dark

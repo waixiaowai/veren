@@ -41,20 +41,10 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
 /** A human or agent message with its copy action. */
 function Bubble(props: MessageRowProps): React.JSX.Element {
   const { message, t } = props
-  const [copied, setCopied] = useState(false)
+  const copied = useCopyFlag()
   const author = participantLabel(message.authorId, props.people, t)
   const own = message.authorId === 'human:owner'
   const agent = message.authorId.startsWith('agent:')
-  const copy = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(message.body)
-      setCopied(true)
-      globalThis.setTimeout(() => { setCopied(false) }, 1200)
-    } catch {
-      // 剪贴板被拒（无安全上下文）：静默失败，不伪造「已复制」。
-      // Clipboard denied (no secure context): fail quietly rather than claiming success.
-    }
-  }
   return (
     <li className={own ? 'im-line im-line-own' : 'im-line'}>
       {!own && <Avatar name={author} kind={agent ? 'agent' : 'human'} size="sm" />}
@@ -65,13 +55,29 @@ function Bubble(props: MessageRowProps): React.JSX.Element {
             type="button"
             className="im-line-action"
             aria-label={`${t('copy')} ${author}`}
-            onClick={() => void copy()}
+            onClick={() => void copied.copy(message.body)}
           >
-            {copied ? t('copied') : t('copy')}
+            {copied.flag ? t('copied') : t('copy')}
           </button>
         </span>
         <span className={own ? 'im-bubble im-bubble-own' : 'im-bubble'}>{message.body}</span>
       </span>
     </li>
   )
+}
+
+/** 复制确认标志：写剪贴板后原地闪 1.2 秒，被拒则静默不动。 / The copy-confirmation flag: flashes in place for 1.2s after the write, stays quiet when denied. */
+function useCopyFlag(): { flag: boolean, copy: (body: string) => Promise<void> } {
+  const [flag, setFlag] = useState(false)
+  const copy = async (body: string): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(body)
+      setFlag(true)
+      globalThis.setTimeout(() => { setFlag(false) }, 1200)
+    } catch {
+      // 剪贴板被拒（无安全上下文）：静默失败，不伪造「已复制」。
+      // Clipboard denied (no secure context): fail quietly rather than claiming success.
+    }
+  }
+  return { flag, copy }
 }

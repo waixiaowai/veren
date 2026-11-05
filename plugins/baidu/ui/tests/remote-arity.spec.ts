@@ -12,12 +12,15 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
-import { BaiduPanGatewayService } from '../src/gateway.js'
-import { resolveConfig } from '../src/config.js'
-import { provideWorld } from '../src/service.js'
-import { buildWorld } from '../src/world.js'
+// 服务端源码走相对路径引用：本包只经 `import type` 依赖它，测试要的是真实实现。
+// The server sources are referenced by relative path: this package depends on
+// them as types only, while the test needs the real implementation.
+import { BaiduPanGatewayService } from '../../src/gateway.ts'
+import { resolveConfig } from '../../src/config.ts'
+import { provideWorld } from '../../src/service.ts'
+import { buildWorld } from '../../src/world.ts'
 import { baiduPanRemote } from '../src/client/remote.ts'
-import { tokenedCredentials } from './support/fakes.js'
+import { tokenedCredentials } from '../../tests/support/fakes.ts'
 
 /** 组装一个带真实标记面的网关实例。Assembles one gateway instance with a real marker face. */
 function gatewayOf(): BaiduPanGatewayService {

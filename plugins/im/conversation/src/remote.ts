@@ -106,6 +106,23 @@ export class ConversationRemoteService extends TypertRemoteService {
   }
 
   /**
+   * Seat more people or agents in one group room. The acting party is the
+   * workspace owner, exactly like posting; a direct room refuses the call
+   * because its two seats are the room.
+   * 为一个群聊房间追加人或智能体。行动方与写入一样是工作区所有者；私聊房间会拒绝该调用，
+   * 因为它的两个座位就是房间本身。
+   */
+  @Remote('addMembers')
+  async addMembers(request: { readonly roomId: string; readonly memberIds: readonly string[] }) {
+    const room = await this.conversation.addMembers({
+      roomId: request.roomId,
+      actorId: OWNER_PARTICIPANT,
+      memberIds: [...request.memberIds],
+    })
+    return { room }
+  }
+
+  /**
    * Unread counts for one participant across every room, as the sidebar renders
    * them. One call per poll instead of one call per room.
    * 一个参与者在全部房间的未读数，供侧栏渲染。每次轮询一次调用，而不是每个房间一次。

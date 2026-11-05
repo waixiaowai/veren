@@ -130,7 +130,10 @@ describe('profiles without the Web session controller', () => {
       model: { provider: 'deepseek-official', model: 'deepseek-pro', reasoningEffort: 'high' },
     })])
     const { ctx, calls } = await bootCoreOnly({ root })
-    expect(calls.created[0]?.agentOptions).toEqual({ provider: 'deepseek-official', model: 'deepseek-pro' })
+    // 选择经 agentOptions 送达（新的 installModelSelection 只挂切换提示，不再收选择本体）。
+    // The selection rides in via agentOptions (the new installModelSelection only
+    // mounts the switch notice; it no longer takes the selection itself).
+    expect(calls.created[0]?.agentOptions).toEqual({ provider: 'deepseek-official', model: 'deepseek-pro', reasoningEffort: 'high' })
     await ctx.fiber.dispose()
 
     const bare = tempRoot()

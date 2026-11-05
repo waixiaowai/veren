@@ -20,7 +20,7 @@
 | 数据库事务/外发箱 | dsh storage 域 + cordis 事件 | 「先落库后分发」：先写域表再 `ctx.emit`；推送只是加速，客户端拉取对账 |
 | bash/set_turn_status 引擎工具 | DSH 会话自带工具循环 + `im_*` 工具（`ctx.tools.register`） | Cumora 的引擎工具模型不移植；模型的回合文本就是房间消息 |
 | 技能目录 | DSH skill（`ctx.skills.registerProvider`，`im-collaboration`） | 教模型：回复契约、HELD 语义、安静纪律、记忆礼仪 |
-| 4 个产品端 | DSH client（`@veren/im-ui` web 面板） | 会话/账号/人员/设置四页签——会话是入口，也是唯一的人类写入路径（`post`、`createRoom`）；桌面/移动/运营后台不移植 |
+| 4 个产品端 | DSH client（`@veren/im-ui` web 面板） | 会话/账号/人员/设置四页签——会话是入口，也是唯一的人类写入路径（`post`、`createRoom`、`addMembers`）；桌面/移动/运营后台不移植 |
 | Realtime 长连 | cordis 事件 + 面板 5s 轮询 + 增量拉取 | 事件类型：`im/message-observed` → `im/message-new` → `im/wake-request` → `im/run-updated` |
 | Billing/Admin/Shipping/Email/Schedule/Document/Board | **不移植**（外围域，后续迭代） | 设计的 §9/§10/§12/§15/§16/§17 与 §11 的对应部分留作扩展点 |
 

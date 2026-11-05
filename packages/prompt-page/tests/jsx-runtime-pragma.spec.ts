@@ -99,7 +99,12 @@ describe.skipIf(!existsSync(harnessTsxEntry))('page component executes under the
           // not queue semantics).
           'const runtime = {',
           '  store: { getState: () => [], subscribe: () => () => undefined },',
-          '  tools: ["list_tasks", "take_task", "complete_task", "requeue_task", "open_task_page", "drive_begin", "drive_end"]'
+          // 工具清单必须镜像 page-list.tsx 的 registerPageTools：清单短一件，
+          // 组件体就会在 toolOf 处抛「not defined」，本探针退化成假失败。
+          // / The tool list must mirror registerPageTools in page-list.tsx: one
+          // missing entry makes the body throw at toolOf and turns this probe
+          // into a false failure.
+          '  tools: ["list_tasks", "take_task", "complete_task", "publish_task", "requeue_task", "open_task_page", "drive_begin", "drive_end"]'
           + '    .map((local) => ({ name: "task_workbench__" + local })),',
           '  catalog: () => [],',
           '  channel: {},',

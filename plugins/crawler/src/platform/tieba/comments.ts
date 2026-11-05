@@ -136,6 +136,27 @@ export async function collectTiebaComments(options: {
   }
   return collected
 }
+/** 首楼块：`<li tid=` 到其闭合 `</li>`；缺失即 null。 / The first-floor block: `<li tid=` up to its `</li>`; null when absent. */
+function firstFloorBlock(html: string): string | null {
+  const anchor = html.indexOf('<li tid=')
+  if (anchor < 0) return null
+  const end = html.indexOf('</li>', anchor)
+  return html.slice(anchor, end < 0 ? html.length : end)
+}
+
+/** 首楼作者：data-info 载荷里的 un 与昵称；载荷坏掉即空。 / The first-floor author: the un and nickname in the data-info payload; empty on a bad payload. */
+function authorOf(block: string): { user: string, nickname: string } {
+  const info = block.match(/data-info="([^"]+)"/)?.[1]
+  if (info === undefined) return { user: '', nickname: '' }
+  try {
+    const parsed = JSON.parse(unescapeJson(info)) as { un?: string, name_show?: string }
+    const user = parsed.un ?? ''
+    return { user, nickname: parsed.name_show || user }
+  } catch {
+    return { user: '', nickname: '' }
+  }
+}
+
 /**
  * 从 getpb 页解析帖子详情：页面标题 + 首楼正文与作者。
  * Parses the thread detail from a getpb page: the page title plus the
@@ -160,22 +181,9 @@ export function parseTiebaThreadDetail(tid: string, html: string): {
   nickname: string
 } | null {
   const title = html.match(/<title>([^<]+)<\/title>/)?.[1]?.replace(/_贴吧.*$/, '').trim() ?? null
-  const anchor = html.indexOf('<li tid=')
-  if (anchor < 0) return null
-  const end = html.indexOf('</li>', anchor)
-  const block = html.slice(anchor, end < 0 ? html.length : end)
-  const info = block.match(/data-info="([^"]+)"/)?.[1]
-  let user = ''
-  let nickname = ''
-  if (info !== undefined) {
-    try {
-      const parsed = JSON.parse(unescapeJson(info)) as { un?: string; name_show?: string }
-      user = parsed.un ?? ''
-      nickname = parsed.name_show || parsed.un || ''
-    } catch {
-      user = ''
-    }
-  }
+  const block = firstFloorBlock(html)
+  if (block === null) return null
+  const { user, nickname } = authorOf(block)
   const body = stripTags(block)
   const desc = title !== null && body.startsWith(title) ? body.slice(title.length).trim() : body
   return {
