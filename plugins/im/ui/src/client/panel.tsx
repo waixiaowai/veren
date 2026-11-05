@@ -25,6 +25,7 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 import type { ImKey } from './locales.ts'
 import type { ImPanelInjected, ImSnapshot, RoomsSnapshot } from './remote.ts'
 import { AccountsView } from './views-accounts.tsx'
+import { AgentsView } from './views-agents.tsx'
 import { PeopleView } from './views-people.tsx'
 import { RoomsView } from './views-rooms.tsx'
 import { SettingsView } from './views-settings.tsx'
@@ -42,7 +43,7 @@ export interface ImBodyProps {
 }
 
 /** The tabs the panel switches between. */
-type Tab = 'rooms' | 'accounts' | 'people' | 'settings'
+type Tab = 'rooms' | 'agents' | 'accounts' | 'people' | 'settings'
 
 /** Render the page shell and resolve the framework seat once. */
 export function ImPanel(props: ImPanelProps) {
@@ -76,11 +77,19 @@ function ImBody(props: ImBodyProps & RoomsBodyProps) {
         <div className="im-body">
           <nav className="im-tabs" role="tablist">
             <TabButton active={tab === 'rooms'} label={t('tabRooms')} onClick={() => setTab('rooms')} />
+            <TabButton active={tab === 'agents'} label={t('tabAgents')} onClick={() => setTab('agents')} />
             <TabButton active={tab === 'accounts'} label={t('tabAccounts')} onClick={() => setTab('accounts')} />
             <TabButton active={tab === 'people'} label={t('tabPeople')} onClick={() => setTab('people')} />
             <TabButton active={tab === 'settings'} label={t('tabSettings')} onClick={() => setTab('settings')} />
           </nav>
           {tab === 'rooms' && <RoomsBody {...props} />}
+          {tab === 'agents' && (
+            <AgentsBody
+              {...props}
+              onOpenConversation={roomId => { props.onOpenRoom(roomId); setTab('rooms') }}
+              onCreateConversation={agentId => { props.onCreateRoom({ agentId }); setTab('rooms') }}
+            />
+          )}
           {tab === 'accounts' && <AccountsView state={state} t={t} actions={actions} />}
           {tab === 'people' && <PeopleView state={state} t={t} actions={actions} />}
           {tab === 'settings' && <SettingsView state={state} t={t} actions={actions} />}
@@ -102,6 +111,25 @@ function RoomsBody(props: ImBodyProps & RoomsBodyProps) {
       onRefresh={props.rooms.onRoomsRefresh}
       onSend={props.rooms.onSendMessage}
       onCreateRoom={props.rooms.onCreateRoom}
+    />
+  )
+}
+
+/** Bind the same observable for the roster, and hand room actions back up. */
+function AgentsBody(props: ImBodyProps & RoomsBodyProps & {
+  readonly onOpenConversation: (roomId: string) => void
+  readonly onCreateConversation: (agentId: string) => void
+}) {
+  const state = props.rooms.useRooms((snapshot: RoomsSnapshot) => snapshot)
+  return (
+    <AgentsView
+      state={props.state}
+      t={props.t}
+      actions={props}
+      rooms={state.rooms}
+      unread={state.unread.reduce((total, count) => total + count.unread, 0)}
+      onOpenRoom={props.onOpenConversation}
+      onCreateRoom={input => props.onCreateConversation(input.agentId ?? 'agent:default')}
     />
   )
 }

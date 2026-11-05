@@ -20,15 +20,15 @@ import { roomStampOf } from './format.ts'
 import type { ImKey } from './locales.ts'
 import type { RoomsSnapshot } from './remote.ts'
 
-/** The three list filters the design's seven collapse to in v1. */
-type Filter = 'all' | 'direct' | 'group'
+/** The list filters the design's seven collapse to in v1. */
+type Filter = 'all' | 'unread' | 'direct' | 'group'
 
 /** Props of {@link RoomsSide}. */
 export interface RoomsSideProps {
   readonly state: RoomsSnapshot
   readonly t: (key: ImKey) => string
   readonly onOpenRoom: (roomId: string | undefined) => void
-  readonly onCreateRoom: (title: string | undefined) => void
+  readonly onCreateRoom: (input: { readonly title?: string; readonly agentId?: string }) => void
 }
 
 /** The room list plus search, filter, and the new-room entry. */
@@ -37,8 +37,10 @@ export function RoomsSide(props: RoomsSideProps): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const { t, state } = props
+  const unreadOf = (roomId: string): number =>
+    state.unread.find(count => count.roomId === roomId)?.unread ?? 0
   const rooms = state.rooms.filter(room =>
-    (filter === 'all' || room.kind === filter)
+    matchesFilter(room.kind, unreadOf(room.id), filter)
     && (query.trim() === '' || (room.title ?? '').toLowerCase().includes(query.trim().toLowerCase())))
   return (
     <aside className="im-rooms-side">
@@ -64,9 +66,10 @@ export function RoomsSide(props: RoomsSideProps): React.JSX.Element {
           </svg>
         </button>
       </div>
-      {creating && <NewRoomForm t={t} onCreate={title => { props.onCreateRoom(title); setCreating(false) }} />}
+      {creating && <NewRoomForm t={t} onCreate={title => { props.onCreateRoom({ title }); setCreating(false) }} />}
       <div className="im-filters" role="group">
         <FilterButton active={filter === 'all'} label={t('filterAll')} onClick={() => setFilter('all')} />
+        <FilterButton active={filter === 'unread'} label={t('filterUnread')} onClick={() => setFilter('unread')} />
         <FilterButton active={filter === 'direct'} label={t('filterDirect')} onClick={() => setFilter('direct')} />
         <FilterButton active={filter === 'group'} label={t('filterGroup')} onClick={() => setFilter('group')} />
       </div>
@@ -97,6 +100,13 @@ export function RoomsSide(props: RoomsSideProps): React.JSX.Element {
       {rooms.length === 0 && state.rooms.length > 0 && <p className="im-muted">{t('noMatches')}</p>}
     </aside>
   )
+}
+
+/** Whether one room passes the active filter. */
+function matchesFilter(kind: 'direct' | 'group', unread: number, filter: Filter): boolean {
+  if (filter === 'all') return true
+  if (filter === 'unread') return unread > 0
+  return kind === filter
 }
 
 /** One room row: avatar, title, and the kind/activity line. */

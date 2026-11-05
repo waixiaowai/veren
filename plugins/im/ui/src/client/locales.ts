@@ -57,6 +57,10 @@ export type ImKey =
   | 'searchPlaceholder' | 'filterAll' | 'filterDirect' | 'filterGroup' | 'noMatches'
   | 'roomInfo' | 'roomKindLabel' | 'roomCreatedLabel'
   | 'copy' | 'copied' | 'jumpLatest' | 'mentionTitle'
+  | 'tabAgents' | 'headingTeam' | 'headingAccounts' | 'headingPeople'
+  | 'filterUnread' | 'agentRoleDefault' | 'agentRole' | 'agentRooms' | 'agentLastActive'
+  | 'chatAction' | 'noAgents' | 'noAgentsHint' | 'summaryAgents' | 'summaryRooms' | 'summaryUnread'
+  | 'agentsHint' | 'accountsHint'
   | 'emptyTitle' | 'emptyHint' | 'dayToday' | 'dayYesterday' | 'composerHint'
 
 /** Chinese dictionary. */
@@ -108,6 +112,23 @@ export const zh: Record<ImKey, string> = {
   copied: "已复制",
   jumpLatest: "回到最新",
   mentionTitle: "提及成员",
+  tabAgents: "智能体",
+  headingTeam: "你的团队，共 {n} 位",
+  headingAccounts: "你的账号，共 {n} 个",
+  headingPeople: "你的通讯录，共 {n} 位",
+  filterUnread: "未读",
+  agentRoleDefault: "默认助手",
+  agentsHint: "智能体自己会干活，需要你拍板时会把话题抛给你。",
+  accountsHint: "绑定一个渠道后，外部消息会按房间沉淀进来。",
+  agentRole: "智能体",
+  agentRooms: "会话 {n} 个",
+  agentLastActive: "最近 {time}",
+  chatAction: "聊天",
+  noAgents: "还没有智能体",
+  noAgentsHint: "新建一个会话会自动把默认助手拉进房间。",
+  summaryAgents: "智能体 {n} 位",
+  summaryRooms: "会话 {n} 个",
+  summaryUnread: "未读 {n} 条",
   tabCloud: "云端",
   cloudSubtitle: "登录 CMS 后查看该账号的全部 IM 信息（消息日志与人员目录归云）。",
   cloudOrigin: "CMS 地址",
@@ -267,6 +288,23 @@ export const en: Record<ImKey, string> = {
   copied: "Copied",
   jumpLatest: "Jump to latest",
   mentionTitle: "Mention a member",
+  tabAgents: "Agents",
+  headingTeam: "Your team — {n}",
+  headingAccounts: "Your accounts — {n}",
+  headingPeople: "Your people — {n}",
+  filterUnread: "Unread",
+  agentRoleDefault: "Default assistant",
+  agentsHint: "Agents work on their own; they hand the topic back when a decision is yours.",
+  accountsHint: "Bind a channel and outside messages settle into rooms.",
+  agentRole: "Agent",
+  agentRooms: "{n} rooms",
+  agentLastActive: "Active {time}",
+  chatAction: "Chat",
+  noAgents: "No agents yet",
+  noAgentsHint: "Starting a conversation seats the default assistant in it.",
+  summaryAgents: "{n} agents",
+  summaryRooms: "{n} conversations",
+  summaryUnread: "{n} unread",
   tabCloud: "Cloud",
   cloudSubtitle: "Sign in to CMS to see all IM data of this account (message log and people live on the cloud).",
   cloudOrigin: "CMS origin",

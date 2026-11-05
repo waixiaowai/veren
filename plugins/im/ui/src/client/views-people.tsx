@@ -15,6 +15,7 @@
 
 import { useState } from 'react'
 import { Avatar } from './avatar.tsx'
+import { fill } from './format.ts'
 import type { ImKey } from './locales.ts'
 import type { ImBodyProps } from './panel.tsx'
 import type { ImPersonView } from './remote.ts'
@@ -27,8 +28,10 @@ export function PeopleView(props: ImBodyProps): React.JSX.Element {
     || left.displayName.localeCompare(right.displayName, 'zh'))
   return (
     <section className="im-section">
-      <h2 className="im-heading">{t('people')}</h2>
-      <p className="im-muted">{t('peopleHint')}</p>
+      <div className="im-hero">
+        <h2 className="im-display">{fill(t('headingPeople'), { n: people.length })}</h2>
+        <p className="im-hero-sub">{t('peopleHint')}</p>
+      </div>
       {people.length === 0 && <p className="im-muted">{t('noPeople')}</p>}
       <ul className="im-card-grid" role="list">
         {people.map(person => (

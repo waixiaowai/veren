@@ -23,6 +23,18 @@ function startOfDay(timestamp: number): number {
   return date.getTime()
 }
 
+/**
+ * Fill a `{name}` placeholder template (design §23.7: interpolation is only
+ * `{name}`, and an unknown variable stays literal so the mistake is visible).
+ * @param template - copy with `{name}` placeholders.
+ * @param values - replacement values keyed by placeholder name.
+ * @returns the filled copy.
+ */
+export function fill(template: string, values: Readonly<Record<string, string | number>>): string {
+  return template.replace(/\{([a-zA-Z]+)\}/gu, (match, name: string) =>
+    values[name] === undefined ? match : String(values[name]))
+}
+
 /** The clock time of one message, in the reader's locale. */
 export function clockOf(timestamp: number): string {
   return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(timestamp)

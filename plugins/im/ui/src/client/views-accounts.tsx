@@ -8,6 +8,7 @@
 
 import { useState } from 'react'
 import { Avatar } from './avatar.tsx'
+import { fill } from './format.ts'
 import type { ImKey } from './locales.ts'
 import type { ImBodyProps } from './panel.tsx'
 
@@ -18,8 +19,12 @@ export function AccountsView(props: ImBodyProps): React.JSX.Element {
   const bind = state.bind
   return (
     <section className="im-section">
+      <div className="im-hero">
+        <h2 className="im-display">{fill(t('headingAccounts'), { n: state.catalog.accounts.length })}</h2>
+        <p className="im-hero-sub">{t('accountsHint')}</p>
+      </div>
       <div className="im-row im-row-split">
-        <h2 className="im-heading">{t('accounts')}</h2>
+        <span className="im-muted">{t('accounts')}</span>
         <button type="button" className="im-button im-button-primary" onClick={actions.onStartBind}>
           {t('bindWechat')}
         </button>

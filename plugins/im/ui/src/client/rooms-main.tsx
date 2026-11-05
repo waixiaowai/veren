@@ -15,6 +15,7 @@
  */
 
 import { Composer } from './composer.tsx'
+import { Avatar } from './avatar.tsx'
 import type { ImKey } from './locales.ts'
 import { MessageRow } from './message-row.tsx'
 import { participantLabel } from './participant-label.ts'
@@ -40,7 +41,19 @@ export function RoomsMain(props: RoomsMainProps): React.JSX.Element {
   return (
     <section className="im-rooms-main">
       <header className="im-room-head">
-        <h2 className="im-heading">{open.title ?? t('roomUntitled')}</h2>
+        <div className="im-room-head-line">
+          <h2 className="im-heading">{open.title ?? t('roomUntitled')}</h2>
+          <span className="im-stack">
+            {open.members.slice(0, 4).map(id => (
+              <Avatar
+                key={id}
+                name={participantLabel(id, props.people, t)}
+                kind={id.startsWith('agent:') ? 'agent' : 'human'}
+                size="sm"
+              />
+            ))}
+          </span>
+        </div>
         <p className="im-room-members">
           {t('membersLabel')}：{open.members.map(id => participantLabel(id, props.people, t)).join('、')}
         </p>

@@ -33,7 +33,7 @@ export function RoomsView(props: RoomsViewProps) {
         title={props.t('emptyTitle')}
         hint={props.t('emptyHint')}
         actionLabel={props.t('newRoom')}
-        onAction={() => props.onCreateRoom(undefined)}
+        onAction={() => props.onCreateRoom({})}
       />
     )
   }

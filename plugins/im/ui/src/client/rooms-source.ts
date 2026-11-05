@@ -146,11 +146,16 @@ async function sendMessage(api: ImConvApi, state: RoomsState, viewerId: string, 
 
 /** Create one internal room, refresh the list, and open it. */
 /** 创建一个内部房间，刷新列表并打开它。 */
-async function createRoom(api: ImConvApi, state: RoomsState, viewerId: string, title: string | undefined): Promise<void> {
+async function createRoom(
+  api: ImConvApi,
+  state: RoomsState,
+  viewerId: string,
+  input: { readonly title?: string; readonly agentId?: string },
+): Promise<void> {
   const result = await api.createRoom({
     kind: 'direct',
-    ...(title === undefined ? {} : { title }),
-    memberIds: [viewerId, 'agent:default'],
+    ...(input.title === undefined ? {} : { title: input.title }),
+    memberIds: [viewerId, input.agentId ?? 'agent:default'],
   })
   if (!result.ok) {
     publish(state, { status: 'error', error: result.error.message })
@@ -167,7 +172,7 @@ export function createRoomsSource(api: ImConvApi, viewerId: string): {
   readonly openRoom: (roomId: string | undefined) => void
   readonly refresh: () => void
   readonly send: (body: string) => Promise<boolean>
-  readonly createRoom: (title: string | undefined) => void
+  readonly createRoom: (input: { readonly title?: string; readonly agentId?: string }) => void
 } {
   const state: RoomsState = {
     snapshot: {
@@ -190,6 +195,6 @@ export function createRoomsSource(api: ImConvApi, viewerId: string): {
       if (open !== undefined) void readRoom(api, state, open).then(() => advanceCursor(api, state, viewerId))
     },
     send: body => sendMessage(api, state, viewerId, body),
-    createRoom: title => { void createRoom(api, state, viewerId, title) },
+    createRoom: input => { void createRoom(api, state, viewerId, input) },
   }
 }

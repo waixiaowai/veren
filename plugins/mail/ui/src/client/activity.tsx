@@ -86,7 +86,7 @@ function RunCard(props: {
         )}
       </div>
       <div className="mail-run-meta">
-        <span>{fillCount(t(run.recipientCount === 1 ? 'recipient' : 'recipients'), run.recipientCount)}</span>
+        <span>{fillCount(t('recipients'), run.recipientCount)}</span>
         <span className="mail-run-tx">{run.transactionId}</span>
       </div>
       <ol className="mail-timeline">

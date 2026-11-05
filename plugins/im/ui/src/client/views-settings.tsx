@@ -23,8 +23,10 @@ export function SettingsView(props: ImBodyProps): React.JSX.Element {
   const t = (key: ImKey): string => props.t(key)
   return (
     <div className="im-settings">
-      <h2 className="im-heading">{t('settingsHeading')}</h2>
-      <p className="im-muted">{t('settingsHint')}</p>
+      <div className="im-hero">
+        <h2 className="im-display">{t('settingsHeading')}</h2>
+        <p className="im-hero-sub">{t('settingsHint')}</p>
+      </div>
       <h3 className="im-heading">{t('intake')}</h3>
       <IntakeView {...props} />
       <CloudView t={t} />

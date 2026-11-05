@@ -43,7 +43,6 @@ export type MailKey =
   | 'archive'
   | 'unarchive'
   | 'step'
-  | 'recipient'
   | 'skipReason'
   | 'delivered'
   | 'failed'
@@ -113,7 +112,6 @@ export const zh: Record<MailKey, string> = {
   archive: '归档',
   unarchive: '取消归档',
   step: '步骤',
-  recipient: '收件人',
   skipReason: '跳过原因',
   delivered: '已送达',
   failed: '失败',
@@ -184,7 +182,6 @@ export const en: Record<MailKey, string> = {
   archive: 'Archive',
   unarchive: 'Unarchive',
   step: 'Step',
-  recipient: 'Recipient',
   skipReason: 'Skipped because',
   delivered: 'Delivered',
   failed: 'Failed',

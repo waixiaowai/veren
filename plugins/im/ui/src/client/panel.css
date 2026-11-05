@@ -1,44 +1,70 @@
 /*
  * The IM panel's stylesheet. One sheet, hand-prefixed `.im-*`.
  *
- * Visual language follows `design/ui.md` (the Cumora interface spec) where it
- * applies to an embedded Web panel: a 4px spacing grid, the eight-step type
- * scale (10 / 12 / 13 / 14 / 16 / 20 / 26 / 30), radii from the shell tokens,
- * the four motion durations (80 / 150 / 200 / 300ms), state expressed by text
- * and shape as well as colour, and a visible focus ring. Colour is the one
- * deliberate deviation: the design's own sky/coral/gold palette is replaced by
- * the host's `--dsw-*` semantic tokens so the panel follows every DSH theme
- * instead of freezing one; the token mapping lives below and nowhere else.
+ * Visual language is the Cumora interface spec (`design/ui.md`): the sky/coral/
+ * gold/whisper palette, paper/cloud surfaces, the ink six-step text scale, a 4px
+ * spacing grid, the eight-step type scale (10 / 12 / 13 / 14 / 16 / 20 / 26 / 30),
+ * four motion durations (80 / 150 / 200 / 300ms), state expressed by text and
+ * shape as well as colour, and a visible focus ring. Raw colour literals live in
+ * the token block below and nowhere else; every rule reads a token.
  *
  * 方言契约与审计见 tests/panel-dialect.spec.ts：间距走 4px 网格（药丸允许 1-2px 微调）、
- * 颜色只取令牌、不写裸色值。
+ * 裸色值只允许出现在下面的令牌块里，其余规则一律引用令牌。
  *
- * IM 面板样式表。单张，手工 `.im-*` 前缀。视觉语言按 `design/ui.md`（Cumora 界面规范）在
- * 嵌入式 Web 面板上可执行的部分：4px 间距网格、八档字号（10/12/13/14/16/20/26/30）、
- * 圆角取外壳令牌、四档动效（80/150/200/300ms）、状态同时用文案与形状表达、焦点环可见。
- * 唯一有意的偏离是颜色：设计自带的 sky/coral/gold 调色板换成宿主的 `--dsw-*` 语义 token，
- * 让面板跟随每一套 DSH 主题而不是冻死一套；映射只此一处。
+ * 视觉语言取自 Cumora 界面规范（`design/ui.md`）：sky/coral/gold/whisper 调色板、
+ * paper/cloud 表面、ink 六级文本、4px 间距网格、八档字号、四档动效；状态同时用文案与
+ * 形状表达；焦点环可见。裸色值只许出现在令牌块，其余规则只读令牌。
  *
  * Type / 字号: 10, 12, 13, 14, 16, 20, 26, 30
- * Radius / 圆角: shell tokens (sm / md / lg / xl) + 999 pills
+ * Radius / 圆角: 8 / 10 / 12 / 16 + 999 pills
  * Motion / 动效: 80, 150, 200, 300ms; curves standard / enter
  */
 
 .im-page {
-  --im-canvas: var(--dsw-alias-bg-module-platform);
-  --im-surface: var(--dsw-alias-bg-layer-1);
-  --im-surface-2: var(--dsw-alias-bg-layer-2);
-  --im-sunken: var(--dsw-alias-turn-trigger-bg);
-  --im-text: var(--dsw-alias-label-primary);
-  --im-secondary: var(--dsw-alias-label-secondary);
-  --im-muted: var(--dsw-alias-label-tertiary);
-  --im-border: var(--dsw-alias-border-l2);
-  --im-border-soft: var(--dsw-alias-border-l1);
-  --im-accent: var(--dsw-alias-state-business-primary);
-  --im-accent-soft: var(--dsw-alias-state-business-tertiary);
-  --im-danger: var(--dsw-alias-state-error-primary);
-  --im-success: var(--dsw-alias-state-success-primary);
-  --im-warn: var(--dsw-alias-state-warn-primary);
+  /* Cumora palette, light — the only place raw colours are allowed. */
+  /* Cumora 调色板（亮色）——全表唯一允许出现裸色值的地方。 */
+  --im-sky: #00A8F0;
+  --im-sky-deep: #0078C8;
+  --im-sky-ink: #003B6F;
+  --im-sky-50: #F2FAFE;
+  --im-sky-100: #E1F3FD;
+  --im-sky-200: #C2E6FB;
+  --im-sky-300: #8FD3F7;
+  --im-coral: #FF7A6B;
+  --im-coral-soft: #FFD9D2;
+  --im-coral-deep: #C84E3F;
+  --im-gold: #F4B740;
+  --im-gold-deep: #BA8418;
+  --im-whisper: #7B6CB0;
+  --im-whisper-deep: #4E3F8C;
+  --im-whisper-50: #F7F5FB;
+  --im-whisper-100: #ECE7F5;
+  --im-ink-900: #0A1B2E;
+  --im-ink-700: #233A53;
+  --im-ink-500: #5B7186;
+  --im-ink-300: #94A8BC;
+  --im-ink-200: #C5D2DE;
+  --im-ink-100: #E5ECF2;
+  --im-paper: #FAFCFE;
+  --im-cloud: #FFFFFF;
+  --im-on-accent: #FFFFFF;
+
+  /* Semantic aliases every rule below reads. */
+  /* 下面所有规则只读这一层语义别名。 */
+  --im-canvas: var(--im-paper);
+  --im-surface: var(--im-cloud);
+  --im-surface-2: var(--im-sky-50);
+  --im-sunken: var(--im-ink-100);
+  --im-text: var(--im-ink-900);
+  --im-secondary: var(--im-ink-500);
+  --im-muted: var(--im-ink-300);
+  --im-border: var(--im-ink-200);
+  --im-border-soft: var(--im-ink-100);
+  --im-accent: var(--im-sky);
+  --im-accent-soft: var(--im-sky-100);
+  --im-danger: var(--im-coral);
+  --im-success: var(--im-sky);
+  --im-warn: var(--im-gold);
 
   box-sizing: border-box;
   display: flex;
@@ -58,6 +84,38 @@
 .im-page *,
 .im-page *::before,
 .im-page *::after { box-sizing: border-box; }
+
+/* Cumora palette, dark (design §23.9: One Dark Pro hues). */
+/* Cumora 调色板（暗色，设计 §23.9 的 One Dark Pro 色相）。 */
+@media (prefers-color-scheme: dark) {
+  .im-page {
+    --im-sky: #61AFEF;
+    --im-sky-deep: #528BFF;
+    --im-sky-ink: #ABB2BF;
+    --im-sky-50: #2C313C;
+    --im-sky-100: #313640;
+    --im-sky-200: #3E4451;
+    --im-sky-300: #4B5263;
+    --im-coral: #E06C75;
+    --im-coral-soft: #3D2A2E;
+    --im-coral-deep: #E06C75;
+    --im-gold: #E5C07B;
+    --im-gold-deep: #D19A66;
+    --im-whisper: #C678DD;
+    --im-whisper-deep: #C678DD;
+    --im-whisper-50: #2F2A38;
+    --im-whisper-100: #352D40;
+    --im-ink-900: #ABB2BF;
+    --im-ink-700: #9DA5B4;
+    --im-ink-500: #7F828E;
+    --im-ink-300: #5C6370;
+    --im-ink-200: #3E4451;
+    --im-ink-100: #2C313C;
+    --im-paper: #21252B;
+    --im-cloud: #282C34;
+    --im-on-accent: #21252B;
+  }
+}
 
 .im-page :focus-visible {
   outline: 2px solid var(--im-accent);
@@ -143,9 +201,8 @@
 .im-tab:hover { color: var(--im-text); }
 
 .im-tab-active {
-  background: var(--im-surface);
-  color: var(--im-text);
-  box-shadow: var(--dsw-shadow-lv1);
+  background: var(--im-accent-soft);
+  color: var(--im-sky-ink);
 }
 
 /* ---- body ---- */
@@ -190,7 +247,7 @@
 .im-button-primary {
   border-color: transparent;
   background: var(--im-accent);
-  color: #fff;
+  color: var(--im-on-accent);
 }
 
 .im-button-primary:hover:not(:disabled) { background: var(--im-accent); opacity: 0.9; }
@@ -313,8 +370,9 @@
 .im-room:hover { background: var(--im-surface); border-color: var(--im-border-soft); }
 
 .im-room-open {
-  background: var(--im-surface);
-  border-color: var(--im-accent);
+  background: var(--im-accent-soft);
+  border-color: transparent;
+  box-shadow: inset 2px 0 0 var(--im-accent);
 }
 
 .im-room-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -421,7 +479,7 @@
 }
 
 .im-bubble-own {
-  background: var(--im-accent-soft);
+  background: var(--im-coral-soft);
   border-color: transparent;
 }
 
@@ -513,12 +571,12 @@
 .im-avatar-sm { width: 28px; height: 28px; font-size: 12px; }
 
 .im-avatar-agent {
-  border-radius: 10px;
-  background: var(--im-accent-soft);
-  color: var(--im-text);
+  border-radius: 12px;
+  background: var(--im-whisper-100);
+  color: var(--im-whisper-deep);
 }
 
-.im-avatar-human { background: var(--im-sunken); }
+.im-avatar-human { background: var(--im-accent-soft); color: var(--im-sky-ink); }
 
 /* ---- account and people cards ---- */
 
@@ -549,14 +607,15 @@
 .im-badge {
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid var(--im-border-soft);
-  color: var(--im-muted);
+  border: 1px solid transparent;
+  background: var(--im-sunken);
+  color: var(--im-secondary);
   font-size: 10px;
   line-height: 14px;
   white-space: nowrap;
 }
 
-.im-badge-on { color: var(--im-success); border-color: var(--im-success); }
+.im-badge-on { color: var(--im-sky-ink); background: var(--im-accent-soft); }
 
 .im-id-mono { color: var(--im-muted); font-family: ui-monospace, monospace; font-size: 12px; line-height: 17px; overflow: hidden; text-overflow: ellipsis; }
 
@@ -885,3 +944,41 @@ h3.im-heading { font-size: 14px; line-height: 20px; }
 }
 
 .im-mention:hover, .im-mention-active { background: var(--im-surface-2); }
+
+/* ---- page display headings (Cumora: a big line with the count in sky) ---- */
+
+.im-display {
+  margin: 0;
+  font-size: 30px;
+  line-height: 38px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+
+.im-display-num { color: var(--im-accent); }
+
+.im-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+}
+
+.im-hero-sub { margin: 0; color: var(--im-secondary); font-size: 13px; line-height: 20px; }
+
+.im-summary-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.im-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border: 1px solid var(--im-border-soft);
+  border-radius: 999px;
+  background: var(--im-surface);
+  color: var(--im-secondary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.im-summary-num { color: var(--im-text); font-weight: 600; }
