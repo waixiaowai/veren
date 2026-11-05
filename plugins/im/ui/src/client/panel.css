@@ -582,17 +582,17 @@
 
 .im-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
 }
 
 .im-card {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 12px;
+  gap: 16px;
+  padding: 16px;
   border: 1px solid var(--im-border-soft);
-  border-radius: 12px;
+  border-radius: 16px;
   background: var(--im-surface);
   transition: border-color 150ms ease, box-shadow 150ms ease;
 }
@@ -982,3 +982,27 @@ h3.im-heading { font-size: 14px; line-height: 20px; }
 }
 
 .im-summary-num { color: var(--im-text); font-weight: 600; }
+
+/* ---- roster cards, member stack, inline empty ---- */
+
+.im-name { font-size: 16px; line-height: 24px; font-weight: 600; }
+
+.im-agent-card { min-height: 132px; }
+
+.im-empty-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 24px;
+  border: 1px dashed var(--im-border);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.im-stack { display: inline-flex; align-items: center; }
+.im-stack > * + * { margin-left: -8px; }
+.im-stack .im-avatar { box-shadow: 0 0 0 2px var(--im-surface); }
+
+.im-avatar-lg { width: 44px; height: 44px; font-size: 16px; }
+
+.im-hero-row { flex-direction: row; align-items: flex-start; justify-content: space-between; gap: 16px; }

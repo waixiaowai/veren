@@ -52,7 +52,7 @@ function PersonCard(props: {
   const name = humanNameOf(person, t)
   return (
     <li className="im-card" title={person.id}>
-      <Avatar name={name} kind="human" />
+      <Avatar name={name} kind="human" size="lg" />
       <div className="im-card-body">
         <div className="im-name-row">
           <span className="im-strong">{name}</span>

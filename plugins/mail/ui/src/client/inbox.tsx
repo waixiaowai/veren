@@ -1,17 +1,15 @@
 /**
  * The inbox view: one filterable list of what reached the station.
  *
- * The filter is view state (Novu's all / unread / archived slices with
- * counts); archived records stay visible under "all" because archiving
- * never deletes. Rows earn emphasis only when their state earns it — an
- * unread row gets the triple (dot + word + tinted card), a read row stays
- * quiet.
+ * The list is flat — hairline dividers between rows, no per-row cards — and
+ * an unread row is expressed by the dot, the weight, and one quiet badge,
+ * never by a tinted background. The row actions live in the meta line's
+ * reserved right slot, so they can never cover anything.
  *
  * 收件箱视图：抵达站内的内容的可筛选列表。
  *
- * 筛选是视图状态（Novu 的 全部 / 未读 / 已归档 切片带计数）；归档从不删除，已归档记录在
- * 「全部」下仍然可见。行只在状态值得强调时才被强调——未读行拿三重表达（点 + 词 + 底色），
- * 已读行保持安静。
+ * 列表是扁平的——行间只有发丝分隔线，没有逐行卡片；未读用「圆点 + 字重 + 一枚安静徽标」
+ * 表达，绝不用整行底色。行操作住在 meta 行右侧的保留槽位里，物理上不可能遮挡任何内容。
  *
  * @module @veren/mail-ui/client/inbox
  */
@@ -24,7 +22,6 @@ import {
   fillCount,
   inboxCounts,
   matchesFilter,
-  messageBadgeOf,
   relativeTimeLabel,
   type InboxFilter,
 } from './format.ts'
@@ -51,9 +48,9 @@ const FILTER_LABELS: Record<InboxFilter, MailKey> = {
 }
 
 /**
- * The inbox: filter tabs, then the matching rows, then the right empty state.
+ * The inbox: filter chips, then the matching rows, then the right empty state.
  *
- * 收件箱：筛选页签、匹配的行、以及正确的空态。
+ * 收件箱：筛选芯片、匹配的行、以及正确的空态。
  *
  * @param props - the view's props / 视图属性
  * @returns the view / 视图
@@ -116,10 +113,10 @@ function FilterTabs(props: {
 }
 
 /**
- * One inbox message: unread rows earn the triple, archived rows dim, and the
- * actions surface on hover or keyboard focus.
+ * One inbox message. An unread row shows the dot, the heavier subject, and
+ * the quiet badge; everything else stays silent.
  *
- * 一条收件箱消息：未读行拿三重表达，归档行弱化，操作在悬停或键盘聚焦时浮现。
+ * 一条收件箱消息。未读行显示圆点、更重的标题与一枚安静徽标；其余一切保持沉默。
  *
  * @param props - the row's props / 行属性
  * @returns the row / 行
@@ -133,54 +130,35 @@ function MessageRow(props: {
 }): React.JSX.Element {
   const { message, t, onMark, now } = props
   const time = relativeTimeLabel(message.createdAt, now)
-  const state = message.archived ? 'mail-item-archived' : !message.read ? 'mail-item-unread' : ''
-  const suffix = state === '' ? '' : ` ${state}`
+  const unread = !message.read && !message.archived
+  const delivery = deliveryBadgeOf(message)
   return (
-    <li className={`mail-item${suffix}`}>
-      <span className="mail-item-marker" aria-hidden="true" />
+    <li className={unread ? 'mail-item mail-item-unread' : 'mail-item'}>
       <div className="mail-item-body">
         <div className="mail-item-top">
+          {unread && <span className="mail-unread-dot" aria-hidden="true" />}
           <p className="mail-item-subject">{message.subject ?? message.content}</p>
-          <MessageBadges message={message} t={t} />
+          {unread && <span className="mail-badge mail-badge-quiet">{t('unread')}</span>}
+          {message.archived && <span className="mail-badge mail-badge-quiet">{t('archived')}</span>}
+          {delivery !== undefined && <span className={`mail-badge mail-badge-${delivery.tone}`}>{t(delivery.key)}</span>}
         </div>
         {message.subject !== undefined && <p className="mail-item-content">{message.content}</p>}
         <div className="mail-item-meta">
           <span className="mail-item-channel">{t(channelKeyOf(message.channel))}</span>
           <span className="mail-item-time">{fillCount(t(time.key), time.n)}</span>
+          <span className="mail-item-spacer" />
+          <RowActions message={message} t={t} onMark={onMark} />
         </div>
-        <RowActions message={message} t={t} onMark={onMark} />
       </div>
     </li>
   )
 }
 
 /**
- * The badges one message earns: its visible state, then its delivery state.
+ * The visible-state actions, living in the meta line's reserved right slot:
+ * they occupy layout space, so nothing is ever covered.
  *
- * 一条消息挣得的徽标：先是可见状态，再是投递状态。
- *
- * @param props - the badges' props / 徽标属性
- * @returns the badges / 徽标
- */
-function MessageBadges(props: {
-  readonly message: MessageView
-  readonly t: (key: MailKey) => string
-}): React.JSX.Element {
-  const { message, t } = props
-  const badge = messageBadgeOf(message)
-  const delivery = deliveryBadgeOf(message)
-  return (
-    <span className="mail-item-badges">
-      {badge !== undefined && <span className={`mail-badge mail-badge-${badge.tone}`}>{t(badge.key)}</span>}
-      {delivery !== undefined && <span className={`mail-badge mail-badge-${delivery.tone}`}>{t(delivery.key)}</span>}
-    </span>
-  )
-}
-
-/**
- * The visible-state actions: read/unread first, then archive/unarchive.
- *
- * 可见状态操作：先已读/未读，再归档/取消归档。
+ * 可见状态操作，住在 meta 行右侧的保留槽位：它们占据布局空间，因此永远不会遮住任何内容。
  *
  * @param props - the actions' props / 操作属性
  * @returns the actions / 操作
@@ -192,7 +170,7 @@ function RowActions(props: {
 }): React.JSX.Element {
   const { message, t, onMark } = props
   return (
-    <div className="mail-item-actions">
+    <span className="mail-item-actions">
       <button
         type="button"
         className="mail-action"
@@ -207,7 +185,7 @@ function RowActions(props: {
       >
         {message.archived ? t('unarchive') : t('archive')}
       </button>
-    </div>
+    </span>
   )
 }
 

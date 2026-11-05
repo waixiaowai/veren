@@ -117,7 +117,7 @@ function AgentCard(props: {
   const role = seat.id === 'agent:default' ? t('agentRoleDefault') : t('agentRole')
   return (
     <li className="im-card im-agent-card">
-      <Avatar name={name} kind="agent" />
+      <Avatar name={name} kind="agent" size="lg" />
       <div className="im-card-body">
         <div className="im-name-row">
           <span className="im-name">{name}</span>

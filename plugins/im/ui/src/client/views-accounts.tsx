@@ -19,12 +19,11 @@ export function AccountsView(props: ImBodyProps): React.JSX.Element {
   const bind = state.bind
   return (
     <section className="im-section">
-      <div className="im-hero">
-        <h2 className="im-display">{fill(t('headingAccounts'), { n: state.catalog.accounts.length })}</h2>
-        <p className="im-hero-sub">{t('accountsHint')}</p>
-      </div>
-      <div className="im-row im-row-split">
-        <span className="im-muted">{t('accounts')}</span>
+      <div className="im-hero im-hero-row">
+        <div>
+          <h2 className="im-display">{fill(t('headingAccounts'), { n: state.catalog.accounts.length })}</h2>
+          <p className="im-hero-sub">{t('accountsHint')}</p>
+        </div>
         <button type="button" className="im-button im-button-primary" onClick={actions.onStartBind}>
           {t('bindWechat')}
         </button>
@@ -33,7 +32,7 @@ export function AccountsView(props: ImBodyProps): React.JSX.Element {
       <ul className="im-card-grid" role="list">
         {state.catalog.accounts.map(account => (
           <li key={account.id} className="im-card">
-            <Avatar name={account.displayName} kind="human" />
+            <Avatar name={account.displayName} kind="human" size="lg" />
             <div className="im-card-body">
               <div className="im-name-row">
                 <span className="im-strong">{account.displayName}</span>

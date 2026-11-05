@@ -26,7 +26,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const raw = readFileSync(join(root, 'src/client/panel.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
 
 /** Everything from the type scale onward: rules, where only tokens are allowed. */
-const TOKEN_BLOCK_END = '/* ---- type scale ---- */'
+const TOKEN_BLOCK_END = '.im-title {'
 const sheet = raw.includes(TOKEN_BLOCK_END) ? raw.slice(raw.indexOf(TOKEN_BLOCK_END)) : raw
 
 /** Optical nudges only pills may take; everything else sits on the 4px grid. */

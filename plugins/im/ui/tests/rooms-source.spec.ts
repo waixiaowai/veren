@@ -50,7 +50,7 @@ describe('createRoomsSource', () => {
     const source = createRoomsSource(api, 'human:owner')
     const stop = source.source.subscribe(() => undefined)
     try {
-      source.createRoom('测试会话')
+      source.createRoom({ title: '测试会话' })
       await vi.waitFor(() => { expect(source.source.getSnapshot().rooms).toHaveLength(1) })
       expect(source.source.getSnapshot().openRoomId).toBe('conv-1')
       expect(api.roomsTable[0]?.title).toBe('测试会话')
@@ -64,7 +64,7 @@ describe('createRoomsSource', () => {
     const source = createRoomsSource(api, 'human:owner')
     const stop = source.source.subscribe(() => undefined)
     try {
-      source.createRoom(undefined)
+      source.createRoom({})
       await vi.waitFor(() => { expect(source.source.getSnapshot().openRoomId).toBe('conv-1') })
       const sent = await source.send('你好')
       expect(sent).toBe(true)

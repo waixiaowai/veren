@@ -38,7 +38,7 @@ function HumanGlyph(): React.JSX.Element {
 export function Avatar(props: {
   readonly name: string
   readonly kind: ParticipantKind
-  readonly size?: 'sm' | 'md'
+  readonly size?: 'sm' | 'md' | 'lg'
   readonly glyph?: boolean
 }): React.JSX.Element {
   const size = props.size ?? 'md'
