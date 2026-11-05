@@ -170,7 +170,7 @@ describe('ControlApi on host webServer', () => {
       const domain = (await (await fetch(`${ctx.base}/api/data/domain`)).json()) as { open: boolean; contents: number }
       expect(domain).toMatchObject({ open: false, contents: 0 })
       const unknown = await fetch(`${ctx.base}/api/data/nope`)
-      expect((await unknown.json()).code).toBe('NOT_FOUND')
+      expect(((await unknown.json()) as { code: string }).code).toBe('NOT_FOUND')
     } finally {
       ctx.dispose()
       await ctx.close()

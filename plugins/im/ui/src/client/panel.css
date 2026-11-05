@@ -309,6 +309,9 @@
 .im-rooms-side {
   border-right: 1px solid var(--im-line);
   padding-right: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .im-room-list {
   list-style: none;
@@ -349,3 +352,87 @@
 .im-line-system { opacity: 0.75; font-size: 12px; }
 .im-line-meta { font-size: 11px; opacity: 0.6; }
 .im-line-body { font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+
+/* ---- conversations surface: header, composer, new-room, roster cards ---- */
+/* ---- 会话面：页头、输入区、新建会话、名册卡片 ---- */
+
+.im-row-split { justify-content: space-between; }
+
+.im-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 999px;
+  border: 1px solid var(--im-line);
+  background: var(--im-surface);
+  font-size: 13px;
+  font-weight: 600;
+}
+.im-avatar-known { border-color: var(--im-accent); }
+
+.im-link {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--im-accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.im-newroom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--im-line);
+  border-radius: 10px;
+}
+
+.im-room-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.im-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: auto;
+}
+.im-composer-input {
+  flex: 1;
+  min-height: 56px;
+  resize: vertical;
+}
+
+.im-wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--im-line);
+  border-radius: 10px;
+}
+.im-qr {
+  width: 200px;
+  height: 200px;
+  border-radius: 8px;
+  background: var(--im-surface);
+}
+.im-bindstatus { font-size: 13px; }
+.im-bindstatus-bound { color: var(--im-accent); }
+.im-bindstatus-expired { color: var(--im-danger); }
+.im-bindstatus-failed { color: var(--im-danger); }
+
+.im-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}

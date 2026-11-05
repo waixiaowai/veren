@@ -21,7 +21,7 @@
  */
 
 import { useState } from 'react'
-import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ImKey } from './locales.ts'
 import type { ImPanelInjected, ImSnapshot, RoomsSnapshot } from './remote.ts'
 import { AccountsView } from './views-accounts.tsx'
@@ -33,7 +33,6 @@ import { SettingsView } from './views-settings.tsx'
 export type ImPanelProps = PropsRuntime<'main'>
   & InjectFace<ImPanelInjected>
   & PropsLocale<'im'>
-  & InjectFace<{ hooks: { rooms: HostObservable<RoomsSnapshot> } }>
 
 /** Everything a tab view needs, with the inject face already resolved. */
 export interface ImBodyProps {
@@ -51,22 +50,13 @@ export function ImPanel(props: ImPanelProps) {
   return <ImBody state={state} t={props.t} actions={props} rooms={props} />
 }
 
-/** Extra props the conversations tab needs: its own observable plus callbacks. */
-export interface ImRoomsProps {
-  readonly rooms: {
-    readonly useRooms: HostObservableBinder<RoomsSnapshot>
-    readonly onOpenRoom: (roomId: string | undefined) => void
-    readonly onRoomsRefresh: () => void
-    readonly onSend: (body: string) => Promise<boolean>
-    readonly onCreateRoom: (title: string | undefined) => void
-  }
+/** The conversations tab needs its own observable plus the room callbacks. */
+export interface RoomsBodyProps {
+  readonly rooms: ImPanelProps
 }
 
-/** How the slots framework binds one observable into a hook. */
-type HostObservableBinder<Value> = (bind: (snapshot: Value) => Value) => Value
-
 /** The page body: title, refresh, error line, tab bar, and the active view. */
-function ImBody(props: ImBodyProps & ImRoomsProps) {
+function ImBody(props: ImBodyProps & RoomsBodyProps) {
   const { state, t, actions } = props
   const [tab, setTab] = useState<Tab>('rooms')
   return (
@@ -98,8 +88,8 @@ function ImBody(props: ImBodyProps & ImRoomsProps) {
   )
 }
 
-/** Bind the rooms observable once and render the conversations tab. */
-function RoomsBody(props: ImBodyProps & ImRoomsProps) {
+/** Bind the conversations observable once and render the conversations tab. */
+function RoomsBody(props: ImBodyProps & RoomsBodyProps) {
   const state = props.rooms.useRooms((snapshot: RoomsSnapshot) => snapshot)
   return (
     <RoomsView
@@ -108,7 +98,7 @@ function RoomsBody(props: ImBodyProps & ImRoomsProps) {
       people={props.state.catalog.people}
       onOpenRoom={props.rooms.onOpenRoom}
       onRefresh={props.rooms.onRoomsRefresh}
-      onSend={props.rooms.onSend}
+      onSend={props.rooms.onSendMessage}
       onCreateRoom={props.rooms.onCreateRoom}
     />
   )

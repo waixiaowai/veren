@@ -1,7 +1,7 @@
 {
   "name": "@veren/mail-ui",
   "displayName": "Mail UI",
-  "version": "2.3.1",
+  "version": "2.4.0",
   "icon": "./icon.svg",
   "description": "Use when the @veren/mail core is installed and a person needs a human face for notifications: read the station inbox and mark what was seen, read and archived, follow each execution chain and the reason a step was skipped, and browse the conversations. Skip it for headless, ACP, or SDK profiles, where the mail_* tools already cover every operation.",
   "type": "module",

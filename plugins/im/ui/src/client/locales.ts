@@ -50,6 +50,10 @@ export type ImKey =
   | 'askedAt' | 'errorPrefix'
   | 'tabRooms' | 'roomsEmpty' | 'roomsPick' | 'roomDirect' | 'roomGroup'
   | 'timelineEmpty' | 'lineSystem'
+  | 'tabSettings' | 'settingsHeading' | 'settingsHint'
+  | 'newRoom' | 'newRoomHint' | 'roomTitlePlaceholder' | 'createRoom' | 'roomUntitled'
+  | 'composerPlaceholder' | 'send' | 'sending'
+  | 'participantOwner' | 'participantAssistant' | 'membersLabel'
 
 /** Chinese dictionary. */
 export const zh: Record<ImKey, string> = {
@@ -69,6 +73,20 @@ export const zh: Record<ImKey, string> = {
   roomGroup: "群聊",
   timelineEmpty: "这个房间还没有消息。",
   lineSystem: "系统",
+  tabSettings: "设置",
+  settingsHeading: "接入设置",
+  settingsHint: "陌生人采集与 CMS 云端目录都在这里；会话页才是平时的入口。",
+  newRoom: "新建会话",
+  newRoomHint: "新会话会把默认助手拉进房间，你说一句它就会回。",
+  roomTitlePlaceholder: "会话名称（可留空）",
+  createRoom: "创建",
+  roomUntitled: "未命名会话",
+  composerPlaceholder: "输入消息，回车发送，Shift+回车换行",
+  send: "发送",
+  sending: "发送中…",
+  participantOwner: "我",
+  participantAssistant: "助手",
+  membersLabel: "成员",
   tabCloud: "云端",
   cloudSubtitle: "登录 CMS 后查看该账号的全部 IM 信息（消息日志与人员目录归云）。",
   cloudOrigin: "CMS 地址",
@@ -197,6 +215,20 @@ export const en: Record<ImKey, string> = {
   roomGroup: "Group",
   timelineEmpty: "No messages in this room yet.",
   lineSystem: "System",
+  tabSettings: "Settings",
+  settingsHeading: "Connections",
+  settingsHint: "Stranger intake and the CMS cloud directory live here; conversations is the everyday entry.",
+  newRoom: "New conversation",
+  newRoomHint: "A new room seats the default assistant — say something and it answers.",
+  roomTitlePlaceholder: "Conversation name (optional)",
+  createRoom: "Create",
+  roomUntitled: "Untitled conversation",
+  composerPlaceholder: "Write a message — Enter sends, Shift+Enter breaks the line",
+  send: "Send",
+  sending: "Sending…",
+  participantOwner: "Me",
+  participantAssistant: "Assistant",
+  membersLabel: "Members",
   tabCloud: "Cloud",
   cloudSubtitle: "Sign in to CMS to see all IM data of this account (message log and people live on the cloud).",
   cloudOrigin: "CMS origin",

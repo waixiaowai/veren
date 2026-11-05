@@ -1,7 +1,7 @@
 {
   "name": "@veren/crawler",
   "displayName": "多平台内容采集",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Use when a DSH deployment must collect public contents and comments from mainstream Chinese content communities for study or research: it drives a logged-in browser through platform APIs under keyword/detail/creator modes, shapes heterogeneous payloads into unified entities with mandatory person-identifier anonymization, and stores them into the host storage domain; skip it when the deployment never bulk-collects social content.",
   "type": "module",
   "main": "./dist/index.js",

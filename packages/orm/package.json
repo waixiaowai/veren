@@ -51,6 +51,7 @@
     "build": "tsc -p tsconfig.build.json",
     "prepack": "pnpm run build",
     "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
@@ -77,8 +78,11 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
     "@deepseek-ai/schemastery": "^3.18.4",
+    "@types/express": "^5.0.6",
     "@types/node": "^26.6.5",
     "@vitest/coverage-v8": "5.0.4",
+    "express": "^5.3.0",
+    "hono": "^4.13.16",
     "mysql2": "^3.24.6",
     "typescript": "^5.9.3",
     "vitest": "^5.0.4"
