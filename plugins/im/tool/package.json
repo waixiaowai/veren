@@ -1,7 +1,7 @@
 {
   "name": "@veren/im-tool",
   "displayName": "Veren IM Tools",
-  "version": "3.0.0-rc.1",
+  "version": "3.0.0-rc.2",
   "description": "Use when an agent inside an IM room session needs to act on the collaboration workspace: this plugin registers the model-facing im_* tools (im_send into your own room behind the write gates, im_rooms/im_read for read-only orientation, im_people/im_person_save/im_person_report for the directory, im_intake for the stranger-question audit, im_remember/im_recall for per-agent durable memory) plus the im-collaboration skill (reply contract, HELD semantics, quiet discipline); caller attribution comes from the turn service session map, so a tool call always acts as its own agent participant in its own room. Pair with @veren/im-bundle.",
   "type": "module",
   "main": "./dist/index.js",

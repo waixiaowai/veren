@@ -163,7 +163,9 @@ function buildRegistry(ctx: Context, storage: ImStorage, logger: ImLogger): ImRe
         `[im:bindings] account reconciliation failed: ${errorMessage(error)}`,
       ))
   })
-  ctx.effect(() => ctx.provide(ImToken, registry), 'im:registry')
+  // ImRegistry extends Service：构造即以 ImToken 注册，绝不能再手动 provide。
+  // ImRegistry extends Service: construction registers under ImToken already;
+  // never provide it manually on top.
   return registry
 }
 

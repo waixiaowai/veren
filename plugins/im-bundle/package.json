@@ -1,7 +1,7 @@
 {
   "name": "@veren/im-bundle",
   "displayName": "IM Bundle",
-  "version": "3.0.0-rc.1",
+  "version": "3.0.0-rc.2",
   "icon": "./icon.svg",
   "description": "Use when a DSH host needs the multi-agent collaboration workspace: this configuration-only bundle mounts the whole redesigned IM family at one version — the provider-neutral core (accounts, people directory, stranger intake, participant roster, agent memory), the conversation domain (rooms, sequences, read cursors, channel ingest), the coordination domain (deterministic wake triage, freshness and verbatim gates, budgets), the turn domain (run records, per-agent preset-backed sessions, hold loops), the model-facing im_* tools and collaboration skill, the WeChat iLink channel, and the web panel — as one installable profile layer.",
   "type": "module",
