@@ -70,7 +70,16 @@ function subscribe(api: ImConvApi, state: RoomsState, listener: () => void): () 
   state.listeners.add(listener)
   if (state.listeners.size === 1) {
     void readRooms(api, state)
-    state.timer = globalThis.setInterval(() => void readRooms(api, state), ROOMS_POLL_MS)
+    // 列表与打开中的时间线一起轮询：智能体的回复是别人写进来的新事实，只刷列表不刷时间线
+    // 会让页面看起来「没人回」。
+    // Poll the room list and the open timeline together: an agent's reply is a
+    // fact someone else wrote, and refreshing only the list makes the page look
+    // like nobody answered.
+    state.timer = globalThis.setInterval(() => {
+      void readRooms(api, state)
+      const open = state.snapshot.openRoomId
+      if (open !== undefined) void readRoom(api, state, open)
+    }, ROOMS_POLL_MS)
   }
   return () => { unsubscribe(state, listener) }
 }

@@ -22,7 +22,7 @@
 | database transactions / outbox | dsh storage domains + cordis events | "persist first, distribute later": write the domain table, then `ctx.emit`; push is an accelerator, clients reconcile by pulling |
 | bash / set_turn_status engine tools | the DSH session's own tool loop + `im_*` tools (`ctx.tools.register`) | Cumora's engine-tool model is not ported; the model's turn text IS the room message |
 | skill directory | DSH skill (`ctx.skills.registerProvider`, `im-collaboration`) | teaches the model: reply contract, HELD semantics, quiet discipline, memory etiquette |
-| the four product ends | DSH client (`@veren/im-ui` web panel) | conversations / cloud / intake tabs; desktop, mobile, and the admin console are not ported |
+| the four product ends | DSH client (`@veren/im-ui` web panel) | conversations / accounts / people / settings tabs — conversations is the entry point and the only human write path (`post`, `createRoom`); desktop, mobile, and the admin console are not ported |
 | realtime long connections | cordis events + the panel's 5s polling + incremental fetch | event chain: `im/message-observed` → `im/message-new` → `im/wake-request` → `im/run-updated` |
 | Billing/Admin/Shipping/Email/Schedule/Document/Board | **not ported** (peripheral domains, later iterations) | design §9/§10/§12/§15/§16/§17 and parts of §11 remain extension points |
 
@@ -33,7 +33,7 @@ plugins/im/
   core          @veren/im               contracts, participant roster, memory, provider registry
                                         (emits im/message-observed), people directory, intake, accounts
   conversation  @veren/im-conversation  rooms/members/messages/sequences/reads + channel ingest
-                                        (emits im/message-new)
+                                        (the post path announces im/message-new for any fresh commit)
   coordination  @veren/im-coordination  deterministic triage + low-priority budget + watermarks
                                         + write gates (emits im/wake-request, the only wake source)
   turn          @veren/im-turn          run records + inbox + fingerprints + per-agent preset sessions
@@ -43,15 +43,17 @@ plugins/im/
   wechat        @veren/im-wechat        channel: inbound observations → registry; outbound: subscribes
                                         im/message-new and delivers agent-authored room messages
   hub           @veren/im-hub           channel (CMS cloud gateway, long-poll): both directions as above
-  ui            @veren/im-ui            web panel: conversations (new) / cloud / intake; mounts the
-                                        `im` and `imConv` remote namespaces
+  ui            @veren/im-ui            web panel: conversations (entry) / accounts / people / settings;
+                                        mounts the `im` and `imConv` remote namespaces
   testkit       @veren/im-testkit       fake provider + conformance suite + per-domain in-memory seams
 ../im-bundle    @veren/im-bundle        bundle row order: core → conversation → coordination → turn
                                         → wechat → tool → ui
 ```
 
-Version: the whole family moves to `3.0.0-rc.1` (contract and storage-semantics break →
-MAJOR via rc prerelease; publishing follows the three-environment pipeline separately).
+Version: the whole family moves to `3.0.0-rc.3` — rc.1 shipped the redesign,
+rc.2 fixed the panel's remote arity, and rc.3 restores the human write path and
+the accounts/people surfaces (contract and storage-semantics break → MAJOR via
+rc prerelease; publishing follows the three-environment pipeline separately).
 
 ## 3. The fact pipeline (one human message, end to end)
 
@@ -60,8 +62,9 @@ channel provider.listen
   → ImRegistry emits im/message-observed
   → [core] observeInbound (people bookkeeping + cloud push) → intake.handle (stranger
       question, deterministic)
-  → [conversation] Ingest.observe: deterministic room id + seat the sender + idempotent
-      write with clientId = messageId → emits im/message-new
+  → [conversation] the post path: deterministic room id + seat the sender + idempotent
+      write with clientId = messageId, then announce im/message-new for every fresh
+      commit (channel ingest, im_send, and the web composer share this one emission)
   → [coordination] Fanout.onMessageNew: 60s claim → triage the room members → budget
       → emits im/wake-request (seen-and-silent candidates advance their watermark so
       later turns never reload them)

@@ -20,7 +20,7 @@
 | 数据库事务/外发箱 | dsh storage 域 + cordis 事件 | 「先落库后分发」：先写域表再 `ctx.emit`；推送只是加速，客户端拉取对账 |
 | bash/set_turn_status 引擎工具 | DSH 会话自带工具循环 + `im_*` 工具（`ctx.tools.register`） | Cumora 的引擎工具模型不移植；模型的回合文本就是房间消息 |
 | 技能目录 | DSH skill（`ctx.skills.registerProvider`，`im-collaboration`） | 教模型：回复契约、HELD 语义、安静纪律、记忆礼仪 |
-| 4 个产品端 | DSH client（`@veren/im-ui` web 面板） | 会话/云端/采集三页签；桌面/移动/运营后台不移植 |
+| 4 个产品端 | DSH client（`@veren/im-ui` web 面板） | 会话/账号/人员/设置四页签——会话是入口，也是唯一的人类写入路径（`post`、`createRoom`）；桌面/移动/运营后台不移植 |
 | Realtime 长连 | cordis 事件 + 面板 5s 轮询 + 增量拉取 | 事件类型：`im/message-observed` → `im/message-new` → `im/wake-request` → `im/run-updated` |
 | Billing/Admin/Shipping/Email/Schedule/Document/Board | **不移植**（外围域，后续迭代） | 设计的 §9/§10/§12/§15/§16/§17 与 §11 的对应部分留作扩展点 |
 
@@ -29,18 +29,18 @@
 ```
 plugins/im/
   core          @veren/im               契约、参与者名册、记忆、渠道注册表（发 im/message-observed）、人员目录、采集、账号授权
-  conversation  @veren/im-conversation  房间/成员/消息/序号/已读 + 渠道吸收（发 im/message-new）
+  conversation  @veren/im-conversation  房间/成员/消息/序号/已读 + 渠道吸收（写入路径在每次新提交后发 im/message-new）
   coordination  @veren/im-coordination  确定性分流 + 低优先预算 + 水位 + 写入闸门（发 im/wake-request，唯一唤醒源）
   turn          @veren/im-turn          运行记录 + 收件箱 + 指纹 + 按智能体的 preset 会话 + 被拒循环 + 终态
   tool          @veren/im-tool          im_* 工具（经 conversation 写入 + coordination 闸门）+ 协作技能
   wechat        @veren/im-wechat        渠道：入站观察 → 注册表；出站：订阅 im/message-new 投递智能体房间消息
   hub           @veren/im-hub           渠道（CMS 云网关长轮询）：同上双向
-  ui            @veren/im-ui            web 面板：会话（新）/云端/采集；挂载 `im` + `imConv` 两个远端命名空间
+  ui            @veren/im-ui            web 面板：会话（入口）/账号/人员/设置；挂载 im + imConv 两个远端命名空间
   testkit       @veren/im-testkit       假 provider + 契约套件 + 各域内存接缝假实现
 ../im-bundle    @veren/im-bundle        组合包：行序 = core → conversation → coordination → turn → wechat → tool → ui
 ```
 
-版本：全家族统一 `3.0.0-rc.1`（契约与存储语义破坏 → MAJOR，走 rc 预发布；发布另走三环境流水线）。
+版本：全家族统一 3.0.0-rc.3（契约与存储语义破坏 → MAJOR，走 rc 预发布；发布另走三环境流水线）。
 
 ## 3. 事实管线（一次人发言的完整链路）
 
@@ -48,8 +48,8 @@ plugins/im/
 渠道 provider.listen
   → ImRegistry 发 im/message-observed
   → [core] observeInbound（people 记账 + 云端上报）→ intake.handle（陌生人询问，确定性）
-  → [conversation] Ingest.observe：确定性房间号 + 发送者入座 + clientId=messageId 幂等写入
-      → 发 im/message-new
+  → [conversation] 写入路径：确定性房间号 + 发送者入座 + clientId=messageId 幂等写入，新提交后
+      发 im/message-new（渠道吸收、im_send 与 Web 输入区共用这一次宣告）
   → [coordination] Fanout.onMessageNew：60s 认领 → 按房间成员分流 → 预算 → 发 im/wake-request
       （已读不回者水位推进，稍后回合不再装载）
   → [turn] Runner.onWake（按智能体串行）：装载收件箱（水位之后的非自身消息）
