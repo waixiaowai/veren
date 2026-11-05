@@ -109,20 +109,19 @@ describe('credential domain: change-password (design 4.5 A1-A2; api API-04-03)',
 describe('credential domain: password reset (design 4.5 A4/A5/A6; E4)', () => {
   it('A5: the reset token consumes atomically — a second use answers INVALID_TOKEN', async () => {
     resetRateLimitStore()
-    let sent: { token: string } | null = null
+    let token = ''
     const auth = await buildPasswordAuth({
       emailAndPassword: {
         enabled: true,
         sendResetPassword: async (input) => {
-          sent = { token: input.token }
+          token = input.token
         },
       },
     })
     await signUpUser(auth, 'ada@example.com', 'sup3r-secret-pw')
     const request = await post(auth, '/auth/request-password-reset', { email: 'ada@example.com', redirectTo: '/reset' })
     expect(await request.json()).toEqual({ status: true, message: expect.stringContaining('reset link') })
-    expect(sent).not.toBeNull()
-    const token = (sent as { token: string }).token
+    expect(token).not.toBe('')
     const first = await post(auth, '/auth/reset-password', { token, newPassword: 'after-reset-pw-1' })
     expect(await first.json()).toEqual({ status: true })
     const second = await post(auth, '/auth/reset-password', { token, newPassword: 'second-use-pw-2' })
@@ -137,18 +136,18 @@ describe('credential domain: password reset (design 4.5 A4/A5/A6; E4)', () => {
 
   it('A4: a too-short new password answers PASSWORD_TOO_SHORT with no hash cost', async () => {
     resetRateLimitStore()
-    let sent: { token: string } | null = null
+    let token = ''
     const auth = await buildPasswordAuth({
       emailAndPassword: {
         enabled: true,
         sendResetPassword: async (input) => {
-          sent = { token: input.token }
+          token = input.token
         },
       },
     })
     await signUpUser(auth)
     await post(auth, '/auth/request-password-reset', { email: 'ada@example.com' })
-    const token = (sent as { token: string }).token
+    expect(token).not.toBe('')
     const response = await post(auth, '/auth/reset-password', { token, newPassword: 'tiny' })
     expect((await response.json() as { code: string }).code).toBe('PASSWORD_TOO_SHORT')
     // 令牌保留可用：口令被拒不算核销。
@@ -159,19 +158,19 @@ describe('credential domain: password reset (design 4.5 A4/A5/A6; E4)', () => {
 
   it('A6: revokeSessionsOnPasswordReset invalidates every old session', async () => {
     resetRateLimitStore()
-    let sent: { token: string } | null = null
+    let token = ''
     const auth = await buildPasswordAuth({
       session: { revokeSessionsOnPasswordReset: true },
       emailAndPassword: {
         enabled: true,
         sendResetPassword: async (input) => {
-          sent = { token: input.token }
+          token = input.token
         },
       },
     })
     const jar = cookiesOf(await signUpUser(auth))
     await post(auth, '/auth/request-password-reset', { email: 'ada@example.com' })
-    await post(auth, '/auth/reset-password', { token: (sent as { token: string }).token, newPassword: 'rotated-pass-99' })
+    await post(auth, '/auth/reset-password', { token, newPassword: 'rotated-pass-99' })
     const response = await call(auth, '/auth/get-session', { headers: { cookie: cookieHeader(jar) } })
     expect(await response.json()).toBeNull()
   })
@@ -180,12 +179,12 @@ describe('credential domain: password reset (design 4.5 A4/A5/A6; E4)', () => {
 describe('identity domain: verify-email (design api API-05-05; E3)', () => {
   it('E3: requireVerification blocks unverified sign-in; verify-email unlocks it', async () => {
     resetRateLimitStore()
-    let sent: { token: string } | null = null
+    let token = ''
     const auth = await buildPasswordAuth({
       emailVerification: {
         require: true,
         sendVerificationEmail: async (input) => {
-          sent = { token: input.token }
+          token = input.token
         },
       },
       emailAndPassword: { enabled: true },
@@ -197,8 +196,8 @@ describe('identity domain: verify-email (design api API-05-05; E3)', () => {
     expect(signUp.token).toBeNull()
     const blocked = await post(auth, '/auth/sign-in/email', { email: 'ada@example.com', password: 'sup3r-secret-pw' })
     expect((await blocked.json() as { code: string }).code).toBe('EMAIL_NOT_VERIFIED')
-    expect(sent).not.toBeNull()
-    const verified = await call(auth, `/auth/verify-email?token=${encodeURIComponent((sent as { token: string }).token)}`)
+    expect(token).not.toBe('')
+    const verified = await call(auth, `/auth/verify-email?token=${encodeURIComponent(token)}`)
     expect(await verified.json()).toMatchObject({ status: true })
     const allowed = await post(auth, '/auth/sign-in/email', { email: 'ada@example.com', password: 'sup3r-secret-pw' })
     expect(allowed.status).toBe(200)

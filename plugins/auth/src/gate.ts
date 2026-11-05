@@ -16,7 +16,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
-import type { LoginGateAuth } from './auth.js'
+import type { Auth } from '@veren/auth-core'
 import { renderLoginPage } from './login-page.js'
 
 /** HTML index response content type. HTML 入口响应的 content type。 */
@@ -87,7 +87,7 @@ export function resolveListenerFacts(
 export interface GateServices {
   readonly webServer: GateWebServer
   readonly connection: HostConnectionHandle
-  readonly auth: LoginGateAuth
+  readonly auth: Auth
   /** Absolute path of index.html inside the dist root. dist 根内 index.html 的绝对路径。 */
   readonly distIndex: string
 }

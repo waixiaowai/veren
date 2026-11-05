@@ -16,18 +16,20 @@ import { createAuth, createAuthEntities, createOrmAdapter, getAuthTables } from 
 import type { AuthOptions } from '../src/index.ts'
 
 /** 建一个隔离的认证实例（内存 sqlite）。 / Build an isolated auth instance (in-memory sqlite). */
-export async function buildAuth(options: AuthOptions = {}): Promise<Auth> {
+export async function buildAuth(options: Omit<AuthOptions, 'baseURL'> & Partial<Pick<AuthOptions, 'baseURL'>> = {}): Promise<Auth> {
   const tables = getAuthTables({ rateLimitStorage: options.rateLimit?.storage ?? 'memory' })
   const dataSource = new DataSource({ type: 'sqlite', entities: createAuthEntities(tables), synchronize: true })
   await dataSource.initialize()
   return createAuth({
     adapter: createOrmAdapter(dataSource, tables),
     options: {
-      baseURL: 'http://127.0.0.1:3080',
-      basePath: '/auth',
-      secret: 'test-secret-that-is-long-enough-1234567890',
-      trustedOrigins: ['http://localhost:3080'],
       ...options,
+      // 缺省在后：用例显式给出的键不被覆盖。
+      // Defaults last: explicitly given keys never get overwritten.
+      baseURL: options.baseURL ?? 'http://127.0.0.1:3080',
+      basePath: options.basePath ?? '/auth',
+      secret: options.secret ?? 'test-secret-that-is-long-enough-1234567890',
+      trustedOrigins: options.trustedOrigins ?? ['http://localhost:3080'],
     },
   })
 }

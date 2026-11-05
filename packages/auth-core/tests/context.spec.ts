@@ -65,7 +65,7 @@ describe('context assembly: plugin merge (design 1.5 A7/A9/A10)', () => {
   it('A7: option patches defu-merge and context patches assign in place', async () => {
     const plugin: AuthPlugin = {
       id: 'sample',
-      init: (ctx) => {
+      init: async (ctx) => {
         void ctx
         return {
           // defu 语义：已存在的值优先，补丁只填缺省（§1.4）。

@@ -3,10 +3,10 @@ import { buildPasswordAuth, call, cookiesOf, cookieHeader, post, signUpUser } fr
 import { resetRateLimitStore } from '../src/index.ts'
 
 /** 登录并返回会话行。 / Sign in and answer the session row. */
-async function sessionOf(auth: Awaited<ReturnType<typeof buildPasswordAuth>>): Promise<{ jar: Record<string, string>, body: { session: { token: string, expiresAt: string }, user: { id: string } } }> {
+async function sessionOf(auth: Awaited<ReturnType<typeof buildPasswordAuth>>): Promise<{ jar: Record<string, string>, body: { session: { token: string, expiresAt: string }, user: { id: string, email: string } } }> {
   const jar = cookiesOf(await signUpUser(auth))
   const response = await call(auth, '/auth/get-session', { headers: { cookie: cookieHeader(jar) } })
-  return { jar, body: await response.json() as never }
+  return { jar, body: await response.json() as { session: { token: string, expiresAt: string }, user: { id: string, email: string } } }
 }
 
 describe('session domain: issuance and resolution (design 3.5 A1)', () => {

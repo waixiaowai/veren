@@ -54,23 +54,18 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 /** Sidebar and main-panel identity of the page. */
 const PANEL_ID = 'mail' as MainPanelId
 
-// [诊断临时] 挂载链路追踪，验收后移除 / [temporary diagnostics] mount-chain tracing, removed after acceptance
-const diag: string[] = []
-declare global {
-  interface Window { __mailDiag?: string[] }
-}
-if (typeof window !== 'undefined') window.__mailDiag = diag
-diag.push('module loaded')
-
 /**
  * Client services of the entry plugin. `remote.mail` must NOT be declared
  * here: this plugin is the namespace's only mounter, so depending on it would
  * make the loader wait for a service that does not exist until apply runs.
+ * The session/navigation services are root-scoped, so they are declared here
+ * and handed to the panel plugin through its factory closure.
  *
  * 入口插件的服务依赖。`remote.mail` 绝不能写在这里：本插件是该命名空间唯一的挂载者，
- * 声明依赖会让 Loader 等待一个 apply 运行前尚不存在的服务。
+ * 声明依赖会让 Loader 等待一个 apply 运行前尚不存在的服务。会话与导航服务是 root 作用域的，
+ * 因此在这里声明，经工厂闭包递给面板插件。
  */
-export const inject = ['slots', 'locale', 'remote']
+export const inject = ['slots', 'locale', 'remote', 'sessions', 'uiWorkspace']
 
 /**
  * The inner panel plugin: it injects the freshly mounted namespace, then
@@ -83,7 +78,6 @@ const PanelPlugin = (deps: { sessions: ISessions; navigate: (target: SessionId) 
    * @param ctx - panel-scope context over the mounted namespace / 挂载命名空间上的面板作用域上下文
    */
   apply(ctx: Context): void {
-    diag.push('panel apply running')
     const api = ctx.remote.mail
     ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'mail-ui:dictionaries')
     installPanelStyles(ctx)
@@ -94,27 +88,17 @@ const PanelPlugin = (deps: { sessions: ISessions; navigate: (target: SessionId) 
     // catalog: polling alone would leave up to a 5s stale window, the reset
     // signal makes the recovery immediate.
     ctx.on('connection/reset', () => { mail.refresh() })
-    ctx.slots.inject('main', () => {
-      diag.push('main register invoked')
-      try {
-        const registration = ctx.slots.register({
-          name: 'main',
-          key: PANEL_ID,
-          locale: NS,
-          inject: (): MailPanelInjected => ({
-            hooks: { mail: mail.source },
-            onRefresh: mail.refresh,
-            onMark: mail.mark,
-          }),
-        }, MailPanel)
-        diag.push('main register ok: ' + typeof registration)
-        return registration
-      } catch (error) {
-        diag.push('main register THREW: ' + String(error))
-        throw error
-      }
-    })
-    diag.push('entries(main) keys: ' + JSON.stringify(ctx.slots.entries('main').map((entry: { options: { key?: string } }) => entry.options.key)))
+    ctx.slots.inject('main', () => ctx.slots.register({
+      name: 'main',
+      key: PANEL_ID,
+      locale: NS,
+      inject: (): MailPanelInjected => ({
+        hooks: { mail: mail.source },
+        onRefresh: mail.refresh,
+        onMark: mail.mark,
+        onOpenSession: (sessionId) => { void openSourceSession(deps.sessions, deps.navigate, sessionId) },
+      }),
+    }, MailPanel))
     ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
       name: 'sidebar.panellist',
       id: PANEL_ID,
@@ -123,7 +107,7 @@ const PanelPlugin = (deps: { sessions: ISessions; navigate: (target: SessionId) 
       label: () => t('panel'),
     }, MailPanelIcon))
   },
-})
+} as const)
 
 /**
  * Mount the Remote namespace, then start the inner panel plugin that waits on
@@ -133,8 +117,10 @@ const PanelPlugin = (deps: { sessions: ISessions; navigate: (target: SessionId) 
  * @returns disposer releasing the panel fiber and the mounted namespace / 释放面板 fiber 与已挂载命名空间的 disposer
  */
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
+  const sessions = (ctx as Context & { sessions: ISessions }).sessions
+  const navigate = (target: SessionId): void => { ctx.uiWorkspace.openSession(target) }
   const unmount = await ctx.remote.$mount(mailRemote)
-  const panel = ctx.plugin(PanelPlugin({ sessions: undefined as unknown as ISessions, navigate: (): void => {} }))
+  const panel = ctx.plugin(PanelPlugin({ sessions, navigate }))
   await panel
   return async () => {
     await panel.dispose()

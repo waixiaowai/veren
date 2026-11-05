@@ -10,9 +10,11 @@
 
 import { describe, expect, it } from 'vitest'
 import { EventEmitter } from 'node:events'
-import { buildBetterAuth } from '../src/auth.js'
+import { DataSource } from '@veren/orm'
+import '@veren/orm/driver/sqlite'
+import { createAuthEntities, createOrmAdapter, getAuthTables } from '@veren/auth-core'
+import { buildAuthKit } from '../src/auth-kit.js'
 import { dataGateListener, handleIndex, LOGIN_PATH, sessionOf } from '../src/gate.js'
-import { memoryLoginGateDomain } from './memory-domain.js'
 import type { GateServices } from '../src/gate.js'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
@@ -72,7 +74,7 @@ function stubConnection(authorizeResult: boolean): {
 async function signIn(auth: GateServices['auth'], email: string, password: string): Promise<string> {
   const response = await auth.handler(new Request(`${ORIGIN}/auth/sign-in/email`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', origin: ORIGIN },
     body: JSON.stringify({ email, password }),
   }))
   const cookie = response.headers.getSetCookie().find(entry => entry.startsWith('dsh-login.session_token='))
@@ -81,8 +83,13 @@ async function signIn(auth: GateServices['auth'], email: string, password: strin
 }
 
 async function makeServices(authorizeResult = true): Promise<{ services: GateServices, auth: GateServices['auth'] }> {
-  const auth = buildBetterAuth({
-    domain: memoryLoginGateDomain(),
+  // 每个用例独立内存库：并发安全、互不共享状态。
+  // Each case gets its own in-memory database: concurrency-safe, no shared state.
+  const tables = getAuthTables({ rateLimitStorage: 'memory' })
+  const dataSource = new DataSource({ type: 'sqlite', entities: createAuthEntities(tables), synchronize: true })
+  await dataSource.initialize()
+  const auth = await buildAuthKit({
+    dataSource,
     secret: 'unit-test-secret-0123456789abcdef0123456789abcdef',
     origin: ORIGIN,
     secure: false,
@@ -91,7 +98,7 @@ async function makeServices(authorizeResult = true): Promise<{ services: GateSer
   })
   await auth.handler(new Request(`${ORIGIN}/auth/sign-up/email`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', origin: ORIGIN },
     body: JSON.stringify({ email: 'admin@example.com', password: 'correct-horse-1', name: 'Admin' }),
   }))
   const { connection } = stubConnection(authorizeResult)
