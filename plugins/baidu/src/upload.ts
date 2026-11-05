@@ -11,7 +11,7 @@
  * @module @veren/baidu-pan
  */
 import { createHash } from 'node:crypto'
-import { closeSync, openSync, readSync } from 'node:fs'
+import { closeSync, createReadStream, openSync, readSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import type { BaiduPanClient } from './client.js'
 import { API_BASE } from './config.js'
@@ -131,7 +131,7 @@ async function createFile(client: BaiduPanClient, options: UploadOptions, facts:
 /** 读取第 seq 个分片（同步随机读，调用方持有句柄）。Reads the seq-th slice (sync random read; the caller owns the handle). */
 function readSlice(handle: number, seq: number, sliceBytes: number): Buffer {
   const buffer = Buffer.alloc(sliceBytes)
-  const { bytesRead } = readSync(handle, buffer, 0, sliceBytes, seq * sliceBytes)
+  const bytesRead = readSync(handle, buffer, 0, sliceBytes, seq * sliceBytes)
   return buffer.subarray(0, bytesRead)
 }
 

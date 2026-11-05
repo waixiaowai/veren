@@ -1,0 +1,41 @@
+{
+  "name": "@veren/mail-bundle",
+  "displayName": "Mail Bundle",
+  "version": "2.3.0",
+  "icon": "./icon.svg",
+  "description": "Use when a DSH host needs notification capability installed and composed in one step: this configuration-only bundle mounts the notification domain core (durable workflows, recipients, groups, preferences, execution chains in the host storage domain, trigger -> dispatch -> deliver with atomic claiming and at-most-three retries, the station inbox over the in_app channel, and the `mail` Remote namespace), the model-facing mail_* tools with the bundled mail-notifications skill, and the web panel (inbox with seen/read/archived actions and the per-step activity view) as one installable profile layer.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "exports": {
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "README.md",
+    "README.cn.md",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "test": "vitest run --no-fsModuleCache"
+  },
+  "_comment_dependencies": "Member packages use workspace ranges; a release publishes the whole line at one version.",
+  "dependencies": {
+    "@veren/mail": "workspace:^",
+    "@veren/mail-tool": "workspace:^",
+    "@veren/mail-ui": "workspace:^"
+  },
+  "devDependencies": {
+    "js-yaml": "^4.1.0",
+    "vitest": "^5.0.4"
+  }
+}

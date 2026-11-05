@@ -20,6 +20,7 @@ export type BaiduPanCode =
   | 'BDPAN_CONFIRM_REQUIRED'
   | 'BDPAN_NOT_FOUND'
   | 'BDPAN_ALREADY_EXISTS'
+  | 'BDPAN_CONTENT_UNSUPPORTED'
   | 'BDPAN_AUTH_REQUIRED'
   | 'BDPAN_TOKEN_EXPIRED'
   | 'BDPAN_TOKEN_INVALID'
@@ -41,6 +42,7 @@ const CODE_COPY: Readonly<Record<BaiduPanCode, { zh: string; en: string }>> = {
   BDPAN_CONFIRM_REQUIRED: { zh: '这个操作会影响已有内容，需要用户确认后我再执行。', en: 'This would affect existing content; it needs the user\'s confirmation first.' },
   BDPAN_NOT_FOUND: { zh: '没有找到对应内容，请确认路径或名称。', en: 'Nothing was found there; double-check the path or name.' },
   BDPAN_ALREADY_EXISTS: { zh: '目标位置已有同名内容，可以另存或覆盖。', en: 'A same-named item already exists there; save-as or overwrite instead.' },
+  BDPAN_CONTENT_UNSUPPORTED: { zh: '这个类型暂不支持该操作，请换具体文件再试。', en: 'This type is not supported here; pick a concrete file instead.' },
   BDPAN_AUTH_REQUIRED: { zh: '还没有登录百度网盘，请先完成授权。', en: 'Not signed in to Baidu Netdisk yet; complete the sign-in first.' },
   BDPAN_TOKEN_EXPIRED: { zh: '授权已过期，需要重新登录。', en: 'The authorization has expired; sign in again.' },
   BDPAN_TOKEN_INVALID: { zh: '授权已失效，需要重新登录。', en: 'The authorization is no longer valid; sign in again.' },

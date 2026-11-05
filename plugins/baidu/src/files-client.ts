@@ -28,11 +28,11 @@ interface RawEntry {
 }
 
 /** 单个条目的形状守卫：fsid 与 path 必有，其余取安全缺省。The per-entry shape guard: fsid and path required, the rest take safe defaults. */
-function parseEntry(raw: RawEntry, wantDlink: boolean): FileEntry | FileMeta | undefined {
+function parseEntry(raw: RawEntry): FileEntry | undefined {
   if (typeof raw.path !== 'string' || raw.path.length === 0) return undefined
   const fsid = raw.fs_id === undefined ? undefined : String(raw.fs_id)
   if (fsid === undefined || fsid.length === 0) return undefined
-  const base: FileEntry = {
+  return {
     fsid,
     path: raw.path,
     name: typeof raw.server_filename === 'string' ? raw.server_filename : raw.path.split('/').pop() ?? raw.path,
@@ -44,22 +44,31 @@ function parseEntry(raw: RawEntry, wantDlink: boolean): FileEntry | FileMeta | u
     serverMtime: typeof raw.server_mtime === 'number' ? raw.server_mtime : 0,
     serverCtime: typeof raw.server_ctime === 'number' ? raw.server_ctime : 0,
   }
-  if (!wantDlink) return base
-  if (typeof raw.dlink !== 'string' || raw.dlink.length === 0) return undefined
-  return { ...base, dlink: raw.dlink } as FileMeta
 }
 
-/** 条目数组的形状守卫：坏条目剔除而非整批失败。The entry-array shape guard: bad entries drop rather than fail the whole batch. */
-function parseEntries(json: Record<string, unknown>, wantDlink: boolean): FileEntry[] {
-  const list = json['list']
-  if (!Array.isArray(list)) return []
-  const entries: FileEntry[] = []
-  for (const raw of list) {
-    if (typeof raw !== 'object' || raw === null) continue
-    const parsed = parseEntry(raw as RawEntry, wantDlink)
-    if (parsed !== undefined) entries.push(parsed)
+/** 条目数组的形状守卫（不带直链）。The entry-array shape guard (no dlinks). */
+function parseEntries(json: Record<string, unknown>): FileEntry[] {
+  return parseEntriesRaw(json).map(parseEntry).filter((entry): entry is FileEntry => entry !== undefined)
+}
+
+/** 条目数组的形状守卫（带直链；缺直链的条目剔除）。The entry-array shape guard (with dlinks; entries missing one drop). */
+function parseEntriesWithDlink(json: Record<string, unknown>): FileMeta[] {
+  const metas: FileMeta[] = []
+  for (const raw of parseEntriesRaw(json)) {
+    const base = parseEntry(raw)
+    if (base === undefined) continue
+    if (typeof raw.dlink !== 'string' || raw.dlink.length === 0) continue
+    metas.push({ ...base, dlink: raw.dlink })
   }
-  return entries
+  return metas
+}
+
+/** 原始 list 数组的提取。The raw list array extraction. */
+function parseEntriesRaw(json: Record<string, unknown>): RawEntry[] {
+  const list = json['list']
+  return Array.isArray(list)
+    ? list.filter((item): item is RawEntry => typeof item === 'object' && item !== null)
+    : []
 }
 
 /** 列目录参数。Directory-listing parameters. */
@@ -83,7 +92,7 @@ export async function listDir(client: BaiduPanClient, options: ListOptions): Pro
     ...(options.limit === undefined ? {} : { start: String(options.start ?? 0), limit: String(options.limit) }),
   }
   const response = await client.call('xpan/file', params)
-  const entries = parseEntries(response.json, false)
+  const entries = parseEntries(response.json)
   return options.folderOnly === true ? entries.filter(entry => entry.isDir) : entries
 }
 
@@ -114,7 +123,7 @@ export async function searchFiles(client: BaiduPanClient, options: SearchOptions
   }
   const response = await client.call('xpan/file', params)
   const total = response.json['total']
-  return { total: typeof total === 'number' ? total : 0, entries: parseEntries(response.json, false) }
+  return { total: typeof total === 'number' ? total : 0, entries: parseEntries(response.json) }
 }
 
 /** 元数据参数（1–100 个文件标识）。The metadata parameters (1–100 fsids). */
@@ -133,11 +142,7 @@ export async function fileMetas(client: BaiduPanClient, options: MetaOptions): P
     dlink: '1',
     extra: '1',
   })
-  const metas: FileMeta[] = []
-  for (const entry of parseEntries(response.json, true)) {
-    if ('dlink' in entry) metas.push(entry)
-  }
-  return metas
+  return parseEntriesWithDlink(response.json)
 }
 
 /** 建目录（可多级）；同名冲突按失败处理，不静默改名。Creates a directory (multi-level); a name conflict fails rather than silently renaming. */

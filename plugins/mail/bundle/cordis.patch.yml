@@ -1,0 +1,60 @@
+# Mail bundle: mounts the whole notification stack in one profile layer.
+# 通知组合包：用一个 profile 层装好整条通知技术栈。
+#
+# The bundle carries zero runtime code. Each `insert` row resolves by package
+# name from the bundle's own dependencies (pnpm installs them into the profile
+# alongside this bundle), so the three @veren plugins travel together as one
+# installable unit and can be toggled as one from the plugin manager.
+# 组合包零运行时代码。每条 `insert` 行按包名从组合包自身的 dependencies 解析
+# （pnpm 会把它们和组合包一起装进 profile），三个 @veren 插件因此作为一个可安装单元随行，
+# 并在插件管理页作为一个开关整体启停。
+#
+# Row order matters: the core first (it opens the storage domain, provides the
+# mail service, and mounts the `mail` Remote namespace), then the tools (they
+# read the mail service), then the panel (it injects the mounted `remote.mail`
+# namespace, so it stays last). Missing services never half-activate: a row
+# whose inject cannot resolve stays pending, loudly visible in the plugin page
+# and boot logs.
+# 行顺序有讲究：先装核心（它打开存储域、提供 mail 服务、并挂载 `mail` 远端命名空间），再装
+# 工具（它们读取 mail 服务），最后是面板（它注入挂载好的 `remote.mail` 命名空间，因此排在
+# 最后）。服务缺失绝不会半激活：inject 解析不到的行保持 pending——在插件页与启动日志里
+# 响亮可见。
+- insert:
+    # The notification domain: durable workflows, recipients, groups,
+    # preferences, and execution chains in the host storage domain; the
+    # trigger -> dispatch -> deliver chain with atomic job claiming; the
+    # station inbox over the in_app channel; and the `mail` Remote namespace
+    # the panel reads. SMTP is optional: give the `smtp` block a host/port/
+    # from to open the email channel alongside the always-on station inbox.
+    # 通知领域：宿主存储域里的持久化工作流、收件人、分组、偏好与执行链；带原子领取的
+    # trigger -> dispatch -> deliver 链路；走 in_app 渠道的站内收件箱；以及面板读取的
+    # `mail` 远端命名空间。SMTP 可选：给 `smtp` 块配上 host/port/from，即可在常驻的
+    # 站内收件箱旁打开邮件渠道。
+    - id: mail
+      name: '@veren/mail'
+      config:
+        enabled: true
+        # smtp:                                   # 邮件渠道（可选）/ the email channel (optional)
+        #   host: smtp.example.com
+        #   port: 587
+        #   secure: false
+        #   from: no-reply@example.com
+        #   user: no-reply@example.com
+        #   password: 应用专用密码 / an app-specific password
+    # The model-facing `mail_*` tools over workflows, recipients, groups,
+    # the inbox, and the conversations, plus the bundled mail-notifications
+    # skill.
+    # 面向模型的 `mail_*` 工具：工作流、收件人、分组、收件箱与会话，外加内置的
+    # mail-notifications 技能。
+    - id: mail-tool
+      name: '@veren/mail-tool'
+      config:
+        enabled: true
+        skill: true
+    # The web panel: sidebar entry, the station inbox with its seen/read/
+    # archived actions, and the per-step activity view. It injects the mounted
+    # `remote.mail` namespace, so it stays last.
+    # Web 面板：侧栏入口、带已看/已读/已归档操作的站内收件箱，以及逐步骤的执行记录视图。
+    # 它注入挂载好的 `remote.mail` 命名空间，因此排在最后。
+    - id: mail-ui
+      name: '@veren/mail-ui'

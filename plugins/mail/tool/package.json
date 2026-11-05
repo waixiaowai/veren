@@ -1,0 +1,54 @@
+{
+  "name": "@veren/mail-tool",
+  "displayName": "Veren Mail Tools",
+  "version": "2.3.0",
+  "description": "Use when a DSH agent must reach people through notifications: it registers the model-facing mail tools (send a workflow, list workflows, manage recipients and groups, read the station inbox, and reply in a conversation) over @veren/mail, plus the bundled mail skill that tells the agent when a notification is the right instrument and which trigger, recipient, and preference rules it must respect. Skip it when the deployment only needs the web panel and no agent should ever send a message.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "assets",
+    "dist/**/*.js",
+    "src/**/*.ts",
+    "README.md",
+    "README.cn.md"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {},
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/mail": "workspace:*",
+    "@veren/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-skill": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-skill": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
+    "@veren/mail": "workspace:*",
+    "@veren/core": "workspace:*",
+    "@types/node": "^26.6.5",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}

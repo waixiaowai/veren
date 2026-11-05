@@ -11,8 +11,7 @@
  */
 import { TOKEN_ENDPOINT } from './config.js'
 import type { ResolvedConfig } from './config.js'
-import { baiduPanError, mapUpstream, networkError } from './errors.js'
-import type { BaiduPanError } from './errors.js'
+import { BaiduPanError, baiduPanError, mapUpstream, networkError } from './errors.js'
 import type { OAuthTokens } from './types.js'
 
 /** fetch 注入点（测试换假实现）。The fetch injection point (tests swap in fakes). */
@@ -35,10 +34,11 @@ export interface WireRequest {
 /** 归一化响应：JSON 对象、原始文本或二进制流。The normalized response: JSON object, raw text, or binary stream. */
 export interface WireResponse {
   readonly status: number
-  /** text=binary=false 时携带 JSON；raw=true 时携带原文。json when binary=false and parsed; rawText only when requested. */
+  /** binary=false 时携带解析后的 JSON。The parsed JSON when binary=false. */
   readonly json: Record<string, unknown>
   readonly rawText?: string
-  readonly body?: Awaited<ReturnType<Response['body']>>
+  /** binary=true 时携带响应体流。The body stream when binary=true. */
+  readonly body?: ReadableStream<Uint8Array>
 }
 
 /** 单请求参数（超时与重试次数）。The per-call parameters (timeout and attempts). */
@@ -67,6 +67,21 @@ function buildTarget(url: string, query: Readonly<Record<string, string>>): stri
   return parsed.toString()
 }
 
+/** 响应体的归一化：二进制走流，文本尝试 JSON 解析（失败折成 BDPAN_UPSTREAM）。The body normalization: binary streams, text parses as JSON (failures fold into BDPAN_UPSTREAM). */
+async function normalizeBody(response: Response, request: WireRequest, url: string): Promise<WireResponse> {
+  if (request.binary === true) return { status: response.status, json: {}, body: response.body ?? undefined }
+  const rawText = await response.text()
+  let json: Record<string, unknown>
+  try {
+    json = JSON.parse(rawText) as Record<string, unknown>
+  } catch {
+    // HTTP 200 但 JSON 解析失败：BDPAN_UPSTREAM，不重试，保留响应摘要。
+    // HTTP 200 with a JSON parse failure: BDPAN_UPSTREAM, no retry, summary kept.
+    throw baiduPanError('BDPAN_UPSTREAM', { detail: 'non-JSON response', diagnostics: { method: request.method, url } })
+  }
+  return { status: response.status, json, rawText }
+}
+
 /** 单次尝试：发请求、套超时、归一响应。One attempt: fire, apply the timeout, normalize. */
 async function attemptOnce(url: string, request: WireRequest, budget: WireBudget): Promise<WireResponse> {
   const controller = new AbortController()
@@ -81,17 +96,7 @@ async function attemptOnce(url: string, request: WireRequest, budget: WireBudget
       signal: controller.signal,
     })
     if (!response.ok) throw httpFailure(response.status, request.method, url)
-    if (request.binary === true) return { status: response.status, json: {}, body: response.body }
-    const rawText = await response.text()
-    let json: Record<string, unknown>
-    try {
-      json = JSON.parse(rawText) as Record<string, unknown>
-    } catch {
-      // HTTP 200 但 JSON 解析失败：BDPAN_UPSTREAM，不重试，保留响应摘要。
-      // HTTP 200 with a JSON parse failure: BDPAN_UPSTREAM, no retry, summary kept.
-      throw baiduPanError('BDPAN_UPSTREAM', { detail: 'non-JSON response', diagnostics: { method: request.method, url } })
-    }
-    return { status: response.status, json, rawText }
+    return await normalizeBody(response, request, url)
   } catch (error) {
     if (error instanceof BaiduPanError) throw error
     // 连接中断、超时、DNS 失败：可重试的 BDPAN_NETWORK。

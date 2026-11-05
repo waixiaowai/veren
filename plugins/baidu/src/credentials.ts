@@ -50,7 +50,7 @@ export async function requireStoredTokens(credentials: CredentialProvider): Prom
 
 /** 提交一组新令牌（授权流与刷新的唯一写入点）。Commits a new token set (the only write point for sign-in and refresh). */
 export async function commitTokens(credentials: CredentialProvider, tokens: OAuthTokens): Promise<void> {
-  await credentials.modifyRecord(BAIDU_PAN_RECORD, () => ({ kind: 'grant', payload: tokens }))
+  await credentials.modifyRecord(BAIDU_PAN_RECORD, async () => ({ kind: 'grant', payload: tokens }))
 }
 
 /** 注销：清除凭据记录。Signs out by deleting the credential record. */

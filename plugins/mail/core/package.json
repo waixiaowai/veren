@@ -1,0 +1,59 @@
+{
+  "name": "@veren/mail",
+  "displayName": "Veren Mail Core",
+  "version": "2.3.0",
+  "description": "Use when a DSH deployment must turn business events into delivered messages and keep an auditable execution trail: it owns the durable notification domain (workflows, subscribers, topics, preferences, integrations, execution records, jobs, messages, conversations) in the host storage domain, runs the trigger -> dispatch -> deliver chain with atomic job claiming and at-most-three retries, writes each delivery fact before it calls a channel provider, and serves the whole surface to the web panel over a `mail` Remote namespace. Skip it when the deployment sends nothing and only needs an inbox view.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**/*.js",
+    "src/**/*.ts",
+    "README.md",
+    "README.cn.md"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {},
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@veren/core": "workspace:*",
+    "ajv": "8.20.0",
+    "handlebars": "^4.7.10",
+    "liquidjs": "^10.30.1",
+    "nodemailer": "^10.3.1",
+    "sanitize-html": "^2.18.1",
+    "zod": "4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-credentials": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-storage-domain": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-typert-protocol": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-credentials": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-storage-domain": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.2",
+    "@types/node": "^26.6.5",
+    "@types/sanitize-html": "^2.16.0",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.4"
+  },
+  "license": "MIT"
+}

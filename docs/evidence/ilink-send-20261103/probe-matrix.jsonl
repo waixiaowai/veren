@@ -1,6 +1,0 @@
-{"cell":"baseline","factor":"control","notify_status":200,"send_status":200,"send_ret":"","message_id":"7523205122766071000"}
-{"cell":"version-4102","factor":"client version header 4102","notify_status":200,"send_status":200,"send_ret":"","message_id":"7523205129804093000"}
-{"cell":"no-context","factor":"context_token omitted","notify_status":200,"send_status":200,"send_ret":"","message_id":"7523205137299383000"}
-{"cell":"no-notifystart","factor":"no notifystart in this process","send_status":200,"send_ret":"","message_id":"7523205143846644000"}
-{"cell":"dead-token","factor":"negative control: one flipped byte","notify_status":200,"notify_ret":"-14","send_status":200,"send_ret":"-14"}
-{"cell":"bad-target","factor":"unresolvable recipient","notify_status":200,"send_status":200,"send_ret":"-3"}

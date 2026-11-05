@@ -18,3 +18,4 @@
 @veren/workbuddy-auth
 @veren/opencode-go
 @veren/zhihu-ops-bundle
+@veren/mail-bundle

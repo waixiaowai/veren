@@ -10,6 +10,8 @@
  * @module @veren/baidu-pan
  */
 import { basename, dirname, isAbsolute, join } from 'node:path'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 import type { BaiduPanCode } from './errors.js'
 import { baiduPanError, type ToolErrorValue, toErrorValue } from './errors.js'
 
@@ -45,9 +47,14 @@ export const ERROR_SCHEMA = {
   },
 } as const
 
-/** 组装 oneOf[ok, error] 输出 schema。Assembles the oneOf[ok, error] output schema. */
-export function outputOneOf(ok: Record<string, unknown>): { oneOf: [Record<string, unknown>, Record<string, unknown>] } {
+/** 组装 oneOf[ok, error] 输出 schema（保 const 推断，execute 返回值才有类型面）。Assembles the oneOf[ok, error] output schema (const inference preserved so execute keeps its type face). */
+export function outputOneOf<const Ok extends ValueSchemaSpec>(ok: Ok): { oneOf: readonly [Ok, typeof ERROR_SCHEMA] } {
   return { oneOf: [ok, ERROR_SCHEMA] }
+}
+
+/** 单文本块的模型面投影。The single-text-block model-face projection. */
+export function textBlock(text: string): ContentBlock[] {
+  return [{ type: 'text', text }]
 }
 import { checkPath, type PathReason } from './guard.js'
 import { listDir } from './files-client.js'

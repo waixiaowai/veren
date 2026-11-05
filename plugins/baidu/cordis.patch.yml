@@ -1,0 +1,31 @@
+# 百度网盘插件的 profile overlay 示例。
+# Profile overlay example for the Baidu Netdisk plugin.
+#
+# 在 web profile 之上叠加： dsh web --patch plugins/baidu/cordis.patch.yml
+# Apply on the web profile: dsh web --patch plugins/baidu/cordis.patch.yml
+#
+# 配置就写在 profile 的 cordis.patch.yml 这一行 config 块里（YAML，即改即
+# 所见——重启宿主生效）。appKey/secretKey 在百度网盘开放平台控制台创建
+# 应用后取得；它们是应用级凭据，写在这里会以明文落盘。OAuth 用户令牌
+# 走另一级：登录流存进本机凭据库，绝不落配置文件。
+# Configuration lives in this profile cordis.patch.yml config block (YAML —
+# what you write is what you get, effective after a host restart). Create an
+# app on the Baidu Netdisk open-platform console to obtain appKey/secretKey;
+# they are app-level credentials and sit here in plaintext. The OAuth user
+# tokens are a different tier: the sign-in flow stores them in this machine's
+# credential store, never in config files.
+#
+# 插件挂载即注册十三个 baidu_pan__* 工具、`baidu-pan` 技能与登录流；
+# 未授权时工具一律以 BDPAN_AUTH_REQUIRED 拒绝调用。
+# Mounting registers the thirteen baidu_pan__* tools, the `baidu-pan` skill,
+# and the sign-in flow; before authorization every tool refuses with
+# BDPAN_AUTH_REQUIRED.
+- insert:
+    - id: baidu-pan
+      name: '@veren/baidu-pan'
+      config:
+        appKey: 你的开放平台AppKey / your open-platform AppKey
+        secretKey: 你的开放平台SecretKey / your open-platform SecretKey
+        # root: /apps/bdpan                        # 授权根，缺省即此值 / authorized root, this is the default
+        # requestTimeoutMs: 30000                  # 单请求超时 / per-request timeout
+        # maxAttempts: 3                           # 瞬态失败重试次数 / transient-failure attempts

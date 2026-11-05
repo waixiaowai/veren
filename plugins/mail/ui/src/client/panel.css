@@ -1,0 +1,159 @@
+/**
+ * The mail panel's stylesheet.
+ *
+ * Every rule consumes the shared `--dsw-*` semantic tokens and no literal
+ * colors, so the panel follows every theme the shell ships.
+ *
+ * 通知面板的样式表。
+ *
+ * 每条规则只消费共享的 `--dsw-*` 语义令牌，不含任何字面颜色，因此面板跟随外壳提供的每一套主题。
+ */
+
+.mail-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.mail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mail-title {
+  margin: 0;
+  font-size: 1.15em;
+  font-weight: 600;
+}
+
+.mail-subtitle {
+  margin: 2px 0 0;
+  font-size: 0.85em;
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+
+.mail-button {
+  padding: 4px 10px;
+  border: 1px solid var(--dsw-alias-border-default, currentColor);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.mail-error {
+  margin: 0;
+  color: var(--dsw-alias-label-danger, inherit);
+}
+
+.mail-muted {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+
+.mail-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--dsw-alias-border-default, transparent);
+}
+
+.mail-tab {
+  padding: 6px 12px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, inherit);
+  cursor: pointer;
+}
+
+.mail-tab-active {
+  border-bottom-color: var(--dsw-alias-label-primary, currentColor);
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.mail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-default, transparent);
+  border-radius: 8px;
+}
+
+.mail-item-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mail-item-recipient {
+  font-weight: 600;
+}
+
+.mail-item-state {
+  font-size: 0.8em;
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+
+.mail-item-subject {
+  margin: 0;
+  font-weight: 500;
+}
+
+.mail-item-content {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mail-item-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.mail-link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-link, inherit);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.mail-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.mail-step {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.85em;
+}
+
+.mail-step-name {
+  font-weight: 500;
+}
+
+.mail-step-state,
+.mail-step-reason {
+  color: var(--dsw-alias-label-secondary, inherit);
+}
